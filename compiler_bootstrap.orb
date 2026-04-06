@@ -1,0 +1,33 @@
+enum Status {
+    Active,
+    Inactive,
+    Pending
+}
+
+model User {
+    id: int,
+    name: string
+}
+
+route GET "/" {
+    print("Dashboard requested via HTTP")
+    return ok "Online"
+}
+
+fn main() {
+    val s = Status.Active
+    val u = User(id: 1, name: "Orbit")
+    
+    print("Testing types and models...")
+    print(u.name)
+    
+    match s {
+        Status.Active => print("Active!"),
+        Status.Inactive => print("Inactive"),
+        Status.Pending => print("Pending...")
+    }
+
+    val content = file.read("compiler_bootstrap.orb")
+    print("File content length:")
+    print(content.length)
+}

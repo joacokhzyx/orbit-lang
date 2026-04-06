@@ -1,0 +1,405 @@
+const std = @import("std");
+const ast = @import("ast.zig");
+const Node = ast.Node;
+const Token = @import("token.zig").Token;
+const TokenType = @import("token.zig").TokenType;
+
+const TypeChecker = @import("sema/type_checker.zig").TypeChecker;
+const ScopeManager = @import("sema/scope_manager.zig").ScopeManager;
+const Scope = @import("sema/scope_manager.zig").Scope;
+const ModuleRegistry = @import("sema/module_registry.zig").ModuleRegistry;
+const ModelRegistry = @import("sema/model_registry.zig").ModelRegistry;
+const ModelInfo = @import("sema/model_registry.zig").ModelInfo;
+const ModelField = @import("sema/model_registry.zig").ModelField;
+const DiagnosticReporter = @import("sema/diagnostic.zig").DiagnosticReporter;
+pub const SemaError = error{
+    TypeMismatch,
+    UndefinedVariable,
+    UndefinedFunction,
+    UndefinedModel,
+    DuplicateDefinition,
+    InvalidOperation,
+    MissingReturn,
+    InvalidDecorator,
+    OutOfMemory,
+};
+
+pub const Sema = struct {
+    pub const Diagnostic = @import("sema/diagnostic.zig").Diagnostic;
+
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    node_types: std.AutoHashMapUnmanaged(*Node, []const u8),
+    string_table: std.StringHashMapUnmanaged([]const u8),
+
+    type_checker: TypeChecker,
+    scope_manager: ScopeManager,
+    module_registry: ModuleRegistry,
+    model_registry: ModelRegistry,
+    diagnostics: DiagnosticReporter,
+
+    has_server_init: bool,
+
+    pub fn create(allocator: std.mem.Allocator, source: []const u8) !*Sema {
+        const self = try allocator.create(Sema);
+        self.* = Sema{
+            .allocator = allocator,
+            .source = source,
+            .node_types = .{},
+            .string_table = .{},
+            .type_checker = undefined,
+            .scope_manager = ScopeManager.init(allocator),
+            .module_registry = ModuleRegistry.init(allocator),
+            .model_registry = ModelRegistry.init(allocator),
+            .diagnostics = DiagnosticReporter.init(allocator),
+            .has_server_init = false,
+        };
+        
+        self.type_checker = TypeChecker.init(allocator, &self.node_types, source);
+        self.type_checker.model_registry = &self.model_registry;
+        self.type_checker.module_registry = &self.module_registry;
+        
+        return self;
+    }
+
+    fn internString(self: *Sema, str: []const u8) ![]const u8 {
+        if (self.string_table.get(str)) |interned| {
+            return interned;
+        }
+        const owned = try self.allocator.dupe(u8, str);
+        try self.string_table.put(self.allocator, owned, owned);
+        return owned;
+    }
+    
+    pub fn deinit(self: *Sema) void {
+        self.node_types.deinit(self.allocator);
+        var it = self.string_table.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.string_table.deinit(self.allocator);
+        self.type_checker.deinit();
+        self.scope_manager.deinit();
+        self.module_registry.deinit();
+        self.model_registry.deinit();
+        self.diagnostics.deinit();
+        self.allocator.destroy(self);
+    }
+    
+    pub fn analyze(self: *Sema, root: *Node) !void {
+        try self.module_registry.initStandardModules();
+        
+        const global_scope = try self.scope_manager.pushScope();
+        
+        if (root.tag != .root) return error.NotARootNode;
+        
+        for (root.data.root.decls) |decl| {
+            try self.analyzeDeclaration(decl, global_scope);
+        }
+        
+        self.scope_manager.popScope();
+    }
+    
+    fn analyzeDeclaration(self: *Sema, node: *Node, scope: *Scope) anyerror!void {
+        switch (node.tag) {
+            .model_decl => try self.analyzeModel(node, scope),
+            .route_decl => try self.analyzeRoute(node, scope),
+            .fn_decl => try self.analyzeFunction(node, scope),
+            .const_decl => try self.analyzeConst(node, scope),
+            .val_decl => try self.analyzeVal(node, scope),
+            .type_decl => try self.analyzeType(node, scope),
+            .enum_decl => try self.analyzeEnum(node, scope),
+            .union_decl => try self.analyzeUnion(node, scope),
+            .expression_stmt => {
+                _ = try self.analyzeExpression(node.data.expression_stmt.expr, scope);
+            },
+            else => {},
+        }
+    }
+    
+    fn analyzeModel(self: *Sema, node: *Node, scope: *Scope) !void {
+        const model_data = node.data.model_decl;
+        const model_name = try self.internString(model_data.name.getText(self.source));
+
+        var fields = std.ArrayListUnmanaged(ModelField){};
+
+        for (model_data.fields) |field_node| {
+            const field_data = field_node.data.field_decl;
+            const field_name = try self.internString(field_data.name.getText(self.source));
+            const field_type = try self.internString(field_data.type_name.getText(self.source));
+
+            var is_primary = false;
+            var is_unique = false;
+            var is_auto = false;
+
+            for (field_data.decorators) |dec| {
+                const dec_name = dec.data.decorator.name.getText(self.source);
+                if (std.mem.eql(u8, dec_name, "primary")) is_primary = true;
+                if (std.mem.eql(u8, dec_name, "unique")) is_unique = true;
+                if (std.mem.eql(u8, dec_name, "auto")) is_auto = true;
+            }
+
+            const field = ModelField{
+                .name = field_name,
+                .type_name = field_type,
+                .is_primary = is_primary,
+                .is_unique = is_unique,
+                .is_auto = is_auto,
+                .decorators = &[_][]const u8{},
+            };
+
+            try fields.append(self.allocator, field);
+        }
+
+        const model_info = ModelInfo{
+            .name = model_name,
+            .fields = try fields.toOwnedSlice(self.allocator),
+            .table_name = model_name,
+        };
+
+        try self.model_registry.register(model_info);
+        try scope.define(model_name, "model", false);
+    }
+    
+    fn analyzeRoute(self: *Sema, node: *Node, scope: *Scope) !void {
+        _ = scope;
+        self.has_server_init = true;
+        
+        const route_data = node.data.route_decl;
+        const route_scope = try self.scope_manager.pushScope();
+        
+        try route_scope.define("req", "request", false);
+        try route_scope.define("res", "response", false);
+        
+        if (route_data.body.tag == .block) {
+            for (route_data.body.data.block.stmts) |stmt| {
+                try self.analyzeStatement(stmt, route_scope);
+            }
+        } else {
+            try self.analyzeStatement(route_data.body, route_scope);
+        }
+        
+        self.scope_manager.popScope();
+    }
+    
+    fn analyzeFunction(self: *Sema, node: *Node, scope: *Scope) !void {
+        const fn_data = node.data.fn_decl;
+        const fn_name = try self.internString(fn_data.name.getText(self.source));
+
+        const return_type = if (fn_data.return_type) |rt|
+            try self.internString(rt.getText(self.source))
+        else
+            "void";
+
+        try scope.defineFunction(fn_name, return_type);
+
+        const fn_scope = try self.scope_manager.pushScope();
+
+        for (fn_data.params) |param| {
+            const param_data = param.data.param;
+            const param_name = try self.internString(param_data.name.getText(self.source));
+            const param_type = if (param_data.type_name) |tn|
+                try self.internString(tn.getText(self.source))
+            else
+                "unknown";
+
+            try fn_scope.define(param_name, param_type, false);
+        }
+
+        if (fn_data.body.tag == .block) {
+            for (fn_data.body.data.block.stmts) |stmt| {
+                try self.analyzeStatement(stmt, fn_scope);
+            }
+        } else {
+            try self.analyzeStatement(fn_data.body, fn_scope);
+        }
+
+        self.scope_manager.popScope();
+    }
+    
+    fn analyzeConst(self: *Sema, node: *Node, scope: *Scope) !void {
+        const const_data = node.data.const_decl;
+        const name = const_data.name.getText(self.source);
+        const value_type = try self.analyzeExpression(const_data.value, scope);
+        
+        try scope.define(name, value_type, false);
+    }
+    
+    fn analyzeVal(self: *Sema, node: *Node, scope: *Scope) !void {
+        const val_data = node.data.val_decl;
+        const name = try self.internString(val_data.name.getText(self.source));
+
+        var final_type: []const u8 = "unknown";
+
+        if (val_data.value) |value| {
+            final_type = try self.analyzeExpression(value, scope);
+        }
+
+        if (val_data.type_annotation) |type_ann| {
+            const ann_type = try self.internString(type_ann.data.type_annotation.base.getText(self.source));
+            if (!std.mem.eql(u8, final_type, "unknown") and !self.type_checker.checkCompatibility(ann_type, final_type)) {
+                return error.TypeMismatch;
+            }
+            final_type = ann_type;
+        }
+
+        try scope.define(name, final_type, val_data.is_mut);
+    }
+    
+    fn analyzeStatement(self: *Sema, node: *Node, scope: *Scope) anyerror!void {
+        switch (node.tag) {
+            .expression_stmt => {
+                _ = try self.analyzeExpression(node.data.expression_stmt.expr, scope);
+            },
+            .return_stmt => {
+                if (node.data.return_stmt.expr) |value| {
+                    _ = try self.analyzeExpression(value, scope);
+                }
+            },
+            .val_decl => try self.analyzeVal(node, scope),
+            .if_stmt => try self.analyzeIf(node, scope),
+            .for_stmt => try self.analyzeFor(node, scope),
+            .while_stmt => try self.analyzeWhile(node, scope),
+            .match_stmt => try self.analyzeMatch(node, scope),
+            else => {},
+        }
+    }
+    
+    fn analyzeIf(self: *Sema, node: *Node, scope: *Scope) !void {
+        const if_data = node.data.if_stmt;
+
+        _ = try self.analyzeExpression(if_data.condition, scope);
+
+        const then_scope = try self.scope_manager.pushScope();
+        if (if_data.then_branch.tag == .block) {
+            for (if_data.then_branch.data.block.stmts) |stmt| {
+                try self.analyzeStatement(stmt, then_scope);
+            }
+        } else {
+            try self.analyzeStatement(if_data.then_branch, then_scope);
+        }
+        self.scope_manager.popScope();
+
+        if (if_data.else_branch) |else_branch| {
+            const else_scope = try self.scope_manager.pushScope();
+            if (else_branch.tag == .block) {
+                for (else_branch.data.block.stmts) |stmt| {
+                    try self.analyzeStatement(stmt, else_scope);
+                }
+            } else {
+                try self.analyzeStatement(else_branch, else_scope);
+            }
+            self.scope_manager.popScope();
+        }
+    }
+    
+    fn analyzeFor(self: *Sema, node: *Node, scope: *Scope) !void {
+        const for_data = node.data.for_stmt;
+
+        _ = try self.analyzeExpression(for_data.iterable, scope);
+
+        const for_scope = try self.scope_manager.pushScope();
+
+        const iterator_name = try self.internString(for_data.item.getText(self.source));
+        try for_scope.define(iterator_name, "unknown", false);
+
+        if (for_data.body.tag == .block) {
+            for (for_data.body.data.block.stmts) |stmt| {
+                try self.analyzeStatement(stmt, for_scope);
+            }
+        } else {
+            try self.analyzeStatement(for_data.body, for_scope);
+        }
+
+        self.scope_manager.popScope();
+    }
+    
+    fn analyzeWhile(self: *Sema, node: *Node, scope: *Scope) !void {
+        const while_data = node.data.while_stmt;
+
+        _ = try self.analyzeExpression(while_data.condition, scope);
+
+        const while_scope = try self.scope_manager.pushScope();
+        if (while_data.body.tag == .block) {
+            for (while_data.body.data.block.stmts) |stmt| {
+                try self.analyzeStatement(stmt, while_scope);
+            }
+        } else {
+            try self.analyzeStatement(while_data.body, while_scope);
+        }
+        self.scope_manager.popScope();
+    }
+    
+    fn analyzeMatch(self: *Sema, node: *Node, scope: *Scope) !void {
+        const match_data = node.data.match_stmt;
+        _ = try self.analyzeExpression(match_data.expr, scope);
+
+        for (match_data.cases) |case| {
+            const case_data = case.data.match_case;
+            const case_scope = try self.scope_manager.pushScope();
+            
+            // Analyze pattern
+            _ = try self.analyzeExpression(case_data.pattern, case_scope);
+            
+            // Analyze body
+            try self.analyzeStatement(case_data.body, case_scope);
+            
+            self.scope_manager.popScope();
+        }
+    }
+
+    fn analyzeType(self: *Sema, node: *Node, scope: *Scope) !void {
+        const type_data = node.data.type_decl;
+        const name = try self.internString(type_data.name.getText(self.source));
+        const target_type = try self.analyzeExpression(type_data.target_type, scope);
+        
+        try self.type_checker.registerAlias(name, target_type);
+        try scope.define(name, "type", false);
+    }
+
+    fn analyzeEnum(self: *Sema, node: *Node, scope: *Scope) !void {
+        const enum_data = node.data.enum_decl;
+        const name = try self.internString(enum_data.name.getText(self.source));
+        
+        try scope.define(name, "type", false);
+
+        // Phase 2: Register type kind and variants
+        try self.type_checker.registerTypeKind(name, .enumeration);
+        
+        var variant_names = std.ArrayListUnmanaged([]const u8){};
+        for (enum_data.variants) |v| {
+            const v_name = try self.internString(v.getText(self.source));
+            try scope.define(v_name, name, false);
+            try variant_names.append(self.allocator, v_name);
+        }
+        
+        try self.type_checker.registerUnionVariants(name, try variant_names.toOwnedSlice(self.allocator));
+    }
+
+    fn analyzeUnion(self: *Sema, node: *Node, scope: *Scope) !void {
+        const union_data = node.data.union_decl;
+        const name = try self.internString(union_data.name.getText(self.source));
+        
+        try scope.define(name, "union", false);
+
+        // Phase 2: Register type kind and variants
+        try self.type_checker.registerTypeKind(name, .union_type);
+        
+        var variant_names = std.ArrayListUnmanaged([]const u8){};
+        for (union_data.variants) |v| {
+            const v_tk = if (v.tag == .union_variant) v.data.union_variant.name else v.data.identifier;
+            const v_name = try self.internString(v_tk.getText(self.source));
+            try scope.define(v_name, name, false);
+            try variant_names.append(self.allocator, v_name);
+        }
+        
+        try self.type_checker.registerUnionVariants(name, try variant_names.toOwnedSlice(self.allocator));
+    }
+
+    fn analyzeExpression(self: *Sema, node: *Node, scope: *Scope) anyerror![]const u8 {
+        const expr_type = self.type_checker.inferType(node, scope);
+        try self.node_types.put(self.allocator, node, expr_type);
+        return expr_type;
+    }
+};
+

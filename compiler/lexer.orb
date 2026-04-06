@@ -1,0 +1,217 @@
+import "./token.orb"
+
+model Lexer {
+    source: string
+    start: int
+    current: int
+    line: int
+    col: int
+}
+
+fn isDigit(c: int) -> bool {
+    return c >= 48 && c <= 57
+}
+
+fn isAlpha(c: int) -> bool {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+}
+
+fn isAlphaNumeric(c: int) -> bool {
+    return isAlpha(c) || isDigit(c)
+}
+
+fn tokenize(source: string) -> array<Token> {
+    val mut lexer = Lexer(source, 0, 0, 1, 1)
+    val mut tokens = []
+    
+    while lexer.current < source.length {
+        lexer.start = lexer.current
+        val token = scanToken(lexer)
+        tokens.push(token)
+        if token.kind == TokenKind.EOF {
+            break
+        }
+    }
+    
+    if tokens.len() == 0 || tokens.get(tokens.len() - 1).kind != TokenKind.EOF {
+        tokens.push(Token(TokenKind.EOF, "", lexer.line, lexer.col))
+    }
+    
+    return tokens
+}
+
+fn scanToken(lexer: Lexer) -> Token {
+    skipWhitespace(lexer)
+    
+    if lexer.current >= lexer.source.length {
+        return Token(TokenKind.EOF, "", lexer.line, lexer.col)
+    }
+    
+    lexer.start = lexer.current
+    val c = advance(lexer)
+    
+    if isAlpha(c) {
+        return identifier(lexer)
+    }
+    
+    if isDigit(c) {
+        return number(lexer)
+    }
+    
+    match c {
+        40 => return Token(TokenKind.OpenParen, "(", lexer.line, lexer.col)
+        41 => return Token(TokenKind.CloseParen, ")", lexer.line, lexer.col)
+        123 => return Token(TokenKind.OpenBrace, "{", lexer.line, lexer.col)
+        125 => return Token(TokenKind.CloseBrace, "}", lexer.line, lexer.col)
+        91 => return Token(TokenKind.OpenBracket, "[", lexer.line, lexer.col)
+        93 => return Token(TokenKind.CloseBracket, "]", lexer.line, lexer.col)
+        44 => return Token(TokenKind.Comma, ",", lexer.line, lexer.col)
+        46 => return Token(TokenKind.Dot, ".", lexer.line, lexer.col)
+        43 => return Token(TokenKind.Plus, "+", lexer.line, lexer.col)
+        45 => {
+            if matchChar(lexer, 62) { // '>'
+                return Token(TokenKind.Arrow, "->", lexer.line, lexer.col)
+            }
+            return Token(TokenKind.Minus, "-", lexer.line, lexer.col)
+        }
+        42 => return Token(TokenKind.Asterisk, "*", lexer.line, lexer.col)
+        47 => return Token(TokenKind.Slash, "/", lexer.line, lexer.col)
+        58 => return Token(TokenKind.Colon, ":", lexer.line, lexer.col)
+        61 => {
+            if matchChar(lexer, 61) {
+                return Token(TokenKind.DoubleEqual, "==", lexer.line, lexer.col)
+            }
+            return Token(TokenKind.Equal, "=", lexer.line, lexer.col)
+        }
+        34 => return stringToken(lexer)
+    }
+    
+    return Token(TokenKind.EOF, "", lexer.line, lexer.col)
+}
+
+fn advance(lexer: Lexer) -> int {
+    val c = lexer.source.at(lexer.current)
+    lexer.current = lexer.current + 1
+    lexer.col = lexer.col + 1
+    return c
+}
+
+fn peek(lexer: Lexer) -> int {
+    if lexer.current >= lexer.source.length {
+        return 0
+    }
+    return lexer.source.at(lexer.current)
+}
+
+fn matchChar(lexer: Lexer, expected: int) -> bool {
+    if lexer.current >= lexer.source.length {
+        return false
+    }
+    if lexer.source.at(lexer.current) != expected {
+        return false
+    }
+    lexer.current = lexer.current + 1
+    lexer.col = lexer.col + 1
+    return true
+}
+
+fn skipWhitespace(lexer: Lexer) {
+    while lexer.current < lexer.source.length {
+        val c = peek(lexer)
+        match c {
+            32 => { advance(lexer) } // Space
+            9 => { advance(lexer) }  // Tab
+            13 => { advance(lexer) } // CR
+            10 => {                  // LF
+                advance(lexer)
+                lexer.line = lexer.line + 1
+                lexer.col = 1
+            }
+            47 => {                  // Comment?
+                if lexer.current + 1 < lexer.source.length {
+                    if lexer.source.at(lexer.current + 1) == 47 {
+                        while peek(lexer) != 10 && lexer.current < lexer.source.length {
+                            advance(lexer)
+                        }
+                    } else {
+                        return
+                    }
+                } else {
+                    return
+                }
+            }
+            _ => return
+        }
+    }
+}
+
+fn identifier(lexer: Lexer) -> Token {
+    while isAlphaNumeric(peek(lexer)) {
+        advance(lexer)
+    }
+    
+    val text = lexer.source.slice(lexer.start, lexer.current)
+    var mut kind = TokenKind.Identifier
+    
+    match text {
+        "val" => kind = TokenKind.Val
+        "fn" => kind = TokenKind.Fn
+        "model" => kind = TokenKind.Model
+        "route" => kind = TokenKind.Route
+        "enum" => kind = TokenKind.Enum
+        "union" => kind = TokenKind.Union
+        "match" => kind = TokenKind.Match
+        "if" => kind = TokenKind.If
+        "else" => kind = TokenKind.Else
+        "while" => kind = TokenKind.While
+        "return" => kind = TokenKind.Return
+        "ok" => kind = TokenKind.Ok
+        "err" => kind = TokenKind.Err
+    }
+    
+    return Token(kind, text, lexer.line, lexer.col)
+}
+
+fn number(lexer: Lexer) -> Token {
+    while isDigit(peek(lexer)) {
+        advance(lexer)
+    }
+    
+    var mut is_float = false
+    if peek(lexer) == 46 { // '.'
+        if lexer.current + 1 < lexer.source.length {
+            if isDigit(lexer.source.at(lexer.current + 1)) {
+                is_float = true
+                advance(lexer) // .
+                while isDigit(peek(lexer)) {
+                    advance(lexer)
+                }
+            }
+        }
+    }
+    
+    val text = lexer.source.slice(lexer.start, lexer.current)
+    if is_float {
+        return Token(TokenKind.Float, text, lexer.line, lexer.col)
+    }
+    return Token(TokenKind.Int, text, lexer.line, lexer.col)
+}
+
+fn stringToken(lexer: Lexer) -> Token {
+    while peek(lexer) != 34 && lexer.current < lexer.source.length {
+        if peek(lexer) == 10 {
+            lexer.line = lexer.line + 1
+            lexer.col = 1
+        }
+        advance(lexer)
+    }
+    
+    if lexer.current >= lexer.source.length {
+        // Unterminated string - return what we have for now
+        return Token(TokenKind.String, lexer.source.slice(lexer.start + 1, lexer.current), lexer.line, lexer.col)
+    }
+    
+    advance(lexer) // The closing "
+    val text = lexer.source.slice(lexer.start + 1, lexer.current - 1)
+    return Token(TokenKind.String, text, lexer.line, lexer.col)
+}

@@ -1,0 +1,37 @@
+val name = "Orbit"
+val mut count = 0
+
+model User {
+    id: string
+    name: string
+    kind: string
+}
+
+route GET "/ping" {
+    count = count + 1
+    return ok {
+        message: "pong",
+        app: name,
+        visits: count
+    }
+}
+
+route POST "/users" {
+    val mut user = req {
+        id: string
+        name: string
+        kind: string
+    }
+    Users.add(user.id, user)
+    return ok user
+}
+
+route DELETE "/users/:id" {
+    Users.del(id)
+    return ok { message: "User deleted" }
+}
+
+route GET "/version" {
+    val version = file.read("VERSION.txt") ? not_found "Version file missing"
+    return ok { version: version }
+}

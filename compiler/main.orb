@@ -1,0 +1,22 @@
+import "./lexer.orb"
+
+fn compile(path: string) {
+    val source = file.read(path) ? err 404 "Source not found"
+    val tokens = tokenize(source)
+    print("Tokens found: " + tokens.length)
+}
+
+route GET "/compile" {
+    req {
+        path: string
+    }
+    compile(req.path)
+    return ok { message: "Compilation finished" }
+}
+
+// Global initialization
+print("Orbit Compiler (Self-Hosted) v0.1.0")
+
+// Initialize server only if needed
+// This demonstrates the "professional initialization" requested.
+server.listen(3000)
