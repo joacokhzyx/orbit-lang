@@ -1,0 +1,49 @@
+// Token Definitions in Orbit
+enum TokenKind {
+    Identifier,
+    String,
+    Int,
+    Float,
+    
+    // Keywords
+    Val,
+    Fn,
+    Model,
+    Route,
+    Enum,
+    Union,
+    Match,
+    If,
+    Else,
+    While,
+    Return,
+    Ok,
+    Err,
+    
+    // Symbols
+    Plus,
+    Minus,
+    Asterisk,
+    Slash,
+    Equal,
+    DoubleEqual,
+    OpenParen,
+    CloseParen,
+    OpenBrace,
+    CloseBrace,
+    OpenBracket,
+    CloseBracket,
+    Comma,
+    Dot,
+    Colon,
+    Arrow,
+    
+    EOF
+}
+
+model Token {
+    kind: TokenKind
+    lexeme: string
+    line: int
+    col: int
+}

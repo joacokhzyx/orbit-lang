@@ -1,0 +1,40 @@
+// Orbit Compiler Prep: Basic Self-Hosting Test
+// This script demonstrates the new recursive type system and pattern matching.
+
+type NodeKind = enum {
+    Root,
+    Model,
+    Route
+}
+
+type ASTNode = union {
+    Root(nodes: array<ASTNode>),
+    Simple(kind: NodeKind)
+}
+
+model RouteMeta {
+    id: string
+    path: string
+    method: string
+}
+
+route GET "/analyze" {
+    val source = file.read("sanity.orb") ? err "Failed to read sanity.orb"
+    
+    print("Source loaded, length: " + source.length)
+    
+    // Testing the new match statement (basic syntax)
+    val behavior = "analyze"
+    match behavior {
+        "analyze" => print("Starting analysis..."),
+        "compile" => print("Starting compilation..."),
+        _ => print("Unknown command")
+    }
+    
+    file.write("ANALYSIS.txt", "Orbit Source Analysis\n---\nLength: " + source.length)
+    
+    return ok {
+        message: "Analysis complete",
+        file_size: source.length
+    }
+}

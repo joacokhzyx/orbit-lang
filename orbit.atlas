@@ -1,0 +1,17 @@
+project: "Bootstrap Engine"
+version: "0.1.0-alpha"
+port: 3000
+db_path: "orbit.db"
+output: "bootstrap_server"
+
+arena_pool: 16
+arena_size: 131072
+string_pool: 2048
+
+kynx_pool: 512
+rate_limit: 50
+kynx_window: 1000
+ban_threshold: 200
+
+pulse: active
+logs: active
