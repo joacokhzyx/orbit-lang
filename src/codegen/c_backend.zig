@@ -218,8 +218,11 @@ pub const CBackend = struct {
         self.current_func = &func;
         try self.generateFunctionSignature(func);
         try self.output.appendSlice(self.allocator, " {\n");
-        if (std.mem.eql(u8, func.name, "main")) {
-             try self.output.appendSlice(self.allocator, "    arena = _init_arena;\n");
+        const is_main = std.mem.eql(u8, func.name, "main");
+        const is_route = std.mem.startsWith(u8, func.name, "route_");
+
+        if (is_main) {
+            try self.output.appendSlice(self.allocator, "    arena = _init_arena;\n");
         }
         
         // Declare registers
@@ -233,8 +236,13 @@ pub const CBackend = struct {
         for (func.instructions.items) |instr| {
             try self.generateInstruction(instr);
         }
-        
-        if (!std.mem.eql(u8, func.name, "main") and func.return_type != .void) {
+
+        // Emit defensive fallbacks for generated non-void functions.
+        if (is_main) {
+            try self.output.appendSlice(self.allocator, "    return 0;\n");
+        } else if (is_route) {
+            try self.output.appendSlice(self.allocator, "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n");
+        } else if (func.return_type != .void) {
             try self.output.appendSlice(self.allocator, "    return NULL;\n");
         }
         try self.output.appendSlice(self.allocator, "}\n\n");
