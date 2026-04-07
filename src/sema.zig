@@ -14,6 +14,7 @@ const ModelField = @import("sema/model_registry.zig").ModelField;
 const DiagnosticReporter = @import("sema/diagnostic.zig").DiagnosticReporter;
 pub const SemaError = error{
     TypeMismatch,
+    NonExhaustiveMatch,
     UndefinedVariable,
     UndefinedFunction,
     UndefinedModel,
@@ -332,7 +333,11 @@ pub const Sema = struct {
     
     fn analyzeMatch(self: *Sema, node: *Node, scope: *Scope) !void {
         const match_data = node.data.match_stmt;
-        _ = try self.analyzeExpression(match_data.expr, scope);
+        const match_type = try self.analyzeExpression(match_data.expr, scope);
+
+        var covered_variants = std.ArrayListUnmanaged([]const u8){};
+        defer covered_variants.deinit(self.allocator);
+        var has_wildcard = false;
 
         for (match_data.cases) |case| {
             const case_data = case.data.match_case;
@@ -340,12 +345,75 @@ pub const Sema = struct {
             
             // Analyze pattern
             _ = try self.analyzeExpression(case_data.pattern, case_scope);
+
+            if (self.isWildcardPattern(case_data.pattern)) {
+                has_wildcard = true;
+            } else if (self.extractPatternVariant(case_data.pattern)) |variant| {
+                try covered_variants.append(self.allocator, variant);
+            }
             
             // Analyze body
             try self.analyzeStatement(case_data.body, case_scope);
             
             self.scope_manager.popScope();
         }
+
+        if (!has_wildcard) {
+            if (self.type_checker.getTypeKind(match_type)) |kind| {
+                if ((kind == .enumeration or kind == .union_type) and
+                    !self.type_checker.checkExhaustive(match_type, covered_variants.items))
+                {
+                    const loc = self.getNodeLineCol(match_data.expr);
+                    const message = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Non-exhaustive match for type '{s}'",
+                        .{match_type},
+                    );
+                    defer self.allocator.free(message);
+
+                    try self.diagnostics.reportError("match/non-exhaustive", message, loc.line, loc.col);
+                    return error.NonExhaustiveMatch;
+                }
+            }
+        }
+    }
+
+    fn isWildcardPattern(self: *Sema, pattern: *Node) bool {
+        return pattern.tag == .identifier and std.mem.eql(u8, pattern.data.identifier.getText(self.source), "_");
+    }
+
+    fn extractPatternVariant(self: *Sema, pattern: *Node) ?[]const u8 {
+        switch (pattern.tag) {
+            .member_access => {
+                return pattern.data.member_access.member.getText(self.source);
+            },
+            .call => {
+                const call_data = pattern.data.call;
+                if (call_data.func.tag == .member_access) {
+                    return call_data.func.data.member_access.member.getText(self.source);
+                }
+                return null;
+            },
+            .identifier => {
+                const text = pattern.data.identifier.getText(self.source);
+                if (std.mem.eql(u8, text, "_")) return null;
+                return text;
+            },
+            else => return null,
+        }
+    }
+
+    fn getNodeLineCol(self: *Sema, node: *Node) struct { line: usize, col: usize } {
+        return switch (node.tag) {
+            .identifier => .{ .line = node.data.identifier.loc.line, .col = node.data.identifier.loc.col },
+            .string_literal => .{ .line = node.data.string_literal.loc.line, .col = node.data.string_literal.loc.col },
+            .integer_literal => .{ .line = node.data.integer_literal.loc.line, .col = node.data.integer_literal.loc.col },
+            .float_literal => .{ .line = node.data.float_literal.loc.line, .col = node.data.float_literal.loc.col },
+            .boolean_literal => .{ .line = node.data.boolean_literal.loc.line, .col = node.data.boolean_literal.loc.col },
+            .member_access => .{ .line = node.data.member_access.member.loc.line, .col = node.data.member_access.member.loc.col },
+            .call => self.getNodeLineCol(node.data.call.func),
+            else => .{ .line = 1, .col = 1 },
+        };
     }
 
     fn analyzeType(self: *Sema, node: *Node, scope: *Scope) !void {
