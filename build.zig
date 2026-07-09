@@ -109,13 +109,21 @@ pub fn build(b: *std.Build) void {
     // installation directory rather than directly from within the cache directory.
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (@hasField(std.Build, "args")) {
-        if (@field(b, "args")) |args| {
-            run_cmd.addArgs(args);
+    const helper = if (comptime @hasField(std.Build, "args")) struct {
+        fn pass(runner: *std.Build.Step.Run, builder: *std.Build) void {
+            if (builder.args) |args| {
+                runner.addArgs(args);
+            }
         }
-    } else if (@hasDecl(std.Build.Step.Run, "addPassthruArgs")) {
-        run_cmd.addPassthruArgs();
-    }
+    } else struct {
+        fn pass(runner: *std.Build.Step.Run, builder: *std.Build) void {
+            _ = builder;
+            if (comptime @hasDecl(std.Build.Step.Run, "addPassthruArgs")) {
+                runner.addPassthruArgs();
+            }
+        }
+    };
+    helper.pass(run_cmd, b);
 
     // Creates an executable that will run `test` blocks from the provided module.
     // Here `mod` needs to define a target, which is why earlier we made sure to
