@@ -393,7 +393,7 @@ pub const Lexer = struct {
     }
 
     pub fn tokenize(self: *Lexer, allocator: std.mem.Allocator) ![]Token {
-        var tokens = std.ArrayListUnmanaged(Token){};
+        var tokens = std.ArrayListUnmanaged(Token).empty;
         defer tokens.deinit(allocator);
 
         while (true) {

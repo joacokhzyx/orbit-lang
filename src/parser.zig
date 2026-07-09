@@ -52,7 +52,7 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !*Node {
-        var decls = std.ArrayListUnmanaged(*Node){};
+        var decls = std.ArrayListUnmanaged(*Node).empty;
         
         while (!self.check(.EOF)) {
             const decl = try self.parseTopLevel();
@@ -68,7 +68,7 @@ pub const Parser = struct {
     }
 
     fn parseTopLevel(self: *Parser) anyerror!*Node {
-        var decorators = std.ArrayListUnmanaged(*Node){};
+        var decorators = std.ArrayListUnmanaged(*Node).empty;
         
         while (self.check(.At)) {
             var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);

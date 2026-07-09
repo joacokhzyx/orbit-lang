@@ -672,7 +672,7 @@ test "parser.stress.chained_imports" {
     const allocator = ta.arena.allocator();
 
     // Generate 5000 imports
-    var huge_source = std.ArrayListUnmanaged(u8){};
+    var huge_source = std.ArrayListUnmanaged(u8).empty;
     defer huge_source.deinit(allocator);
     
     var i: usize = 0;

@@ -90,9 +90,9 @@ pub const TypeChecker = struct {
         return .{
             .allocator = allocator,
             .node_types = node_types,
-            .type_aliases = .{},
-            .type_kinds = .{},
-            .union_registry = .{},
+            .type_aliases = .empty,
+            .type_kinds = .empty,
+            .union_registry = .empty,
             .source = source,
         };
     }

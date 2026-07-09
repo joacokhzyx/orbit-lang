@@ -36,7 +36,7 @@ pub const DiagnosticReporter = struct {
     
     pub fn init(allocator: std.mem.Allocator) DiagnosticReporter {
         return .{
-            .diagnostics = .{},
+            .diagnostics = .empty,
             .allocator = allocator,
             .error_count = 0,
             .warning_count = 0,

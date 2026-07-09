@@ -40,7 +40,7 @@ pub const IRBuilder = struct {
             .node_types = node_types,
             .model_registry = model_registry,
             .variable_types = std.StringHashMap(IRType).init(allocator),
-            .loop_stack = .{},
+            .loop_stack = .empty,
         };
     }
     
@@ -185,8 +185,8 @@ pub const IRBuilder = struct {
                     }
                     
                     // Track param types
-                    var param_types = std.ArrayListUnmanaged(IRType){};
-                    var param_names = std.ArrayListUnmanaged([]const u8){};
+                    var param_types = std.ArrayListUnmanaged(IRType).empty;
+                    var param_names = std.ArrayListUnmanaged([]const u8).empty;
                     for (fn_data.params) |p| {
                        try param_names.append(self.allocator, p.data.param.name.getText(self.source));
                        const pt = if (p.data.param.type_name) |tn| self.resolveType(tn.getText(self.source)) else .int;
@@ -346,8 +346,8 @@ pub const IRBuilder = struct {
 
     fn buildEnumDecl(self: *IRBuilder, node: *Node) !void {
         const enum_data = node.data.enum_decl;
-        var variants = std.ArrayListUnmanaged([]const u8){};
-        var rich = std.ArrayListUnmanaged(IRVariant){};
+        var variants = std.ArrayListUnmanaged([]const u8).empty;
+        var rich = std.ArrayListUnmanaged(IRVariant).empty;
         for (enum_data.variants) |v| {
             const vname = try self.allocator.dupe(u8, v.getText(self.source));
             try variants.append(self.allocator, vname);
@@ -369,8 +369,8 @@ pub const IRBuilder = struct {
 
     fn buildUnionDecl(self: *IRBuilder, node: *Node) !void {
         const union_data = node.data.union_decl;
-        var variants = std.ArrayListUnmanaged([]const u8){};
-        var rich = std.ArrayListUnmanaged(IRVariant){};
+        var variants = std.ArrayListUnmanaged([]const u8).empty;
+        var rich = std.ArrayListUnmanaged(IRVariant).empty;
         for (union_data.variants) |v| {
             var vname: []const u8 = undefined;
             var payload_type: ?IRType = null;

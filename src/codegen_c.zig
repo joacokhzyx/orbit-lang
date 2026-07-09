@@ -23,9 +23,9 @@ pub const CodegenC = struct {
         return .{
             .allocator = allocator,
             .source = source,
-            .output = .{},
+            .output = .empty,
             .node_types = node_types,
-            .generated_types = .{},
+            .generated_types = .empty,
             .has_server_init = false,
             .no_kynx = no_kynx,
             .config = config,

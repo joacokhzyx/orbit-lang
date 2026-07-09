@@ -22,7 +22,7 @@ pub const ModuleRegistry = struct {
     
     pub fn init(allocator: std.mem.Allocator) ModuleRegistry {
         return .{
-            .modules = .{},
+            .modules = .empty,
             .allocator = allocator,
         };
     }
