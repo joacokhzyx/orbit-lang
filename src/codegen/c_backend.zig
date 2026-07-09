@@ -34,15 +34,15 @@ pub const CBackend = struct {
     pub fn init(allocator: std.mem.Allocator, config: AtlasConfig, has_server_init: bool) CBackend {
         return .{
             .allocator = allocator,
-            .output = .{},
+            .output = .empty,
             .config = config,
             .has_server_init = has_server_init,
-            .call_args = .{},
+            .call_args = .empty,
             .current_func = null,
-            .arena_functions = .{},
-            .model_names = .{},
-            .enum_names = .{},
-            .union_names = .{},
+            .arena_functions = .empty,
+            .model_names = .empty,
+            .enum_names = .empty,
+            .union_names = .empty,
         };
     }
     

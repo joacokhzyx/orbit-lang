@@ -22,7 +22,7 @@ pub const ModelRegistry = struct {
     
     pub fn init(allocator: std.mem.Allocator) ModelRegistry {
         return .{
-            .models = .{},
+            .models = .empty,
             .allocator = allocator,
         };
     }

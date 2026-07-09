@@ -26,8 +26,8 @@ pub const Compiler = struct {
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return .{
             .allocator = allocator,
-            .units = .{},
-            .seen = .{},
+            .units = .empty,
+            .seen = .empty,
         };
     }
 
@@ -78,7 +78,7 @@ pub const Compiler = struct {
     }
 
     pub fn mergedSource(self: *Compiler) ![]u8 {
-        var buf = std.ArrayListUnmanaged(u8){};
+        var buf = std.ArrayListUnmanaged(u8).empty;
         for (self.units.items) |unit| {
             try buf.appendSlice(self.allocator, unit.source);
             try buf.append(self.allocator, '\n');
@@ -90,7 +90,7 @@ pub const Compiler = struct {
         if (self.units.items.len == 0) return CompilationError.FileNotFound;
         if (self.units.items.len == 1) return self.units.items[0].root;
 
-        var all_decls = std.ArrayListUnmanaged(*Node){};
+        var all_decls = std.ArrayListUnmanaged(*Node).empty;
         for (self.units.items) |unit| {
             for (unit.root.data.root.decls) |decl| {
                 if (decl.tag != .import_stmt) {

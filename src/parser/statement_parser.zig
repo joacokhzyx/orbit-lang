@@ -22,7 +22,7 @@ pub const StatementParser = struct {
             .previous_token = previous_token,
             .allocator = allocator,
             .source = source,
-            .node_pool = .{},
+            .node_pool = .empty,
         };
     }
 
@@ -91,7 +91,7 @@ pub const StatementParser = struct {
         const condition = try expr_parser.parseExpression();
 
         _ = try self.consume(.OpenBrace);
-        var then_block = std.ArrayListUnmanaged(*Node){};
+        var then_block = std.ArrayListUnmanaged(*Node).empty;
 
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const stmt = try self.parseStatement();
@@ -105,12 +105,12 @@ pub const StatementParser = struct {
             if (self.check(.KeywordIf)) {
                 // else if: la rama else es un único if anidado
                 const nested_if = try self.parseIf();
-                var else_stmts = std.ArrayListUnmanaged(*Node){};
+                var else_stmts = std.ArrayListUnmanaged(*Node).empty;
                 try else_stmts.append(self.allocator, nested_if);
                 else_block = try else_stmts.toOwnedSlice(self.allocator);
             } else {
                 _ = try self.consume(.OpenBrace);
-                var else_stmts = std.ArrayListUnmanaged(*Node){};
+                var else_stmts = std.ArrayListUnmanaged(*Node).empty;
                 while (!self.check(.CloseBrace) and !self.check(.EOF)) {
                     const stmt = try self.parseStatement();
                     try else_stmts.append(self.allocator, stmt);
@@ -146,7 +146,7 @@ pub const StatementParser = struct {
         const iterable = try expr_parser.parseExpression();
         
         _ = try self.consume(.OpenBrace);
-        var body = std.ArrayListUnmanaged(*Node){};
+        var body = std.ArrayListUnmanaged(*Node).empty;
         
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const stmt = try self.parseStatement();
@@ -180,7 +180,7 @@ pub const StatementParser = struct {
         const condition = try expr_parser.parseExpression();
         
         _ = try self.consume(.OpenBrace);
-        var body = std.ArrayListUnmanaged(*Node){};
+        var body = std.ArrayListUnmanaged(*Node).empty;
         
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const stmt = try self.parseStatement();
@@ -210,7 +210,7 @@ pub const StatementParser = struct {
         _ = try self.consume(.KeywordLoop);
         _ = try self.consume(.OpenBrace);
         
-        var body = std.ArrayListUnmanaged(*Node){};
+        var body = std.ArrayListUnmanaged(*Node).empty;
         
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const stmt = try self.parseStatement();
@@ -355,7 +355,7 @@ pub const StatementParser = struct {
         const expr = try expr_parser.parseExpression();
 
         _ = try self.consume(.OpenBrace);
-        var cases = std.ArrayListUnmanaged(*Node){};
+        var cases = std.ArrayListUnmanaged(*Node).empty;
 
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const case = try self.parseMatchCase();
@@ -376,7 +376,7 @@ pub const StatementParser = struct {
         _ = try self.consume(.FatArrow);
 
         const body = if (self.match(.OpenBrace)) blk: {
-            var stmts = std.ArrayListUnmanaged(*Node){};
+            var stmts = std.ArrayListUnmanaged(*Node).empty;
             while (!self.check(.CloseBrace) and !self.check(.EOF)) {
                 try stmts.append(self.allocator, try self.parseStatement());
             }

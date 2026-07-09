@@ -182,9 +182,9 @@ pub const IRFunction = struct {
             .name = name,
             .params = &.{},
             .param_types = &.{},
-            .instructions = .{},
+            .instructions = .empty,
             .register_count = 0,
-            .register_types = .{},
+            .register_types = .empty,
             .return_type = .void,
             .route_info = null,
         };
@@ -220,7 +220,7 @@ pub const IRModel = struct {
         _ = allocator;
         return .{
             .name = name,
-            .fields = .{},
+            .fields = .empty,
         };
     }
     
@@ -271,10 +271,10 @@ pub const IRModule = struct {
     
     pub fn init(allocator: std.mem.Allocator) IRModule {
         return .{
-            .functions = .{},
-            .globals = .{},
-            .models = .{},
-            .types = .{},
+            .functions = .empty,
+            .globals = .empty,
+            .models = .empty,
+            .types = .empty,
             .allocator = allocator,
         };
     }

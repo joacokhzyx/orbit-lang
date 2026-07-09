@@ -56,7 +56,7 @@ pub const DeclarationParser = struct {
         const name = try self.consume(.Identifier);
         _ = try self.consume(.OpenBrace);
         
-        var fields = std.ArrayListUnmanaged(*Node){};
+        var fields = std.ArrayListUnmanaged(*Node).empty;
         
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const field = try self.parseFieldDecl();
@@ -104,7 +104,7 @@ pub const DeclarationParser = struct {
     }
 
     fn parseFieldDecl(self: *DeclarationParser) !*Node {
-        var decorators = std.ArrayListUnmanaged(*Node){};
+        var decorators = std.ArrayListUnmanaged(*Node).empty;
         
         while (self.check(.At)) {
             const dec = try self.parseDecorator();
@@ -170,9 +170,9 @@ pub const DeclarationParser = struct {
         
         const path = try self.consume(.StringLiteral);
         
-        var params = std.ArrayListUnmanaged(*Node){};
+        var params = std.ArrayListUnmanaged(*Node).empty;
         
-        var body = std.ArrayListUnmanaged(*Node){};
+        var body = std.ArrayListUnmanaged(*Node).empty;
         _ = try self.consume(.OpenBrace);
         
         var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
@@ -210,7 +210,7 @@ pub const DeclarationParser = struct {
         const name = try self.consume(.Identifier);
         _ = try self.consume(.OpenParen);
         
-        var params = std.ArrayListUnmanaged(*Node){};
+        var params = std.ArrayListUnmanaged(*Node).empty;
         
         if (!self.check(.CloseParen)) {
             while (true) {
@@ -229,7 +229,7 @@ pub const DeclarationParser = struct {
         }
         
         _ = try self.consume(.OpenBrace);
-        var body = std.ArrayListUnmanaged(*Node){};
+        var body = std.ArrayListUnmanaged(*Node).empty;
         
         var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
         
@@ -267,7 +267,7 @@ pub const DeclarationParser = struct {
         _ = try self.consume(.At);
         const name = try self.consume(.Identifier);
         
-        var args = std.ArrayListUnmanaged(*Node){};
+        var args = std.ArrayListUnmanaged(*Node).empty;
         if (self.match(.OpenParen)) {
             if (!self.check(.CloseParen)) {
                 var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
@@ -326,7 +326,7 @@ pub const DeclarationParser = struct {
 
     fn parseEnumDecl(self: *DeclarationParser, name: Token, is_private: bool) !*Node {
         _ = try self.consume(.OpenBrace);
-        var variants = std.ArrayListUnmanaged(Token){};
+        var variants = std.ArrayListUnmanaged(Token).empty;
 
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             var variant: Token = undefined;
@@ -358,7 +358,7 @@ pub const DeclarationParser = struct {
 
     fn parseUnionDecl(self: *DeclarationParser, name: Token, is_private: bool) !*Node {
         _ = try self.consume(.OpenBrace);
-        var variants = std.ArrayListUnmanaged(*Node){};
+        var variants = std.ArrayListUnmanaged(*Node).empty;
 
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const v_name = try self.consume(.Identifier);

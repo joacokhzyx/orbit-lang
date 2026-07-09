@@ -47,8 +47,8 @@ pub const Sema = struct {
         self.* = Sema{
             .allocator = allocator,
             .source = source,
-            .node_types = .{},
-            .string_table = .{},
+            .node_types = .empty,
+            .string_table = .empty,
             .type_checker = undefined,
             .scope_manager = ScopeManager.init(allocator),
             .module_registry = ModuleRegistry.init(allocator),
@@ -169,7 +169,7 @@ pub const Sema = struct {
         const model_data = node.data.model_decl;
         const model_name = try self.internString(model_data.name.getText(self.source));
 
-        var fields = std.ArrayListUnmanaged(ModelField){};
+        var fields = std.ArrayListUnmanaged(ModelField).empty;
 
         for (model_data.fields) |field_node| {
             const field_data = field_node.data.field_decl;
@@ -427,7 +427,7 @@ pub const Sema = struct {
         const match_data = node.data.match_stmt;
         const match_type = try self.analyzeExpression(match_data.expr, scope);
 
-        var covered_variants = std.ArrayListUnmanaged([]const u8){};
+        var covered_variants = std.ArrayListUnmanaged([]const u8).empty;
         defer covered_variants.deinit(self.allocator);
         var has_wildcard = false;
 
@@ -533,7 +533,7 @@ pub const Sema = struct {
         // Phase 2: Register type kind and variants
         try self.type_checker.registerTypeKind(name, .enumeration);
         
-        var variant_names = std.ArrayListUnmanaged([]const u8){};
+        var variant_names = std.ArrayListUnmanaged([]const u8).empty;
         for (enum_data.variants) |v| {
             const v_name = try self.internString(v.getText(self.source));
             try scope.define(v_name, name, false);
@@ -552,7 +552,7 @@ pub const Sema = struct {
         // Phase 2: Register type kind and variants
         try self.type_checker.registerTypeKind(name, .union_type);
         
-        var variant_names = std.ArrayListUnmanaged([]const u8){};
+        var variant_names = std.ArrayListUnmanaged([]const u8).empty;
         for (union_data.variants) |v| {
             const v_tk = if (v.tag == .union_variant) v.data.union_variant.name else v.data.identifier;
             const v_name = try self.internString(v_tk.getText(self.source));

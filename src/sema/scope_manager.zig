@@ -15,7 +15,7 @@ pub const Scope = struct {
     
     pub fn init(allocator: std.mem.Allocator, parent: ?*Scope) Scope {
         return .{
-            .entries = .{},
+            .entries = .empty,
             .parent = parent,
             .allocator = allocator,
         };
@@ -85,7 +85,7 @@ pub const ScopeManager = struct {
         return .{
             .allocator = allocator,
             .current_scope = null,
-            .scope_stack = .{},
+            .scope_stack = .empty,
         };
     }
     

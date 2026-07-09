@@ -21,7 +21,7 @@ pub const ExpressionParser = struct {
             .previous_token = previous_token,
             .allocator = allocator,
             .source = source,
-            .node_pool = .{},
+            .node_pool = .empty,
         };
     }
 
@@ -272,7 +272,7 @@ pub const ExpressionParser = struct {
     }
     
     fn parseCall(self: *ExpressionParser, func: *Node) !*Node {
-        var args = std.ArrayListUnmanaged(*Node){};
+        var args = std.ArrayListUnmanaged(*Node).empty;
 
         if (!self.check(.CloseParen)) {
             while (true) {
@@ -428,7 +428,7 @@ pub const ExpressionParser = struct {
     }
     
     fn parseArrayLiteral(self: *ExpressionParser) !*Node {
-        var elements = std.ArrayListUnmanaged(*Node){};
+        var elements = std.ArrayListUnmanaged(*Node).empty;
 
         if (!self.check(.CloseBracket)) {
             while (true) {
@@ -446,7 +446,7 @@ pub const ExpressionParser = struct {
     }
     
     fn parseObjectLiteral(self: *ExpressionParser) !*Node {
-        var fields = std.ArrayListUnmanaged(*Node){};
+        var fields = std.ArrayListUnmanaged(*Node).empty;
 
         if (!self.check(.CloseBrace)) {
             while (true) {
