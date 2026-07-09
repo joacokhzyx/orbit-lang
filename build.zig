@@ -109,10 +109,12 @@ pub fn build(b: *std.Build) void {
     // installation directory rather than directly from within the cache directory.
     run_cmd.step.dependOn(b.getInstallStep());
 
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+    if (@hasField(std.Build, "args")) {
+        if (@field(b, "args")) |args| {
+            run_cmd.addArgs(args);
+        }
+    } else if (@hasDecl(std.Build.Step.Run, "addPassthruArgs")) {
+        run_cmd.addPassthruArgs();
     }
 
     // Creates an executable that will run `test` blocks from the provided module.
