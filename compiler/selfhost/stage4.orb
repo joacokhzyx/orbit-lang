@@ -1,0 +1,12 @@
+import "./ast_parser.orb"
+
+fn checkPathStage4(path: string) -> int {
+    print("[stage4] load-source")
+    val source = file.read(path) ? err 404 "Source not found"
+
+    print("[stage4] generate-ast")
+    val astString = generateAST(source)
+    print(astString)
+
+    return 0
+}

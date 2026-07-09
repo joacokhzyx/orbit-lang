@@ -1,0 +1,117 @@
+// Semantic Analyzer for Orbit Self-Hosting Compiler
+import "./ast.orb"
+
+model Symbol {
+    name: string
+    typeName: string
+    isMutable: bool
+}
+
+model Scope {
+    symbols: list // list of Symbol
+    parentId: int // -1 if global
+}
+
+model Sema {
+    scopes: list
+    currentScope: int
+    errors: list
+}
+
+fn initSema() -> Sema {
+    var initialScopes = []
+    initialScopes.push(Scope([], -1))
+    return Sema(initialScopes, 0, [])
+}
+
+fn reportError(sema: Sema, message: string) {
+    sema.errors.push(message)
+    print("Semantic Error:")
+    print(message)
+}
+
+fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool) {
+    val scope: Scope = sema.scopes.get(sema.currentScope)
+    
+    // Check if already declared in current scope
+    var i = 0
+    while i < scope.symbols.len() {
+        val sym: Symbol = scope.symbols.get(i)
+        if sym.name == name {
+            reportError(sema, "Duplicate symbol definition in same scope.")
+            return
+        }
+        i = i + 1
+    }
+    
+    scope.symbols.push(Symbol(name, typeName, isMutable))
+}
+
+fn checkVarDecl(sema: Sema, decl: VarDeclNode) {
+    // In a full compiler we'd resolve `decl.value` type first.
+    // For now we just assume 'any' or let it pass for High Speed bootstrap.
+    checkNode(sema, decl.value)
+    declareSymbol(sema, decl.name, "unknown", decl.isMutable)
+}
+
+fn checkFunctionDecl(sema: Sema, decl: FunctionDeclNode) {
+    declareSymbol(sema, decl.name, "fn", false)
+    
+    // Enter new scope for function body
+    val newScopeId = sema.scopes.len()
+    sema.scopes.push(Scope([], sema.currentScope))
+    sema.currentScope = newScopeId
+    
+    // Declare params
+    var i = 0
+    while i < decl.params.len() {
+        val paramName = decl.params.get(i)
+        declareSymbol(sema, paramName, "unknown", false)
+        i = i + 1
+    }
+    
+    // Check body
+    checkNode(sema, decl.body)
+    
+    // Leave scope
+    val parentScope: Scope = sema.scopes.get(sema.currentScope)
+    sema.currentScope = parentScope.parentId
+}
+
+fn checkBlock(sema: Sema, block: BlockNode) {
+    // Enter new scope
+    val newScopeId = sema.scopes.len()
+    sema.scopes.push(Scope([], sema.currentScope))
+    val oldScope = sema.currentScope
+    sema.currentScope = newScopeId
+    
+    var i = 0
+    while i < block.statements.len() {
+        val stmt: ASTNode = block.statements.get(i)
+        checkNode(sema, stmt)
+        i = i + 1
+    }
+    
+    // Leave scope
+    sema.currentScope = oldScope
+}
+
+fn checkNode(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.FunctionDecl(fdecl) => checkFunctionDecl(sema, fdecl)
+        ASTNode.VarDecl(vdecl) => checkVarDecl(sema, vdecl)
+        ASTNode.Block(block) => checkBlock(sema, block)
+        ASTNode.Return(retNode) => checkNode(sema, retNode.expr)
+        ASTNode.Program(prog) => {
+            var i = 0
+            while i < prog.decls.len() {
+                val pdecl: ASTNode = prog.decls.get(i)
+                checkNode(sema, pdecl)
+                i = i + 1
+            }
+        }
+        _ => {
+            // Ignore other nodes for this minimal bootstrap
+        }
+    }
+}

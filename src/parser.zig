@@ -17,8 +17,8 @@ pub const Parser = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
 
-    pub fn init(source: []const u8, allocator: std.mem.Allocator) Parser {
-        var lexer = Lexer.init(source);
+    pub fn init(source: []const u8, file_path: []const u8, allocator: std.mem.Allocator) Parser {
+        var lexer = Lexer.init(source, file_path);
         const first_token = lexer.next();
         
         return .{

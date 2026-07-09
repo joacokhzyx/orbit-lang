@@ -1,0 +1,46 @@
+import "../../../compiler/lexer.orb"
+
+fn tokenize(source: string) -> int {
+    val lexer = initLexer(source)
+    var count = 0
+    var running = true
+    while running {
+        val t = nextToken(lexer)
+        count = count + 1
+        if t.tag == TokType.EOF {
+            running = false
+        }
+    }
+    return count
+}
+
+fn tokenIdentifier() -> TokType {
+    return TokType.Identifier
+}
+
+fn countTokenKind(source: string, kind: TokType) -> int {
+    val lexer = initLexer(source)
+    var count = 0
+    var running = true
+    while running {
+        val t = nextToken(lexer)
+        if t.tag == kind {
+            count = count + 1
+        }
+        if t.tag == TokType.EOF {
+            running = false
+        }
+    }
+    return count
+}
+
+fn main() {
+    val source = "fn hello() { return 1 }"
+    val total = tokenize(source)
+    val identifierKind = tokenIdentifier()
+    val ids = countTokenKind(source, identifierKind)
+
+    print("Import chain fixture")
+    print(total)
+    print(ids)
+}

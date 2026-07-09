@@ -1,0 +1,12 @@
+fn safeRead(path: string) -> string {
+    return file.read(path) ? err 404 "missing"
+}
+
+fn main() {
+    val existing = safeRead("compiler/main.orb")
+    val missing = safeRead("tests/bootstrap/fixtures/does_not_exist.orb")
+
+    print("Rescue fixture")
+    print(existing.length)
+    print(missing)
+}

@@ -1,0 +1,11 @@
+import "../../../compiler/selfhost/parser.orb"
+
+fn main() {
+    val source = file.read("tests/bootstrap/fixtures/parser_source_sample.orb") ? err 404 "missing parser sample"
+    val index = buildTopLevelIndex(source)
+    val total = index.functions + index.models + index.routes + index.types + index.enums + index.unions
+
+    print("Top-level parser CLI fixture")
+    print("decl=" + total)
+    print(index.listing)
+}

@@ -2,7 +2,7 @@ project: "Bootstrap Engine"
 version: "0.1.0-alpha"
 port: 3000
 db_path: "orbit.db"
-output: "bootstrap_server"
+output: "orbit"
 
 arena_pool: 16
 arena_size: 131072

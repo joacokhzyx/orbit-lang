@@ -1,0 +1,440 @@
+import "./summary.orb"
+import "./parser.orb"
+
+model SemaReport {
+    errors: int
+    warnings: int
+    braceBalance: int
+    parenBalance: int
+    unterminatedString: bool
+    functions: int
+    typedFunctions: int
+    voidFunctions: int
+    diagnostics: string
+}
+
+model DupResult {
+    errors: int
+    diagnostics: string
+}
+
+// Nombre "pelado" de una declaración top-level en i (fn/model/type/enum/union), o "".
+fn declNameAt(source: string, i: int) -> string {
+    if keywordMatches(source, i, "fn") {
+        return nameAfterKeyword(source, i, 2)
+    }
+    if keywordMatches(source, i, "model") {
+        return nameAfterKeyword(source, i, 5)
+    }
+    if keywordMatches(source, i, "type") {
+        return nameAfterKeyword(source, i, 4)
+    }
+    if keywordMatches(source, i, "enum") {
+        return nameAfterKeyword(source, i, 4)
+    }
+    if keywordMatches(source, i, "union") {
+        return nameAfterKeyword(source, i, 5)
+    }
+    return ""
+}
+
+fn declKeywordLength(source: string, i: int) -> int {
+    if keywordMatches(source, i, "fn") {
+        return 2
+    }
+    if keywordMatches(source, i, "model") {
+        return 5
+    }
+    if keywordMatches(source, i, "type") {
+        return 4
+    }
+    if keywordMatches(source, i, "enum") {
+        return 4
+    }
+    if keywordMatches(source, i, "union") {
+        return 5
+    }
+    return 0
+}
+
+// Cuenta cuántas declaraciones top-level con nombre == target empiezan en índice <= limit.
+fn countDeclNameUpTo(source: string, target: string, limit: int) -> int {
+    val mut i = 0
+    val mut braceDepth = 0
+    val mut previousWasBoundary = true
+    val mut inString = false
+    val mut inLineComment = false
+    val mut count = 0
+
+    while i < source.length {
+        val c = source.at(i)
+
+        if inLineComment {
+            if c == 10 {
+                inLineComment = false
+                previousWasBoundary = true
+            }
+            i = i + 1
+        } else {
+            if inString {
+                if c == 92 {
+                    val esc = i + 1
+                    if esc < source.length {
+                        i = i + 2
+                    } else {
+                        i = i + 1
+                    }
+                } else {
+                    if c == 34 {
+                        inString = false
+                        previousWasBoundary = true
+                    }
+                    i = i + 1
+                }
+            } else {
+                val mut startsComment = false
+                if c == 47 {
+                    val n = i + 1
+                    if n < source.length {
+                        if source.at(n) == 47 {
+                            startsComment = true
+                        }
+                    }
+                }
+
+                if startsComment {
+                    inLineComment = true
+                    i = i + 2
+                } else {
+                    if c == 34 {
+                        inString = true
+                        previousWasBoundary = true
+                        i = i + 1
+                    } else {
+                        if c == 123 {
+                            braceDepth = braceDepth + 1
+                            previousWasBoundary = true
+                            i = i + 1
+                        } else {
+                            if c == 125 {
+                                if braceDepth > 0 {
+                                    braceDepth = braceDepth - 1
+                                }
+                                previousWasBoundary = true
+                                i = i + 1
+                            } else {
+                                val mut handled = false
+                                if braceDepth == 0 {
+                                    if previousWasBoundary {
+                                        val declLen = declKeywordLength(source, i)
+                                        if declLen > 0 {
+                                            val declName = declNameAt(source, i)
+                                            if i <= limit {
+                                                if declName == target {
+                                                    if declName != "" {
+                                                        count = count + 1
+                                                    }
+                                                }
+                                            }
+                                            i = i + declLen
+                                            previousWasBoundary = false
+                                            handled = true
+                                        }
+                                    }
+                                }
+                                if handled == false {
+                                    previousWasBoundary = isAlphaNumeric(c) == false
+                                    i = i + 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return count
+}
+
+fn findDuplicates(source: string) -> DupResult {
+    val mut i = 0
+    val mut braceDepth = 0
+    val mut previousWasBoundary = true
+    val mut inString = false
+    val mut inLineComment = false
+    val mut errors = 0
+    val mut diagnostics = ""
+
+    while i < source.length {
+        val c = source.at(i)
+
+        if inLineComment {
+            if c == 10 {
+                inLineComment = false
+                previousWasBoundary = true
+            }
+            i = i + 1
+        } else {
+            if inString {
+                if c == 92 {
+                    val esc = i + 1
+                    if esc < source.length {
+                        i = i + 2
+                    } else {
+                        i = i + 1
+                    }
+                } else {
+                    if c == 34 {
+                        inString = false
+                        previousWasBoundary = true
+                    }
+                    i = i + 1
+                }
+            } else {
+                val mut startsComment = false
+                if c == 47 {
+                    val n = i + 1
+                    if n < source.length {
+                        if source.at(n) == 47 {
+                            startsComment = true
+                        }
+                    }
+                }
+
+                if startsComment {
+                    inLineComment = true
+                    i = i + 2
+                } else {
+                    if c == 34 {
+                        inString = true
+                        previousWasBoundary = true
+                        i = i + 1
+                    } else {
+                        if c == 123 {
+                            braceDepth = braceDepth + 1
+                            previousWasBoundary = true
+                            i = i + 1
+                        } else {
+                            if c == 125 {
+                                if braceDepth > 0 {
+                                    braceDepth = braceDepth - 1
+                                }
+                                previousWasBoundary = true
+                                i = i + 1
+                            } else {
+                                val mut handled = false
+                                if braceDepth == 0 {
+                                    if previousWasBoundary {
+                                        val declLen = declKeywordLength(source, i)
+                                        if declLen > 0 {
+                                            val declName = declNameAt(source, i)
+                                            if declName != "" {
+                                                val occ = countDeclNameUpTo(source, declName, i)
+                                                if occ == 2 {
+                                                    diagnostics = diagnostics + "error: duplicate declaration '" + declName + "'\n"
+                                                    errors = errors + 1
+                                                }
+                                            }
+                                            i = i + declLen
+                                            previousWasBoundary = false
+                                            handled = true
+                                        }
+                                    }
+                                }
+                                if handled == false {
+                                    previousWasBoundary = isAlphaNumeric(c) == false
+                                    i = i + 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return DupResult(errors: errors, diagnostics: diagnostics)
+}
+
+// Devuelve el tipo de retorno de la fn que empieza en `start` ("" si es void).
+fn functionReturnTypeAt(source: string, start: int) -> string {
+    val nameCursor = skipWhitespaceFrom(source, start + 2)
+    val fnName = readIdentifierFrom(source, nameCursor)
+    if fnName == "" {
+        return ""
+    }
+
+    val afterName = nameCursor + fnName.length
+    val parenCursor = skipWhitespaceFrom(source, afterName)
+    if parenCursor >= source.length {
+        return ""
+    }
+    if source.at(parenCursor) != 40 {   // '('
+        return ""
+    }
+
+    val mut cursor = parenCursor + 1
+    val mut depth = 1
+    while cursor < source.length {
+        val c = source.at(cursor)
+        if c == 40 {
+            depth = depth + 1
+        } else {
+            if c == 41 {
+                depth = depth - 1
+                if depth == 0 {
+                    break
+                }
+            }
+        }
+        cursor = cursor + 1
+    }
+
+    return readReturnType(source, cursor + 1)
+}
+
+fn checkSemantics(source: string) -> SemaReport {
+    val mut i = 0
+    val mut braceBalance = 0
+    val mut parenBalance = 0
+    val mut inString = false
+    val mut inLineComment = false
+    val mut previousWasBoundary = true
+    val mut functions = 0
+    val mut typedFunctions = 0
+
+    while i < source.length {
+        val c = source.at(i)
+
+        if inLineComment {
+            if c == 10 {
+                inLineComment = false
+                previousWasBoundary = true
+            }
+            i = i + 1
+        } else {
+            if inString {
+                if c == 92 {                // '\'
+                    val esc = i + 1
+                    if esc < source.length {
+                        i = i + 2
+                    } else {
+                        i = i + 1
+                    }
+                } else {
+                    if c == 34 {            // '"'
+                        inString = false
+                        previousWasBoundary = true
+                    }
+                    i = i + 1
+                }
+            } else {
+                val mut startsComment = false
+                if c == 47 {                // '/'
+                    val n = i + 1
+                    if n < source.length {
+                        if source.at(n) == 47 {
+                            startsComment = true
+                        }
+                    }
+                }
+
+                if startsComment {
+                    inLineComment = true
+                    i = i + 2
+                } else {
+                    if c == 34 {            // '"'
+                        inString = true
+                        previousWasBoundary = true
+                        i = i + 1
+                    } else {
+                        if c == 123 {       // '{'
+                            braceBalance = braceBalance + 1
+                            previousWasBoundary = true
+                            i = i + 1
+                        } else {
+                            if c == 125 {   // '}'
+                                braceBalance = braceBalance - 1
+                                previousWasBoundary = true
+                                i = i + 1
+                            } else {
+                                if c == 40 {        // '('
+                                    parenBalance = parenBalance + 1
+                                    previousWasBoundary = true
+                                    i = i + 1
+                                } else {
+                                    if c == 41 {    // ')'
+                                        parenBalance = parenBalance - 1
+                                        previousWasBoundary = true
+                                        i = i + 1
+                                    } else {
+                                        val mut handled = false
+                                        if braceBalance == 0 {
+                                            if previousWasBoundary {
+                                                if keywordMatches(source, i, "fn") {
+                                                    functions = functions + 1
+                                                    val ret = functionReturnTypeAt(source, i)
+                                                    if ret != "" {
+                                                        typedFunctions = typedFunctions + 1
+                                                    }
+                                                    i = i + 2
+                                                    previousWasBoundary = false
+                                                    handled = true
+                                                }
+                                            }
+                                        }
+
+                                        if handled == false {
+                                            previousWasBoundary = isAlphaNumeric(c) == false
+                                            i = i + 1
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val mut errors = 0
+    val mut warnings = 0
+    val mut diagnostics = ""
+
+    if inString {
+        diagnostics = diagnostics + "error: unterminated string literal\n"
+        errors = errors + 1
+    }
+    if braceBalance != 0 {
+        diagnostics = diagnostics + "error: unbalanced braces (" + braceBalance + ")\n"
+        errors = errors + 1
+    }
+    if parenBalance != 0 {
+        diagnostics = diagnostics + "error: unbalanced parentheses (" + parenBalance + ")\n"
+        errors = errors + 1
+    }
+
+    val voidFunctions = functions - typedFunctions
+    if voidFunctions > 0 {
+        diagnostics = diagnostics + "warning: " + voidFunctions + " function(s) without explicit return type\n"
+        warnings = warnings + 1
+    }
+
+    if errors == 0 {
+        diagnostics = diagnostics + "ok: no structural errors\n"
+    }
+
+    return SemaReport(
+        errors: errors,
+        warnings: warnings,
+        braceBalance: braceBalance,
+        parenBalance: parenBalance,
+        unterminatedString: inString,
+        functions: functions,
+        typedFunctions: typedFunctions,
+        voidFunctions: voidFunctions,
+        diagnostics: diagnostics
+    )
+}

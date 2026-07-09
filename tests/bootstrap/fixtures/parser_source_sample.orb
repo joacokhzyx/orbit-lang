@@ -1,0 +1,26 @@
+// Keywords in comments should be ignored: fn fake model Fake route GET "/x"
+
+model FixtureModel {
+    id: int
+}
+
+enum FixtureEnum {
+    A,
+    B
+}
+
+union FixtureUnion {
+    Ok,
+    Err(string)
+}
+
+type FixtureAlias = string
+
+fn runFixture() {
+    val text = "fn fake route /ignore model Fake"
+    print(text)
+}
+
+route GET "/fixture" {
+    return ok 200 "ok"
+}

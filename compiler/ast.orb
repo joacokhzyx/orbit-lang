@@ -1,0 +1,95 @@
+import "./token.orb"
+
+model ProgramNode {
+    decls: list
+}
+
+model FunctionDeclNode {
+    name: string
+    params: list
+    returnType: string
+    body: ASTNode
+}
+
+model VarDeclNode {
+    name: string
+    isMutable: bool
+    value: ASTNode
+}
+
+model BinaryOpNode {
+    op: string
+    lhs: ASTNode
+    rhs: ASTNode
+}
+
+model UnaryOpNode {
+    op: string
+    operand: ASTNode
+}
+
+model LiteralNode {
+    valType: string
+    text: string
+}
+
+model MatchNode {
+    expr: ASTNode
+    cases: list
+}
+
+model MatchCaseNode {
+    pattern: ASTNode
+    body: ASTNode
+}
+
+model CallNode {
+    func: ASTNode
+    args: list
+}
+
+model MemberAccessNode {
+    object: ASTNode
+    member: Token
+}
+
+model IndexAccessNode {
+    object: ASTNode
+    index: ASTNode
+}
+
+model ModelDeclNode {
+    name: Token
+    fields: list
+}
+
+model FieldDeclNode {
+    name: Token
+    typeName: Token
+}
+
+model BlockNode {
+    statements: list
+}
+
+model ReturnNode {
+    expr: ASTNode
+}
+
+union ASTNode {
+    Program(ProgramNode),
+    FunctionDecl(FunctionDeclNode),
+    VarDecl(VarDeclNode),
+    BinaryOp(BinaryOpNode),
+    UnaryOp(UnaryOpNode),
+    Literal(LiteralNode),
+    Match(MatchNode),
+    Call(CallNode),
+    MemberAccess(MemberAccessNode),
+    IndexAccess(IndexAccessNode),
+    ModelDecl(ModelDeclNode),
+    FieldDecl(FieldDeclNode),
+    Block(BlockNode),
+    Return(ReturnNode),
+    Empty
+}

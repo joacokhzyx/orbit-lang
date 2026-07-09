@@ -1,0 +1,8 @@
+fn main() {
+    val left = "Orbit"
+    val right = "Language"
+    val joined = left + " " + right
+
+    print("String concat fixture")
+    print(joined)
+}

@@ -66,6 +66,7 @@ pub const Node = struct {
         null_literal,
         array_literal,
         object_literal,
+        char_literal,
 
         // ============================================
         // HELPERS
@@ -281,7 +282,7 @@ pub const Node = struct {
         float_literal: Token,
         boolean_literal: Token,
         null_literal: void,
-
+        char_literal: Token,
         array_literal: struct {
             elements: []const *Node,
         },

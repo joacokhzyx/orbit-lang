@@ -1,0 +1,9 @@
+fn main() {
+    val total = 42
+    val successFlag = true
+    val ratio = 3.5
+    val msg = "total=" + total + ", ok=" + successFlag + ", ratio=" + ratio
+
+    print("String concat mixed fixture")
+    print(msg)
+}

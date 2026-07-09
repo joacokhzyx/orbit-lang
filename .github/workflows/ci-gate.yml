@@ -1,0 +1,36 @@
+name: Orbit CI Gate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orbit-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Bootstrap + Build + Tests
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: master
+
+      - name: Show Zig Version
+        shell: pwsh
+        run: zig version
+
+      - name: Run CI Gate
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\scripts\run_ci_gate.ps1

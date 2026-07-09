@@ -376,4 +376,136 @@ static orbit_string orbit_string_slice(OrbitArena* arena, orbit_string s, orbit_
     return buf;
 }
 
+static orbit_string orbit_int_to_string(OrbitArena* arena, orbit_int value) {
+    if (!arena) return "";
+
+    char tmp[32];
+    int n = snprintf(tmp, sizeof(tmp), "%d", value);
+    if (n <= 0) return "";
+
+    char* buf = (char*)orbit_alloc(arena, (size_t)n + 1);
+    if (!buf) return "";
+
+    memcpy(buf, tmp, (size_t)n + 1);
+    return buf;
+}
+
+static orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
+    if (!arena) return "";
+
+    char tmp[64];
+    int n = snprintf(tmp, sizeof(tmp), "%.15g", value);
+    if (n <= 0) return "";
+
+    char* buf = (char*)orbit_alloc(arena, (size_t)n + 1);
+    if (!buf) return "";
+
+    memcpy(buf, tmp, (size_t)n + 1);
+    return buf;
+}
+
+static orbit_string orbit_bool_to_string(OrbitArena* arena, orbit_bool value) {
+    (void)arena;
+    return value ? "true" : "false";
+}
+
+static orbit_string orbit_string_concat(OrbitArena* arena, orbit_string a, orbit_string b) {
+    if (!arena) return "";
+
+    if (!a) a = "";
+    if (!b) b = "";
+
+    orbit_int a_len = (orbit_int)strlen(a);
+    orbit_int b_len = (orbit_int)strlen(b);
+    orbit_int total_len = a_len + b_len;
+
+    char* buf = (char*)orbit_alloc(arena, (size_t)total_len + 1);
+    if (!buf) return "";
+
+    if (a_len > 0) memcpy(buf, a, (size_t)a_len);
+    if (b_len > 0) memcpy(buf + a_len, b, (size_t)b_len);
+    buf[total_len] = '\0';
+
+    return buf;
+}
+
+static OrbitList* orbit_string_split(OrbitArena* arena, orbit_string s, orbit_string delim) {
+    OrbitList* list = (OrbitList*)orbit_list_create(arena, sizeof(orbit_string), 4).value;
+    if (!s || !delim || !arena) return list;
+
+    size_t delim_len = strlen(delim);
+    if (delim_len == 0) {
+        orbit_list_push(list, &s);
+        return list;
+    }
+
+    const char* p = s;
+    const char* d = strstr(p, delim);
+    while (d) {
+        size_t len = d - p;
+        char* buf = (char*)orbit_alloc(arena, len + 1);
+        if (buf) {
+            memcpy(buf, p, len);
+            buf[len] = '\0';
+            orbit_string s_part = buf;
+            orbit_list_push(list, &s_part);
+        }
+        p = d + delim_len;
+        d = strstr(p, delim);
+    }
+    
+    size_t rem_len = strlen(p);
+    char* rem_buf = (char*)orbit_alloc(arena, rem_len + 1);
+    if (rem_buf) {
+        memcpy(rem_buf, p, rem_len);
+        rem_buf[rem_len] = '\0';
+        orbit_string rem_part = rem_buf;
+        orbit_list_push(list, &rem_part);
+    }
+    
+    return list;
+}
+
+static orbit_string orbit_string_replace(OrbitArena* arena, orbit_string s, orbit_string old_str, orbit_string new_str) {
+    if (!s || !old_str || !new_str || !arena) return s;
+
+    size_t old_len = strlen(old_str);
+    if (old_len == 0) return s;
+
+    size_t new_len = strlen(new_str);
+    size_t s_len = strlen(s);
+
+    // Count occurrences
+    int count = 0;
+    const char* p = s;
+    while ((p = strstr(p, old_str)) != NULL) {
+        count++;
+        p += old_len;
+    }
+
+    if (count == 0) return s;
+
+    size_t total_len = s_len + count * (new_len - old_len);
+    char* buf = (char*)orbit_alloc(arena, total_len + 1);
+    if (!buf) return "";
+
+    const char* r = s;
+    char* w = buf;
+    while ((p = strstr(r, old_str)) != NULL) {
+        size_t chunk_len = p - r;
+        memcpy(w, r, chunk_len);
+        w += chunk_len;
+        memcpy(w, new_str, new_len);
+        w += new_len;
+        r = p + old_len;
+    }
+    size_t rem_len = strlen(r);
+    memcpy(w, r, rem_len);
+    w += rem_len;
+    *w = '\0';
+
+    return buf;
+}
+
+
 #endif

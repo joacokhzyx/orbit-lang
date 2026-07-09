@@ -1,0 +1,7 @@
+fn foo(a: int) -> int {
+    return a
+}
+
+fn foo(b: int) -> int {
+    return b
+}

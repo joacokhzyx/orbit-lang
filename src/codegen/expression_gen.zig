@@ -18,6 +18,11 @@ pub const ExpressionGenerator = struct {
     pub fn generate(self: *ExpressionGenerator, node: *Node) anyerror!void {
         switch (node.tag) {
             .integer_literal => try self.output.appendSlice(self.allocator, node.data.integer_literal.getText(self.source)),
+            .char_literal => {
+                const code = node.data.char_literal.charCode(self.source);
+                const text = try std.fmt.allocPrint(self.allocator, "{d}", .{code});
+                try self.output.appendSlice(self.allocator, text);
+            },
             .float_literal => try self.output.appendSlice(self.allocator, node.data.float_literal.getText(self.source)),
             .string_literal => {
                 try self.output.append(self.allocator, '"');

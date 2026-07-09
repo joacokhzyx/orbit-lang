@@ -1,0 +1,11 @@
+fn safeRead(path: string) -> string {
+    return file.read(path) ? err 404 "MISSING"
+}
+
+fn main() {
+    val missing = safeRead("tests/bootstrap/fixtures/does_not_exist.orb")
+    val msg = "rescue=" + missing + ", n=" + 7 + ", ok=" + true + ", r=" + 2.5
+
+    print("Rescue concat CLI fixture")
+    print(msg)
+}

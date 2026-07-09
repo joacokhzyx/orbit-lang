@@ -1,0 +1,11 @@
+route GET "/health" {
+    return ok 200 "ok"
+}
+
+route GET "/api/ping" {
+    return ok 200 "orbit-benchmark"
+}
+
+fn main() {
+    print("Orbit benchmark target ready")
+}

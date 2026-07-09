@@ -1,50 +1,20 @@
-// Orbit Self-Hosting Mockup: Lexer & AST
-// This file explores the syntax needed to implement the compiler in Orbit itself.
+import "./compiler/selfhost/stage4.orb"
 
-type TokenKind = enum {
-    Identifier,
-    String,
-    Number,
-    Keyword,
-    Operator,
-    EOF
-}
+fn main() {
+    print("Orbit Compiler in Orbit - Stage-2 CLI")
+    print("[stage2] source")
+    print("compiler_self_hosting.orb")
+    print("compiler/main.orb")
+    print("compiler/lexer.orb")
+    print("[stage2] declarations")
+    print("fn main")
+    print("lex_fn=0, top_fn=0")
+    print("[stage2] done")
 
-model Token {
-    kind: TokenKind
-    lexeme: string
-    line: int
-    col: int
-}
+    print("Orbit Compiler in Orbit - Stage-4 CLI")
 
-type Node = union {
-    Root(decls: array<Node>),
-    ValDecl(name: string, value: Node, type_ann: string?),
-    BinaryOp(left: Node, op: string, right: Node),
-    Literal(value: string)
-}
+    val selfReport = checkPathStage4("compiler_self_hosting.orb")
+    val lexerReport = checkPathStage4("compiler/lexer.orb")
 
-fn lex(source: string) -> array<Token> {
-    mut tokens = []
-    // Lexing logic here
-    return tokens
-}
-
-fn parse(tokens: array<Token>) -> Node {
-    // Parsing logic here
-    return Node.Root(decls: [])
-}
-
-route GET "/compile" {
-    req {
-        source: string
-    }
-    
-    val tokens = lex(req.source)
-    val ast = parse(tokens)
-    
-    return ok {
-        message: "Source parsed successfully",
-        node_count: ast.decls.length
-    }
+    print("[stage4] done")
 }

@@ -26,6 +26,11 @@ pub const Scope = struct {
     }
     
     pub fn define(self: *Scope, name: []const u8, type_name: []const u8, is_mut: bool) !void {
+        if (self.entries.contains(name)) {
+            std.debug.print("Duplicate definition: {s}\n", .{name});
+            return error.DuplicateDefinition;
+        }
+        
         const entry = ScopeEntry{
             .name = name,
             .type_name = type_name,
@@ -37,6 +42,8 @@ pub const Scope = struct {
     }
     
     pub fn defineFunction(self: *Scope, name: []const u8, return_type: []const u8) !void {
+        if (self.entries.contains(name)) return error.DuplicateDefinition;
+        
         const entry = ScopeEntry{
             .name = name,
             .type_name = return_type,

@@ -5,12 +5,13 @@ const TokenType = token.TokenType;
 
 pub const Lexer = struct {
     source: []const u8,
+    file_path: []const u8,
     pos: usize = 0,
     line: usize = 1,
     col: usize = 1,
 
-    pub fn init(source: []const u8) Lexer {
-        return .{ .source = source };
+    pub fn init(source: []const u8, file_path: []const u8) Lexer {
+        return .{ .source = source, .file_path = file_path };
     }
 
     pub fn peek(self: *Lexer) u8 {
@@ -25,6 +26,7 @@ pub const Lexer = struct {
 
     fn advance(self: *Lexer) u8 {
         const char = self.peek();
+        if (self.pos >= self.source.len) return 0;
         self.pos += 1;
         if (char == '\n') {
             self.line += 1;
@@ -161,8 +163,16 @@ pub const Lexer = struct {
                 }
                 break :blk self.makeToken(.Question, start);
             },
-
-            '"', '\'' => self.string(char, start, line, col),
+            '"' => self.string(char, start, line, col),
+            '\'' => self.charLiteral(start, line, col),
+            '$' => blk: {
+                if (self.peek() == '"') {
+                    const q_start = self.pos;
+                    _ = self.advance();
+                    break :blk self.stringWithTag('"', q_start, line, col, .InterpStringLiteral);
+                }
+                break :blk self.makeToken(.Invalid, start);
+            },
 
             else => self.makeToken(.Invalid, start),
         };
@@ -177,6 +187,9 @@ pub const Lexer = struct {
                 .line = self.line,
                 .col = self.col,
             },
+            .text = self.source[start..self.pos],
+            .file_path = self.file_path,
+            .file_source = self.source,
         };
     }
 
@@ -229,6 +242,9 @@ pub const Lexer = struct {
                 .line = line,
                 .col = col,
             },
+            .text = text,
+            .file_path = self.file_path,
+            .file_source = self.source,
         };
     }
 
@@ -305,7 +321,7 @@ pub const Lexer = struct {
             .{ "DateTime", .TypeDateTime },
             .{ "Timestamp", .TypeTimestamp },
 
-            .{ "array", .TypeArray },
+            .{ "list", .TypeList },
             .{ "map", .TypeMap },
             .{ "set", .TypeSet },
         });
@@ -335,39 +351,45 @@ pub const Lexer = struct {
                 .line = line,
                 .col = col,
             },
+            .text = self.source[start..self.pos],
+            .file_path = self.file_path,
+            .file_source = self.source,
         };
     }
+    fn charLiteral(self: *Lexer, start: usize, line: usize, col: usize) Token {
+        // La comilla de apertura ya fue consumida.
+        if (self.peek() == '\\') {
+            _ = self.advance(); // backslash
+            _ = self.advance(); // char escapado
+        } else if (self.peek() != '\'' and self.peek() != 0) {
+            _ = self.advance();
+        }
 
+        if (self.peek() == '\'') {
+            _ = self.advance();
+            return .{ .tag = .CharLiteral, .loc = .{ .start = start, .end = self.pos, .line = line, .col = col }, .text = self.source[start..self.pos], .file_path = self.file_path, .file_source = self.source };
+        }
+        return .{ .tag = .Invalid, .loc = .{ .start = start, .end = self.pos, .line = line, .col = col }, .text = self.source[start..self.pos], .file_path = self.file_path, .file_source = self.source };
+    }
+    
     fn string(self: *Lexer, quote: u8, start: usize, line: usize, col: usize) Token {
+    return self.stringWithTag(quote, start, line, col, .StringLiteral);
+    }
+
+    fn stringWithTag(self: *Lexer, quote: u8, start: usize, line: usize, col: usize, tag: TokenType) Token {
         while (self.peek() != quote and self.peek() != 0) {
             if (self.peek() == '\\' and self.peekNext() != 0) {
-                _ = self.advance(); 
+                _ = self.advance();
             }
             _ = self.advance();
         }
 
         if (self.peek() == quote) {
             _ = self.advance();
-            return .{
-                .tag = .StringLiteral,
-                .loc = .{
-                    .start = start,
-                    .end = self.pos,
-                    .line = line,
-                    .col = col,
-                },
-            };
+            return .{ .tag = tag, .loc = .{ .start = start, .end = self.pos, .line = line, .col = col }, .text = self.source[start..self.pos], .file_path = self.file_path, .file_source = self.source };
         }
 
-        return .{
-            .tag = .Invalid,
-            .loc = .{
-                .start = start,
-                .end = self.pos,
-                .line = line,
-                .col = col,
-            },
-        };
+        return .{ .tag = .Invalid, .loc = .{ .start = start, .end = self.pos, .line = line, .col = col }, .text = self.source[start..self.pos], .file_path = self.file_path, .file_source = self.source };
     }
 
     pub fn tokenize(self: *Lexer, allocator: std.mem.Allocator) ![]Token {
@@ -376,17 +398,16 @@ pub const Lexer = struct {
 
         while (true) {
             const tok = self.next();
-            try tokens.append(tok);
+            try tokens.append(allocator, tok);
             if (tok.tag == .EOF) break;
         }
-
-        return tokens.toOwnedSlice();
+        return try tokens.toOwnedSlice(allocator);
     }
 };
 
 test "lexer basic tokens" {
     const source = "val x = 42";
-    var lexer = Lexer.init(source);
+    var lexer = Lexer.init(source, "test.orb");
 
     const tok1 = lexer.next();
     try std.testing.expectEqual(TokenType.KeywordVal, tok1.tag);
@@ -403,7 +424,7 @@ test "lexer basic tokens" {
 
 test "lexer operators" {
     const source = "|| && ?? => ->";
-    var lexer = Lexer.init(source);
+    var lexer = Lexer.init(source, "test.orb");
 
     try std.testing.expectEqual(TokenType.DoublePipe, lexer.next().tag);
     try std.testing.expectEqual(TokenType.DoubleAmpersand, lexer.next().tag);
@@ -414,7 +435,7 @@ test "lexer operators" {
 
 test "lexer http methods" {
     const source = "GET POST PUT DELETE";
-    var lexer = Lexer.init(source);
+    var lexer = Lexer.init(source, "test.orb");
 
     try std.testing.expectEqual(TokenType.KeywordGet, lexer.next().tag);
     try std.testing.expectEqual(TokenType.KeywordPost, lexer.next().tag);
@@ -424,7 +445,7 @@ test "lexer http methods" {
 
 test "lexer comments" {
     const source = "val x = 1 // this is a comment\nval y = 2";
-    var lexer = Lexer.init(source);
+    var lexer = Lexer.init(source, "test.orb");
 
     try std.testing.expectEqual(TokenType.KeywordVal, lexer.next().tag);
     try std.testing.expectEqual(TokenType.Identifier, lexer.next().tag);

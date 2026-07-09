@@ -1,0 +1,8 @@
+import "../../../compiler/selfhost/stage3.orb"
+
+fn main() -> int {
+    val e = checkPath("tests/bootstrap/fixtures/sema_duplicate.orb")
+    print("[dup-gate] duplicate errors:")
+    print(e)
+    return e
+}
