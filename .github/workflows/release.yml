@@ -20,7 +20,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.13.0
+          version: master
 
       - name: Compile Orbit Compiler
         run: zig build -Doptimize=ReleaseFast
@@ -52,7 +52,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.13.0
+          version: master
 
       - name: Compile Orbit Compiler
         run: zig build -Doptimize=ReleaseFast
@@ -91,7 +91,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.13.0
+          version: master
 
       - name: Compile Orbit Compiler
         run: zig build -Doptimize=ReleaseFast
