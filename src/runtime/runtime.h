@@ -1,6 +1,10 @@
 #ifndef ORBIT_RUNTIME_H
 #define ORBIT_RUNTIME_H
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit Runtime — Unified header. Phase 2: Type Resonance.
  *

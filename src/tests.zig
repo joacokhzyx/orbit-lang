@@ -481,16 +481,16 @@ test "ir.result_opcodes" {
         \\fn do_work() -> result {
         \\    val success = true
         \\    if (success) {
-        \\        return ok(42)
+        \\        val r = ok(42)
+        \\        return r
         \\    } else {
-        \\        return err(400, "Bad Request")
+        \\        val e = err(400, "Bad Request")
+        \\        return e
         \\    }
         \\}
         \\fn handle() {
-        \\    val r = do_work()
-        \\    if (r.ok) {
-        \\        print(r.unwrap())
-        \\    }
+        \\    val r = do_work() ? err 500 "Failed"
+        \\    print(r)
         \\}
     ;
     var p = Parser.init(source, "test.orb", allocator);
@@ -517,6 +517,14 @@ test "ir.result_opcodes" {
         }
     }
     
+    if (!found_ok or !found_err or !found_is_ok or !found_unwrap) {
+        std.debug.print("\nIR MODULE INSTRUCTIONS:\n", .{});
+        for (builder.module.functions.items) |func| {
+            for (func.instructions.items) |instr| {
+                std.debug.print("  {any}\n", .{instr.opcode});
+            }
+        }
+    }
     try std.testing.expect(found_ok);
     try std.testing.expect(found_err);
     try std.testing.expect(found_is_ok);
@@ -548,10 +556,11 @@ test "codegen.c_backend_golden_snapshot" {
     
     const expected = 
         \\#define ORBIT_CUSTOM_ROUTER
-        \\#include "src/runtime/runtime.h"
+        \\#include "runtime.h"
         \\
         \\
         \\OrbitArena* arena = NULL;
+        \\
         \\int orbit_main(OrbitArena* _init_arena);
         \\
         \\int orbit_main(OrbitArena* _init_arena) {
@@ -585,6 +594,8 @@ test "codegen.c_backend_golden_snapshot" {
         \\    orbit_perf_end_request(start);
         \\}
         \\int main(void) {
+        \\    void orbit_anti_debug(void);
+        \\    orbit_anti_debug();
         \\    orbit_db_init("orbit.db");
         \\    orbit_string_pool_init(4096);
         \\    OrbitArena* arena = orbit_arena_create(65536);
@@ -598,6 +609,9 @@ test "codegen.c_backend_golden_snapshot" {
         \\}
         \\
     ;
+    if (!std.mem.eql(u8, c_code, expected)) {
+        std.debug.print("ACTUAL:\n{s}\nEXPECTED:\n{s}\n", .{c_code, expected});
+    }
     try std.testing.expect(std.mem.eql(u8, c_code, expected));
 }
 

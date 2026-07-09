@@ -75,9 +75,17 @@ void orbit_os_exit(orbit_int code) {
 }
 
 #ifdef _WIN32
+#include <winsock2.h>
 #include <windows.h>
 #else
 #include <sys/ptrace.h>
+#include <sys/types.h>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
 #endif
 
 void orbit_anti_debug(void) {
@@ -85,6 +93,25 @@ void orbit_anti_debug(void) {
     if (IsDebuggerPresent()) {
         exit(1);
     }
+    BOOL isDebuggerPresent = FALSE;
+    if (CheckRemoteDebuggerPresent(GetCurrentProcess(), &isDebuggerPresent) && isDebuggerPresent) {
+        exit(1);
+    }
+#elif defined(__APPLE__)
+    int mib[4];
+    struct kinfo_proc info;
+    size_t size;
+    info.kp_proc.p_flag = 0;
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_PROC;
+    mib[2] = KERN_PROC_PID;
+    mib[3] = getpid();
+    size = sizeof(info);
+    sysctl(mib, sizeof(mib) / sizeof(*mib), &info, &size, NULL, 0);
+    if ((info.kp_proc.p_flag & P_TRACED) != 0) {
+        exit(1);
+    }
+    ptrace(31, 0, 0, 0); // PT_DENY_ATTACH = 31 on macOS
 #else
     // ptrace on Linux returns -1 if a debugger is already attached
     if (ptrace(PTRACE_TRACEME, 0, 1, 0) < 0) {
