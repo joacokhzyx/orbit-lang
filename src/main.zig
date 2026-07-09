@@ -64,7 +64,7 @@ fn printHelp() void {
 fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool, config: AtlasConfig) ![]const u8 {
     _ = no_kynx;
     const arena = init.arena.allocator();
-    var timer = try std.time.Timer.start();
+    var timer = try OrbitTimer.start(init.io);
 
     var compiler = Compiler.init(arena);
     defer compiler.deinit();
@@ -148,8 +148,7 @@ fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool,
     });
     const term = try child.wait(init.io);
 
-    const duration_ns = timer.read();
-    const duration_s = @as(f64, @floatFromInt(duration_ns)) / 1_000_000_000.0;
+    const duration_s = timer.readSeconds();
 
     if (term == .exited and term.exited == 0) {
         std.debug.print("\n ⏣ Orbit  build successful\n\n", .{});
@@ -262,3 +261,31 @@ fn printEchoes(diagnostics: []const Sema.Diagnostic) void {
     }
     std.debug.print("\n  The system cannot maintain gravity. Fix the echoes above.\n\n", .{});
 }
+
+const OrbitTimer = struct {
+    impl: if (@hasDecl(std.time, "Timer")) std.time.Timer else std.Io.Timestamp,
+    io: @TypeOf(@as(std.process.Init, undefined).io),
+
+    fn start(io: @TypeOf(@as(std.process.Init, undefined).io)) !OrbitTimer {
+        if (comptime @hasDecl(std.time, "Timer")) {
+            return OrbitTimer{
+                .impl = try std.time.Timer.start(),
+                .io = io,
+            };
+        } else {
+            return OrbitTimer{
+                .impl = std.Io.Clock.awake.now(io),
+                .io = io,
+            };
+        }
+    }
+
+    fn readSeconds(self: *OrbitTimer) f64 {
+        if (comptime @hasDecl(std.time, "Timer")) {
+            return @as(f64, @floatFromInt(self.impl.read())) / 1_000_000_000.0;
+        } else {
+            const elapsed = self.impl.untilNow(self.io, .awake);
+            return @as(f64, @floatFromInt(elapsed.toNanoseconds())) / 1_000_000_000.0;
+        }
+    }
+};
