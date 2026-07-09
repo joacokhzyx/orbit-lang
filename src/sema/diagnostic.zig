@@ -12,14 +12,18 @@ pub const Diagnostic = struct {
     message: []const u8,
     line: usize,
     col: usize,
+    file_path: []const u8,
+    file_source: []const u8,
     
-    pub fn init(level: DiagnosticLevel, code: []const u8, message: []const u8, line: usize, col: usize) Diagnostic {
+    pub fn init(level: DiagnosticLevel, code: []const u8, message: []const u8, line: usize, col: usize, file_path: []const u8, file_source: []const u8) Diagnostic {
         return .{
             .level = level,
             .code = code,
             .message = message,
             .line = line,
             .col = col,
+            .file_path = file_path,
+            .file_source = file_source,
         };
     }
 };
@@ -43,20 +47,20 @@ pub const DiagnosticReporter = struct {
         self.diagnostics.deinit(self.allocator);
     }
     
-    pub fn reportError(self: *DiagnosticReporter, code: []const u8, message: []const u8, line: usize, col: usize) !void {
-        const diag = Diagnostic.init(.error_level, code, message, line, col);
+    pub fn reportError(self: *DiagnosticReporter, code: []const u8, message: []const u8, token: @import("../token.zig").Token) !void {
+        const diag = Diagnostic.init(.error_level, code, message, token.loc.line, token.loc.col, token.file_path, token.file_source);
         try self.diagnostics.append(self.allocator, diag);
         self.error_count += 1;
     }
     
-    pub fn reportWarning(self: *DiagnosticReporter, code: []const u8, message: []const u8, line: usize, col: usize) !void {
-        const diag = Diagnostic.init(.warning, code, message, line, col);
+    pub fn reportWarning(self: *DiagnosticReporter, code: []const u8, message: []const u8, token: @import("../token.zig").Token) !void {
+        const diag = Diagnostic.init(.warning, code, message, token.loc.line, token.loc.col, token.file_path, token.file_source);
         try self.diagnostics.append(self.allocator, diag);
         self.warning_count += 1;
     }
     
-    pub fn reportInfo(self: *DiagnosticReporter, code: []const u8, message: []const u8, line: usize, col: usize) !void {
-        const diag = Diagnostic.init(.info, code, message, line, col);
+    pub fn reportInfo(self: *DiagnosticReporter, code: []const u8, message: []const u8, token: @import("../token.zig").Token) !void {
+        const diag = Diagnostic.init(.info, code, message, token.loc.line, token.loc.col, token.file_path, token.file_source);
         try self.diagnostics.append(self.allocator, diag);
     }
     

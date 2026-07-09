@@ -1,49 +1,133 @@
-// Token Definitions in Orbit
-enum TokenKind {
+enum TokType {
+    EOF,
     Identifier,
-    String,
-    Int,
-    Float,
+    StringLiteral,
+    IntegerLiteral,
+    FloatLiteral,
     
     // Keywords
-    Val,
-    Fn,
-    Model,
-    Route,
-    Enum,
-    Union,
-    Match,
-    If,
-    Else,
-    While,
-    Return,
-    Ok,
-    Err,
+    KeywordIf,
+    KeywordElse,
+    KeywordFor,
+    KeywordIn,
+    KeywordWhile,
+    KeywordLoop,
+    KeywordBreak,
+    KeywordContinue,
+    KeywordReturn,
+    KeywordMatch,
+    KeywordType,
+    KeywordEnum,
+    KeywordUnion,
+    KeywordConst,
+    KeywordVal,
+    KeywordVar,
+    KeywordMut,
+    KeywordPrivate,
+    KeywordFn,
+    KeywordModel,
+    KeywordRoute,
+    KeywordUse,
+    KeywordImport,
     
-    // Symbols
+    // Operators
     Plus,
     Minus,
     Asterisk,
     Slash,
+    Percent,
     Equal,
     DoubleEqual,
-    OpenParen,
-    CloseParen,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    DoublePipe,
+    DoubleAmpersand,
+    Bang,
+    Arrow,
+    FatArrow,
+    At,
+    
+    // Delimiters
     OpenBrace,
     CloseBrace,
+    OpenParen,
+    CloseParen,
     OpenBracket,
     CloseBracket,
-    Comma,
-    Dot,
     Colon,
-    Arrow,
-    
-    EOF
+    Dot,
+    Comma,
+    SemiColon
 }
 
 model Token {
-    kind: TokenKind
-    lexeme: string
+    tag: TokType
+    text: string
     line: int
     col: int
+}
+
+fn tokTypeToString(tag: TokType) -> string {
+    match tag {
+        TokType.EOF => return "EOF"
+        TokType.Identifier => return "Identifier"
+        TokType.StringLiteral => return "StringLiteral"
+        TokType.IntegerLiteral => return "IntegerLiteral"
+        TokType.FloatLiteral => return "FloatLiteral"
+        TokType.KeywordIf => return "if"
+        TokType.KeywordElse => return "else"
+        TokType.KeywordFor => return "for"
+        TokType.KeywordIn => return "in"
+        TokType.KeywordWhile => return "while"
+        TokType.KeywordLoop => return "loop"
+        TokType.KeywordBreak => return "break"
+        TokType.KeywordContinue => return "continue"
+        TokType.KeywordReturn => return "return"
+        TokType.KeywordMatch => return "match"
+        TokType.KeywordType => return "type"
+        TokType.KeywordEnum => return "enum"
+        TokType.KeywordUnion => return "union"
+        TokType.KeywordConst => return "const"
+        TokType.KeywordVal => return "val"
+        TokType.KeywordVar => return "var"
+        TokType.KeywordMut => return "mut"
+        TokType.KeywordPrivate => return "private"
+        TokType.KeywordFn => return "fn"
+        TokType.KeywordModel => return "model"
+        TokType.KeywordRoute => return "route"
+        TokType.KeywordUse => return "use"
+        TokType.KeywordImport => return "import"
+        TokType.Plus => return "+"
+        TokType.Minus => return "-"
+        TokType.Asterisk => return "*"
+        TokType.Slash => return "/"
+        TokType.Percent => return "%"
+        TokType.Equal => return "="
+        TokType.DoubleEqual => return "=="
+        TokType.NotEqual => return "!="
+        TokType.Less => return "<"
+        TokType.LessEqual => return "<="
+        TokType.Greater => return ">"
+        TokType.GreaterEqual => return ">="
+        TokType.DoublePipe => return "||"
+        TokType.DoubleAmpersand => return "&&"
+        TokType.Bang => return "!"
+        TokType.Arrow => return "->"
+        TokType.FatArrow => return "=>"
+        TokType.At => return "@"
+        TokType.OpenBrace => return "{"
+        TokType.CloseBrace => return "}"
+        TokType.OpenParen => return "("
+        TokType.CloseParen => return ")"
+        TokType.OpenBracket => return "["
+        TokType.CloseBracket => return "]"
+        TokType.Colon => return ":"
+        TokType.Dot => return "."
+        TokType.Comma => return ","
+        TokType.SemiColon => return ";"
+        _ => return "unknown"
+    }
 }

@@ -1,0 +1,260 @@
+model ParseSummary {
+    functions: int
+    models: int
+    routes: int
+    types: int
+    enums: int
+    unions: int
+    matches: int
+    tokens: int
+    identifiers: int
+    numbers: int
+    strings: int
+    symbols: int
+}
+
+fn isWhitespace(c: int) -> bool {
+    if c == 32 {
+        return true
+    }
+    if c == 9 {
+        return true
+    }
+    if c == 10 {
+        return true
+    }
+    if c == 13 {
+        return true
+    }
+    return false
+}
+
+fn isDigit(c: int) -> bool {
+    if c < 48 {
+        return false
+    }
+    if c > 57 {
+        return false
+    }
+    return true
+}
+
+fn isAlphaLower(c: int) -> bool {
+    if c < 97 {
+        return false
+    }
+    if c > 122 {
+        return false
+    }
+    return true
+}
+
+fn isAlphaUpper(c: int) -> bool {
+    if c < 65 {
+        return false
+    }
+    if c > 90 {
+        return false
+    }
+    return true
+}
+
+fn isAlpha(c: int) -> bool {
+    if isAlphaLower(c) {
+        return true
+    }
+    if isAlphaUpper(c) {
+        return true
+    }
+    if c == 95 {
+        return true
+    }
+    return false
+}
+
+fn isAlphaNumeric(c: int) -> bool {
+    if isAlpha(c) {
+        return true
+    }
+    if isDigit(c) {
+        return true
+    }
+    return false
+}
+
+fn startsWithText(source: string, start: int, keyword: string) -> bool {
+    val end = start + keyword.length
+    if end > source.length {
+        return false
+    }
+
+    val chunk = source.slice(start, end)
+    if chunk != keyword {
+        return false
+    }
+
+    if end < source.length {
+        val next = source.at(end)
+        if isAlphaNumeric(next) {
+            return false
+        }
+    }
+
+    return true
+}
+
+fn hasWordBoundaryAfter(source: string, end: int) -> bool {
+    if end >= source.length {
+        return true
+    }
+
+    val next = source.at(end)
+    if isAlphaNumeric(next) {
+        return false
+    }
+    return true
+}
+
+fn countKeyword(source: string, keyword: string) -> int {
+    val mut i = 0
+    val mut count = 0
+    val mut previousWasBoundary = true
+
+    while i < source.length {
+        val end = i + keyword.length
+        val starts = startsWithText(source, i, keyword)
+
+        if previousWasBoundary {
+            if starts {
+                if hasWordBoundaryAfter(source, end) {
+                    val afterIndex = end
+                    count = count + 1
+                    i = afterIndex
+                    previousWasBoundary = false
+                } else {
+                    val currentA = source.at(i)
+                    previousWasBoundary = isAlphaNumeric(currentA) == false
+                    i = i + 1
+                }
+            } else {
+                val currentB = source.at(i)
+                previousWasBoundary = isAlphaNumeric(currentB) == false
+                i = i + 1
+            }
+        } else {
+            val currentC = source.at(i)
+            previousWasBoundary = isAlphaNumeric(currentC) == false
+            i = i + 1
+        }
+    }
+
+    return count
+}
+
+fn analyzeLexical(source: string) -> ParseSummary {
+    val mut i = 0
+    val mut tokens = 0
+    val mut identifiers = 0
+    val mut numbers = 0
+    val mut strings = 0
+    val mut symbols = 0
+
+    while i < source.length {
+        val c = source.at(i)
+
+        if isWhitespace(c) {
+            i = i + 1
+        } else {
+            if c == 34 {
+                strings = strings + 1
+                tokens = tokens + 1
+                i = i + 1
+
+                while i < source.length {
+                    val inside = source.at(i)
+                    if inside == 34 {
+                        i = i + 1
+                        break
+                    }
+                    i = i + 1
+                }
+            } else {
+                if isDigit(c) {
+                    numbers = numbers + 1
+                    tokens = tokens + 1
+                    i = i + 1
+
+                    while i < source.length {
+                        val dNum = source.at(i)
+                        if isDigit(dNum) {
+                            i = i + 1
+                        } else {
+                            break
+                        }
+                    }
+                } else {
+                    if isAlpha(c) {
+                        identifiers = identifiers + 1
+                        tokens = tokens + 1
+                        i = i + 1
+
+                        while i < source.length {
+                            val dId = source.at(i)
+                            if isAlphaNumeric(dId) {
+                                i = i + 1
+                            } else {
+                                break
+                            }
+                        }
+                    } else {
+                        symbols = symbols + 1
+                        tokens = tokens + 1
+                        i = i + 1
+                    }
+                }
+            }
+        }
+    }
+
+    return ParseSummary(
+        functions: 0,
+        models: 0,
+        routes: 0,
+        types: 0,
+        enums: 0,
+        unions: 0,
+        matches: 0,
+        tokens: tokens,
+        identifiers: identifiers,
+        numbers: numbers,
+        strings: strings,
+        symbols: symbols
+    )
+}
+
+fn buildSummary(source: string) -> ParseSummary {
+    val lexical = analyzeLexical(source)
+
+    val fnCount = countKeyword(source, "fn")
+    val modelCount = countKeyword(source, "model")
+    val routeCount = countKeyword(source, "route")
+    val typeCount = countKeyword(source, "type")
+    val enumCount = countKeyword(source, "enum")
+    val unionCount = countKeyword(source, "union")
+    val matchCount = countKeyword(source, "match")
+
+    return ParseSummary(
+        functions: fnCount,
+        models: modelCount,
+        routes: routeCount,
+        types: typeCount,
+        enums: enumCount,
+        unions: unionCount,
+        matches: matchCount,
+        tokens: lexical.tokens,
+        identifiers: lexical.identifiers,
+        numbers: lexical.numbers,
+        strings: lexical.strings,
+        symbols: lexical.symbols
+    )
+}

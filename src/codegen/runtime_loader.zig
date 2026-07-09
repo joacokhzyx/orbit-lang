@@ -6,7 +6,7 @@ const AtlasConfig = @import("../atlas.zig").AtlasConfig;
 pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
     return try std.fmt.allocPrint(allocator,
         \\#define ORBIT_CUSTOM_ROUTER
-        \\#include "src/runtime/runtime.h"
+        \\#include "runtime.h"
         \\
         \\
     , .{});
@@ -18,6 +18,8 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, conf
     if (has_server) {
         return try std.fmt.allocPrint(allocator,
             \\int main(void) {{
+            \\    void orbit_anti_debug(void);
+            \\    orbit_anti_debug();
             \\    orbit_http_init();
             \\    orbit_db_init("{s}");
             \\    orbit_arena_pool_init({d}, {d});
@@ -35,7 +37,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, conf
             \\    orbit_kynx_init(kynx_cfg);
             \\
             \\    OrbitArena* startup_arena = orbit_arena_pool_acquire();
-            \\    orbit_main(startup_arena);
+            \\    int _orbit_exit_code = orbit_main(startup_arena);
             \\    orbit_arena_pool_release(startup_arena);
             \\
             \\    SOCKET server_sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -86,7 +88,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, conf
             \\    orbit_db_close();
             \\    orbit_http_cleanup();
             \\    closesocket(server_sock);
-            \\    return 0;
+            \\    return _orbit_exit_code;
             \\}}
             \\
         , .{
@@ -99,25 +101,27 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, conf
             config.port,
             config.port,
         });
-    } else {
-        return try std.fmt.allocPrint(allocator,
-            \\int main(void) {{
-            \\    orbit_db_init("{s}");
-            \\    orbit_string_pool_init({d});
-            \\    OrbitArena* arena = orbit_arena_create({d});
-            \\
-            \\    orbit_main(arena);
-            \\
-            \\    orbit_arena_destroy(arena);
-            \\    orbit_string_pool_cleanup();
-            \\    orbit_db_close();
-            \\    return 0;
-            \\}}
-            \\
-        , .{
-            config.db_path,
-            config.string_pool_capacity,
-            config.arena_default_capacity,
-        });
-    }
+        } else {
+            return try std.fmt.allocPrint(allocator,
+                \\int main(void) {{
+                \\    void orbit_anti_debug(void);
+                \\    orbit_anti_debug();
+                \\    orbit_db_init("{s}");
+                \\    orbit_string_pool_init({d});
+                \\    OrbitArena* arena = orbit_arena_create({d});
+                \\
+                \\    int _orbit_exit_code = orbit_main(arena);
+                \\
+                \\    orbit_arena_destroy(arena);
+                \\    orbit_string_pool_cleanup();
+                \\    orbit_db_close();
+                \\    return _orbit_exit_code;
+                \\}}
+                \\
+            , .{
+                config.db_path,
+                config.string_pool_capacity,
+                config.arena_default_capacity,
+            });
+        }
 }

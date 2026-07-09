@@ -1,0 +1,239 @@
+import "./ast.orb"
+import "./ir.orb"
+
+model IRBuilder {
+    module: IRModule
+    currentFunction: IRFunction
+    labelCounter: int
+    variableScopes: list
+}
+
+fn initIRBuilder() -> IRBuilder {
+    val mod = initIRModule()
+    val mainFunc = initIRFunction("orbit_main")
+    return IRBuilder(mod, mainFunc, 0, [])
+}
+
+model Variable {
+    name: string
+    typeVal: string
+}
+
+model VarScope {
+    variables: list
+}
+
+fn initScope() -> VarScope {
+    return VarScope([])
+}
+
+fn pushVariableScope(builder: IRBuilder) {
+    builder.variableScopes.push(initScope())
+}
+
+fn popVariableScope(builder: IRBuilder) {
+    val len = builder.variableScopes.len()
+    if len > 0 {
+        var newList = []
+        var i = 0
+        while i < len - 1 {
+            newList.push(builder.variableScopes.get(i))
+            i = i + 1
+        }
+        builder.variableScopes = newList
+    }
+}
+
+fn currentScopeAdd(scope: VarScope, name: string, typeVal: string) {
+    scope.variables.push(Variable(name, typeVal))
+}
+
+fn checkVariableName(v: Variable, name: string) -> bool {
+    return v.name == name
+}
+
+fn getVariableType(v: Variable) -> string {
+    return v.typeVal
+}
+
+fn scopeGet(scope: VarScope, name: string) -> string {
+    var i = 0
+    while i < scope.variables.len() {
+        val v = scope.variables.get(i)
+        if checkVariableName(v, name) {
+            return getVariableType(v)
+        }
+        i = i + 1
+    }
+    return "unknown"
+}
+
+fn defineVariable(builder: IRBuilder, name: string, typeVal: string) {
+    val len = builder.variableScopes.len()
+    if len == 0 {
+        pushVariableScope(builder)
+    }
+    val currentScope = builder.variableScopes.get(builder.variableScopes.len() - 1)
+    currentScopeAdd(currentScope, name, typeVal)
+}
+
+fn lookupVariable(builder: IRBuilder, name: string) -> string {
+    var i = builder.variableScopes.len()
+    while i > 0 {
+        i = i - 1
+        val scope = builder.variableScopes.get(i)
+        val typeVal = scopeGet(scope, name)
+        if typeVal != "unknown" {
+            return typeVal
+        }
+    }
+    return "unknown"
+}
+
+fn checkTypeName(t: IRTypeDecl, typeName: string) -> bool {
+    return t.name == typeName
+}
+
+fn resolveIRType(builder: IRBuilder, typeName: string) -> string {
+    var i = 0
+    while i < builder.module.types.len() {
+        val t = builder.module.types.get(i)
+        if checkTypeName(t, typeName) {
+            return typeName
+        }
+        i = i + 1
+    }
+    return typeName
+}
+
+fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
+    match rootNode {
+        ASTNode.Program(p) => {
+            var i = 0
+            // Pass 1: Types and Signatures (skipped for now, assuming simple)
+            
+            // Pass 2: Functions
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                buildDecl(builder, decl)
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return builder.module
+}
+
+fn buildDecl(builder: IRBuilder, node: ASTNode) {
+    match node {
+        ASTNode.FunctionDecl(f) => {
+            val func = initIRFunction(f.name)
+            func.returnType = f.returnType
+            
+            // add to module
+            builder.module.functions.push(func)
+            
+            val prevFunc = builder.currentFunction
+            builder.currentFunction = func
+            
+            pushVariableScope(builder)
+            
+            var i = 0
+            while i < f.params.len() {
+                val p = f.params.get(i)
+                // Assume p is string for now in AST
+                func.params.push(p)
+                func.paramTypes.push("unknown")
+                defineVariable(builder, p, "unknown")
+                
+                // create arg instruction
+                val instr = ir_init_instr(IROpcode.arg)
+                instr.dest = ir_alloc_register(func, "unknown")
+                instr.operand1 = ir_int(i)
+                ir_emit(func, instr)
+                
+                i = i + 1
+            }
+            
+            buildNode(builder, f.body)
+            
+            popVariableScope(builder)
+            builder.currentFunction = prevFunc
+        }
+        _ => {}
+    }
+}
+
+fn buildNode(builder: IRBuilder, node: ASTNode) {
+    match node {
+        ASTNode.Block(b) => {
+            pushVariableScope(builder)
+            var i = 0
+            while i < b.statements.len() {
+                buildNode(builder, b.statements.get(i))
+                i = i + 1
+            }
+            popVariableScope(builder)
+        }
+        ASTNode.Return(r) => {
+            val retReg = buildExpr(builder, r.expr)
+            val retInstr = ir_init_instr(IROpcode.ret)
+            retInstr.operand1 = ir_register(retReg)
+            ir_emit(builder.currentFunction, retInstr)
+        }
+        ASTNode.VarDecl(v) => {
+            val varReg = buildExpr(builder, v.value)
+            val varInstr = ir_init_instr(IROpcode.decl_var)
+            varInstr.operand1 = ir_symbol(v.name)
+            varInstr.operand2 = ir_register(varReg)
+            ir_emit(builder.currentFunction, varInstr)
+            defineVariable(builder, v.name, "unknown")
+        }
+        ASTNode.Empty => {}
+        _ => {
+            // Expression statement
+            buildExpr(builder, node)
+        }
+    }
+}
+
+fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
+    match node {
+        ASTNode.Literal(lit) => {
+            val litInstr = ir_init_instr(IROpcode.load_const)
+            val typeVal = lit.valType
+            val litReg = ir_alloc_register(builder.currentFunction, typeVal)
+            litInstr.dest = litReg
+            if typeVal == "int" {
+                // TODO: string to int conversion needed here, or store string and backend parses
+                litInstr.operand1 = ir_string(lit.text)
+            } else {
+                litInstr.operand1 = ir_string(lit.text)
+            }
+            ir_emit(builder.currentFunction, litInstr)
+            return litReg
+        }
+        ASTNode.BinaryOp(bin) => {
+            val lhsReg = buildExpr(builder, bin.lhs)
+            val rhsReg = buildExpr(builder, bin.rhs)
+            
+            var opCode = IROpcode.add
+            if bin.op == "+" { opCode = IROpcode.add }
+            if bin.op == "-" { opCode = IROpcode.sub }
+            if bin.op == "*" { opCode = IROpcode.mul }
+            if bin.op == "/" { opCode = IROpcode.div }
+            if bin.op == "==" { opCode = IROpcode.eq }
+            
+            val binInstr = ir_init_instr(opCode)
+            val binReg = ir_alloc_register(builder.currentFunction, "unknown")
+            binInstr.dest = binReg
+            binInstr.operand1 = ir_register(lhsReg)
+            binInstr.operand2 = ir_register(rhsReg)
+            ir_emit(builder.currentFunction, binInstr)
+            return binReg
+        }
+        _ => {
+            return -1
+        }
+    }
+}

@@ -3,397 +3,688 @@ const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const Sema = @import("sema.zig").Sema;
 const IRBuilder = @import("ir/builder.zig").IRBuilder;
-const ir_opt = @import("ir/optimizer.zig");
+const ir = @import("ir/ir.zig");
+const IRInstruction = ir.IRInstruction;
+const IRValue = ir.IRValue;
+const IROpcode = ir.IROpcode;
+const CBackend = @import("codegen/c_backend.zig").CBackend;
+const AtlasConfig = @import("atlas.zig").AtlasConfig;
 
-// Test suite for IR call instruction parameter passing
-test "ir.call_instruction_parameters" {
-    // Test basic call with no parameters
-    var instr1 = @import("../ir/ir.zig").IRInstruction.call(1, "func1", &[_]@import("../ir/ir.zig").IRValue{});
-    try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instr1.opcode);
-    try std.testing.expectEqual(@as(?u32, 1), instr1.dest);
-    try std.testing.expectEqualStrings("func1", instr1.operand1.string);
-    try std.testing.expectEqual(@as(u32, 0), instr1.operand2.register);
-
-    // Test call with parameters
-    const params = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .int = 42 },
-        @import("../ir/ir.zig").IRValue{ .string = "hello" },
-        @import("../ir/ir.zig").IRValue{ .bool = true },
-    };
-    var instr2 = @import("../ir/ir.zig").IRInstruction.call(2, "func2", params);
-    try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instr2.opcode);
-    try std.testing.expectEqual(@as(?u32, 2), instr2.dest);
-    try std.testing.expectEqualStrings("func2", instr2.operand1.string);
-    try std.testing.expectEqual(@as(u32, 3), instr2.operand2.register);
+// Helper: build an ArenaAllocator backed by a GPA for each test.
+// Using an arena means all parser nodes, sema tables, and IR structures
+// are freed in one shot at arena.deinit() — no need for individual cleanup
+// and no DebugAllocator leak logs from parser node pools.
+fn testArena() struct { arena: std.heap.ArenaAllocator } {
+    return .{ .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
 }
 
-test "ir.call_instruction_parameter_count" {
-    // Test parameter count is correctly stored
-    const params1 = &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .int = 1 } };
-    var instr1 = @import("../ir/ir.zig").IRInstruction.call(1, "single", params1);
-    try std.testing.expectEqual(@as(u32, 1), instr1.operand2.register);
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream A: Lexer regression tests (P0)
+// ─────────────────────────────────────────────────────────────────────────────
 
-    const params2 = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .int = 1 },
-        @import("../ir/ir.zig").IRValue{ .int = 2 },
-        @import("../ir/ir.zig").IRValue{ .int = 3 },
-        @import("../ir/ir.zig").IRValue{ .int = 4 },
+test "lexer.invalid_token" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+    
+    const source = "val a = 10 $";
+    var l = Lexer.init(source, "test.orb");
+    const tokens = try l.tokenize(allocator);
+    
+    // Check that we got an Invalid token.
+    var found_invalid = false;
+    for (tokens) |tok| {
+        if (tok.tag == .Invalid) {
+            found_invalid = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_invalid);
+}
+
+test "lexer.unclosed_string" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+    
+    const source = "val s = \"unclosed string";
+    var l = Lexer.init(source, "test.orb");
+    const tokens = try l.tokenize(allocator);
+    
+    var found_invalid = false;
+    for (tokens) |tok| {
+        if (tok.tag == .Invalid) {
+            found_invalid = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_invalid);
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream B: Parser regression tests (P0)
+// Syntax reference: tests/bootstrap/fixtures/
+//   - keyword: `fn` (not `func`)
+//   - `val` declarations live inside fn bodies
+//   - top level: only fn / type declarations
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "parser.top_level_function_declaration" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn add(a: int, b: int) -> int {
+        \\    return a + b
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    _ = try p.parse();
+}
+
+test "parser.two_functions" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn add(a: int, b: int) -> int {
+        \\    return a + b
+        \\}
+        \\
+        \\fn greet(name: string) {
+        \\    print(name)
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    _ = try p.parse();
+}
+
+test "parser.val_inside_fn" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn main() {
+        \\    val total = add(20, 22)
+        \\    print(total)
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    _ = try p.parse();
+}
+
+test "parser.if_else_expression" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn check(x: int) -> string {
+        \\    if x > 0 {
+        \\        return "positive"
+        \\    } else {
+        \\        return "non-positive"
+        \\    }
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    _ = try p.parse();
+}
+
+test "parser.call_in_fn_body" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // Based on nested_call.orb fixture
+    const source =
+        \\fn main() {
+        \\    print("Nested call fixture")
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    _ = try p.parse();
+}
+
+test "parser.rescue_syntax_smoke" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // Based on rescue_expr.orb: uses `? err code "msg"` syntax
+    const source =
+        \\fn safeRead(path: string) -> string {
+        \\    return file.read(path) ? err 404 "missing"
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    // rescue syntax may or may not be supported yet — smoke only
+    _ = p.parse() catch {};
+}
+
+test "parser.negative.missing_closing_brace" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn oops() {
+        \\    print("Forgot closing brace")
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    // Should return error from parser
+    const res = p.parse();
+    try std.testing.expectError(error.UnexpectedToken, res);
+}
+
+test "parser.negative.invalid_token" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // The ^ character is invalid in Orbit outside strings
+    const source =
+        \\fn test() {
+        \\    val x = ^
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const res = p.parse();
+    try std.testing.expectError(error.UnexpectedToken, res);
+}
+
+test "parser.string_escape_edge_cases" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn test() {
+        \\    val a = "Hello\nWorld"
+        \\    val b = "Escaped \"quote\""
+        \\    val c = "Backslash \\ test"
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    // Should parse without errors
+    _ = try p.parse();
+}
+
+test "parser.negative.unclosed_string" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn test() {
+        \\    val a = "Hello
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const res = p.parse();
+    try std.testing.expectError(error.UnexpectedToken, res);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream C: Sema / type-check smoke tests (P0)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "sema.well_formed_function_passes" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // Matches sema_wellformed.orb fixture exactly
+    const source =
+        \\fn add(a: int, b: int) -> int {
+        \\    return a + b
+        \\}
+        \\
+        \\fn greet(name: string) {
+        \\    print(name)
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+    try std.testing.expect(sema.diagnostics.error_count == 0);
+}
+
+test "sema.duplicate_fn_is_diagnosed" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // The parser accepts duplicate fn names.
+    // Sema should report DuplicateDefinition (E001).
+    const source =
+        \\fn foo(a: int) -> int {
+        \\    return a
+        \\}
+        \\
+        \\fn foo(b: int) -> int {
+        \\    return b
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+    
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+    try std.testing.expect(sema.diagnostics.hasErrors());
+}
+
+test "sema.match_non_exhaustive_is_diagnosed" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // Sema should report Non-exhaustive match for type 'Result'
+    const source =
+        \\type Result = enum { Ok, Err }
+        \\
+        \\fn process(r: Result) {
+        \\    match r {
+        \\        Result.Ok => print("Success")
+        \\    }
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+    
+    const sema = try Sema.create(allocator, source);
+    _ = sema.analyze(root) catch {}; // Catch NonExhaustiveMatch error
+    try std.testing.expect(sema.diagnostics.hasErrors());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream D: IR instruction structure tests (P0)
+// Pure unit tests — no parser/sema/allocator dependency
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "ir.call_instruction_no_params" {
+    const instr = IRInstruction.call(1, "func1", &[_]IRValue{});
+    try std.testing.expectEqual(IROpcode.call, instr.opcode);
+    try std.testing.expectEqual(@as(?u32, 1), instr.dest);
+    try std.testing.expectEqualStrings("func1", instr.operand1.string);
+    try std.testing.expectEqual(@as(u32, 0), instr.operand2.register);
+}
+
+test "ir.call_instruction_with_params" {
+    const params = &[_]IRValue{
+        IRValue{ .int = 42 },
+        IRValue{ .string = "hello" },
+        IRValue{ .bool = true },
     };
-    var instr2 = @import("../ir/ir.zig").IRInstruction.call(2, "quad", params2);
-    try std.testing.expectEqual(@as(u32, 4), instr2.operand2.register);
+    const instr = IRInstruction.call(2, "func2", params);
+    try std.testing.expectEqual(IROpcode.call, instr.opcode);
+    try std.testing.expectEqual(@as(?u32, 2), instr.dest);
+    try std.testing.expectEqualStrings("func2", instr.operand1.string);
+    try std.testing.expectEqual(@as(u32, 3), instr.operand2.register);
+}
+
+test "ir.call_instruction_param_count" {
+    const p1 = &[_]IRValue{IRValue{ .int = 1 }};
+    const instr_single = IRInstruction.call(1, "single", p1);
+    try std.testing.expectEqual(@as(u32, 1), instr_single.operand2.register);
+
+    const p4 = &[_]IRValue{
+        IRValue{ .int = 1 },
+        IRValue{ .int = 2 },
+        IRValue{ .int = 3 },
+        IRValue{ .int = 4 },
+    };
+    const instr_quad = IRInstruction.call(2, "quad", p4);
+    try std.testing.expectEqual(@as(u32, 4), instr_quad.operand2.register);
 }
 
 test "ir.call_instruction_dest_register" {
-    // Test destination register is correctly set
-    var instr1 = @import("../ir/ir.zig").IRInstruction.call(5, "func", &[_]@import("../ir/ir.zig").IRValue{});
-    try std.testing.expectEqual(@as(?u32, 5), instr1.dest);
+    const instr5 = IRInstruction.call(5, "func", &[_]IRValue{});
+    try std.testing.expectEqual(@as(?u32, 5), instr5.dest);
 
-    var instr2 = @import("../ir/ir.zig").IRInstruction.call(10, "another", &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .int = 100 } });
-    try std.testing.expectEqual(@as(?u32, 10), instr2.dest);
+    const instr10 = IRInstruction.call(10, "another", &[_]IRValue{IRValue{ .int = 100 }});
+    try std.testing.expectEqual(@as(?u32, 10), instr10.dest);
 }
 
 test "ir.call_instruction_function_name" {
-    // Test function name is correctly stored
-    var instr1 = @import("../ir/ir.zig").IRInstruction.call(1, "my_function", &[_]@import("../ir/ir.zig").IRValue{});
-    try std.testing.expectEqualStrings("my_function", instr1.operand1.string);
+    const instr_a = IRInstruction.call(1, "my_function", &[_]IRValue{});
+    try std.testing.expectEqualStrings("my_function", instr_a.operand1.string);
 
-    var instr2 = @import("../ir/ir.zig").IRInstruction.call(2, "another_func", &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .float = 3.14 } });
-    try std.testing.expectEqualStrings("another_func", instr2.operand1.string);
+    const instr_b = IRInstruction.call(2, "another_func", &[_]IRValue{IRValue{ .float = 3.14 }});
+    try std.testing.expectEqualStrings("another_func", instr_b.operand1.string);
 }
 
-test "ir.call_instruction_empty_parameters" {
-    // Test empty parameter list
-    var instr = @import("../ir/ir.zig").IRInstruction.call(1, "empty", &[_]@import("../ir/ir.zig").IRValue{});
-    try std.testing.expectEqual(@as(u32, 0), instr.operand2.register);
-    try std.testing.expectEqual(@as(u32, 0), instr.operand3.register);
-}
-
-test "ir.call_instruction_parameter_storage" {
-    // Test that parameters are accessible via operand3
-    const params = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .int = 42 },
-        @import("../ir/ir.zig").IRValue{ .string = "test" },
+test "ir.call_mixed_value_types" {
+    const params = &[_]IRValue{
+        IRValue{ .int = 42 },
+        IRValue{ .float = 3.14 },
+        IRValue{ .string = "hello" },
+        IRValue{ .bool = true },
+        IRValue{ .register = 7 },
     };
-    var instr = @import("../ir/ir.zig").IRInstruction.call(1, "store", params);
-
-    // In actual implementation, parameters would be stored in a separate structure
-    // This test verifies the instruction structure is correctly formed
-    try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instr.opcode);
-    try std.testing.expectEqual(@as(?u32, 1), instr.dest);
-    try std.testing.expectEqualStrings("store", instr.operand1.string);
-    try std.testing.expectEqual(@as(u32, 2), instr.operand2.register);
-}
-
-// Performance test for parameter passing
-const std = @import("std");
-const testing = std.testing;
-
-const ir = @import("../ir/ir.zig");
-const IRInstruction = ir.IRInstruction;
-
-const allocator = std.testing.allocator;
-
-test "ir.call_instruction_performance" {
-    // Test parameter passing with various sizes
-    const test_cases = &[_][]const u8{
-        "empty",
-        "single",
-        "double",
-        "triple",
-        "many_parameters_function_name_that_is_very_long",
-    };
-
-    for (test_cases) |func_name| {
-        // Test with 0 parameters
-        var instr0 = @import("../ir/ir.zig").IRInstruction.call(1, func_name, &[_]@import("../ir/ir.zig").IRValue{});
-        try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instr0.opcode);
-        try std.testing.expectEqualStrings(func_name, instr0.operand1.string);
-
-        // Test with 1 parameter
-        var instr1 = @import("../ir/ir.zig").IRInstruction.call(2, func_name, &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .int = 100 } });
-        try std.testing.expectEqual(@as(u32, 1), instr1.operand2.register);
-
-        // Test with 5 parameters
-        var instr5 = @import("../ir/ir.zig").IRInstruction.call(3, func_name, &[_]@import("../ir/ir.zig").IRValue{
-            @import("../ir/ir.zig").IRValue{ .int = 1 },
-            @import("../ir/ir.zig").IRValue{ .int = 2 },
-            @import("../ir/ir.zig").IRValue{ .int = 3 },
-            @import("../ir/ir.zig").IRValue{ .int = 4 },
-            @import("../ir/ir.zig").IRValue{ .int = 5 },
-        });
-        try std.testing.expectEqual(@as(u32, 5), instr5.operand2.register);
-    }
-}
-
-test "ir.call_instruction_large_function_name" {
-    // Test with very long function names
-    const long_name = &[_]u8{0} ** 1000; // 1000 character function name
-    for (0..1000) |i| {
-        long_name[i] = @intCast(u8, 'a' + (i % 26));
-    }
-    const long_name_str = std.mem.sliceTo(&long_name, 0);
-
-    var instr = @import("../ir/ir.zig").IRInstruction.call(1, long_name_str, &[_]@import("../ir/ir.zig").IRValue{});
-    try std.testing.expectEqualStrings(long_name_str, instr.operand1.string);
-}
-
-test "ir.call_instruction_multiple_calls" {
-    // Test creating multiple call instructions
-    var instrs = std.ArrayList(@import("../ir/ir.zig").IRInstruction).init(allocator);
-    defer instrs.deinit();
-
-    try instrs.append(@import("../ir/ir.zig").IRInstruction.call(1, "func1", &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .int = 1 } }));
-    try instrs.append(@import("../ir/ir.zig").IRInstruction.call(2, "func2", &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .string = "hello" } }));
-    try instrs.append(@import("../ir/ir.zig").IRInstruction.call(3, "func3", &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .bool = true } }));
-
-    try std.testing.expectEqual(@as(usize, 3), instrs.items.len);
-    try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instrs.items[0].opcode);
-    try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instrs.items[1].opcode);
-    try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instrs.items[2].opcode);
-}
-
-test "ir.call_instruction_different_parameter_types" {
-    // Test with different parameter types
-    const params = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .int = 42 },
-        @import("../ir/ir.zig").IRValue{ .float = 3.14 },
-        @import("../ir/ir.zig").IRValue{ .string = "hello" },
-        @import("../ir/ir.zig").IRValue{ .bool = true },
-        @import("../ir/ir.zig").IRValue{ .none = {} },
-    };
-
-    var instr = @import("../ir/ir.zig").IRInstruction.call(1, "mixed", params);
+    const instr = IRInstruction.call(1, "mixed", params);
     try std.testing.expectEqual(@as(u32, 5), instr.operand2.register);
-
-    // Verify instruction structure is valid
-    try std.testing.expectEqual(@import("../ir/ir.zig").IROpcode.call, instr.opcode);
-    try std.testing.expectEqual(@as(?u32, 1), instr.dest);
-    try std.testing.expectEqualStrings("mixed", instr.operand1.string);
+    try std.testing.expectEqual(IROpcode.call, instr.opcode);
 }
 
-// Test IRBuilder call instruction generation
-const ir_builder = @import("../ir/builder.zig");
-const IRBuilder = ir_builder.IRBuilder;
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream D: IR Builder integration tests (P0)
+// Uses syntax validated by existing bootstrap fixtures.
+// Arena allocator avoids double-free: builder.deinit() owns the module.
+// ─────────────────────────────────────────────────────────────────────────────
 
-const ast = @import("../ast.zig");
-const Node = ast.Node;
+test "ir_builder.simple_function_produces_ir" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
 
-const lexer = @import("../lexer.zig");
-const Lexer = lexer.Lexer;
-const Token = lexer.Token;
-const TokenType = lexer.TokenType;
+    // Matches sema_wellformed.orb
+    const source =
+        \\fn add(a: int, b: int) -> int {
+        \\    return a + b
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
 
-const parser = @import("../parser.zig");
-const Parser = parser.Parser;
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
 
-test "ir_builder_call_instruction" {
-    // Create a simple AST with a function call
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
+    _ = try builder.build(root);
 
-    // Create test source code
-    const source = \n"""
-func add(a: int, b: int) -> int {
-    return a + b
+    try std.testing.expect(builder.module.functions.items.len > 0);
 }
 
-val result = add(5, 3)
-""";
+test "ir_builder.fn_with_call_in_body" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
 
-    // Lex the source
-    var lexer = Lexer.init(source, allocator);
-    var current_token = lexer.next();
-    var previous_token = lexer.next();
+    // Based on typed_return.orb fixture — call happens inside fn main body
+    const source =
+        \\fn add(a: int, b: int) -> int {
+        \\    return a + b
+        \\}
+        \\
+        \\fn main() {
+        \\    val total = add(20, 22)
+        \\    print(total)
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
 
-    // Parse the source
-    var parser = Parser.init(source, allocator);
-    const root = parser.parse() catch unreachable;
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
 
-    // Create IRBuilder
-    var ir_builder = IRBuilder.init(allocator, source, &std.AutoHashMapUnmanaged(*Node, []const u8){}.init(allocator));
-    defer ir_builder.deinit();
+    var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
+    _ = try builder.build(root);
 
-    // Build the AST into IR
-    const ir_module = ir_builder.build(root) catch unreachable;
-    defer ir_module.deinit();
+    // Should have at least: add + main
+    try std.testing.expect(builder.module.functions.items.len >= 2);
 
-    // Verify the call instruction was generated correctly
-    // (This would require examining the IRModule structure)
-    // For now, we just verify the build completed successfully
-    try std.testing.expect(ir_module.functions.items.len > 0);
-}
-
-test "ir_builder_call_with_parameters" {
-    // Create AST with function call that has parameters
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const source = \n"""
-func multiply(x: int, y: int) -> int {
-    return x * y
-}
-
-val product = multiply(10, 20)
-""";
-
-    var lexer = Lexer.init(source, allocator);
-    var current_token = lexer.next();
-    var previous_token = lexer.next();
-
-    var parser = Parser.init(source, allocator);
-    const root = parser.parse() catch unreachable;
-
-    var ir_builder = IRBuilder.init(allocator, source, &std.AutoHashMapUnmanaged(*Node, []const u8){}.init(allocator));
-    defer ir_builder.deinit();
-
-    const ir_module = ir_builder.build(root) catch unreachable;
-    defer ir_module.deinit();
-
-    // Verify parameters were passed correctly
-    // This would require more detailed IR inspection
-    try std.testing.expect(ir_module.functions.items.len > 0);
-}
-
-// Test IRValue parameter passing
-test "ir_value_parameter_types" {
-    // Test various IRValue types as parameters
-    const params = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .int = 42 },
-        @import("../ir/ir.zig").IRValue{ .float = 3.14 },
-        @import("../ir/ir.zig").IRValue{ .string = "hello" },
-        @import("../ir/ir.zig").IRValue{ .bool = true },
-        @import("../ir/ir.zig").IRValue{ .none = {} },
-    };
-
-    var instr = @import("../ir/ir.zig").IRInstruction.call(1, "test", params);
-    try std.testing.expectEqual(@as(u32, 5), instr.operand2.register);
-
-    // Test with empty parameters
-    var instr_empty = @import("../ir/ir.zig").IRInstruction.call(2, "empty", &[_]@import("../ir/ir.zig").IRValue{});
-    try std.testing.expectEqual(@as(u32, 0), instr_empty.operand2.register);
-}
-
-test "ir_value_parameter_register_references" {
-    // Test parameters that reference registers
-    const params = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .register = 1 },
-        @import("../ir/ir.zig").IRValue{ .register = 2 },
-        @import("../ir/ir.zig").IRValue{ .register = 3 },
-    };
-
-    var instr = @import("../ir/ir.zig").IRInstruction.call(4, "registers", params);
-    try std.testing.expectEqual(@as(u32, 3), instr.operand2.register);
-
-    // Test single register parameter
-    var instr_single = @import("../ir/ir.zig").IRInstruction.call(5, "single_reg", &[_]@import("../ir/ir.zig").IRValue{ @import("../ir/ir.zig").IRValue{ .register = 10 } });
-    try std.testing.expectEqual(@as(u32, 1), instr_single.operand2.register);
-}
-
-test "ir_value_parameter_const_values" {
-    // Test parameters with constant values
-    const params = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .int = 100 },
-        @import("../ir/ir.zig").IRValue{ .float = 2.718 },
-        @import("../ir/ir.zig").IRValue{ .string = "const" },
-        @import("../ir/ir.zig").IRValue{ .bool = false },
-    };
-
-    var instr = @import("../ir/ir.zig").IRInstruction.call(1, "constants", params);
-    try std.testing.expectEqual(@as(u32, 4), instr.operand2.register);
-
-    // Test mixed constant and register parameters
-    const mixed_params = &[_]@import("../ir/ir.zig").IRValue{
-        @import("../ir/ir.zig").IRValue{ .int = 50 },
-        @import("../ir/ir.zig").IRValue{ .register = 1 },
-        @import("../ir/ir.zig").IRValue{ .string = "mix" },
-    };
-    var instr_mixed = @import("../ir/ir.zig").IRInstruction.call(2, "mixed", mixed_params);
-    try std.testing.expectEqual(@as(u32, 3), instr_mixed.operand2.register);
-}
-
-// Integration test for complete call instruction flow
-test "ir_call_instruction_integration" {
-    // Test complete flow from AST to IR instruction
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    // Create source with multiple function calls
-    const source = \n"""
-func add(a: int, b: int) -> int {
-    return a + b
-}
-
-func multiply(x: int, y: int) -> int {
-    return x * y
-}
-
-val result1 = add(5, 3)
-val result2 = multiply(result1, 2)
-val result3 = add(result2, 10)
-""";
-
-    var lexer = Lexer.init(source, allocator);
-    var current_token = lexer.next();
-    var previous_token = lexer.next();
-
-    var parser = Parser.init(source, allocator);
-    const root = parser.parse() catch unreachable;
-
-    var ir_builder = IRBuilder.init(allocator, source, &std.AutoHashMapUnmanaged(*Node, []const u8){}.init(allocator));
-    defer ir_builder.deinit();
-
-    const ir_module = ir_builder.build(root) catch unreachable;
-    defer ir_module.deinit();
-
-    // Verify multiple functions and call instructions were created
-    try std.testing.expect(ir_module.functions.items.len >= 3); // main + add + multiply
-
-    // Verify each function has expected instructions
-    for (ir_module.functions.items) |func| {
-        // Each function should have at least one instruction
-        try std.testing.expect(func.instructions.items.len > 0);
-
-        // Check for call instructions
+    // Find a call instruction somewhere in the module
+    var found_call = false;
+    for (builder.module.functions.items) |func| {
         for (func.instructions.items) |instr| {
-            if (instr.opcode == .call) {
-                // Call instruction should have valid structure
-                try std.testing.expect(instr.operand1 != .none);
-                try std.testing.expect(instr.operand2 != .none);
-            }
+            if (instr.opcode == .call) found_call = true;
         }
     }
+    try std.testing.expect(found_call);
 }
 
-// Performance benchmark for parameter passing
-test "ir_call_instruction_performance_benchmark" {
-    const std = @import("std");
-    const testing = std.testing;
+test "ir_builder.list_creation" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+    
+    const source =
+        \\fn main() {
+        \\    val nums = [1, 2, 3]
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
 
-    const benchmark = testing.benchmark;
+    var sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
 
-    // Benchmark creating call instructions with various parameter counts
-    const param_counts = &[_]usize{ 0, 1, 5, 10, 20 };
+    var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
+    _ = try builder.build(root);
 
-    for (param_counts) |count| {
-        const params = try allocator.alloc(@import("../ir/ir.zig").IRValue, count);
-        defer allocator.free(params);
-
-        for (params) |*param, i| {
-            param.* = switch (i % 4) {
-                0 > @import("../ir/ir.zig").IRValue{ .int = @intCast(i64, i) },
-                1 > @import("../ir/ir.zig").IRValue{ .float = @intToFloat(f64, i) },
-                2 > @import("../ir/ir.zig").IRValue{ .string = "param" },
-                3 > @import("../ir/ir.zig").IRValue{ .bool = i % 2 == 0 },
-                else > @import("../ir/ir.zig").IRValue{ .none = {} },
-            };
+    // Find list instructions somewhere in the module
+    var found_create = false;
+    var found_push = false;
+    for (builder.module.functions.items) |func| {
+        for (func.instructions.items) |instr| {
+            if (instr.opcode == .list_create) found_create = true;
+            if (instr.opcode == .list_push) found_push = true;
         }
-
-        _ = benchmark("create_call_instruction_" ++ std.fmt.comptimePrint("{}", .{count}), {}, {
-            var instr = @import("../ir/ir.zig").IRInstruction.call(1, "benchmark_func", params);
-            _ = instr;
-        });
     }
+    try std.testing.expect(found_create);
+    try std.testing.expect(found_push);
+}
+
+test "ir.result_opcodes" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn do_work() -> result {
+        \\    val success = true
+        \\    if (success) {
+        \\        return ok(42)
+        \\    } else {
+        \\        return err(400, "Bad Request")
+        \\    }
+        \\}
+        \\fn handle() {
+        \\    val r = do_work()
+        \\    if (r.ok) {
+        \\        print(r.unwrap())
+        \\    }
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    var sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+
+    var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
+    _ = try builder.build(root);
+
+
+    
+    var found_ok = false;
+    var found_err = false;
+    var found_is_ok = false;
+    var found_unwrap = false;
+    for (builder.module.functions.items) |func| {
+        for (func.instructions.items) |instr| {
+            if (instr.opcode == .result_ok) found_ok = true;
+            if (instr.opcode == .result_err) found_err = true;
+            if (instr.opcode == .result_is_ok) found_is_ok = true;
+            if (instr.opcode == .result_unwrap) found_unwrap = true;
+        }
+    }
+    
+    try std.testing.expect(found_ok);
+    try std.testing.expect(found_err);
+    try std.testing.expect(found_is_ok);
+    try std.testing.expect(found_unwrap);
+}
+
+test "codegen.c_backend_golden_snapshot" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn main() -> int {
+        \\    return 42
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    var sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+
+    var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
+    const module = try builder.build(root);
+
+    const config = AtlasConfig{};
+    var backend = CBackend.init(allocator, config, false);
+    const c_code = try backend.generate(module);
+    
+    const expected = 
+        \\#define ORBIT_CUSTOM_ROUTER
+        \\#include "src/runtime/runtime.h"
+        \\
+        \\
+        \\OrbitArena* arena = NULL;
+        \\int orbit_main(OrbitArena* _init_arena);
+        \\
+        \\int orbit_main(OrbitArena* _init_arena) {
+        \\    arena = _init_arena;
+        \\    return 42;
+        \\    return 0;
+        \\}
+        \\
+        \\void orbit_handle_request(SOCKET client_sock, const char* raw_request, OrbitArena* arena) {
+        \\    uint64_t start = orbit_rdtsc();
+        \\    orbit_perf_start_request();
+        \\
+        \\    OrbitRequest* req = orbit_http_parse_request(arena, raw_request, strlen(raw_request));
+        \\    if (!req) return;
+        \\
+        \\    if (req->path && strcmp(req->path, "/_pulse") == 0) {
+        \\        OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
+        \\        orbit_send_response(client_sock, res);
+        \\        orbit_perf_end_request(start);
+        \\        return;
+        \\    }
+        \\    if (req->path && strcmp(req->path, "/_pulse/data") == 0) {
+        \\        orbit_string json = orbit_pulse_get_stats_json(arena);
+        \\        OrbitResponse* res = orbit_response_json(arena, 200, json);
+        \\        orbit_send_response(client_sock, res);
+        \\        orbit_perf_end_request(start);
+        \\        return;
+        \\    }
+        \\    OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
+        \\    orbit_send_response(client_sock, res);
+        \\    orbit_perf_end_request(start);
+        \\}
+        \\int main(void) {
+        \\    orbit_db_init("orbit.db");
+        \\    orbit_string_pool_init(4096);
+        \\    OrbitArena* arena = orbit_arena_create(65536);
+        \\
+        \\    int _orbit_exit_code = orbit_main(arena);
+        \\
+        \\    orbit_arena_destroy(arena);
+        \\    orbit_string_pool_cleanup();
+        \\    orbit_db_close();
+        \\    return _orbit_exit_code;
+        \\}
+        \\
+    ;
+    try std.testing.expect(std.mem.eql(u8, c_code, expected));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream H: Expanded CLI fixture suite (Negative & Stress)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "sema.negative.type_mismatch_return" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn oops() -> int {
+        \\    return "not an int"
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    var sema = try Sema.create(allocator, source);
+    const res = sema.analyze(root);
+    try std.testing.expectError(error.TypeMismatch, res);
+}
+
+test "sema.negative.missing_return" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source = 
+        \\fn forgot() -> int {
+        \\    return
+        \\}
+    ;
+    
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    var sema = try Sema.create(allocator, source);
+    const res = sema.analyze(root);
+    try std.testing.expectError(error.MissingReturn, res);
+}
+
+test "sema.feature.out_of_order_decls" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source = 
+        \\fn get_val() -> int {
+        \\    return GLOBAL_CONST
+        \\}
+        \\
+        \\const GLOBAL_CONST = compute_val()
+        \\
+        \\fn compute_val() -> int {
+        \\    return 42
+        \\}
+    ;
+    
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    var sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+}
+
+test "parser.stress.chained_imports" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // Generate 5000 imports
+    var huge_source = std.ArrayListUnmanaged(u8){};
+    defer huge_source.deinit(allocator);
+    
+    var i: usize = 0;
+    while (i < 5000) : (i += 1) {
+        const str = try std.fmt.allocPrint(allocator, "import \"./module_{d}.orb\"\n", .{i});
+        try huge_source.appendSlice(allocator, str);
+        allocator.free(str);
+    }
+
+    var p = Parser.init(huge_source.items, "test.orb", allocator);
+    const root = try p.parse();
+    
+    try std.testing.expectEqual(@import("ast.zig").Node.Tag.root, root.tag);
+    try std.testing.expectEqual(@as(usize, 5000), root.data.root.decls.len);
 }

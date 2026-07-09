@@ -18,3 +18,26 @@ build_*.txt
 error*.txt
 output*.txt
 test_output.txt
+
+# Benchmark artifacts
+benchmarks/results/
+benchmarks/clients/cpp/runner_cpp
+benchmarks/clients/go/runner_go
+benchmarks/clients/cpp/runner_cpp.exe
+benchmarks/clients/go/runner_go.exe
+benchmarks/clients/rust/target/
+
+# Local bootstrap build outputs
+bootstrap_server.exe
+bootstrap_server.pdb
+
+# Package and installer outputs
+node_modules/
+package.json
+package-lock.json
+scratch/
+orbit_logo.png
+dist/
+scripts/dist/
+orbit.c
+test_enum.orb

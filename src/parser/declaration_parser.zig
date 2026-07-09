@@ -78,24 +78,26 @@ pub const DeclarationParser = struct {
         return node;
     }
     
-    fn consumeType(self: *DeclarationParser) !Token {
-        if (self.check(.Identifier) or 
+    fn consumeTypeTail(self: *DeclarationParser) anyerror!void {
+        // Skip generics: <T, U>
+        if (self.match(.Less)) {
+            while (!self.check(.Greater) and !self.check(.EOF)) {
+                _ = try self.consumeType(); // Recurse for nested generics
+                _ = self.match(.Comma);
+            }
+            _ = try self.consume(.Greater);
+        }
+
+        // Skip optional: ?
+        _ = self.match(.Question);
+    }
+
+    fn consumeType(self: *DeclarationParser) anyerror!Token {
+        if (self.check(.Identifier) or
             self.isTypeToken()) {
             const tok = self.current_token.*;
             self.advance();
-            
-            // Skip generics: <T, U>
-            if (self.match(.Less)) {
-                while (!self.check(.Greater) and !self.check(.EOF)) {
-                    _ = try self.consumeType(); // Recurse for nested generics
-                    _ = self.match(.Comma);
-                }
-                _ = try self.consume(.Greater);
-            }
-            
-            // Skip optional: ?
-            _ = self.match(.Question);
-            
+            try self.consumeTypeTail();
             return tok;
         }
         return error.ExpectedType;
@@ -363,14 +365,19 @@ pub const DeclarationParser = struct {
             
             var payload: ?*Node = null;
             if (self.match(.OpenParen)) {
-                if (self.check(.Identifier) or self.isTypeToken()) {
+                // Supports both Variant(Type) and Variant(name: Type).
+                // For Variant(a: A, b: B), we keep first payload for now and parse the rest for syntax compatibility.
+                if (!self.check(.CloseParen)) {
+                    const first_payload = try self.consumeUnionVariantPayloadType();
                     const p_node = try self.allocator.create(Node);
-                    p_node.* = .{ .tag = .identifier, .data = .{ .identifier = self.current_token.* } };
+                    p_node.* = .{ .tag = .identifier, .data = .{ .identifier = first_payload } };
                     payload = p_node;
-                    self.advance();
-                } else {
-                    return error.ExpectedType;
+
+                    while (self.match(.Comma)) {
+                        _ = try self.consumeUnionVariantPayloadType();
+                    }
                 }
+
                 _ = try self.consume(.CloseParen);
             }
 
@@ -398,13 +405,33 @@ pub const DeclarationParser = struct {
         return node;
     }
 
+    fn consumeUnionVariantPayloadType(self: *DeclarationParser) anyerror!Token {
+        if (self.check(.Identifier)) {
+            const first = self.current_token.*;
+            self.advance();
+
+            if (self.match(.Colon)) {
+                return try self.consumeType();
+            }
+
+            try self.consumeTypeTail();
+            return first;
+        }
+
+        if (self.isTypeToken()) {
+            return try self.consumeType();
+        }
+
+        return error.ExpectedType;
+    }
+
     fn isTypeToken(self: *DeclarationParser) bool {
         const tag = self.current_token.tag;
         return tag == .TypeString or tag == .TypeInt or tag == .TypeFloat or 
                tag == .TypeBool or tag == .TypeDecimal or tag == .TypeEmail or
                tag == .TypeURL or tag == .TypeUUID or tag == .TypePhone or
                tag == .TypeIP or tag == .TypeDate or tag == .TypeTime or
-               tag == .TypeDateTime or tag == .TypeTimestamp or tag == .TypeArray or
+               tag == .TypeDateTime or tag == .TypeTimestamp or tag == .TypeList or
                tag == .TypeMap or tag == .TypeSet;
     }
 

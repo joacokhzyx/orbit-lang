@@ -1,0 +1,224 @@
+import "./ast.orb"
+import "./token.orb"
+import "./lexer.orb"
+
+model Parser {
+    lexer: Lexer
+    currentToken: Token
+    previousToken: Token
+}
+
+fn initParser(source: string) -> Parser {
+    val lex = initLexer(source)
+    val dummy = Token(TokType.EOF, "", 1, 1)
+    val mut parser = Parser(lex, dummy, dummy)
+    advanceParser(parser)
+    return parser
+}
+
+fn advanceParser(parser: Parser) {
+    parser.previousToken = parser.currentToken
+    parser.currentToken = nextToken(parser.lexer)
+}
+
+fn check(parser: Parser, tag: TokType) -> bool {
+    return parser.currentToken.tag == tag
+}
+
+fn matchToken(parser: Parser, tag: TokType) -> bool {
+    if check(parser, tag) {
+        advanceParser(parser)
+        return true
+    }
+    return false
+}
+
+fn isAtEnd(parser: Parser) -> bool {
+    return parser.currentToken.tag == TokType.EOF
+}
+
+fn consume(parser: Parser, expected: TokType, message: string) {
+    if check(parser, expected) {
+        advanceParser(parser)
+    } else {
+        print("Parse Error at line:")
+        print(parser.currentToken.line)
+        print("Message:")
+        print(message)
+    }
+}
+
+fn getPrecedence(tag: TokType) -> int {
+    if tag == TokType.DoublePipe { return 1 }
+    if tag == TokType.DoubleAmpersand { return 2 }
+    if tag == TokType.DoubleEqual { return 3 }
+    if tag == TokType.NotEqual { return 3 }
+    if tag == TokType.Less { return 4 }
+    if tag == TokType.LessEqual { return 4 }
+    if tag == TokType.Greater { return 4 }
+    if tag == TokType.GreaterEqual { return 4 }
+    if tag == TokType.Plus { return 5 }
+    if tag == TokType.Minus { return 5 }
+    if tag == TokType.Asterisk { return 6 }
+    if tag == TokType.Slash { return 6 }
+    if tag == TokType.Percent { return 6 }
+    return 0
+}
+
+fn parsePrimary(parser: Parser) -> ASTNode {
+    if matchToken(parser, TokType.IntegerLiteral) {
+        return ASTNode.Literal(LiteralNode("int", parser.previousToken.text))
+    }
+    if matchToken(parser, TokType.FloatLiteral) {
+        return ASTNode.Literal(LiteralNode("float", parser.previousToken.text))
+    }
+    if matchToken(parser, TokType.StringLiteral) {
+        return ASTNode.Literal(LiteralNode("string", parser.previousToken.text))
+    }
+    if matchToken(parser, TokType.Identifier) {
+        val name = parser.previousToken.text
+        if matchToken(parser, TokType.OpenParen) {
+            // Function call
+            var args = []
+            if check(parser, TokType.CloseParen) == false {
+                var parsingArgs = true
+                while parsingArgs {
+                    val arg = parseExpression(parser)
+                    args.push(arg)
+                    if matchToken(parser, TokType.Comma) == false {
+                        parsingArgs = false
+                    }
+                }
+            }
+            consume(parser, TokType.CloseParen, "Expected ')' after arguments.")
+            return ASTNode.Call(CallNode(ASTNode.Literal(LiteralNode("identifier", name)), args))
+        }
+        return ASTNode.Literal(LiteralNode("identifier", name))
+    }
+    if matchToken(parser, TokType.OpenParen) {
+        val expr = parseExpression(parser)
+        consume(parser, TokType.CloseParen, "Expected ')' after expression.")
+        return expr
+    }
+    
+    print("Unexpected token in expression:")
+    print(tokTypeToString(parser.currentToken.tag))
+    return ASTNode.Empty
+}
+
+fn parseBinary(parser: Parser, precedence: int) -> ASTNode {
+    var lhs = parsePrimary(parser)
+    
+    while getPrecedence(parser.currentToken.tag) > precedence {
+        val opToken = parser.currentToken
+        advanceParser(parser) // Consume operator
+        val nextPrec = getPrecedence(opToken.tag)
+        val rhs = parseBinary(parser, nextPrec)
+        
+        lhs = ASTNode.BinaryOp(BinaryOpNode(opToken.text, lhs, rhs))
+    }
+    
+    return lhs
+}
+
+fn parseExpression(parser: Parser) -> ASTNode {
+    return parseBinary(parser, 0)
+}
+
+fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
+    consume(parser, TokType.Identifier, "Expected variable name.")
+    val name = parser.previousToken.text
+    
+    consume(parser, TokType.Equal, "Expected '=' after variable name.")
+    val value = parseExpression(parser)
+    
+    return ASTNode.VarDecl(VarDeclNode(name, isMutable, value))
+}
+
+fn parseStatement(parser: Parser) -> ASTNode {
+    if matchToken(parser, TokType.KeywordVal) {
+        return parseVarDecl(parser, false)
+    }
+    if matchToken(parser, TokType.KeywordVar) {
+        return parseVarDecl(parser, true)
+    }
+    if matchToken(parser, TokType.KeywordReturn) {
+        val expr = parseExpression(parser)
+        return ASTNode.Return(ReturnNode(expr))
+    }
+    return parseExpression(parser) // Expr statement
+}
+
+fn parseBlock(parser: Parser) -> ASTNode {
+    consume(parser, TokType.OpenBrace, "Expected '{' before block.")
+    var statements = []
+    var parsingBlock = true
+    while parsingBlock {
+        if check(parser, TokType.CloseBrace) {
+            parsingBlock = false
+        } else {
+            if isAtEnd(parser) {
+                parsingBlock = false // Avoid infinite loop on EOF
+            } else {
+                statements.push(parseStatement(parser))
+            }
+        }
+    }
+    consume(parser, TokType.CloseBrace, "Expected '}' after block.")
+    return ASTNode.Block(BlockNode(statements))
+}
+
+fn parseFunctionDecl(parser: Parser) -> ASTNode {
+    consume(parser, TokType.Identifier, "Expected function name.")
+    val name = parser.previousToken.text
+    
+    consume(parser, TokType.OpenParen, "Expected '(' after function name.")
+    var params = []
+    if check(parser, TokType.CloseParen) == false {
+        var parsingParams = true
+        while parsingParams {
+            consume(parser, TokType.Identifier, "Expected parameter name.")
+            params.push(parser.previousToken.text)
+            if matchToken(parser, TokType.Comma) {
+                // Keep parsing params
+            } else {
+                parsingParams = false
+            }
+        }
+    }
+    consume(parser, TokType.CloseParen, "Expected ')' after parameters.")
+    
+    var returnType = ""
+    if matchToken(parser, TokType.Arrow) {
+        consume(parser, TokType.Identifier, "Expected return type.")
+        returnType = parser.previousToken.text
+    }
+    
+    val body = parseBlock(parser)
+    
+    return ASTNode.FunctionDecl(FunctionDeclNode(name, params, returnType, body))
+}
+
+fn parseDeclaration(parser: Parser) -> ASTNode {
+    if matchToken(parser, TokType.KeywordFn) {
+        return parseFunctionDecl(parser)
+    }
+    if matchToken(parser, TokType.KeywordVal) {
+        return parseVarDecl(parser, false)
+    }
+    if matchToken(parser, TokType.KeywordVar) {
+        return parseVarDecl(parser, true)
+    }
+    
+    val expr = parseExpression(parser)
+    return expr
+}
+
+fn parseProgram(parser: Parser) -> ASTNode {
+    var decls = []
+    while check(parser, TokType.EOF) == false {
+        val decl = parseDeclaration(parser)
+        // decls.push(decl)
+    }
+    return ASTNode.Program(ProgramNode(decls))
+}

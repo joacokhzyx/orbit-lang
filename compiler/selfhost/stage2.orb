@@ -1,0 +1,38 @@
+import "./summary.orb"
+import "./parser.orb"
+
+fn compilePath(path: string) -> string {
+    print("[stage2] load-source")
+    val source = file.read(path) ? err 404 "Source not found"
+
+    print("[stage2] lexical-and-parse-summary")
+    val summary = buildSummary(source)
+    val topLevel = buildTopLevelIndex(source)
+
+    val totalDecls = topLevel.functions + topLevel.models + topLevel.routes + topLevel.types + topLevel.enums + topLevel.unions
+
+    val compact = "lex_fn=" + summary.functions +
+        ", lex_model=" + summary.models +
+        ", lex_route=" + summary.routes +
+        ", lex_type=" + summary.types +
+        ", lex_enum=" + summary.enums +
+        ", lex_union=" + summary.unions +
+        ", match=" + summary.matches +
+        ", tok=" + summary.tokens +
+        ", top_fn=" + topLevel.functions +
+        ", top_model=" + topLevel.models +
+        ", top_route=" + topLevel.routes +
+        ", top_type=" + topLevel.types +
+        ", top_enum=" + topLevel.enums +
+        ", top_union=" + topLevel.unions +
+        ", decl=" + totalDecls
+
+    print("[stage2] source")
+    print(path)
+    print("[stage2] summary")
+    print(compact)
+    print("[stage2] declarations")
+    print(topLevel.listing)
+
+    return compact
+}

@@ -102,18 +102,23 @@ pub const StatementParser = struct {
 
         var else_block: ?[]const *Node = null;
         if (self.match(.KeywordElse)) {
-            _ = try self.consume(.OpenBrace);
-            var else_stmts = std.ArrayListUnmanaged(*Node){};
-
-            while (!self.check(.CloseBrace) and !self.check(.EOF)) {
-                const stmt = try self.parseStatement();
-                try else_stmts.append(self.allocator, stmt);
+            if (self.check(.KeywordIf)) {
+                // else if: la rama else es un único if anidado
+                const nested_if = try self.parseIf();
+                var else_stmts = std.ArrayListUnmanaged(*Node){};
+                try else_stmts.append(self.allocator, nested_if);
+                else_block = try else_stmts.toOwnedSlice(self.allocator);
+            } else {
+                _ = try self.consume(.OpenBrace);
+                var else_stmts = std.ArrayListUnmanaged(*Node){};
+                while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+                    const stmt = try self.parseStatement();
+                    try else_stmts.append(self.allocator, stmt);
+                }
+                _ = try self.consume(.CloseBrace);
+                else_block = try else_stmts.toOwnedSlice(self.allocator);
             }
-
-            _ = try self.consume(.CloseBrace);
-            else_block = try else_stmts.toOwnedSlice(self.allocator);
         }
-
         const then_node = try self.createNode(.block, .{ .block = .{ .stmts = try then_block.toOwnedSlice(self.allocator) } });
 
         var else_node: ?*Node = null;
@@ -231,21 +236,20 @@ pub const StatementParser = struct {
     fn parseReturn(self: *StatementParser) !*Node {
         _ = try self.consume(.KeywordReturn);
         
-        // Handle 'return ok ...'
         if (self.match(.KeywordOk)) {
-            var status: ?Token = null;
+            var status_tok: ?Token = null;
             if (self.check(.IntegerLiteral)) {
-                status = try self.consume(.IntegerLiteral);
+                status_tok = try self.consume(.IntegerLiteral);
             }
-
             var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
             const value = try expr_parser.parseExpression();
-            
+
             const node = try self.allocator.create(Node);
             node.* = .{
                 .tag = .return_ok,
-                .data = .{ .return_ok = .{ .expr = value, .status = status } },
+                .data = .{ .return_ok = .{ .expr = value, .status = status_tok } },
             };
+            _ = self.match(.SemiColon);
             return node;
         }
 
@@ -266,6 +270,8 @@ pub const StatementParser = struct {
             .tag = .return_stmt,
             .data = .{ .return_stmt = .{ .expr = value, .status = status_tok } },
         };
+        
+        _ = self.match(.SemiColon);
         return node;
     }
 
@@ -275,6 +281,8 @@ pub const StatementParser = struct {
         
         var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
         const message = try expr_parser.parseExpression();
+
+        _ = self.match(.SemiColon);
 
         const node = try self.allocator.create(Node);
         node.* = .{
@@ -295,7 +303,19 @@ pub const StatementParser = struct {
         
         var type_ann_node: ?*Node = null;
         if (self.match(.Colon)) {
-            const type_tok = try self.consume(.Identifier);
+            const type_tok = self.current_token.*;
+            self.advance(); // consume identifier or type keyword
+            
+            // Skip generics if any
+            if (self.match(.Less)) {
+                while (!self.check(.Greater) and !self.check(.EOF)) {
+                    _ = self.advance(); // skip generic token
+                }
+                _ = try self.consume(.Greater);
+            }
+            // Skip optional
+            _ = self.match(.Question);
+
             const t_node = try self.allocator.create(Node);
             t_node.* = .{
                 .tag = .type_annotation,
@@ -313,6 +333,7 @@ pub const StatementParser = struct {
             var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
             value = try expr_parser.parseExpression();
         }
+        _ = self.match(.SemiColon);
         
         const node = try self.allocator.create(Node);
         node.* = .{
@@ -375,6 +396,8 @@ pub const StatementParser = struct {
         var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
         const expr = try expr_parser.parseExpression();
         
+        _ = self.match(.SemiColon);
+        
         const node = try self.allocator.create(Node);
         node.* = .{
             .tag = .expression_stmt,
@@ -385,11 +408,13 @@ pub const StatementParser = struct {
 
     fn parseBreak(self: *StatementParser) !*Node {
         _ = try self.consume(.KeywordBreak);
+        _ = self.match(.SemiColon);
         return try self.createNode(.break_stmt, .{ .break_stmt = .{} });
     }
 
     fn parseContinue(self: *StatementParser) !*Node {
         _ = try self.consume(.KeywordContinue);
+        _ = self.match(.SemiColon);
         return try self.createNode(.continue_stmt, .{ .continue_stmt = .{} });
     }
 };

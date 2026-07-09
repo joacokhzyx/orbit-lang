@@ -28,6 +28,9 @@ pub const CBackend = struct {
     /// Enum names registered during generation for type resolution.
     enum_names: std.StringHashMapUnmanaged(void),
     
+    /// Union names registered during generation for type resolution.
+    union_names: std.StringHashMapUnmanaged(void),
+    
     pub fn init(allocator: std.mem.Allocator, config: AtlasConfig, has_server_init: bool) CBackend {
         return .{
             .allocator = allocator,
@@ -39,6 +42,7 @@ pub const CBackend = struct {
             .arena_functions = .{},
             .model_names = .{},
             .enum_names = .{},
+            .union_names = .{},
         };
     }
     
@@ -48,6 +52,7 @@ pub const CBackend = struct {
         self.arena_functions.deinit(self.allocator);
         self.model_names.deinit(self.allocator);
         self.enum_names.deinit(self.allocator);
+        self.union_names.deinit(self.allocator);
     }
 
     /// Register a runtime function that needs Arena* as first param.
@@ -109,35 +114,56 @@ pub const CBackend = struct {
     }
 
     pub fn generate(self: *CBackend, module: IRModule) ![]const u8 {
+        var has_orbit_entry = false;
+        for (module.functions.items) |func| {
+            if (std.mem.eql(u8, func.name, "main") or std.mem.eql(u8, func.name, "orbit_main")) {
+                has_orbit_entry = true;
+                break;
+            }
+        }
+
         // Register known arena-requiring runtime functions
         try self.registerArenaFunction("orbit_file_read");
-        try self.registerArenaFunction("orbit_db_get");
-        try self.registerArenaFunction("orbit_db_all");
-        try self.registerArenaFunction("orbit_db_where");
-        try self.registerArenaFunction("orbit_db_first");
-        try self.registerArenaFunction("orbit_json_get");
-        try self.registerArenaFunction("orbit_response_json");
-        try self.registerArenaFunction("orbit_response_text");
+        try self.registerArenaFunction("orbit_file_write");
+        try self.registerArenaFunction("orbit_file_list_dir");
+        try self.registerArenaFunction("orbit_list_create");
+        try self.registerArenaFunction("orbit_map_create");
         try self.registerArenaFunction("orbit_response_create");
         try self.registerArenaFunction("orbit_string_slice");
+        try self.registerArenaFunction("orbit_string_split");
+        try self.registerArenaFunction("orbit_string_replace");
+        try self.registerArenaFunction("orbit_os_exec");
+        try self.registerArenaFunction("orbit_os_env");
+        try self.registerArenaFunction("orbit_string_concat");
+        try self.registerArenaFunction("orbit_int_to_string");
+        try self.registerArenaFunction("orbit_float_to_string");
+        try self.registerArenaFunction("orbit_bool_to_string");
 
         const headers = try RuntimeLoader.generateHeaders(self.allocator);
         try self.output.appendSlice(self.allocator, headers);
         try self.output.appendSlice(self.allocator, "\nOrbitArena* arena = NULL;\n");
         
+        // Forward declare Models and prepopulate names
+        for (module.models.items) |model| {
+            try self.model_names.put(self.allocator, model.name, {});
+            try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ model.name, model.name });
+        }
+        try self.output.appendSlice(self.allocator, "\n");
+
         // Generate Types (enums, unions, aliases)
         for (module.types.items) |t| {
-            try self.generateType(t);
-            // Track enum names for type resolution
+            // Track enum and union names for type resolution
             if (t.kind == .enumeration) {
                 try self.enum_names.put(self.allocator, t.name, {});
+            } else if (t.kind == .union_type) {
+                try self.union_names.put(self.allocator, t.name, {});
             }
+            try self.generateType(t);
         }
 
         // Generate Models
         for (module.models.items) |model| {
             try self.generateModel(model);
-            try self.model_names.put(self.allocator, model.name, {});
         }
         
         // Forward declarations
@@ -243,7 +269,13 @@ pub const CBackend = struct {
         } else if (is_route) {
             try self.output.appendSlice(self.allocator, "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n");
         } else if (func.return_type != .void) {
-            try self.output.appendSlice(self.allocator, "    return NULL;\n");
+            switch (func.return_type) {
+                .int, .enumeration => try self.output.appendSlice(self.allocator, "    return 0;\n"),
+                .float => try self.output.appendSlice(self.allocator, "    return 0.0;\n"),
+                .bool => try self.output.appendSlice(self.allocator, "    return false;\n"),
+                .tagged_union => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
+                else => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
+            }
         }
         try self.output.appendSlice(self.allocator, "}\n\n");
     }
@@ -255,6 +287,13 @@ pub const CBackend = struct {
         
         switch (instr.opcode) {
             .load_const => {},
+            .copy => {
+                if (instr.dest) |d| {
+                    try self.output.print(self.allocator, "r_{d} = ", .{d});
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                }
+            },
             .load_var => {
                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
                 // Output variable name WITHOUT quotes — it's an identifier, not a string
@@ -299,26 +338,34 @@ pub const CBackend = struct {
             .le  => try self.generateBinaryOp(instr, " <= "),
             .gt  => try self.generateBinaryOp(instr, " > "),
             .ge  => try self.generateBinaryOp(instr, " >= "),
+            .and_op => try self.generateBinaryOp(instr, " && "),
+            .or_op => try self.generateBinaryOp(instr, " || "),
+            .neg => {
+                if (instr.dest) |d| {
+                    try self.output.print(self.allocator, "r_{d} = -", .{d});
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                }
+            },
+            .not_op => {
+                if (instr.dest) |d| {
+                    try self.output.print(self.allocator, "r_{d} = !", .{d});
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                }
+            },
             .arg => {
                 try self.call_args.append(self.allocator, instr.operand1);
             },
+            .begin_block => {
+                try self.output.appendSlice(self.allocator, "{\n");
+            },
+            .end_block => {
+                try self.output.appendSlice(self.allocator, "}\n");
+            },
             .call => {
-                if (instr.dest) |d| {
-                    const reg_type = if (self.current_func) |f| f.register_types.items[d] else .unknown;
-                    if (reg_type != .void) {
-                        try self.output.print(self.allocator, "r_{d} = ", .{d});
-                    }
-                }
                 const func_name = instr.operand1.string;
                 
-                var first = true;
-                // If this function requires an Arena, inject it as first arg
-                const final_func_name = try self.allocator.dupe(u8, func_name);
-                defer self.allocator.free(final_func_name);
-                for (final_func_name) |*c| {
-                    if (!std.ascii.isAlphanumeric(c.*)) c.* = '_';
-                }
-
                 if (std.mem.eql(u8, func_name, "print") and self.call_args.items.len == 1) {
                     const arg = self.call_args.items[0];
                     const arg_type: IRType = switch (arg) {
@@ -342,6 +389,10 @@ pub const CBackend = struct {
                     if (arg_type == .bool) {
                         try self.generateValue(arg);
                         try self.output.appendSlice(self.allocator, " ? \"true\" : \"false\"");
+                    } else if (arg_type != .int and arg_type != .float and arg_type != .string) {
+                        try self.output.appendSlice(self.allocator, "(orbit_string)(");
+                        try self.generateValue(arg);
+                        try self.output.appendSlice(self.allocator, ")");
                     } else {
                         try self.generateValue(arg);
                     }
@@ -350,13 +401,28 @@ pub const CBackend = struct {
                     return;
                 }
 
+                if (instr.dest) |d| {
+                    const reg_type = if (self.current_func) |f| f.register_types.items[d] else .unknown;
+                    if (reg_type != .void) {
+                        try self.output.print(self.allocator, "r_{d} = ", .{d});
+                    }
+                }
+                
+                var first = true;
+                // If this function requires an Arena, inject it as first arg
+                const final_func_name = try self.allocator.dupe(u8, func_name);
+                defer self.allocator.free(final_func_name);
+                for (final_func_name) |*c| {
+                    if (!std.ascii.isAlphanumeric(c.*)) c.* = '_';
+                }
+
                 try self.output.appendSlice(self.allocator, final_func_name);
                 try self.output.append(self.allocator, '(');
 
-        if (self.arena_functions.contains(func_name) or std.mem.startsWith(u8, func_name, "orbit_response_")) {
-            try self.output.appendSlice(self.allocator, "arena");
-            first = false;
-        }
+                if (self.arena_functions.contains(func_name) or std.mem.startsWith(u8, func_name, "orbit_response_")) {
+                    try self.output.appendSlice(self.allocator, "arena");
+                    first = false;
+                }
 
                 for (self.call_args.items) |arg| {
                     if (!first) try self.output.appendSlice(self.allocator, ", ");
@@ -367,9 +433,17 @@ pub const CBackend = struct {
                 self.call_args.clearRetainingCapacity();
             },
             .ret => {
-                try self.output.appendSlice(self.allocator, "return ");
-                try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ";\n");
+                if (instr.operand1 == .none) {
+                    if (std.mem.eql(u8, self.current_func.?.name, "main")) {
+                        try self.output.appendSlice(self.allocator, "return 0;\n");
+                    } else {
+                        try self.output.appendSlice(self.allocator, "return;\n");
+                    }
+                } else {
+                    try self.output.appendSlice(self.allocator, "return ");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                }
             },
             .jump => {
                 try self.output.appendSlice(self.allocator, "goto ");
@@ -401,37 +475,46 @@ pub const CBackend = struct {
             },
             // ── Phase 2: Collection opcodes ─────────────────────────────
             .list_create => {
-                try self.output.print(self.allocator, "{{ OrbitResult _lr = orbit_list_create(arena, {s}, {s}); r_{d} = _lr.ok ? (OrbitList*)_lr.value : NULL; }}\n", .{
-                    if (instr.operand1 == .int) "sizeof(orbit_int)" else "sizeof(void*)",
-                    if (instr.operand2 == .int) "8" else "8",
-                    instr.dest.?,
+                try self.output.print(self.allocator, "{{ OrbitResult _lr = orbit_list_create(arena, {s}, ", .{
+                    if (instr.operand1 == .int and instr.operand1.int == 4) "sizeof(orbit_int)" else "sizeof(void*)",
                 });
+                try self.generateValue(instr.operand2);
+                try self.output.print(self.allocator, "); r_{d} = _lr.ok ? (OrbitList*)_lr.value : NULL; }}\n", .{instr.dest.?});
             },
             .list_push => {
                 try self.output.appendSlice(self.allocator, "orbit_list_push(");
                 try self.generateValue(instr.operand1);
                 try self.output.appendSlice(self.allocator, ", ");
                 switch (instr.operand2) {
-                    .register => |r| try self.output.print(self.allocator, "&r_{d}", .{r}),
                     .int => |v| try self.output.print(self.allocator, "&(orbit_int){{{d}}}", .{v}),
                     .float => |v| try self.output.print(self.allocator, "&(orbit_float){{{d}}}", .{v}),
                     .string => |v| try self.output.print(self.allocator, "&(orbit_string){{\"{s}\"}}", .{v}),
                     .bool => |v| try self.output.print(self.allocator, "&(orbit_bool){{{s}}}", .{if (v) "true" else "false"}),
-                    else => {},
+                    else => {
+                        if (instr.operand2 == .register) {
+                            try self.output.appendSlice(self.allocator, "&");
+                            try self.generateValue(instr.operand2);
+                        } else {
+                            try self.generateValue(instr.operand2);
+                        }
+                    },
                 }
                 try self.output.appendSlice(self.allocator, ");\n");
             },
             .list_get => {
-                try self.output.print(self.allocator, "{{ OrbitResult _lr = orbit_list_get(", .{});
+                try self.output.appendSlice(self.allocator, "{ OrbitResult _lr = orbit_list_get(");
                 try self.generateValue(instr.operand1);
                 try self.output.appendSlice(self.allocator, ", ");
                 try self.generateValue(instr.operand2);
                 try self.output.print(self.allocator, "); r_{d} = ", .{instr.dest.?});
                 const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
-                if (dest_type == .int) {
-                    try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_int*)_lr.value : 0; }\n");
-                } else {
-                    try self.output.appendSlice(self.allocator, "_lr.ok ? _lr.value : NULL; }\n");
+                switch (dest_type) {
+                    .int => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_int*)_lr.value : 0; }\n"),
+                    .float => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_float*)_lr.value : 0.0; }\n"),
+                    .string => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_string*)_lr.value : NULL; }\n"),
+                    .bool => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_bool*)_lr.value : false; }\n"),
+                    .tagged_union => |name| try self.output.print(self.allocator, "_lr.ok ? *({s}**)_lr.value : NULL; }}\n", .{name}),
+                    else => try self.output.appendSlice(self.allocator, "_lr.ok ? *(void**)_lr.value : NULL; }\n"),
                 }
             },
             .list_len => {
@@ -451,18 +534,24 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ", ");
                 try self.generateValue(instr.operand2);
                 try self.output.appendSlice(self.allocator, ", ");
-                 switch (instr.operand3) {
-                    .register => |r| try self.output.print(self.allocator, "&r_{d}", .{r}),
+                switch (instr.operand3) {
                     .int => |v| try self.output.print(self.allocator, "&(orbit_int){{{d}}}", .{v}),
                     .float => |v| try self.output.print(self.allocator, "&(orbit_float){{{d}}}", .{v}),
                     .string => |v| try self.output.print(self.allocator, "&(orbit_string){{\"{s}\"}}", .{v}),
                     .bool => |v| try self.output.print(self.allocator, "&(orbit_bool){{{s}}}", .{if (v) "true" else "false"}),
-                    else => {},
+                    else => {
+                        if (instr.operand3 == .register) {
+                            try self.output.appendSlice(self.allocator, "&");
+                            try self.generateValue(instr.operand3);
+                        } else {
+                            try self.generateValue(instr.operand3);
+                        }
+                    },
                 }
                 try self.output.appendSlice(self.allocator, ");\n");
             },
             .map_get => {
-                try self.output.print(self.allocator, "{{ OrbitResult _mr = orbit_map_get(", .{});
+                try self.output.appendSlice(self.allocator, "{ OrbitResult _mr = orbit_map_get(");
                 try self.generateValue(instr.operand1);
                 try self.output.appendSlice(self.allocator, ", ");
                 try self.generateValue(instr.operand2);
@@ -470,8 +559,14 @@ pub const CBackend = struct {
                 const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
                 if (dest_type == .int) {
                     try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_int*)_mr.value : 0; }\n");
+                } else if (dest_type == .float) {
+                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_float*)_mr.value : 0.0; }\n");
+                } else if (dest_type == .string) {
+                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_string*)_mr.value : NULL; }\n");
+                } else if (dest_type == .bool) {
+                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_bool*)_mr.value : false; }\n");
                 } else {
-                    try self.output.appendSlice(self.allocator, "_mr.ok ? _mr.value : NULL; }\n");
+                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(void**)_mr.value : NULL; }\n");
                 }
             },
             .map_has => {
@@ -511,23 +606,23 @@ pub const CBackend = struct {
                     else => instr.operand1.string,
                 } else instr.operand1.string;
                 
-                try self.output.print(self.allocator, "{{ {s} _u; _u.tag = {s}; ", .{ union_name, instr.operand1.string });
+                try self.output.print(self.allocator, "{{ {s}* _u = orbit_alloc(arena, sizeof({s})); _u->tag = {s}; ", .{ union_name, union_name, instr.operand1.string });
                 
                 // Logic to set the correct data variant if we knew the field name
                 // For now, Orbit Unions use a generic 'data' pointer or the first variant for simplistic init
-                try self.output.appendSlice(self.allocator, "_u.data.data = ");
+                try self.output.appendSlice(self.allocator, "_u->data.data = ");
                 try self.generateValue(instr.operand2);
                 try self.output.print(self.allocator, "; r_{d} = _u; }}\n", .{instr.dest.?});
             },
             .union_get_tag => {
                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
                 try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ".tag;\n");
+                try self.output.appendSlice(self.allocator, "->tag;\n");
             },
             .union_get_data => {
                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
                 try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ".data.data;\n");
+                try self.output.appendSlice(self.allocator, "->data.data;\n");
             },
             else => {},
         }
@@ -537,6 +632,16 @@ pub const CBackend = struct {
     fn generateBinaryOp(self: *CBackend, instr: IRInstruction, op: []const u8) !void {
         const type1 = self.getValueType(instr.operand1);
         const type2 = self.getValueType(instr.operand2);
+        const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
+
+        if (std.mem.eql(u8, op, " + ") and (type1 == .string or type2 == .string or dest_type == .string)) {
+            try self.output.print(self.allocator, "r_{d} = orbit_string_concat(arena, ", .{instr.dest.?});
+            try self.generateStringConcatOperand(instr.operand1, type1);
+            try self.output.appendSlice(self.allocator, ", ");
+            try self.generateStringConcatOperand(instr.operand2, type2);
+            try self.output.appendSlice(self.allocator, ");\n");
+            return;
+        }
 
         if (type1 == .string or type2 == .string) {
             if (std.mem.eql(u8, op, " == ")) {
@@ -563,6 +668,29 @@ pub const CBackend = struct {
         try self.output.appendSlice(self.allocator, op);
         try self.generateValue(instr.operand2);
         try self.output.appendSlice(self.allocator, ";\n");
+    }
+
+    fn generateStringConcatOperand(self: *CBackend, val: IRValue, t: IRType) !void {
+        switch (t) {
+            .int => {
+                try self.output.appendSlice(self.allocator, "orbit_int_to_string(arena, ");
+                try self.generateValue(val);
+                try self.output.appendSlice(self.allocator, ")");
+            },
+            .float => {
+                try self.output.appendSlice(self.allocator, "orbit_float_to_string(arena, ");
+                try self.generateValue(val);
+                try self.output.appendSlice(self.allocator, ")");
+            },
+            .bool => {
+                try self.output.appendSlice(self.allocator, "orbit_bool_to_string(arena, ");
+                try self.generateValue(val);
+                try self.output.appendSlice(self.allocator, ")");
+            },
+            else => {
+                try self.generateValue(val);
+            }
+        }
     }
     
     fn getValueType(self: *CBackend, val: IRValue) IRType {
@@ -605,7 +733,7 @@ pub const CBackend = struct {
             .map => "OrbitMap*",
             .result => "OrbitResult",
             .option => "OrbitOption",
-            .tagged_union => |name| name,
+            .tagged_union => |name| try std.fmt.allocPrint(self.allocator, "{s}*", .{name}),
             .trait_obj => "OrbitInterface",
             .slice => "OrbitSlice",
             .unknown => "void*",
@@ -614,7 +742,6 @@ pub const CBackend = struct {
 
     /// Map an Orbit field type name to its C equivalent.
     fn mapFieldTypeToC(self: *CBackend, orbit_type: []const u8) []const u8 {
-        _ = self;
         if (std.mem.eql(u8, orbit_type, "int")) return "orbit_int";
         if (std.mem.eql(u8, orbit_type, "float")) return "orbit_float";
         if (std.mem.eql(u8, orbit_type, "string")) return "orbit_string";
@@ -631,6 +758,12 @@ pub const CBackend = struct {
         if (std.mem.eql(u8, orbit_type, "Time")) return "orbit_string";
         if (std.mem.eql(u8, orbit_type, "DateTime")) return "orbit_string";
         if (std.mem.eql(u8, orbit_type, "Timestamp")) return "orbit_string";
+
+        if (self.enum_names.contains(orbit_type)) return orbit_type; // by-value
+        if (self.model_names.contains(orbit_type) or self.union_names.contains(orbit_type)) {
+            return std.fmt.allocPrint(self.allocator, "{s}*", .{orbit_type}) catch "void*";
+        }
+
         // If it starts with uppercase, it's probably a model/enum type — use as-is
         if (orbit_type.len > 0 and std.ascii.isUpper(orbit_type[0])) return orbit_type;
         return "void*";
@@ -660,7 +793,7 @@ pub const CBackend = struct {
                 try self.output.print(self.allocator, "}} {s}_Tag;\n\n", .{ t.name });
 
                 // Emit the tagged union struct
-                try self.output.print(self.allocator, "typedef struct {{\n", .{});
+                try self.output.print(self.allocator, "typedef struct {s} {{\n", .{ t.name });
                 try self.output.print(self.allocator, "    {s}_Tag tag;\n", .{ t.name });
                 try self.output.print(self.allocator, "    union {{\n", .{});
                 try self.output.print(self.allocator, "        void* data;\n", .{});
@@ -700,7 +833,7 @@ pub const CBackend = struct {
     }
 
     fn generateModel(self: *CBackend, model: IRModel) !void {
-        try self.output.print(self.allocator, "typedef struct {{\n", .{});
+        try self.output.print(self.allocator, "typedef struct {s} {{\n", .{ model.name });
         for (model.fields.items) |field| {
             const c_type = self.mapFieldTypeToC(field.type_name);
             try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, field.name });

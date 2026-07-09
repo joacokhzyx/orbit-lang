@@ -1,0 +1,41 @@
+import "./summary.orb"
+import "./parser.orb"
+import "./sema.orb"
+
+fn checkPath(path: string) -> int {
+    print("[stage3] load-source")
+    val source = file.read(path) ? err 404 "Source not found"
+
+    print("[stage3] parse-index")
+    val topLevel = buildTopLevelIndex(source)
+
+    print("[stage3] semantic-check")
+    val report = checkSemantics(source)
+    val dup = findDuplicates(source)
+
+    print("[stage3] source")
+    print(path)
+    print("[stage3] declarations")
+    print(topLevel.listing)
+    print("[stage3] diagnostics")
+    print(report.diagnostics)
+    if dup.errors > 0 {
+        print(dup.diagnostics)
+    }
+
+    val totalErrors = report.errors + dup.errors
+
+    print("[stage3] totals")
+    print("functions:")
+    print(report.functions)
+    print("typed:")
+    print(report.typedFunctions)
+    print("void:")
+    print(report.voidFunctions)
+    print("errors:")
+    print(totalErrors)
+    print("warnings:")
+    print(report.warnings)
+
+    return totalErrors
+}

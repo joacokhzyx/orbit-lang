@@ -1,0 +1,19 @@
+fn classify(c: int) -> string {
+    if c == 'a' {
+        return "es-a"
+    } else if c == 'b' {
+        return "es-b"
+    } else {
+        return "otro"
+    }
+}
+
+fn main() -> int {
+    print("code de '{':")
+    print('{')
+    print("classify('b'):")
+    print(classify('b'))
+    print("code de '\n':")
+    print('\n')
+    return 0
+}

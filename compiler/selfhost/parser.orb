@@ -1,0 +1,374 @@
+import "./summary.orb"
+
+model TopLevelIndex {
+    functions: int
+    models: int
+    routes: int
+    types: int
+    enums: int
+    unions: int
+    listing: string
+}
+
+fn keywordMatches(source: string, start: int, keyword: string) -> bool {
+    val starts = startsWithText(source, start, keyword)
+    if starts == false {
+        return false
+    }
+
+    val end = start + keyword.length
+    val afterBoundary = hasWordBoundaryAfter(source, end)
+    if afterBoundary == false {
+        return false
+    }
+
+    return true
+}
+
+fn normalizeParamList(source: string, from: int, to: int) -> string {
+    val mut result = ""
+    val mut i = from
+    val mut pendingSpace = false
+    val mut started = false
+
+    while i < to {
+        val c = source.at(i)
+        if isWhitespace(c) {
+            if started {
+                pendingSpace = true
+            }
+        } else {
+            if pendingSpace {
+                result = result + " "
+                pendingSpace = false
+            }
+            result = result + source.slice(i, i + 1)
+            started = true
+        }
+        i = i + 1
+    }
+
+    return result
+}
+
+fn skipWhitespaceFrom(source: string, start: int) -> int {
+    val mut cursor = start
+
+    while cursor < source.length {
+        val ws = source.at(cursor)
+        if isWhitespace(ws) {
+            cursor = cursor + 1
+        } else {
+            break
+        }
+    }
+
+    return cursor
+}
+
+fn readIdentifierFrom(source: string, start: int) -> string {
+    if start >= source.length {
+        return ""
+    }
+
+    val firstChar = source.at(start)
+    if isAlpha(firstChar) == false {
+        return ""
+    }
+
+    val mut endCursor = start + 1
+    while endCursor < source.length {
+        val identChar = source.at(endCursor)
+        if isAlphaNumeric(identChar) {
+            endCursor = endCursor + 1
+        } else {
+            break
+        }
+    }
+
+    return source.slice(start, endCursor)
+}
+
+fn nameAfterKeyword(source: string, start: int, keywordLength: int) -> string {
+    val cursor = skipWhitespaceFrom(source, start + keywordLength)
+
+    if cursor >= source.length {
+        return ""
+    }
+
+    val identifier = readIdentifierFrom(source, cursor)
+    if identifier == "" {
+        return ""
+    }
+
+    return identifier
+}
+
+fn readReturnType(source: string, start: int) -> string {
+    val arrowCursor = skipWhitespaceFrom(source, start)
+    if arrowCursor + 1 >= source.length {
+        return ""
+    }
+
+    val dash = source.at(arrowCursor)
+    val gt = source.at(arrowCursor + 1)
+    if dash != 45 {          // '-'
+        return ""
+    }
+    if gt != 62 {            // '>'
+        return ""
+    }
+
+    val typeCursor = skipWhitespaceFrom(source, arrowCursor + 2)
+    return readIdentifierFrom(source, typeCursor)
+}
+
+fn functionSignatureAfterKeyword(source: string, start: int, keywordLength: int) -> string {
+    val nameCursor = skipWhitespaceFrom(source, start + keywordLength)
+    val fnName = readIdentifierFrom(source, nameCursor)
+    if fnName == "" {
+        return "?"
+    }
+
+    val afterName = nameCursor + fnName.length
+    val parenCursor = skipWhitespaceFrom(source, afterName)
+    if parenCursor >= source.length {
+        return fnName
+    }
+
+    if source.at(parenCursor) != 40 {   // '('
+        return fnName
+    }
+
+    val mut cursor = parenCursor + 1
+    val mut depth = 1
+
+    while cursor < source.length {
+        val c = source.at(cursor)
+        if c == 40 {                    // '('
+            depth = depth + 1
+        } else {
+            if c == 41 {                // ')'
+                depth = depth - 1
+                if depth == 0 {
+                    break
+                }
+            }
+        }
+        cursor = cursor + 1
+    }
+
+    val params = normalizeParamList(source, parenCursor + 1, cursor)
+    val returnType = readReturnType(source, cursor + 1)
+
+    if returnType == "" {
+        return fnName + "(" + params + ")"
+    }
+
+    return fnName + "(" + params + ") -> " + returnType
+}
+fn routeSignatureAfterKeyword(source: string, start: int, keywordLength: int) -> string {
+    val methodCursor = skipWhitespaceFrom(source, start + keywordLength)
+    val methodName = readIdentifierFrom(source, methodCursor)
+    if methodName == "" {
+        return "?"
+    }
+
+    val afterMethod = methodCursor + methodName.length
+    val pathCursor = skipWhitespaceFrom(source, afterMethod)
+    if pathCursor >= source.length {
+        return methodName
+    }
+
+    val startPath = source.at(pathCursor)
+    if startPath != 34 {
+        return methodName
+    }
+
+    val mut endPath = pathCursor + 1
+    while endPath < source.length {
+        val pathChar = source.at(endPath)
+        if pathChar == 34 {
+            val routePath = source.slice(pathCursor + 1, endPath)
+            return methodName + " " + routePath
+        }
+
+        if pathChar == 92 {
+            val escapedIndex = endPath + 1
+            if escapedIndex < source.length {
+                endPath = endPath + 2
+            } else {
+                endPath = endPath + 1
+            }
+        } else {
+            endPath = endPath + 1
+        }
+    }
+
+    return methodName
+}
+
+fn appendDecl(listing: string, kind: string, name: string) -> string {
+    if name == "" {
+        return listing + kind + " ?\n"
+    }
+
+    return listing + kind + " " + name + "\n"
+}
+
+fn buildTopLevelIndex(source: string) -> TopLevelIndex {
+    val mut i = 0
+    val mut braceDepth = 0
+    val mut previousWasBoundary = true
+    val mut inString = false
+    val mut inLineComment = false
+
+    val mut functionCount = 0
+    val mut modelCount = 0
+    val mut routeCount = 0
+    val mut typeCount = 0
+    val mut enumCount = 0
+    val mut unionCount = 0
+
+    val mut listing = ""
+
+    while i < source.length {
+        val scanChar = source.at(i)
+
+        if inLineComment {
+            if scanChar == 10 {
+                inLineComment = false
+                previousWasBoundary = true
+            }
+            i = i + 1
+        } else {
+            if inString {
+                if scanChar == 92 {
+                    val escapedIdx = i + 1
+                    if escapedIdx < source.length {
+                        i = i + 2
+                    } else {
+                        i = i + 1
+                    }
+                } else {
+                    if scanChar == 34 {
+                        inString = false
+                        previousWasBoundary = true
+                    }
+                    i = i + 1
+                }
+            } else {
+                val mut startsComment = false
+                if scanChar == 47 {
+                    val nextCommentIdx = i + 1
+                    if nextCommentIdx < source.length {
+                        val nextCommentChar = source.at(nextCommentIdx)
+                        if nextCommentChar == 47 {
+                            startsComment = true
+                        }
+                    }
+                }
+
+                if startsComment {
+                    inLineComment = true
+                    i = i + 2
+                } else {
+                    if scanChar == 34 {
+                        inString = true
+                        previousWasBoundary = true
+                        i = i + 1
+                    } else {
+                        if scanChar == 123 {
+                            braceDepth = braceDepth + 1
+                            previousWasBoundary = true
+                            i = i + 1
+                        } else {
+                            if scanChar == 125 {
+                                if braceDepth > 0 {
+                                    braceDepth = braceDepth - 1
+                                }
+                                previousWasBoundary = true
+                                i = i + 1
+                            } else {
+                                val mut handledDecl = false
+
+                                if braceDepth == 0 {
+                                    if previousWasBoundary {
+                                        if keywordMatches(source, i, "fn") {
+                                            val fnNameDecl = functionSignatureAfterKeyword(source, i, 2)
+                                            functionCount = functionCount + 1
+                                            listing = appendDecl(listing, "fn", fnNameDecl)
+                                            i = i + 2
+                                            previousWasBoundary = false
+                                            handledDecl = true
+                                        } else {
+                                            if keywordMatches(source, i, "model") {
+                                                val modelNameDecl = nameAfterKeyword(source, i, 5)
+                                                modelCount = modelCount + 1
+                                                listing = appendDecl(listing, "model", modelNameDecl)
+                                                i = i + 5
+                                                previousWasBoundary = false
+                                                handledDecl = true
+                                            } else {
+                                                if keywordMatches(source, i, "route") {
+                                                    val routeSigDecl = routeSignatureAfterKeyword(source, i, 5)
+                                                    routeCount = routeCount + 1
+                                                    listing = appendDecl(listing, "route", routeSigDecl)
+                                                    i = i + 5
+                                                    previousWasBoundary = false
+                                                    handledDecl = true
+                                                } else {
+                                                    if keywordMatches(source, i, "type") {
+                                                        val typeNameDecl = nameAfterKeyword(source, i, 4)
+                                                        typeCount = typeCount + 1
+                                                        listing = appendDecl(listing, "type", typeNameDecl)
+                                                        i = i + 4
+                                                        previousWasBoundary = false
+                                                        handledDecl = true
+                                                    } else {
+                                                        if keywordMatches(source, i, "enum") {
+                                                            val enumNameDecl = nameAfterKeyword(source, i, 4)
+                                                            enumCount = enumCount + 1
+                                                            listing = appendDecl(listing, "enum", enumNameDecl)
+                                                            i = i + 4
+                                                            previousWasBoundary = false
+                                                            handledDecl = true
+                                                        } else {
+                                                            if keywordMatches(source, i, "union") {
+                                                                val unionNameDecl = nameAfterKeyword(source, i, 5)
+                                                                unionCount = unionCount + 1
+                                                                listing = appendDecl(listing, "union", unionNameDecl)
+                                                                i = i + 5
+                                                                previousWasBoundary = false
+                                                                handledDecl = true
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if handledDecl == false {
+                                    previousWasBoundary = isAlphaNumeric(scanChar) == false
+                                    i = i + 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return TopLevelIndex(
+        functions: functionCount,
+        models: modelCount,
+        routes: routeCount,
+        types: typeCount,
+        enums: enumCount,
+        unions: unionCount,
+        listing: listing
+    )
+}

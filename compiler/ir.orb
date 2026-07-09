@@ -1,0 +1,214 @@
+// Intermediate Representation for Orbit Self-Hosting Compiler
+
+union IROpcode {
+    nop,
+    load_const,
+    load_var,
+    store_var,
+    decl_var,
+    add,
+    sub,
+    mul,
+    div,
+    mod,
+    eq,
+    ne,
+    lt,
+    le,
+    gt,
+    ge,
+    and_op,
+    or_op,
+    not_op,
+    neg,
+    call,
+    ret,
+    jump,
+    jump_if_false,
+    alloc,
+    free,
+    db_get,
+    db_set,
+    db_all,
+    db_where,
+    http_response,
+    label,
+    copy,
+    arg,
+    load_field,
+    store_field,
+    switch_op,
+    type_info,
+    
+    // Collection opcodes
+    list_create,
+    list_push,
+    list_get,
+    list_set,
+    list_len,
+    map_create,
+    map_set,
+    map_get,
+    map_has,
+    map_delete,
+    map_keys,
+
+    // Result opcodes
+    result_ok,
+    result_err,
+    result_unwrap,
+    result_is_ok,
+
+    // Union opcodes
+    union_create,
+    union_get_tag,
+    union_get_data
+}
+
+model IRValueInt { value: int }
+model IRValueFloat { value: float }
+model IRValueString { value: string }
+model IRValueSymbol { value: string }
+model IRValueBool { value: bool }
+model IRValueRegister { value: int }
+model IRValueLabel { value: int }
+
+union IRValue {
+    Int(IRValueInt),
+    Float(IRValueFloat),
+    String(IRValueString),
+    Sym(IRValueSymbol),
+    Bool(IRValueBool),
+    Register(IRValueRegister),
+    Label(IRValueLabel),
+    None
+}
+
+model IRInstruction {
+    opcode: IROpcode
+    dest: int // -1 if null
+    operand1: IRValue
+    operand2: IRValue
+    operand3: IRValue
+}
+
+// Factory functions for IRValue
+fn ir_int(v: int) -> IRValue {
+    val m = IRValueInt(v)
+    return IRValue.Int(m)
+}
+
+fn ir_float(v: float) -> IRValue {
+    val m = IRValueFloat(v)
+    return IRValue.Float(m)
+}
+
+fn ir_string(v: string) -> IRValue {
+    val m = IRValueString(v)
+    return IRValue.String(m)
+}
+
+fn ir_symbol(v: string) -> IRValue {
+    val m = IRValueSymbol(v)
+    return IRValue.Sym(m)
+}
+
+fn ir_bool(v: bool) -> IRValue {
+    val m = IRValueBool(v)
+    return IRValue.Bool(m)
+}
+
+fn ir_register(v: int) -> IRValue {
+    val m = IRValueRegister(v)
+    return IRValue.Register(m)
+}
+
+fn ir_label(v: int) -> IRValue {
+    val m = IRValueLabel(v)
+    return IRValue.Label(m)
+}
+
+fn ir_none() -> IRValue {
+    return IRValue.None
+}
+
+fn ir_init_instr(opcode: IROpcode) -> IRInstruction {
+    return IRInstruction(opcode, -1, ir_none(), ir_none(), ir_none())
+}
+
+model IRFunction {
+    name: string
+    params: list
+    paramTypes: list
+    instructions: list
+    registerCount: int
+    registerTypes: list
+    returnType: string
+}
+
+fn initIRFunction(name: string) -> IRFunction {
+    return IRFunction(name, [], [], [], 0, [], "void")
+}
+
+fn ir_alloc_register(func: IRFunction, typeName: string) -> int {
+    val reg = func.registerCount
+    func.registerCount = func.registerCount + 1
+    func.registerTypes.push(typeName)
+    return reg
+}
+
+fn ir_emit(func: IRFunction, instr: IRInstruction) {
+    func.instructions.push(instr)
+}
+
+model IRModelField {
+    name: string
+    typeName: string
+}
+
+model IRModelDecl {
+    name: string
+    fields: list
+}
+
+model IRVariantField {
+    name: string
+    typeName: string
+}
+
+model IRVariantDecl {
+    name: string
+    hasPayload: bool
+    payloadType: string
+    fields: list
+}
+
+model IRTraitMethod {
+    name: string
+    params: list
+    returnType: string
+}
+
+model IRTypeDecl {
+    name: string
+    kind: string // "enumeration", "union_type", "alias", "trait"
+    variants: list
+    richVariants: list
+    methods: list
+}
+
+model IRModule {
+    functions: list
+    globals: list // list of IRGlobal
+    models: list
+    types: list
+}
+
+model IRGlobal {
+    name: string
+    value: IRValue
+}
+
+fn initIRModule() -> IRModule {
+    return IRModule([], [], [], [])
+}

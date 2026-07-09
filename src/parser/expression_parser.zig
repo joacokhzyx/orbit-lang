@@ -237,11 +237,30 @@ pub const ExpressionParser = struct {
                 };
                 expr = node;
             } else if (self.match(.Question)) {
-                const err_handler = try self.parseExpression();
+                var error_kind = self.previous_token.*;
+                var err_handler: *Node = undefined;
+
+                // Accept bootstrap-friendly syntax: value ? err 404 "message"
+                if (self.match(.KeywordErr)) {
+                    error_kind = self.previous_token.*;
+                    if (self.check(.IntegerLiteral)) {
+                        _ = try self.consume(.IntegerLiteral);
+                    }
+                    err_handler = try self.parseExpression();
+                } else {
+                    if (isErrorShortcutToken(self.current_token.tag)) {
+                        error_kind = self.current_token.*;
+                    }
+                    err_handler = try self.parseExpression();
+                    if (error_kind.tag == .Question) {
+                        error_kind = self.previous_token.*;
+                    }
+                }
+
                 const node = try self.allocator.create(Node);
                 node.* = .{
                     .tag = .rescue_expr,
-                    .data = .{ .rescue_expr = .{ .expr = expr, .error_kind = self.previous_token.*, .message = err_handler } },
+                    .data = .{ .rescue_expr = .{ .expr = expr, .error_kind = error_kind, .message = err_handler } },
                 };
                 expr = node;
             } else {
@@ -298,12 +317,75 @@ pub const ExpressionParser = struct {
         return node;
     }
     
+    fn parseInterpolatedString(self: *ExpressionParser, tok: Token) anyerror!*Node {
+        const src = self.source;
+        const content_start = tok.loc.start + 1; // después de la comilla de apertura
+        const content_end = tok.loc.end - 1;     // la comilla de cierre (exclusivo)
+
+        // '+' sintético: en la ruta activa (IR) solo importa el .tag
+        const plus_tok = Token{ .tag = .Plus, .loc = .{
+            .start = tok.loc.start, .end = tok.loc.start, .line = tok.loc.line, .col = tok.loc.col,
+        } };
+
+        var result: ?*Node = null;
+        var lit_start = content_start;
+        var i = content_start;
+
+        while (i < content_end) {
+            const c = src[i];
+            if (c == '\\' and i + 1 < content_end) { i += 2; continue; } // saltar escapes (\{, \")
+            if (c == '{') {
+                const lit_node = try self.makeChunkNode(lit_start, i);
+                result = try self.appendConcat(result, lit_node, plus_tok);
+
+                const parsed = try self.parseEmbeddedExpr(i + 1);
+                result = try self.appendConcat(result, parsed.node, plus_tok);
+
+                i = parsed.stop + 1; // saltar el '}'
+                lit_start = i;
+                continue;
+            }
+            i += 1;
+        }
+
+        const tail = try self.makeChunkNode(lit_start, content_end);
+        result = try self.appendConcat(result, tail, plus_tok);
+
+        return result.?;
+    }
+
+    fn appendConcat(self: *ExpressionParser, left: ?*Node, right: *Node, op: Token) !*Node {
+        if (left == null) return right;
+        return try self.createNode(.binary_op, .{ .binary_op = .{ .lhs = left.?, .op = op, .rhs = right } });
+    }
+
+    // Crea un string_literal cuyo slice [1..len-1] (el que recorta el IR) == src[c0..c1)
+    fn makeChunkNode(self: *ExpressionParser, c0: usize, c1: usize) !*Node {
+        const chunk_tok = Token{ .tag = .StringLiteral, .loc = .{
+            .start = c0 - 1, .end = c1 + 1, .line = 0, .col = 0,
+        } };
+        return try self.createNode(.string_literal, .{ .string_literal = chunk_tok });
+    }
+
+    fn parseEmbeddedExpr(self: *ExpressionParser, abs_start: usize) anyerror!struct { node: *Node, stop: usize } {
+        var sub_lexer = Lexer.init(self.source, self.current_token.file_path);
+        sub_lexer.pos = abs_start; // apunta al source real => locs válidos para codegen
+        var cur: Token = sub_lexer.next();
+        var prev: Token = cur;
+        var sub = ExpressionParser.init(&sub_lexer, &cur, &prev, self.allocator, self.source);
+        const node = try sub.parseExpression();
+        return .{ .node = node, .stop = cur.loc.start }; // cur = '}' que terminó la expresión
+    }
+
     fn parsePrimary(self: *ExpressionParser) !*Node {
         if (self.match(.IntegerLiteral)) {
             const node = try self.createNode(.integer_literal, .{ .integer_literal = self.previous_token.* });
             return node;
         }
-
+        if (self.match(.CharLiteral)) {
+            const node = try self.createNode(.char_literal, .{ .char_literal = self.previous_token.* });
+            return node;
+        }
         if (self.match(.FloatLiteral)) {
             const node = try self.createNode(.float_literal, .{ .float_literal = self.previous_token.* });
             return node;
@@ -314,12 +396,16 @@ pub const ExpressionParser = struct {
             return node;
         }
 
+        if (self.match(.InterpStringLiteral)) {
+            return try self.parseInterpolatedString(self.previous_token.*);
+        }
+
         if (self.match(.KeywordTrue) or self.match(.KeywordFalse)) {
             const node = try self.createNode(.boolean_literal, .{ .boolean_literal = self.previous_token.* });
             return node;
         }
 
-        if (self.match(.Identifier)) {
+        if (self.match(.Identifier) or self.match(.KeywordOk) or self.match(.KeywordErr)) {
             const node = try self.createNode(.identifier, .{ .identifier = self.previous_token.* });
             return node;
         }
@@ -394,5 +480,13 @@ pub const ExpressionParser = struct {
                t == .KeywordMatch or t == .KeywordReturn or t == .KeywordFn or
                t == .KeywordOk or t == .KeywordErr or t == .KeywordVal or t == .KeywordConst or
                t == .KeywordPrivate or t == .KeywordAsync or t == .KeywordAwait;
+    }
+
+    fn isErrorShortcutToken(tag: TokenType) bool {
+        return tag == .KeywordNotFound or
+            tag == .KeywordBadRequest or
+            tag == .KeywordUnauthorized or
+            tag == .KeywordForbidden or
+            tag == .KeywordConflict;
     }
 };

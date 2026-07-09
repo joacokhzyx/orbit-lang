@@ -105,7 +105,7 @@ pub const TokenType = enum {
     // ============================================
     // TYPES - Collections
     // ============================================
-    TypeArray,
+    TypeList,
     TypeMap,
     TypeSet,
 
@@ -116,6 +116,8 @@ pub const TokenType = enum {
     StringLiteral,
     IntegerLiteral,
     FloatLiteral,
+    CharLiteral,
+    InterpStringLiteral,
 
     // ============================================
     // OPERATORS - Arithmetic
@@ -187,6 +189,9 @@ pub const TokenType = enum {
 pub const Token = struct {
     tag: TokenType,
     loc: Loc,
+    text: []const u8 = "", // Store the actual text slice
+    file_path: []const u8 = "", // Store the file path
+    file_source: []const u8 = "", // Store the file source
 
     pub const Loc = struct {
         start: usize,
@@ -195,8 +200,20 @@ pub const Token = struct {
         col: usize,
     };
 
-    /// Get the source text for this token
     pub fn getText(self: Token, source: []const u8) []const u8 {
-        return source[self.loc.start..self.loc.end];
+        _ = source; // Ignored, we use the stored slice directly
+        return self.text;
+    }
+    pub fn charCode(self: Token, source: []const u8) i64 {
+        _ = source;
+        const text = self.text;
+        if (text.len < 3) return 0;
+        const inner = text[1 .. text.len - 1];
+        if (inner[0] != '\\') return @as(i64, inner[0]);
+        return switch (inner[1]) {
+            'n' => 10, 't' => 9, 'r' => 13, '0' => 0,
+            '\\' => 92, '\'' => 39, '"' => 34,
+            else => @as(i64, inner[1]),
+        };
     }
 };

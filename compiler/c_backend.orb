@@ -1,0 +1,186 @@
+import "./ir.orb"
+
+model CBackend {
+    module: IRModule
+    output: string
+    currentFunction: IRFunction
+    callArgs: list
+}
+
+fn initCBackend(module: IRModule) -> CBackend {
+    return CBackend(module, "", initIRFunction(""), [])
+}
+
+fn generateC(backend: CBackend) -> string {
+    backend.output = backend.output + "#include \"runtime.h\"\n\n"
+    
+    // Generate Functions
+    var i = 0
+    while i < backend.module.functions.len() {
+        val func = backend.module.functions.get(i)
+        generateFunction(backend, func)
+        i = i + 1
+    }
+    
+    return backend.output
+}
+
+fn mapTypeToC(orbitType: string) -> string {
+    if orbitType == "int" { return "orbit_int" }
+    if orbitType == "float" { return "orbit_float" }
+    if orbitType == "string" { return "orbit_string" }
+    if orbitType == "bool" { return "orbit_bool" }
+    if orbitType == "void" { return "void" }
+    return "void*"
+}
+
+fn orbit_itoa(n: int) -> string {
+    if n == 0 { return "0" }
+    var str = ""
+    var temp = n
+    while temp > 0 {
+        val div = temp / 10
+        val rem = temp - (div * 10)
+        var c = ""
+        if rem == 0 { c = "0" }
+        if rem == 1 { c = "1" }
+        if rem == 2 { c = "2" }
+        if rem == 3 { c = "3" }
+        if rem == 4 { c = "4" }
+        if rem == 5 { c = "5" }
+        if rem == 6 { c = "6" }
+        if rem == 7 { c = "7" }
+        if rem == 8 { c = "8" }
+        if rem == 9 { c = "9" }
+        str = c + str
+        temp = temp / 10
+    }
+    return str
+}
+
+fn generateFunction(backend: CBackend, func: IRFunction) {
+    backend.currentFunction = func
+    val retType = mapTypeToC(func.returnType)
+    backend.output = backend.output + retType + " " + func.name + "("
+    
+    var i = 0
+    if func.params.len() == 0 {
+        backend.output = backend.output + "void"
+    } else {
+        while i < func.params.len() {
+            val pName = func.params.get(i)
+            val pType = mapTypeToC(func.paramTypes.get(i))
+            backend.output = backend.output + pType + " " + pName
+            if i < func.params.len() - 1 {
+                backend.output = backend.output + ", "
+            }
+            i = i + 1
+        }
+    }
+    
+    backend.output = backend.output + ") {\n"
+    
+    // Declare registers
+    i = 0
+    while i < func.registerCount {
+        val rType = mapTypeToC(func.registerTypes.get(i))
+        if rType != "void" {
+            backend.output = backend.output + "    " + rType + " r_" + orbit_itoa(i) + ";\n"
+        }
+        i = i + 1
+    }
+
+    // Generate instructions
+    i = 0
+    while i < func.instructions.len() {
+        val instr = func.instructions.get(i)
+        generateInstruction(backend, instr)
+        i = i + 1
+    }
+
+    if func.returnType != "void" {
+        if retType == "orbit_int" {
+            backend.output = backend.output + "    return 0;\n"
+        } else {
+            backend.output = backend.output + "    return NULL;\n"
+        }
+    }
+    backend.output = backend.output + "}\n\n"
+}
+
+fn generateValue(backend: CBackend, value: IRValue) -> string {
+    match value {
+        IRValue.Int(v) => { return orbit_itoa(v.value) }
+        IRValue.String(v) => { return "\"" + v.value + "\"" }
+        IRValue.Sym(v) => { return v.value }
+        IRValue.Register(v) => { return "r_" + orbit_itoa(v.value) }
+        IRValue.Label(v) => { return "label_" + orbit_itoa(v.value) }
+        _ => { return "" }
+    }
+}
+
+fn generateInstruction(backend: CBackend, instr: IRInstruction) {
+    match instr.opcode {
+        IROpcode.load_const => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + ";\n"
+        }
+        IROpcode.load_var => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + ";\n"
+        }
+        IROpcode.store_var => {
+            backend.output = backend.output + "    " + generateValue(backend, instr.operand1) + " = " + generateValue(backend, instr.operand2) + ";\n"
+        }
+        IROpcode.decl_var => {
+            backend.output = backend.output + "    void* " + generateValue(backend, instr.operand1) + " = " + generateValue(backend, instr.operand2) + ";\n"
+        }
+        IROpcode.add => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + " + " + generateValue(backend, instr.operand2) + ";\n"
+        }
+        IROpcode.sub => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + " - " + generateValue(backend, instr.operand2) + ";\n"
+        }
+        IROpcode.mul => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + " * " + generateValue(backend, instr.operand2) + ";\n"
+        }
+        IROpcode.arg => {
+            backend.callArgs.push(generateValue(backend, instr.operand1))
+        }
+        IROpcode.call => {
+            if instr.dest != -1 {
+                backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = "
+            } else {
+                backend.output = backend.output + "    "
+            }
+            backend.output = backend.output + generateValue(backend, instr.operand1) + "("
+            var i = 0
+            while i < backend.callArgs.len() {
+                backend.output = backend.output + backend.callArgs.get(i)
+                if i < backend.callArgs.len() - 1 {
+                    backend.output = backend.output + ", "
+                }
+                i = i + 1
+            }
+            backend.output = backend.output + ");\n"
+            // clear args
+            var emptyArgs = []
+            backend.callArgs = emptyArgs
+        }
+        IROpcode.ret => {
+            match instr.operand1 {
+                IRValue.None => {
+                    if backend.currentFunction.name == "main" {
+                        backend.output = backend.output + "    return 0;\n"
+                    } else {
+                        backend.output = backend.output + "    return;\n"
+                    }
+                }
+                _ => {
+                    backend.output = backend.output + "    return " + generateValue(backend, instr.operand1) + ";\n"
+                }
+            }
+        }
+        _ => {
+            backend.output = backend.output + "    // op: ...\n"
+        }
+    }
+}

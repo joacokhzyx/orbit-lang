@@ -133,6 +133,11 @@ pub const TypeChecker = struct {
 
     /// Phase 2: Check if a match statement is exhaustive over a union/enum.
     pub fn checkExhaustive(self: *TypeChecker, type_name: []const u8, covered_variants: []const []const u8) bool {
+        return self.getMissingVariant(type_name, covered_variants) == null;
+    }
+
+    /// Phase 2: Get first missing variant if non-exhaustive.
+    pub fn getMissingVariant(self: *TypeChecker, type_name: []const u8, covered_variants: []const []const u8) ?[]const u8 {
         if (self.union_registry.get(type_name)) |all_variants| {
             for (all_variants) |v| {
                 var found = false;
@@ -142,17 +147,18 @@ pub const TypeChecker = struct {
                         break;
                     }
                 }
-                if (!found) return false;
+                if (!found) return v;
             }
-            return true;
+            return null;
         }
-        return true; // Unknown types pass (conservative)
+        return null; // Unknown types pass (conservative)
     }
     
     pub fn inferType(self: *TypeChecker, node: *Node, scope: anytype) []const u8 {
         const inferred = switch (node.tag) {
             .string_literal => "string",
             .integer_literal => "int",
+            .char_literal => "int",
             .float_literal => "float",
             .boolean_literal => "bool",
             .identifier => self.inferIdentifierType(node, scope),
@@ -164,6 +170,20 @@ pub const TypeChecker = struct {
             .object_literal => "map",       // Phase 2: map
             .type_decl, .enum_decl, .union_decl => "type",
             .assignment => self.inferType(node.data.assignment.value, scope),
+            .index_access => blk: {
+                const ia = node.data.index_access;
+                _ = self.inferType(ia.object, scope);
+                _ = self.inferType(ia.index, scope);
+                break :blk "unknown"; // Default to unknown instead of int to allow strings
+            },
+            .unary_op => blk: {
+                const u = node.data.unary_op;
+                const operand_type = self.inferType(u.operand, scope);
+                if (u.op.tag == .Bang) {
+                    break :blk "bool";
+                }
+                break :blk operand_type;
+            },
             else => "unknown",
         };
         
@@ -194,6 +214,10 @@ pub const TypeChecker = struct {
         // Logical operators also return bool
         if (op_tag == .DoubleAmpersand or op_tag == .DoublePipe) return "bool";
 
+        if (op_tag == .Plus and (std.mem.eql(u8, lhs_type, "string") or std.mem.eql(u8, rhs_type, "string"))) {
+            return "string";
+        }
+
         if (std.mem.eql(u8, lhs_type, "int") and std.mem.eql(u8, rhs_type, "int")) {
             return "int";
         }
@@ -202,20 +226,25 @@ pub const TypeChecker = struct {
             return "float";
         }
         
-        if (std.mem.eql(u8, lhs_type, "string") or std.mem.eql(u8, rhs_type, "string")) {
-            return "string";
-        }
-        
         return "unknown";
     }
     
     fn inferCallType(self: *TypeChecker, node: *Node, scope: anytype) []const u8 {
         const call_data = node.data.call;
+
+        for (call_data.args) |arg| {
+            _ = self.inferType(arg, scope);
+        }
         
         if (call_data.func.tag == .identifier) {
             const func_name = call_data.func.data.identifier.getText(self.source);
-            if (std.mem.eql(u8, func_name, "ok")) return "response";
+            if (std.mem.eql(u8, func_name, "ok")) return "result";
+            if (std.mem.eql(u8, func_name, "err")) return "result";
             if (std.mem.eql(u8, func_name, "print")) return "void";
+
+            if (scope.get(func_name)) |entry| {
+                if (entry.is_function) return entry.type_name;
+            }
             
             // If it's a model name, it's a constructor call
             if (self.model_registry) |reg| {
@@ -238,6 +267,10 @@ pub const TypeChecker = struct {
                 const mem = ma.member.getText(self.source);
                 if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "read")) return "string";
                 if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "write")) return "bool";
+                if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "list_dir")) return "list";
+                if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "exec")) return "string";
+                if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "env")) return "string";
+                if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "exit")) return "void";
                 // Phase 2: List/Map method inference
                 const obj_type = self.inferIdentifierType(ma.object, scope);
                 if (std.mem.eql(u8, obj_type, "list")) {

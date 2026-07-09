@@ -1,0 +1,8 @@
+fn main() -> int {
+    val n = 7
+    val who = "Orbit"
+    val active = true
+    print($"lang={who} n={n} active={active}")
+    print($"suma: {n + n}")
+    return 0
+}

@@ -40,6 +40,7 @@ pub const Sema = struct {
     diagnostics: DiagnosticReporter,
 
     has_server_init: bool,
+    current_function_return_type: ?[]const u8,
 
     pub fn create(allocator: std.mem.Allocator, source: []const u8) !*Sema {
         const self = try allocator.create(Sema);
@@ -54,6 +55,7 @@ pub const Sema = struct {
             .model_registry = ModelRegistry.init(allocator),
             .diagnostics = DiagnosticReporter.init(allocator),
             .has_server_init = false,
+            .current_function_return_type = null,
         };
         
         self.type_checker = TypeChecker.init(allocator, &self.node_types, source);
@@ -94,8 +96,35 @@ pub const Sema = struct {
         
         if (root.tag != .root) return error.NotARootNode;
         
+        // Pass 1: Types, Models, Enums, Unions
         for (root.data.root.decls) |decl| {
-            try self.analyzeDeclaration(decl, global_scope);
+            switch (decl.tag) {
+                .model_decl, .type_decl, .enum_decl, .union_decl => try self.analyzeDeclaration(decl, global_scope),
+                else => {},
+            }
+        }
+
+        // Pass 2: Function Signatures
+        for (root.data.root.decls) |decl| {
+            if (decl.tag == .fn_decl) {
+                try self.registerFunctionSignature(decl, global_scope);
+            }
+        }
+
+        // Pass 3: Constants and Variables (Top-level)
+        for (root.data.root.decls) |decl| {
+            switch (decl.tag) {
+                .const_decl, .val_decl => try self.analyzeDeclaration(decl, global_scope),
+                else => {},
+            }
+        }
+
+        // Pass 4: Function Bodies and Routes
+        for (root.data.root.decls) |decl| {
+            switch (decl.tag) {
+                .fn_decl, .route_decl => try self.analyzeDeclaration(decl, global_scope),
+                else => {},
+            }
         }
         
         self.scope_manager.popScope();
@@ -116,6 +145,24 @@ pub const Sema = struct {
             },
             else => {},
         }
+    }
+
+    fn registerFunctionSignature(self: *Sema, node: *Node, scope: *Scope) !void {
+        const fn_data = node.data.fn_decl;
+        const fn_name = try self.internString(fn_data.name.getText(self.source));
+        const return_type = if (fn_data.return_type) |rt|
+            try self.internString(rt.getText(self.source))
+        else
+            "void";
+
+        scope.defineFunction(fn_name, return_type) catch |err| {
+            if (err == error.DuplicateDefinition) {
+                const msg = try std.fmt.allocPrint(self.allocator, "Function '{s}' is already defined", .{fn_name});
+                try self.diagnostics.reportError("E001", msg, fn_data.name);
+            } else {
+                return err;
+            }
+        };
     }
     
     fn analyzeModel(self: *Sema, node: *Node, scope: *Scope) !void {
@@ -172,6 +219,10 @@ pub const Sema = struct {
         try route_scope.define("req", "request", false);
         try route_scope.define("res", "response", false);
         
+        const previous_return_type = self.current_function_return_type;
+        self.current_function_return_type = "response";
+        defer self.current_function_return_type = previous_return_type;
+
         if (route_data.body.tag == .block) {
             for (route_data.body.data.block.stmts) |stmt| {
                 try self.analyzeStatement(stmt, route_scope);
@@ -184,15 +235,17 @@ pub const Sema = struct {
     }
     
     fn analyzeFunction(self: *Sema, node: *Node, scope: *Scope) !void {
+        _ = scope;
+        
         const fn_data = node.data.fn_decl;
-        const fn_name = try self.internString(fn_data.name.getText(self.source));
-
+        const fn_name = fn_data.name.getText(self.source);
+        std.debug.print("SEMA analyzeFunction: {s}\n", .{fn_name});
         const return_type = if (fn_data.return_type) |rt|
             try self.internString(rt.getText(self.source))
         else
             "void";
 
-        try scope.defineFunction(fn_name, return_type);
+        // Function signature was already registered in registerFunctionSignature (Pass 1).
 
         const fn_scope = try self.scope_manager.pushScope();
 
@@ -206,6 +259,10 @@ pub const Sema = struct {
 
             try fn_scope.define(param_name, param_type, false);
         }
+
+        const previous_return_type = self.current_function_return_type;
+        self.current_function_return_type = return_type;
+        defer self.current_function_return_type = previous_return_type;
 
         if (fn_data.body.tag == .block) {
             for (fn_data.body.data.block.stmts) |stmt| {
@@ -249,13 +306,18 @@ pub const Sema = struct {
     
     fn analyzeStatement(self: *Sema, node: *Node, scope: *Scope) anyerror!void {
         switch (node.tag) {
+            .block => {
+                const block_scope = try self.scope_manager.pushScope();
+                for (node.data.block.stmts) |stmt| {
+                    try self.analyzeStatement(stmt, block_scope);
+                }
+                self.scope_manager.popScope();
+            },
             .expression_stmt => {
                 _ = try self.analyzeExpression(node.data.expression_stmt.expr, scope);
             },
             .return_stmt => {
-                if (node.data.return_stmt.expr) |value| {
-                    _ = try self.analyzeExpression(value, scope);
-                }
+                try self.analyzeReturn(node, scope);
             },
             .val_decl => try self.analyzeVal(node, scope),
             .if_stmt => try self.analyzeIf(node, scope),
@@ -263,6 +325,36 @@ pub const Sema = struct {
             .while_stmt => try self.analyzeWhile(node, scope),
             .match_stmt => try self.analyzeMatch(node, scope),
             else => {},
+        }
+    }
+
+    fn analyzeReturn(self: *Sema, node: *Node, scope: *Scope) !void {
+        const expected_type = self.current_function_return_type orelse "void";
+
+        if (node.data.return_stmt.expr) |value| {
+            const actual_type = try self.analyzeExpression(value, scope);
+            if (std.mem.eql(u8, expected_type, "void")) {
+                const tok = self.getNodeToken(value);
+                try self.diagnostics.reportError("return/unexpected-value", "Void function cannot return a value", tok);
+                return error.TypeMismatch;
+            }
+            if (!self.type_checker.checkCompatibility(expected_type, actual_type)) {
+                const message = try std.fmt.allocPrint(
+                    self.allocator,
+                    "Return type mismatch: expected '{s}', got '{s}'",
+                    .{ expected_type, actual_type },
+                );
+                const tok = self.getNodeToken(value);
+                try self.diagnostics.reportError("return/type-mismatch", message, tok);
+                return error.TypeMismatch;
+            }
+            return;
+        }
+
+        if (!std.mem.eql(u8, expected_type, "void")) {
+            const tok = self.getNodeToken(node);
+            try self.diagnostics.reportError("return/missing-value", "Non-void function must return a value", tok);
+            return error.MissingReturn;
         }
     }
     
@@ -360,19 +452,19 @@ pub const Sema = struct {
 
         if (!has_wildcard) {
             if (self.type_checker.getTypeKind(match_type)) |kind| {
-                if ((kind == .enumeration or kind == .union_type) and
-                    !self.type_checker.checkExhaustive(match_type, covered_variants.items))
-                {
-                    const loc = self.getNodeLineCol(match_data.expr);
-                    const message = try std.fmt.allocPrint(
-                        self.allocator,
-                        "Non-exhaustive match for type '{s}'",
-                        .{match_type},
-                    );
-                    defer self.allocator.free(message);
+                if ((kind == .enumeration or kind == .union_type)) {
+                    if (self.type_checker.getMissingVariant(match_type, covered_variants.items)) |missing| {
+                        const message = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Non-exhaustive match for type '{s}'. Missing variant: '{s}'",
+                            .{match_type, missing},
+                        );
+                        defer self.allocator.free(message);
 
-                    try self.diagnostics.reportError("match/non-exhaustive", message, loc.line, loc.col);
-                    return error.NonExhaustiveMatch;
+                        const tok = self.getNodeToken(match_data.expr);
+                        try self.diagnostics.reportError("match/non-exhaustive", message, tok);
+                        return error.NonExhaustiveMatch;
+                    }
                 }
             }
         }
@@ -403,16 +495,23 @@ pub const Sema = struct {
         }
     }
 
-    fn getNodeLineCol(self: *Sema, node: *Node) struct { line: usize, col: usize } {
+    fn getNodeToken(self: *Sema, node: *Node) Token {
         return switch (node.tag) {
-            .identifier => .{ .line = node.data.identifier.loc.line, .col = node.data.identifier.loc.col },
-            .string_literal => .{ .line = node.data.string_literal.loc.line, .col = node.data.string_literal.loc.col },
-            .integer_literal => .{ .line = node.data.integer_literal.loc.line, .col = node.data.integer_literal.loc.col },
-            .float_literal => .{ .line = node.data.float_literal.loc.line, .col = node.data.float_literal.loc.col },
-            .boolean_literal => .{ .line = node.data.boolean_literal.loc.line, .col = node.data.boolean_literal.loc.col },
-            .member_access => .{ .line = node.data.member_access.member.loc.line, .col = node.data.member_access.member.loc.col },
-            .call => self.getNodeLineCol(node.data.call.func),
-            else => .{ .line = 1, .col = 1 },
+            .identifier => node.data.identifier,
+            .string_literal => node.data.string_literal,
+            .char_literal => node.data.char_literal,
+            .integer_literal => node.data.integer_literal,
+            .float_literal => node.data.float_literal,
+            .boolean_literal => node.data.boolean_literal,
+            .member_access => node.data.member_access.member,
+            .call => self.getNodeToken(node.data.call.func),
+            else => .{
+                .tag = .Invalid,
+                .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                .text = "",
+                .file_path = "",
+                .file_source = "",
+            },
         };
     }
 

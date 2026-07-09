@@ -51,7 +51,7 @@ pub const IRBuilder = struct {
     
     fn getNodeType(self: *IRBuilder, node: *Node) IRType {
         if (self.node_types.get(node)) |type_name| {
-            // Check module types first to distinguish Unions/Enums from Models
+            std.debug.print("getNodeType: node tag {s} has type '{s}'\n", .{@tagName(node.tag), type_name});
             for (self.module.types.items) |t| {
                 if (std.mem.eql(u8, t.name, type_name)) {
                     if (t.kind == .enumeration) return .{ .enumeration = type_name };
@@ -61,6 +61,8 @@ pub const IRBuilder = struct {
 
             const t = IRType.fromString(type_name);
             if (t != .unknown) return t;
+        } else {
+            std.debug.print("getNodeType: node tag {s} NOT found in node_types\n", .{@tagName(node.tag)});
         }
         
         // Fallback for identifier types if we can find them in the variable table
@@ -89,7 +91,7 @@ pub const IRBuilder = struct {
                 const ma = call.func.data.member_access;
                 const obj_name = if (ma.object.tag == .identifier) ma.object.data.identifier.getText(self.source) else "";
                 const member_name = ma.member.getText(self.source);
-                if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "read")) return .string;
+                if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "read")) return .{ .result = null };
                 
                 const obj_type = self.getNodeType(ma.object);
                 if (obj_type == .string) {
@@ -141,6 +143,16 @@ pub const IRBuilder = struct {
         return .unknown;
     }
     
+    fn resolveType(self: *IRBuilder, type_name: []const u8) IRType {
+        for (self.module.types.items) |t| {
+            if (std.mem.eql(u8, t.name, type_name)) {
+                if (t.kind == .enumeration) return .{ .enumeration = type_name };
+                if (t.kind == .union_type) return .{ .tagged_union = type_name };
+            }
+        }
+        return IRType.fromString(type_name);
+    }
+    
     pub fn build(self: *IRBuilder, root: *Node) !IRModule {
         if (root.tag != .root) return error.NotARootNode;
         
@@ -155,6 +167,11 @@ pub const IRBuilder = struct {
                 else => {},
             }
         }
+        std.debug.print("--- REGISTERED TYPES ---\n", .{});
+        for (self.module.types.items) |t| {
+            std.debug.print("Type: {s}, Kind: {s}\n", .{t.name, @tagName(t.kind)});
+        }
+        std.debug.print("------------------------\n", .{});
 
         // Pass 2: Register all function signatures (including routes)
         // This ensures functions are known before they are called.
@@ -164,7 +181,7 @@ pub const IRBuilder = struct {
                     const fn_data = decl.data.fn_decl;
                     var func = IRFunction.init(self.allocator, fn_data.name.getText(self.source));
                     if (fn_data.return_type) |rt| {
-                        func.return_type = IRType.fromString(rt.getText(self.source));
+                        func.return_type = self.resolveType(rt.getText(self.source));
                     }
                     
                     // Track param types
@@ -172,7 +189,7 @@ pub const IRBuilder = struct {
                     var param_names = std.ArrayListUnmanaged([]const u8){};
                     for (fn_data.params) |p| {
                        try param_names.append(self.allocator, p.data.param.name.getText(self.source));
-                       const pt = if (p.data.param.type_name) |tn| IRType.fromString(tn.getText(self.source)) else .int;
+                       const pt = if (p.data.param.type_name) |tn| self.resolveType(tn.getText(self.source)) else .int;
                        try param_types.append(self.allocator, pt);
                     }
                     func.params = try param_names.toOwnedSlice(self.allocator);
@@ -387,7 +404,9 @@ pub const IRBuilder = struct {
     
     fn buildFunction(self: *IRBuilder, node: *Node) !void {
         const fn_data = node.data.fn_decl;
-        var func = IRFunction.init(self.allocator, fn_data.name.getText(self.source));
+        const fn_name = fn_data.name.getText(self.source);
+        std.debug.print("Builder buildFunction: {s}\n", .{fn_name});
+        var func = IRFunction.init(self.allocator, fn_name);
         
         // Phase 2: Set return type from annotation
         if (fn_data.return_type) |rt| {
@@ -656,9 +675,96 @@ pub const IRBuilder = struct {
                 }
                 break :blk IRValue{ .register = reg };
             },
+            .rescue_expr => blk: {
+                const r = node.data.rescue_expr;
+                const expr_val = try self.buildExpr(r.expr);
+                
+                const is_ok_reg = try self.current_function.?.allocRegister(self.allocator, .bool);
+                var chk = IRInstruction.init(.result_is_ok);
+                chk.operand1 = expr_val;
+                chk.dest = is_ok_reg;
+                try self.current_function.?.emit(self.allocator, chk);
+                
+                const err_label = self.allocLabel();
+                const end_label = self.allocLabel();
+                
+                var br = IRInstruction.init(.jump_if_false);
+                br.operand1 = IRValue{ .register = is_ok_reg };
+                br.operand2 = IRValue{ .label = err_label };
+                try self.current_function.?.emit(self.allocator, br);
+                
+                try self.current_function.?.emit(self.allocator, IRInstruction.init(.begin_block));
+                const unwrap_reg = try self.current_function.?.allocRegister(self.allocator, self.getNodeType(node));
+                var unwrap = IRInstruction.init(.result_unwrap);
+                unwrap.operand1 = expr_val;
+                unwrap.dest = unwrap_reg;
+                try self.current_function.?.emit(self.allocator, unwrap);
+                try self.current_function.?.emit(self.allocator, IRInstruction.init(.end_block));
+                
+                var jmp_end = IRInstruction.init(.jump);
+                jmp_end.operand1 = IRValue{ .label = end_label };
+                try self.current_function.?.emit(self.allocator, jmp_end);
+                
+                var lbl_err = IRInstruction.init(.label);
+                lbl_err.operand1 = IRValue{ .label = err_label };
+                try self.current_function.?.emit(self.allocator, lbl_err);
+                
+                try self.current_function.?.emit(self.allocator, IRInstruction.init(.begin_block));
+                if (r.message.tag == .err_stmt or r.message.tag == .err_shortcut) {
+                    try self.buildStmt(r.message);
+                } else {
+                    const fallback_val = try self.buildExpr(r.message);
+                    var copy_instr = IRInstruction.init(.copy);
+                    copy_instr.operand1 = fallback_val;
+                    copy_instr.dest = unwrap_reg;
+                    try self.current_function.?.emit(self.allocator, copy_instr);
+                }
+                try self.current_function.?.emit(self.allocator, IRInstruction.init(.end_block));
+                
+                var lbl_end = IRInstruction.init(.label);
+                lbl_end.operand1 = IRValue{ .label = end_label };
+                try self.current_function.?.emit(self.allocator, lbl_end);
+                
+                break :blk IRValue{ .register = unwrap_reg };
+            },
+            .unary_op => try self.buildUnaryOp(node),
             else => IRValue.none,
-        };
-    }
+         };
+     }
+     
+     fn buildUnaryOp(self: *IRBuilder, node: *Node) !IRValue {
+         const u = node.data.unary_op;
+         const operand = try self.buildExpr(u.operand);
+         
+         if (u.op.tag == .Minus) {
+             if (operand == .int) {
+                 return IRValue{ .int = -operand.int };
+             }
+             if (operand == .float) {
+                 return IRValue{ .float = -operand.float };
+             }
+             
+             const type_val = self.getNodeType(node);
+             const reg = try self.current_function.?.allocRegister(self.allocator, type_val);
+             var instr = IRInstruction.init(.neg);
+             instr.dest = reg;
+             instr.operand1 = operand;
+             try self.current_function.?.emit(self.allocator, instr);
+             return IRValue{ .register = reg };
+         }
+         
+         if (u.op.tag == .Bang) {
+             const type_val = self.getNodeType(node);
+             const reg = try self.current_function.?.allocRegister(self.allocator, type_val);
+             var instr = IRInstruction.init(.not_op);
+             instr.dest = reg;
+             instr.operand1 = operand;
+             try self.current_function.?.emit(self.allocator, instr);
+             return IRValue{ .register = reg };
+         }
+         
+         return operand;
+     }
 
     fn buildMemberAccess(self: *IRBuilder, node: *Node) !IRValue {
         const ma = node.data.member_access;
@@ -669,15 +775,33 @@ pub const IRBuilder = struct {
             const obj_name = ma.object.data.identifier.getText(self.source);
             // Check if first char is UpperCase -> Enum/Type constant
             if (std.ascii.isUpper(obj_name[0])) {
-                 const full_name = try std.fmt.allocPrint(self.allocator, "{s}_TAG_{s}", .{obj_name, member_name});
-                 
-                 const type_val = self.getNodeType(node);
-                 const reg = try self.current_function.?.allocRegister(self.allocator, type_val);
-                 var instr = IRInstruction.init(.load_var);
-                 instr.dest = reg;
-                 instr.operand1 = IRValue{ .string = full_name };
-                 try self.current_function.?.emit(self.allocator, instr);
-                 return IRValue{ .register = reg };
+                  var is_union = false;
+                  for (self.module.types.items) |t| {
+                      if (std.mem.eql(u8, t.name, obj_name)) {
+                          if (t.kind == .union_type) is_union = true;
+                      }
+                  }
+                  std.debug.print("buildMemberAccess: obj_name={s}, member_name={s}, is_union={}\n", .{obj_name, member_name, is_union});
+
+                  const full_name = try std.fmt.allocPrint(self.allocator, "{s}_TAG_{s}", .{obj_name, member_name});
+                  
+                  if (is_union) {
+                      const union_reg = try self.current_function.?.allocRegister(self.allocator, .{ .tagged_union = obj_name });
+                      var instr = IRInstruction.init(.union_create);
+                      instr.dest = union_reg;
+                      instr.operand1 = IRValue{ .string = full_name };
+                      instr.operand2 = IRValue{ .int = 0 };
+                      try self.current_function.?.emit(self.allocator, instr);
+                      return IRValue{ .register = union_reg };
+                  } else {
+                      const type_val = self.getNodeType(node);
+                      const reg = try self.current_function.?.allocRegister(self.allocator, type_val);
+                      var instr = IRInstruction.init(.load_var);
+                      instr.dest = reg;
+                      instr.operand1 = IRValue{ .string = full_name };
+                      try self.current_function.?.emit(self.allocator, instr);
+                      return IRValue{ .register = reg };
+                  }
             }
         }
         
@@ -820,7 +944,7 @@ pub const IRBuilder = struct {
                      var instr = IRInstruction.init(if (use_list) .list_get else .map_get);
                      instr.operand1 = obj;
                      instr.operand2 = key_arg;
-                     const get_res = try self.current_function.?.allocRegister(self.allocator, .int);
+                     const get_res = try self.current_function.?.allocRegister(self.allocator, self.getNodeType(node));
                      instr.dest = get_res;
                      try self.current_function.?.emit(self.allocator, instr);
                      return IRValue{ .register = get_res };
@@ -829,22 +953,30 @@ pub const IRBuilder = struct {
                  const obj = try self.buildExpr(ma.object);
                  const obj_type = self.getNodeType(ma.object);
                  
-                 if (obj_type == .map) {
-                     var arg = IRInstruction.init(.arg);
-                     arg.operand1 = obj;
-                     try self.current_function.?.emit(self.allocator, arg);
-                     const count_res = try self.current_function.?.allocRegister(self.allocator, .int);
-                     const call = IRInstruction.call(count_res, "orbit_map_count", &.{});
-                     try self.current_function.?.emit(self.allocator, call);
-                     return IRValue{ .register = count_res };
-                 } else {
-                     var instr = IRInstruction.init(.list_len);
-                     instr.operand1 = obj;
-                     const len_res = try self.current_function.?.allocRegister(self.allocator, .int);
-                     instr.dest = len_res;
-                     try self.current_function.?.emit(self.allocator, instr);
-                     return IRValue{ .register = len_res };
-                 }
+                  if (obj_type == .map) {
+                      var arg = IRInstruction.init(.arg);
+                      arg.operand1 = obj;
+                      try self.current_function.?.emit(self.allocator, arg);
+                      const count_res = try self.current_function.?.allocRegister(self.allocator, .int);
+                      const call = IRInstruction.call(count_res, "orbit_map_count", &.{});
+                      try self.current_function.?.emit(self.allocator, call);
+                      return IRValue{ .register = count_res };
+                  } else if (obj_type == .string) {
+                      var arg = IRInstruction.init(.arg);
+                      arg.operand1 = obj;
+                      try self.current_function.?.emit(self.allocator, arg);
+                      const len_res = try self.current_function.?.allocRegister(self.allocator, .int);
+                      const call = IRInstruction.call(len_res, "strlen", &.{});
+                      try self.current_function.?.emit(self.allocator, call);
+                      return IRValue{ .register = len_res };
+                  } else {
+                      var instr = IRInstruction.init(.list_len);
+                      instr.operand1 = obj;
+                      const len_res = try self.current_function.?.allocRegister(self.allocator, .int);
+                      instr.dest = len_res;
+                      try self.current_function.?.emit(self.allocator, instr);
+                      return IRValue{ .register = len_res };
+                  }
             }
         }
 
@@ -873,8 +1005,12 @@ pub const IRBuilder = struct {
             }
         }
 
-        for (node.data.call.args) |arg| {
-            const param_val = try self.buildExpr(arg);
+        var param_vals = try self.allocator.alloc(IRValue, node.data.call.args.len);
+        defer self.allocator.free(param_vals);
+        for (node.data.call.args, 0..) |arg, i| {
+            param_vals[i] = try self.buildExpr(arg);
+        }
+        for (param_vals) |param_val| {
             var arg_instr = IRInstruction.init(.arg);
             arg_instr.operand1 = param_val;
             try self.current_function.?.emit(self.allocator, arg_instr);
@@ -883,7 +1019,7 @@ pub const IRBuilder = struct {
         var func_name: []const u8 = "";
         if (node.data.call.func.tag == .member_access) {
             const ma = node.data.call.func.data.member_access;
-            const obj_name = ma.object.data.identifier.getText(self.source);
+            const obj_name = if (ma.object.tag == .identifier) ma.object.data.identifier.getText(self.source) else "";
             const member_name = ma.member.getText(self.source);
             
             // Map common module calls to runtime functions
@@ -892,15 +1028,57 @@ pub const IRBuilder = struct {
                 // Add first argument implicitly if needed, but here it expects Arena* which we'll handle in CBackend or by passing current arena
             } else if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "write")) {
                 func_name = "orbit_file_write";
+            } else if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "list_dir")) {
+                func_name = "orbit_file_list_dir";
+            } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "exec")) {
+                func_name = "orbit_os_exec";
+            } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "env")) {
+                func_name = "orbit_os_env";
+            } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "exit")) {
+                func_name = "orbit_os_exit";
             } else {
                 // Default formatting for module calls if not specially mapped
                 func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{obj_name, member_name});
             }
         } else {
             func_name = node.data.call.func.data.identifier.getText(self.source);
+            
+            if (std.mem.eql(u8, func_name, "ok") and node.data.call.args.len == 1) {
+                const val = try self.buildExpr(node.data.call.args[0]);
+                var instr = IRInstruction.init(.result_ok);
+                instr.operand1 = val;
+                const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
+                instr.dest = res_reg;
+                try self.current_function.?.emit(self.allocator, instr);
+                return IRValue{ .register = res_reg };
+            } else if (std.mem.eql(u8, func_name, "err")) {
+                if (node.data.call.args.len == 1) {
+                    const msg = try self.buildExpr(node.data.call.args[0]);
+                    var instr = IRInstruction.init(.result_err);
+                    instr.operand1 = IRValue{ .int = 500 }; // default code
+                    instr.operand2 = msg;
+                    const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
+                    instr.dest = res_reg;
+                    try self.current_function.?.emit(self.allocator, instr);
+                    return IRValue{ .register = res_reg };
+                } else if (node.data.call.args.len == 2) {
+                    const code = try self.buildExpr(node.data.call.args[0]);
+                    const msg = try self.buildExpr(node.data.call.args[1]);
+                    var instr = IRInstruction.init(.result_err);
+                    instr.operand1 = code;
+                    instr.operand2 = msg;
+                    const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
+                    instr.dest = res_reg;
+                    try self.current_function.?.emit(self.allocator, instr);
+                    return IRValue{ .register = res_reg };
+                }
+            }
         }
 
-        const instr = IRInstruction.call(reg, func_name, &.{});
+        var instr = IRInstruction.init(.call);
+        instr.dest = reg;
+        instr.operand1 = IRValue{ .string = func_name };
+        instr.operand2 = IRValue{ .int = @intCast(node.data.call.args.len) };
         try self.current_function.?.emit(self.allocator, instr);
 
         return IRValue{ .register = reg };
@@ -1001,12 +1179,14 @@ pub const IRBuilder = struct {
         }
 
         for (match_data.cases) |case| {
+
             const case_data = case.data.match_case;
             const next_case_label = self.allocLabel();
             
             // Handle pattern comparison
             if (case_data.pattern.tag == .identifier and std.mem.eql(u8, case_data.pattern.data.identifier.getText(self.source), "_")) {
                 // Wildcard case - always matches
+                try self.current_function.?.emit(self.allocator, IRInstruction.init(.begin_block));
             } else if ((is_union or is_enum) and (case_data.pattern.tag == .member_access or case_data.pattern.tag == .call)) {
                 // Union tag comparison
                 var ma_node: *Node = case_data.pattern;
@@ -1039,6 +1219,8 @@ pub const IRBuilder = struct {
                     branch_instr.operand1 = IRValue{ .register = cmp_reg };
                     branch_instr.operand2 = IRValue{ .label = next_case_label };
                     try self.current_function.?.emit(self.allocator, branch_instr);
+                    
+                    try self.current_function.?.emit(self.allocator, IRInstruction.init(.begin_block));
                     
                     // If matched and has payload variable, extract it
                     if (payload_var) |v_tok| {
@@ -1086,13 +1268,16 @@ pub const IRBuilder = struct {
                 branch_instr.operand1 = IRValue{ .register = reg };
                 branch_instr.operand2 = IRValue{ .label = next_case_label };
                 try self.current_function.?.emit(self.allocator, branch_instr);
+                
+                try self.current_function.?.emit(self.allocator, IRInstruction.init(.begin_block));
             }
             
             try self.buildStmt(case_data.body);
+            try self.current_function.?.emit(self.allocator, IRInstruction.init(.end_block));
             
-            var jump_end = IRInstruction.init(.jump);
-            jump_end.operand1 = IRValue{ .label = end_label };
-            try self.current_function.?.emit(self.allocator, jump_end);
+            var end_jump = IRInstruction.init(.jump);
+            end_jump.operand1 = IRValue{ .label = end_label };
+            try self.current_function.?.emit(self.allocator, end_jump);
             
             var l_next = IRInstruction.init(.label);
             l_next.operand1 = IRValue{ .label = next_case_label };
