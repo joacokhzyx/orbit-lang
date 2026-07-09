@@ -25,12 +25,6 @@ jobs:
       - name: Compile Orbit Compiler
         run: zig build -Doptimize=ReleaseFast
 
-      - name: Setup Inno Setup
-        run: |
-          # Inno Setup ISCC is pre-installed on GitHub Actions windows-latest runner
-          echo "Checking ISCC version..."
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /?
-
       - name: Build Windows Installer Wizard
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts/windows_installer.iss
