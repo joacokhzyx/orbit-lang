@@ -145,6 +145,7 @@ pub const Node = struct {
             body: *Node,
             is_async: bool,
             is_private: bool,
+            is_extern: bool,
         },
 
         role_decl: struct {

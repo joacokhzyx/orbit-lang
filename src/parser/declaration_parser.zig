@@ -257,7 +257,7 @@ pub const DeclarationParser = struct {
     /// `[async] fn <name>(<params>) [-> ReturnType] { <body> }`.
     ///
     /// `is_private` marks the function as module-private when true.
-    pub fn parseFunction(self: *DeclarationParser, is_private: bool) !*Node {
+    pub fn parseFunction(self: *DeclarationParser, is_private: bool, is_extern: bool) !*Node {
         const is_async = self.match(.KeywordAsync);
         _ = try self.consume(.KeywordFn);
         const name = try self.consume(.Identifier);
@@ -281,23 +281,32 @@ pub const DeclarationParser = struct {
             return_type = try self.consumeType();
         }
 
-        _ = try self.consume(.OpenBrace);
-        var body = std.ArrayListUnmanaged(*Node).empty;
+        var body_node: *Node = undefined;
+        if (self.match(.OpenBrace)) {
+            var body = std.ArrayListUnmanaged(*Node).empty;
+            var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
 
-        var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
+            while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+                const stmt = try stmt_parser.parseStatement();
+                try body.append(self.allocator, stmt);
+            }
 
-        while (!self.check(.CloseBrace) and !self.check(.EOF)) {
-            const stmt = try stmt_parser.parseStatement();
-            try body.append(self.allocator, stmt);
+            _ = try self.consume(.CloseBrace);
+
+            body_node = try self.allocator.create(Node);
+            body_node.* = .{
+                .tag = .block,
+                .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
+            };
+        } else if (is_extern) {
+            body_node = try self.allocator.create(Node);
+            body_node.* = .{
+                .tag = .block,
+                .data = .{ .block = .{ .stmts = &[_]*Node{} } },
+            };
+        } else {
+            return error.UnexpectedToken;
         }
-
-        _ = try self.consume(.CloseBrace);
-
-        const body_node = try self.allocator.create(Node);
-        body_node.* = .{
-            .tag = .block,
-            .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
-        };
 
         const node = try self.allocator.create(Node);
         node.* = .{
@@ -309,6 +318,7 @@ pub const DeclarationParser = struct {
                 .body = body_node,
                 .is_async = is_async,
                 .is_private = is_private,
+                .is_extern = is_extern,
             } },
         };
         return node;

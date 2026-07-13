@@ -216,7 +216,7 @@ pub const CBackend = struct {
 
         // Forward declarations
         for (module.functions.items) |func| {
-            if (std.mem.startsWith(u8, func.name, "orbit_") and !std.mem.eql(u8, func.name, "main") and !std.mem.eql(u8, func.name, "orbit_main")) {
+            if (func.is_extern) {
                 continue;
             }
             try self.generateFunctionSignature(func);
@@ -226,7 +226,7 @@ pub const CBackend = struct {
         try self.output.append(self.allocator, '\n');
 
         for (module.functions.items) |func| {
-            if (std.mem.startsWith(u8, func.name, "orbit_") and !std.mem.eql(u8, func.name, "main") and !std.mem.eql(u8, func.name, "orbit_main")) {
+            if (func.is_extern) {
                 continue;
             }
             try self.generateFunction(func);

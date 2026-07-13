@@ -208,6 +208,7 @@ pub const IRFunction = struct {
     register_count: u32,
     register_types: std.ArrayListUnmanaged(IRType),
     return_type: IRType, // Phase 2: explicit return type
+    is_extern: bool = false,
     route_info: ?struct {
         method: []const u8,
         path: []const u8,
@@ -223,6 +224,7 @@ pub const IRFunction = struct {
             .register_count = 0,
             .register_types = .empty,
             .return_type = .void,
+            .is_extern = false,
             .route_info = null,
         };
     }

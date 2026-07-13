@@ -296,6 +296,7 @@ pub const Lexer = struct {
             .{ "var", .KeywordVar },
             .{ "mut", .KeywordMut },
             .{ "private", .KeywordPrivate },
+            .{ "extern", .KeywordExtern },
             .{ "fn", .KeywordFn },
             .{ "async", .KeywordAsync },
             .{ "await", .KeywordAwait },

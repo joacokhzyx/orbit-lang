@@ -780,3 +780,35 @@ test "runtime.arena_epochal_tests" {
         return error.RuntimeTestsFailed;
     }
 }
+
+test "bootstrap.fixed_point_verification" {
+    const allocator = std.testing.allocator;
+    const is_windows = @import("builtin").os.tag == .windows;
+    const exe_suffix = if (is_windows) ".exe" else "";
+    const bin_name = "zig-out" ++ std.fs.path.sep_str ++ "bin" ++ std.fs.path.sep_str ++ "orbit" ++ exe_suffix;
+
+    var args: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer args.deinit(allocator);
+
+    try args.append(allocator, bin_name);
+    try args.append(allocator, "bootstrap");
+    try args.append(allocator, "--stage=3");
+    try args.append(allocator, "--verify");
+
+    var threaded = std.Io.Threaded.init(allocator, .{
+        .environ = std.process.Environ.empty,
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const result = try std.process.run(allocator, io, .{
+        .argv = args.items,
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    if (result.term != .exited or result.term.exited != 0) {
+        std.debug.print("Bootstrap fixed-point validation failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ result.stdout, result.stderr });
+        return error.BootstrapFixedPointBroken;
+    }
+}

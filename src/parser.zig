@@ -108,6 +108,7 @@ pub const Parser = struct {
         }
 
         const is_private = self.match(.KeywordPrivate);
+        const is_extern = self.match(.KeywordExtern);
 
         if (self.match(.KeywordImport)) {
             const path = self.current_token;
@@ -143,7 +144,7 @@ pub const Parser = struct {
 
         if (self.check(.KeywordFn) or self.check(.KeywordAsync)) {
             var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
-            return try decl_parser.parseFunction(is_private);
+            return try decl_parser.parseFunction(is_private, is_extern);
         }
 
         if (self.check(.KeywordConst)) {
