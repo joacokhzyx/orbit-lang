@@ -1,0 +1,8 @@
+// Orbit Sovereign Standard Library
+// std/core/option.orb
+// Option type definition representing optional values.
+
+union Option<T> {
+    Some(T),
+    None
+}

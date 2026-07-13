@@ -1,0 +1,8 @@
+// Orbit Sovereign Standard Library
+// std/core/result.orb
+// Result type definition representing successful or failed computations.
+
+union Result<T, E> {
+    Ok(T),
+    Err(E)
+}

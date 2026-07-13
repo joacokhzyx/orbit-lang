@@ -1,0 +1,16 @@
+// Orbit Sovereign Standard Library
+// std/core/memory.orb
+// Low-level memory utilities and Arena memory allocator interface.
+
+model Allocator {
+    arena_id: int
+}
+
+fn alloc(size: int, alignment: int) -> pointer {
+    // Low-level runtime allocation stub
+    return pointer;
+}
+
+fn free(ptr: pointer) -> void {
+    // Arena allocation is freed all at once, so free is a no-op
+}
