@@ -712,3 +712,55 @@ test "parser.stress.chained_imports" {
     try std.testing.expectEqual(@import("ast.zig").Node.Tag.root, root.tag);
     try std.testing.expectEqual(@as(usize, 5000), root.data.root.decls.len);
 }
+
+test "runtime.arena_epochal_tests" {
+    const allocator = std.testing.allocator;
+    const is_windows = @import("builtin").os.tag == .windows;
+    const bin_name = if (is_windows) "test_arena.exe" else "./test_arena";
+    const bin_out = if (is_windows) "test_arena.exe" else "test_arena";
+
+    var args: std.ArrayList([]const u8) = .empty;
+    defer args.deinit(allocator);
+    try args.appendSlice(allocator, &.{
+        "zig",
+        "cc",
+        "-Isrc/runtime",
+        "src/runtime/test_arena.c",
+        "-o",
+        bin_out,
+    });
+    if (is_windows) {
+        try args.append(allocator, "-lws2_32");
+    }
+
+    var threaded = std.Io.Threaded.init(allocator, .{
+        .environ = std.process.Environ.empty,
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const compile_result = try std.process.run(allocator, io, .{
+        .argv = args.items,
+    });
+    defer allocator.free(compile_result.stdout);
+    defer allocator.free(compile_result.stderr);
+
+    if (compile_result.term != .exited or compile_result.term.exited != 0) {
+        std.debug.print("Compilation of test_arena.c failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{compile_result.stdout, compile_result.stderr});
+        return error.CompilationFailed;
+    }
+
+    const test_result = try std.process.run(allocator, io, .{
+        .argv = &.{bin_name},
+    });
+    defer allocator.free(test_result.stdout);
+    defer allocator.free(test_result.stderr);
+
+    // Clean up compiled binary
+    std.Io.Dir.cwd().deleteFile(io, bin_out) catch {};
+
+    if (test_result.term != .exited or test_result.term.exited != 0) {
+        std.debug.print("test_arena runtime suite failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{test_result.stdout, test_result.stderr});
+        return error.RuntimeTestsFailed;
+    }
+}
