@@ -259,6 +259,17 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
         return NULL; /* Overflow protection */
     }
 
+    #ifdef ORBIT_WITH_NET
+    if (current_lease) {
+        if (current_lease->arena_bytes + aligned > current_lease->arena_limit) {
+            orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_arena_budget_exhausted);
+            orbit_perf_record_oom();
+            return NULL;
+        }
+        current_lease->arena_bytes += aligned;
+    }
+    #endif
+
     orbit_perf_record_requested_bytes(bytes);
     unsigned char* new_cursor = arena->cursor + aligned;
 

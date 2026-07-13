@@ -35,6 +35,7 @@ pub const AtlasConfig = struct {
 
     // ── Build ───────────────────────────────────────────────────────
     output_name: []const u8 = "orbit_app",
+    cache: bool = true,
 
     pub fn load(allocator: std.mem.Allocator, io: anytype) !AtlasConfig {
         var config = AtlasConfig{};
@@ -82,6 +83,10 @@ pub const AtlasConfig = struct {
 
         if (std.mem.containsAtLeast(u8, content, 1, "logs: disabled")) {
             config.logs_active = false;
+        }
+
+        if (std.mem.containsAtLeast(u8, content, 1, "cache: disabled")) {
+            config.cache = false;
         }
 
         // ── Numeric values ───────────────────────────────────────────

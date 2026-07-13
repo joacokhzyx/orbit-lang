@@ -39,6 +39,19 @@ typedef struct {
     uint64_t kynx_blocks;
     uint32_t kynx_tracked_ips;
     
+    // Kynx Sovereign Telemetry
+    uint64_t kynx_admissions;
+    uint64_t kynx_early_rejections;
+    uint64_t kynx_throttled;
+    uint64_t kynx_deadline_exhausted;
+    uint64_t kynx_arena_budget_exhausted;
+    uint64_t kynx_request_budget_exhausted;
+    uint64_t kynx_response_budget_exhausted;
+    uint64_t kynx_db_query_budget_exhausted;
+    uint64_t kynx_db_step_budget_exhausted;
+    uint64_t kynx_table_saturations;
+    uint64_t kynx_state_transitions;
+    
     // Database Stats
     uint64_t db_queries;
     uint64_t db_total_cycles;
@@ -162,5 +175,31 @@ static inline void orbit_perf_record_rewind(void) {
 static inline void orbit_perf_record_oom(void) {
     orbit_perf_atomic_inc64(&orbit_perf_stats.arena_out_of_memory_count);
 }
+
+#ifdef _MSC_VER
+  #define ORBIT_THREAD_LOCAL __declspec(thread)
+#else
+  #define ORBIT_THREAD_LOCAL __thread
+#endif
+
+typedef struct {
+    uint64_t deadline_ns;
+    uint64_t cpu_fuel;
+    size_t arena_bytes;
+    size_t arena_limit;
+    size_t request_bytes;
+    size_t request_limit;
+    size_t response_bytes;
+    size_t response_limit;
+    uint32_t db_queries;
+    uint32_t db_queries_limit;
+    uint64_t db_steps;
+    uint64_t db_steps_limit;
+    uint32_t route_id;
+    uint32_t principal_id;
+    uint32_t flags;
+} OrbitKynxLease;
+
+extern ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease;
 
 #endif

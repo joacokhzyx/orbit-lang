@@ -24,8 +24,26 @@ typedef struct {
 
 /* ── Lifecycle ──────────────────────────────────────────────────────── */
 
+extern int orbit_sqlite_progress_handler(void*);
+
+#ifdef ORBIT_WITH_NET
+#define KYNX_DB_QUERY_CHECK(ret) \
+    if (current_lease) { \
+        current_lease->db_queries++; \
+        if (current_lease->db_queries > current_lease->db_queries_limit) { \
+            orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_db_query_budget_exhausted); \
+            return ret; \
+        } \
+    }
+#else
+#define KYNX_DB_QUERY_CHECK(ret)
+#endif
+
 void orbit_db_init(const char* db_path) {
     sqlite3_open(db_path, &orbit_db_conn);
+    if (orbit_db_conn) {
+        sqlite3_progress_handler(orbit_db_conn, 10, orbit_sqlite_progress_handler, NULL);
+    }
 }
 
 void orbit_db_close(void) {
@@ -78,6 +96,7 @@ static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* 
 /* ── Public API ─────────────────────────────────────────────────────── */
 
 orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* id) {
+    KYNX_DB_QUERY_CHECK(NULL);
     const char* fmt = "SELECT * FROM %s WHERE id = ?;";
     size_t query_len = strlen(fmt) + strlen(col.table_name) + 16;
     char* query = (char*)orbit_alloc(arena, query_len);
@@ -105,6 +124,7 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
 }
 
 orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
+    KYNX_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM ;") + strlen(col.table_name) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return "[]";
@@ -153,6 +173,7 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
 }
 
 orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char* condition) {
+    KYNX_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM  WHERE ;") + strlen(col.table_name) + strlen(condition) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return "[]";
@@ -196,6 +217,7 @@ orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char*
 }
 
 orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
+    KYNX_DB_QUERY_CHECK(NULL);
     size_t query_len = strlen("SELECT * FROM  LIMIT 1;") + strlen(col.table_name) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return NULL;
@@ -219,6 +241,7 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
 }
 
 int orbit_db_count(orbit_collection col) {
+    KYNX_DB_QUERY_CHECK(0);
     /* Count uses a small stack buffer since the query is trivial */
     char query[128];
     snprintf(query, sizeof(query), "SELECT COUNT(*) FROM %s;", col.table_name);
@@ -238,6 +261,7 @@ int orbit_db_count(orbit_collection col) {
 }
 
 bool orbit_db_exists(orbit_collection col, const char* id) {
+    KYNX_DB_QUERY_CHECK(false);
     char query[128];
     snprintf(query, sizeof(query), "SELECT 1 FROM %s WHERE id = ? LIMIT 1;", col.table_name);
 
@@ -252,6 +276,7 @@ bool orbit_db_exists(orbit_collection col, const char* id) {
 }
 
 bool orbit_db_add(orbit_collection col, const char* json_data) {
+    KYNX_DB_QUERY_CHECK(false);
     size_t query_len = strlen("INSERT INTO  (JSON_DATA) VALUES (?);") + strlen(col.table_name) + 1;
     char* query = (char*)malloc(query_len);
     if (!query) return false;
@@ -271,6 +296,7 @@ bool orbit_db_add(orbit_collection col, const char* json_data) {
 }
 
 bool orbit_db_set(orbit_collection col, const char* id, const char* json_updates) {
+    KYNX_DB_QUERY_CHECK(false);
     size_t query_len = strlen("UPDATE  SET JSON_DATA = ? WHERE id = ?;") + strlen(col.table_name) + 1;
     char* query = (char*)malloc(query_len);
     if (!query) return false;
@@ -291,6 +317,7 @@ bool orbit_db_set(orbit_collection col, const char* id, const char* json_updates
 }
 
 bool orbit_db_del(orbit_collection col, const char* id) {
+    KYNX_DB_QUERY_CHECK(false);
     size_t query_len = strlen("DELETE FROM  WHERE id = ?;") + strlen(col.table_name) + 1;
     char* query = (char*)malloc(query_len);
     if (!query) return false;

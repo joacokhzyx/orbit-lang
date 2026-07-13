@@ -584,9 +584,21 @@ test "codegen.c_backend_golden_snapshot" {
         \\    int keep_alive = 1;
         \\    if (strstr(raw_request, "Connection: close") || strstr(raw_request, "connection: close")) keep_alive = 0;
         \\
+        \\    extern OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
+        \\    extern void orbit_kynx_lease_destroy(OrbitKynxLease* lease);
+        \\    OrbitKynxLease* lease = orbit_kynx_lease_create_for_route(req->path, req->method, arena);
+        \\    if (lease && (lease->flags & 1)) {
+        \\        OrbitResponse* res = orbit_response_create(arena, 503, "text/plain", "503 Siege Mode Active - Non-critical Route Blocked");
+        \\        orbit_send_response(client_sock, res);
+        \\        orbit_kynx_lease_destroy(lease);
+        \\        orbit_perf_end_request(start);
+        \\        return 0;
+        \\    }
+        \\        
         \\    if (req->path && strcmp(req->path, "/_pulse") == 0) {
         \\        OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
         \\        orbit_send_response(client_sock, res);
+        \\        if (lease) orbit_kynx_lease_destroy(lease);
         \\        orbit_perf_end_request(start);
         \\        return keep_alive;
         \\    }
@@ -594,6 +606,7 @@ test "codegen.c_backend_golden_snapshot" {
         \\        orbit_string json = orbit_pulse_get_stats_json(arena);
         \\        OrbitResponse* res = orbit_response_json(arena, 200, json);
         \\        orbit_send_response(client_sock, res);
+        \\        if (lease) orbit_kynx_lease_destroy(lease);
         \\        orbit_perf_end_request(start);
         \\        return keep_alive;
         \\    }
@@ -601,6 +614,7 @@ test "codegen.c_backend_golden_snapshot" {
         \\    printf("404 Not Found: %s %s\n", req->method ? req->method : "(null)", req->path ? req->path : "(null)");
         \\    OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
         \\    orbit_send_response(client_sock, res);
+        \\    if (lease) orbit_kynx_lease_destroy(lease);
         \\    orbit_perf_end_request(start);
         \\    return keep_alive;
         \\}
