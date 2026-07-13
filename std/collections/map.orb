@@ -1,0 +1,16 @@
+// Orbit Sovereign Standard Library
+// std/collections/map.orb
+// Hash map with deterministic iteration.
+
+model Map<K, V> {
+    keys: List<K>
+    values: List<V>
+}
+
+fn newMap() -> Map<K, V> {
+    var m: Map<K, V> = Map {
+        keys: newList(),
+        values: newList()
+    }
+    return m;
+}

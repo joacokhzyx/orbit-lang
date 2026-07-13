@@ -1,0 +1,18 @@
+// Orbit Sovereign Standard Library
+// std/collections/list.orb
+// Dynamic array list wrapper.
+
+model List<T> {
+    data: pointer
+    len: int
+    capacity: int
+}
+
+fn newList() -> List<T> {
+    var l: List<T> = List {
+        data: pointer,
+        len: 0,
+        capacity: 0
+    }
+    return l;
+}

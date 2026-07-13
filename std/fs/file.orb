@@ -1,0 +1,17 @@
+// Orbit Sovereign Standard Library
+// std/fs/file.orb
+// Basic file I/O operations.
+
+model File {
+    handle: int
+}
+
+fn open(path: string, mode: string) -> Result<File, int> {
+    // OS specific call
+    return Result.Ok(File{ handle: 0 });
+}
+
+fn write(file: File, data: string) -> int {
+    // OS specific write
+    return 0;
+}

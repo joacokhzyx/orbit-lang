@@ -1,0 +1,12 @@
+// Orbit Sovereign Standard Library
+// std/io/terminal.orb
+// Terminal I/O utilities.
+
+fn print(message: string) -> void {
+    // Calls OS write stub to stdout
+}
+
+fn println(message: string) -> void {
+    print(message);
+    print("\n");
+}
