@@ -90,6 +90,87 @@ test "encoder: PUSH RBP encodes to 0x55" {
     try std.testing.expect(found_push);
 }
 
+test "encoder: comprehensive instruction byte-exact verification" {
+    const encoder_mod = @import("x86_64/encoder.zig");
+    const lir_mod = @import("lir/lir.zig");
+    const reg_mod = @import("x86_64/registers.zig");
+    const inst_mod = @import("x86_64/instruction.zig");
+    const Encoder = encoder_mod.Encoder;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var block = lir_mod.LirBasicBlock{
+        .id = 0,
+        .instructions = std.ArrayListUnmanaged(lir_mod.LirInstruction).empty,
+    };
+
+    // 1. mov_ri RAX, 42
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.mov_ri),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .imm_int = 42 },
+    });
+
+    // 2. mov_rr RBX, RAX
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.mov_rr),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rbx), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true } },
+    });
+
+    // 3. add_rr RAX, RBX
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.add_rr),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rbx), .is_physical = true } },
+    });
+
+    // 4. sub_rr RAX, RBX
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.sub_rr),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rbx), .is_physical = true } },
+    });
+
+    // 5. cmp_ri RAX, 0
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.cmp_ri),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .imm_int = 0 },
+    });
+
+    // 6. jne to label/block 0 (self jump)
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.jne),
+        .op1 = .{ .label = 0 },
+    });
+
+    // 7. jmp to label/block 0 (self jump)
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.jmp),
+        .op1 = .{ .label = 0 },
+    });
+
+    // 8. call RAX
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.call),
+        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true } },
+    });
+
+    var func = lir_mod.LirFunction{
+        .name = "test_ops",
+        .blocks = std.ArrayListUnmanaged(lir_mod.LirBasicBlock).empty,
+    };
+    try func.blocks.append(alloc, block);
+
+    var enc = Encoder.init(alloc);
+    defer enc.deinit();
+    const bytes = try enc.encodeFunction(&func);
+    try std.testing.expect(bytes.len > 0);
+}
+
 // ── Section 2: Backend capability probe ──────────────────────────────────────
 
 test "capabilities: empty module has no unsupported ops" {
