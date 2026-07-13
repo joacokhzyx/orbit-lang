@@ -4,16 +4,18 @@ This is the single source of truth for current engineering status.
 
 ## Validation Snapshot
 
-- Date: 2026-07-07
+- Date: 2026-07-13
 - Host: Windows
 - Target Milestone: **Orbit 0.1-rc.1**
-- `zig build test`: pass (29/29 integration & unit tests)
+- `zig build test`: pass (42/42 integration & unit tests)
 - `zig build run -- build test.orbit`: pass
 
 ## Current State
 
-- Compiler pipeline is active end-to-end: parse, semantic analysis, IR build, C backend, native compile.
-- Test suite has been rewritten and stabilized. 29/29 tests pass with 0 memory leaks across Parser, Sema, and IR builder.
+- Compiler pipeline is active end-to-end: parse, semantic analysis, IR build, C backend (Steel), and native backend (Photon Native).
+- Photon Native backend (`--backend=native`) compiles Orbit IR directly into relocatable machine-code object files (COFF for Windows, ELF for Linux/POSIX).
+- Auto fallback path (`--backend=auto`) automatically probes IR features (using capabilities checker) and falls back to C backend (Steel) on unsupported opcodes.
+- Unit tests added for instruction encoder (byte-exact verification), capabilities probe, and COFF/ELF magic-byte headers, all passing under `zig build test`.
 - Parser handles syntax errors cleanly (Invalid tokens, Unclosed strings, Unexpected EOF) instead of crashing, and handles optional semicolons robustly.
 - Lexer negative tests and robust array literals have been added.
 - Sema correctly reports semantic diagnostics, including `match/non-exhaustive` and `DuplicateDefinition`.

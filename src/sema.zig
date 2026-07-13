@@ -520,7 +520,7 @@ pub const Sema = struct {
                         const message = try std.fmt.allocPrint(
                             self.allocator,
                             "Non-exhaustive match for type '{s}'. Missing variant: '{s}'",
-                            .{match_type, missing},
+                            .{ match_type, missing },
                         );
                         defer self.allocator.free(message);
 

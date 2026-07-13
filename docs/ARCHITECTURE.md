@@ -209,3 +209,37 @@ HTTP server (generated code)
 | `src/runtime/os.c` | OS abstractions |
 | `src/runtime/file.c` | File I/O helpers |
 | `src/terminal/` | Compiler terminal UI |
+
+---
+
+## Photon Native Backend
+
+Photon Native (`--backend=native`) compiles Orbit IR directly into relocatable machine-code object files, bypassing the C intermediate representation and avoiding external C compiler dependencies for user code.
+
+### Native Pipeline
+
+```mermaid
+flowchart TD
+    IR["Orbit IR\nsrc/ir/ir.zig"]
+    
+    subgraph Photon Native Backend
+        MIR["MIR Builder\nsrc/backend/mir/builder.zig"]
+        VER["MIR Verifier\nsrc/backend/mir/verifier.zig"]
+        LIR["LIR Lowering\nsrc/backend/x86_64/lowering.zig"]
+        RA["RegAlloc (stack-based)\nsrc/backend/lir/regalloc.zig"]
+        ENC["x86-64 Encoder\nsrc/backend/x86_64/encoder.zig"]
+        OBJ["Object Writer\nsrc/backend/coff/ or elf/"]
+    end
+    
+    IR --> MIR --> VER --> LIR --> RA --> ENC --> OBJ
+    OBJ --> BIN["Native Object (.o/.obj)"]
+```
+
+### Subsystems
+
+1. **Target Abstraction (`src/backend/target.zig`)**: Detects and models the host ISA, target ABI (Windows x64 or System V AMD64), and object format (COFF or ELF).
+2. **MIR (Medium Intermediate Representation)**: Target-independent CFG representation. Basic blocks trace explicit predecessor/successor links.
+3. **LIR (Low Intermediate Representation)**: Target-specific register/memory representation, supporting virtual registers, stack slots, and physical register parameters.
+4. **Register Allocation**: Employs a stack-based allocation strategy for absolute correctness. Virtual registers are mapped directly to stack slots. Scratch registers (RAX, RCX, RDX) are used for instruction execution.
+5. **COFF/ELF object formats**: Direct implementations of the PE/COFF and ELF64 specifications, writing headers, section tables, symbol tables, and code directly into relocatable objects.
+

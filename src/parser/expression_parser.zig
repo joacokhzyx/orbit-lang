@@ -178,7 +178,8 @@ pub const ExpressionParser = struct {
         var left = try self.parseTerm();
 
         while (self.match(.Less) or self.match(.LessEqual) or
-               self.match(.Greater) or self.match(.GreaterEqual)) {
+            self.match(.Greater) or self.match(.GreaterEqual))
+        {
             const op = self.previous_token.*;
             const right = try self.parseTerm();
 
@@ -368,11 +369,14 @@ pub const ExpressionParser = struct {
     fn parseInterpolatedString(self: *ExpressionParser, tok: Token) anyerror!*Node {
         const src = self.source;
         const content_start = tok.loc.start + 1; // after the opening quote
-        const content_end = tok.loc.end - 1;     // the closing quote (exclusive)
+        const content_end = tok.loc.end - 1; // the closing quote (exclusive)
 
         // Synthetic '+' token: only the .tag matters in the active (IR) path
         const plus_tok = Token{ .tag = .Plus, .loc = .{
-            .start = tok.loc.start, .end = tok.loc.start, .line = tok.loc.line, .col = tok.loc.col,
+            .start = tok.loc.start,
+            .end = tok.loc.start,
+            .line = tok.loc.line,
+            .col = tok.loc.col,
         } };
 
         var result: ?*Node = null;
@@ -381,7 +385,10 @@ pub const ExpressionParser = struct {
 
         while (i < content_end) {
             const c = src[i];
-            if (c == '\\' and i + 1 < content_end) { i += 2; continue; } // skip escapes (\{, \")
+            if (c == '\\' and i + 1 < content_end) {
+                i += 2;
+                continue;
+            } // skip escapes (\{, \")
             if (c == '{') {
                 const lit_node = try self.makeChunkNode(lit_start, i);
                 result = try self.appendConcat(result, lit_node, plus_tok);
@@ -414,7 +421,10 @@ pub const ExpressionParser = struct {
     /// strips the surrounding quote characters.
     fn makeChunkNode(self: *ExpressionParser, c0: usize, c1: usize) !*Node {
         const chunk_tok = Token{ .tag = .StringLiteral, .loc = .{
-            .start = c0 - 1, .end = c1 + 1, .line = 0, .col = 0,
+            .start = c0 - 1,
+            .end = c1 + 1,
+            .line = 0,
+            .col = 0,
         } };
         return try self.createNode(.string_literal, .{ .string_literal = chunk_tok });
     }
@@ -544,12 +554,12 @@ pub const ExpressionParser = struct {
     fn isMemberToken(self: *ExpressionParser) bool {
         const t = self.current_token.tag;
         return t == .Identifier or
-               t == .KeywordGet or t == .KeywordPost or t == .KeywordPut or t == .KeywordDelete or
-               t == .KeywordPatch or t == .KeywordHead or t == .KeywordOptions or
-               t == .KeywordType or t == .KeywordEnum or t == .KeywordUnion or t == .KeywordModel or
-               t == .KeywordMatch or t == .KeywordReturn or t == .KeywordFn or
-               t == .KeywordOk or t == .KeywordErr or t == .KeywordVal or t == .KeywordConst or
-               t == .KeywordPrivate or t == .KeywordAsync or t == .KeywordAwait;
+            t == .KeywordGet or t == .KeywordPost or t == .KeywordPut or t == .KeywordDelete or
+            t == .KeywordPatch or t == .KeywordHead or t == .KeywordOptions or
+            t == .KeywordType or t == .KeywordEnum or t == .KeywordUnion or t == .KeywordModel or
+            t == .KeywordMatch or t == .KeywordReturn or t == .KeywordFn or
+            t == .KeywordOk or t == .KeywordErr or t == .KeywordVal or t == .KeywordConst or
+            t == .KeywordPrivate or t == .KeywordAsync or t == .KeywordAwait;
     }
 
     /// Returns `true` if `tag` represents a named HTTP-error shortcut keyword

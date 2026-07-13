@@ -84,8 +84,7 @@ pub const Compiler = struct {
         const root = parser.parse() catch |err| {
             const tok = parser.current_token;
             const path = if (tok.file_path.len > 0) tok.file_path else file_path;
-            std.debug.print("\n ⏣ Orbit  parse error\n\n  [SYNTAX ERROR] unexpectedly found '{s}'\n  file: {s}:{d}\n\n",
-                .{ @tagName(tok.tag), path, tok.loc.line });
+            std.debug.print("\n ⏣ Orbit  parse error\n\n  [SYNTAX ERROR] unexpectedly found '{s}'\n  file: {s}:{d}\n\n", .{ @tagName(tok.tag), path, tok.loc.line });
             return err;
         };
 
@@ -138,7 +137,7 @@ pub const Compiler = struct {
             .tag = .root,
             .data = .{ .root = .{
                 .decls = try all_decls.toOwnedSlice(self.allocator),
-            }},
+            } },
         };
         return merged;
     }
@@ -149,7 +148,7 @@ pub const Compiler = struct {
 /// Strips surrounding double-quote characters from `s`, if present.
 fn stripQuotes(s: []const u8) []const u8 {
     if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') {
-        return s[1..s.len-1];
+        return s[1 .. s.len - 1];
     }
     return s;
 }

@@ -110,25 +110,25 @@ pub const Parser = struct {
         const is_private = self.match(.KeywordPrivate);
 
         if (self.match(.KeywordImport)) {
-             const path = self.current_token;
-             self.advance();
-             const node = try self.allocator.create(Node);
-             node.* = .{
-                 .tag = .import_stmt,
-                 .data = .{ .import_stmt = .{ .path = path } },
-             };
-             return node;
+            const path = self.current_token;
+            self.advance();
+            const node = try self.allocator.create(Node);
+            node.* = .{
+                .tag = .import_stmt,
+                .data = .{ .import_stmt = .{ .path = path } },
+            };
+            return node;
         }
 
         if (self.match(.KeywordUse)) {
-             const module = self.current_token;
-             self.advance();
-             const node = try self.allocator.create(Node);
-             node.* = .{
-                 .tag = .use_stmt,
-                 .data = .{ .use_stmt = .{ .module = module } },
-             };
-             return node;
+            const module = self.current_token;
+            self.advance();
+            const node = try self.allocator.create(Node);
+            node.* = .{
+                .tag = .use_stmt,
+                .data = .{ .use_stmt = .{ .module = module } },
+            };
+            return node;
         }
 
         if (self.check(.KeywordModel)) {

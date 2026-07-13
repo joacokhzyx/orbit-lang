@@ -34,13 +34,13 @@ pub const CBackend = struct {
 
     /// Enum names registered during generation for type resolution.
     enum_names: std.StringHashMapUnmanaged(void),
-    
+
     /// Union names registered during generation for type resolution.
     union_names: std.StringHashMapUnmanaged(void),
 
     /// Local variable types in the current function being generated.
     local_variable_types: std.StringHashMapUnmanaged(IRType),
-    
+
     // ─── Lifecycle ───────────────────────────────────────────────────────────
 
     /// Create a new `CBackend` with empty output buffers.
@@ -60,7 +60,7 @@ pub const CBackend = struct {
             .local_variable_types = .empty,
         };
     }
-    
+
     /// Release all memory owned by this backend instance.
     pub fn deinit(self: *CBackend) void {
         self.output.deinit(self.allocator);
@@ -76,10 +76,10 @@ pub const CBackend = struct {
     fn registerArenaFunction(self: *CBackend, name: []const u8) !void {
         try self.arena_functions.put(self.allocator, name, {});
     }
-    
+
     fn generateRouter(self: *CBackend, module: IRModule) !void {
         try self.output.appendSlice(self.allocator, "#ifdef ORBIT_WITH_NET\n");
-        try self.output.appendSlice(self.allocator, 
+        try self.output.appendSlice(self.allocator,
             \\int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
             \\    uint64_t start = orbit_rdtsc();
             \\    orbit_perf_start_request();
@@ -129,7 +129,7 @@ pub const CBackend = struct {
                     if (!std.ascii.isAlphanumeric(c.*)) c.* = '_';
                 }
 
-                try self.output.print(self.allocator, 
+                try self.output.print(self.allocator,
                     \\    if (req->path && strcmp(req->path, "{s}") == 0 && req->method && strcmp(req->method, "{s}") == 0) {{
                     \\        OrbitResponse* res = {s}(arena);
                     \\        orbit_send_response(client_sock, res);
@@ -142,7 +142,7 @@ pub const CBackend = struct {
             }
         }
 
-        try self.output.appendSlice(self.allocator, 
+        try self.output.appendSlice(self.allocator,
             \\    // Fallback 404 if no route matched
             \\    printf("404 Not Found: %s %s\n", req->method ? req->method : "(null)", req->path ? req->path : "(null)");
             \\    OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
@@ -189,7 +189,7 @@ pub const CBackend = struct {
         const headers = try RuntimeLoader.generateHeaders(self.allocator);
         try self.output.appendSlice(self.allocator, headers);
         try self.output.appendSlice(self.allocator, "\nOrbitArena* arena = NULL;\n");
-        
+
         // Forward declare Models and prepopulate names
         for (module.models.items) |model| {
             try self.model_names.put(self.allocator, model.name, {});
@@ -212,19 +212,19 @@ pub const CBackend = struct {
         for (module.models.items) |model| {
             try self.generateModel(model);
         }
-        
+
         // Forward declarations
         for (module.functions.items) |func| {
             try self.generateFunctionSignature(func);
             try self.output.appendSlice(self.allocator, ";\n");
         }
-        
+
         try self.output.append(self.allocator, '\n');
-        
+
         for (module.functions.items) |func| {
             try self.generateFunction(func);
         }
-        
+
         try self.generateRouter(module);
 
         if (!has_orbit_entry) {
@@ -236,7 +236,7 @@ pub const CBackend = struct {
                 \\
             );
         }
-        
+
         var has_db = false;
         if (self.has_server_init) {
             has_db = true;
@@ -254,18 +254,13 @@ pub const CBackend = struct {
                 if (has_db) break;
             }
         }
-        
-        const main_func = try RuntimeLoader.generateMainFunction(
-            self.allocator,
-            self.has_server_init,
-            has_db,
-            self.config
-        );
+
+        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, has_db, self.config);
         try self.output.appendSlice(self.allocator, main_func);
-        
+
         return try self.output.toOwnedSlice(self.allocator);
     }
-    
+
     fn generateFunctionSignature(self: *CBackend, func: IRFunction) !void {
         var func_name = try self.allocator.dupe(u8, func.name);
         defer self.allocator.free(func_name);
@@ -289,12 +284,12 @@ pub const CBackend = struct {
         } else if (std.mem.eql(u8, func_name, "orbit_main")) {
             ret_type = "int";
         }
-        
+
         try self.output.appendSlice(self.allocator, ret_type);
         try self.output.append(self.allocator, ' ');
         try self.output.appendSlice(self.allocator, func_name);
         try self.output.append(self.allocator, '(');
-        
+
         if (std.mem.eql(u8, func_name, "orbit_main")) {
             try self.output.appendSlice(self.allocator, "OrbitArena* _init_arena");
         } else if (std.mem.startsWith(u8, func_name, "route_")) {
@@ -312,13 +307,13 @@ pub const CBackend = struct {
                 }
             }
         }
-        
+
         try self.output.append(self.allocator, ')');
     }
-    
+
     fn generateFunction(self: *CBackend, func: IRFunction) !void {
         self.current_func = &func;
-        
+
         self.local_variable_types.clearRetainingCapacity();
         for (func.instructions.items) |instr| {
             if (instr.opcode == .decl_var) {
@@ -339,7 +334,7 @@ pub const CBackend = struct {
         if (is_main) {
             try self.output.appendSlice(self.allocator, "    arena = _init_arena;\n");
         }
-        
+
         // Declare registers
         for (func.register_types.items, 0..) |reg_type, i| {
             if (reg_type == .void) continue; // Don't declare void registers
@@ -347,7 +342,7 @@ pub const CBackend = struct {
             try self.output.appendSlice(self.allocator, try self.mapTypeToC(reg_type));
             try self.output.print(self.allocator, " r_{d};\n", .{i});
         }
-        
+
         for (func.instructions.items) |instr| {
             try self.generateInstruction(instr);
         }
@@ -368,12 +363,12 @@ pub const CBackend = struct {
         }
         try self.output.appendSlice(self.allocator, "}\n\n");
     }
-    
+
     fn generateInstruction(self: *CBackend, instr: IRInstruction) !void {
         if (instr.opcode != .arg) {
             try self.output.appendSlice(self.allocator, "    ");
         }
-        
+
         switch (instr.opcode) {
             .load_const => {},
             .copy => {
@@ -390,16 +385,16 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .load_field => {
-                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
-                 try self.generateValue(instr.operand1);
-                 const obj_type = self.getValueType(instr.operand1);
-                 if (obj_type == .model or obj_type == .unknown or obj_type == .int) {
-                     try self.output.appendSlice(self.allocator, "->");
-                 } else {
-                     try self.output.append(self.allocator, '.');
-                 }
-                 try self.output.appendSlice(self.allocator, instr.operand2.string);
-                 try self.output.appendSlice(self.allocator, ";\n");
+                try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
+                try self.generateValue(instr.operand1);
+                const obj_type = self.getValueType(instr.operand1);
+                if (obj_type == .model or obj_type == .unknown or obj_type == .int) {
+                    try self.output.appendSlice(self.allocator, "->");
+                } else {
+                    try self.output.append(self.allocator, '.');
+                }
+                try self.output.appendSlice(self.allocator, instr.operand2.string);
+                try self.output.appendSlice(self.allocator, ";\n");
             },
             .store_var => {
                 try self.output.appendSlice(self.allocator, instr.operand1.string);
@@ -424,12 +419,12 @@ pub const CBackend = struct {
             .sub => try self.generateBinaryOp(instr, " - "),
             .mul => try self.generateBinaryOp(instr, " * "),
             .div => try self.generateBinaryOp(instr, " / "),
-            .eq  => try self.generateBinaryOp(instr, " == "),
-            .ne  => try self.generateBinaryOp(instr, " != "),
-            .lt  => try self.generateBinaryOp(instr, " < "),
-            .le  => try self.generateBinaryOp(instr, " <= "),
-            .gt  => try self.generateBinaryOp(instr, " > "),
-            .ge  => try self.generateBinaryOp(instr, " >= "),
+            .eq => try self.generateBinaryOp(instr, " == "),
+            .ne => try self.generateBinaryOp(instr, " != "),
+            .lt => try self.generateBinaryOp(instr, " < "),
+            .le => try self.generateBinaryOp(instr, " <= "),
+            .gt => try self.generateBinaryOp(instr, " > "),
+            .ge => try self.generateBinaryOp(instr, " >= "),
             .and_op => try self.generateBinaryOp(instr, " && "),
             .or_op => try self.generateBinaryOp(instr, " || "),
             .neg => {
@@ -457,7 +452,7 @@ pub const CBackend = struct {
             },
             .call => {
                 const func_name = instr.operand1.string;
-                
+
                 if (std.mem.eql(u8, func_name, "print") and self.call_args.items.len == 1) {
                     const arg = self.call_args.items[0];
                     const arg_type = self.getValueType(arg);
@@ -492,7 +487,7 @@ pub const CBackend = struct {
                         try self.output.print(self.allocator, "r_{d} = ", .{d});
                     }
                 }
-                
+
                 var first = true;
                 // If this function requires an Arena, inject it as first arg
                 const final_func_name = try self.allocator.dupe(u8, func_name);
@@ -690,9 +685,9 @@ pub const CBackend = struct {
                     .tagged_union => |name| name,
                     else => instr.operand1.string,
                 } else instr.operand1.string;
-                
+
                 try self.output.print(self.allocator, "{{ {s}* _u = orbit_alloc(arena, sizeof({s})); _u->tag = {s}; ", .{ union_name, union_name, instr.operand1.string });
-                
+
                 // Logic to set the correct data variant if we knew the field name
                 // For now, Orbit Unions use a generic 'data' pointer or the first variant for simplistic init
                 try self.output.appendSlice(self.allocator, "_u->data.data = ");
@@ -778,10 +773,10 @@ pub const CBackend = struct {
             },
             else => {
                 try self.generateValue(val);
-            }
+            },
         }
     }
-    
+
     fn getValueType(self: *CBackend, val: IRValue) IRType {
         return switch (val) {
             .int => .int,
@@ -815,7 +810,7 @@ pub const CBackend = struct {
             .none => {},
         }
     }
-    
+
     fn mapTypeToC(self: *CBackend, type_val: IRType) ![]const u8 {
         return switch (type_val) {
             .int => "orbit_int",
@@ -866,7 +861,7 @@ pub const CBackend = struct {
         if (orbit_type.len > 0 and std.ascii.isUpper(orbit_type[0])) return orbit_type;
         return "void*";
     }
-    
+
     fn generateType(self: *CBackend, t: IRTypeDecl) !void {
         switch (t.kind) {
             .enumeration => {
@@ -876,7 +871,7 @@ pub const CBackend = struct {
                     if (i < t.variants.len - 1) try self.output.appendSlice(self.allocator, ",");
                     try self.output.append(self.allocator, '\n');
                 }
-                try self.output.print(self.allocator, "}} {s};\n", .{ t.name });
+                try self.output.print(self.allocator, "}} {s};\n", .{t.name});
                 // Phase 2: Emit tag count constant
                 try self.output.print(self.allocator, "#define {s}_COUNT {d}\n\n", .{ t.name, t.variants.len });
             },
@@ -888,64 +883,64 @@ pub const CBackend = struct {
                     if (i < t.variants.len - 1) try self.output.appendSlice(self.allocator, ",");
                     try self.output.append(self.allocator, '\n');
                 }
-                try self.output.print(self.allocator, "}} {s}_Tag;\n\n", .{ t.name });
+                try self.output.print(self.allocator, "}} {s}_Tag;\n\n", .{t.name});
 
                 // Emit the tagged union struct
-                try self.output.print(self.allocator, "typedef struct {s} {{\n", .{ t.name });
-                try self.output.print(self.allocator, "    {s}_Tag tag;\n", .{ t.name });
+                try self.output.print(self.allocator, "typedef struct {s} {{\n", .{t.name});
+                try self.output.print(self.allocator, "    {s}_Tag tag;\n", .{t.name});
                 try self.output.print(self.allocator, "    union {{\n", .{});
                 try self.output.print(self.allocator, "        void* data;\n", .{});
                 for (t.rich_variants) |rv| {
                     if (rv.payload_type) |pt| {
                         try self.output.print(self.allocator, "        {s} {s};\n", .{ try self.mapTypeToC(pt), rv.name });
                     } else {
-                        try self.output.print(self.allocator, "        int {s}; /* unit variant */\n", .{ rv.name });
+                        try self.output.print(self.allocator, "        int {s}; /* unit variant */\n", .{rv.name});
                     }
                 }
                 try self.output.print(self.allocator, "    }} data;\n", .{});
-                try self.output.print(self.allocator, "}} {s};\n", .{ t.name });
+                try self.output.print(self.allocator, "}} {s};\n", .{t.name});
                 try self.output.print(self.allocator, "#define {s}_COUNT {d}\n\n", .{ t.name, t.variants.len });
             },
             .alias => {
-                try self.output.print(self.allocator, "typedef void* {s};\n\n", .{ t.name });
+                try self.output.print(self.allocator, "typedef void* {s};\n\n", .{t.name});
             },
             .trait => {
                 // Phase 2: Emit interface vtable struct
-                try self.output.print(self.allocator, "/* Interface: {s} */\n", .{ t.name });
+                try self.output.print(self.allocator, "/* Interface: {s} */\n", .{t.name});
                 try self.output.print(self.allocator, "typedef struct {{\n", .{});
                 for (t.methods, 0..) |method, i| {
                     _ = i;
-                    try self.output.print(self.allocator, "    void* (*{s})(void* self", .{ method.name });
+                    try self.output.print(self.allocator, "    void* (*{s})(void* self", .{method.name});
                     for (method.params) |_| {
                         try self.output.appendSlice(self.allocator, ", void*");
                     }
                     try self.output.appendSlice(self.allocator, ");\n");
                 }
-                try self.output.print(self.allocator, "}} {s}_VTable;\n\n", .{ t.name });
+                try self.output.print(self.allocator, "}} {s}_VTable;\n\n", .{t.name});
                 try self.output.print(self.allocator, "typedef struct {{\n", .{});
                 try self.output.print(self.allocator, "    void* self;\n", .{});
-                try self.output.print(self.allocator, "    const {s}_VTable* vtable;\n", .{ t.name });
-                try self.output.print(self.allocator, "}} {s};\n\n", .{ t.name });
+                try self.output.print(self.allocator, "    const {s}_VTable* vtable;\n", .{t.name});
+                try self.output.print(self.allocator, "}} {s};\n\n", .{t.name});
             },
         }
     }
 
     fn generateModel(self: *CBackend, model: IRModel) !void {
-        try self.output.print(self.allocator, "typedef struct {s} {{\n", .{ model.name });
+        try self.output.print(self.allocator, "typedef struct {s} {{\n", .{model.name});
         for (model.fields.items) |field| {
             const c_type = self.mapFieldTypeToC(field.type_name);
             try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, field.name });
         }
-        try self.output.print(self.allocator, "}} {s};\n", .{ model.name });
-        try self.output.print(self.allocator, "#define {s}(...) ({s}*)orbit_model_{s}_create(arena, __VA_ARGS__)\n" ++ 
-                                             "static inline {s}* orbit_model_{s}_create(OrbitArena* a, ", .{ model.name, model.name, model.name, model.name, model.name });
-        
+        try self.output.print(self.allocator, "}} {s};\n", .{model.name});
+        try self.output.print(self.allocator, "#define {s}(...) ({s}*)orbit_model_{s}_create(arena, __VA_ARGS__)\n" ++
+            "static inline {s}* orbit_model_{s}_create(OrbitArena* a, ", .{ model.name, model.name, model.name, model.name, model.name });
+
         for (model.fields.items, 0..) |field, i| {
             const c_type = self.mapFieldTypeToC(field.type_name);
             try self.output.print(self.allocator, "{s} {s}", .{ c_type, field.name });
             if (i < model.fields.items.len - 1) try self.output.appendSlice(self.allocator, ", ");
         }
-        
+
         try self.output.print(self.allocator, ") {{\n    {s}* m = ({s}*)orbit_alloc(a, sizeof({s}));\n", .{ model.name, model.name, model.name });
         for (model.fields.items) |field| {
             try self.output.print(self.allocator, "    m->{s} = {s};\n", .{ field.name, field.name });

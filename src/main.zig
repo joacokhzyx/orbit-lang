@@ -1,8 +1,12 @@
 //! orbit/src/main.zig
 //!
 //! Orbit compiler driver.  Parses CLI flags, runs the compilation pipeline
-//! (Lexer → Parser → Sema → IR → Codegen → cc), and reports structured
+//! (Lexer → Parser → Sema → IR → Codegen → native/C), and reports structured
 //! timings via the Photon build-cache and Terminal UI subsystems.
+//!
+//! Two backends are available:
+//!   steel  – C-generation path (default, production-stable)
+//!   native – Photon Native path (x86-64 direct emission, experimental)
 //!
 //! Entry point: `pub fn main()`.
 
@@ -16,11 +20,37 @@ const CBackend = @import("codegen/c_backend.zig").CBackend;
 const AtlasConfig = @import("atlas.zig").AtlasConfig;
 const term = @import("terminal/terminal.zig");
 
+// ── Photon Native backend ─────────────────────────────────────────────────────
+const NativeBackend = @import("backend/backend.zig").Backend;
+const Capabilities = @import("backend/capabilities.zig");
+const NativeDiag = @import("backend/diagnostics.zig");
+const MirBuilder = @import("backend/mir/builder.zig").MirBuilder;
+const MirPrinter = @import("backend/mir/printer.zig").MirPrinter;
+
+/// Which compilation backend to use.
+pub const BackendMode = enum {
+    /// Default: generate C, compile with zig cc.  Oracle / production path.
+    steel,
+    /// Photon Native: lower to MIR → LIR → x86-64 machine code directly.
+    /// Falls back to steel on unsupported features when mode is `auto`.
+    native,
+    /// Automatically selects native when fully supported, steel otherwise.
+    auto,
+};
+
+/// Emit artefact selector for --emit= flag.
+pub const EmitMode = enum {
+    exe, // Default: linked executable
+    obj, // Relocatable object file
+    mir, // Human-readable MIR dump
+    lir, // Not yet implemented
+};
+
 const ORBIT_VERSION = "0.1.0-rc.1";
 
 pub const CompilationProfiler = struct {
     timer: OrbitTimer,
-    
+
     project_discovery_ns: u64 = 0,
     read_atlas_ns: u64 = 0,
     read_sources_ns: u64 = 0,
@@ -36,13 +66,13 @@ pub const CompilationProfiler = struct {
     linking_ns: u64 = 0,
     cache_lookup_ns: u64 = 0,
     total_ns: u64 = 0,
-    
+
     pub fn start() CompilationProfiler {
         return .{
             .timer = OrbitTimer.start(),
         };
     }
-    
+
     pub fn record(self: *CompilationProfiler, ns_field: *u64) void {
         const elapsed_s = self.timer.readSeconds();
         ns_field.* = @intFromFloat(elapsed_s * 1_000_000_000.0);
@@ -51,19 +81,19 @@ pub const CompilationProfiler = struct {
 
     pub fn getTotalNs(self: *const CompilationProfiler) u64 {
         return self.project_discovery_ns +
-               self.read_atlas_ns +
-               self.read_sources_ns +
-               self.hashing_ns +
-               self.parsing_ns +
-               self.sema_ns +
-               self.build_ir_ns +
-               self.optimize_ns +
-               self.gen_c_ns +
-               self.write_files_ns +
-               self.compile_app_ns +
-               self.compile_sqlite_ns +
-               self.linking_ns +
-               self.cache_lookup_ns;
+            self.read_atlas_ns +
+            self.read_sources_ns +
+            self.hashing_ns +
+            self.parsing_ns +
+            self.sema_ns +
+            self.build_ir_ns +
+            self.optimize_ns +
+            self.gen_c_ns +
+            self.write_files_ns +
+            self.compile_app_ns +
+            self.compile_sqlite_ns +
+            self.linking_ns +
+            self.cache_lookup_ns;
     }
 
     pub fn printTimings(self: *CompilationProfiler, json_mode: bool) void {
@@ -143,29 +173,29 @@ pub const CompilationSession = struct {
     project_hash: u64 = 0,
     profiler: CompilationProfiler,
     compiler: Compiler,
-    
+
     pub fn init(init_ctx: std.process.Init, file_path: []const u8, no_kynx: bool, debug: bool, verbose: bool, timings: bool, timings_json: bool, config: AtlasConfig) !CompilationSession {
         var profiler = CompilationProfiler.start();
         const arena = init_ctx.arena.allocator();
-        
+
         // Phase 1: Project Discovery
         profiler.record(&profiler.project_discovery_ns);
-        
+
         // Phase 2: Read Atlas
         profiler.record(&profiler.read_atlas_ns);
-        
+
         // Phase 3: Read sources
         var compiler = Compiler.init(arena);
         try compiler.loadEntry(init_ctx.io, file_path);
         profiler.record(&profiler.read_sources_ns);
-        
+
         // Phase 4: Hashing
         var project_hash: u64 = 14695981039346656037;
         for (compiler.units.items) |unit| {
             project_hash = fnv1a_combine(project_hash, unit.file_path);
             project_hash = fnv1a_combine(project_hash, unit.source);
         }
-        
+
         // Combine with options
         project_hash = fnv1a_combine(project_hash, if (no_kynx) "no_kynx" else "kynx");
         project_hash = fnv1a_combine(project_hash, if (debug) "debug" else "release");
@@ -174,9 +204,9 @@ pub const CompilationSession = struct {
         const builtin = @import("builtin");
         project_hash = fnv1a_combine(project_hash, @tagName(builtin.os.tag));
         project_hash = fnv1a_combine(project_hash, @tagName(builtin.cpu.arch));
-        
+
         profiler.record(&profiler.hashing_ns);
-        
+
         return .{
             .arena = arena,
             .config = config,
@@ -190,7 +220,7 @@ pub const CompilationSession = struct {
             .compiler = compiler,
         };
     }
-    
+
     pub fn deinit(self: *CompilationSession) void {
         self.compiler.deinit();
     }
@@ -208,7 +238,7 @@ pub fn main(init: std.process.Init) !void {
     const command = args[1];
     const file_path = args[2];
     const config = AtlasConfig.load(arena, init.io) catch AtlasConfig{};
-    
+
     var debug = false;
     var no_kynx = config.no_kynx;
     var verbose = false;
@@ -216,6 +246,8 @@ pub fn main(init: std.process.Init) !void {
     var timings_json = false;
     var color_pref = term.ColorPreference.auto;
     var unicode_pref = term.UnicodePreference.auto;
+    var backend_mode: BackendMode = .steel;
+    var emit_mode: EmitMode = .exe;
 
     for (args) |arg| {
         if (std.mem.eql(u8, arg, "--debug")) debug = true;
@@ -232,16 +264,24 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, arg, "--unicode=auto")) unicode_pref = .auto;
         if (std.mem.eql(u8, arg, "--unicode=always")) unicode_pref = .always;
         if (std.mem.eql(u8, arg, "--unicode=never")) unicode_pref = .never;
+        // Backend selection
+        if (std.mem.eql(u8, arg, "--backend=steel")) backend_mode = .steel;
+        if (std.mem.eql(u8, arg, "--backend=native")) backend_mode = .native;
+        if (std.mem.eql(u8, arg, "--backend=auto")) backend_mode = .auto;
+        // Emit format
+        if (std.mem.eql(u8, arg, "--emit=exe")) emit_mode = .exe;
+        if (std.mem.eql(u8, arg, "--emit=obj")) emit_mode = .obj;
+        if (std.mem.eql(u8, arg, "--emit=mir")) emit_mode = .mir;
     }
 
     _ = term.init(color_pref, unicode_pref, init.io, init.environ_map);
 
     if (std.mem.eql(u8, command, "dev") or std.mem.eql(u8, command, "run")) {
-        try runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config);
+        try runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
     } else if (std.mem.eql(u8, command, "build")) {
-        try runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config);
+        try runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
     } else if (std.mem.eql(u8, command, "test")) {
-        try runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config);
+        try runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         printHelp();
@@ -269,6 +309,8 @@ fn printHelp() void {
         \\    --timings=json   Show phase compilation profiles in JSON format
         \\    --color=MODE     auto, always, never
         \\    --unicode=MODE   auto, always, never
+        \\    --backend=MODE   steel (default), native, auto
+        \\    --emit=MODE      exe (default), obj, mir
         \\
     , .{ORBIT_VERSION});
 }
@@ -292,7 +334,7 @@ fn getOrCompileSqliteCache(init: std.process.Init, arena: std.mem.Allocator, sql
             std.debug.print("Photon: compiling SQLite to cache: {s}\n", .{cache_obj_path});
         }
         var sqlite_timer = OrbitTimer.start();
-        
+
         var sqlite_args = std.ArrayListUnmanaged([]const u8).empty;
         try sqlite_args.append(arena, "zig");
         try sqlite_args.append(arena, "cc");
@@ -304,14 +346,14 @@ fn getOrCompileSqliteCache(init: std.process.Init, arena: std.mem.Allocator, sql
         try sqlite_args.append(arena, sqlite_inc_dir);
 
         if (verbose) {
-            std.debug.print("Executing: zig cc -c {s} -o {s} -O3 {s}\n", .{sqlite_c, cache_obj_path, sqlite_inc_dir});
+            std.debug.print("Executing: zig cc -c {s} -o {s} -O3 {s}\n", .{ sqlite_c, cache_obj_path, sqlite_inc_dir });
         }
         var child = try std.process.spawn(init.io, .{ .argv = sqlite_args.items });
         const term_status = try child.wait(init.io);
         if (term_status != .exited or term_status.exited != 0) {
             return error.SqliteCompilationFailed;
         }
-        
+
         profiler.compile_sqlite_ns = @intFromFloat(sqlite_timer.readSeconds() * 1_000_000_000.0);
     } else {
         if (verbose) {
@@ -326,6 +368,8 @@ fn compileToBinary(
     session: *CompilationSession,
     out_bin_path: []const u8,
     out_c_path: []const u8,
+    backend_mode: BackendMode,
+    emit_mode: EmitMode,
 ) ![]const u8 {
     const arena = session.arena;
     var profiler = &session.profiler;
@@ -381,6 +425,75 @@ fn compileToBinary(
     try dce.optimize(&ir_module);
     profiler.record(&profiler.optimize_ns);
 
+    // ── Backend routing ──────────────────────────────────────────────────────
+    //
+    // Resolve the effective backend: for `auto`, probe the IR and pick
+    // native when fully covered, steel otherwise.
+    const effective_backend: BackendMode = switch (backend_mode) {
+        .steel, .native => backend_mode,
+        .auto => blk: {
+            if (Capabilities.firstUnsupported(&ir_module)) |reason| {
+                NativeDiag.autoFallback(reason);
+                break :blk .steel;
+            } else {
+                break :blk .native;
+            }
+        },
+    };
+
+    // ── Photon Native path ────────────────────────────────────────────────────
+    if (effective_backend == .native) {
+        // If the user asked --backend=native but the IR is out of scope,
+        // surface a clear error rather than emitting silent wrong code.
+        if (Capabilities.firstUnsupported(&ir_module)) |feature| {
+            NativeDiag.unsupportedFeature(feature);
+            return error.NativeBackendUnsupported;
+        }
+
+        var native_be = NativeBackend.init(arena, session.config, sema.has_server_init);
+        try native_be.lower(arena, &ir_module);
+        profiler.record(&profiler.gen_c_ns);
+
+        // --emit=mir: dump MIR and exit early.
+        if (emit_mode == .mir) {
+            const mir_path = try std.mem.concat(arena, u8, &.{ out_bin_path, ".mir" });
+            var cwd = std.Io.Dir.cwd();
+            var mf = try cwd.createFile(init.io, mir_path, .{ .truncate = true });
+            var wb: [8192]u8 = undefined;
+            var mw = std.Io.File.Writer.init(mf, init.io, &wb);
+            // MirPrinter uses static functions; pass the writer directly.
+            try MirPrinter.printModule(&native_be.mir_module.?, &mw.interface);
+
+            try mw.flush();
+            mf.close(init.io);
+            std.debug.print("[native] MIR written to {s}\n", .{mir_path});
+            return out_bin_path;
+        }
+
+        // --emit=obj or --emit=exe: write the object file.
+        const obj_bytes = try native_be.emitObject(arena);
+        const obj_path = try std.mem.concat(arena, u8, &.{ out_bin_path, ".o" });
+        var cwd = std.Io.Dir.cwd();
+        var obj_file = try cwd.createFile(init.io, obj_path, .{ .truncate = true });
+        var wb: [8192]u8 = undefined;
+        var fw = std.Io.File.Writer.init(obj_file, init.io, &wb);
+        try fw.interface.writeAll(obj_bytes);
+        try fw.flush();
+        obj_file.close(init.io);
+
+        if (emit_mode == .obj) {
+            std.debug.print("[native] object written to {s}\n", .{obj_path});
+            return obj_path;
+        }
+
+        // exe: the native front-end produced an object; for now we return the
+        // object path and leave exe linking to the Steel step.
+        // TODO(NATIVE-4): pass obj_path to zig cc link invocation below.
+        std.debug.print("[native] object ready, will link: {s}\n", .{obj_path});
+        return obj_path;
+    }
+
+    // ── Steel (C-backend) path ──────────────────────────────────────────────────
     var backend = CBackend.init(arena, session.config, sema.has_server_init);
     const c_code = try backend.generate(ir_module);
     profiler.record(&profiler.gen_c_ns);
@@ -515,19 +628,21 @@ fn runBuildMode(
     timings: bool,
     timings_json: bool,
     config: AtlasConfig,
+    backend_mode: BackendMode,
+    emit_mode: EmitMode,
 ) !void {
     const arena = init.arena.allocator();
-    
+
     var session = try CompilationSession.init(init, file_path, no_kynx, debug, verbose, timings, timings_json, config);
     defer session.deinit();
 
     const temp_dir = try getOrbitTempDir(init, arena);
     const temp_c_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_build.c" });
     const out_bin_name = try std.fmt.allocPrint(arena, "{s}.exe", .{config.output_name});
-    
+
     var use_cache = false;
     const cb_path = try getCachePath(init, arena, file_path, session.project_hash);
-    
+
     if (config.cache) {
         var cwd = std.Io.Dir.cwd();
         if (cwd.openFile(init.io, cb_path, .{})) |f| {
@@ -537,32 +652,32 @@ fn runBuildMode(
             session.profiler.record(&session.profiler.cache_lookup_ns);
         } else |_| {}
     }
-    
+
     if (!use_cache) {
-        _ = try compileToBinary(init, &session, cb_path, temp_c_path);
+        _ = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode);
         std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
         try copyFile(init.io, arena, cb_path, out_bin_name);
     }
-    
+
     const elapsed_s = session.profiler.timer.readSeconds();
     session.profiler.total_ns = @intFromFloat(elapsed_s * 1_000_000_000.0);
-    
+
     if (session.timings) {
         session.profiler.printTimings(session.timings_json);
     }
-    
+
     if (!session.timings_json) {
         const orbit_sym = term.symbols.get(.orbit);
         const accent_esc = term.style.getEsc(.accent);
         const reset = term.style.getReset();
-        
+
         std.debug.print("  {s} {s}Orbit{s}\n", .{ orbit_sym, accent_esc, reset });
         std.debug.print("    Resolving    {d} modules\n", .{session.compiler.units.items.len});
         std.debug.print("    Checking     complete\n", .{});
         std.debug.print("    Emitting     native binary\n", .{});
         std.debug.print("    Output       {s}\n", .{out_bin_name});
         std.debug.print("    Duration     {d:.0} ms\n\n", .{@as(f64, @floatFromInt(session.profiler.total_ns)) / 1_000_000.0});
-        
+
         if (!no_kynx) {
             const bold_green = if (term.capabilities.get().has_color) "\x1b[1;32m" else "";
             std.debug.print("{s}Secured by Kynx.{s}\n", .{ bold_green, reset });
@@ -579,9 +694,11 @@ fn runExecuteMode(
     timings: bool,
     timings_json: bool,
     config: AtlasConfig,
+    backend_mode: BackendMode,
+    emit_mode: EmitMode,
 ) !void {
     const arena = init.arena.allocator();
-    
+
     var session = try CompilationSession.init(init, file_path, no_kynx, debug, verbose, timings, timings_json, config);
     defer session.deinit();
 
@@ -601,7 +718,7 @@ fn runExecuteMode(
     }
 
     if (!use_cache) {
-        const built_bin_path = try compileToBinary(init, &session, cb_path, cb_c_path);
+        const built_bin_path = try compileToBinary(init, &session, cb_path, cb_c_path, backend_mode, emit_mode);
         std.Io.Dir.deleteFileAbsolute(init.io, cb_c_path) catch {};
         bin_path_to_run = built_bin_path;
     }
@@ -612,11 +729,11 @@ fn runExecuteMode(
     if (session.timings) {
         session.profiler.printTimings(session.timings_json);
     }
-    
+
     const raw_args = try init.minimal.args.toSlice(arena);
     var forward_args = std.ArrayListUnmanaged([]const u8).empty;
     try forward_args.append(arena, bin_path_to_run);
-    
+
     for (raw_args[3..]) |arg| {
         if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "--no-kynx") or std.mem.eql(u8, arg, "--verbose") or std.mem.eql(u8, arg, "--timings") or std.mem.eql(u8, arg, "--timings=json")) {
             continue;
@@ -646,9 +763,11 @@ fn runTestMode(
     timings: bool,
     timings_json: bool,
     config: AtlasConfig,
+    backend_mode: BackendMode,
+    emit_mode: EmitMode,
 ) !void {
     const arena = init.arena.allocator();
-    
+
     var session = try CompilationSession.init(init, file_path, no_kynx, debug, verbose, timings, timings_json, config);
     defer session.deinit();
 
@@ -656,7 +775,7 @@ fn runTestMode(
     const test_bin_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_test.exe" });
     const test_c_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_test.c" });
 
-    _ = try compileToBinary(init, &session, test_bin_path, test_c_path);
+    _ = try compileToBinary(init, &session, test_bin_path, test_c_path, backend_mode, emit_mode);
     std.Io.Dir.deleteFileAbsolute(init.io, test_c_path) catch {};
 
     if (session.timings) {
@@ -691,7 +810,7 @@ fn reportSyntaxError(tok: anytype) void {
     var it = std.mem.splitScalar(u8, src, '\n');
     while (it.next()) |line| {
         if (line_count == tok.loc.line) {
-            std.debug.print("    {d} | {s}\n", .{line_count, line});
+            std.debug.print("    {d} | {s}\n", .{ line_count, line });
             std.debug.print("      | ", .{});
             var i: usize = 1;
             while (i < tok.loc.col) : (i += 1) {
@@ -711,14 +830,14 @@ fn printEchoes(diagnostics: []const Sema.Diagnostic) void {
     for (diagnostics) |diag| {
         const src = if (diag.file_source.len > 0) diag.file_source else "";
         const path = if (diag.file_path.len > 0) diag.file_path else "<unknown>";
-        std.debug.print("\n  [ {s} ] {s}\n", .{diag.code, diag.message});
-        std.debug.print("  at {s}:{d}:{d}\n\n", .{path, diag.line, diag.col});
+        std.debug.print("\n  [ {s} ] {s}\n", .{ diag.code, diag.message });
+        std.debug.print("  at {s}:{d}:{d}\n\n", .{ path, diag.line, diag.col });
 
         var line_count: usize = 1;
         var it = std.mem.splitScalar(u8, src, '\n');
         while (it.next()) |line| {
             if (line_count == diag.line) {
-                std.debug.print("    {d} | {s}\n", .{line_count, line});
+                std.debug.print("    {d} | {s}\n", .{ line_count, line });
                 std.debug.print("      | ", .{});
                 var i: usize = 1;
                 while (i < diag.col) : (i += 1) {
@@ -801,7 +920,7 @@ fn getCachePath(init: std.process.Init, arena: std.mem.Allocator, file_path: []c
 
 fn getCacheCPath(arena: std.mem.Allocator, bin_path: []const u8) ![]const u8 {
     if (std.mem.endsWith(u8, bin_path, ".exe")) {
-        return try std.fmt.allocPrint(arena, "{s}.c", .{bin_path[0..bin_path.len - 4]});
+        return try std.fmt.allocPrint(arena, "{s}.c", .{bin_path[0 .. bin_path.len - 4]});
     }
     return try std.fmt.allocPrint(arena, "{s}.c", .{bin_path});
 }
@@ -845,11 +964,11 @@ fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []
     const len = try src_file.length(io);
     const buffer = try allocator.alloc(u8, len);
     defer allocator.free(buffer);
-    
+
     var read_buf: [8192]u8 = undefined;
     var reader = std.Io.File.Reader.init(src_file, io, &read_buf);
     try reader.interface.readSliceAll(buffer);
-    
+
     var dest_file = try cwd.createFile(io, dest, .{ .truncate = true });
     defer dest_file.close(io);
     var write_buf: [8192]u8 = undefined;

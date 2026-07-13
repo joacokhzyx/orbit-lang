@@ -272,7 +272,6 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\    ctxs[0].port        = port;
             \\    orbit_worker_loop(&ctxs[0]);
             \\
-
             \\    orbit_kynx_cleanup();
             \\    orbit_arena_pool_cleanup();
             \\    orbit_string_pool_cleanup();
@@ -285,34 +284,37 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
         , .{
             config.keepalive_timeout_s,
             config.db_path,
-            config.arena_pool_size,     config.arena_default_capacity,
+            config.arena_pool_size,
+            config.arena_default_capacity,
             config.string_pool_capacity,
-            config.kynx_pool_size,      config.kynx_rate_limit,
-            config.kynx_window_ms,      config.kynx_ban_threshold,
+            config.kynx_pool_size,
+            config.kynx_rate_limit,
+            config.kynx_window_ms,
+            config.kynx_ban_threshold,
             if (config.no_kynx) "false" else "true",
             config.port,
             config.worker_threads,
         });
-        } else {
-            return try std.fmt.allocPrint(allocator,
-                \\int main(void) {{
-                \\    {s}
-                \\    orbit_string_pool_init({d});
-                \\    OrbitArena* arena = orbit_arena_create({d});
-                \\
-                \\    int _orbit_exit_code = orbit_main(arena);
-                \\
-                \\    orbit_arena_destroy(arena);
-                \\    orbit_string_pool_cleanup();
-                \\    {s}
-                \\    return _orbit_exit_code;
-                \\}}
-                \\
-            , .{
-                if (has_db) try std.fmt.allocPrint(allocator, "orbit_db_init(\"{s}\");", .{config.db_path}) else "",
-                config.string_pool_capacity,
-                config.arena_default_capacity,
-                if (has_db) "orbit_db_close();" else "",
-            });
-        }
+    } else {
+        return try std.fmt.allocPrint(allocator,
+            \\int main(void) {{
+            \\    {s}
+            \\    orbit_string_pool_init({d});
+            \\    OrbitArena* arena = orbit_arena_create({d});
+            \\
+            \\    int _orbit_exit_code = orbit_main(arena);
+            \\
+            \\    orbit_arena_destroy(arena);
+            \\    orbit_string_pool_cleanup();
+            \\    {s}
+            \\    return _orbit_exit_code;
+            \\}}
+            \\
+        , .{
+            if (has_db) try std.fmt.allocPrint(allocator, "orbit_db_init(\"{s}\");", .{config.db_path}) else "",
+            config.string_pool_capacity,
+            config.arena_default_capacity,
+            if (has_db) "orbit_db_close();" else "",
+        });
+    }
 }

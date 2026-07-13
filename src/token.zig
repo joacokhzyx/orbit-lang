@@ -36,24 +36,24 @@ pub const TokenType = enum {
     // ============================================
     // KEYWORDS - Declarations
     // ============================================
-    KeywordConst,      // const (compile-time)
-    KeywordVal,        // val (runtime immutable)
-    KeywordVar,        // var (mutable)
-    KeywordMut,        // mut modifier
-    KeywordPrivate,    // private visibility
-    KeywordFn,         // function
-    KeywordAsync,      // async function
-    KeywordAwait,      // await expression
-    KeywordModel,      // model declaration
-    KeywordRoute,      // route declaration
-    KeywordRole,       // role definition
-    KeywordReq,        // request body block
+    KeywordConst, // const (compile-time)
+    KeywordVal, // val (runtime immutable)
+    KeywordVar, // var (mutable)
+    KeywordMut, // mut modifier
+    KeywordPrivate, // private visibility
+    KeywordFn, // function
+    KeywordAsync, // async function
+    KeywordAwait, // await expression
+    KeywordModel, // model declaration
+    KeywordRoute, // route declaration
+    KeywordRole, // role definition
+    KeywordReq, // request body block
 
     // ============================================
     // KEYWORDS - Imports & Modules
     // ============================================
-    KeywordUse,        // use db.sqlite
-    KeywordImport,     // import './file.orb'
+    KeywordUse, // use db.sqlite
+    KeywordImport, // import './file.orb'
 
     // ============================================
     // KEYWORDS - HTTP Methods
@@ -69,18 +69,18 @@ pub const TokenType = enum {
     // ============================================
     // KEYWORDS - Error Handling
     // ============================================
-    KeywordErr,        // err 404 "message"
-    KeywordOk,         // return ok "message"
-    KeywordWith,       // with status 201
+    KeywordErr, // err 404 "message"
+    KeywordOk, // return ok "message"
+    KeywordWith, // with status 201
 
     // ============================================
     // KEYWORDS - Error Shortcuts
     // ============================================
-    KeywordNotFound,      // not_found
-    KeywordBadRequest,    // bad_request
-    KeywordUnauthorized,  // unauthorized
-    KeywordForbidden,     // forbidden
-    KeywordConflict,      // conflict
+    KeywordNotFound, // not_found
+    KeywordBadRequest, // bad_request
+    KeywordUnauthorized, // unauthorized
+    KeywordForbidden, // forbidden
+    KeywordConflict, // conflict
 
     // ============================================
     // KEYWORDS - Boolean Literals
@@ -92,8 +92,8 @@ pub const TokenType = enum {
     // ============================================
     // KEYWORDS - Logic
     // ============================================
-    KeywordAnd,        // and
-    KeywordOr,         // or
+    KeywordAnd, // and
+    KeywordOr, // or
 
     // ============================================
     // TYPES - Primitives
@@ -137,68 +137,68 @@ pub const TokenType = enum {
     // ============================================
     // OPERATORS - Arithmetic
     // ============================================
-    Plus,          // +
-    Minus,         // -
-    Asterisk,      // *
-    Slash,         // /
-    Percent,       // %
+    Plus, // +
+    Minus, // -
+    Asterisk, // *
+    Slash, // /
+    Percent, // %
 
     // ============================================
     // OPERATORS - Comparison
     // ============================================
-    Equal,         // =
-    DoubleEqual,   // ==
-    NotEqual,      // !=
-    Less,          // <
-    LessEqual,     // <=
-    Greater,       // >
-    GreaterEqual,  // >=
+    Equal, // =
+    DoubleEqual, // ==
+    NotEqual, // !=
+    Less, // <
+    LessEqual, // <=
+    Greater, // >
+    GreaterEqual, // >=
 
     // ============================================
     // OPERATORS - Logical
     // ============================================
-    DoublePipe,    // ||
+    DoublePipe, // ||
     DoubleAmpersand, // &&
-    Bang,          // !
+    Bang, // !
 
     // ============================================
     // OPERATORS - Special
     // ============================================
-    Question,      // ? (rescue operator)
+    Question, // ? (rescue operator)
     DoubleQuestion, // ?? (null coalescing)
-    Arrow,         // ->
-    FatArrow,      // =>
-    At,            // @ (decorator)
-    Pipe,          // |
+    Arrow, // ->
+    FatArrow, // =>
+    At, // @ (decorator)
+    Pipe, // |
 
     // ============================================
     // DELIMITERS
     // ============================================
-    OpenBrace,     // {
-    CloseBrace,    // }
-    OpenParen,     // (
-    CloseParen,    // )
-    OpenBracket,   // [
-    CloseBracket,  // ]
-    Colon,         // :
-    Dot,           // .
-    Comma,         // ,
-    SemiColon,     // ;
+    OpenBrace, // {
+    CloseBrace, // }
+    OpenParen, // (
+    CloseParen, // )
+    OpenBracket, // [
+    CloseBracket, // ]
+    Colon, // :
+    Dot, // .
+    Comma, // ,
+    SemiColon, // ;
 
     // ============================================
     // COMPOUND ASSIGNMENT
     // ============================================
-    PlusEqual,     // +=
-    MinusEqual,    // -=
-    StarEqual,     // *=
-    SlashEqual,    // /=
+    PlusEqual, // +=
+    MinusEqual, // -=
+    StarEqual, // *=
+    SlashEqual, // /=
 
     // ============================================
     // SPECIAL
     // ============================================
     EOF,
     Invalid,
-    Newline,       // For statement termination if needed
+    Newline, // For statement termination if needed
 };
 
 // ─── Token ───────────────────────────────────────────────────────────────────
@@ -240,8 +240,13 @@ pub const Token = struct {
         const inner = text[1 .. text.len - 1];
         if (inner[0] != '\\') return @as(i64, inner[0]);
         return switch (inner[1]) {
-            'n' => 10, 't' => 9, 'r' => 13, '0' => 0,
-            '\\' => 92, '\'' => 39, '"' => 34,
+            'n' => 10,
+            't' => 9,
+            'r' => 13,
+            '0' => 0,
+            '\\' => 92,
+            '\'' => 39,
+            '"' => 34,
             else => @as(i64, inner[1]),
         };
     }

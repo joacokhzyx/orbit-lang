@@ -40,17 +40,12 @@ pub const CodegenC = struct {
     pub fn generate(self: *CodegenC, root: *Node) anyerror![]const u8 {
         const headers = try RuntimeLoader.generateHeaders(self.allocator);
         try self.output.appendSlice(self.allocator, headers);
-        
+
         try self.generateDeclarations(root);
-        
-        const main_func = try RuntimeLoader.generateMainFunction(
-            self.allocator,
-            self.has_server_init,
-            false,
-            self.config
-        );
+
+        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, false, self.config);
         try self.output.appendSlice(self.allocator, main_func);
-        
+
         return try self.output.toOwnedSlice(self.allocator);
     }
 
@@ -111,7 +106,7 @@ pub const CodegenC = struct {
 
         for (fn_data.params, 0..) |param, i| {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-            
+
             const param_data = param.data.param;
             if (param_data.type_name) |type_name| {
                 const type_text = type_name.getText(self.source);
@@ -119,7 +114,7 @@ pub const CodegenC = struct {
             } else {
                 try self.output.appendSlice(self.allocator, "orbit_string");
             }
-            
+
             try self.output.append(self.allocator, ' ');
             try self.output.appendSlice(self.allocator, param_data.name.getText(self.source));
         }
@@ -142,51 +137,51 @@ pub const CodegenC = struct {
 
     fn generateConst(self: *CodegenC, node: *Node) !void {
         const const_data = node.data.const_decl;
-        
+
         try self.output.appendSlice(self.allocator, "const orbit_string ");
         try self.output.appendSlice(self.allocator, const_data.name.getText(self.source));
         try self.output.appendSlice(self.allocator, " = ");
-        
+
         var expr_gen = ExpressionGenerator.init(self.allocator, &self.output, self.source);
         try expr_gen.generate(const_data.value);
-        
+
         try self.output.appendSlice(self.allocator, ";\n");
     }
 
     fn generateGlobalVal(self: *CodegenC, node: *Node) !void {
         const val_data = node.data.val_decl;
-        
+
         if (val_data.type_annotation) |type_ann| {
             const type_text = type_ann.data.type_annotation.base.getText(self.source);
             try self.output.appendSlice(self.allocator, self.mapOrbitTypeToC(type_text));
         } else {
             try self.output.appendSlice(self.allocator, "orbit_string");
         }
-        
+
         try self.output.append(self.allocator, ' ');
         try self.output.appendSlice(self.allocator, val_data.name.getText(self.source));
-        
+
         if (val_data.value) |value| {
             try self.output.appendSlice(self.allocator, " = ");
             var expr_gen = ExpressionGenerator.init(self.allocator, &self.output, self.source);
             try expr_gen.generate(value);
         }
-        
+
         try self.output.appendSlice(self.allocator, ";\n");
     }
 
     fn generateStandaloneMain(self: *CodegenC, root: *Node) !void {
         try self.output.appendSlice(self.allocator, "int orbit_main(OrbitArena* arena) {\n");
-        
+
         var stmt_gen = StatementGenerator.init(self.allocator, &self.output, self.source);
         stmt_gen.indent_level = 1;
-        
+
         for (root.data.root.decls) |decl| {
             if (decl.tag == .expression_stmt) {
                 try stmt_gen.generate(decl);
             }
         }
-        
+
         try self.output.appendSlice(self.allocator, "    return 0;\n}\n\n");
     }
 

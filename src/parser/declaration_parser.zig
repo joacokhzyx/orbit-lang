@@ -130,7 +130,8 @@ pub const DeclarationParser = struct {
     /// no type token is found at the current position.
     fn consumeType(self: *DeclarationParser) anyerror!Token {
         if (self.check(.Identifier) or
-            self.isTypeToken()) {
+            self.isTypeToken())
+        {
             const tok = self.current_token.*;
             self.advance();
             try self.consumeTypeTail();
@@ -451,10 +452,7 @@ pub const DeclarationParser = struct {
             }
 
             const v_node = try self.allocator.create(Node);
-            v_node.* = .{
-                .tag = .union_variant,
-                .data = .{ .union_variant = .{ .name = v_name, .payload = payload } }
-            };
+            v_node.* = .{ .tag = .union_variant, .data = .{ .union_variant = .{ .name = v_name, .payload = payload } } };
 
             try variants.append(self.allocator, v_node);
             _ = self.match(.Comma); // optional comma
@@ -503,19 +501,19 @@ pub const DeclarationParser = struct {
     fn isTypeToken(self: *DeclarationParser) bool {
         const tag = self.current_token.tag;
         return tag == .TypeString or tag == .TypeInt or tag == .TypeFloat or
-               tag == .TypeBool or tag == .TypeDecimal or tag == .TypeEmail or
-               tag == .TypeURL or tag == .TypeUUID or tag == .TypePhone or
-               tag == .TypeIP or tag == .TypeDate or tag == .TypeTime or
-               tag == .TypeDateTime or tag == .TypeTimestamp or tag == .TypeList or
-               tag == .TypeMap or tag == .TypeSet;
+            tag == .TypeBool or tag == .TypeDecimal or tag == .TypeEmail or
+            tag == .TypeURL or tag == .TypeUUID or tag == .TypePhone or
+            tag == .TypeIP or tag == .TypeDate or tag == .TypeTime or
+            tag == .TypeDateTime or tag == .TypeTimestamp or tag == .TypeList or
+            tag == .TypeMap or tag == .TypeSet;
     }
 
     /// Returns `true` if the current token is an HTTP method keyword
     /// (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`).
     fn isHttpMethod(self: *DeclarationParser) bool {
         return self.check(.KeywordGet) or self.check(.KeywordPost) or
-               self.check(.KeywordPut) or self.check(.KeywordPatch) or
-               self.check(.KeywordDelete) or self.check(.KeywordHead) or
-               self.check(.KeywordOptions);
+            self.check(.KeywordPut) or self.check(.KeywordPatch) or
+            self.check(.KeywordDelete) or self.check(.KeywordHead) or
+            self.check(.KeywordOptions);
     }
 };
