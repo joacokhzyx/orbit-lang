@@ -4,12 +4,24 @@
 #include "inline.h"
 #include <stdint.h>
 
+#ifdef _WIN32
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #include <windows.h>
+#endif
+
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit Performance — Lightweight profiling counters.
- *
- * Uses RDTSC for sub-microsecond cycle counting on x86/x64.
- * Falls back to zero on other architectures (safe degradation).
  * ────────────────────────────────────────────────────────────────────── */
+
+#ifdef _WIN32
+  #define orbit_perf_atomic_add64(ptr, val) InterlockedExchangeAdd64((volatile LONG64*)(ptr), (LONG64)(val))
+  #define orbit_perf_atomic_inc64(ptr) InterlockedIncrement64((volatile LONG64*)(ptr))
+#else
+  #define orbit_perf_atomic_add64(ptr, val) __sync_fetch_and_add((volatile uint64_t*)(ptr), (uint64_t)(val))
+  #define orbit_perf_atomic_inc64(ptr) __sync_fetch_and_add((volatile uint64_t*)(ptr), 1)
+#endif
 
 typedef struct {
     // Request Stats
@@ -33,6 +45,22 @@ typedef struct {
     
     // App Info
     uint64_t string_intern_hits;
+
+    // Epochal VM Arena Stats
+    uint64_t arena_alloc_count;
+    uint64_t arena_requested_bytes;
+    uint64_t arena_aligned_bytes;
+    uint64_t arena_virtual_reserved_bytes;
+    uint64_t arena_committed_bytes;
+    uint64_t arena_peak_used_bytes;
+    uint64_t arena_commit_operations;
+    uint64_t arena_decommit_operations;
+    uint64_t arena_resets;
+    uint64_t arena_reuses;
+    uint64_t arena_overflow_allocations;
+    uint64_t arena_out_of_memory_count;
+    uint64_t arena_checkpoint_count;
+    uint64_t arena_rewind_count;
 } OrbitPerfStats;
 
 static OrbitPerfStats orbit_perf_stats = {0};
@@ -50,30 +78,32 @@ ORBIT_INLINE uint64_t orbit_rdtsc(void) {
 }
 
 ORBIT_INLINE void orbit_perf_start_request(void) {
-    orbit_perf_stats.request_count++;
+    orbit_perf_atomic_inc64(&orbit_perf_stats.request_count);
 }
 
 ORBIT_INLINE void orbit_perf_end_request(uint64_t start_cycles) {
     uint64_t end = orbit_rdtsc();
     uint64_t duration = end - start_cycles;
 
-    orbit_perf_stats.total_cycles += duration;
+    orbit_perf_atomic_add64(&orbit_perf_stats.total_cycles, duration);
 
-    if (ORBIT_UNLIKELY(duration < orbit_perf_stats.min_cycles || orbit_perf_stats.min_cycles == 0)) {
+    // Minor race on min/max is acceptable for statistics compared to full CAS overhead
+    if (duration < orbit_perf_stats.min_cycles || orbit_perf_stats.min_cycles == 0) {
         orbit_perf_stats.min_cycles = duration;
     }
 
-    if (ORBIT_UNLIKELY(duration > orbit_perf_stats.max_cycles)) {
+    if (duration > orbit_perf_stats.max_cycles) {
         orbit_perf_stats.max_cycles = duration;
     }
 }
 
 ORBIT_INLINE void orbit_perf_record_arena_reuse(void) {
-    orbit_perf_stats.arena_reuse_count++;
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_reuse_count);
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_reuses);
 }
 
 ORBIT_INLINE void orbit_perf_record_string_hit(void) {
-    orbit_perf_stats.string_intern_hits++;
+    orbit_perf_atomic_inc64(&orbit_perf_stats.string_intern_hits);
 }
 
 ORBIT_INLINE OrbitPerfStats orbit_perf_get_stats(void) {
@@ -81,7 +111,56 @@ ORBIT_INLINE OrbitPerfStats orbit_perf_get_stats(void) {
 }
 
 ORBIT_INLINE void orbit_perf_reset_stats(void) {
+    // Structural reset is safe
     orbit_perf_stats = (OrbitPerfStats){0};
+}
+
+/* ── Epochal VM Arena telemetry recording helpers ────────────────────── */
+
+static inline void orbit_perf_record_total_alloc(size_t bytes) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_alloc_count);
+    orbit_perf_atomic_add64(&orbit_perf_stats.total_alloc_bytes, bytes);
+    orbit_perf_atomic_add64(&orbit_perf_stats.arena_aligned_bytes, bytes);
+}
+
+static inline void orbit_perf_record_requested_bytes(size_t bytes) {
+    orbit_perf_atomic_add64(&orbit_perf_stats.arena_requested_bytes, bytes);
+}
+
+static inline void orbit_perf_record_virtual_reserved(size_t bytes) {
+    orbit_perf_atomic_add64(&orbit_perf_stats.arena_virtual_reserved_bytes, bytes);
+}
+
+static inline void orbit_perf_record_committed(size_t bytes) {
+    orbit_perf_atomic_add64(&orbit_perf_stats.arena_committed_bytes, bytes);
+}
+
+static inline void orbit_perf_record_commit_op(void) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_commit_operations);
+}
+
+static inline void orbit_perf_record_decommit_op(void) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_decommit_operations);
+}
+
+static inline void orbit_perf_record_reset(void) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_resets);
+}
+
+static inline void orbit_perf_record_overflow_alloc(void) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_overflow_allocations);
+}
+
+static inline void orbit_perf_record_checkpoint(void) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_checkpoint_count);
+}
+
+static inline void orbit_perf_record_rewind(void) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_rewind_count);
+}
+
+static inline void orbit_perf_record_oom(void) {
+    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_out_of_memory_count);
 }
 
 #endif
