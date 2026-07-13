@@ -419,6 +419,14 @@ pub const TypeChecker = struct {
         return "unknown";
     }
 
+    fn isIntegerType(type_name: []const u8) bool {
+        const ints = [_][]const u8{ "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "isize", "byte" };
+        for (ints) |it| {
+            if (std.mem.eql(u8, type_name, it)) return true;
+        }
+        return false;
+    }
+
     // ─── Compatibility checking ───────────────────────────────────────────
 
     /// Returns `true` when `actual` is assignable to `expected` after alias
@@ -431,6 +439,18 @@ pub const TypeChecker = struct {
         if (std.mem.eql(u8, resolved_expected, resolved_actual)) return true;
         if (std.mem.eql(u8, resolved_expected, "unknown")) return true;
         if (std.mem.eql(u8, resolved_actual, "unknown")) return true;
+
+        // Sized integer / generic int compatibility
+        if (isIntegerType(resolved_expected) and isIntegerType(resolved_actual)) {
+            if (std.mem.eql(u8, resolved_expected, "int") or std.mem.eql(u8, resolved_actual, "int")) {
+                return true;
+            }
+        }
+
+        // Pointer compatibility: ptr/pointer/mut_ptr/mut_pointer are compatible with void* ("pointer")
+        const is_expected_ptr = std.mem.eql(u8, resolved_expected, "pointer") or std.mem.eql(u8, resolved_expected, "ptr") or std.mem.eql(u8, resolved_expected, "mut_pointer") or std.mem.eql(u8, resolved_expected, "mut_ptr");
+        const is_actual_ptr = std.mem.eql(u8, resolved_actual, "pointer") or std.mem.eql(u8, resolved_actual, "ptr") or std.mem.eql(u8, resolved_actual, "mut_pointer") or std.mem.eql(u8, resolved_actual, "mut_ptr");
+        if (is_expected_ptr and is_actual_ptr) return true;
 
         // Phase 2: Result<T> is compatible with T (auto-wrap)
         if (std.mem.eql(u8, resolved_expected, "result")) return true;
