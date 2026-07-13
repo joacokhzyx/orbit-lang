@@ -200,6 +200,9 @@ fn parseFunctionDecl(parser: Parser) -> ASTNode {
 }
 
 fn parseDeclaration(parser: Parser) -> ASTNode {
+    if check(parser, TokType.EOF) {
+        return ASTNode.Empty
+    }
     if matchToken(parser, TokType.KeywordFn) {
         return parseFunctionDecl(parser)
     }

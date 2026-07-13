@@ -211,6 +211,10 @@ pub const DeadCodeEliminator = struct {
                 .register => |reg| try used_registers.put(self.allocator, reg, true),
                 else => {},
             }
+            switch (instr.operand3) {
+                .register => |reg| try used_registers.put(self.allocator, reg, true),
+                else => {},
+            }
         }
         
         var i: usize = 0;
@@ -303,7 +307,17 @@ pub const CommonSubexpressionEliminator = struct {
     };
 
     fn optimizeFunction(self: *CommonSubexpressionEliminator, func: *IRFunction) !void {
-        var available_exprs = std.AutoHashMapUnmanaged(ExprKey, u32){};
+        const Context = struct {
+            pub fn hash(ctx_self: @This(), key: ExprKey) u64 {
+                _ = ctx_self;
+                return key.hash();
+            }
+            pub fn eql(ctx_self: @This(), a: ExprKey, b: ExprKey) bool {
+                _ = ctx_self;
+                return a.eql(b);
+            }
+        };
+        var available_exprs = std.HashMapUnmanaged(ExprKey, u32, Context, std.hash_map.default_max_load_percentage){};
         defer available_exprs.deinit(self.allocator);
 
         var i: usize = 0;
@@ -327,6 +341,69 @@ pub const CommonSubexpressionEliminator = struct {
                         try available_exprs.put(self.allocator, key, dest);
                     }
                 }
+            }
+
+            i += 1;
+        }
+    }
+};
+
+pub const CopyPropagator = struct {
+    allocator: std.mem.Allocator,
+    propagated_count: usize,
+
+    pub fn init(allocator: std.mem.Allocator) CopyPropagator {
+        return .{
+            .allocator = allocator,
+            .propagated_count = 0,
+        };
+    }
+
+    pub fn optimize(self: *CopyPropagator, module: *IRModule) !void {
+        for (module.functions.items) |*func| {
+            try self.optimizeFunction(func);
+        }
+    }
+
+    fn optimizeFunction(self: *CopyPropagator, func: *IRFunction) !void {
+        var replacements = std.AutoHashMapUnmanaged(u32, IRValue){};
+        defer replacements.deinit(self.allocator);
+
+        var i: usize = 0;
+        while (i < func.instructions.items.len) {
+            const instr = &func.instructions.items[i];
+
+            if (instr.operand1 == .register) {
+                if (replacements.get(instr.operand1.register)) |rep| {
+                    instr.operand1 = rep;
+                    self.propagated_count += 1;
+                }
+            }
+            if (instr.operand2 == .register) {
+                if (replacements.get(instr.operand2.register)) |rep| {
+                    instr.operand2 = rep;
+                    self.propagated_count += 1;
+                }
+            }
+            if (instr.operand3 == .register) {
+                if (replacements.get(instr.operand3.register)) |rep| {
+                    instr.operand3 = rep;
+                    self.propagated_count += 1;
+                }
+            }
+
+            if (instr.opcode == .copy) {
+                if (instr.dest) |dest| {
+                    try replacements.put(self.allocator, dest, instr.operand1);
+                }
+            } else if (instr.opcode == .load_var) {
+                if (instr.dest) |dest| {
+                    try replacements.put(self.allocator, dest, IRValue{ .symbol = instr.operand1.string });
+                }
+            } else if (instr.opcode == .store_var) {
+                replacements.clearRetainingCapacity();
+            } else if (instr.opcode == .label) {
+                replacements.clearRetainingCapacity();
             }
 
             i += 1;

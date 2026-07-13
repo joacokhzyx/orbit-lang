@@ -51,7 +51,7 @@ ORBIT_INLINE const char* orbit_string_intern(OrbitArena* arena, const char* str)
 
     /* Search existing entries */
     for (int i = 0; i < orbit_string_pool.count; i++) {
-        if (ORBIT_LIKELY(orbit_string_pool.lengths[i] == len)) {
+        if (orbit_string_pool.lengths[i] == len) {
             if (memcmp(orbit_string_pool.strings[i], str, len) == 0) {
                 orbit_string_pool.hit_count++;
                 return orbit_string_pool.strings[i];

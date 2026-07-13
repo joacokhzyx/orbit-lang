@@ -468,7 +468,7 @@ pub const IRBuilder = struct {
             const value = try self.buildExpr(value_node);
             
             // Track variable type for later access
-            const var_type: IRType = switch (value) {
+            var var_type: IRType = switch (value) {
                 .register => |r| if (self.current_function) |f| f.register_types.items[r] else .unknown,
                 .int => .int,
                 .float => .float,
@@ -476,11 +476,22 @@ pub const IRBuilder = struct {
                 .bool => .bool,
                 else => .unknown,
             };
+
+            // Prefer explicit type annotation if present
+            if (val_data.type_annotation) |ann| {
+                const ann_type_name = ann.data.type_annotation.base.getText(self.source);
+                var_type = self.resolveType(ann_type_name);
+            }
+            
             try self.variable_types.put(name, var_type);
 
             var instr = IRInstruction.init(.decl_var);
             instr.operand1 = IRValue{ .string = name };
             instr.operand2 = value;
+            if (val_data.type_annotation) |ann| {
+                const ann_type_name = ann.data.type_annotation.base.getText(self.source);
+                instr.operand3 = IRValue{ .string = ann_type_name };
+            }
             try self.current_function.?.emit(self.allocator, instr);
         }
     }

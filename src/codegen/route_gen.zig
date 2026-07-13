@@ -55,30 +55,35 @@ pub const RouteGenerator = struct {
     
     pub fn generateRouteDispatcher(self: *RouteGenerator) !void {
         try self.output.appendSlice(self.allocator,
-            \\void orbit_handle_request(SOCKET client, char* buffer, OrbitArena* arena) {
+            \\int orbit_handle_request(SOCKET client, char* buffer, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
+            \\    if (out_consumed) *out_consumed = raw_len;
             \\    OrbitRequest req = {0};
             \\    
+            \\    int keep_alive = 1;
+            \\    if (strstr(buffer, "Connection: close") || strstr(buffer, "connection: close")) keep_alive = 0;
+            \\    
             \\    char* method_end = strchr(buffer, ' ');
-            \\    if (!method_end) return;
+            \\    if (!method_end) return keep_alive;
             \\    
             \\    size_t method_len = method_end - buffer;
-            \\    if (method_len >= sizeof(req.method)) return;
+            \\    if (method_len >= sizeof(req.method)) return keep_alive;
             \\    
             \\    memcpy(req.method, buffer, method_len);
             \\    req.method[method_len] = 0;
             \\    
             \\    char* path_start = method_end + 1;
             \\    char* path_end = strchr(path_start, ' ');
-            \\    if (!path_end) return;
+            \\    if (!path_end) return keep_alive;
             \\    
             \\    size_t path_len = path_end - path_start;
-            \\    if (path_len >= sizeof(req.path)) return;
+            \\    if (path_len >= sizeof(req.path)) return keep_alive;
             \\    
             \\    memcpy(req.path, path_start, path_len);
             \\    req.path[path_len] = 0;
             \\    
             \\    OrbitResponse resp = orbit_response_text(404, "Not Found");
             \\    orbit_send_response(client, &resp);
+            \\    return keep_alive;
             \\}
             \\
             \\

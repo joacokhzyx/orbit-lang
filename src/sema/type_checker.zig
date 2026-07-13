@@ -241,6 +241,7 @@ pub const TypeChecker = struct {
             if (std.mem.eql(u8, func_name, "ok")) return "result";
             if (std.mem.eql(u8, func_name, "err")) return "result";
             if (std.mem.eql(u8, func_name, "print")) return "void";
+            if (std.mem.eql(u8, func_name, "bit_op")) return "int";
 
             if (scope.get(func_name)) |entry| {
                 if (entry.is_function) return entry.type_name;

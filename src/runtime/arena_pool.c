@@ -4,6 +4,10 @@
 #include "arena.c"
 #include <stdbool.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit Arena Pool — Reusable arena recycling for high-throughput.
  *
@@ -17,7 +21,7 @@
 
 typedef struct {
     OrbitArena** arenas;
-    bool*        in_use;
+    volatile int* in_use;
     int          pool_size;
     size_t       arena_capacity;
     int          active_count;     /* number currently in use */
@@ -35,11 +39,11 @@ void orbit_arena_pool_init(int pool_size, size_t arena_capacity) {
     orbit_global_arena_pool.overflow_creates = 0;
 
     orbit_global_arena_pool.arenas = (OrbitArena**)calloc((size_t)pool_size, sizeof(OrbitArena*));
-    orbit_global_arena_pool.in_use = (bool*)calloc((size_t)pool_size, sizeof(bool));
+    orbit_global_arena_pool.in_use = (volatile int*)calloc((size_t)pool_size, sizeof(int));
 
     for (int i = 0; i < pool_size; i++) {
         orbit_global_arena_pool.arenas[i] = orbit_arena_create(arena_capacity);
-        orbit_global_arena_pool.in_use[i] = false;
+        orbit_global_arena_pool.in_use[i] = 0;
     }
 }
 
@@ -47,8 +51,11 @@ OrbitArena* orbit_arena_pool_acquire(void) {
     orbit_global_arena_pool.total_acquires++;
 
     for (int i = 0; i < orbit_global_arena_pool.pool_size; i++) {
-        if (!orbit_global_arena_pool.in_use[i]) {
-            orbit_global_arena_pool.in_use[i] = true;
+#ifdef _WIN32
+        if (InterlockedCompareExchange((volatile LONG*)&orbit_global_arena_pool.in_use[i], 1, 0) == 0) {
+#else
+        if (__sync_bool_compare_and_swap(&orbit_global_arena_pool.in_use[i], 0, 1)) {
+#endif
             orbit_global_arena_pool.active_count++;
             orbit_perf_stats.active_arenas = (uint32_t)orbit_global_arena_pool.active_count;
             orbit_arena_reset(orbit_global_arena_pool.arenas[i]);
@@ -66,10 +73,14 @@ void orbit_arena_pool_release(OrbitArena* arena) {
 
     for (int i = 0; i < orbit_global_arena_pool.pool_size; i++) {
         if (orbit_global_arena_pool.arenas[i] == arena) {
-            orbit_global_arena_pool.in_use[i] = false;
             orbit_global_arena_pool.active_count--;
             orbit_perf_stats.active_arenas = (uint32_t)orbit_global_arena_pool.active_count;
             orbit_arena_reset(arena);
+#ifdef _WIN32
+            InterlockedExchange((volatile LONG*)&orbit_global_arena_pool.in_use[i], 0);
+#else
+            __sync_lock_release(&orbit_global_arena_pool.in_use[i]);
+#endif
             return;
         }
     }

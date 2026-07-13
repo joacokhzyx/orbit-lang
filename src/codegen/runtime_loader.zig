@@ -6,20 +6,176 @@ const AtlasConfig = @import("../atlas.zig").AtlasConfig;
 pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
     return try std.fmt.allocPrint(allocator,
         \\#define ORBIT_CUSTOM_ROUTER
+        \\#include "socket_compat.h"
+        \\#include "thread_pool.c"
         \\#include "runtime.h"
         \\
         \\
     , .{});
 }
 
-/// Generates the main() function for the compiled binary.
-/// All configuration is driven by AtlasConfig — no hardcoded values.
-pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, config: AtlasConfig) ![]const u8 {
+pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_db: bool, config: AtlasConfig) ![]const u8 {
     if (has_server) {
         return try std.fmt.allocPrint(allocator,
-            \\int main(void) {{
-            \\    void orbit_anti_debug(void);
-            \\    orbit_anti_debug();
+            \\#ifdef _WIN32
+            \\static unsigned __stdcall orbit_worker_loop(void* arg) {{
+            \\#else
+            \\static void* orbit_worker_loop(void* arg) {{
+            \\#endif
+            \\    OrbitWorkerCtx* ctx = (OrbitWorkerCtx*)arg;
+            \\    orbit_socket_t server_sock = ctx->server_sock;
+            \\
+            \\    /* Each thread owns its private arena — zero pool contention */
+            \\    OrbitArena* thread_arena = orbit_arena_create(131072);
+            \\
+            \\    orbit_socket_t clients[512];
+            \\    size_t buffered[512];
+            \\    char* buffers[512];
+            \\    int num_clients = 0;
+            \\    
+            \\    /* Thread-local pre-allocated buffer pool to eliminate malloc/free overhead */
+            \\    char* buffer_pool = (char*)malloc(512 * 16384);
+            \\    char* free_buffers[512];
+            \\    for (int j = 0; j < 512; j++) {{
+            \\        free_buffers[j] = buffer_pool + j * 16384;
+            \\    }}
+            \\    int free_buffers_count = 512;
+            \\    
+            \\    while (1) {{
+            \\        fd_set readfds;
+            \\        FD_ZERO(&readfds);
+            \\        FD_SET(server_sock, &readfds);
+            \\        orbit_socket_t max_fd = server_sock;
+            \\
+            \\        for (int i = 0; i < num_clients; i++) {{
+            \\            FD_SET(clients[i], &readfds);
+            \\            if (clients[i] > max_fd) max_fd = clients[i];
+            \\        }}
+            \\
+            \\        struct timeval tv = {{{d}, 0}};
+            \\        int activity = select((int)max_fd + 1, &readfds, NULL, NULL, &tv);
+            \\
+            \\        if (activity < 0) {{
+            \\#ifdef _WIN32
+            \\            int err = WSAGetLastError();
+            \\            if (err == WSAENOTSOCK) {{
+            \\                for (int i = 0; i < num_clients; ) {{
+            \\                    int optval;
+            \\                    int optlen = sizeof(optval);
+            \\                    if (getsockopt(clients[i], SOL_SOCKET, SO_TYPE, (char*)&optval, &optlen) == SOCKET_ERROR) {{
+            \\                        orbit_socket_close(clients[i]);
+            \\                        free_buffers[free_buffers_count++] = buffers[i];
+            \\                        clients[i] = clients[num_clients - 1];
+            \\                        buffered[i] = buffered[num_clients - 1];
+            \\                        buffers[i] = buffers[num_clients - 1];
+            \\                        num_clients--;
+            \\                    }} else {{
+            \\                        i++;
+            \\                    }}
+            \\                }}
+            \\            }}
+            \\#else
+            \\            if (errno == EBADF || errno == ENOTSOCK) {{
+            \\                for (int i = 0; i < num_clients; ) {{
+            \\                    if (fcntl(clients[i], F_GETFD) == -1) {{
+            \\                        orbit_socket_close(clients[i]);
+            \\                        free_buffers[free_buffers_count++] = buffers[i];
+            \\                        clients[i] = clients[num_clients - 1];
+            \\                        buffered[i] = buffered[num_clients - 1];
+            \\                        buffers[i] = buffers[num_clients - 1];
+            \\                        num_clients--;
+            \\                    }} else {{
+            \\                        i++;
+            \\                    }}
+            \\                }}
+            \\            }}
+            \\#endif
+            \\            continue;
+            \\        }}
+            \\
+            \\        if (FD_ISSET(server_sock, &readfds)) {{
+            \\            orbit_socket_t new_sock = accept(server_sock, NULL, NULL);
+            \\            if (new_sock != ORBIT_INVALID_SOCKET) {{
+            \\                if (num_clients < 512 && free_buffers_count > 0) {{
+            \\                    int nodelay = 1;
+            \\                    setsockopt(new_sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay));
+            \\                    int sndbuf = 65536;
+            \\                    int rcvbuf = 65536;
+            \\                    setsockopt(new_sock, SOL_SOCKET, SO_SNDBUF, (char*)&sndbuf, sizeof(sndbuf));
+            \\                    setsockopt(new_sock, SOL_SOCKET, SO_RCVBUF, (char*)&rcvbuf, sizeof(rcvbuf));
+            \\                    clients[num_clients] = new_sock;
+            \\                    buffered[num_clients] = 0;
+            \\                    buffers[num_clients] = free_buffers[--free_buffers_count];
+            \\                    num_clients++;
+            \\                }} else {{
+            \\                    orbit_socket_close(new_sock);
+            \\                }}
+            \\            }}
+            \\        }}
+            \\
+            \\        for (int i = 0; i < num_clients; ) {{
+            \\            orbit_socket_t client_sock = clients[i];
+            \\            int drop = 0;
+            \\            
+            \\            if (FD_ISSET(client_sock, &readfds)) {{
+            \\                int received = recv(client_sock, buffers[i] + buffered[i], 16384 - 1 - buffered[i], 0);
+            \\                if (received == 0) {{
+            \\                    drop = 1;
+            \\                }} else if (received < 0) {{
+            \\#ifdef _WIN32
+            \\                    int err = WSAGetLastError();
+            \\                    if (err != WSAEWOULDBLOCK) drop = 1;
+            \\#else
+            \\                    if (errno != EAGAIN && errno != EWOULDBLOCK) drop = 1;
+            \\#endif
+            \\                }} else {{
+            \\                    buffered[i] += received;
+            \\                    buffers[i][buffered[i]] = 0;
+            \\                    
+            \\                    int keep_alive = 1;
+            \\                    size_t parsed = 0;
+            \\                    while (parsed < buffered[i]) {{
+            \\                        size_t consumed = 0;
+            \\                        orbit_arena_reset(thread_arena);
+            \\                        int keep = orbit_handle_request(client_sock, buffers[i] + parsed, buffered[i] - parsed, thread_arena, &consumed);
+            \\                        if (!keep) keep_alive = 0;
+            \\                        if (consumed == 0) break;
+            \\                        parsed += consumed;
+            \\                    }}
+            \\                    
+            \\                    if (parsed > 0) {{
+            \\                        memmove(buffers[i], buffers[i] + parsed, buffered[i] - parsed);
+            \\                        buffered[i] -= parsed;
+            \\                    }}
+            \\                    
+            \\                    if (buffered[i] == 16384 - 1 || !keep_alive) {{
+            \\                        drop = 1;
+            \\                    }}
+            \\                }}
+            \\            }}
+            \\            
+            \\            if (drop) {{
+            \\                orbit_socket_close(client_sock);
+            \\                free_buffers[free_buffers_count++] = buffers[i];
+            \\                clients[i] = clients[num_clients - 1];
+            \\                buffered[i] = buffered[num_clients - 1];
+            \\                buffers[i] = buffers[num_clients - 1];
+            \\                num_clients--;
+            \\            }} else {{
+            \\                i++;
+            \\            }}
+            \\        }}
+            \\    }}
+            \\    free(buffer_pool);
+            \\    orbit_arena_destroy(thread_arena);
+            \\#ifdef _WIN32
+            \\    return 0;
+            \\#else
+            \\    return NULL;
+            \\#endif
+            \\}}
+            \\
+            \\int main(int argc, char* argv[]) {{
             \\    orbit_http_init();
             \\    orbit_db_init("{s}");
             \\    orbit_arena_pool_init({d}, {d});
@@ -40,58 +196,82 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, conf
             \\    int _orbit_exit_code = orbit_main(startup_arena);
             \\    orbit_arena_pool_release(startup_arena);
             \\
-            \\    SOCKET server_sock = socket(AF_INET, SOCK_STREAM, 0);
-            \\    if (server_sock == INVALID_SOCKET) {{
+            \\    int port = {d};
+            \\    if (argc > 1) {{
+            \\        port = atoi(argv[1]);
+            \\    }}
+            \\
+            \\    orbit_socket_t server_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            \\    if (server_sock == ORBIT_INVALID_SOCKET) {{
             \\        printf("Failed to create socket\n");
             \\        return 1;
             \\    }}
             \\
+            \\    int reuse = 1;
+            \\    setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse));
+            \\    int nodelay = 1;
+            \\    setsockopt(server_sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay));
+            \\#ifdef _WIN32
+            \\    u_long mode = 1;
+            \\    ioctlsocket(server_sock, FIONBIO, &mode);
+            \\#else
+            \\    int flags = fcntl(server_sock, F_GETFL, 0);
+            \\    fcntl(server_sock, F_SETFL, flags | O_NONBLOCK);
+            \\#endif
+            \\    orbit_enable_reuseport(server_sock);
+            \\
             \\    struct sockaddr_in server_addr;
             \\    server_addr.sin_family = AF_INET;
             \\    server_addr.sin_addr.s_addr = INADDR_ANY;
-            \\    server_addr.sin_port = htons({d});
+            \\    server_addr.sin_port = htons(port);
             \\
-            \\    if (bind(server_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {{
+            \\    if (bind(server_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) == ORBIT_SOCKET_ERROR) {{
             \\        printf("Bind failed\n");
-            \\        closesocket(server_sock);
+            \\        orbit_socket_close(server_sock);
             \\        return 1;
             \\    }}
             \\
-            \\    if (listen(server_sock, 10) == SOCKET_ERROR) {{
+            \\    if (listen(server_sock, SOMAXCONN) == ORBIT_SOCKET_ERROR) {{
             \\        printf("Listen failed\n");
-            \\        closesocket(server_sock);
+            \\        orbit_socket_close(server_sock);
             \\        return 1;
             \\    }}
             \\
-            \\    printf("Orbit listening on port %d\n", {d});
+            \\    printf("Orbit listening on port %d\n", port);
             \\
-            \\    while (1) {{
-            \\        SOCKET client_sock = accept(server_sock, NULL, NULL);
-            \\        if (client_sock == INVALID_SOCKET) continue;
+            \\    int num_workers = {d};
+            \\    if (num_workers == 0) num_workers = ORBIT_CPU_COUNT();
+            \\    if (num_workers < 1) num_workers = 1;
+            \\    if (num_workers > 64) num_workers = 64;
+            \\    printf("Orbit spawning %d worker threads\n", num_workers);
             \\
-            \\        OrbitArena* arena = orbit_arena_pool_acquire();
+            \\    orbit_thread_t* workers = (orbit_thread_t*)malloc(sizeof(orbit_thread_t) * (size_t)num_workers);
+            \\    OrbitWorkerCtx* ctxs = (OrbitWorkerCtx*)malloc(sizeof(OrbitWorkerCtx) * (size_t)num_workers);
             \\
-            \\        char buffer[8192];
-            \\        int received = recv(client_sock, buffer, sizeof(buffer) - 1, 0);
-            \\        if (received > 0) {{
-            \\            buffer[received] = 0;
-            \\            orbit_handle_request(client_sock, buffer, arena);
-            \\        }}
-            \\
-            \\        orbit_arena_pool_release(arena);
-            \\        closesocket(client_sock);
+            \\    for (int i = 1; i < num_workers; i++) {{
+            \\        ctxs[i].server_sock = server_sock;
+            \\        ctxs[i].thread_id   = i;
+            \\        ctxs[i].port        = port;
+            \\        ORBIT_THREAD_CREATE(workers[i], orbit_worker_loop, &ctxs[i]);
             \\    }}
             \\
+            \\    ctxs[0].server_sock = server_sock;
+            \\    ctxs[0].thread_id   = 0;
+            \\    ctxs[0].port        = port;
+            \\    orbit_worker_loop(&ctxs[0]);
+            \\
+
             \\    orbit_kynx_cleanup();
             \\    orbit_arena_pool_cleanup();
             \\    orbit_string_pool_cleanup();
             \\    orbit_db_close();
             \\    orbit_http_cleanup();
-            \\    closesocket(server_sock);
+            \\    orbit_socket_close(server_sock);
             \\    return _orbit_exit_code;
             \\}}
             \\
         , .{
+            config.keepalive_timeout_s,
             config.db_path,
             config.arena_pool_size,     config.arena_default_capacity,
             config.string_pool_capacity,
@@ -99,14 +279,12 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, conf
             config.kynx_window_ms,      config.kynx_ban_threshold,
             if (config.no_kynx) "false" else "true",
             config.port,
-            config.port,
+            config.worker_threads,
         });
         } else {
             return try std.fmt.allocPrint(allocator,
                 \\int main(void) {{
-                \\    void orbit_anti_debug(void);
-                \\    orbit_anti_debug();
-                \\    orbit_db_init("{s}");
+                \\    {s}
                 \\    orbit_string_pool_init({d});
                 \\    OrbitArena* arena = orbit_arena_create({d});
                 \\
@@ -114,14 +292,15 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, conf
                 \\
                 \\    orbit_arena_destroy(arena);
                 \\    orbit_string_pool_cleanup();
-                \\    orbit_db_close();
+                \\    {s}
                 \\    return _orbit_exit_code;
                 \\}}
                 \\
             , .{
-                config.db_path,
+                if (has_db) try std.fmt.allocPrint(allocator, "orbit_db_init(\"{s}\");", .{config.db_path}) else "",
                 config.string_pool_capacity,
                 config.arena_default_capacity,
+                if (has_db) "orbit_db_close();" else "",
             });
         }
 }

@@ -4,8 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "socket_compat.h"
 #include "arena.c"
 #include "types.c"
 
@@ -29,6 +28,10 @@ typedef struct {
     size_t headers_len;
 } OrbitRequest;
 
+// Parses one request and returns the total bytes consumed for this request.
+size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
+
+
 typedef struct {
     int    status;
     char*  body;
@@ -40,24 +43,34 @@ typedef struct {
 #include "pulse.c"
 
 void orbit_http_init(void) {
+#ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
 }
 
 void orbit_http_cleanup(void) {
+#ifdef _WIN32
     WSACleanup();
+#endif
 }
 
 /* ── Parse raw HTTP into Arena-allocated OrbitRequest ────────────── */
 
-OrbitRequest* orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len) {
+size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req) {
+    if (out_req) *out_req = NULL;
+    
+    // Ensure we have a complete HTTP request header
+    const char* headers_end = strstr(raw, "\r\n\r\n");
+    if (!headers_end) return 0;
+    
     OrbitRequest* req = (OrbitRequest*)orbit_alloc(arena, sizeof(OrbitRequest));
-    if (!req) return NULL;
+    if (!req) return 0;
     memset(req, 0, sizeof(OrbitRequest));
 
     /* Method (until first space) */
     const char* space = memchr(raw, ' ', raw_len);
-    if (!space) return req;
+    if (!space) return 0;
 
     size_t method_len = (size_t)(space - raw);
     req->method = (char*)orbit_alloc(arena, method_len + 1);
@@ -91,10 +104,26 @@ OrbitRequest* orbit_http_parse_request(OrbitArena* arena, const char* raw, size_
     }
 
     /* Body (after \r\n\r\n) */
-    const char* body_sep = strstr(raw, "\r\n\r\n");
-    if (body_sep) {
-        const char* body_start = body_sep + 4;
-        req->body_len = raw_len - (size_t)(body_start - raw);
+    const char* body_sep = headers_end;
+    size_t consumed = (size_t)((headers_end + 4) - raw);
+    
+    const char* body_start = body_sep + 4;
+    
+    // Find Content-Length in headers
+    size_t content_length = 0;
+    const char* cl_hdr = strstr(raw, "Content-Length:");
+    if (!cl_hdr) cl_hdr = strstr(raw, "content-length:");
+    if (cl_hdr && cl_hdr < body_sep) {
+        content_length = (size_t)atol(cl_hdr + 15);
+    }
+    
+    // If we don't have the full body yet, we must return 0 to wait for more data
+    if (raw_len < consumed + content_length) {
+        if (out_req) *out_req = NULL;
+        return 0; // Incomplete body
+    }
+    
+    req->body_len = content_length;
         if (req->body_len > 0) {
             req->body = (char*)orbit_alloc(arena, req->body_len + 1);
             if (req->body) {
@@ -102,9 +131,10 @@ OrbitRequest* orbit_http_parse_request(OrbitArena* arena, const char* raw, size_
                 req->body[req->body_len] = '\0';
             }
         }
-    }
+        consumed = (size_t)(body_start - raw) + content_length;
 
-    return req;
+    if (out_req) *out_req = req;
+    return consumed;
 }
 
 /* ── Response builders ─────────────────────────────────────────────── */
@@ -130,7 +160,7 @@ OrbitResponse* orbit_response_text(OrbitArena* arena, int status, const char* te
 
 /* ── Send response to socket ───────────────────────────────────────── */
 
-void orbit_send_response(SOCKET client, OrbitResponse* resp) {
+void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     if (!resp) return;
 
     const char* body = resp->body ? resp->body : "";
@@ -142,35 +172,54 @@ void orbit_send_response(SOCKET client, OrbitResponse* resp) {
     int header_len = snprintf(header, sizeof(header),
         "HTTP/1.1 %d OK\r\n"
         "Content-Type: %s\r\n"
-        "Content-Length: %zu\r\n"
-        "Connection: close\r\n"
+        "Connection: keep-alive\r\n"
+        "Keep-Alive: timeout=30, max=1000\r\n"
+        "Content-Length: %d\r\n"
         "\r\n",
-        resp->status, ct, body_len);
+        resp->status, ct, (int)body_len);
 
     if (header_len > 0) {
-        send(client, header, header_len, 0);
-    }
-    if (body_len > 0) {
-        send(client, body, (int)body_len, 0);
+        size_t total_len = (size_t)header_len + body_len;
+        if (total_len < 4096) {
+            char combined[4096];
+            memcpy(combined, header, (size_t)header_len);
+            if (body_len > 0) {
+                memcpy(combined + header_len, body, body_len);
+            }
+            send(client, combined, (int)total_len, 0);
+        } else {
+            send(client, header, header_len, 0);
+            if (body_len > 0) {
+                send(client, body, (int)body_len, 0);
+            }
+        }
     }
 }
 
 /* ── Main Dispatch Hook ────────────────────────────────────────────── */
 
 #ifndef ORBIT_CUSTOM_ROUTER
-void orbit_handle_request(SOCKET client_sock, const char* raw_request, OrbitArena* arena) {
+int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
     uint64_t start = orbit_rdtsc();
     orbit_perf_start_request();
 
-    OrbitRequest* req = orbit_http_parse_request(arena, raw_request, strlen(raw_request));
-    if (!req) return;
+    OrbitRequest* req = NULL;
+    size_t consumed = orbit_http_parse_request(arena, raw_request, raw_len, &req);
+    if (out_consumed) *out_consumed = consumed;
+    if (!req) return 1;
+    
+    int keep_alive = 1;
+    // Check if client explicitly asked to close
+    if (strstr(raw_request, "Connection: close") || strstr(raw_request, "connection: close")) {
+        keep_alive = 0;
+    }
     
     // ── System Routes: Orbit Pulse ───────────────────────────────────
     if (req->path && strcmp(req->path, "/_pulse") == 0) {
         OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
         orbit_send_response(client_sock, res);
         orbit_perf_end_request(start);
-        return;
+        return keep_alive;
     }
     
     if (req->path && strcmp(req->path, "/_pulse/data") == 0) {
@@ -178,16 +227,15 @@ void orbit_handle_request(SOCKET client_sock, const char* raw_request, OrbitAren
         OrbitResponse* res = orbit_response_json(arena, 200, json);
         orbit_send_response(client_sock, res);
         orbit_perf_end_request(start);
-        return;
+        return keep_alive;
     }
 
     // ── Application Routes ───────────────────────────────────────────
-    // This is where generated code or the default 404 would go.
-    // Since we aren't at the CBackend injection level yet, we'll send a 404 for unknown.
     OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
     orbit_send_response(client_sock, res);
     
     orbit_perf_end_request(start);
+    return keep_alive;
 }
 #endif
 

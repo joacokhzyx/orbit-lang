@@ -7,12 +7,15 @@ pub const AtlasConfig = struct {
 
     // ── Server ──────────────────────────────────────────────────────
     port: u16 = 3000,
+    worker_threads: u32 = 0,         // 0 = auto-detect CPU count
+    keepalive_timeout_s: u32 = 30,
+    keepalive_max_requests: u32 = 1000,
 
-    // ── Database ────────────────────────────────────────────────────
+    // ── Database ────────────────────────────────────────────────────────────
     db_path: []const u8 = "orbit.db",
 
-    // ── Arena ───────────────────────────────────────────────────────
-    arena_pool_size: u32 = 32,
+    // ── Arena ────────────────────────────────────────────────────────────────
+    arena_pool_size: u32 = 128,       // per-pool slots (pool is now backup-only)
     arena_default_capacity: u32 = 65536,
 
     // ── String Pool ─────────────────────────────────────────────────
@@ -84,6 +87,18 @@ pub const AtlasConfig = struct {
         // ── Numeric values ───────────────────────────────────────────
         if (extractLiteral(content, "port:")) |val| {
             config.port = std.fmt.parseInt(u16, val, 10) catch config.port;
+        }
+
+        if (extractLiteral(content, "workers:")) |val| {
+            config.worker_threads = std.fmt.parseInt(u32, val, 10) catch config.worker_threads;
+        }
+
+        if (extractLiteral(content, "keepalive:")) |val| {
+            config.keepalive_timeout_s = std.fmt.parseInt(u32, val, 10) catch config.keepalive_timeout_s;
+        }
+
+        if (extractLiteral(content, "keepalive_max:")) |val| {
+            config.keepalive_max_requests = std.fmt.parseInt(u32, val, 10) catch config.keepalive_max_requests;
         }
 
         if (extractLiteral(content, "rate:")) |val| {
