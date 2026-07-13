@@ -441,6 +441,9 @@ fn compileToBinary(
         },
     };
 
+    var compile_sources = std.ArrayListUnmanaged([]const u8).empty;
+    defer compile_sources.deinit(arena);
+
     // ── Photon Native path ────────────────────────────────────────────────────
     if (effective_backend == .native) {
         // If the user asked --backend=native but the IR is out of scope,
@@ -486,26 +489,36 @@ fn compileToBinary(
             return obj_path;
         }
 
-        // exe: the native front-end produced an object; for now we return the
-        // object path and leave exe linking to the Steel step.
-        // TODO(NATIVE-4): pass obj_path to zig cc link invocation below.
-        std.debug.print("[native] object ready, will link: {s}\n", .{obj_path});
-        return obj_path;
+        // Write native stub C file to include runtime.h
+        const temp_dir = try getOrbitTempDir(init, arena);
+        const native_stub_c_path = try std.fs.path.join(arena, &.{ temp_dir, "native_stub.c" });
+        var stub_file = try cwd.createFile(init.io, native_stub_c_path, .{ .truncate = true });
+        var stub_wb: [1024]u8 = undefined;
+        var stub_fw = std.Io.File.Writer.init(stub_file, init.io, &stub_wb);
+        try stub_fw.interface.writeAll("#include \"runtime.h\"\n");
+        try stub_fw.flush();
+        stub_file.close(init.io);
+
+        try compile_sources.append(arena, obj_path);
+        try compile_sources.append(arena, native_stub_c_path);
+        std.debug.print("[native] object ready, linking via bootstrap: {s}\n", .{obj_path});
+    } else {
+        // ── Steel (C-backend) path ──────────────────────────────────────────────────
+        var backend = CBackend.init(arena, session.config, sema.has_server_init);
+        const c_code = try backend.generate(ir_module);
+        profiler.record(&profiler.gen_c_ns);
+
+        var cwd = std.Io.Dir.cwd();
+        var out_file = try cwd.createFile(init.io, out_c_path, .{ .truncate = true });
+        var write_buffer: [8192]u8 = undefined;
+        var file_writer_state = std.Io.File.Writer.init(out_file, init.io, &write_buffer);
+        try file_writer_state.interface.writeAll(c_code);
+        try file_writer_state.flush();
+        out_file.close(init.io);
+        profiler.record(&profiler.write_files_ns);
+
+        try compile_sources.append(arena, out_c_path);
     }
-
-    // ── Steel (C-backend) path ──────────────────────────────────────────────────
-    var backend = CBackend.init(arena, session.config, sema.has_server_init);
-    const c_code = try backend.generate(ir_module);
-    profiler.record(&profiler.gen_c_ns);
-
-    var cwd = std.Io.Dir.cwd();
-    var out_file = try cwd.createFile(init.io, out_c_path, .{ .truncate = true });
-    var write_buffer: [8192]u8 = undefined;
-    var file_writer_state = std.Io.File.Writer.init(out_file, init.io, &write_buffer);
-    try file_writer_state.interface.writeAll(c_code);
-    try file_writer_state.flush();
-    out_file.close(init.io);
-    profiler.record(&profiler.write_files_ns);
 
     const self_exe_dir = std.process.executableDirPathAlloc(init.io, arena) catch ".";
 
@@ -574,7 +587,9 @@ fn compileToBinary(
     var args_list = std.ArrayListUnmanaged([]const u8).empty;
     try args_list.append(arena, "zig");
     try args_list.append(arena, "cc");
-    try args_list.append(arena, out_c_path);
+    for (compile_sources.items) |src| {
+        try args_list.append(arena, src);
+    }
     if (has_db) {
         try args_list.append(arena, sqlite_obj_path.?);
         try args_list.append(arena, "-DORBIT_WITH_DB");
