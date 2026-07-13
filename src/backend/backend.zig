@@ -46,11 +46,10 @@ const RegisterAllocator = regalloc_mod.RegisterAllocator;
 const encoder_mod = @import("x86_64/encoder.zig");
 const Encoder = encoder_mod.Encoder;
 
-const coff_mod = @import("coff/coff.zig");
-const CoffWriter = coff_mod.CoffWriter;
-
-const elf_mod = @import("elf/elf.zig");
-const ElfWriter = elf_mod.ElfWriter;
+const link_mod = @import("link/mod.zig");
+const Object = link_mod.object.Object;
+const Section = link_mod.object.Section;
+const Symbol = link_mod.object.Symbol;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -141,16 +140,34 @@ pub const Backend = struct {
 
         self.obj_bytes = all_code.items;
 
+        // Construct neutral Object
+        var obj = Object{};
+        defer obj.deinit(self.allocator);
+
+        var sec = Section{
+            .name = try self.allocator.dupe(u8, ".text"),
+            .kind = .text,
+            .flags = .{ .read = true, .write = false, .execute = true },
+            .alignment = 16,
+        };
+        try sec.bytes.appendSlice(self.allocator, all_code.items);
+        try obj.sections.append(self.allocator, sec);
+
+        // Add entry symbol
+        try obj.symbols.append(self.allocator, Symbol{
+            .name = try self.allocator.dupe(u8, entry_name),
+            .section_index = 0,
+            .value = 0,
+            .binding = .global,
+            .kind = .func,
+            .is_defined = true,
+            .is_extern = false,
+        });
+
         // Emit in the target object format.
         return switch (self.target.format) {
-            .coff => blk: {
-                var writer = CoffWriter.init(self.allocator);
-                break :blk try writer.writeObject(all_code.items, entry_name);
-            },
-            .elf => blk: {
-                var writer = ElfWriter.init(self.allocator);
-                break :blk try writer.writeObject(all_code.items, entry_name);
-            },
+            .coff => try @import("link/coff_writer.zig").writeObject(self.allocator, &obj),
+            .elf => try @import("link/elf_writer.zig").writeObject(self.allocator, &obj),
             else => error.UnsupportedFormat,
         };
     }
@@ -186,15 +203,33 @@ pub const Backend = struct {
         defer encoder.deinit();
         const code = try encoder.encodeFunction(&allocated);
 
+        // Construct neutral Object
+        var obj = Object{};
+        defer obj.deinit(self.allocator);
+
+        var sec = Section{
+            .name = try self.allocator.dupe(u8, ".text"),
+            .kind = .text,
+            .flags = .{ .read = true, .write = false, .execute = true },
+            .alignment = 16,
+        };
+        try sec.bytes.appendSlice(self.allocator, code);
+        try obj.sections.append(self.allocator, sec);
+
+        // Add entry symbol
+        try obj.symbols.append(self.allocator, Symbol{
+            .name = try self.allocator.dupe(u8, func_name),
+            .section_index = 0,
+            .value = 0,
+            .binding = .global,
+            .kind = .func,
+            .is_defined = true,
+            .is_extern = false,
+        });
+
         return switch (self.target.format) {
-            .coff => blk: {
-                var writer = CoffWriter.init(self.allocator);
-                break :blk try writer.writeObject(code, func_name);
-            },
-            .elf => blk: {
-                var writer = ElfWriter.init(self.allocator);
-                break :blk try writer.writeObject(code, func_name);
-            },
+            .coff => try @import("link/coff_writer.zig").writeObject(self.allocator, &obj),
+            .elf => try @import("link/elf_writer.zig").writeObject(self.allocator, &obj),
             else => error.UnsupportedFormat,
         };
     }
