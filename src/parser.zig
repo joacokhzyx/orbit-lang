@@ -1,3 +1,11 @@
+//! Top-level parser entry-point for the Orbit language.
+//!
+//! `Parser` coordinates the three specialised sub-parsers
+//! (`ExpressionParser`, `StatementParser`, `DeclarationParser`) that live
+//! under `src/parser/`.  It is responsible for iterating the token stream,
+//! dispatching each top-level form to the appropriate sub-parser, and
+//! returning a fully-formed `Node.root` AST node.
+
 const std = @import("std");
 const Lexer = @import("lexer.zig").Lexer;
 const token = @import("token.zig");
@@ -10,6 +18,14 @@ const ExpressionParser = @import("parser/expression_parser.zig").ExpressionParse
 const StatementParser = @import("parser/statement_parser.zig").StatementParser;
 const DeclarationParser = @import("parser/declaration_parser.zig").DeclarationParser;
 
+// ─── Parser ───────────────────────────────────────────────────────────────────
+
+/// Recursive-descent parser that transforms an Orbit source file into an AST.
+///
+/// The parser operates in a single pass over the token stream produced by the
+/// embedded `Lexer`.  Helper sub-parsers handle expressions, statements, and
+/// declarations; `Parser` itself owns the token cursor state shared between
+/// all of them via pointer arguments.
 pub const Parser = struct {
     lexer: Lexer,
     current_token: Token,
@@ -17,10 +33,12 @@ pub const Parser = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
 
+    /// Creates a `Parser` for `source`, pre-loading the first token so the
+    /// cursor is immediately ready for `parse()`.
     pub fn init(source: []const u8, file_path: []const u8, allocator: std.mem.Allocator) Parser {
         var lexer = Lexer.init(source, file_path);
         const first_token = lexer.next();
-        
+
         return .{
             .lexer = lexer,
             .current_token = first_token,
@@ -30,19 +48,25 @@ pub const Parser = struct {
         };
     }
 
+    /// Moves the cursor one token forward, saving the old current token as
+    /// `previous_token`.
     fn advance(self: *Parser) void {
         self.previous_token = self.current_token;
         self.current_token = self.lexer.next();
     }
 
+    /// Returns the `TokenType` of the current (un-consumed) token.
     fn peek(self: *Parser) TokenType {
         return self.current_token.tag;
     }
 
+    /// Returns `true` if the current token has the given `tag`.
     fn check(self: *Parser, tag: TokenType) bool {
         return self.peek() == tag;
     }
 
+    /// Consumes the current token and returns `true` if it matches `tag`;
+    /// returns `false` and leaves the cursor unchanged otherwise.
     fn match(self: *Parser, tag: TokenType) bool {
         if (self.check(tag)) {
             self.advance();
@@ -51,14 +75,16 @@ pub const Parser = struct {
         return false;
     }
 
+    /// Parses the entire source file and returns a `Node.root` node whose
+    /// `decls` slice contains every top-level declaration in order.
     pub fn parse(self: *Parser) !*Node {
         var decls = std.ArrayListUnmanaged(*Node).empty;
-        
+
         while (!self.check(.EOF)) {
             const decl = try self.parseTopLevel();
             try decls.append(self.allocator, decl);
         }
-        
+
         const root = try self.allocator.create(Node);
         root.* = .{
             .tag = .root,
@@ -67,17 +93,22 @@ pub const Parser = struct {
         return root;
     }
 
+    // ─── Top-level dispatch ───────────────────────────────────────────────────
+
+    /// Parses one top-level declaration or expression statement, collecting any
+    /// leading decorator annotations and the optional `private` visibility
+    /// modifier before dispatching to the appropriate sub-parser.
     fn parseTopLevel(self: *Parser) anyerror!*Node {
         var decorators = std.ArrayListUnmanaged(*Node).empty;
-        
+
         while (self.check(.At)) {
             var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
             const dec = try decl_parser.parseDecorator();
             try decorators.append(self.allocator, dec);
         }
-        
+
         const is_private = self.match(.KeywordPrivate);
-        
+
         if (self.match(.KeywordImport)) {
              const path = self.current_token;
              self.advance();
@@ -104,21 +135,21 @@ pub const Parser = struct {
             var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
             return try decl_parser.parseModel(is_private);
         }
-        
+
         if (self.check(.KeywordRoute)) {
             var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
             return try decl_parser.parseRoute(try decorators.toOwnedSlice(self.allocator));
         }
-        
+
         if (self.check(.KeywordFn) or self.check(.KeywordAsync)) {
             var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
             return try decl_parser.parseFunction(is_private);
         }
-        
+
         if (self.check(.KeywordConst)) {
             return try self.parseConst(is_private);
         }
-        
+
         if (self.check(.KeywordVal)) {
             var stmt_parser = StatementParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
             return try stmt_parser.parseVal(is_private);
@@ -128,10 +159,10 @@ pub const Parser = struct {
             var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
             return try decl_parser.parseTypeDecl(is_private);
         }
-        
+
         var expr_parser = ExpressionParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
         const expr = try expr_parser.parseExpression();
-        
+
         const node = try self.allocator.create(Node);
         node.* = .{
             .tag = .expression_stmt,
@@ -140,15 +171,16 @@ pub const Parser = struct {
         return node;
     }
 
+    /// Parses a `const NAME = EXPR` declaration with the given visibility flag.
     fn parseConst(self: *Parser, is_private: bool) !*Node {
         self.advance();
         const name = self.current_token;
         self.advance();
         self.advance();
-        
+
         var expr_parser = ExpressionParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
         const value = try expr_parser.parseExpression();
-        
+
         const node = try self.allocator.create(Node);
         node.* = .{
             .tag = .const_decl,
@@ -161,4 +193,3 @@ pub const Parser = struct {
         return node;
     }
 };
-

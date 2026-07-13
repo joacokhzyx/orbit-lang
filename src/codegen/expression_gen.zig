@@ -1,12 +1,21 @@
+//! AST expression → C source text generator.
+//!
+//! `ExpressionGenerator` walks expression `Node`s produced by the parser and
+//! writes the equivalent C source text into a shared `ArrayListUnmanaged(u8)`
+//! output buffer.  It is used by `StatementGenerator` and `RouteGenerator`.
+
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;
 
+/// Generates C source text for a single expression sub-tree.
 pub const ExpressionGenerator = struct {
     allocator: std.mem.Allocator,
     output: *std.ArrayListUnmanaged(u8),
     source: []const u8,
-    
+
+    /// Initialise an `ExpressionGenerator` that writes into `output`.
+    /// `source` is the original Orbit source text used to extract token text.
     pub fn init(allocator: std.mem.Allocator, output: *std.ArrayListUnmanaged(u8), source: []const u8) ExpressionGenerator {
         return .{
             .allocator = allocator,
@@ -15,6 +24,8 @@ pub const ExpressionGenerator = struct {
         };
     }
     
+    /// Recursively emit C source text for `node` into the output buffer.
+    /// Dispatches on the node tag and handles all expression kinds.
     pub fn generate(self: *ExpressionGenerator, node: *Node) anyerror!void {
         switch (node.tag) {
             .integer_literal => try self.output.appendSlice(self.allocator, node.data.integer_literal.getText(self.source)),

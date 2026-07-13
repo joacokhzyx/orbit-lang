@@ -1,3 +1,12 @@
+/**
+ * @file  types.c
+ * @brief Orbit runtime type system: primitives, Result<T,E>, Option<T>, Slice<T>, List<T>, Map<K,V>, and tagged unions.
+ *
+ * Every user-facing type is arena-allocated and C99-compatible.  Result<T,E>
+ * replaces exceptions with an explicit tagged union; Option<T> wraps nullable
+ * values; Slice<T> provides a zero-copy non-owning view; and OrbitTaggedUnion
+ * / OrbitInterface support Orbit's union and trait-object semantics at runtime.
+ */
 #ifndef ORBIT_TYPES_H
 #define ORBIT_TYPES_H
 
@@ -62,6 +71,7 @@ typedef struct {
     void*           value;
 } OrbitResult;
 
+/** @brief Construct a successful Result carrying @p value. */
 static OrbitResult orbit_result_ok(void* value) {
     OrbitResult r;
     r.ok         = true;
@@ -71,6 +81,7 @@ static OrbitResult orbit_result_ok(void* value) {
     return r;
 }
 
+/** @brief Construct a successful Result carrying an integer value encoded in the pointer slot. */
 static OrbitResult orbit_result_ok_int(orbit_int val) {
     OrbitResult r;
     r.ok         = true;
@@ -82,6 +93,7 @@ static OrbitResult orbit_result_ok_int(orbit_int val) {
     return r;
 }
 
+/** @brief Construct a failed Result with the given error @p code and human-readable @p msg. */
 static OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {
     OrbitResult r;
     r.ok         = false;
@@ -112,6 +124,7 @@ typedef struct {
     void*  value;
 } OrbitOption;
 
+/** @brief Construct an Option<T> that holds @p value. */
 static OrbitOption orbit_some(void* value) {
     OrbitOption o;
     o.has_value = true;
@@ -119,6 +132,7 @@ static OrbitOption orbit_some(void* value) {
     return o;
 }
 
+/** @brief Construct an empty Option<T>. */
 static OrbitOption orbit_none(void) {
     OrbitOption o;
     o.has_value = false;
@@ -138,6 +152,7 @@ typedef struct {
     size_t elem_size;
 } OrbitSlice;
 
+/** @brief Construct an empty Slice with @p elem_size bytes per element. */
 static OrbitSlice orbit_slice_empty(size_t elem_size) {
     OrbitSlice s;
     s.data      = NULL;
@@ -146,6 +161,7 @@ static OrbitSlice orbit_slice_empty(size_t elem_size) {
     return s;
 }
 
+/** @brief Return a pointer to the element at @p index in @p s, or an error Result if out of bounds. */
 static OrbitResult orbit_slice_get(const OrbitSlice* s, size_t index) {
     if (!s || !s->data) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "slice is null");
@@ -217,6 +233,7 @@ typedef struct {
     size_t  data_size;
 } OrbitTaggedUnion;
 
+/** @brief Create an OrbitTaggedUnion with the given discriminant @p tag, payload @p data, and @p size. */
 static OrbitTaggedUnion orbit_tagged_union_create(int tag, void* data, size_t size) {
     OrbitTaggedUnion u;
     u.tag       = tag;
@@ -225,6 +242,7 @@ static OrbitTaggedUnion orbit_tagged_union_create(int tag, void* data, size_t si
     return u;
 }
 
+/** @brief Retrieve the payload of @p u if its tag matches @p expected_tag; returns a type-mismatch error otherwise. */
 static OrbitResult orbit_tagged_union_get(const OrbitTaggedUnion* u, int expected_tag) {
     if (!u) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "union is null");

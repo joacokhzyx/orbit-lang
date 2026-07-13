@@ -1,6 +1,14 @@
+//! Terminal layout primitives for the Orbit compiler output layer.
+//! Provides utilities for measuring visible text width (stripping ANSI
+//! escape sequences), selecting Unicode or ASCII border characters, and
+//! rendering titled panels to any `std.io` writer.
+
 const std = @import("std");
 const capabilities = @import("capabilities.zig");
 
+/// Calculates the visible display width of `text` in terminal columns,
+/// excluding any ANSI escape sequences embedded in the string.
+/// Multi-byte UTF-8 sequences are counted as one column each.
 pub fn visibleWidth(text: []const u8) usize {
     var width: usize = 0;
     var i: usize = 0;
@@ -18,6 +26,9 @@ pub fn visibleWidth(text: []const u8) usize {
     return width;
 }
 
+/// A set of border-drawing characters used by panel and rule helpers.
+/// Either Unicode box-drawing characters or plain ASCII, depending on
+/// terminal capabilities.
 pub const Border = struct {
     tl: []const u8,
     tr: []const u8,
@@ -27,6 +38,9 @@ pub const Border = struct {
     v: []const u8,
 };
 
+/// Returns the appropriate `Border` for the current terminal.
+/// Uses Unicode box-drawing characters when `has_unicode` is `true`,
+/// falling back to `+`, `-`, and `|` otherwise.
 pub fn getBorder() Border {
     const unicode = capabilities.get().has_unicode;
     if (unicode) {
@@ -50,6 +64,7 @@ pub fn getBorder() Border {
     }
 }
 
+/// Writes a horizontal rule of `width` border-characters to `writer`.
 pub fn horizontalRule(writer: anytype, width: usize) !void {
     const b = getBorder();
     var i: usize = 0;
@@ -58,13 +73,18 @@ pub fn horizontalRule(writer: anytype, width: usize) !void {
     }
 }
 
+/// Renders a titled box panel to `writer`.
+///
+/// The panel is `width` characters wide (interior) and displays `title` in
+/// bold on the top border when colour is enabled.  `content` is split on
+/// newlines and each line is padded to fill the interior width.
 pub fn renderPanel(writer: anytype, title: []const u8, content: []const u8, width: usize) !void {
     const b = getBorder();
     const caps = capabilities.get();
-    
+
     const bold_esc = if (caps.has_color) "\x1b[1m" else "";
     const reset_esc = if (caps.has_color) "\x1b[0m" else "";
-    
+
     // Top border with title
     try writer.writeAll(b.tl);
     try writer.writeAll(b.h);
@@ -93,7 +113,7 @@ pub fn renderPanel(writer: anytype, title: []const u8, content: []const u8, widt
         try writer.writeAll(b.v);
         try writer.writeAll(" ");
         try writer.writeAll(line);
-        
+
         const line_len = visibleWidth(line);
         const total_inner_width = width + 1; // spacing
         if (total_inner_width > line_len + 1) {

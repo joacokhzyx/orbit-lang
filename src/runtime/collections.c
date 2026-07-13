@@ -1,3 +1,14 @@
+/**
+ * @file  collections.c
+ * @brief Arena-backed generic List<T> and Map<K,V> implementations for Orbit.
+ *
+ * All memory is sourced from the request arena — no malloc/free in user code.
+ * List<T> uses contiguous bump-allocated storage with copy-forward growth.
+ * Map<K,V> uses open-addressing linear-probe hashing (FNV-1a) with a 75 % load
+ * factor and tombstone-free deletion.  Both grow within the same arena, with
+ * retired buckets reclaimed on arena reset.  String utilities append at the
+ * end for convenient string manipulation from generated Orbit code.
+ */
 #ifndef ORBIT_COLLECTIONS_H
 #define ORBIT_COLLECTIONS_H
 
@@ -20,6 +31,8 @@
 /* ═══════════════════════════════════════════════════════════════════════
  * LIST<T> IMPLEMENTATION
  * ═══════════════════════════════════════════════════════════════════════ */
+
+// ─── List<T> ────────────────────────────────────────────────────────────────
 
 static OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity) {
     if (!arena || elem_size == 0) {
@@ -136,9 +149,7 @@ static void orbit_list_clear(OrbitList* list) {
     if (list) list->len = 0;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
- * MAP<K,V> IMPLEMENTATION — Open-addressing Robin Hood
- * ═══════════════════════════════════════════════════════════════════════ */
+// ─── Map<K,V> ───────────────────────────────────────────────────────────────
 
 /* FNV-1a hash for string keys — fast, cache-friendly, good distribution */
 static uint32_t orbit_map_hash(const char* key) {
@@ -346,9 +357,7 @@ static OrbitResult orbit_map_keys(const OrbitMap* map, OrbitArena* arena) {
     return orbit_result_ok(keys);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
- * STRING UTILITIES
- * ═══════════════════════════════════════════════════════════════════════ */
+// ─── String Utilities ────────────────────────────────────────────────────────
 
 ORBIT_INLINE orbit_int orbit_string_len(orbit_string s) {
     return s ? (orbit_int)strlen(s) : 0;

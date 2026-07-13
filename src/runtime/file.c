@@ -1,3 +1,10 @@
+/**
+ * @file  file.c
+ * @brief File I/O helpers for reading and writing files in Orbit programs.
+ *
+ * Thin wrappers around POSIX/Win32 file APIs.  All returned buffers are
+ * arena-allocated so no explicit free is required.
+ */
 #ifndef ORBIT_FILE_H
 #define ORBIT_FILE_H
 

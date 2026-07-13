@@ -1,3 +1,13 @@
+/**
+ * @file  arena_pool.c
+ * @brief Thread-safe arena recycling pool for Orbit's request pipeline.
+ *
+ * Maintains a fixed-size pool of pre-allocated arenas so that each incoming
+ * request can acquire a ready-to-use, already-committed arena without paying
+ * for a fresh virtual-memory reservation.  Acquisition and release use
+ * lock-free compare-and-swap on a per-slot in-use flag.  When the pool is
+ * exhausted an overflow (temporary) arena is created and destroyed on release.
+ */
 #ifndef ORBIT_ARENA_POOL_H
 #define ORBIT_ARENA_POOL_H
 
@@ -34,6 +44,7 @@ typedef struct {
 
 static OrbitArenaPool orbit_global_arena_pool = {0};
 
+/** @brief Allocate and initialise @p pool_size arenas, each with @p arena_capacity bytes of initial capacity. */
 void orbit_arena_pool_init(int pool_size, size_t arena_capacity) {
     orbit_global_arena_pool.pool_size      = pool_size;
     orbit_global_arena_pool.arena_capacity = arena_capacity;
@@ -50,6 +61,7 @@ void orbit_arena_pool_init(int pool_size, size_t arena_capacity) {
     }
 }
 
+/** @brief Acquire a free arena from the pool, resetting it before use.  Returns a temporary overflow arena if the pool is exhausted. */
 OrbitArena* orbit_arena_pool_acquire(void) {
     orbit_atomic_inc64(&orbit_global_arena_pool.total_acquires);
 
@@ -66,11 +78,12 @@ OrbitArena* orbit_arena_pool_acquire(void) {
         }
     }
 
-    /* Pool exhausted — create a temporary overflow arena */
+    /* Pool fully in use — allocate a temporary arena that will be destroyed on release. */
     orbit_atomic_inc64(&orbit_global_arena_pool.overflow_creates);
     return orbit_arena_create(orbit_global_arena_pool.arena_capacity);
 }
 
+/** @brief Return @p arena to the pool (reset + mark free), or destroy it if it was an overflow arena. */
 void orbit_arena_pool_release(OrbitArena* arena) {
     if (!arena) return;
 
@@ -88,10 +101,11 @@ void orbit_arena_pool_release(OrbitArena* arena) {
         }
     }
 
-    /* Not from pool — was overflow, destroy it */
+    /* Arena was not pooled (overflow path) — release it immediately. */
     orbit_arena_destroy(arena);
 }
 
+/** @brief Destroy all pooled arenas and free the pool's control arrays. */
 void orbit_arena_pool_cleanup(void) {
     if (!orbit_global_arena_pool.arenas) return;
 

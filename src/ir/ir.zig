@@ -1,3 +1,10 @@
+//! orbit/src/ir/ir.zig
+//!
+//! Defines the Orbit Intermediate Representation (IR) data types:
+//! `IROpcode`, `IRValue`, `IRInstruction`, `IRFunction`, `IRModule`, and `IRModel`.
+//! All IR types are plain tagged unions / structs with no arena ownership;
+//! lifetime is managed by the caller (`IRBuilder`).
+
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;

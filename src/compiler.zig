@@ -1,15 +1,27 @@
+//! Multi-file compilation driver for the Orbit language.
+//!
+//! `Compiler` orchestrates loading, parsing, and linking of one or more Orbit
+//! source files.  It resolves `import` statements recursively, detects circular
+//! imports, and ultimately produces a merged AST root and a concatenated source
+//! string that downstream phases (semantic analysis, code generation) can
+//! consume as a single compilation unit.
+
 const std = @import("std");
 const Parser = @import("parser.zig").Parser;
 const Sema = @import("sema.zig").Sema;
 const ast = @import("ast.zig");
 const Node = ast.Node;
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/// A successfully parsed source file together with its AST root.
 pub const CompilationUnit = struct {
     file_path: []const u8,
     source: []const u8,
     root: *Node,
 };
 
+/// Errors that may be returned by `Compiler` operations.
 pub const CompilationError = error{
     FileNotFound,
     ParseError,
@@ -18,11 +30,20 @@ pub const CompilationError = error{
     OutOfMemory,
 };
 
+// ─── Compiler ─────────────────────────────────────────────────────────────────
+
+/// Drives the loading and parsing of an Orbit project.
+///
+/// `Compiler` maintains a set of already-visited file paths to prevent
+/// duplicate processing and circular imports.  After all files have been
+/// loaded, callers can retrieve the merged AST via `mergedRoots` or the
+/// concatenated source via `mergedSource`.
 pub const Compiler = struct {
     allocator: std.mem.Allocator,
     units: std.ArrayListUnmanaged(CompilationUnit),
     seen: std.StringHashMapUnmanaged(void),
 
+    /// Creates an empty `Compiler` backed by `allocator`.
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return .{
             .allocator = allocator,
@@ -31,15 +52,22 @@ pub const Compiler = struct {
         };
     }
 
+    /// Releases all memory owned by the `Compiler` (unit list and seen-set).
+    /// Does **not** free the parsed AST nodes — those are owned by each
+    /// compilation unit's arena.
     pub fn deinit(self: *Compiler) void {
         self.units.deinit(self.allocator);
         self.seen.deinit(self.allocator);
     }
 
+    /// Loads and parses the project entry-point file at `entry_path`,
+    /// recursively following all `import` declarations.
     pub fn loadEntry(self: *Compiler, io: anytype, entry_path: []const u8) !void {
         try self.loadFile(io, entry_path, null);
     }
 
+    /// Internal recursive loader.  `from_path` is the path of the file that
+    /// triggered this import (used only for error messages).
     fn loadFile(self: *Compiler, io: anytype, file_path: []const u8, from_path: ?[]const u8) anyerror!void {
         if (self.seen.contains(file_path)) return;
 
@@ -77,6 +105,9 @@ pub const Compiler = struct {
         }
     }
 
+    /// Returns a heap-allocated buffer containing the concatenated source text
+    /// of all loaded compilation units, separated by newlines.
+    /// The caller owns the returned slice.
     pub fn mergedSource(self: *Compiler) ![]u8 {
         var buf = std.ArrayListUnmanaged(u8).empty;
         for (self.units.items) |unit| {
@@ -86,6 +117,9 @@ pub const Compiler = struct {
         return buf.toOwnedSlice(self.allocator);
     }
 
+    /// Returns a single `Node.root` whose `decls` slice is the union of all
+    /// top-level declarations across every loaded file (import statements are
+    /// excluded from the merged output).
     pub fn mergedRoots(self: *Compiler) !*Node {
         if (self.units.items.len == 0) return CompilationError.FileNotFound;
         if (self.units.items.len == 1) return self.units.items[0].root;
@@ -110,6 +144,9 @@ pub const Compiler = struct {
     }
 };
 
+// ─── File / path utilities ────────────────────────────────────────────────────
+
+/// Strips surrounding double-quote characters from `s`, if present.
 fn stripQuotes(s: []const u8) []const u8 {
     if (s.len >= 2 and s[0] == '"' and s[s.len - 1] == '"') {
         return s[1..s.len-1];
@@ -117,6 +154,9 @@ fn stripQuotes(s: []const u8) []const u8 {
     return s;
 }
 
+/// Resolves `import_path` relative to the directory of `from_path`.
+/// Absolute paths (Unix `/` prefix or Windows drive letter) are returned as-is.
+/// Leading `./` and `../` sequences are normalised.
 fn resolveImportPath(allocator: std.mem.Allocator, from_path: []const u8, import_path: []const u8) ![]const u8 {
     if (std.mem.startsWith(u8, import_path, "/") or
         (import_path.len > 1 and import_path[1] == ':'))
@@ -137,6 +177,8 @@ fn resolveImportPath(allocator: std.mem.Allocator, from_path: []const u8, import
     return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ base_dir, rel });
 }
 
+/// Returns the directory component of `path` (everything before the last
+/// `/` or `\`), or an empty slice if `path` contains no separator.
 fn pathDirName(path: []const u8) []const u8 {
     var i: usize = path.len;
     while (i > 0) {
@@ -146,6 +188,8 @@ fn pathDirName(path: []const u8) []const u8 {
     return "";
 }
 
+/// Reads the entire contents of `file_path` into a freshly allocated buffer.
+/// Strips a UTF-8 BOM (`EF BB BF`) if one is present at the start of the file.
 fn readFileAlloc(allocator: std.mem.Allocator, io: anytype, file_path: []const u8) ![]u8 {
     var cwd = std.Io.Dir.cwd();
     var file = try cwd.openFile(io, file_path, .{});

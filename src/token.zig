@@ -1,5 +1,20 @@
+//! Token definitions for the Orbit language lexer.
+//!
+//! Defines `TokenType` — an exhaustive enumeration of every token kind
+//! recognised by the Orbit lexer — and `Token`, the lightweight value type
+//! that carries a type tag, source location, and a slice of the original
+//! source text.  Both types are used throughout the parser and semantic
+//! analysis phases.
+
 const std = @import("std");
 
+// ─── TokenType ───────────────────────────────────────────────────────────────
+
+/// Every distinct token kind produced by the Orbit lexer.
+///
+/// Variants are grouped into logical sections: control-flow keywords,
+/// declaration keywords, HTTP-method keywords, error-handling keywords,
+/// built-in type names, literal kinds, operators, delimiters, and specials.
 pub const TokenType = enum {
     // ============================================
     // KEYWORDS - Control Flow
@@ -186,13 +201,21 @@ pub const TokenType = enum {
     Newline,       // For statement termination if needed
 };
 
+// ─── Token ───────────────────────────────────────────────────────────────────
+
+/// A single lexical token produced by the Orbit lexer.
+///
+/// A token stores its `TokenType` tag, a `Loc` describing its byte range and
+/// line/column position in the original source, a direct slice of the source
+/// text (`text`), and references to the originating file for error reporting.
 pub const Token = struct {
     tag: TokenType,
     loc: Loc,
-    text: []const u8 = "", // Store the actual text slice
-    file_path: []const u8 = "", // Store the file path
-    file_source: []const u8 = "", // Store the file source
+    text: []const u8 = "", // Direct slice into the source buffer
+    file_path: []const u8 = "", // Path of the file being lexed
+    file_source: []const u8 = "", // Full source text of the file
 
+    /// Source location of a token: byte offsets and human-readable line/column.
     pub const Loc = struct {
         start: usize,
         end: usize,
@@ -200,10 +223,16 @@ pub const Token = struct {
         col: usize,
     };
 
+    /// Returns the source text for this token.
+    /// The `source` parameter is accepted for API compatibility but is unused —
+    /// the token already carries a direct slice of the source buffer.
     pub fn getText(self: Token, source: []const u8) []const u8 {
-        _ = source; // Ignored, we use the stored slice directly
+        _ = source;
         return self.text;
     }
+
+    /// Decodes a `.CharLiteral` token into its Unicode code point as an `i64`.
+    /// Handles common escape sequences: `\n`, `\t`, `\r`, `\0`, `\\`, `\'`, `\"`.
     pub fn charCode(self: Token, source: []const u8) i64 {
         _ = source;
         const text = self.text;

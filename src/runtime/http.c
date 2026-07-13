@@ -1,3 +1,12 @@
+/**
+ * @file  http.c
+ * @brief Arena-backed HTTP request parsing and response construction for Orbit.
+ *
+ * Parses raw HTTP/1.1 byte streams into OrbitRequest structs allocated entirely
+ * within the request arena (no fixed-size stack buffers).  Response builders
+ * create OrbitResponse objects in the same arena; orbit_send_response() writes
+ * header + body to the client socket in a single call where possible.
+ */
 #ifndef ORBIT_HTTP_H
 #define ORBIT_HTTP_H
 
@@ -28,7 +37,7 @@ typedef struct {
     size_t headers_len;
 } OrbitRequest;
 
-// Parses one request and returns the total bytes consumed for this request.
+/** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
 
 
@@ -42,6 +51,7 @@ typedef struct {
 // Forward declaration for Pulsar support
 #include "pulse.c"
 
+/** @brief Initialise the HTTP layer (starts Winsock on Windows; no-op on POSIX). */
 void orbit_http_init(void) {
 #ifdef _WIN32
     WSADATA wsa;
@@ -49,6 +59,7 @@ void orbit_http_init(void) {
 #endif
 }
 
+/** @brief Shut down the HTTP layer (stops Winsock on Windows; no-op on POSIX). */
 void orbit_http_cleanup(void) {
 #ifdef _WIN32
     WSACleanup();
@@ -139,6 +150,7 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
 
 /* ── Response builders ─────────────────────────────────────────────── */
 
+/** @brief Create an arena-allocated OrbitResponse with the given @p status, @p content_type, and @p body. */
 OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* content_type, const char* body) {
     OrbitResponse* resp = (OrbitResponse*)orbit_alloc(arena, sizeof(OrbitResponse));
     if (!resp) return NULL;
@@ -150,16 +162,19 @@ OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* 
     return resp;
 }
 
+/** @brief Convenience wrapper: create a JSON response with Content-Type application/json. */
 OrbitResponse* orbit_response_json(OrbitArena* arena, int status, const char* json) {
     return orbit_response_create(arena, status, "application/json", json);
 }
 
+/** @brief Convenience wrapper: create a plain-text response with Content-Type text/plain. */
 OrbitResponse* orbit_response_text(OrbitArena* arena, int status, const char* text) {
     return orbit_response_create(arena, status, "text/plain", text);
 }
 
 /* ── Send response to socket ───────────────────────────────────────── */
 
+/** @brief Write @p resp (header + body) to @p client, checking the Kynx response-size budget when networking is enabled. */
 void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     if (!resp) return;
 
@@ -209,6 +224,7 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
 /* ── Main Dispatch Hook ────────────────────────────────────────────── */
 
 #ifndef ORBIT_CUSTOM_ROUTER
+/** @brief Default request dispatcher: handles /_pulse routes internally and returns 404 for everything else.  Returns 1 to keep the connection alive, 0 to close. */
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
     uint64_t start = orbit_rdtsc();
     orbit_perf_start_request();
