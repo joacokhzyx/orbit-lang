@@ -616,7 +616,12 @@ test "codegen.c_backend_golden_snapshot" {
         \\    return keep_alive;
         \\}
         \\#endif
-        \\int main(void) {
+        \\extern char** _orbit_argv;
+        \\extern int _orbit_argc;
+        \\
+        \\int main(int argc, char* argv[]) {
+        \\    _orbit_argv = argv;
+        \\    _orbit_argc = argc;
         \\    
         \\    orbit_string_pool_init(4096);
         \\    OrbitArena* arena = orbit_arena_create(65536);

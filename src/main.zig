@@ -258,8 +258,11 @@ pub fn main(init: std.process.Init) !void {
     var unicode_pref = term.UnicodePreference.auto;
     var backend_mode: BackendMode = .steel;
     var emit_mode: EmitMode = .exe;
+    var output_override: ?[]const u8 = null;
 
-    for (args) |arg| {
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
         if (std.mem.eql(u8, arg, "--debug")) debug = true;
         if (std.mem.eql(u8, arg, "--no-kynx")) no_kynx = true;
         if (std.mem.eql(u8, arg, "--verbose")) verbose = true;
@@ -282,6 +285,13 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, arg, "--emit=exe")) emit_mode = .exe;
         if (std.mem.eql(u8, arg, "--emit=obj")) emit_mode = .obj;
         if (std.mem.eql(u8, arg, "--emit=mir")) emit_mode = .mir;
+        // Output path override
+        if (std.mem.eql(u8, arg, "-o") and i + 1 < args.len) {
+            output_override = args[i + 1];
+            i += 1;
+        } else if (std.mem.startsWith(u8, arg, "--output=")) {
+            output_override = arg["--output=".len..];
+        }
     }
 
     _ = term.init(color_pref, unicode_pref, init.io, init.environ_map);
@@ -289,7 +299,7 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, command, "dev") or std.mem.eql(u8, command, "run")) {
         try runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
     } else if (std.mem.eql(u8, command, "build")) {
-        try runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
+        try runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override);
     } else if (std.mem.eql(u8, command, "test")) {
         try runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
     } else {
@@ -678,7 +688,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         if (err != error.PathAlreadyExists) return err;
     };
 
-    const self_path = args[0];
+    const self_path = try std.fs.path.resolve(arena, &.{ args[0] });
 
     if (max_stage >= 1) {
         std.debug.print("[bootstrap] Building Stage 1 compiler using {s}...\n", .{self_path});
@@ -688,7 +698,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         try cmd.append(arena, "compiler/main.orb");
         try cmd.append(arena, "-o");
         try cmd.append(arena, "compiler/selfhost/stage1.exe");
-        try cmd.append(arena, "--backend=native");
+        try cmd.append(arena, "--backend=steel");
 
         var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
         const term_res = try child.wait(init.io);
@@ -700,14 +710,15 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
     }
 
     if (max_stage >= 2) {
-        std.debug.print("[bootstrap] Building Stage 2 compiler using compiler/selfhost/stage1.exe...\n", .{});
+        const stage1_path = try std.fs.path.resolve(arena, &.{ "compiler/selfhost/stage1.exe" });
+        std.debug.print("[bootstrap] Building Stage 2 compiler using {s}...\n", .{stage1_path});
         var cmd = std.ArrayListUnmanaged([]const u8).empty;
-        try cmd.append(arena, "compiler/selfhost/stage1.exe");
+        try cmd.append(arena, stage1_path);
         try cmd.append(arena, "build");
         try cmd.append(arena, "compiler/main.orb");
         try cmd.append(arena, "-o");
         try cmd.append(arena, "compiler/selfhost/stage2.exe");
-        try cmd.append(arena, "--backend=native");
+        try cmd.append(arena, "--backend=steel");
 
         var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
         const term_res = try child.wait(init.io);
@@ -719,14 +730,15 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
     }
 
     if (max_stage >= 3) {
-        std.debug.print("[bootstrap] Building Stage 3 compiler using compiler/selfhost/stage2.exe...\n", .{});
+        const stage2_path = try std.fs.path.resolve(arena, &.{ "compiler/selfhost/stage2.exe" });
+        std.debug.print("[bootstrap] Building Stage 3 compiler using {s}...\n", .{stage2_path});
         var cmd = std.ArrayListUnmanaged([]const u8).empty;
-        try cmd.append(arena, "compiler/selfhost/stage2.exe");
+        try cmd.append(arena, stage2_path);
         try cmd.append(arena, "build");
         try cmd.append(arena, "compiler/main.orb");
         try cmd.append(arena, "-o");
         try cmd.append(arena, "compiler/selfhost/stage3.exe");
-        try cmd.append(arena, "--backend=native");
+        try cmd.append(arena, "--backend=steel");
 
         var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
         const term_res = try child.wait(init.io);
@@ -783,6 +795,7 @@ fn runBuildMode(
     config: AtlasConfig,
     backend_mode: BackendMode,
     emit_mode: EmitMode,
+    output_override: ?[]const u8,
 ) !void {
     const arena = init.arena.allocator();
 
@@ -791,12 +804,15 @@ fn runBuildMode(
 
     const temp_dir = try getOrbitTempDir(init, arena);
     const temp_c_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_build.c" });
-    const out_bin_name = try std.fmt.allocPrint(arena, "{s}.exe", .{config.output_name});
+    const out_bin_name = if (output_override) |out|
+        out
+    else
+        try std.fmt.allocPrint(arena, "{s}.exe", .{config.output_name});
 
     var use_cache = false;
     const cb_path = try getCachePath(init, arena, file_path, session.project_hash);
 
-    if (config.cache) {
+    if (config.cache and output_override == null) {
         var cwd = std.Io.Dir.cwd();
         if (cwd.openFile(init.io, cb_path, .{})) |f| {
             f.close(init.io);

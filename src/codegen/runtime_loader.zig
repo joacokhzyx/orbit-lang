@@ -297,7 +297,12 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
         });
     } else {
         return try std.fmt.allocPrint(allocator,
-            \\int main(void) {{
+            \\extern char** _orbit_argv;
+            \\extern int _orbit_argc;
+            \\
+            \\int main(int argc, char* argv[]) {{
+            \\    _orbit_argv = argv;
+            \\    _orbit_argc = argc;
             \\    {s}
             \\    orbit_string_pool_init({d});
             \\    OrbitArena* arena = orbit_arena_create({d});

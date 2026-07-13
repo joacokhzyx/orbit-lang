@@ -128,4 +128,21 @@ void orbit_anti_debug(void) {
 #endif
 }
 
+char** _orbit_argv = NULL;
+int _orbit_argc = 0;
+
+orbit_int orbit_os_argc(void) {
+    return _orbit_argc;
+}
+
+orbit_string orbit_os_argv(OrbitArena* arena, orbit_int index) {
+    if (index < 0 || index >= _orbit_argc) return "";
+    size_t len = strlen(_orbit_argv[index]);
+    char* buf = (char*)orbit_alloc(arena, len + 1);
+    if (!buf) return "";
+    memcpy(buf, _orbit_argv[index], len);
+    buf[len] = '\0';
+    return buf;
+}
+
 #endif

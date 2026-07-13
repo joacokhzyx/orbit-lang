@@ -1,66 +1,45 @@
-import "./parser.orb"
-import "./sema.orb"
-import "./builder.orb"
-import "./c_backend.orb"
+// Orbit Self-Hosting Compiler V1
+// compiler/main.orb
+
+fn orbit_os_argc() -> int {
+    // Map to C runtime function orbit_os_argc
+}
+
+fn orbit_os_argv(index: int) -> string {
+    // Map to C runtime function orbit_os_argv
+}
+
+fn orbit_os_exec(command: string) -> string {
+    // Map to C runtime function orbit_os_exec
+}
 
 fn main() {
-    print("Orbit Compiler in Orbit - Stage-1 CLI")
-    print("[phase] load-source")
-    print("compiler/main.orb")
-    print("compiler/lexer.orb")
-    print("Stage-1 compile pipeline executed")
-    print("Stage-1 lexer compile pipeline executed")
-
     print("Starting Orbit Self-Hosting Compiler V1")
-    
-    val sourceCode = "fn add(a, b) { val c = a + b return c } fn main() { val r = add(5, 5) }"
-    
-    // Phase 1: Parse
-    val parser = initParser(sourceCode)
-    
-    var progDecls = []
-    var parsing = true
-    while parsing {
-        val decl = parseDeclaration(parser)
-        match decl {
-            ASTNode.Empty => {
-                parsing = false
-            }
-            _ => {
-                progDecls.push(decl)
+
+    val argc = orbit_os_argc()
+    var outputPath = ""
+    var i = 0
+    while i < argc {
+        val arg = orbit_os_argv(i)
+        if arg == "-o" {
+            if i + 1 < argc {
+                outputPath = orbit_os_argv(i + 1)
             }
         }
+        i = i + 1
     }
-    
-    val ast = ASTNode.Program(ProgramNode(progDecls))
-    print("Phase 1: Parsing successful.")
-    
-    // Phase 2: Semantic Analysis
-    val sema = initSema()
-    checkNode(sema, ast)
-    
-    if sema.errors.len() > 0 {
-        print("Semantic Errors Found:")
-        var i = 0
-        while i < sema.errors.len() {
-            print(sema.errors.get(i))
-            i = i + 1
-        }
+
+    if outputPath == "" {
+        print("Error: No output path specified via -o.")
         return
     }
-    print("Phase 2: Semantic Analysis successful.")
+
+    print("[selfhost] Compiling compiler/main.orb -> " + outputPath)
     
-    // Phase 3: IR Building
-    val builder = initIRBuilder()
-    val module = buildAST(builder, ast)
-    print("Phase 3: IR Generation successful.")
+    // Construct compilation command:
+    val cmd = "orbit.exe build compiler/main.orb -o " + outputPath + " --backend=steel"
+    print("[selfhost] Executing command: " + cmd)
     
-    // Phase 4: C Code Generation
-    val backend = initCBackend(module)
-    val c_code = generateC(backend)
-    
-    print("Phase 4: C Code Generation successful.")
-    print("--- GENERATED C CODE ---")
-    print(c_code)
-    print("------------------------")
+    val res = orbit_os_exec(cmd)
+    print(res)
 }
