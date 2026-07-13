@@ -67,6 +67,73 @@ pub const ElfWriter = struct {
         return .{ .allocator = allocator };
     }
 
+    fn writeU16(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: u16) !void {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeInt(u16, &bytes, value, .little);
+        try buffer.appendSlice(allocator, &bytes);
+    }
+
+    fn writeU32(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: u32) !void {
+        var bytes: [4]u8 = undefined;
+        std.mem.writeInt(u32, &bytes, value, .little);
+        try buffer.appendSlice(allocator, &bytes);
+    }
+
+    fn writeU64(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: u64) !void {
+        var bytes: [8]u8 = undefined;
+        std.mem.writeInt(u64, &bytes, value, .little);
+        try buffer.appendSlice(allocator, &bytes);
+    }
+
+    fn writeIdent(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator) !void {
+        try buffer.appendSlice(allocator, &.{ 0x7f, 'E', 'L', 'F' });
+        try buffer.append(allocator, 2); // class: 64-bit
+        try buffer.append(allocator, 1); // data: Little-endian
+        try buffer.append(allocator, 1); // version
+        try buffer.append(allocator, 0); // osabi
+        try buffer.append(allocator, 0); // abiversion
+        try buffer.appendNTimes(allocator, 0, 7); // pad
+    }
+
+    fn writeHeader(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, shoff: u64, shnum: u16, shstrndx: u16) !void {
+        try writeIdent(buffer, allocator);
+        try writeU16(buffer, allocator, 1); // type: ET_REL
+        try writeU16(buffer, allocator, 62); // machine: EM_X86_64
+        try writeU32(buffer, allocator, 1); // version
+        try writeU64(buffer, allocator, 0); // entry
+        try writeU64(buffer, allocator, 0); // phoff
+        try writeU64(buffer, allocator, shoff);
+        try writeU32(buffer, allocator, 0); // flags
+        try writeU16(buffer, allocator, 64); // ehsize
+        try writeU16(buffer, allocator, 0); // phentsize
+        try writeU16(buffer, allocator, 0); // phnum
+        try writeU16(buffer, allocator, 64); // shentsize
+        try writeU16(buffer, allocator, shnum);
+        try writeU16(buffer, allocator, shstrndx);
+    }
+
+    fn writeSectionHeader(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, sh: Elf64SectionHeader) !void {
+        try writeU32(buffer, allocator, sh.name);
+        try writeU32(buffer, allocator, sh.type_field);
+        try writeU64(buffer, allocator, sh.flags);
+        try writeU64(buffer, allocator, sh.addr);
+        try writeU64(buffer, allocator, sh.offset);
+        try writeU64(buffer, allocator, sh.size);
+        try writeU32(buffer, allocator, sh.link);
+        try writeU32(buffer, allocator, sh.info);
+        try writeU64(buffer, allocator, sh.addralign);
+        try writeU64(buffer, allocator, sh.entsize);
+    }
+
+    fn writeSymbol(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, sym: Elf64Symbol) !void {
+        try writeU32(buffer, allocator, sym.name);
+        try buffer.append(allocator, sym.info);
+        try buffer.append(allocator, sym.other);
+        try writeU16(buffer, allocator, sym.shndx);
+        try writeU64(buffer, allocator, sym.value);
+        try writeU64(buffer, allocator, sym.size);
+    }
+
     /// Writes machine code bytes and symbol definitions into an ELF64 object file buffer.
     pub fn writeObject(self: *ElfWriter, code: []const u8, func_name: []const u8) ![]const u8 {
         var buffer = std.ArrayListUnmanaged(u8).empty;
@@ -107,13 +174,8 @@ pub const ElfWriter = struct {
         const strtab_size_aligned = (strtab.items.len + 15) & ~@as(usize, 15);
         const sh_offset = strtab_offset + strtab_size_aligned;
 
-        // Write ELF64 Header
-        const header = Elf64Header{
-            .shoff = sh_offset,
-            .shnum = shnum,
-            .shstrndx = shstrndx,
-        };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&header));
+        // Write ELF64 Header portably
+        try writeHeader(&buffer, self.allocator, sh_offset, shnum, shstrndx);
 
         // Write Code section data
         const code_pad = code_size_aligned - code.len;
@@ -127,7 +189,7 @@ pub const ElfWriter = struct {
 
         // Write .symtab section data
         for (syms) |sym| {
-            try buffer.appendSlice(self.allocator, std.mem.asBytes(&sym));
+            try writeSymbol(&buffer, self.allocator, sym);
         }
         const symtab_pad = symtab_size_aligned - (@sizeOf(Elf64Symbol) * syms.len);
         if (symtab_pad > 0) try buffer.appendNTimes(self.allocator, 0, symtab_pad);
@@ -140,7 +202,7 @@ pub const ElfWriter = struct {
         // Write Section Headers
         // Section 0: NULL
         const sh_null = std.mem.zeroes(Elf64SectionHeader);
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&sh_null));
+        try writeSectionHeader(&buffer, self.allocator, sh_null);
 
         // Section 1: .text (Code)
         const sh_text = Elf64SectionHeader{
@@ -151,7 +213,7 @@ pub const ElfWriter = struct {
             .size = code.len,
             .addralign = 16,
         };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&sh_text));
+        try writeSectionHeader(&buffer, self.allocator, sh_text);
 
         // Section 2: .shstrtab (Section Names)
         const sh_shstrtab = Elf64SectionHeader{
@@ -162,7 +224,7 @@ pub const ElfWriter = struct {
             .size = shstrtab_data.len,
             .addralign = 1,
         };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&sh_shstrtab));
+        try writeSectionHeader(&buffer, self.allocator, sh_shstrtab);
 
         // Section 3: .symtab (Symbol Table)
         const sh_symtab = Elf64SectionHeader{
@@ -176,7 +238,7 @@ pub const ElfWriter = struct {
             .addralign = 8,
             .entsize = @sizeOf(Elf64Symbol),
         };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&sh_symtab));
+        try writeSectionHeader(&buffer, self.allocator, sh_symtab);
 
         // Section 4: .strtab (Strings)
         const sh_strtab = Elf64SectionHeader{
@@ -187,7 +249,7 @@ pub const ElfWriter = struct {
             .size = strtab.items.len,
             .addralign = 1,
         };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&sh_strtab));
+        try writeSectionHeader(&buffer, self.allocator, sh_strtab);
 
         return try buffer.toOwnedSlice(self.allocator);
     }
