@@ -230,12 +230,22 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
 
-    if (args.len < 3) {
+    if (args.len < 2) {
         printHelp();
         return;
     }
 
     const command = args[1];
+    if (std.mem.eql(u8, command, "bootstrap")) {
+        try runBootstrapMode(init, args);
+        return;
+    }
+
+    if (args.len < 3) {
+        printHelp();
+        return;
+    }
+
     const file_path = args[2];
     const config = AtlasConfig.load(arena, init.io) catch AtlasConfig{};
 
@@ -631,6 +641,134 @@ fn compileToBinary(
     } else {
         std.debug.print("Compilation failed.\n", .{});
         return error.NativeCompilationFailed;
+    }
+}
+
+fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
+    const arena = init.arena.allocator();
+    var clean = false;
+    var verify = false;
+    var max_stage: u32 = 3;
+
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--clean")) clean = true;
+        if (std.mem.eql(u8, arg, "--verify")) verify = true;
+        if (std.mem.startsWith(u8, arg, "--stage=")) {
+            const stage_str = arg["--stage=".len..];
+            max_stage = std.fmt.parseInt(u32, stage_str, 10) catch 3;
+        }
+    }
+
+    var cwd = std.Io.Dir.cwd();
+
+    if (clean) {
+        std.debug.print("[bootstrap] Cleaning bootstrap artifacts...\n", .{});
+        cwd.deleteFile(init.io, "compiler/selfhost/stage1.exe") catch {};
+        cwd.deleteFile(init.io, "compiler/selfhost/stage2.exe") catch {};
+        cwd.deleteFile(init.io, "compiler/selfhost/stage3.exe") catch {};
+        cwd.deleteFile(init.io, "compiler/selfhost/stage1.o") catch {};
+        cwd.deleteFile(init.io, "compiler/selfhost/stage2.o") catch {};
+        cwd.deleteFile(init.io, "compiler/selfhost/stage3.o") catch {};
+        std.debug.print("[bootstrap] Clean completed.\n", .{});
+        return;
+    }
+
+    // Ensure compiler/selfhost directory exists
+    cwd.createDirPath(init.io, "compiler/selfhost") catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    const self_path = args[0];
+
+    if (max_stage >= 1) {
+        std.debug.print("[bootstrap] Building Stage 1 compiler using {s}...\n", .{self_path});
+        var cmd = std.ArrayListUnmanaged([]const u8).empty;
+        try cmd.append(arena, self_path);
+        try cmd.append(arena, "build");
+        try cmd.append(arena, "compiler/main.orb");
+        try cmd.append(arena, "-o");
+        try cmd.append(arena, "compiler/selfhost/stage1.exe");
+        try cmd.append(arena, "--backend=native");
+
+        var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
+        const term_res = try child.wait(init.io);
+        if (term_res != .exited or term_res.exited != 0) {
+            std.debug.print("[bootstrap] Failed to build Stage 1 compiler.\n", .{});
+            return error.BootstrapStage1Failed;
+        }
+        std.debug.print("[bootstrap] Stage 1 compiler built successfully: compiler/selfhost/stage1.exe\n", .{});
+    }
+
+    if (max_stage >= 2) {
+        std.debug.print("[bootstrap] Building Stage 2 compiler using compiler/selfhost/stage1.exe...\n", .{});
+        var cmd = std.ArrayListUnmanaged([]const u8).empty;
+        try cmd.append(arena, "compiler/selfhost/stage1.exe");
+        try cmd.append(arena, "build");
+        try cmd.append(arena, "compiler/main.orb");
+        try cmd.append(arena, "-o");
+        try cmd.append(arena, "compiler/selfhost/stage2.exe");
+        try cmd.append(arena, "--backend=native");
+
+        var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
+        const term_res = try child.wait(init.io);
+        if (term_res != .exited or term_res.exited != 0) {
+            std.debug.print("[bootstrap] Failed to build Stage 2 compiler.\n", .{});
+            return error.BootstrapStage2Failed;
+        }
+        std.debug.print("[bootstrap] Stage 2 compiler built successfully: compiler/selfhost/stage2.exe\n", .{});
+    }
+
+    if (max_stage >= 3) {
+        std.debug.print("[bootstrap] Building Stage 3 compiler using compiler/selfhost/stage2.exe...\n", .{});
+        var cmd = std.ArrayListUnmanaged([]const u8).empty;
+        try cmd.append(arena, "compiler/selfhost/stage2.exe");
+        try cmd.append(arena, "build");
+        try cmd.append(arena, "compiler/main.orb");
+        try cmd.append(arena, "-o");
+        try cmd.append(arena, "compiler/selfhost/stage3.exe");
+        try cmd.append(arena, "--backend=native");
+
+        var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
+        const term_res = try child.wait(init.io);
+        if (term_res != .exited or term_res.exited != 0) {
+            std.debug.print("[bootstrap] Failed to build Stage 3 compiler.\n", .{});
+            return error.BootstrapStage3Failed;
+        }
+        std.debug.print("[bootstrap] Stage 3 compiler built successfully: compiler/selfhost/stage3.exe\n", .{});
+    }
+
+    if (verify and max_stage >= 3) {
+        std.debug.print("[bootstrap] Verifying fixed-point reproducibility...\n", .{});
+        const f2 = try cwd.openFile(init.io, "compiler/selfhost/stage2.exe", .{});
+        defer f2.close(init.io);
+        const f3 = try cwd.openFile(init.io, "compiler/selfhost/stage3.exe", .{});
+        defer f3.close(init.io);
+
+        const len2 = try f2.length(init.io);
+        const len3 = try f3.length(init.io);
+
+        if (len2 != len3) {
+            std.debug.print("[bootstrap] Verification FAILED: sizes differ ({d} vs {d} bytes).\n", .{len2, len3});
+            return error.BootstrapVerificationFailed;
+        }
+
+        const b2 = try arena.alloc(u8, len2);
+        const b3 = try arena.alloc(u8, len3);
+
+        var r2_buf: [8192]u8 = undefined;
+        var r2 = std.Io.File.Reader.init(f2, init.io, &r2_buf);
+        try r2.interface.readSliceAll(b2);
+
+        var r3_buf: [8192]u8 = undefined;
+        var r3 = std.Io.File.Reader.init(f3, init.io, &r3_buf);
+        try r3.interface.readSliceAll(b3);
+
+        if (!std.mem.eql(u8, b2, b3)) {
+            std.debug.print("[bootstrap] Verification FAILED: byte contents differ.\n", .{});
+            return error.BootstrapVerificationFailed;
+        }
+
+        std.debug.print("[bootstrap] SUCCESS: Stage 2 and Stage 3 are byte-identical! Fixed-point verified.\n", .{});
     }
 }
 
