@@ -212,39 +212,443 @@ test "capabilities: db_get is unsupported by native backend" {
 // ── Section 3: COFF / ELF magic bytes ────────────────────────────────────────
 
 test "coff writer produces valid COFF machine field in header" {
-    const coff_mod = @import("coff/coff.zig");
-    const CoffWriter = coff_mod.CoffWriter;
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // A minimal x86-64 RET-only function: 0xC3
     const code: []const u8 = &.{0xC3};
-    var writer = CoffWriter.init(alloc);
-    const obj = try writer.writeObject(code, "main");
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    try sec.bytes.appendSlice(alloc, code);
+    try obj.sections.append(alloc, sec);
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "main"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
 
-    // COFF object files start with the Machine field (0x8664 for x86-64 LE).
-    try std.testing.expect(obj.len >= 20); // At least a COFF header
-    const machine = std.mem.readInt(u16, obj[0..2], .little);
+    const obj_bytes = try link_mod.coff_writer.writeObject(alloc, &obj);
+
+    try std.testing.expect(obj_bytes.len >= 20);
+    const machine = std.mem.readInt(u16, obj_bytes[0..2], .little);
     try std.testing.expectEqual(@as(u16, 0x8664), machine);
 }
 
 test "elf writer produces ELF magic in header" {
-    const elf_mod = @import("elf/elf.zig");
-    const ElfWriter = elf_mod.ElfWriter;
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
     const code: []const u8 = &.{0xC3};
-    var writer = ElfWriter.init(alloc);
-    const obj = try writer.writeObject(code, "main");
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    try sec.bytes.appendSlice(alloc, code);
+    try obj.sections.append(alloc, sec);
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "main"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
 
-    try std.testing.expect(obj.len >= 16);
-    try std.testing.expectEqual(@as(u8, 0x7F), obj[0]);
-    try std.testing.expectEqual(@as(u8, 'E'), obj[1]);
-    try std.testing.expectEqual(@as(u8, 'L'), obj[2]);
-    try std.testing.expectEqual(@as(u8, 'F'), obj[3]);
+    const obj_bytes = try link_mod.elf_writer.writeObject(alloc, &obj);
+
+    try std.testing.expect(obj_bytes.len >= 16);
+    try std.testing.expectEqual(@as(u8, 0x7F), obj_bytes[0]);
+    try std.testing.expectEqual(@as(u8, 'E'), obj_bytes[1]);
+    try std.testing.expectEqual(@as(u8, 'L'), obj_bytes[2]);
+    try std.testing.expectEqual(@as(u8, 'F'), obj_bytes[3]);
+}
+
+test "link.coff.header_no_mz" {
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const code: []const u8 = &.{0xC3};
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    try sec.bytes.appendSlice(alloc, code);
+    try obj.sections.append(alloc, sec);
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "main"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+
+    const obj_bytes = try link_mod.coff_writer.writeObject(alloc, &obj);
+    try std.testing.expect(obj_bytes.len >= 2);
+    try std.testing.expect(obj_bytes[0] != 'M' or obj_bytes[1] != 'Z');
+}
+
+test "link.coff.reloc_rel32_math" {
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
+    const Reloc = link_mod.object.Reloc;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    const code: []const u8 = &.{ 0xE8, 0x00, 0x00, 0x00, 0x00 };
+    try sec.bytes.appendSlice(alloc, code);
+    try sec.relocs.append(alloc, Reloc{
+        .offset_in_section = 1,
+        .target_symbol_index = 1,
+        .kind = .PC32,
+        .addend = 0,
+    });
+    try obj.sections.append(alloc, sec);
+
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "main"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "target"),
+        .section_index = 0,
+        .value = 5,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+
+    const obj_bytes = try link_mod.coff_writer.writeObject(alloc, &obj);
+    var parsed_obj = try link_mod.coff_reader.readObject(alloc, obj_bytes);
+    defer parsed_obj.deinit(alloc);
+
+    try std.testing.expectEqual(@as(usize, 1), parsed_obj.sections.items[0].relocs.items.len);
+    const parsed_reloc = parsed_obj.sections.items[0].relocs.items[0];
+    try std.testing.expectEqual(@as(i64, -4), parsed_reloc.addend);
+}
+
+test "link.elf.rela_addend_math" {
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
+    const Reloc = link_mod.object.Reloc;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    const code: []const u8 = &.{ 0xE8, 0x00, 0x00, 0x00, 0x00 };
+    try sec.bytes.appendSlice(alloc, code);
+    try sec.relocs.append(alloc, Reloc{
+        .offset_in_section = 1,
+        .target_symbol_index = 1,
+        .kind = .PC32,
+        .addend = 42,
+    });
+    try obj.sections.append(alloc, sec);
+
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "main"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "target"),
+        .section_index = 0,
+        .value = 5,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+
+    const obj_bytes = try link_mod.elf_writer.writeObject(alloc, &obj);
+    var parsed_obj = try link_mod.elf_reader.readObject(alloc, obj_bytes);
+    defer parsed_obj.deinit(alloc);
+
+    try std.testing.expectEqual(@as(usize, 1), parsed_obj.sections.items[0].relocs.items.len);
+    const parsed_reloc = parsed_obj.sections.items[0].relocs.items[0];
+    try std.testing.expectEqual(@as(i64, 42), parsed_reloc.addend);
+}
+
+test "link.elf.symtab_local_before_global" {
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    try sec.bytes.appendSlice(alloc, &.{0xC3});
+    try obj.sections.append(alloc, sec);
+
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "global_sym"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "local_sym"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .local,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+
+    const obj_bytes = try link_mod.elf_writer.writeObject(alloc, &obj);
+    var parsed_obj = try link_mod.elf_reader.readObject(alloc, obj_bytes);
+    defer parsed_obj.deinit(alloc);
+
+    var first_global_idx: ?usize = null;
+    var last_local_idx: ?usize = null;
+
+    for (parsed_obj.symbols.items, 0..) |sym, idx| {
+        if (idx == 0 and sym.name.len == 0) continue;
+        if (sym.binding == .local) {
+            last_local_idx = idx;
+        } else if (sym.binding == .global and first_global_idx == null) {
+            first_global_idx = idx;
+        }
+    }
+
+    try std.testing.expect(last_local_idx.? < first_global_idx.?);
+}
+
+test "link.resolve.undefined_symbol_errors" {
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
+    const Reloc = link_mod.object.Reloc;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    try sec.bytes.appendSlice(alloc, &.{0xE8, 0, 0, 0, 0});
+    try sec.relocs.append(alloc, Reloc{
+        .offset_in_section = 1,
+        .target_symbol_index = 1,
+        .kind = .PC32,
+        .addend = 0,
+    });
+    try obj.sections.append(alloc, sec);
+
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "main"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "some_missing_fn"),
+        .section_index = null,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = false,
+        .is_extern = true,
+    });
+
+    var lnk = link_mod.linker.Linker.init(alloc);
+    defer lnk.deinit();
+    try lnk.addObject("main.o", obj);
+
+    const res = lnk.resolveSymbols();
+    try std.testing.expectError(error.UndefinedSymbol, res);
+}
+
+test "link.resolve.duplicate_symbol_errors" {
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var obj1 = Object{};
+    var sec1 = Section{ .name = try alloc.dupe(u8, ".text"), .kind = .text, .flags = .{ .read = true, .write = false, .execute = true }, .alignment = 16 };
+    try sec1.bytes.appendSlice(alloc, &.{0xC3});
+    try obj1.sections.append(alloc, sec1);
+    try obj1.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "dup_fn"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+
+    var obj2 = Object{};
+    var sec2 = Section{ .name = try alloc.dupe(u8, ".text"), .kind = .text, .flags = .{ .read = true, .write = false, .execute = true }, .alignment = 16 };
+    try sec2.bytes.appendSlice(alloc, &.{0xC3});
+    try obj2.sections.append(alloc, sec2);
+    try obj2.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "dup_fn"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+
+    var lnk = link_mod.linker.Linker.init(alloc);
+    defer lnk.deinit();
+    try lnk.addObject("obj1.o", obj1);
+    try lnk.addObject("obj2.o", obj2);
+
+    const res = lnk.resolveSymbols();
+    try std.testing.expectError(error.DuplicateSymbol, res);
+}
+
+test "link.reloc.overflow_errors" {
+    const link_mod = @import("link/mod.zig");
+    const Object = link_mod.object.Object;
+    const Section = link_mod.object.Section;
+    const Symbol = link_mod.object.Symbol;
+    const Reloc = link_mod.object.Reloc;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var obj = Object{};
+    var sec = Section{
+        .name = try alloc.dupe(u8, ".text"),
+        .kind = .text,
+        .flags = .{ .read = true, .write = false, .execute = true },
+        .alignment = 16,
+    };
+    try sec.bytes.appendSlice(alloc, &.{ 0, 0, 0, 0 });
+    try sec.relocs.append(alloc, Reloc{
+        .offset_in_section = 0,
+        .target_symbol_index = 1,
+        .kind = .PC32,
+        .addend = 0,
+    });
+    try obj.sections.append(alloc, sec);
+
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "main"),
+        .section_index = 0,
+        .value = 0,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+    try obj.symbols.append(alloc, Symbol{
+        .name = try alloc.dupe(u8, "far_fn"),
+        .section_index = null,
+        .is_abs = true,
+        .value = 0x8000000000,
+        .binding = .global,
+        .kind = .func,
+        .is_defined = true,
+        .is_extern = false,
+    });
+
+    var lnk = link_mod.linker.Linker.init(alloc);
+    defer lnk.deinit();
+    try lnk.addObject("main.o", obj);
+
+    try lnk.resolveSymbols();
+    try lnk.mergeSections();
+    lnk.assignAddresses(0x400000, 0x1000, 0x1000, 0x1000);
+    try lnk.resolveSymbolAddresses();
+
+    const res = lnk.applyRelocations(0x400000);
+    try std.testing.expectError(error.RelocationOverflow, res);
 }

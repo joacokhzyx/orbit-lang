@@ -46,6 +46,12 @@ pub const EmitMode = enum {
     lir, // Not yet implemented
 };
 
+/// Linker selection mode.
+pub const LinkerMode = enum {
+    system,
+    native,
+};
+
 const ORBIT_VERSION = "0.1.0-rc.1";
 
 pub const CompilationProfiler = struct {
@@ -258,6 +264,7 @@ pub fn main(init: std.process.Init) !void {
     var unicode_pref = term.UnicodePreference.auto;
     var backend_mode: BackendMode = .steel;
     var emit_mode: EmitMode = .exe;
+    var linker_mode: LinkerMode = .system;
     var output_override: ?[]const u8 = null;
 
     var i: usize = 0;
@@ -281,6 +288,9 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, arg, "--backend=steel")) backend_mode = .steel;
         if (std.mem.eql(u8, arg, "--backend=native")) backend_mode = .native;
         if (std.mem.eql(u8, arg, "--backend=auto")) backend_mode = .auto;
+        // Linker selection
+        if (std.mem.eql(u8, arg, "--linker=system")) linker_mode = .system;
+        if (std.mem.eql(u8, arg, "--linker=native")) linker_mode = .native;
         // Emit format
         if (std.mem.eql(u8, arg, "--emit=exe")) emit_mode = .exe;
         if (std.mem.eql(u8, arg, "--emit=obj")) emit_mode = .obj;
@@ -297,11 +307,11 @@ pub fn main(init: std.process.Init) !void {
     _ = term.init(color_pref, unicode_pref, init.io, init.environ_map);
 
     if (std.mem.eql(u8, command, "dev") or std.mem.eql(u8, command, "run")) {
-        try runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
+        try runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode);
     } else if (std.mem.eql(u8, command, "build")) {
-        try runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override);
+        try runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode);
     } else if (std.mem.eql(u8, command, "test")) {
-        try runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode);
+        try runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         printHelp();
@@ -390,6 +400,7 @@ fn compileToBinary(
     out_c_path: []const u8,
     backend_mode: BackendMode,
     emit_mode: EmitMode,
+    linker_mode: LinkerMode,
 ) ![]const u8 {
     const arena = session.arena;
     var profiler = &session.profiler;
@@ -600,6 +611,118 @@ fn compileToBinary(
         sqlite_obj_path = try getOrCompileSqliteCache(init, arena, sqlite_c, sqlite_inc, session.verbose, profiler);
     }
 
+    if (linker_mode == .native) {
+        const builtin = @import("builtin");
+        const obj_ext = if (builtin.os.tag == .windows) ".obj" else ".o";
+        
+        var obj_paths = std.ArrayListUnmanaged([]const u8).empty;
+        defer obj_paths.deinit(arena);
+        
+        if (effective_backend == .native) {
+            const obj_path = compile_sources.items[0];
+            const native_stub_c_path = compile_sources.items[1];
+            const native_stub_o_path = try std.mem.concat(arena, u8, &.{ native_stub_c_path[0 .. native_stub_c_path.len - 2], obj_ext });
+            
+            var stub_args = std.ArrayListUnmanaged([]const u8).empty;
+            try stub_args.append(arena, "zig");
+            try stub_args.append(arena, "cc");
+            try stub_args.append(arena, "-c");
+            try stub_args.append(arena, native_stub_c_path);
+            try stub_args.append(arena, "-o");
+            try stub_args.append(arena, native_stub_o_path);
+            try stub_args.append(arena, runtime_inc);
+            // Suppress GCC stack-protector and UBSan intrinsics so they don't
+            // appear as undefined symbols in the native-linked import table.
+            try stub_args.append(arena, "-fno-stack-protector");
+            try stub_args.append(arena, "-fno-sanitize=all");
+            if (sema.has_server_init) {
+                try stub_args.append(arena, "-DORBIT_WITH_NET");
+            }
+            
+            if (session.verbose) {
+                std.debug.print("[native-linker] Compiling native stub: zig cc -c {s} -o {s} {s}\n", .{ native_stub_c_path, native_stub_o_path, runtime_inc });
+            }
+            
+            var stub_child = try std.process.spawn(init.io, .{ .argv = stub_args.items });
+            const stub_status = try stub_child.wait(init.io);
+            if (stub_status != .exited or stub_status.exited != 0) {
+                return error.StubCompilationFailed;
+            }
+            
+            try obj_paths.append(arena, obj_path);
+            try obj_paths.append(arena, native_stub_o_path);
+        } else {
+            // Steel backend
+            const main_c_path = compile_sources.items[0];
+            const main_o_path = try std.mem.concat(arena, u8, &.{ main_c_path[0 .. main_c_path.len - 2], obj_ext });
+            
+            var compile_args = std.ArrayListUnmanaged([]const u8).empty;
+            try compile_args.append(arena, "zig");
+            try compile_args.append(arena, "cc");
+            try compile_args.append(arena, "-c");
+            try compile_args.append(arena, main_c_path);
+            try compile_args.append(arena, "-o");
+            try compile_args.append(arena, main_o_path);
+            try compile_args.append(arena, runtime_inc);
+            // Suppress GCC intrinsics for native linker path.
+            try compile_args.append(arena, "-fno-stack-protector");
+            try compile_args.append(arena, "-fno-sanitize=all");
+            if (has_db) {
+                try compile_args.append(arena, sqlite_inc);
+            }
+            if (sema.has_server_init) {
+                try compile_args.append(arena, "-DORBIT_WITH_NET");
+            }
+            
+            if (session.verbose) {
+                std.debug.print("[native-linker] Compiling steel source: zig cc -c {s} -o {s}\n", .{ main_c_path, main_o_path });
+            }
+            
+            var comp_child = try std.process.spawn(init.io, .{ .argv = compile_args.items });
+            const comp_status = try comp_child.wait(init.io);
+            if (comp_status != .exited or comp_status.exited != 0) {
+                return error.SteelObjectCompilationFailed;
+            }
+            
+            try obj_paths.append(arena, main_o_path);
+        }
+        
+        if (has_db) {
+            try obj_paths.append(arena, sqlite_obj_path.?);
+        }
+        
+        const native_link = @import("backend/link/mod.zig");
+        const format: native_link.Format = if (builtin.os.tag == .windows) .coff else .elf;
+        
+        if (session.verbose) {
+            std.debug.print("[native-linker] Linking binary: {s} format={s} entry=main\n", .{ out_bin_path, @tagName(format) });
+            for (obj_paths.items) |op| {
+                std.debug.print("  object: {s}\n", .{op});
+            }
+        }
+        
+        try native_link.link(
+            arena,
+            init.io,
+            format,
+            out_bin_path,
+            obj_paths.items,
+            &[_][]const u8{},
+            "main",
+        );
+        
+        // Clean up temp objects
+        if (effective_backend == .native) {
+            std.Io.Dir.deleteFileAbsolute(init.io, obj_paths.items[1]) catch {};
+        } else {
+            std.Io.Dir.deleteFileAbsolute(init.io, obj_paths.items[0]) catch {};
+        }
+        
+        profiler.record(&profiler.compile_app_ns);
+        profiler.linking_ns = 0;
+        return out_bin_path;
+    }
+
     if (session.verbose) {
         std.debug.print("Invoking zig cc -O3...\n", .{});
     }
@@ -659,10 +782,12 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
     var clean = false;
     var verify = false;
     var max_stage: u32 = 3;
+    var use_native_linker = false;
 
     for (args) |arg| {
         if (std.mem.eql(u8, arg, "--clean")) clean = true;
         if (std.mem.eql(u8, arg, "--verify")) verify = true;
+        if (std.mem.eql(u8, arg, "--linker=native")) use_native_linker = true;
         if (std.mem.startsWith(u8, arg, "--stage=")) {
             const stage_str = arg["--stage=".len..];
             max_stage = std.fmt.parseInt(u32, stage_str, 10) catch 3;
@@ -700,6 +825,9 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         try cmd.append(arena, "-o");
         try cmd.append(arena, "compiler/selfhost/stage1.exe");
         try cmd.append(arena, "--backend=steel");
+        if (use_native_linker) {
+            try cmd.append(arena, "--linker=native");
+        }
 
         var child = try std.process.spawn(init.io, .{ .argv = cmd.items, .environ_map = init.environ_map });
         const term_res = try child.wait(init.io);
@@ -720,6 +848,9 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         try cmd.append(arena, "-o");
         try cmd.append(arena, "compiler/selfhost/stage2.exe");
         try cmd.append(arena, "--backend=steel");
+        if (use_native_linker) {
+            try cmd.append(arena, "--linker=native");
+        }
 
         var child = try std.process.spawn(init.io, .{ .argv = cmd.items, .environ_map = init.environ_map });
         const term_res = try child.wait(init.io);
@@ -740,6 +871,9 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         try cmd.append(arena, "-o");
         try cmd.append(arena, "compiler/selfhost/stage3.exe");
         try cmd.append(arena, "--backend=steel");
+        if (use_native_linker) {
+            try cmd.append(arena, "--linker=native");
+        }
 
         var child = try std.process.spawn(init.io, .{ .argv = cmd.items, .environ_map = init.environ_map });
         const term_res = try child.wait(init.io);
@@ -797,6 +931,7 @@ fn runBuildMode(
     backend_mode: BackendMode,
     emit_mode: EmitMode,
     output_override: ?[]const u8,
+    linker_mode: LinkerMode,
 ) !void {
     const arena = init.arena.allocator();
 
@@ -824,7 +959,7 @@ fn runBuildMode(
     }
 
     if (!use_cache) {
-        _ = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode);
+        _ = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode, linker_mode);
         std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
         try copyFile(init.io, arena, cb_path, out_bin_name);
     }
@@ -866,6 +1001,7 @@ fn runExecuteMode(
     config: AtlasConfig,
     backend_mode: BackendMode,
     emit_mode: EmitMode,
+    linker_mode: LinkerMode,
 ) !void {
     const arena = init.arena.allocator();
 
@@ -888,7 +1024,7 @@ fn runExecuteMode(
     }
 
     if (!use_cache) {
-        const built_bin_path = try compileToBinary(init, &session, cb_path, cb_c_path, backend_mode, emit_mode);
+        const built_bin_path = try compileToBinary(init, &session, cb_path, cb_c_path, backend_mode, emit_mode, linker_mode);
         std.Io.Dir.deleteFileAbsolute(init.io, cb_c_path) catch {};
         bin_path_to_run = built_bin_path;
     }
@@ -935,6 +1071,7 @@ fn runTestMode(
     config: AtlasConfig,
     backend_mode: BackendMode,
     emit_mode: EmitMode,
+    linker_mode: LinkerMode,
 ) !void {
     const arena = init.arena.allocator();
 
@@ -945,7 +1082,7 @@ fn runTestMode(
     const test_bin_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_test.exe" });
     const test_c_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_test.c" });
 
-    _ = try compileToBinary(init, &session, test_bin_path, test_c_path, backend_mode, emit_mode);
+    _ = try compileToBinary(init, &session, test_bin_path, test_c_path, backend_mode, emit_mode, linker_mode);
     std.Io.Dir.deleteFileAbsolute(init.io, test_c_path) catch {};
 
     if (session.timings) {

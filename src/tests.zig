@@ -801,14 +801,18 @@ test "bootstrap.fixed_point_verification" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    const result = try std.process.run(allocator, io, .{
+    // Use spawn+wait instead of run() to avoid a pipe-buffer deadlock.
+    // run() captures stdout+stderr into in-memory buffers; the bootstrap
+    // child emits heavy SEMA debug output and blocks once the OS pipe
+    // buffer fills (classic write-wait / read-wait deadlock). Inheriting
+    // stdio lets the child write freely without ever blocking on the parent.
+    var child = try std.process.spawn(io, .{
         .argv = args.items,
     });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
+    const term = try child.wait(io);
 
-    if (result.term != .exited or result.term.exited != 0) {
-        std.debug.print("Bootstrap fixed-point validation failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ result.stdout, result.stderr });
+    if (term != .exited or term.exited != 0) {
+        std.debug.print("Bootstrap fixed-point validation failed!\n", .{});
         return error.BootstrapFixedPointBroken;
     }
 }
