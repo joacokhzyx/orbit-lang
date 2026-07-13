@@ -830,11 +830,39 @@ pub const CBackend = struct {
             .trait_obj => "OrbitInterface",
             .slice => "OrbitSlice",
             .unknown => "void*",
+            // Sized integers and pointers
+            .i8 => "int8_t",
+            .i16 => "int16_t",
+            .i32 => "int32_t",
+            .i64 => "int64_t",
+            .u8 => "uint8_t",
+            .u16 => "uint16_t",
+            .u32 => "uint32_t",
+            .u64 => "uint64_t",
+            .usize => "uintptr_t",
+            .isize => "intptr_t",
+            .byte => "uint8_t",
+            .pointer => |inner| if (inner) |in| try std.fmt.allocPrint(self.allocator, "{s}*", .{try self.mapTypeToC(in.*)}) else "void*",
+            .mut_pointer => |inner| if (inner) |in| try std.fmt.allocPrint(self.allocator, "{s}*", .{try self.mapTypeToC(in.*)}) else "void*",
         };
     }
 
     /// Map an Orbit field type name to its C equivalent.
     fn mapFieldTypeToC(self: *CBackend, orbit_type: []const u8) []const u8 {
+        if (std.mem.eql(u8, orbit_type, "i8")) return "int8_t";
+        if (std.mem.eql(u8, orbit_type, "i16")) return "int16_t";
+        if (std.mem.eql(u8, orbit_type, "i32")) return "int32_t";
+        if (std.mem.eql(u8, orbit_type, "i64")) return "int64_t";
+        if (std.mem.eql(u8, orbit_type, "u8")) return "uint8_t";
+        if (std.mem.eql(u8, orbit_type, "u16")) return "uint16_t";
+        if (std.mem.eql(u8, orbit_type, "u32")) return "uint32_t";
+        if (std.mem.eql(u8, orbit_type, "u64")) return "uint64_t";
+        if (std.mem.eql(u8, orbit_type, "usize")) return "uintptr_t";
+        if (std.mem.eql(u8, orbit_type, "isize")) return "intptr_t";
+        if (std.mem.eql(u8, orbit_type, "byte")) return "uint8_t";
+        if (std.mem.eql(u8, orbit_type, "pointer") or std.mem.eql(u8, orbit_type, "ptr")) return "void*";
+        if (std.mem.eql(u8, orbit_type, "mut_pointer") or std.mem.eql(u8, orbit_type, "mut_ptr")) return "void*";
+
         if (std.mem.eql(u8, orbit_type, "int")) return "orbit_int";
         if (std.mem.eql(u8, orbit_type, "float")) return "orbit_float";
         if (std.mem.eql(u8, orbit_type, "string")) return "orbit_string";

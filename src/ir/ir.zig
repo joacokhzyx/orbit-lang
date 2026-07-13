@@ -135,6 +135,21 @@ pub const IRType = union(enum) {
     trait_obj: []const u8, // interface Name — by name
     slice: ?*const IRType, // Slice<T> — element type
 
+    // ── Explicit size and pointer types ───────────────────────────
+    i8,
+    i16,
+    i32,
+    i64,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    isize,
+    byte,
+    pointer: ?*const IRType,
+    mut_pointer: ?*const IRType,
+
     pub fn fromString(s: []const u8) IRType {
         if (std.mem.eql(u8, s, "int")) return .int;
         if (std.mem.eql(u8, s, "float")) return .float;
@@ -143,6 +158,21 @@ pub const IRType = union(enum) {
         if (std.mem.eql(u8, s, "void")) return .void;
         if (std.mem.eql(u8, s, "response")) return .response;
         if (std.mem.eql(u8, s, "object")) return .response;
+        if (std.mem.eql(u8, s, "i8")) return .i8;
+        if (std.mem.eql(u8, s, "i16")) return .i16;
+        if (std.mem.eql(u8, s, "i32")) return .i32;
+        if (std.mem.eql(u8, s, "i64")) return .i64;
+        if (std.mem.eql(u8, s, "u8")) return .u8;
+        if (std.mem.eql(u8, s, "u16")) return .u16;
+        if (std.mem.eql(u8, s, "u32")) return .u32;
+        if (std.mem.eql(u8, s, "u64")) return .u64;
+        if (std.mem.eql(u8, s, "usize")) return .usize;
+        if (std.mem.eql(u8, s, "isize")) return .isize;
+        if (std.mem.eql(u8, s, "byte")) return .byte;
+        if (std.mem.eql(u8, s, "pointer")) return .{ .pointer = null };
+        if (std.mem.eql(u8, s, "mut_pointer")) return .{ .mut_pointer = null };
+        if (std.mem.eql(u8, s, "ptr")) return .{ .pointer = null };
+        if (std.mem.eql(u8, s, "mut_ptr")) return .{ .mut_pointer = null };
         // Phase 2 types from string annotations
         if (std.mem.eql(u8, s, "list")) return .{ .list = null };
         if (std.mem.eql(u8, s, "map")) return .{ .map = null };
