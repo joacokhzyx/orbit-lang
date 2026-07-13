@@ -167,6 +167,16 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     size_t body_len  = resp->body_len;
     const char* ct   = resp->content_type ? resp->content_type : "text/plain";
 
+    #ifdef ORBIT_WITH_NET
+    extern bool orbit_kynx_lease_check_limits(size_t additional_response_bytes);
+    if (!orbit_kynx_lease_check_limits(body_len)) {
+        body = "Kynx: Response Limit Exceeded\n";
+        body_len = strlen(body);
+        resp->status = 500;
+        ct = "text/plain";
+    }
+    #endif
+
     /* Build header dynamically */
     char header[512];
     int header_len = snprintf(header, sizeof(header),

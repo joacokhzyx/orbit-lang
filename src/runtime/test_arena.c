@@ -148,7 +148,7 @@ static void test_large_allocation_overflow(void) {
     void* ptr = orbit_alloc(arena, 100 * 1024 * 1024);
     assert(ptr != NULL);
     assert(arena->overflow_list != NULL);
-    assert(arena->overflow_list->size >= 100 * 1024 * 1024);
+    assert(orbit_arena_capacity(arena) >= 100 * 1024 * 1024);
     
     orbit_arena_destroy(arena);
 }
