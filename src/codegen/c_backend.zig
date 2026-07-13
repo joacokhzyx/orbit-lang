@@ -181,6 +181,7 @@ pub const CBackend = struct {
         try self.registerArenaFunction("orbit_string_replace");
         try self.registerArenaFunction("orbit_os_exec");
         try self.registerArenaFunction("orbit_os_env");
+        try self.registerArenaFunction("orbit_os_argv");
         try self.registerArenaFunction("orbit_string_concat");
         try self.registerArenaFunction("orbit_int_to_string");
         try self.registerArenaFunction("orbit_float_to_string");
@@ -215,6 +216,9 @@ pub const CBackend = struct {
 
         // Forward declarations
         for (module.functions.items) |func| {
+            if (std.mem.startsWith(u8, func.name, "orbit_") and !std.mem.eql(u8, func.name, "main") and !std.mem.eql(u8, func.name, "orbit_main")) {
+                continue;
+            }
             try self.generateFunctionSignature(func);
             try self.output.appendSlice(self.allocator, ";\n");
         }
@@ -222,6 +226,9 @@ pub const CBackend = struct {
         try self.output.append(self.allocator, '\n');
 
         for (module.functions.items) |func| {
+            if (std.mem.startsWith(u8, func.name, "orbit_") and !std.mem.eql(u8, func.name, "main") and !std.mem.eql(u8, func.name, "orbit_main")) {
+                continue;
+            }
             try self.generateFunction(func);
         }
 
