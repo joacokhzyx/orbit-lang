@@ -49,6 +49,18 @@ pub const CoffWriter = struct {
         return .{ .allocator = allocator };
     }
 
+    fn writeU16(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: u16) !void {
+        var bytes: [2]u8 = undefined;
+        std.mem.writeInt(u16, &bytes, value, .little);
+        try buffer.appendSlice(allocator, &bytes);
+    }
+
+    fn writeU32(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: u32) !void {
+        var bytes: [4]u8 = undefined;
+        std.mem.writeInt(u32, &bytes, value, .little);
+        try buffer.appendSlice(allocator, &bytes);
+    }
+
     /// Writes machine code bytes and symbol definitions into a COFF object file buffer.
     pub fn writeObject(self: *CoffWriter, code: []const u8, func_name: []const u8) ![]const u8 {
         var buffer = std.ArrayListUnmanaged(u8).empty;
@@ -64,24 +76,28 @@ pub const CoffWriter = struct {
         const code_size_aligned = (code.len + 15) & ~@as(usize, 15);
         const symbol_table_offset = code_offset + code_size_aligned;
 
-        // Write Header
-        const header = CoffHeader{
-            .num_sections = num_sections,
-            .symbol_table_ptr = @intCast(symbol_table_offset),
-            .num_symbols = num_symbols,
-        };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&header));
+        // Write Header portably (little-endian)
+        try writeU16(&buffer, self.allocator, 0x8664); // machine
+        try writeU16(&buffer, self.allocator, num_sections);
+        try writeU32(&buffer, self.allocator, 0); // timestamp
+        try writeU32(&buffer, self.allocator, @intCast(symbol_table_offset));
+        try writeU32(&buffer, self.allocator, num_symbols);
+        try writeU16(&buffer, self.allocator, 0); // optional_header_size
+        try writeU16(&buffer, self.allocator, 0); // characteristics
 
         // Write Section Header (.text)
         var name: [8]u8 = undefined;
         @memcpy(name[0..8], ".text\x00\x00\x00");
-        const section = CoffSectionHeader{
-            .name = name,
-            .raw_data_size = @intCast(code.len),
-            .raw_data_ptr = @intCast(code_offset),
-            .characteristics = 0x60000020, // IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ
-        };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&section));
+        try buffer.appendSlice(self.allocator, &name);
+        try writeU32(&buffer, self.allocator, 0); // virtual_size
+        try writeU32(&buffer, self.allocator, 0); // virtual_address
+        try writeU32(&buffer, self.allocator, @intCast(code.len)); // raw_data_size
+        try writeU32(&buffer, self.allocator, @intCast(code_offset)); // raw_data_ptr
+        try writeU32(&buffer, self.allocator, 0); // relocations_ptr
+        try writeU32(&buffer, self.allocator, 0); // line_numbers_ptr
+        try writeU16(&buffer, self.allocator, 0); // num_relocations
+        try writeU16(&buffer, self.allocator, 0); // num_line_numbers
+        try writeU32(&buffer, self.allocator, 0x60000020); // characteristics (IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ)
 
         // Write Code section data
         try buffer.appendSlice(self.allocator, code);
@@ -95,30 +111,27 @@ pub const CoffWriter = struct {
         // Symbol 1: .text section
         var sym1_name: [8]u8 = undefined;
         @memcpy(sym1_name[0..8], ".text\x00\x00\x00");
-        const sym1 = CoffSymbol{
-            .name = sym1_name,
-            .value = 0,
-            .section_number = 1,
-            .storage_class = 3, // IMAGE_SYM_CLASS_STATIC
-        };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&sym1));
+        try buffer.appendSlice(self.allocator, &sym1_name);
+        try writeU32(&buffer, self.allocator, 0); // value
+        try writeU16(&buffer, self.allocator, @bitCast(@as(i16, 1))); // section_number
+        try writeU16(&buffer, self.allocator, 0); // type_field
+        try buffer.append(self.allocator, 3); // storage_class (IMAGE_SYM_CLASS_STATIC)
+        try buffer.append(self.allocator, 0); // num_aux_symbols
 
         // Symbol 2: function name
         var sym2_name: [8]u8 = undefined;
         @memset(&sym2_name, 0);
         const len = @min(func_name.len, 8);
         @memcpy(sym2_name[0..len], func_name[0..len]);
-        const sym2 = CoffSymbol{
-            .name = sym2_name,
-            .value = 0,
-            .section_number = 1,
-            .storage_class = 2, // IMAGE_SYM_CLASS_EXTERNAL
-        };
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&sym2));
+        try buffer.appendSlice(self.allocator, &sym2_name);
+        try writeU32(&buffer, self.allocator, 0); // value
+        try writeU16(&buffer, self.allocator, @bitCast(@as(i16, 1))); // section_number
+        try writeU16(&buffer, self.allocator, 0); // type_field
+        try buffer.append(self.allocator, 2); // storage_class (IMAGE_SYM_CLASS_EXTERNAL)
+        try buffer.append(self.allocator, 0); // num_aux_symbols
 
         // String table is empty (0 size)
-        var string_table_size: u32 = 4;
-        try buffer.appendSlice(self.allocator, std.mem.asBytes(&string_table_size));
+        try writeU32(&buffer, self.allocator, 4);
 
         return try buffer.toOwnedSlice(self.allocator);
     }

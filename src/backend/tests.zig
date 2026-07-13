@@ -130,7 +130,7 @@ test "capabilities: db_get is unsupported by native backend" {
 
 // ── Section 3: COFF / ELF magic bytes ────────────────────────────────────────
 
-test "coff writer produces valid MZ/PE signature in header" {
+test "coff writer produces valid COFF machine field in header" {
     const coff_mod = @import("coff/coff.zig");
     const CoffWriter = coff_mod.CoffWriter;
 
