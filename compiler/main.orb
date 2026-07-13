@@ -13,6 +13,10 @@ fn orbit_os_exec(command: string) -> string {
     // Map to C runtime function orbit_os_exec
 }
 
+fn orbit_os_env(var_name: string) -> string {
+    // Map to C runtime function orbit_os_env
+}
+
 fn main() {
     print("Starting Orbit Self-Hosting Compiler V1")
 
@@ -36,8 +40,13 @@ fn main() {
 
     print("[selfhost] Compiling compiler/main.orb -> " + outputPath)
     
+    var hostCompiler = orbit_os_env("ORBIT_HOST_COMPILER")
+    if hostCompiler == "" {
+        hostCompiler = "orbit.exe"
+    }
+
     // Construct compilation command:
-    val cmd = "orbit.exe build compiler/main.orb -o " + outputPath + " --backend=steel"
+    val cmd = hostCompiler + " build compiler/main.orb -o " + outputPath + " --backend=steel"
     print("[selfhost] Executing command: " + cmd)
     
     val res = orbit_os_exec(cmd)

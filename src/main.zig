@@ -689,6 +689,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
     };
 
     const self_path = try std.fs.path.resolve(arena, &.{ args[0] });
+    try init.environ_map.put("ORBIT_HOST_COMPILER", self_path);
 
     if (max_stage >= 1) {
         std.debug.print("[bootstrap] Building Stage 1 compiler using {s}...\n", .{self_path});
@@ -700,7 +701,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         try cmd.append(arena, "compiler/selfhost/stage1.exe");
         try cmd.append(arena, "--backend=steel");
 
-        var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
+        var child = try std.process.spawn(init.io, .{ .argv = cmd.items, .environ_map = init.environ_map });
         const term_res = try child.wait(init.io);
         if (term_res != .exited or term_res.exited != 0) {
             std.debug.print("[bootstrap] Failed to build Stage 1 compiler.\n", .{});
@@ -720,7 +721,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         try cmd.append(arena, "compiler/selfhost/stage2.exe");
         try cmd.append(arena, "--backend=steel");
 
-        var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
+        var child = try std.process.spawn(init.io, .{ .argv = cmd.items, .environ_map = init.environ_map });
         const term_res = try child.wait(init.io);
         if (term_res != .exited or term_res.exited != 0) {
             std.debug.print("[bootstrap] Failed to build Stage 2 compiler.\n", .{});
@@ -740,7 +741,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         try cmd.append(arena, "compiler/selfhost/stage3.exe");
         try cmd.append(arena, "--backend=steel");
 
-        var child = try std.process.spawn(init.io, .{ .argv = cmd.items });
+        var child = try std.process.spawn(init.io, .{ .argv = cmd.items, .environ_map = init.environ_map });
         const term_res = try child.wait(init.io);
         if (term_res != .exited or term_res.exited != 0) {
             std.debug.print("[bootstrap] Failed to build Stage 3 compiler.\n", .{});
