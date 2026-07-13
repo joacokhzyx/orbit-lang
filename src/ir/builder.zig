@@ -187,6 +187,7 @@ pub const IRBuilder = struct {
                 .fn_decl => {
                     const fn_data = decl.data.fn_decl;
                     var func = IRFunction.init(self.allocator, fn_data.name.getText(self.source));
+                    func.is_extern = fn_data.is_extern;
                     if (fn_data.return_type) |rt| {
                         func.return_type = self.resolveType(rt.getText(self.source));
                     }
@@ -233,6 +234,7 @@ pub const IRBuilder = struct {
             switch (decl.tag) {
                 .fn_decl => {
                     const fn_data = decl.data.fn_decl;
+                    if (fn_data.is_extern) continue;
                     const name = fn_data.name.getText(self.source);
                     // Find the previously registered function
                     for (self.module.functions.items) |*f| {
@@ -414,6 +416,7 @@ pub const IRBuilder = struct {
         const fn_name = fn_data.name.getText(self.source);
         std.debug.print("Builder buildFunction: {s}\n", .{fn_name});
         var func = IRFunction.init(self.allocator, fn_name);
+        func.is_extern = fn_data.is_extern;
 
         // Phase 2: Set return type from annotation
         if (fn_data.return_type) |rt| {
@@ -422,12 +425,14 @@ pub const IRBuilder = struct {
 
         self.current_function = &func;
 
-        if (fn_data.body.tag == .block) {
-            for (fn_data.body.data.block.stmts) |stmt| {
-                try self.buildStmt(stmt);
+        if (!fn_data.is_extern) {
+            if (fn_data.body.tag == .block) {
+                for (fn_data.body.data.block.stmts) |stmt| {
+                    try self.buildStmt(stmt);
+                }
+            } else {
+                try self.buildStmt(fn_data.body);
             }
-        } else {
-            try self.buildStmt(fn_data.body);
         }
 
         try self.module.addFunction(func);

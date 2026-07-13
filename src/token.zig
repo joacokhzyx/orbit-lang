@@ -41,6 +41,7 @@ pub const TokenType = enum {
     KeywordVar, // var (mutable)
     KeywordMut, // mut modifier
     KeywordPrivate, // private visibility
+    KeywordExtern, // extern modifier
     KeywordFn, // function
     KeywordAsync, // async function
     KeywordAwait, // await expression

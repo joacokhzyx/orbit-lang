@@ -1,21 +1,10 @@
 // Orbit Self-Hosting Compiler V1
 // compiler/main.orb
 
-fn orbit_os_argc() -> int {
-    // Map to C runtime function orbit_os_argc
-}
-
-fn orbit_os_argv(index: int) -> string {
-    // Map to C runtime function orbit_os_argv
-}
-
-fn orbit_os_exec(command: string) -> string {
-    // Map to C runtime function orbit_os_exec
-}
-
-fn orbit_os_env(var_name: string) -> string {
-    // Map to C runtime function orbit_os_env
-}
+extern fn orbit_os_argc() -> int
+extern fn orbit_os_argv(index: int) -> string
+extern fn orbit_os_exec(command: string) -> string
+extern fn orbit_os_env(var_name: string) -> string
 
 fn main() {
     print("Starting Orbit Self-Hosting Compiler V1")
