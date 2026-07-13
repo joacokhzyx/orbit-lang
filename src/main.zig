@@ -12,7 +12,6 @@ const ORBIT_VERSION = "0.1.0-rc.1";
 
 pub const CompilationProfiler = struct {
     timer: OrbitTimer,
-    io: @TypeOf(@as(std.process.Init, undefined).io),
     
     project_discovery_ns: u64 = 0,
     read_atlas_ns: u64 = 0,
@@ -30,25 +29,37 @@ pub const CompilationProfiler = struct {
     cache_lookup_ns: u64 = 0,
     total_ns: u64 = 0,
     
-    pub fn start(io: anytype) !CompilationProfiler {
+    pub fn start() CompilationProfiler {
         return .{
-            .timer = try OrbitTimer.start(io),
-            .io = io,
+            .timer = OrbitTimer.start(),
         };
     }
     
     pub fn record(self: *CompilationProfiler, ns_field: *u64) void {
         const elapsed_s = self.timer.readSeconds();
         ns_field.* = @intFromFloat(elapsed_s * 1_000_000_000.0);
-        // Reset timer
-        if (comptime @hasDecl(std.time, "Timer")) {
-            self.timer.impl.reset();
-        } else {
-            self.timer.impl = std.Io.Clock.awake.now(self.io);
-        }
+        self.timer.reset();
+    }
+
+    pub fn getTotalNs(self: *const CompilationProfiler) u64 {
+        return self.project_discovery_ns +
+               self.read_atlas_ns +
+               self.read_sources_ns +
+               self.hashing_ns +
+               self.parsing_ns +
+               self.sema_ns +
+               self.build_ir_ns +
+               self.optimize_ns +
+               self.gen_c_ns +
+               self.write_files_ns +
+               self.compile_app_ns +
+               self.compile_sqlite_ns +
+               self.linking_ns +
+               self.cache_lookup_ns;
     }
 
     pub fn printTimings(self: *CompilationProfiler, json_mode: bool) void {
+        self.total_ns = self.getTotalNs();
         const total_s = @as(f64, @floatFromInt(self.total_ns)) / 1_000_000_000.0;
         if (json_mode) {
             std.debug.print(
@@ -99,8 +110,15 @@ pub const CompilationProfiler = struct {
             if (self.compile_sqlite_ns > 0) {
                 std.debug.print("SQLite compilation    {d:.2} ms\n", .{@as(f64, @floatFromInt(self.compile_sqlite_ns)) / 1_000_000.0});
             }
-            std.debug.print("Native compilation    {d:.2} ms\n", .{@as(f64, @floatFromInt(self.compile_app_ns)) / 1_000_000.0});
-            std.debug.print("Linking               {d:.2} ms\n", .{@as(f64, @floatFromInt(self.linking_ns)) / 1_000_000.0});
+            if (self.compile_app_ns > 0) {
+                std.debug.print("Native compilation    {d:.2} ms\n", .{@as(f64, @floatFromInt(self.compile_app_ns)) / 1_000_000.0});
+            }
+            if (self.linking_ns > 0) {
+                std.debug.print("Linking               {d:.2} ms\n", .{@as(f64, @floatFromInt(self.linking_ns)) / 1_000_000.0});
+            }
+            if (self.cache_lookup_ns > 0) {
+                std.debug.print("Cache lookup          {d:.2} ms\n", .{@as(f64, @floatFromInt(self.cache_lookup_ns)) / 1_000_000.0});
+            }
             std.debug.print("Total                 {d:.2} ms ({d:.3}s)\n\n", .{ @as(f64, @floatFromInt(self.total_ns)) / 1_000_000.0, total_s });
         }
     }
@@ -119,7 +137,7 @@ pub const CompilationSession = struct {
     compiler: Compiler,
     
     pub fn init(init_ctx: std.process.Init, file_path: []const u8, no_kynx: bool, debug: bool, verbose: bool, timings: bool, timings_json: bool, config: AtlasConfig) !CompilationSession {
-        var profiler = try CompilationProfiler.start(init_ctx.io);
+        var profiler = CompilationProfiler.start();
         const arena = init_ctx.arena.allocator();
         
         // Phase 1: Project Discovery
@@ -265,7 +283,7 @@ fn getOrCompileSqliteCache(init: std.process.Init, arena: std.mem.Allocator, sql
         if (verbose) {
             std.debug.print("Photon: compiling SQLite to cache: {s}\n", .{cache_obj_path});
         }
-        var sqlite_timer = try OrbitTimer.start(init.io);
+        var sqlite_timer = OrbitTimer.start();
         
         var sqlite_args = std.ArrayListUnmanaged([]const u8).empty;
         try sqlite_args.append(arena, "zig");
@@ -708,30 +726,22 @@ fn printEchoes(diagnostics: []const Sema.Diagnostic) void {
 }
 
 const OrbitTimer = struct {
-    impl: if (@hasDecl(std.time, "Timer")) std.time.Timer else std.Io.Timestamp,
-    io: @TypeOf(@as(std.process.Init, undefined).io),
+    start_instant: std.time.Instant,
 
-    fn start(io: @TypeOf(@as(std.process.Init, undefined).io)) !OrbitTimer {
-        if (comptime @hasDecl(std.time, "Timer")) {
-            return OrbitTimer{
-                .impl = try std.time.Timer.start(),
-                .io = io,
-            };
-        } else {
-            return OrbitTimer{
-                .impl = std.Io.Clock.awake.now(io),
-                .io = io,
-            };
-        }
+    fn start() OrbitTimer {
+        return .{
+            .start_instant = std.time.Instant.now() catch @panic("std.time.Instant is not supported on this platform"),
+        };
     }
 
     fn readSeconds(self: *OrbitTimer) f64 {
-        if (comptime @hasDecl(std.time, "Timer")) {
-            return @as(f64, @floatFromInt(self.impl.read())) / 1_000_000_000.0;
-        } else {
-            const elapsed = self.impl.untilNow(self.io, .awake);
-            return @as(f64, @floatFromInt(elapsed.toNanoseconds())) / 1_000_000_000.0;
-        }
+        const now = std.time.Instant.now() catch @panic("std.time.Instant is not supported on this platform");
+        const diff_ns = now.since(self.start_instant);
+        return @as(f64, @floatFromInt(diff_ns)) / 1_000_000_000.0;
+    }
+
+    fn reset(self: *OrbitTimer) void {
+        self.start_instant = std.time.Instant.now() catch @panic("std.time.Instant is not supported on this platform");
     }
 };
 
