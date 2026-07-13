@@ -688,7 +688,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         if (err != error.PathAlreadyExists) return err;
     };
 
-    const self_path = try std.fs.path.resolve(arena, &.{ args[0] });
+    const self_path = try std.fs.path.resolve(arena, &.{args[0]});
     try init.environ_map.put("ORBIT_HOST_COMPILER", self_path);
 
     if (max_stage >= 1) {
@@ -711,7 +711,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
     }
 
     if (max_stage >= 2) {
-        const stage1_path = try std.fs.path.resolve(arena, &.{ "compiler/selfhost/stage1.exe" });
+        const stage1_path = try std.fs.path.resolve(arena, &.{"compiler/selfhost/stage1.exe"});
         std.debug.print("[bootstrap] Building Stage 2 compiler using {s}...\n", .{stage1_path});
         var cmd = std.ArrayListUnmanaged([]const u8).empty;
         try cmd.append(arena, stage1_path);
@@ -731,7 +731,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
     }
 
     if (max_stage >= 3) {
-        const stage2_path = try std.fs.path.resolve(arena, &.{ "compiler/selfhost/stage2.exe" });
+        const stage2_path = try std.fs.path.resolve(arena, &.{"compiler/selfhost/stage2.exe"});
         std.debug.print("[bootstrap] Building Stage 3 compiler using {s}...\n", .{stage2_path});
         var cmd = std.ArrayListUnmanaged([]const u8).empty;
         try cmd.append(arena, stage2_path);
@@ -761,7 +761,7 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
         const len3 = try f3.length(init.io);
 
         if (len2 != len3) {
-            std.debug.print("[bootstrap] Verification FAILED: sizes differ ({d} vs {d} bytes).\n", .{len2, len3});
+            std.debug.print("[bootstrap] Verification FAILED: sizes differ ({d} vs {d} bytes).\n", .{ len2, len3 });
             return error.BootstrapVerificationFailed;
         }
 
