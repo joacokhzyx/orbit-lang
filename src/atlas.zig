@@ -21,7 +21,7 @@ pub const AtlasConfig = struct {
 
     // ── Server ──────────────────────────────────────────────────────
     port: u16 = 3000,
-    worker_threads: u32 = 0,         // 0 = auto-detect CPU count
+    worker_threads: u32 = 0, // 0 = auto-detect CPU count
     keepalive_timeout_s: u32 = 30,
     keepalive_max_requests: u32 = 1000,
 
@@ -29,7 +29,7 @@ pub const AtlasConfig = struct {
     db_path: []const u8 = "orbit.db",
 
     // ── Arena ────────────────────────────────────────────────────────────────
-    arena_pool_size: u32 = 128,       // per-pool slots (pool is now backup-only)
+    arena_pool_size: u32 = 128, // per-pool slots (pool is now backup-only)
     arena_default_capacity: u32 = 65536,
 
     // ── String Pool ─────────────────────────────────────────────────

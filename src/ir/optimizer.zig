@@ -15,36 +15,36 @@ const IRValue = ir_mod.IRValue;
 pub const ConstantFolder = struct {
     allocator: std.mem.Allocator,
     folded_count: usize,
-    
+
     pub fn init(allocator: std.mem.Allocator) ConstantFolder {
         return .{
             .allocator = allocator,
             .folded_count = 0,
         };
     }
-    
+
     pub fn optimize(self: *ConstantFolder, module: *IRModule) !void {
         for (module.functions.items) |*func| {
             try self.optimizeFunction(func);
         }
     }
-    
+
     fn optimizeFunction(self: *ConstantFolder, func: *IRFunction) !void {
         var i: usize = 0;
         while (i < func.instructions.items.len) {
             const instr = &func.instructions.items[i];
-            
+
             if (try self.foldInstruction(instr)) {
                 self.folded_count += 1;
             }
-            
+
             i += 1;
         }
     }
-    
+
     fn foldInstruction(self: *ConstantFolder, instr: *IRInstruction) !bool {
         _ = self;
-        
+
         switch (instr.opcode) {
             .add => {
                 if (instr.operand1 == .int and instr.operand2 == .int) {
@@ -90,8 +90,9 @@ pub const ConstantFolder = struct {
                     instr.operand2 = instr.operand1;
                     return true;
                 }
-                if ((instr.operand1 == .int and instr.operand1.int == 0) or 
-                    (instr.operand2 == .int and instr.operand2.int == 0)) {
+                if ((instr.operand1 == .int and instr.operand1.int == 0) or
+                    (instr.operand2 == .int and instr.operand2.int == 0))
+                {
                     instr.opcode = .load_const; // x * 0 = 0
                     instr.operand1 = IRValue{ .int = 0 };
                     instr.operand2 = .none;
@@ -123,7 +124,7 @@ pub const ConstantFolder = struct {
             },
             else => {},
         }
-        
+
         return false;
     }
 };
@@ -152,12 +153,12 @@ pub const LoopUnroller = struct {
         var i: usize = 0;
         while (i < func.instructions.items.len) {
             const instr = func.instructions.items[i];
-            
+
             // Very basic loop unrolling: detect label + jump_if_false pattern
             if (instr.opcode == .label) {
                 // ... logic to unroll small loops ...
             }
-            
+
             i += 1;
         }
     }
@@ -165,11 +166,11 @@ pub const LoopUnroller = struct {
 
 pub const EscapeAnalyzer = struct {
     allocator: std.mem.Allocator,
-    
+
     pub fn init(allocator: std.mem.Allocator) EscapeAnalyzer {
         return .{ .allocator = allocator };
     }
-    
+
     pub fn analyze(self: *EscapeAnalyzer, func: *IRFunction) !void {
         var escapes = std.AutoHashMapUnmanaged(u32, bool){};
         defer escapes.deinit(self.allocator);
@@ -190,24 +191,24 @@ pub const EscapeAnalyzer = struct {
 pub const DeadCodeEliminator = struct {
     allocator: std.mem.Allocator,
     eliminated_count: usize,
-    
+
     pub fn init(allocator: std.mem.Allocator) DeadCodeEliminator {
         return .{
             .allocator = allocator,
             .eliminated_count = 0,
         };
     }
-    
+
     pub fn optimize(self: *DeadCodeEliminator, module: *IRModule) !void {
         for (module.functions.items) |*func| {
             try self.optimizeFunction(func);
         }
     }
-    
+
     fn optimizeFunction(self: *DeadCodeEliminator, func: *IRFunction) !void {
         var used_registers = std.AutoHashMapUnmanaged(u32, bool){};
         defer used_registers.deinit(self.allocator);
-        
+
         for (func.instructions.items) |instr| {
             switch (instr.operand1) {
                 .register => |reg| try used_registers.put(self.allocator, reg, true),
@@ -222,11 +223,11 @@ pub const DeadCodeEliminator = struct {
                 else => {},
             }
         }
-        
+
         var i: usize = 0;
         while (i < func.instructions.items.len) {
             const instr = func.instructions.items[i];
-            
+
             if (instr.dest) |dest| {
                 if (!used_registers.contains(dest) and instr.opcode != .ret and instr.opcode != .call) {
                     _ = func.instructions.orderedRemove(i);
@@ -234,7 +235,7 @@ pub const DeadCodeEliminator = struct {
                     continue;
                 }
             }
-            
+
             i += 1;
         }
     }
@@ -244,7 +245,7 @@ pub const InlineOptimizer = struct {
     allocator: std.mem.Allocator,
     inlined_count: usize,
     max_inline_size: usize,
-    
+
     pub fn init(allocator: std.mem.Allocator) InlineOptimizer {
         return .{
             .allocator = allocator,
@@ -252,22 +253,22 @@ pub const InlineOptimizer = struct {
             .max_inline_size = 10,
         };
     }
-    
+
     pub fn optimize(self: *InlineOptimizer, module: *IRModule) !void {
         var inline_candidates = std.StringHashMapUnmanaged(*IRFunction){};
         defer inline_candidates.deinit(self.allocator);
-        
+
         for (module.functions.items) |*func| {
             if (func.instructions.items.len <= self.max_inline_size) {
                 try inline_candidates.put(self.allocator, func.name, func);
             }
         }
-        
+
         for (module.functions.items) |*func| {
             try self.inlineInFunction(func, &inline_candidates);
         }
     }
-    
+
     fn inlineInFunction(self: *InlineOptimizer, func: *IRFunction, candidates: *std.StringHashMapUnmanaged(*IRFunction)) !void {
         _ = self;
         _ = func;
@@ -306,9 +307,9 @@ pub const CommonSubexpressionEliminator = struct {
         }
 
         pub fn eql(self: ExprKey, other: ExprKey) bool {
-            return self.opcode == other.opcode and 
-                   std.meta.eql(self.op1, other.op1) and 
-                   std.meta.eql(self.op2, other.op2);
+            return self.opcode == other.opcode and
+                std.meta.eql(self.op1, other.op1) and
+                std.meta.eql(self.op2, other.op2);
         }
     };
 

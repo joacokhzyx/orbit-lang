@@ -26,11 +26,11 @@ test "lexer.invalid_token" {
     var ta = testArena();
     defer ta.arena.deinit();
     const allocator = ta.arena.allocator();
-    
+
     const source = "val a = 10 $";
     var l = Lexer.init(source, "test.orb");
     const tokens = try l.tokenize(allocator);
-    
+
     // Check that we got an Invalid token.
     var found_invalid = false;
     for (tokens) |tok| {
@@ -46,11 +46,11 @@ test "lexer.unclosed_string" {
     var ta = testArena();
     defer ta.arena.deinit();
     const allocator = ta.arena.allocator();
-    
+
     const source = "val s = \"unclosed string";
     var l = Lexer.init(source, "test.orb");
     const tokens = try l.tokenize(allocator);
-    
+
     var found_invalid = false;
     for (tokens) |tok| {
         if (tok.tag == .Invalid) {
@@ -60,7 +60,6 @@ test "lexer.unclosed_string" {
     }
     try std.testing.expect(found_invalid);
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Workstream B: Parser regression tests (P0)
@@ -274,7 +273,7 @@ test "sema.duplicate_fn_is_diagnosed" {
     ;
     var p = Parser.init(source, "test.orb", allocator);
     const root = try p.parse();
-    
+
     const sema = try Sema.create(allocator, source);
     try sema.analyze(root);
     try std.testing.expect(sema.diagnostics.hasErrors());
@@ -297,7 +296,7 @@ test "sema.match_non_exhaustive_is_diagnosed" {
     ;
     var p = Parser.init(source, "test.orb", allocator);
     const root = try p.parse();
-    
+
     const sema = try Sema.create(allocator, source);
     _ = sema.analyze(root) catch {}; // Catch NonExhaustiveMatch error
     try std.testing.expect(sema.diagnostics.hasErrors());
@@ -444,7 +443,7 @@ test "ir_builder.list_creation" {
     var ta = testArena();
     defer ta.arena.deinit();
     const allocator = ta.arena.allocator();
-    
+
     const source =
         \\fn main() {
         \\    val nums = [1, 2, 3]
@@ -502,8 +501,6 @@ test "ir.result_opcodes" {
     var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
     _ = try builder.build(root);
 
-
-    
     var found_ok = false;
     var found_err = false;
     var found_is_ok = false;
@@ -516,7 +513,7 @@ test "ir.result_opcodes" {
             if (instr.opcode == .result_unwrap) found_unwrap = true;
         }
     }
-    
+
     if (!found_ok or !found_err or !found_is_ok or !found_unwrap) {
         std.debug.print("\nIR MODULE INSTRUCTIONS:\n", .{});
         for (builder.module.functions.items) |func| {
@@ -553,8 +550,8 @@ test "codegen.c_backend_golden_snapshot" {
     const config = AtlasConfig{};
     var backend = CBackend.init(allocator, config, false);
     const c_code = try backend.generate(module);
-    
-    const expected = 
+
+    const expected =
         \\#define ORBIT_CUSTOM_ROUTER
         \\#include "socket_compat.h"
         \\#include "thread_pool.c"
@@ -634,7 +631,7 @@ test "codegen.c_backend_golden_snapshot" {
         \\
     ;
     if (!std.mem.eql(u8, c_code, expected)) {
-        std.debug.print("ACTUAL:\n{s}\nEXPECTED:\n{s}\n", .{c_code, expected});
+        std.debug.print("ACTUAL:\n{s}\nEXPECTED:\n{s}\n", .{ c_code, expected });
     }
     try std.testing.expect(std.mem.eql(u8, c_code, expected));
 }
@@ -666,12 +663,12 @@ test "sema.negative.missing_return" {
     defer ta.arena.deinit();
     const allocator = ta.arena.allocator();
 
-    const source = 
+    const source =
         \\fn forgot() -> int {
         \\    return
         \\}
     ;
-    
+
     var p = Parser.init(source, "test.orb", allocator);
     const root = try p.parse();
 
@@ -685,7 +682,7 @@ test "sema.feature.out_of_order_decls" {
     defer ta.arena.deinit();
     const allocator = ta.arena.allocator();
 
-    const source = 
+    const source =
         \\fn get_val() -> int {
         \\    return GLOBAL_CONST
         \\}
@@ -696,7 +693,7 @@ test "sema.feature.out_of_order_decls" {
         \\    return 42
         \\}
     ;
-    
+
     var p = Parser.init(source, "test.orb", allocator);
     const root = try p.parse();
 
@@ -712,7 +709,7 @@ test "parser.stress.chained_imports" {
     // Generate 5000 imports
     var huge_source = std.ArrayListUnmanaged(u8).empty;
     defer huge_source.deinit(allocator);
-    
+
     var i: usize = 0;
     while (i < 5000) : (i += 1) {
         const str = try std.fmt.allocPrint(allocator, "import \"./module_{d}.orb\"\n", .{i});
@@ -722,7 +719,7 @@ test "parser.stress.chained_imports" {
 
     var p = Parser.init(huge_source.items, "test.orb", allocator);
     const root = try p.parse();
-    
+
     try std.testing.expectEqual(@import("ast.zig").Node.Tag.root, root.tag);
     try std.testing.expectEqual(@as(usize, 5000), root.data.root.decls.len);
 }
@@ -760,7 +757,7 @@ test "runtime.arena_epochal_tests" {
     defer allocator.free(compile_result.stderr);
 
     if (compile_result.term != .exited or compile_result.term.exited != 0) {
-        std.debug.print("Compilation of test_arena.c failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{compile_result.stdout, compile_result.stderr});
+        std.debug.print("Compilation of test_arena.c failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ compile_result.stdout, compile_result.stderr });
         return error.CompilationFailed;
     }
 
@@ -774,7 +771,7 @@ test "runtime.arena_epochal_tests" {
     std.Io.Dir.cwd().deleteFile(io, bin_out) catch {};
 
     if (test_result.term != .exited or test_result.term.exited != 0) {
-        std.debug.print("test_arena runtime suite failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{test_result.stdout, test_result.stderr});
+        std.debug.print("test_arena runtime suite failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ test_result.stdout, test_result.stderr });
         return error.RuntimeTestsFailed;
     }
-}
+}

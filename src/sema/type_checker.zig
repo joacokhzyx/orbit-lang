@@ -20,7 +20,7 @@ pub const TypeInfo = struct {
     is_nullable: bool,
     is_array: bool,
     is_collection: bool,
-    is_result: bool,      // Phase 2: Result<T, E>
+    is_result: bool, // Phase 2: Result<T, E>
     inner_type: ?[]const u8, // Phase 2: generic inner type
 
     /// Creates a plain (non-nullable, non-collection) `TypeInfo` whose name
@@ -94,7 +94,7 @@ pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     node_types: *std.AutoHashMapUnmanaged(*Node, []const u8),
     type_aliases: std.StringHashMapUnmanaged([]const u8),
-    type_kinds: std.StringHashMapUnmanaged(TypeKind),    // Phase 2
+    type_kinds: std.StringHashMapUnmanaged(TypeKind), // Phase 2
     union_registry: std.StringHashMapUnmanaged([]const []const u8), // Phase 2
     model_registry: ?*ModelRegistry = null,
     module_registry: ?*ModuleRegistry = null,
@@ -218,8 +218,8 @@ pub const TypeChecker = struct {
             .call => self.inferCallType(node, scope),
             .member_access => self.inferMemberAccessType(node, scope),
             .field_init => self.inferType(node.data.field_init.value, scope),
-            .array_literal => "list",       // Phase 2: list, not "array"
-            .object_literal => "map",       // Phase 2: map
+            .array_literal => "list", // Phase 2: list, not "array"
+            .object_literal => "map", // Phase 2: map
             .type_decl, .enum_decl, .union_decl => "type",
             .assignment => self.inferType(node.data.assignment.value, scope),
             .index_access => blk: {
@@ -263,8 +263,8 @@ pub const TypeChecker = struct {
         // Comparison operators always return bool
         const op_tag = bin_data.op.tag;
         const is_comparison = (op_tag == .DoubleEqual or op_tag == .NotEqual or
-                               op_tag == .Less or op_tag == .LessEqual or
-                               op_tag == .Greater or op_tag == .GreaterEqual);
+            op_tag == .Less or op_tag == .LessEqual or
+            op_tag == .Greater or op_tag == .GreaterEqual);
         if (is_comparison) return "bool";
 
         // Logical operators also return bool
@@ -409,7 +409,8 @@ pub const TypeChecker = struct {
             if (scope.get(name)) |entry| {
                 if (std.mem.eql(u8, entry.type_name, "type") or
                     std.mem.eql(u8, entry.type_name, "enum") or
-                    std.mem.eql(u8, entry.type_name, "union")) {
+                    std.mem.eql(u8, entry.type_name, "union"))
+                {
                     return name;
                 }
             }

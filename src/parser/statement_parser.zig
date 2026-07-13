@@ -163,7 +163,7 @@ pub const StatementParser = struct {
                 .condition = condition,
                 .then_branch = then_node,
                 .else_branch = else_node,
-            } ,
+            },
         });
         return node;
     }
@@ -415,9 +415,7 @@ pub const StatementParser = struct {
 
         _ = try self.consume(.CloseBrace);
 
-        return try self.createNode(.match_stmt, .{
-            .match_stmt = .{ .expr = expr, .cases = try cases.toOwnedSlice(self.allocator) }
-        });
+        return try self.createNode(.match_stmt, .{ .match_stmt = .{ .expr = expr, .cases = try cases.toOwnedSlice(self.allocator) } });
     }
 
     /// Parses a single match arm: `<pattern> => <body>`.
@@ -440,9 +438,7 @@ pub const StatementParser = struct {
 
         _ = self.match(.Comma);
 
-        return try self.createNode(.match_case, .{
-            .match_case = .{ .pattern = pattern, .body = body }
-        });
+        return try self.createNode(.match_case, .{ .match_case = .{ .pattern = pattern, .body = body } });
     }
 
     // ─── Expression statement / jump statements ───────────────────────────

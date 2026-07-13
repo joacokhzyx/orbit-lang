@@ -28,14 +28,14 @@ pub fn getEsc(style: Style) []const u8 {
 
     switch (style) {
         .primary => return "\x1b[36m", // Cyan
-        .accent  => return "\x1b[35m", // Magenta
+        .accent => return "\x1b[35m", // Magenta
         .success => return "\x1b[32m", // Green
         .warning => return "\x1b[33m", // Yellow
-        .err     => return "\x1b[31m", // Red
-        .muted   => return "\x1b[90m", // Gray
-        .label   => return "\x1b[1;37m", // Bold White
-        .value   => return "\x1b[37m", // White
-        .code    => return "\x1b[36m", // Cyan
+        .err => return "\x1b[31m", // Red
+        .muted => return "\x1b[90m", // Gray
+        .label => return "\x1b[1;37m", // Bold White
+        .value => return "\x1b[37m", // White
+        .code => return "\x1b[36m", // Cyan
     }
 }
 

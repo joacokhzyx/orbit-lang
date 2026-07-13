@@ -32,35 +32,35 @@ pub const Node = struct {
         // ============================================
         // TOP-LEVEL DECLARATIONS
         // ============================================
-        root,           // Program root
-        use_stmt,       // use db.sqlite
-        import_stmt,    // import './file.orb'
-        model_decl,     // model User { ... }
-        route_decl,     // route GET "/path" { ... }
-        fn_decl,        // fn name() { ... }
-        role_decl,      // role admin = condition
-        const_decl,     // const X = value
-        val_decl,       // val x = value
-        type_decl,      // type Name = Type
-        enum_decl,      // type Name = enum { ... }
-        union_decl,     // type Name = union { ... }
+        root, // Program root
+        use_stmt, // use db.sqlite
+        import_stmt, // import './file.orb'
+        model_decl, // model User { ... }
+        route_decl, // route GET "/path" { ... }
+        fn_decl, // fn name() { ... }
+        role_decl, // role admin = condition
+        const_decl, // const X = value
+        val_decl, // val x = value
+        type_decl, // type Name = Type
+        enum_decl, // type Name = enum { ... }
+        union_decl, // type Name = union { ... }
 
         // ============================================
         // STATEMENTS
         // ============================================
-        block,          // { ... }
+        block, // { ... }
         expression_stmt,
-        return_stmt,    // return value
-        return_ok,      // return ok value
-        err_stmt,       // err 404 "message"
-        err_shortcut,   // not_found "message"
+        return_stmt, // return value
+        return_ok, // return ok value
+        err_stmt, // err 404 "message"
+        err_shortcut, // not_found "message"
         if_stmt,
-        match_stmt,     // match expr { variant => ... }
-        for_stmt,       // for item in collection
+        match_stmt, // match expr { variant => ... }
+        for_stmt, // for item in collection
         while_stmt,
         loop_stmt,
-        assignment,     // x = value
-        req_block,      // req { name: string }
+        assignment, // x = value
+        req_block, // req { name: string }
         break_stmt,
         continue_stmt,
 
@@ -72,10 +72,10 @@ pub const Node = struct {
         call,
         member_access,
         index_access,
-        rescue_expr,    // value ? error "msg"
-        null_coalesce,  // value ?? default
-        await_expr,     // await expr
-        arrow_fn,       // (x) => expr
+        rescue_expr, // value ? error "msg"
+        null_coalesce, // value ?? default
+        await_expr, // await expr
+        arrow_fn, // (x) => expr
 
         // ============================================
         // LITERALS
@@ -93,13 +93,13 @@ pub const Node = struct {
         // ============================================
         // HELPERS
         // ============================================
-        field_decl,     // In models: name: Type
-        param,          // Function parameter
-        field_init,     // In objects: name: value
-        decorator,      // @admin
+        field_decl, // In models: name: Type
+        param, // Function parameter
+        field_init, // In objects: name: value
+        decorator, // @admin
         type_annotation,
-        match_case,     // variant(params) => block
-        union_variant,  // variant(Type)
+        match_case, // variant(params) => block
+        union_variant, // variant(Type)
     };
 
     // ─── Data payloads ────────────────────────────────────────────────────────
@@ -117,11 +117,11 @@ pub const Node = struct {
         },
 
         use_stmt: struct {
-            module: Token,  // The module path (e.g., "db.sqlite")
+            module: Token, // The module path (e.g., "db.sqlite")
         },
 
         import_stmt: struct {
-            path: Token,    // The file path
+            path: Token, // The file path
         },
 
         model_decl: struct {
@@ -133,7 +133,7 @@ pub const Node = struct {
         route_decl: struct {
             method: Token,
             path: Token,
-            params: ?[]const *Node,  // Inline params (a: Type, b: Type)
+            params: ?[]const *Node, // Inline params (a: Type, b: Type)
             decorators: []const *Node,
             body: *Node,
         },
@@ -149,7 +149,7 @@ pub const Node = struct {
 
         role_decl: struct {
             name: Token,
-            params: []const *Node,  // Role params like owner(id)
+            params: []const *Node, // Role params like owner(id)
             condition: *Node,
         },
 
@@ -174,9 +174,9 @@ pub const Node = struct {
         },
 
         enum_decl: struct {
-             name: Token,
-             variants: []const Token,
-             is_private: bool,
+            name: Token,
+            variants: []const Token,
+            is_private: bool,
         },
 
         union_decl: struct {
@@ -194,7 +194,7 @@ pub const Node = struct {
 
         return_stmt: struct {
             expr: ?*Node,
-            status: ?Token,  // "with status 201"
+            status: ?Token, // "with status 201"
         },
 
         return_ok: struct {
@@ -203,12 +203,12 @@ pub const Node = struct {
         },
 
         err_stmt: struct {
-            code: Token,     // Status code (404)
-            message: *Node,  // Error message
+            code: Token, // Status code (404)
+            message: *Node, // Error message
         },
 
         err_shortcut: struct {
-            kind: Token,     // not_found, bad_request, etc.
+            kind: Token, // not_found, bad_request, etc.
             message: *Node,
         },
 
@@ -245,7 +245,7 @@ pub const Node = struct {
 
         req_block: struct {
             fields: []const *Node,
-            var_name: ?Token,  // If assigned to variable
+            var_name: ?Token, // If assigned to variable
         },
 
         break_stmt: struct {},
@@ -282,7 +282,7 @@ pub const Node = struct {
 
         rescue_expr: struct {
             expr: *Node,
-            error_kind: Token,  // not_found, etc.
+            error_kind: Token, // not_found, etc.
             message: *Node,
         },
 
@@ -298,7 +298,7 @@ pub const Node = struct {
         arrow_fn: struct {
             params: []const Token,
             body: *Node,
-            is_expr: bool,  // Single expression vs block
+            is_expr: bool, // Single expression vs block
         },
 
         // ============================================

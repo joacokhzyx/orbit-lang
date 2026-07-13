@@ -23,7 +23,7 @@ pub const ExpressionGenerator = struct {
             .source = source,
         };
     }
-    
+
     /// Recursively emit C source text for `node` into the output buffer.
     /// Dispatches on the node tag and handles all expression kinds.
     pub fn generate(self: *ExpressionGenerator, node: *Node) anyerror!void {
@@ -57,14 +57,14 @@ pub const ExpressionGenerator = struct {
             else => {},
         }
     }
-    
+
     fn generateBinaryOp(self: *ExpressionGenerator, node: *Node) anyerror!void {
         const bin_data = node.data.binary_op;
-        
+
         try self.output.append(self.allocator, '(');
         try self.generate(bin_data.lhs);
         try self.output.append(self.allocator, ' ');
-        
+
         const op_text = bin_data.op.getText(self.source);
         if (std.mem.eql(u8, op_text, "==")) {
             try self.output.appendSlice(self.allocator, "==");
@@ -77,53 +77,53 @@ pub const ExpressionGenerator = struct {
         } else {
             try self.output.appendSlice(self.allocator, op_text);
         }
-        
+
         try self.output.append(self.allocator, ' ');
         try self.generate(bin_data.rhs);
         try self.output.append(self.allocator, ')');
     }
-    
+
     fn generateCall(self: *ExpressionGenerator, node: *Node) anyerror!void {
         const call_data = node.data.call;
-        
+
         if (call_data.func.tag == .identifier) {
             const func_name = call_data.func.data.identifier.getText(self.source);
             try self.output.appendSlice(self.allocator, func_name);
         } else if (call_data.func.tag == .member_access) {
             try self.generateMemberAccess(call_data.func);
         }
-        
+
         try self.output.append(self.allocator, '(');
-        
+
         for (call_data.args, 0..) |arg, i| {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
             try self.generate(arg);
         }
-        
+
         try self.output.append(self.allocator, ')');
     }
-    
+
     fn generateMemberAccess(self: *ExpressionGenerator, node: *Node) anyerror!void {
         const member_data = node.data.member_access;
         try self.generate(member_data.object);
         try self.output.append(self.allocator, '.');
         try self.output.appendSlice(self.allocator, member_data.member.getText(self.source));
     }
-    
+
     fn generateArrayLiteral(self: *ExpressionGenerator, node: *Node) anyerror!void {
         try self.output.append(self.allocator, '{');
-        
+
         for (node.data.array_literal.elements, 0..) |elem, i| {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
             try self.generate(elem);
         }
-        
+
         try self.output.append(self.allocator, '}');
     }
-    
+
     fn generateObjectLiteral(self: *ExpressionGenerator, node: *Node) anyerror!void {
         try self.output.appendSlice(self.allocator, "{");
-        
+
         for (node.data.object_literal.fields, 0..) |field, i| {
             if (i > 0) try self.output.appendSlice(self.allocator, ", ");
             try self.output.append(self.allocator, '.');
@@ -131,7 +131,7 @@ pub const ExpressionGenerator = struct {
             try self.output.appendSlice(self.allocator, " = ");
             try self.generate(field.data.field_init.value);
         }
-        
+
         try self.output.append(self.allocator, '}');
     }
 };

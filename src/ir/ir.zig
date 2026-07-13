@@ -52,27 +52,27 @@ pub const IROpcode = enum {
     type_info,
 
     // ── Phase 2: Collection opcodes ───────────────────────────────
-    list_create,    // dest = list_create(elem_size, initial_cap)
-    list_push,      // list_push(list_reg, value_reg)
-    list_get,       // dest = list_get(list_reg, index)
-    list_set,       // list_set(list_reg, index, value_reg)
-    list_len,       // dest = list_len(list_reg)
-    map_create,     // dest = map_create(value_size)
-    map_set,        // map_set(map_reg, key_str, value_reg)
-    map_get,        // dest = map_get(map_reg, key_str)
-    map_has,        // dest = map_has(map_reg, key_str)
-    map_delete,     // map_delete(map_reg, key_str)
-    map_keys,       // dest = map_keys(map_reg)
+    list_create, // dest = list_create(elem_size, initial_cap)
+    list_push, // list_push(list_reg, value_reg)
+    list_get, // dest = list_get(list_reg, index)
+    list_set, // list_set(list_reg, index, value_reg)
+    list_len, // dest = list_len(list_reg)
+    map_create, // dest = map_create(value_size)
+    map_set, // map_set(map_reg, key_str, value_reg)
+    map_get, // dest = map_get(map_reg, key_str)
+    map_has, // dest = map_has(map_reg, key_str)
+    map_delete, // map_delete(map_reg, key_str)
+    map_keys, // dest = map_keys(map_reg)
 
     // ── Phase 2: Result opcodes ───────────────────────────────────
-    result_ok,      // dest = result_ok(value_reg)
-    result_err,     // dest = result_err(code, msg)
-    result_unwrap,  // dest = unwrap(result_reg) — may branch on error
-    result_is_ok,   // dest = result.ok (bool)
+    result_ok, // dest = result_ok(value_reg)
+    result_err, // dest = result_err(code, msg)
+    result_unwrap, // dest = unwrap(result_reg) — may branch on error
+    result_is_ok, // dest = result.ok (bool)
 
     // ── Phase 2: Union opcodes ────────────────────────────────────
-    union_create,   // dest = union_create(tag, data_reg)
-    union_get_tag,  // dest = union.tag
+    union_create, // dest = union_create(tag, data_reg)
+    union_get_tag, // dest = union.tag
     union_get_data, // dest = union_get_data(union_reg, expected_tag)
 };
 
@@ -127,14 +127,14 @@ pub const IRType = union(enum) {
     enumeration: []const u8,
 
     // ── Phase 2 types ─────────────────────────────────────────────
-    list: ?*const IRType,     // List<T> — inner type if known
-    map: ?*const IRType,      // Map<string, V> — value type if known
-    result: ?*const IRType,   // Result<T, E> — ok type if known
-    option: ?*const IRType,   // Option<T> — inner type if known
+    list: ?*const IRType, // List<T> — inner type if known
+    map: ?*const IRType, // Map<string, V> — value type if known
+    result: ?*const IRType, // Result<T, E> — ok type if known
+    option: ?*const IRType, // Option<T> — inner type if known
     tagged_union: []const u8, // union Name — by name
-    trait_obj: []const u8,    // interface Name — by name
-    slice: ?*const IRType,    // Slice<T> — element type
-    
+    trait_obj: []const u8, // interface Name — by name
+    slice: ?*const IRType, // Slice<T> — element type
+
     pub fn fromString(s: []const u8) IRType {
         if (std.mem.eql(u8, s, "int")) return .int;
         if (std.mem.eql(u8, s, "float")) return .float;
@@ -152,7 +152,7 @@ pub const IRType = union(enum) {
         if (s.len > 0 and std.ascii.isUpper(s[0])) return .{ .model = s };
         return .unknown;
     }
-    
+
     /// Returns true if this is a collection type (List, Map, Slice)
     pub fn isCollection(self: IRType) bool {
         return switch (self) {
@@ -173,16 +173,16 @@ pub const IRType = union(enum) {
 pub const IRFunction = struct {
     name: []const u8,
     params: []const []const u8,
-    param_types: []const IRType,   // Phase 2: typed parameters
+    param_types: []const IRType, // Phase 2: typed parameters
     instructions: std.ArrayListUnmanaged(IRInstruction),
     register_count: u32,
     register_types: std.ArrayListUnmanaged(IRType),
-    return_type: IRType,           // Phase 2: explicit return type
+    return_type: IRType, // Phase 2: explicit return type
     route_info: ?struct {
         method: []const u8,
         path: []const u8,
     },
-    
+
     pub fn init(allocator: std.mem.Allocator, name: []const u8) IRFunction {
         _ = allocator;
         return .{
@@ -196,19 +196,19 @@ pub const IRFunction = struct {
             .route_info = null,
         };
     }
-    
+
     pub fn deinit(self: *IRFunction, allocator: std.mem.Allocator) void {
         self.instructions.deinit(allocator);
         self.register_types.deinit(allocator);
     }
-    
+
     pub fn allocRegister(self: *IRFunction, allocator: std.mem.Allocator, type_val: IRType) !u32 {
         try self.register_types.append(allocator, type_val);
         const reg = self.register_count;
         self.register_count += 1;
         return reg;
     }
-    
+
     pub fn emit(self: *IRFunction, allocator: std.mem.Allocator, instr: IRInstruction) !void {
         try self.instructions.append(allocator, instr);
     }
@@ -217,12 +217,12 @@ pub const IRFunction = struct {
 pub const IRModel = struct {
     name: []const u8,
     fields: std.ArrayListUnmanaged(IRField),
-    
+
     pub const IRField = struct {
         name: []const u8,
         type_name: []const u8,
     };
-    
+
     pub fn init(allocator: std.mem.Allocator, name: []const u8) IRModel {
         _ = allocator;
         return .{
@@ -230,7 +230,7 @@ pub const IRModel = struct {
             .fields = .empty,
         };
     }
-    
+
     pub fn deinit(self: *IRModel, allocator: std.mem.Allocator) void {
         self.fields.deinit(allocator);
     }
@@ -239,9 +239,9 @@ pub const IRModel = struct {
 /// Phase 2: Union variants can carry associated data.
 pub const IRVariant = struct {
     name: []const u8,
-    payload_type: ?IRType,   // null = no payload (enum-like), concrete = data variant
+    payload_type: ?IRType, // null = no payload (enum-like), concrete = data variant
     fields: []const VariantField,
-    
+
     pub const VariantField = struct {
         name: []const u8,
         type_info: IRType,
@@ -251,10 +251,10 @@ pub const IRVariant = struct {
 pub const IRTypeDecl = struct {
     name: []const u8,
     kind: enum { enumeration, union_type, alias, trait },
-    variants: []const []const u8,     // Names of variants or types
+    variants: []const []const u8, // Names of variants or types
     rich_variants: []const IRVariant, // Phase 2: typed variant info
-    methods: []const IRTraitMethod,   // Phase 2: interface methods
-    
+    methods: []const IRTraitMethod, // Phase 2: interface methods
+
     pub const IRTraitMethod = struct {
         name: []const u8,
         params: []const IRType,
@@ -275,7 +275,7 @@ pub const IRModule = struct {
     models: std.ArrayListUnmanaged(IRModel),
     types: std.ArrayListUnmanaged(IRTypeDecl),
     allocator: std.mem.Allocator,
-    
+
     pub fn init(allocator: std.mem.Allocator) IRModule {
         return .{
             .functions = .empty,
@@ -285,13 +285,13 @@ pub const IRModule = struct {
             .allocator = allocator,
         };
     }
-    
+
     pub fn deinit(self: *IRModule) void {
         for (self.functions.items) |*func| {
             func.deinit(self.allocator);
         }
         self.functions.deinit(self.allocator);
-        
+
         for (self.models.items) |*mod| {
             mod.deinit(self.allocator);
         }
@@ -301,18 +301,18 @@ pub const IRModule = struct {
             t.deinit(self.allocator);
         }
         self.types.deinit(self.allocator);
-        
+
         self.globals.deinit(self.allocator);
     }
-    
+
     pub fn addFunction(self: *IRModule, func: IRFunction) !void {
         try self.functions.append(self.allocator, func);
     }
-    
+
     pub fn addGlobal(self: *IRModule, name: []const u8, value: IRValue) !void {
         try self.globals.put(self.allocator, name, value);
     }
-    
+
     pub fn addModel(self: *IRModule, model: IRModel) !void {
         try self.models.append(self.allocator, model);
     }
