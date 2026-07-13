@@ -4,62 +4,79 @@
 #include "arena.c"
 #include "inline.h"
 #include <string.h>
+#include <stdlib.h>
 
 /* ──────────────────────────────────────────────────────────────────────
- * Orbit String Pool — Arena-backed string interning.
- *
- * Deduplicates string allocations within an Arena's lifecycle.
- * When the Arena resets, interned strings are naturally invalidated.
- *
- * The pool is currently global and fixed-capacity. Phase 2 will make
- * it per-Arena with dynamic growth.
+ * Orbit String Pool — Localized generation-aware interning.
  * ────────────────────────────────────────────────────────────────────── */
 
-typedef struct {
+typedef struct OrbitStringPoolLocal {
     const char** strings;
     size_t*      lengths;
     int          count;
     int          capacity;
-    uint64_t     hit_count;
-    uint64_t     miss_count;
-} OrbitStringPool;
+} OrbitStringPoolLocal;
 
-static OrbitStringPool orbit_string_pool = {0};
+static inline void orbit_string_pool_local_init(OrbitArena* arena) {
+    OrbitStringPoolLocal* pool = (OrbitStringPoolLocal*)malloc(sizeof(OrbitStringPoolLocal));
+    if (!pool) return;
+    pool->capacity = 4096;
+    pool->count = 0;
+    pool->strings = (const char**)calloc(4096, sizeof(const char*));
+    pool->lengths = (size_t*)calloc(4096, sizeof(size_t));
+    arena->local_string_pool = pool;
+}
 
+static inline void orbit_string_pool_local_destroy(OrbitStringPoolLocal* pool) {
+    if (!pool) return;
+    free(pool->strings);
+    free(pool->lengths);
+    free(pool);
+}
+
+static inline void orbit_string_pool_local_reset(OrbitStringPoolLocal* pool) {
+    if (!pool) return;
+    pool->count = 0;
+}
+
+static inline void orbit_string_pool_local_grow(OrbitStringPoolLocal* pool) {
+    int new_cap = pool->capacity * 2;
+    const char** new_strings = (const char**)realloc(pool->strings, (size_t)new_cap * sizeof(const char*));
+    size_t* new_lengths = (size_t*)realloc(pool->lengths, (size_t)new_cap * sizeof(size_t));
+    if (new_strings) pool->strings = new_strings;
+    if (new_lengths) pool->lengths = new_lengths;
+    pool->capacity = new_cap;
+}
+
+/* Stubs for backwards compatibility in existing compiled assets */
 void orbit_string_pool_init(int capacity) {
-    orbit_string_pool.capacity   = capacity;
-    orbit_string_pool.count      = 0;
-    orbit_string_pool.hit_count  = 0;
-    orbit_string_pool.miss_count = 0;
-    orbit_string_pool.strings    = (const char**)calloc((size_t)capacity, sizeof(const char*));
-    orbit_string_pool.lengths    = (size_t*)calloc((size_t)capacity, sizeof(size_t));
+    (void)capacity;
 }
 
 void orbit_string_pool_cleanup(void) {
-    free(orbit_string_pool.strings);
-    free(orbit_string_pool.lengths);
-    orbit_string_pool.strings  = NULL;
-    orbit_string_pool.lengths  = NULL;
-    orbit_string_pool.count    = 0;
-    orbit_string_pool.capacity = 0;
 }
 
 ORBIT_INLINE const char* orbit_string_intern(OrbitArena* arena, const char* str) {
-    if (ORBIT_UNLIKELY(!str)) return NULL;
+    if (ORBIT_UNLIKELY(!str || !arena)) return NULL;
 
     size_t len = strlen(str);
 
-    /* Search existing entries */
-    for (int i = 0; i < orbit_string_pool.count; i++) {
-        if (orbit_string_pool.lengths[i] == len) {
-            if (memcmp(orbit_string_pool.strings[i], str, len) == 0) {
-                orbit_string_pool.hit_count++;
-                return orbit_string_pool.strings[i];
+    if (ORBIT_UNLIKELY(!arena->local_string_pool)) {
+        orbit_string_pool_local_init(arena);
+    }
+
+    OrbitStringPoolLocal* pool = arena->local_string_pool;
+    if (pool) {
+        /* Search local entries */
+        for (int i = 0; i < pool->count; i++) {
+            if (pool->lengths[i] == len) {
+                if (memcmp(pool->strings[i], str, len) == 0) {
+                    orbit_perf_stats.string_intern_hits++;
+                    return pool->strings[i];
+                }
             }
         }
     }
-
-    orbit_string_pool.miss_count++;
 
     /* Allocate in arena */
     char* new_str = (char*)orbit_alloc(arena, len + 1);
@@ -67,11 +84,13 @@ ORBIT_INLINE const char* orbit_string_intern(OrbitArena* arena, const char* str)
     memcpy(new_str, str, len);
     new_str[len] = '\0';
 
-    /* Store if capacity allows */
-    if (orbit_string_pool.count < orbit_string_pool.capacity) {
-        orbit_string_pool.strings[orbit_string_pool.count] = new_str;
-        orbit_string_pool.lengths[orbit_string_pool.count] = len;
-        orbit_string_pool.count++;
+    if (pool) {
+        if (pool->count >= pool->capacity) {
+            orbit_string_pool_local_grow(pool);
+        }
+        pool->strings[pool->count] = new_str;
+        pool->lengths[pool->count] = len;
+        pool->count++;
     }
 
     return new_str;
@@ -82,7 +101,5 @@ ORBIT_INLINE bool orbit_string_equals_fast(const char* a, const char* b) {
     if (ORBIT_UNLIKELY(!a || !b)) return false;
     return strcmp(a, b) == 0;
 }
-
-
 
 #endif
