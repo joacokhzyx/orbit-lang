@@ -1,149 +1,95 @@
-# ⏣ Orbit Programming Language
+# Orbit
 
-**Orbit** is an open-source, compiled, high-performance programming language designed for backend web services and API servers.  
-It generates native C code, embeds SQLite, and ships production-ready HTTP routing, authentication, and a virtual-memory epoch allocator — all with zero third-party runtime dependencies.
+Orbit is a compiled, statically typed programming language targeting native
+binaries and C output. It is self-hosting: the compiler is written in Orbit
+and built by a Zig bootstrap host.
 
----
+The compiler supports two backends:
 
-## ✨ Feature Highlights
+- **Steel** — transpiles to C, linked with the system C compiler.
+- **Photon Native** — emits x86-64 machine code and links PE/ELF executables
+  without any external linker.
 
-| Feature | Description |
-|---|---|
-| **Native Compilation** | Transpiles to C → compiled with system `cc` / `clang` / `gcc` |
-| **Epoch-based Arena** | Virtual-memory arena with epoch reclamation (`orbit/arena`) |
-| **Built-in SQLite** | SQLite compiled into every server binary |
-| **HTTP Router** | Zero-alloc request parser + method/path router |
-| **Orbit Kynx** | Per-route computational leases (CPU/IO budget enforcement) |
-| **Orbit Pulse** | High-resolution performance counters & latency histograms |
-| **Orbit Terminal** | ANSI/Unicode-aware compiler UI with color-preference detection |
-| **Orbit Photon** | Incremental build cache keyed by source hash |
-| **Recovery-first Errors** | `rescue` fallback expressions instead of exceptions |
-| **Anti-RE Hardening** | Optional debugger-detection, symbol stripping, `-O3` |
+Orbit is pre-release software. Interfaces and syntax will change.
 
----
+## Building from Source
 
-## 🚀 Quick Start
+**Prerequisite:** [Zig master](https://ziglang.org/download/) (nightly builds
+from ziglang.org; the version in `build.zig.zon` is the minimum tested).
 
-```bash
-# Install (Linux/macOS)
-curl -fsSL https://raw.githubusercontent.com/orbit-lang/orbit/main/install.sh | bash
-
-# Install (Windows PowerShell)
-irm https://raw.githubusercontent.com/orbit-lang/orbit/main/install.ps1 | iex
-
-# Write a server
-cat > hello.orb << 'EOF'
-get "/" {
-  response { "Hello, Orbit!" }
-}
-EOF
-
-# Compile & run
-orbit build hello.orb -o hello
-./hello
+```sh
+git clone https://github.com/orbit-lang/orbit.git
+cd orbit/orbit-binary
+zig build                          # debug build
+zig build -Doptimize=ReleaseFast   # optimized build
+zig build test                     # run the test suite
 ```
 
----
+The compiler binary is written to `zig-out/bin/orbit`.
 
-## 🏗️ Compiler Pipeline
+## Usage
 
-```
-Source (.orb)
-    │
-    ▼
- Lexer  ──────────────  token.zig  lexer.zig
-    │
-    ▼
- Parser ──────────────  parser/  (decl · expr · stmt)
-    │
-    ▼
- Sema   ──────────────  sema/   (type_checker · scope · models)
-    │
-    ▼
- IR     ──────────────  ir/     (builder · optimizer)
-    │
-    ▼
- Codegen (C backend)   codegen/ (c_backend · expr · stmt · route · model)
-    │
-    ▼
- Runtime loader ──────  codegen/runtime_loader.zig
-    │
-    ▼
- C compiler (cc/clang)
-    │
-    ▼
- Native binary
+```sh
+orbit build hello.orb              # compile to native binary
+orbit build hello.orb --backend=native --linker=native   # zero-external-linker
+orbit run   hello.orb              # compile and execute
+orbit check hello.orb              # type-check only
+orbit bootstrap --stage=3 --verify # rebuild the compiler and verify fixed-point
 ```
 
----
-
-## 📦 Repository Layout
+## Repository Layout
 
 ```
 orbit-binary/
-├── src/
-│   ├── main.zig              # Compiler driver (Photon, Terminal, caching)
-│   ├── lexer.zig             # Tokeniser
-│   ├── token.zig             # Token definitions
-│   ├── ast.zig               # AST node types
-│   ├── parser.zig            # Parser entry point
-│   ├── sema.zig              # Semantic analysis entry point
-│   ├── compiler.zig          # Compilation orchestrator
-│   ├── atlas.zig             # Project config (orbit.atlas)
-│   ├── jit.zig               # JIT/cache helpers
-│   ├── parser/               # Recursive-descent sub-parsers
-│   ├── sema/                 # Type checker, scope, diagnostics
-│   ├── ir/                   # Intermediate representation
-│   ├── codegen/              # C code generator
-│   ├── runtime/              # C runtime library (arena, http, db…)
-│   ├── terminal/             # Terminal UI capabilities
-│   └── tests/                # Unit tests
-├── docs/                     # User documentation
-│   └── architecture/         # Deep-dive architecture docs
-├── benchmarks/               # Throughput benchmarks
-├── build.zig                 # Zig build system
-└── build.zig.zon             # Package manifest
+├── compiler/          Orbit compiler source (written in Orbit)
+│   └── selfhost/      Self-hosting stage artifacts
+├── src/               Zig bootstrap host
+│   ├── main.zig       Compiler driver
+│   ├── backend/       Code generation and linking
+│   │   ├── link/      Native linker (COFF/PE, ELF)
+│   │   └── x86_64/    x86-64 instruction encoder
+│   ├── codegen/       C backend
+│   ├── ir/            Intermediate representation
+│   ├── parser/        Recursive-descent parser
+│   ├── sema/          Type checker and scope analysis
+│   ├── runtime/       C runtime (arena, http, collections)
+│   └── tests.zig      Compiler regression suite
+├── std/               Orbit standard library
+├── tests/             Bootstrap fixtures
+├── build.zig          Zig build script
+└── build.zig.zon      Package manifest
 ```
 
----
+## Compiler Pipeline
 
-## 🧪 Building from Source
-
-**Prerequisites**: [Zig ≥ 0.14](https://ziglang.org/download/)
-
-```bash
-git clone https://github.com/orbit-lang/orbit.git
-cd orbit/orbit-binary
-zig build                   # Debug build
-zig build -Doptimize=ReleaseFast   # Release build
-zig build test              # Run all tests
+```
+Source (.orb)
+  Lexer
+  Parser
+  Sema (type checker, scope, diagnostics)
+  IR (builder, optimizer)
+  Codegen
+    Steel  →  C source  →  cc / clang / gcc  →  binary
+    Native →  COFF/ELF object  →  internal linker  →  binary
 ```
 
-The resulting compiler binary is at `zig-out/bin/orbit`.
+## Bootstrap
 
----
+The Orbit compiler is self-hosting at Stage 3. `zig build` compiles the Zig
+host that drives Stage 1. From Stage 1 the compiler rebuilds itself twice; the
+Stage 2 and Stage 3 outputs must be byte-identical.
 
-## 📖 Documentation
+```sh
+orbit bootstrap --stage=3 --verify
+# [bootstrap] SUCCESS: Stage 2 and Stage 3 are byte-identical!
+```
 
-| Document | Description |
-|---|---|
-| [Introduction](docs/INTRODUCTION.md) | Architecture, features, and quickstart |
-| [Syntax Guide](docs/SYNTAX_GUIDE.md) | Variables, routing, error recovery |
-| [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) | Hardening, anti-RE, installers |
-| [Orbit Arena](docs/architecture/ORBIT_ARENA.md) | Epoch-based virtual-memory allocator |
-| [Architecture Overview](docs/ARCHITECTURE.md) | Full compiler + runtime diagram |
+## Contributing
 
----
-
-## 🤝 Contributing
-
-1. Fork the repo and create a feature branch.
-2. Run `zig build test` — all tests must pass.
-3. Add `///` doc-comments to any new `pub fn`.
-4. Open a pull request with a clear description.
-
----
+1. Run `zig build test` and confirm all tests pass.
+2. Keep `zig build test` green on your branch before opening a pull request.
+3. Add `///` doc comments to new `pub fn` declarations.
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+Apache 2.0. See [LICENSE](LICENSE) for details.

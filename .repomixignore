@@ -1,8 +1,0 @@
-src/lib
-zig-out
-.vscode
-.github
-.git
-docs
-benchmarks
-repomix-output.xml
