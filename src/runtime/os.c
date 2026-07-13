@@ -1,3 +1,11 @@
+/**
+ * @file  os.c
+ * @brief Cross-platform OS utilities for Orbit (process info, env, paths).
+ *
+ * Wraps OS-specific calls behind a uniform C API used by the Orbit runtime
+ * on Windows (Win32), Linux, and macOS.  Includes directory creation,
+ * environment variable access, and executable-path resolution.
+ */
 #ifndef ORBIT_OS_C
 #define ORBIT_OS_C
 

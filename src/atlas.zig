@@ -1,5 +1,19 @@
+//! `orbit.atlas` configuration loader for the Orbit runtime.
+//!
+//! Reads and parses the project's `orbit.atlas` file — a simple key-value
+//! configuration format — and populates an `AtlasConfig` struct with the
+//! result.  If the file is absent the default values embedded in the struct
+//! are used unchanged, making the config file entirely optional.
+
 const std = @import("std");
 
+// ─── AtlasConfig ─────────────────────────────────────────────────────────────
+
+/// Runtime configuration for an Orbit application.
+///
+/// Every field has a sane default so that projects without an `orbit.atlas`
+/// file work out of the box.  Call `AtlasConfig.load` to override defaults
+/// from the project configuration file.
 pub const AtlasConfig = struct {
     // ── Project Identity ────────────────────────────────────────────
     project: []const u8 = "orbit-app",
@@ -37,10 +51,15 @@ pub const AtlasConfig = struct {
     output_name: []const u8 = "orbit_app",
     cache: bool = true,
 
+    /// Loads configuration from `orbit.atlas` in the current working directory.
+    ///
+    /// If the file does not exist or cannot be read, a default `AtlasConfig`
+    /// is returned silently.  Recognised keys are parsed and applied on top of
+    /// the defaults; unrecognised keys are ignored.
     pub fn load(allocator: std.mem.Allocator, io: anytype) !AtlasConfig {
         var config = AtlasConfig{};
         const file_path = "orbit.atlas";
-        
+
         var cwd = std.Io.Dir.cwd();
         var file = cwd.openFile(io, file_path, .{}) catch {
             return config;
@@ -59,7 +78,7 @@ pub const AtlasConfig = struct {
         if (extractValue(content, "project:")) |val| {
             config.project = try allocator.dupe(u8, val);
         }
-        
+
         if (extractValue(content, "version:")) |val| {
             config.version = try allocator.dupe(u8, val);
         }
@@ -142,6 +161,10 @@ pub const AtlasConfig = struct {
         return config;
     }
 
+    // ─── Internal parsing helpers ─────────────────────────────────────────────
+
+    /// Extracts the double-quoted string value that follows `key` in `content`.
+    /// Returns `null` if the key is absent or the value is not quoted.
     fn extractValue(content: []const u8, key: []const u8) ?[]const u8 {
         const pos = std.mem.find(u8, content, key) orelse return null;
         const start_quote = std.mem.indexOfScalarPos(u8, content, pos + key.len, '"') orelse return null;
@@ -149,6 +172,9 @@ pub const AtlasConfig = struct {
         return content[start_quote + 1 .. end_quote];
     }
 
+    /// Extracts an unquoted literal value (integer, boolean keyword, etc.) that
+    /// follows `key` in `content`, trimming surrounding whitespace.
+    /// Returns `null` if the key is absent.
     fn extractLiteral(content: []const u8, key: []const u8) ?[]const u8 {
         const pos = std.mem.find(u8, content, key) orelse return null;
         var start = pos + key.len;

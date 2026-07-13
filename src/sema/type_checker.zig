@@ -1,3 +1,8 @@
+//! Type inference and compatibility checking for the Orbit semantic analyser.
+//! Provides `TypeInfo` (a structured representation of a resolved Orbit type)
+//! and `TypeChecker` (the engine that infers expression types, resolves type
+//! aliases, registers user-defined kinds, and checks assignment compatibility).
+
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;
@@ -5,6 +10,10 @@ const Token = @import("../token.zig").Token;
 const ModelRegistry = @import("model_registry.zig").ModelRegistry;
 const ModuleRegistry = @import("module_registry.zig").ModuleRegistry;
 
+// ─── TypeInfo ────────────────────────────────────────────────────────────────
+
+/// A resolved Orbit type descriptor.  Tracks nullability, collection shape,
+/// and whether the type is a `Result<T>` wrapper introduced by Phase 2.
 pub const TypeInfo = struct {
     name: []const u8,
     base_type: []const u8,
@@ -13,7 +22,9 @@ pub const TypeInfo = struct {
     is_collection: bool,
     is_result: bool,      // Phase 2: Result<T, E>
     inner_type: ?[]const u8, // Phase 2: generic inner type
-    
+
+    /// Creates a plain (non-nullable, non-collection) `TypeInfo` whose name
+    /// and base type are both set to `name`.
     pub fn init(name: []const u8) TypeInfo {
         return .{
             .name = name,
@@ -25,13 +36,15 @@ pub const TypeInfo = struct {
             .inner_type = null,
         };
     }
-    
+
+    /// Returns a copy of this `TypeInfo` with `is_nullable` set to `true`.
     pub fn makeNullable(self: TypeInfo) TypeInfo {
         var result = self;
         result.is_nullable = true;
         return result;
     }
-    
+
+    /// Returns a copy of this `TypeInfo` marked as an array collection.
     pub fn makeArray(self: TypeInfo) TypeInfo {
         var result = self;
         result.is_array = true;
@@ -39,6 +52,9 @@ pub const TypeInfo = struct {
         return result;
     }
 
+    /// Returns a copy of this `TypeInfo` wrapped in a `Result<T>` type,
+    /// setting `name` to `"result"` and storing the original name as
+    /// `inner_type`.
     pub fn makeResult(self: TypeInfo) TypeInfo {
         var result = self;
         result.is_result = true;
@@ -47,6 +63,7 @@ pub const TypeInfo = struct {
         return result;
     }
 
+    /// Returns a copy of this `TypeInfo` as a `List<T>` collection.
     pub fn makeList(self: TypeInfo) TypeInfo {
         var result = self;
         result.is_collection = true;
@@ -55,6 +72,7 @@ pub const TypeInfo = struct {
         return result;
     }
 
+    /// Returns a copy of this `TypeInfo` as a `Map<K, V>` collection.
     pub fn makeMap(self: TypeInfo) TypeInfo {
         var result = self;
         result.is_collection = true;
@@ -64,6 +82,14 @@ pub const TypeInfo = struct {
     }
 };
 
+// ─── TypeChecker ─────────────────────────────────────────────────────────────
+
+/// Analyses AST nodes to infer and record their types, resolve aliases, and
+/// validate type compatibility.
+///
+/// The checker is shared across all statements and expressions in a
+/// compilation unit.  It writes results into the caller-provided `node_types`
+/// map so that the IR builder can look up types by node pointer.
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     node_types: *std.AutoHashMapUnmanaged(*Node, []const u8),
@@ -74,6 +100,8 @@ pub const TypeChecker = struct {
     module_registry: ?*ModuleRegistry = null,
     source: []const u8,
 
+    /// Classifies the "shape" of a user-defined type for Phase 2 exhaustiveness
+    /// and constructor-call inference.
     pub const TypeKind = enum {
         primitive,
         model,
@@ -85,7 +113,10 @@ pub const TypeChecker = struct {
         result_type,
         option_type,
     };
-    
+
+    /// Creates a `TypeChecker` that writes inferred types into `node_types`.
+    /// `source` is the full source text of the compilation unit (used for
+    /// identifier look-up via token locations).
     pub fn init(allocator: std.mem.Allocator, node_types: *std.AutoHashMapUnmanaged(*Node, []const u8), source: []const u8) TypeChecker {
         return .{
             .allocator = allocator,
@@ -96,32 +127,45 @@ pub const TypeChecker = struct {
             .source = source,
         };
     }
-    
+
+    /// Releases internal maps owned by the checker.
     pub fn deinit(self: *TypeChecker) void {
         self.type_aliases.deinit(self.allocator);
         self.type_kinds.deinit(self.allocator);
         self.union_registry.deinit(self.allocator);
     }
-    
+
+    // ─── Type registration ────────────────────────────────────────────────
+
+    /// Records a type alias (`name` → `base_type`) so that `resolveType` can
+    /// follow the chain during compatibility checks.
     pub fn registerAlias(self: *TypeChecker, name: []const u8, base_type: []const u8) !void {
         try self.type_aliases.put(self.allocator, name, base_type);
     }
 
-    /// Phase 2: Register a user-defined type kind (enum, union, trait).
+    /// Phase 2: Registers a user-defined type's kind (enum, union, trait …)
+    /// for constructor-call inference and exhaustiveness checking.
     pub fn registerTypeKind(self: *TypeChecker, name: []const u8, kind: TypeKind) !void {
         try self.type_kinds.put(self.allocator, name, kind);
     }
 
-    /// Phase 2: Register union variants for exhaustiveness checking.
+    /// Phase 2: Records the complete variant list for a union or enum so that
+    /// `checkExhaustive` / `getMissingVariant` can verify match coverage.
     pub fn registerUnionVariants(self: *TypeChecker, name: []const u8, variants: []const []const u8) !void {
         try self.union_registry.put(self.allocator, name, variants);
     }
 
-    /// Phase 2: Get the kind of a user-defined type.
+    /// Phase 2: Returns the `TypeKind` registered for `name`, or `null` if
+    /// `name` is not a known user-defined type.
     pub fn getTypeKind(self: *TypeChecker, name: []const u8) ?TypeKind {
         return self.type_kinds.get(name);
     }
-    
+
+    // ─── Type resolution ──────────────────────────────────────────────────
+
+    /// Follows the alias chain starting at `type_name` until a base type with
+    /// no further alias is reached.  Protects against cycles by breaking when
+    /// `current == base`.
     pub fn resolveType(self: *TypeChecker, type_name: []const u8) []const u8 {
         var current = type_name;
         while (self.type_aliases.get(current)) |base| {
@@ -131,12 +175,15 @@ pub const TypeChecker = struct {
         return current;
     }
 
-    /// Phase 2: Check if a match statement is exhaustive over a union/enum.
+    /// Phase 2: Returns `true` if all variants of `type_name` appear in
+    /// `covered_variants` (exhaustive match check).
     pub fn checkExhaustive(self: *TypeChecker, type_name: []const u8, covered_variants: []const []const u8) bool {
         return self.getMissingVariant(type_name, covered_variants) == null;
     }
 
-    /// Phase 2: Get first missing variant if non-exhaustive.
+    /// Phase 2: Returns the name of the first variant of `type_name` that is
+    /// absent from `covered_variants`, or `null` if the match is exhaustive.
+    /// Unknown types pass conservatively (returns `null`).
     pub fn getMissingVariant(self: *TypeChecker, type_name: []const u8, covered_variants: []const []const u8) ?[]const u8 {
         if (self.union_registry.get(type_name)) |all_variants| {
             for (all_variants) |v| {
@@ -153,7 +200,12 @@ pub const TypeChecker = struct {
         }
         return null; // Unknown types pass (conservative)
     }
-    
+
+    // ─── Type inference ───────────────────────────────────────────────────
+
+    /// Infers the Orbit type string for `node` given the provided `scope`.
+    /// The result is stored in `node_types` (best-effort; allocation errors
+    /// are silently ignored) and returned as a slice.
     pub fn inferType(self: *TypeChecker, node: *Node, scope: anytype) []const u8 {
         const inferred = switch (node.tag) {
             .string_literal => "string",
@@ -186,11 +238,12 @@ pub const TypeChecker = struct {
             },
             else => "unknown",
         };
-        
+
         self.node_types.put(self.allocator, node, inferred) catch {};
         return inferred;
     }
-    
+
+    /// Resolves the type of an identifier node by looking it up in `scope`.
     fn inferIdentifierType(self: *TypeChecker, node: *Node, scope: anytype) []const u8 {
         const name = node.data.identifier.getText(self.source);
         if (scope.get(name)) |entry| {
@@ -198,12 +251,15 @@ pub const TypeChecker = struct {
         }
         return "unknown";
     }
-    
+
+    /// Infers the result type of a binary operation based on operator and
+    /// operand types.  Comparison and logical operators always yield `"bool"`;
+    /// arithmetic promotes `int` → `float` when one side is `float`.
     fn inferBinaryOpType(self: *TypeChecker, node: *Node, scope: anytype) []const u8 {
         const bin_data = node.data.binary_op;
         const lhs_type = self.inferType(bin_data.lhs, scope);
         const rhs_type = self.inferType(bin_data.rhs, scope);
-        
+
         // Comparison operators always return bool
         const op_tag = bin_data.op.tag;
         const is_comparison = (op_tag == .DoubleEqual or op_tag == .NotEqual or
@@ -221,21 +277,25 @@ pub const TypeChecker = struct {
         if (std.mem.eql(u8, lhs_type, "int") and std.mem.eql(u8, rhs_type, "int")) {
             return "int";
         }
-        
+
         if (std.mem.eql(u8, lhs_type, "float") or std.mem.eql(u8, rhs_type, "float")) {
             return "float";
         }
-        
+
         return "unknown";
     }
-    
+
+    /// Infers the return type of a call expression.  Handles well-known
+    /// built-in functions (`ok`, `err`, `print`, `bit_op`), user-defined
+    /// functions looked up through `scope`, model constructors, and
+    /// standard-module method calls.
     fn inferCallType(self: *TypeChecker, node: *Node, scope: anytype) []const u8 {
         const call_data = node.data.call;
 
         for (call_data.args) |arg| {
             _ = self.inferType(arg, scope);
         }
-        
+
         if (call_data.func.tag == .identifier) {
             const func_name = call_data.func.data.identifier.getText(self.source);
             if (std.mem.eql(u8, func_name, "ok")) return "result";
@@ -246,7 +306,7 @@ pub const TypeChecker = struct {
             if (scope.get(func_name)) |entry| {
                 if (entry.is_function) return entry.type_name;
             }
-            
+
             // If it's a model name, it's a constructor call
             if (self.model_registry) |reg| {
                 if (reg.getModel(func_name)) |_| {
@@ -295,15 +355,18 @@ pub const TypeChecker = struct {
             }
             return self.inferMemberAccessType(call_data.func, scope);
         }
-        
+
         return "unknown";
     }
-    
+
+    /// Infers the type of a member-access expression (`obj.member`).
+    /// Handles collection members, Result members, string properties, model
+    /// field look-up, and module function return types.
     fn inferMemberAccessType(self: *TypeChecker, node: *Node, scope: anytype) []const u8 {
         const member_data = node.data.member_access;
         const obj_type = self.inferType(member_data.object, scope);
         const member_name = member_data.member.getText(self.source);
-        
+
         if (std.mem.eql(u8, obj_type, "collection") or std.mem.eql(u8, obj_type, "list")) {
             if (std.mem.eql(u8, member_name, "all")) return "list";
             if (std.mem.eql(u8, member_name, "first")) return "object";
@@ -323,11 +386,11 @@ pub const TypeChecker = struct {
             if (std.mem.eql(u8, member_name, "error_msg")) return "string";
             if (std.mem.eql(u8, member_name, "error_code")) return "int";
         }
-        
+
         if (std.mem.eql(u8, obj_type, "string")) {
             if (std.mem.eql(u8, member_name, "length")) return "int";
         }
-        
+
         if (self.model_registry) |reg| {
             if (reg.getField(obj_type, member_name)) |field| {
                 return field.type_name;
@@ -344,31 +407,36 @@ pub const TypeChecker = struct {
         if (member_data.object.tag == .identifier) {
             const name = member_data.object.data.identifier.getText(self.source);
             if (scope.get(name)) |entry| {
-                if (std.mem.eql(u8, entry.type_name, "type") or 
+                if (std.mem.eql(u8, entry.type_name, "type") or
                     std.mem.eql(u8, entry.type_name, "enum") or
                     std.mem.eql(u8, entry.type_name, "union")) {
                     return name;
                 }
             }
         }
-        
+
         return "unknown";
     }
-    
+
+    // ─── Compatibility checking ───────────────────────────────────────────
+
+    /// Returns `true` when `actual` is assignable to `expected` after alias
+    /// resolution.  The check is intentionally permissive: `"unknown"` on
+    /// either side always passes, and `int` is promotable to `float`.
     pub fn checkCompatibility(self: *TypeChecker, expected: []const u8, actual: []const u8) bool {
         const resolved_expected = self.resolveType(expected);
         const resolved_actual = self.resolveType(actual);
-        
+
         if (std.mem.eql(u8, resolved_expected, resolved_actual)) return true;
         if (std.mem.eql(u8, resolved_expected, "unknown")) return true;
         if (std.mem.eql(u8, resolved_actual, "unknown")) return true;
 
         // Phase 2: Result<T> is compatible with T (auto-wrap)
         if (std.mem.eql(u8, resolved_expected, "result")) return true;
-        
+
         // Phase 2: int is promotable to float
         if (std.mem.eql(u8, resolved_expected, "float") and std.mem.eql(u8, resolved_actual, "int")) return true;
-        
+
         return false;
     }
 };

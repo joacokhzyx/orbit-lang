@@ -1,14 +1,23 @@
+//! HTTP route handler code generator.
+//!
+//! `RouteGenerator` converts `route_decl` AST nodes into numbered C handler
+//! functions (`orbit_route_N`) and emits the top-level
+//! `orbit_handle_request` dispatcher that routes incoming HTTP requests.
+
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;
 const StatementGenerator = @import("statement_gen.zig").StatementGenerator;
 
+/// Generates one C handler function per route declaration and the central
+/// HTTP request dispatcher.
 pub const RouteGenerator = struct {
     allocator: std.mem.Allocator,
     output: *std.ArrayListUnmanaged(u8),
     source: []const u8,
     route_count: u32,
-    
+
+    /// Initialise a `RouteGenerator` with a zero-based route counter.
     pub fn init(allocator: std.mem.Allocator, output: *std.ArrayListUnmanaged(u8), source: []const u8) RouteGenerator {
         return .{
             .allocator = allocator,
@@ -18,6 +27,8 @@ pub const RouteGenerator = struct {
         };
     }
     
+    /// Emit a C handler function for the `route_decl` AST `node` and register
+    /// the route mapping (HTTP method + path → handler name).
     pub fn generate(self: *RouteGenerator, node: *Node) !void {
         const route_data = node.data.route_decl;
         const method = route_data.method.getText(self.source);
@@ -53,6 +64,8 @@ pub const RouteGenerator = struct {
         _ = func_name;
     }
     
+    /// Emit the `orbit_handle_request` C function that dispatches incoming
+    /// HTTP requests to the registered route handlers.
     pub fn generateRouteDispatcher(self: *RouteGenerator) !void {
         try self.output.appendSlice(self.allocator,
             \\int orbit_handle_request(SOCKET client, char* buffer, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {

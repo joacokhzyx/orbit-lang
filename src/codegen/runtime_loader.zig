@@ -1,7 +1,14 @@
+//! Runtime header and entry-point generator for the Orbit C backend.
+//!
+//! Provides two pure functions that produce C source text snippets:
+//!   - `generateHeaders` — the `#include` preamble linking the Orbit runtime.
+//!   - `generateMainFunction` — the C `main()` that boots the runtime,
+//!     optionally starts an HTTP server and calls `orbit_main`.
+
 const std = @import("std");
 const AtlasConfig = @import("../atlas.zig").AtlasConfig;
 
-/// Generates the #include for the Orbit runtime header.
+/// Generates the `#include` preamble for the Orbit runtime header.
 /// Uses a relative path from the project root.
 pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
     return try std.fmt.allocPrint(allocator,
@@ -14,6 +21,11 @@ pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
     , .{});
 }
 
+/// Generates the C `main()` function and (when `has_server` is true) the
+/// multi-threaded worker loop.  Arena and string-pool sizes, Kynx rate-limiter
+/// settings, and the listen port are all taken from `config`.
+/// When `has_db` is true the generated code also initialises and shuts down
+/// the Orbit SQLite runtime.
 pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_db: bool, config: AtlasConfig) ![]const u8 {
     if (has_server) {
         return try std.fmt.allocPrint(allocator,

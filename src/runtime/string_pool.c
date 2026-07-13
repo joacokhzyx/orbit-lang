@@ -1,3 +1,11 @@
+/**
+ * @file  string_pool.c
+ * @brief Arena-backed interned string pool for Orbit's runtime.
+ *
+ * Deduplicates string literals and identifiers at runtime by storing
+ * a single canonical copy in the epoch arena.  Lookups are O(n) over
+ * the pool; suitable for the small string sets typical in web handlers.
+ */
 #ifndef ORBIT_STRING_POOL_H
 #define ORBIT_STRING_POOL_H
 

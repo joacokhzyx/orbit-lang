@@ -1,3 +1,13 @@
+/**
+ * @file  kynx.c
+ * @brief Sovereign Computational Control Layer for Orbit's request pipeline.
+ *
+ * Implements O(1) sharded admission control with per-IP rate limiting and
+ * suspicion scoring, monotonic-clock deadline enforcement, and Computational
+ * Leases that cap CPU time, arena memory, DB queries, and response size per
+ * request.  Admission state transitions (Stable → Shaped → Guarded → Siege)
+ * automatically tighten resource budgets as active-lease pressure grows.
+ */
 #ifndef ORBIT_KYNX_H
 #define ORBIT_KYNX_H
 
@@ -109,6 +119,7 @@ static inline void kynx_lock_release(OrbitKynxLock* lock) {
 
 /* ── Monotonic Clock ────────────────────────────────────────────────── */
 
+/** @brief Return the current monotonic time in nanoseconds. */
 uint64_t orbit_kynx_now_ns(void) {
 #ifdef _WIN32
     static LARGE_INTEGER frequency;
@@ -193,6 +204,7 @@ static bool kynx_ip_eq(const OrbitKynxIP* a, const OrbitKynxIP* b) {
 
 /* ── Init / Cleanup ─────────────────────────────────────────────────── */
 
+/** @brief Initialise Kynx with @p config, zeroing all shard tables and counters. */
 void orbit_kynx_init(OrbitKynxConfig config) {
     orbit_kynx_config = config;
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
@@ -202,10 +214,12 @@ void orbit_kynx_init(OrbitKynxConfig config) {
     orbit_kynx_state = KYNX_STATE_STABLE;
 }
 
+/** @brief Wipe all shard tables (e.g., when the server is stopping). */
 void orbit_kynx_cleanup(void) {
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
 }
 
+/** @brief Reset all shard tables and global counters to their initial state. */
 void orbit_kynx_reset(void) {
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
     orbit_kynx_total_checks = 0;
@@ -216,6 +230,7 @@ void orbit_kynx_reset(void) {
 
 /* ── Admission Control Core ─────────────────────────────────────────── */
 
+/** @brief Check whether the client at @p ip_str is allowed to proceed.  Returns true (allow) or false (block/ban). */
 bool orbit_kynx_check(const char* ip_str) {
     if (!orbit_kynx_config.enabled || !ip_str) return true;
 
@@ -347,6 +362,7 @@ static inline void kynx_update_admission_state(void) {
 
 /* ── Computational Leases ───────────────────────────────────────────── */
 
+/** @brief Allocate and initialise a Computational Lease for the given @p path and @p method, adjusting budgets for the current admission state. */
 OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena) {
     #ifdef _WIN32
     InterlockedIncrement64(&orbit_kynx_active_leases);
@@ -361,60 +377,59 @@ OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* 
     if (!lease) return NULL;
     memset(lease, 0, sizeof(OrbitKynxLease));
 
-    // Default Route Budgets
-    lease->deadline_ns = orbit_kynx_now_ns() + 500ULL * 1000000ULL; // 500ms
-    lease->arena_limit = 16 * 1024 * 1024; // 16MB
-    lease->request_limit = 64 * 1024; // 64KB
-    lease->response_limit = 2 * 1024 * 1024; // 2MB
+    /* Default route budgets — tightened below based on admission state. */
+    lease->deadline_ns    = orbit_kynx_now_ns() + 500ULL * 1000000ULL; /* 500 ms */
+    lease->arena_limit    = 16 * 1024 * 1024; /* 16 MB */
+    lease->request_limit  = 64 * 1024;         /* 64 KB */
+    lease->response_limit = 2 * 1024 * 1024;  /* 2 MB */
     lease->db_queries_limit = 10;
-    lease->db_steps_limit = 100000;
+    lease->db_steps_limit   = 100000;
     lease->flags = 0;
 
-    // Apply strict rules based on current admission state
+    /* SHAPED: halve the deadline, reduce DB step budget. */
     if (orbit_kynx_state == KYNX_STATE_SHAPED) {
-        // Reduce deadlines to 250ms, decrease DB step limit
-        lease->deadline_ns = orbit_kynx_now_ns() + 250ULL * 1000000ULL;
+        lease->deadline_ns    = orbit_kynx_now_ns() + 250ULL * 1000000ULL;
         lease->db_steps_limit = 50000;
         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_throttled);
     } else if (orbit_kynx_state == KYNX_STATE_GUARDED) {
-        // Severely restrict resources
-        lease->deadline_ns = orbit_kynx_now_ns() + 100ULL * 1000000ULL; // 100ms
-        lease->arena_limit = 2 * 1024 * 1024; // 2MB
+        /* GUARDED: severely restrict CPU, memory, and database access. */
+        lease->deadline_ns      = orbit_kynx_now_ns() + 100ULL * 1000000ULL; /* 100 ms */
+        lease->arena_limit      = 2 * 1024 * 1024; /* 2 MB */
         lease->db_queries_limit = 3;
-        lease->db_steps_limit = 10000;
+        lease->db_steps_limit   = 10000;
         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_throttled);
     } else if (orbit_kynx_state == KYNX_STATE_SIEGE) {
-        // Check if critical route (health, auth, root)
+        /* SIEGE: allow only health/auth/root routes with minimal budgets; reject everything else immediately. */
         bool is_critical = false;
         if (path && (strcmp(path, "/health") == 0 || strcmp(path, "/auth") == 0 || strcmp(path, "/") == 0)) {
             is_critical = true;
         }
-        
+
         if (!is_critical) {
-            // Reject non-critical route immediately in Siege!
-            lease->deadline_ns = 0; // immediate expiry
-            lease->arena_limit = 0;
+            /* Reject non-critical routes immediately. */
+            lease->deadline_ns      = 0;
+            lease->arena_limit      = 0;
             lease->db_queries_limit = 0;
-            lease->db_steps_limit = 0;
-            lease->flags |= 1; // REJECTED flag
+            lease->db_steps_limit   = 0;
+            lease->flags |= 1; /* REJECTED flag */
             orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
         } else {
-            // Critical route gets minimal budget
-            lease->deadline_ns = orbit_kynx_now_ns() + 50ULL * 1000000ULL; // 50ms
-            lease->arena_limit = 512 * 1024; // 512KB
+            /* Critical routes receive a minimal emergency budget. */
+            lease->deadline_ns      = orbit_kynx_now_ns() + 50ULL * 1000000ULL; /* 50 ms */
+            lease->arena_limit      = 512 * 1024; /* 512 KB */
             lease->db_queries_limit = 2;
-            lease->db_steps_limit = 5000;
+            lease->db_steps_limit   = 5000;
         }
     }
 
-    // Apply custom routes config from Atlas (if matched)
+    /* Per-route overrides from the Atlas configuration. */
     if (path) {
         if (strcmp(path, "/search") == 0) {
-            lease->deadline_ns = orbit_kynx_now_ns() + 250ULL * 1000000ULL; // 250ms
-            lease->arena_limit = 192 * 1024; // 192KB
-            lease->response_limit = 1 * 1024 * 1024; // 1MB
+            lease->deadline_ns      = orbit_kynx_now_ns() + 250ULL * 1000000ULL; /* 250 ms */
+            lease->arena_limit      = 192 * 1024; /* 192 KB */
+            lease->response_limit   = 1 * 1024 * 1024; /* 1 MB */
             lease->db_queries_limit = 4;
-            lease->db_steps_limit = 50000;
+            lease->db_steps_limit   = 50000;
         }
     }
 
@@ -422,6 +437,7 @@ OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* 
     return lease;
 }
 
+/** @brief Release a Computational Lease and decrement the active-lease counter, triggering an admission-state update. */
 void orbit_kynx_lease_destroy(OrbitKynxLease* lease) {
     if (lease == current_lease) {
         current_lease = NULL;
@@ -434,6 +450,7 @@ void orbit_kynx_lease_destroy(OrbitKynxLease* lease) {
     kynx_update_admission_state();
 }
 
+/** @brief Validate that the current lease's response-size and deadline budgets are not exceeded.  Returns false if any limit is hit. */
 bool orbit_kynx_lease_check_limits(size_t additional_response_bytes) {
     if (!current_lease) return true;
 
@@ -457,17 +474,18 @@ bool orbit_kynx_lease_check_limits(size_t additional_response_bytes) {
 
 /* ── SQLite Progress Handler Implementation ─────────────────────────── */
 
+/** @brief SQLite progress-handler callback; aborts the query when the step budget or deadline is exceeded. */
 int orbit_sqlite_progress_handler(void* param) {
     (void)param;
     if (current_lease) {
         current_lease->db_steps++;
         if (current_lease->db_steps > current_lease->db_steps_limit) {
             orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_db_step_budget_exhausted);
-            return 1; // Abort SQLite query execution!
+            return 1; /* Abort SQLite query — step budget exceeded. */
         }
         if (orbit_kynx_now_ns() > current_lease->deadline_ns) {
             orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_deadline_exhausted);
-            return 1; // Abort due to deadline!
+            return 1; /* Abort SQLite query — deadline elapsed. */
         }
     }
     return 0;
@@ -475,7 +493,9 @@ int orbit_sqlite_progress_handler(void* param) {
 
 /* ── Compatibility Getters ──────────────────────────────────────────── */
 
+/** @brief Return the lifetime count of admission checks performed. */
 uint64_t orbit_kynx_get_total_checks(void)  { return (uint64_t)orbit_kynx_total_checks; }
+/** @brief Return the lifetime count of requests blocked or banned. */
 uint64_t orbit_kynx_get_total_blocked(void) { return (uint64_t)orbit_kynx_total_blocked; }
 
 #endif

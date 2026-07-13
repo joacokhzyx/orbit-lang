@@ -1,3 +1,9 @@
+//! orbit/src/ir/optimizer.zig
+//!
+//! Applies optimisation passes over an `IRModule` before C code generation.
+//! Current passes: constant folding, dead-code elimination, and basic
+//! strength-reduction for arithmetic expressions.
+
 const std = @import("std");
 const ir_mod = @import("ir.zig");
 const IRModule = ir_mod.IRModule;

@@ -41,3 +41,6 @@ dist/
 scripts/dist/
 orbit.c
 test_enum.orb
+compiler_self_hosting.orb
+repomix-output.xml
+repomix-output*.xml

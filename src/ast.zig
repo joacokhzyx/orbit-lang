@@ -1,11 +1,33 @@
+//! Abstract Syntax Tree (AST) node types for the Orbit language.
+//!
+//! Defines `Node`, the central tagged-union type that represents every
+//! syntactic construct in an Orbit program, from top-level declarations
+//! (models, routes, functions) down to individual literals and expressions.
+//! `Program` is the root container returned by the parser.
+//!
+//! All nodes are heap-allocated by the parser via an arena allocator;
+//! this file contains only type definitions — no allocation logic.
+
 const std = @import("std");
+
+/// Re-export of `Token` for use by AST consumers without a separate import.
 pub const Token = @import("token.zig").Token;
 
-/// Main AST Node structure
+// ─── Node ────────────────────────────────────────────────────────────────────
+
+/// A single node in the Orbit AST.
+///
+/// Every node is a `(tag, data)` pair where `tag` selects the active field
+/// of the `Data` union.  Nodes are owned by the arena allocator passed to
+/// the parser and must not be freed individually.
 pub const Node = struct {
     tag: Tag,
     data: Data,
 
+    /// Discriminant enumeration for `Node.Data`.
+    ///
+    /// Each variant names a syntactic construct; the matching field in
+    /// `Node.Data` carries the payload for that construct.
     pub const Tag = enum {
         // ============================================
         // TOP-LEVEL DECLARATIONS
@@ -80,6 +102,12 @@ pub const Node = struct {
         union_variant,  // variant(Type)
     };
 
+    // ─── Data payloads ────────────────────────────────────────────────────────
+
+    /// Tagged union carrying the payload for each `Node.Tag` variant.
+    ///
+    /// The active field must always match `Node.tag`; accessing any other
+    /// field is undefined behaviour.
     pub const Data = union {
         // ============================================
         // TOP-LEVEL
@@ -138,7 +166,7 @@ pub const Node = struct {
             is_mut: bool,
             is_private: bool,
         },
-        
+
         type_decl: struct {
             name: Token,
             target_type: *Node,
@@ -189,7 +217,7 @@ pub const Node = struct {
             then_branch: *Node,
             else_branch: ?*Node,
         },
-        
+
         match_stmt: struct {
             expr: *Node,
             cases: []const *Node, // Each case is a branch
@@ -332,25 +360,33 @@ pub const Node = struct {
             pattern: *Node, // can be identifier or call-like Root(decls)
             body: *Node,
         },
-        
+
         union_variant: struct {
             name: Token,
             payload: ?*Node,
         },
     };
 
+    // ─── Utility ──────────────────────────────────────────────────────────────
 
-    /// Helper to get token text from source
+    /// Returns the source text slice for `tok` within the given `source` buffer.
     pub fn getTokenText(tok: Token, source: []const u8) []const u8 {
         return source[tok.loc.start..tok.loc.end];
     }
 };
 
-/// Program is the root of the AST
+// ─── Program ─────────────────────────────────────────────────────────────────
+
+/// The root container of a parsed Orbit program.
+///
+/// Holds the top-level `Node` slice produced by the parser along with the
+/// full source text used for token-text extraction during semantic analysis.
 pub const Program = struct {
     nodes: []const *Node,
     source: []const u8,
 
+    /// Constructs a `Program` from a slice of top-level nodes and the
+    /// corresponding source buffer.
     pub fn init(nodes: []const *Node, source: []const u8) Program {
         return .{
             .nodes = nodes,

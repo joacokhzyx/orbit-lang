@@ -1,3 +1,11 @@
+/**
+ * @file  thread_pool.c
+ * @brief Fixed-size thread pool for concurrent HTTP request handling.
+ *
+ * Workers pull tasks from a lock-free ring queue.  Each worker owns an
+ * OrbitArena from the arena pool; the arena is reset between requests.
+ * Pool size defaults to `ORBIT_WORKER_THREADS` (env) or hardware_concurrency.
+ */
 #ifndef ORBIT_THREAD_POOL_H
 #define ORBIT_THREAD_POOL_H
 

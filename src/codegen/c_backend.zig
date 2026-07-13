@@ -1,3 +1,10 @@
+//! C code-generation backend for the Orbit compiler.
+//!
+//! Translates an `IRModule` (produced by `ir/builder.zig`) into a single C
+//! translation unit that is compiled by the host C toolchain.  Handles type
+//! emission (enums, unions, models), forward declarations, function bodies,
+//! the HTTP request router, and the synthesised `main` entry-point.
+
 const std = @import("std");
 const ir = @import("../ir/ir.zig");
 const IRModule = ir.IRModule;
@@ -34,6 +41,10 @@ pub const CBackend = struct {
     /// Local variable types in the current function being generated.
     local_variable_types: std.StringHashMapUnmanaged(IRType),
     
+    // ─── Lifecycle ───────────────────────────────────────────────────────────
+
+    /// Create a new `CBackend` with empty output buffers.
+    /// `has_server_init` controls whether the generated `main` starts an HTTP server.
     pub fn init(allocator: std.mem.Allocator, config: AtlasConfig, has_server_init: bool) CBackend {
         return .{
             .allocator = allocator,
@@ -50,6 +61,7 @@ pub const CBackend = struct {
         };
     }
     
+    /// Release all memory owned by this backend instance.
     pub fn deinit(self: *CBackend) void {
         self.output.deinit(self.allocator);
         self.call_args.deinit(self.allocator);
@@ -144,6 +156,10 @@ pub const CBackend = struct {
         );
     }
 
+    // ─── Top-level generation ────────────────────────────────────────────────
+
+    /// Generate a complete C translation unit from `module` and return the
+    /// resulting source text as a newly-allocated slice (caller owns memory).
     pub fn generate(self: *CBackend, module: IRModule) ![]const u8 {
         var has_orbit_entry = false;
         for (module.functions.items) |func| {
@@ -697,7 +713,11 @@ pub const CBackend = struct {
         }
     }
 
-    /// Helper: generates `r_D = op1 OP op2;\n`
+    // ─── Instruction helpers ─────────────────────────────────────────────────
+
+    /// Emit a binary arithmetic/comparison instruction: `r_D = op1 OP op2;`.
+    /// Handles string concatenation via `orbit_string_concat` and string
+    /// equality via `strcmp` automatically.
     fn generateBinaryOp(self: *CBackend, instr: IRInstruction, op: []const u8) !void {
         const type1 = self.getValueType(instr.operand1);
         const type2 = self.getValueType(instr.operand2);

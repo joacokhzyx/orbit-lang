@@ -1,8 +1,18 @@
+//! Lexer for the Orbit language.
+//!
+//! Transforms raw source text into a flat stream of `Token` values.
+//! Handles identifiers, keywords, numeric and string literals, operators,
+//! block/line comments, and interpolated strings (`$"..."`).
+//! The `Lexer` struct is purely positional — it owns no heap allocation.
+
 const std = @import("std");
 const token = @import("token.zig");
 const Token = token.Token;
 const TokenType = token.TokenType;
 
+// ─── Lexer ───────────────────────────────────────────────────────────────────
+
+/// Stateful lexer that walks a UTF-8 source buffer and emits tokens one at a time.
 pub const Lexer = struct {
     source: []const u8,
     file_path: []const u8,
@@ -10,20 +20,27 @@ pub const Lexer = struct {
     line: usize = 1,
     col: usize = 1,
 
+    /// Initialises a new `Lexer` positioned at the start of `source`.
     pub fn init(source: []const u8, file_path: []const u8) Lexer {
         return .{ .source = source, .file_path = file_path };
     }
 
+    /// Returns the byte at the current position without consuming it.
+    /// Returns `0` when the end of source has been reached.
     pub fn peek(self: *Lexer) u8 {
         if (self.pos >= self.source.len) return 0;
         return self.source[self.pos];
     }
 
+    /// Returns the byte one position ahead of the cursor without consuming it.
+    /// Returns `0` if that position is past the end of source.
     pub fn peekNext(self: *Lexer) u8 {
         if (self.pos + 1 >= self.source.len) return 0;
         return self.source[self.pos + 1];
     }
 
+    /// Advances the cursor by one byte, updating line/column tracking.
+    /// Returns the consumed byte, or `0` at end-of-source.
     fn advance(self: *Lexer) u8 {
         const char = self.peek();
         if (self.pos >= self.source.len) return 0;
@@ -37,6 +54,8 @@ pub const Lexer = struct {
         return char;
     }
 
+    /// Scans and returns the next token from the source stream.
+    /// Whitespace and comments are skipped automatically before each token.
     pub fn next(self: *Lexer) Token {
         self.skipWhitespace();
 
@@ -178,6 +197,9 @@ pub const Lexer = struct {
         };
     }
 
+    // ─── Internal helpers ─────────────────────────────────────────────────────
+
+    /// Constructs a `Token` spanning `[start, self.pos)` in the source buffer.
     fn makeToken(self: *Lexer, tag: TokenType, start: usize) Token {
         return .{
             .tag = tag,
@@ -193,6 +215,7 @@ pub const Lexer = struct {
         };
     }
 
+    /// Skips whitespace characters and both line (`//`) and block (`/* */`) comments.
     fn skipWhitespace(self: *Lexer) void {
         while (true) {
             const char = self.peek();
@@ -206,8 +229,8 @@ pub const Lexer = struct {
                             _ = self.advance();
                         }
                     } else if (self.peekNext() == '*') {
-                        _ = self.advance(); 
-                        _ = self.advance(); 
+                        _ = self.advance();
+                        _ = self.advance();
                         while (true) {
                             if (self.peek() == 0) break;
                             if (self.peek() == '*' and self.peekNext() == '/') {
@@ -226,6 +249,8 @@ pub const Lexer = struct {
         }
     }
 
+    /// Scans a full identifier or keyword starting at `start` and returns the
+    /// appropriate token (resolves keywords via `checkKeyword`).
     fn identifier(self: *Lexer, start: usize, line: usize, col: usize) Token {
         while (std.ascii.isAlphanumeric(self.peek()) or self.peek() == '_') {
             _ = self.advance();
@@ -248,6 +273,8 @@ pub const Lexer = struct {
         };
     }
 
+    /// Maps an identifier string to its keyword `TokenType`, or `.Identifier`
+    /// if the text is not a reserved word.
     fn checkKeyword(text: []const u8) TokenType {
         const keywords = std.StaticStringMap(TokenType).initComptime(.{
             .{ "if", .KeywordIf },
@@ -329,6 +356,8 @@ pub const Lexer = struct {
         return keywords.get(text) orelse .Identifier;
     }
 
+    /// Scans an integer or floating-point literal beginning at `start`.
+    /// A decimal point followed by another digit triggers float mode.
     fn number(self: *Lexer, start: usize, line: usize, col: usize) Token {
         var is_float = false;
         while (std.ascii.isDigit(self.peek())) {
@@ -337,7 +366,7 @@ pub const Lexer = struct {
 
         if (self.peek() == '.' and self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1])) {
             is_float = true;
-            _ = self.advance(); 
+            _ = self.advance();
             while (std.ascii.isDigit(self.peek())) {
                 _ = self.advance();
             }
@@ -356,11 +385,14 @@ pub const Lexer = struct {
             .file_source = self.source,
         };
     }
+
+    /// Scans a single-character literal enclosed in single quotes (`'c'`).
+    /// Supports standard escape sequences such as `\n`, `\t`, `\\`, and `\'`.
     fn charLiteral(self: *Lexer, start: usize, line: usize, col: usize) Token {
-        // La comilla de apertura ya fue consumida.
+        // The opening quote was already consumed by `next`.
         if (self.peek() == '\\') {
             _ = self.advance(); // backslash
-            _ = self.advance(); // char escapado
+            _ = self.advance(); // escaped char
         } else if (self.peek() != '\'' and self.peek() != 0) {
             _ = self.advance();
         }
@@ -371,11 +403,15 @@ pub const Lexer = struct {
         }
         return .{ .tag = .Invalid, .loc = .{ .start = start, .end = self.pos, .line = line, .col = col }, .text = self.source[start..self.pos], .file_path = self.file_path, .file_source = self.source };
     }
-    
+
+    /// Scans a plain double-quoted string literal and delegates to `stringWithTag`.
     fn string(self: *Lexer, quote: u8, start: usize, line: usize, col: usize) Token {
-    return self.stringWithTag(quote, start, line, col, .StringLiteral);
+        return self.stringWithTag(quote, start, line, col, .StringLiteral);
     }
 
+    /// Scans a string literal delimited by `quote`, tagging the result with `tag`.
+    /// Used for both plain strings (`.StringLiteral`) and interpolated strings
+    /// (`.InterpStringLiteral`). Handles backslash escape sequences.
     fn stringWithTag(self: *Lexer, quote: u8, start: usize, line: usize, col: usize, tag: TokenType) Token {
         while (self.peek() != quote and self.peek() != 0) {
             if (self.peek() == '\\' and self.peekNext() != 0) {
@@ -392,6 +428,11 @@ pub const Lexer = struct {
         return .{ .tag = .Invalid, .loc = .{ .start = start, .end = self.pos, .line = line, .col = col }, .text = self.source[start..self.pos], .file_path = self.file_path, .file_source = self.source };
     }
 
+    // ─── Batch tokenisation ───────────────────────────────────────────────────
+
+    /// Tokenises the entire source buffer and returns a heap-allocated slice of
+    /// all tokens including the terminal `EOF` token.
+    /// The caller owns the returned slice and must free it with `allocator.free`.
     pub fn tokenize(self: *Lexer, allocator: std.mem.Allocator) ![]Token {
         var tokens = std.ArrayListUnmanaged(Token).empty;
         defer tokens.deinit(allocator);
@@ -404,6 +445,8 @@ pub const Lexer = struct {
         return try tokens.toOwnedSlice(allocator);
     }
 };
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
 test "lexer basic tokens" {
     const source = "val x = 42";

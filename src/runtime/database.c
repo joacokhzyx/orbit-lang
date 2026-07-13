@@ -1,3 +1,13 @@
+/**
+ * @file  database.c
+ * @brief Arena-backed SQLite integration for Orbit's runtime database layer.
+ *
+ * All result strings are allocated from the request arena — no fixed-size
+ * buffers.  Queries are built dynamically in the arena, and rows are
+ * serialised to JSON on the fly.  A Kynx budget macro (KYNX_DB_QUERY_CHECK)
+ * guards every public function and aborts early when the per-request
+ * database-query budget is exhausted.
+ */
 #ifndef ORBIT_DATABASE_H
 #define ORBIT_DATABASE_H
 
@@ -39,6 +49,7 @@ extern int orbit_sqlite_progress_handler(void*);
 #define KYNX_DB_QUERY_CHECK(ret)
 #endif
 
+/** @brief Open (or create) the SQLite database at @p db_path and install the Kynx progress handler. */
 void orbit_db_init(const char* db_path) {
     sqlite3_open(db_path, &orbit_db_conn);
     if (orbit_db_conn) {
@@ -46,6 +57,7 @@ void orbit_db_init(const char* db_path) {
     }
 }
 
+/** @brief Close the global SQLite connection and set the internal handle to NULL. */
 void orbit_db_close(void) {
     if (orbit_db_conn) {
         sqlite3_close(orbit_db_conn);
@@ -93,8 +105,9 @@ static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* 
     return (size_t)(p - out);
 }
 
-/* ── Public API ─────────────────────────────────────────────────────── */
+// ─── Public Query API ────────────────────────────────────────────────────────
 
+/** @brief Fetch a single row from @p col by @p id and return it as a JSON object string, or NULL if not found. */
 orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* id) {
     KYNX_DB_QUERY_CHECK(NULL);
     const char* fmt = "SELECT * FROM %s WHERE id = ?;";
@@ -123,6 +136,7 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
     return result;
 }
 
+/** @brief Fetch every row from @p col and return a JSON array string; returns "[]" on error or empty table. */
 orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
     KYNX_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM ;") + strlen(col.table_name) + 1;
@@ -172,6 +186,7 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
     return buf;
 }
 
+/** @brief Fetch rows from @p col matching @p condition (a raw SQL WHERE clause fragment) and return a JSON array. */
 orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char* condition) {
     KYNX_DB_QUERY_CHECK("[]");
     size_t query_len = strlen("SELECT * FROM  WHERE ;") + strlen(col.table_name) + strlen(condition) + 1;
@@ -216,6 +231,7 @@ orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char*
     return buf;
 }
 
+/** @brief Fetch the first row from @p col and return it as a JSON object string, or NULL if the table is empty. */
 orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
     KYNX_DB_QUERY_CHECK(NULL);
     size_t query_len = strlen("SELECT * FROM  LIMIT 1;") + strlen(col.table_name) + 1;
@@ -240,6 +256,7 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
     return result;
 }
 
+/** @brief Return the number of rows in @p col via COUNT(*). */
 int orbit_db_count(orbit_collection col) {
     KYNX_DB_QUERY_CHECK(0);
     /* Count uses a small stack buffer since the query is trivial */
@@ -260,6 +277,7 @@ int orbit_db_count(orbit_collection col) {
     return count;
 }
 
+/** @brief Return true if a row with the given @p id exists in @p col. */
 bool orbit_db_exists(orbit_collection col, const char* id) {
     KYNX_DB_QUERY_CHECK(false);
     char query[128];
@@ -275,6 +293,7 @@ bool orbit_db_exists(orbit_collection col, const char* id) {
     return exists;
 }
 
+/** @brief Insert a JSON document into @p col; uses malloc for the query buffer since no arena is available at insert time. */
 bool orbit_db_add(orbit_collection col, const char* json_data) {
     KYNX_DB_QUERY_CHECK(false);
     size_t query_len = strlen("INSERT INTO  (JSON_DATA) VALUES (?);") + strlen(col.table_name) + 1;
@@ -295,6 +314,7 @@ bool orbit_db_add(orbit_collection col, const char* json_data) {
     return success;
 }
 
+/** @brief Update the JSON_DATA column for the row with the given @p id in @p col. */
 bool orbit_db_set(orbit_collection col, const char* id, const char* json_updates) {
     KYNX_DB_QUERY_CHECK(false);
     size_t query_len = strlen("UPDATE  SET JSON_DATA = ? WHERE id = ?;") + strlen(col.table_name) + 1;
@@ -316,6 +336,7 @@ bool orbit_db_set(orbit_collection col, const char* id, const char* json_updates
     return success;
 }
 
+/** @brief Delete the row with the given @p id from @p col. */
 bool orbit_db_del(orbit_collection col, const char* id) {
     KYNX_DB_QUERY_CHECK(false);
     size_t query_len = strlen("DELETE FROM  WHERE id = ?;") + strlen(col.table_name) + 1;
@@ -336,10 +357,14 @@ bool orbit_db_del(orbit_collection col, const char* id) {
     return success;
 }
 
+// ─── JSON Helpers ────────────────────────────────────────────────────────────
+
+/** @brief Return true when @p s is NULL, the empty-object literal "{}", or the empty-array literal "[]". */
 bool orbit_is_empty(orbit_string s) {
     return s == NULL || strcmp(s, "{}") == 0 || strcmp(s, "[]") == 0;
 }
 
+/** @brief Extract the string value for @p key from a flat JSON object stored in @p json. Returns "" if not found. */
 orbit_string orbit_json_get(OrbitArena* arena, orbit_string json, const char* key) {
     if (!json || !key) return "";
 

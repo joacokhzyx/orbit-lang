@@ -1,3 +1,11 @@
+/**
+ * @file  inline.h
+ * @brief Compiler-portability macros for inlining, branch prediction, and prefetch hints.
+ *
+ * Provides ORBIT_INLINE / ORBIT_NOINLINE, branch-likelihood hints (ORBIT_LIKELY /
+ * ORBIT_UNLIKELY), cache-prefetch helpers, and the ORBIT_RESTRICT alias — all
+ * normalised across MSVC, GCC, and Clang.
+ */
 #ifndef ORBIT_INLINE_H
 #define ORBIT_INLINE_H
 

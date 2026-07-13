@@ -1,3 +1,15 @@
+//! Semantic analysis (Sema) pass for the Orbit language.
+//!
+//! `Sema` performs a multi-pass walk over the AST produced by the parser:
+//!   1. Registers type, model, enum, and union declarations.
+//!   2. Pre-registers function signatures so forward calls resolve correctly.
+//!   3. Analyses top-level constants and variables.
+//!   4. Fully analyses function bodies and route handlers.
+//!
+//! Diagnostics (type mismatches, undefined names, non-exhaustive matches, etc.)
+//! are collected in a `DiagnosticReporter` rather than aborting immediately,
+//! allowing multiple errors to be reported in a single compiler invocation.
+
 const std = @import("std");
 const ast = @import("ast.zig");
 const Node = ast.Node;
@@ -12,6 +24,10 @@ const ModelRegistry = @import("sema/model_registry.zig").ModelRegistry;
 const ModelInfo = @import("sema/model_registry.zig").ModelInfo;
 const ModelField = @import("sema/model_registry.zig").ModelField;
 const DiagnosticReporter = @import("sema/diagnostic.zig").DiagnosticReporter;
+
+// ─── Error set ────────────────────────────────────────────────────────────────
+
+/// All errors that the semantic analysis phase may return.
 pub const SemaError = error{
     TypeMismatch,
     NonExhaustiveMatch,
@@ -25,7 +41,14 @@ pub const SemaError = error{
     OutOfMemory,
 };
 
+// ─── Sema ─────────────────────────────────────────────────────────────────────
+
+/// Semantic analyser for an Orbit compilation unit.
+///
+/// Create with `Sema.create`, run `analyze` on the root AST node, inspect
+/// `diagnostics` for any errors, then call `deinit` to release all resources.
 pub const Sema = struct {
+    /// Re-export of the `Diagnostic` type for callers that import `Sema`.
     pub const Diagnostic = @import("sema/diagnostic.zig").Diagnostic;
 
     allocator: std.mem.Allocator,
@@ -42,6 +65,10 @@ pub const Sema = struct {
     has_server_init: bool,
     current_function_return_type: ?[]const u8,
 
+    /// Heap-allocates and fully initialises a `Sema` instance.
+    ///
+    /// All sub-components (type checker, scope manager, registries, diagnostics)
+    /// are initialised and cross-linked here.  Call `deinit` to free everything.
     pub fn create(allocator: std.mem.Allocator, source: []const u8) !*Sema {
         const self = try allocator.create(Sema);
         self.* = Sema{
@@ -57,14 +84,16 @@ pub const Sema = struct {
             .has_server_init = false,
             .current_function_return_type = null,
         };
-        
+
         self.type_checker = TypeChecker.init(allocator, &self.node_types, source);
         self.type_checker.model_registry = &self.model_registry;
         self.type_checker.module_registry = &self.module_registry;
-        
+
         return self;
     }
 
+    /// Returns a de-duplicated, allocator-owned copy of `str`.
+    /// Subsequent calls with the same content return the same pointer.
     fn internString(self: *Sema, str: []const u8) ![]const u8 {
         if (self.string_table.get(str)) |interned| {
             return interned;
@@ -73,7 +102,9 @@ pub const Sema = struct {
         try self.string_table.put(self.allocator, owned, owned);
         return owned;
     }
-    
+
+    /// Releases all memory owned by this `Sema` instance, including the
+    /// node-type map, string table, and all sub-components, then frees `self`.
     pub fn deinit(self: *Sema) void {
         self.node_types.deinit(self.allocator);
         var it = self.string_table.iterator();
@@ -88,14 +119,22 @@ pub const Sema = struct {
         self.diagnostics.deinit();
         self.allocator.destroy(self);
     }
-    
+
+    // ─── Main entry-point ─────────────────────────────────────────────────────
+
+    /// Runs all four semantic analysis passes over the AST rooted at `root`.
+    ///
+    /// Pass 1 – type/model/enum/union declarations
+    /// Pass 2 – function signatures (enables forward calls)
+    /// Pass 3 – top-level constants and variables
+    /// Pass 4 – function bodies and route handlers
     pub fn analyze(self: *Sema, root: *Node) !void {
         try self.module_registry.initStandardModules();
-        
+
         const global_scope = try self.scope_manager.pushScope();
-        
+
         if (root.tag != .root) return error.NotARootNode;
-        
+
         // Pass 1: Types, Models, Enums, Unions
         for (root.data.root.decls) |decl| {
             switch (decl.tag) {
@@ -126,10 +165,13 @@ pub const Sema = struct {
                 else => {},
             }
         }
-        
+
         self.scope_manager.popScope();
     }
-    
+
+    // ─── Declaration analysis ─────────────────────────────────────────────────
+
+    /// Dispatches a single declaration node to the appropriate analyser.
     fn analyzeDeclaration(self: *Sema, node: *Node, scope: *Scope) anyerror!void {
         switch (node.tag) {
             .model_decl => try self.analyzeModel(node, scope),
@@ -147,6 +189,8 @@ pub const Sema = struct {
         }
     }
 
+    /// Registers a function's return type in `scope` so that forward calls to
+    /// it can be resolved during Pass 4.  Reports a diagnostic on duplicate names.
     fn registerFunctionSignature(self: *Sema, node: *Node, scope: *Scope) !void {
         const fn_data = node.data.fn_decl;
         const fn_name = try self.internString(fn_data.name.getText(self.source));
@@ -164,7 +208,9 @@ pub const Sema = struct {
             }
         };
     }
-    
+
+    /// Validates a `model` declaration, registers its fields in `ModelRegistry`,
+    /// and defines the model name in `scope` as a `"model"` type.
     fn analyzeModel(self: *Sema, node: *Node, scope: *Scope) !void {
         const model_data = node.data.model_decl;
         const model_name = try self.internString(model_data.name.getText(self.source));
@@ -208,17 +254,19 @@ pub const Sema = struct {
         try self.model_registry.register(model_info);
         try scope.define(model_name, "model", false);
     }
-    
+
+    /// Analyses a `route` declaration, creating a child scope that pre-defines
+    /// `req` and `res` and setting the expected return type to `"response"`.
     fn analyzeRoute(self: *Sema, node: *Node, scope: *Scope) !void {
         _ = scope;
         self.has_server_init = true;
-        
+
         const route_data = node.data.route_decl;
         const route_scope = try self.scope_manager.pushScope();
-        
+
         try route_scope.define("req", "request", false);
         try route_scope.define("res", "response", false);
-        
+
         const previous_return_type = self.current_function_return_type;
         self.current_function_return_type = "response";
         defer self.current_function_return_type = previous_return_type;
@@ -230,13 +278,15 @@ pub const Sema = struct {
         } else {
             try self.analyzeStatement(route_data.body, route_scope);
         }
-        
+
         self.scope_manager.popScope();
     }
-    
+
+    /// Analyses a function body in a fresh scope, with parameters pre-defined.
+    /// The expected return type is set for the duration of the body walk.
     fn analyzeFunction(self: *Sema, node: *Node, scope: *Scope) !void {
         _ = scope;
-        
+
         const fn_data = node.data.fn_decl;
         const fn_name = fn_data.name.getText(self.source);
         std.debug.print("SEMA analyzeFunction: {s}\n", .{fn_name});
@@ -245,7 +295,7 @@ pub const Sema = struct {
         else
             "void";
 
-        // Function signature was already registered in registerFunctionSignature (Pass 1).
+        // Function signature was already registered in Pass 2.
 
         const fn_scope = try self.scope_manager.pushScope();
 
@@ -274,15 +324,19 @@ pub const Sema = struct {
 
         self.scope_manager.popScope();
     }
-    
+
+    /// Infers the type of a `const` declaration's value and registers the name
+    /// in `scope` as immutable.
     fn analyzeConst(self: *Sema, node: *Node, scope: *Scope) !void {
         const const_data = node.data.const_decl;
         const name = const_data.name.getText(self.source);
         const value_type = try self.analyzeExpression(const_data.value, scope);
-        
+
         try scope.define(name, value_type, false);
     }
-    
+
+    /// Infers the type of a `val` declaration, validates any explicit type
+    /// annotation, and registers the binding in `scope`.
     fn analyzeVal(self: *Sema, node: *Node, scope: *Scope) !void {
         const val_data = node.data.val_decl;
         const name = try self.internString(val_data.name.getText(self.source));
@@ -303,7 +357,10 @@ pub const Sema = struct {
 
         try scope.define(name, final_type, val_data.is_mut);
     }
-    
+
+    // ─── Statement analysis ───────────────────────────────────────────────────
+
+    /// Dispatches a single statement node to the appropriate analyser.
     fn analyzeStatement(self: *Sema, node: *Node, scope: *Scope) anyerror!void {
         switch (node.tag) {
             .block => {
@@ -328,6 +385,8 @@ pub const Sema = struct {
         }
     }
 
+    /// Validates a `return` statement against the enclosing function's declared
+    /// return type, reporting type-mismatch or missing-value diagnostics.
     fn analyzeReturn(self: *Sema, node: *Node, scope: *Scope) !void {
         const expected_type = self.current_function_return_type orelse "void";
 
@@ -357,7 +416,9 @@ pub const Sema = struct {
             return error.MissingReturn;
         }
     }
-    
+
+    /// Analyses an `if` statement, creating separate child scopes for the
+    /// then-branch and the optional else-branch.
     fn analyzeIf(self: *Sema, node: *Node, scope: *Scope) !void {
         const if_data = node.data.if_stmt;
 
@@ -385,7 +446,8 @@ pub const Sema = struct {
             self.scope_manager.popScope();
         }
     }
-    
+
+    /// Analyses a `for item in iterable` loop, binding `item` in a fresh scope.
     fn analyzeFor(self: *Sema, node: *Node, scope: *Scope) !void {
         const for_data = node.data.for_stmt;
 
@@ -406,7 +468,8 @@ pub const Sema = struct {
 
         self.scope_manager.popScope();
     }
-    
+
+    /// Analyses a `while condition { body }` loop.
     fn analyzeWhile(self: *Sema, node: *Node, scope: *Scope) !void {
         const while_data = node.data.while_stmt;
 
@@ -422,7 +485,9 @@ pub const Sema = struct {
         }
         self.scope_manager.popScope();
     }
-    
+
+    /// Analyses a `match` expression, tracking covered variants and reporting a
+    /// diagnostic when a match on an enum or union type is non-exhaustive.
     fn analyzeMatch(self: *Sema, node: *Node, scope: *Scope) !void {
         const match_data = node.data.match_stmt;
         const match_type = try self.analyzeExpression(match_data.expr, scope);
@@ -434,8 +499,7 @@ pub const Sema = struct {
         for (match_data.cases) |case| {
             const case_data = case.data.match_case;
             const case_scope = try self.scope_manager.pushScope();
-            
-            // Analyze pattern
+
             _ = try self.analyzeExpression(case_data.pattern, case_scope);
 
             if (self.isWildcardPattern(case_data.pattern)) {
@@ -443,10 +507,9 @@ pub const Sema = struct {
             } else if (self.extractPatternVariant(case_data.pattern)) |variant| {
                 try covered_variants.append(self.allocator, variant);
             }
-            
-            // Analyze body
+
             try self.analyzeStatement(case_data.body, case_scope);
-            
+
             self.scope_manager.popScope();
         }
 
@@ -470,10 +533,15 @@ pub const Sema = struct {
         }
     }
 
+    // ─── Pattern helpers ──────────────────────────────────────────────────────
+
+    /// Returns `true` if `pattern` is the wildcard identifier `_`.
     fn isWildcardPattern(self: *Sema, pattern: *Node) bool {
         return pattern.tag == .identifier and std.mem.eql(u8, pattern.data.identifier.getText(self.source), "_");
     }
 
+    /// Extracts the variant name string from a match-case pattern node, or
+    /// returns `null` for wildcards and unrecognised pattern shapes.
     fn extractPatternVariant(self: *Sema, pattern: *Node) ?[]const u8 {
         switch (pattern.tag) {
             .member_access => {
@@ -495,6 +563,9 @@ pub const Sema = struct {
         }
     }
 
+    /// Returns a representative `Token` for `node`, used to attach source
+    /// locations to diagnostics.  Falls back to a synthetic invalid token for
+    /// node kinds that do not carry a primary token.
     fn getNodeToken(self: *Sema, node: *Node) Token {
         return switch (node.tag) {
             .identifier => node.data.identifier,
@@ -515,43 +586,49 @@ pub const Sema = struct {
         };
     }
 
+    // ─── Type / enum / union analysis ─────────────────────────────────────────
+
+    /// Analyses a `type Name = Target` alias declaration and registers the alias
+    /// in the type checker so it can be resolved during expression inference.
     fn analyzeType(self: *Sema, node: *Node, scope: *Scope) !void {
         const type_data = node.data.type_decl;
         const name = try self.internString(type_data.name.getText(self.source));
         const target_type = try self.analyzeExpression(type_data.target_type, scope);
-        
+
         try self.type_checker.registerAlias(name, target_type);
         try scope.define(name, "type", false);
     }
 
+    /// Analyses an `enum` declaration, registering the type kind and all variant
+    /// names in `scope` with the enum's type name as their type.
     fn analyzeEnum(self: *Sema, node: *Node, scope: *Scope) !void {
         const enum_data = node.data.enum_decl;
         const name = try self.internString(enum_data.name.getText(self.source));
-        
+
         try scope.define(name, "type", false);
 
-        // Phase 2: Register type kind and variants
         try self.type_checker.registerTypeKind(name, .enumeration);
-        
+
         var variant_names = std.ArrayListUnmanaged([]const u8).empty;
         for (enum_data.variants) |v| {
             const v_name = try self.internString(v.getText(self.source));
             try scope.define(v_name, name, false);
             try variant_names.append(self.allocator, v_name);
         }
-        
+
         try self.type_checker.registerUnionVariants(name, try variant_names.toOwnedSlice(self.allocator));
     }
 
+    /// Analyses a `union` declaration, registering the type kind and all variant
+    /// names in `scope` with the union's type name as their type.
     fn analyzeUnion(self: *Sema, node: *Node, scope: *Scope) !void {
         const union_data = node.data.union_decl;
         const name = try self.internString(union_data.name.getText(self.source));
-        
+
         try scope.define(name, "union", false);
 
-        // Phase 2: Register type kind and variants
         try self.type_checker.registerTypeKind(name, .union_type);
-        
+
         var variant_names = std.ArrayListUnmanaged([]const u8).empty;
         for (union_data.variants) |v| {
             const v_tk = if (v.tag == .union_variant) v.data.union_variant.name else v.data.identifier;
@@ -559,14 +636,17 @@ pub const Sema = struct {
             try scope.define(v_name, name, false);
             try variant_names.append(self.allocator, v_name);
         }
-        
+
         try self.type_checker.registerUnionVariants(name, try variant_names.toOwnedSlice(self.allocator));
     }
 
+    // ─── Expression analysis ──────────────────────────────────────────────────
+
+    /// Infers the type of `node` via the `TypeChecker`, stores the result in the
+    /// `node_types` map, and returns the inferred type string.
     fn analyzeExpression(self: *Sema, node: *Node, scope: *Scope) anyerror![]const u8 {
         const expr_type = self.type_checker.inferType(node, scope);
         try self.node_types.put(self.allocator, node, expr_type);
         return expr_type;
     }
 };
-

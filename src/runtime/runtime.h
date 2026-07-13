@@ -1,3 +1,11 @@
+/**
+ * @file  runtime.h
+ * @brief Top-level aggregation header for the Orbit C runtime.
+ *
+ * Pulls in platform compatibility shims, the arena allocator, HTTP layer,
+ * database bindings, collections, auth, Kynx leases, and Pulse counters.
+ * Generated Orbit programs include only this single header.
+ */
 #ifndef ORBIT_RUNTIME_H
 #define ORBIT_RUNTIME_H
 

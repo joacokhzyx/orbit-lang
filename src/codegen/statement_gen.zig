@@ -1,3 +1,10 @@
+//! orbit/src/codegen/statement_gen.zig
+//!
+//! Emits C statement code from Orbit IR statement nodes.
+//! Handles variable declarations, assignments, if/else, while, return,
+//! rescue blocks, and bare expression statements.
+//! Works in concert with `ExpressionGenerator` for sub-expression emission.
+
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;

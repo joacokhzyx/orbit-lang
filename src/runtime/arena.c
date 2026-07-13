@@ -1,3 +1,14 @@
+/**
+ * @file  arena.c
+ * @brief Epoch-based virtual-memory arena for Orbit's runtime allocator.
+ *
+ * Implements a region-based, deterministic memory allocator backed by OS
+ * virtual memory (VirtualAlloc on Windows, mmap on POSIX).  Each arena
+ * reserves a large VA range up-front and commits physical pages on demand.
+ * Overflow segments are chained in a singly-linked list; a full O(1) reset
+ * decommits excess pages and bumps the generation counter so stale
+ * checkpoints are detected and rejected.
+ */
 #ifndef ORBIT_ARENA_H
 #define ORBIT_ARENA_H
 
@@ -46,7 +57,7 @@ typedef struct OrbitArenaOverflow {
     size_t                     size;
 } OrbitArenaOverflow;
 
-// Forward declaration of local string pool
+/* Forward declaration of the per-arena string interning pool. */
 struct OrbitStringPoolLocal;
 
 typedef struct OrbitArena {
@@ -67,10 +78,10 @@ typedef struct OrbitArena {
 
     struct OrbitArena* parent;      /* NULL for root/global arenas */
 
-    // Local string pool (generation-aware)
+    /* Per-arena interning table; invalidated on reset. */
     struct OrbitStringPoolLocal* local_string_pool;
 
-    // Overflow segments list
+    /* Singly-linked list of retired VA segments (overflow path). */
     OrbitArenaOverflow* overflow_list;
 
     /* compatibility fields */
@@ -151,6 +162,7 @@ static void orbit_string_pool_local_reset(struct OrbitStringPoolLocal* pool);
 
 /* ── Creation & Destruction ─────────────────────────────────────────── */
 
+/** @brief Create a new root arena, reserving at least @p initial_capacity bytes of virtual address space. */
 OrbitArena* orbit_arena_create(size_t initial_capacity) {
     size_t page_size = orbit_get_page_size();
     
@@ -202,12 +214,11 @@ OrbitArena* orbit_arena_create(size_t initial_capacity) {
     arena->local_string_pool = NULL;
     arena->overflow_list = NULL;
     
-    // Compatibility fields
+    /* Compatibility alias fields mirror the primary bookkeeping fields. */
     arena->buffer = (char*)arena->base;
     arena->capacity = arena->reserved_bytes;
     arena->used = 0;
 
-    // Telemetry
     orbit_perf_record_virtual_reserved(reserve_size);
     orbit_perf_record_committed(commit_size);
     orbit_perf_record_commit_op();
@@ -215,6 +226,7 @@ OrbitArena* orbit_arena_create(size_t initial_capacity) {
     return arena;
 }
 
+/** @brief Create a child arena whose parent pointer links it to @p parent for promotion operations. */
 OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity) {
     if (!parent) return NULL;
     OrbitArena* child = orbit_arena_create(initial_capacity);
@@ -224,10 +236,11 @@ OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity
     return child;
 }
 
+/** @brief Release all virtual memory owned by @p arena and free the arena header itself. */
 void orbit_arena_destroy(OrbitArena* arena) {
     if (!arena) return;
     
-    // 1. Release overflow segments
+    /* Step 1: release all chained overflow segments. */
     OrbitArenaOverflow* overflow = arena->overflow_list;
     while (overflow) {
         OrbitArenaOverflow* next = overflow->next;
@@ -235,11 +248,11 @@ void orbit_arena_destroy(OrbitArena* arena) {
         free(overflow);
         overflow = next;
     }
-    
-    // 2. Release main virtual reservation
+
+    /* Step 2: release the primary VA reservation. */
     orbit_virtual_release(arena->base, (size_t)(arena->reserved_end - arena->base));
-    
-    // 3. Destroy local string pool if any
+
+    /* Step 3: tear down the interning pool if one was attached. */
     if (arena->local_string_pool) {
         orbit_string_pool_local_destroy(arena->local_string_pool);
     }
@@ -249,6 +262,7 @@ void orbit_arena_destroy(OrbitArena* arena) {
 
 /* ── Allocation ─────────────────────────────────────────────────────── */
 
+/** @brief Allocate @p bytes from @p arena with alignment guaranteed to ORBIT_ARENA_ALIGN. Returns NULL on OOM. */
 void* orbit_alloc(OrbitArena* arena, size_t bytes) {
     if (!arena || bytes == 0) return NULL;
 
@@ -289,9 +303,8 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
             }
         }
         
-        /* Update compatibility fields */
         arena->used = current_used;
-        
+
         orbit_perf_record_total_alloc(aligned);
         return ptr;
     }
@@ -329,15 +342,14 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
             }
         }
         
-        /* Update compatibility fields */
         arena->used = current_used;
-        
+
         orbit_perf_record_total_alloc(aligned);
         return ptr;
     }
 
-    /* Exception/Overflow path: active segment reservation fully exhausted */
-    /* We allocate a new segment of virtual memory, swap it in, and save the old segment in overflow_list */
+    /* Overflow path: active segment is exhausted — allocate a fresh VA segment,
+     * chain the old one into overflow_list, and satisfy the request from the new segment. */
     size_t new_reserve = aligned > ORBIT_ARENA_DEFAULT_RESERVE ? aligned : ORBIT_ARENA_DEFAULT_RESERVE;
     new_reserve = orbit_align_up(new_reserve, arena->page_size);
     if (new_reserve == 0) {
@@ -359,21 +371,20 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
         return NULL;
     }
     
-    // Save old segment to overflow list
+    /* Push the current segment onto the overflow list. */
     OrbitArenaOverflow* overflow = (OrbitArenaOverflow*)malloc(sizeof(OrbitArenaOverflow));
     if (!overflow) {
         orbit_virtual_release(new_mem, new_reserve);
         orbit_perf_record_oom();
         return NULL;
     }
-    
-    // Save old segment fields
-    overflow->ptr = arena->base;
+
+    overflow->ptr  = arena->base;
     overflow->size = (size_t)(arena->reserved_end - arena->base);
     overflow->next = arena->overflow_list;
     arena->overflow_list = overflow;
-    
-    // Update main pointers to the new segment
+
+    /* Redirect the arena's primary pointers to the freshly reserved segment. */
     arena->base = (unsigned char*)new_mem;
     arena->cursor = (unsigned char*)new_mem + aligned;
     arena->committed_end = (unsigned char*)new_mem + new_commit;
@@ -382,7 +393,7 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
     arena->reserved_bytes += new_reserve;
     arena->committed_bytes += new_commit;
     
-    // Update compatibility fields to match the active segment
+    /* Synchronise compatibility alias fields with the new active segment. */
     arena->buffer = (char*)arena->base;
     arena->capacity = new_reserve;
     arena->used = aligned;
@@ -401,6 +412,7 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
     return ptr;
 }
 
+/** @brief Duplicate the C string @p src into @p arena and return a pointer to the copy. */
 char* orbit_arena_strdup(OrbitArena* arena, const char* src) {
     if (!src) return NULL;
     size_t len = strlen(src);
@@ -414,12 +426,13 @@ char* orbit_arena_strdup(OrbitArena* arena, const char* src) {
 
 /* ── Reset (O(1) logical cleanup & decommit reclamation policy) ─────── */
 
+/** @brief Reset @p arena to its initial state in O(1): release overflow segments, decommit excess pages, and bump the generation counter. */
 void orbit_arena_reset(OrbitArena* arena) {
     if (!arena) return;
 
     orbit_perf_record_reset();
 
-    // 1. Release overflow segments (which were the old active segments)
+    /* Step 1: release all chained overflow (retired) segments. */
     OrbitArenaOverflow* overflow = arena->overflow_list;
     while (overflow) {
         OrbitArenaOverflow* next = overflow->next;
@@ -429,16 +442,16 @@ void orbit_arena_reset(OrbitArena* arena) {
     }
     arena->overflow_list = NULL;
 
-    // 2. Reset the current active segment
+    /* Step 2: decommit pages beyond the hot-retention watermark. */
     size_t keep_size = ORBIT_ARENA_HOT_RETENTION_LIMIT;
     size_t page_size = arena->page_size;
     keep_size = orbit_align_up(keep_size, page_size);
-    
+
     size_t total_reserved = (size_t)(arena->reserved_end - arena->base);
     if (keep_size > total_reserved) {
         keep_size = total_reserved;
     }
-    
+
     unsigned char* keep_end = arena->base + keep_size;
     if (arena->committed_end > keep_end) {
         size_t decommit_size = (size_t)(arena->committed_end - keep_end);
@@ -446,23 +459,23 @@ void orbit_arena_reset(OrbitArena* arena) {
         orbit_perf_record_decommit_op();
         arena->committed_end = keep_end;
     }
-    
-    arena->committed_bytes = (size_t)(arena->committed_end - arena->base);
-    arena->reserved_bytes = total_reserved;
 
-    // 3. Reset pointers and update generation
-    arena->cursor = arena->base;
+    arena->committed_bytes = (size_t)(arena->committed_end - arena->base);
+    arena->reserved_bytes  = total_reserved;
+
+    /* Step 3: rewind the bump pointer and advance the epoch generation. */
+    arena->cursor         = arena->base;
     arena->requested_bytes = 0;
-    arena->aligned_bytes = 0;
-    arena->alloc_count = 0;
+    arena->aligned_bytes  = 0;
+    arena->alloc_count    = 0;
     arena->generation++;
 
-    // Sync compatibility fields
-    arena->used = 0;
+    /* Synchronise compatibility alias fields. */
+    arena->used     = 0;
     arena->capacity = total_reserved;
-    arena->buffer = (char*)arena->base;
+    arena->buffer   = (char*)arena->base;
 
-    // 4. Reset local string pool
+    /* Step 4: invalidate the per-arena interning table. */
     if (arena->local_string_pool) {
         orbit_string_pool_local_reset(arena->local_string_pool);
     }
@@ -470,6 +483,7 @@ void orbit_arena_reset(OrbitArena* arena) {
 
 /* ── Checkpoints & Rewind ───────────────────────────────────────────── */
 
+/** @brief Capture a lightweight checkpoint (byte offset + generation) that can be passed to orbit_arena_rewind(). */
 OrbitArenaCheckpoint orbit_arena_checkpoint(const OrbitArena* arena) {
     OrbitArenaCheckpoint cp = {0, 0};
     if (!arena) return cp;
@@ -479,6 +493,7 @@ OrbitArenaCheckpoint orbit_arena_checkpoint(const OrbitArena* arena) {
     return cp;
 }
 
+/** @brief Rewind @p arena's bump pointer back to @p checkpoint. Returns false if the checkpoint belongs to a past epoch or is ahead of the current cursor. */
 bool orbit_arena_rewind(OrbitArena* arena, OrbitArenaCheckpoint checkpoint) {
     if (!arena) return false;
     
@@ -500,6 +515,7 @@ bool orbit_arena_rewind(OrbitArena* arena, OrbitArenaCheckpoint checkpoint) {
 
 /* ── Promote: copy values (trivially copyable block promotion) ──────── */
 
+/** @brief Copy @p bytes from @p ptr into the parent of @p child, effectively promoting short-lived data to a longer-lived arena. */
 void* orbit_arena_promote(OrbitArena* child, const void* ptr, size_t bytes) {
     if (!child || !child->parent || !ptr || bytes == 0) return NULL;
     
@@ -513,21 +529,24 @@ void* orbit_arena_promote(OrbitArena* child, const void* ptr, size_t bytes) {
 
 /* ── Diagnostics ────────────────────────────────────────────────────── */
 
+/** @brief Return the total number of bytes currently used across the active segment and all overflow segments. */
 size_t orbit_arena_used(const OrbitArena* arena) {
     if (!arena) return 0;
     size_t total_used = (size_t)(arena->cursor - arena->base);
     OrbitArenaOverflow* overflow = arena->overflow_list;
     while (overflow) {
-        total_used += overflow->size; // Count full overflow block size as used
+        total_used += overflow->size; /* Each retired segment is counted in full. */
         overflow = overflow->next;
     }
     return total_used;
 }
 
+/** @brief Return the total reserved virtual address space, in bytes. */
 size_t orbit_arena_capacity(const OrbitArena* arena) {
     return arena ? arena->reserved_bytes : 0;
 }
 
+/** @brief Return the cumulative allocation count since the last reset. */
 uint64_t orbit_arena_alloc_count(const OrbitArena* arena) {
     return arena ? arena->alloc_count : 0;
 }

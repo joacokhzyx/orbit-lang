@@ -1,3 +1,11 @@
+//! orbit/src/main.zig
+//!
+//! Orbit compiler driver.  Parses CLI flags, runs the compilation pipeline
+//! (Lexer → Parser → Sema → IR → Codegen → cc), and reports structured
+//! timings via the Photon build-cache and Terminal UI subsystems.
+//!
+//! Entry point: `pub fn main()`.
+
 const std = @import("std");
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;

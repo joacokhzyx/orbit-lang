@@ -1,18 +1,33 @@
+//! Terminal capability detection for the Orbit compiler's output layer.
+//! Probes the running process's stdout/stderr to determine whether ANSI
+//! colour codes and Unicode characters should be emitted.  Results are
+//! stored in a process-wide global (`global_caps`) so that all rendering
+//! helpers can query them without extra plumbing.
+
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// Controls whether ANSI colour escape sequences are used in output.
 pub const ColorPreference = enum {
+    /// Detect automatically from environment variables and TTY state.
     auto,
+    /// Always emit colour codes regardless of TTY state.
     always,
+    /// Never emit colour codes.
     never,
 };
 
+/// Controls whether Unicode box-drawing / symbol characters are used in output.
 pub const UnicodePreference = enum {
+    /// Detect automatically from the `LANG` environment variable or OS defaults.
     auto,
+    /// Always use Unicode characters.
     always,
+    /// Fall back to plain ASCII.
     never,
 };
 
+/// Detected capabilities for the current terminal session.
 pub const TerminalCapabilities = struct {
     has_color: bool,
     has_unicode: bool,
@@ -22,16 +37,22 @@ pub const TerminalCapabilities = struct {
 
 var global_caps: ?TerminalCapabilities = null;
 
+/// Detects terminal capabilities and writes them to the process-wide global.
+///
+/// On Windows, enables Virtual Terminal Processing (ANSI support) when stdout
+/// is a console handle.  The `NO_COLOR` and `TERM=dumb` conventions are
+/// honoured in `auto` colour mode.  Unicode detection falls back to
+/// `LANG` inspection on POSIX and defaults to `true` on Windows.
 pub fn init(color_pref: ColorPreference, unicode_pref: UnicodePreference, io: anytype, environ_map: anytype) TerminalCapabilities {
     _ = io;
     const is_stdout = checkStdoutTty();
     const is_stderr = checkStderrTty();
-    
+
     // Enable VT processing on Windows
     if (builtin.os.tag == .windows and is_stdout) {
         enableWindowsVT();
     }
-    
+
     var color = false;
     switch (color_pref) {
         .always => color = true,
@@ -40,7 +61,7 @@ pub fn init(color_pref: ColorPreference, unicode_pref: UnicodePreference, io: an
             const no_color_env = environ_map.get("NO_COLOR");
             const term_env = environ_map.get("TERM");
             const is_dumb = if (term_env) |t| std.mem.eql(u8, t, "dumb") else false;
-            
+
             if (no_color_env != null or is_dumb) {
                 color = false;
             } else {
@@ -48,7 +69,7 @@ pub fn init(color_pref: ColorPreference, unicode_pref: UnicodePreference, io: an
             }
         },
     }
-    
+
     var unicode = false;
     switch (unicode_pref) {
         .always => unicode = true,
@@ -57,16 +78,16 @@ pub fn init(color_pref: ColorPreference, unicode_pref: UnicodePreference, io: an
             // Check if encoding is UTF-8 or terminal supports unicode
             const lang = environ_map.get("LANG") orelse "";
             const is_utf8 = std.mem.indexOf(u8, lang, "UTF-8") != null or std.mem.indexOf(u8, lang, "utf8") != null;
-            
+
             if (builtin.os.tag == .windows) {
                 // Windows supports unicode by default in modern terminals or if code page is UTF-8
-                unicode = true; 
+                unicode = true;
             } else {
                 unicode = is_utf8 or (environ_map.get("TERM") != null and !std.mem.eql(u8, environ_map.get("TERM").?, "dumb"));
             }
         },
     }
-    
+
     const caps = TerminalCapabilities{
         .has_color = color,
         .has_unicode = unicode,
@@ -77,6 +98,9 @@ pub fn init(color_pref: ColorPreference, unicode_pref: UnicodePreference, io: an
     return caps;
 }
 
+/// Returns the globally stored `TerminalCapabilities`.  If `init` has not
+/// been called yet, returns a safe all-false default (no colour, no Unicode,
+/// no TTY).
 pub fn get() TerminalCapabilities {
     return global_caps orelse .{
         .has_color = false,

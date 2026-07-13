@@ -1,3 +1,10 @@
+//! orbit/src/ir/builder.zig
+//!
+//! Walks the Orbit AST and constructs the compiler's Intermediate Representation.
+//! Produces an `IRModule` containing `IRFunction`s whose bodies are flat lists of
+//! `IRInstruction` values.  The IR is consumed by `optimizer.zig` and then by
+//! `codegen/c_backend.zig` for final C emission.
+
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;

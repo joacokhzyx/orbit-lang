@@ -1,3 +1,12 @@
+/**
+ * @file  auth.c
+ * @brief JWT-based authentication helpers for Orbit HTTP handlers.
+ *
+ * Provides token generation, HMAC-SHA256 signature verification, and
+ * bearer-token extraction from Authorization headers.  All allocations
+ * use the request-scoped OrbitArena so tokens are freed automatically
+ * at epoch end.
+ */
 #ifndef ORBIT_AUTH_H
 #define ORBIT_AUTH_H
 
