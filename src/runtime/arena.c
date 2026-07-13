@@ -4,71 +4,219 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
+
+#ifdef _WIN32
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #include <windows.h>
+#else
+  #include <sys/mman.h>
+  #include <unistd.h>
+#endif
 
 /* ──────────────────────────────────────────────────────────────────────
- * Orbit Arena — Region-based deterministic memory.
- *
- * Design:
- *   - Chained block allocator to ensure stable pointer addresses.
- *   - Every block is contiguous. Growth allocates a new block.
- *   - No GC, no reference counting, no tracing.
- *
- * Alignment: all allocations are aligned to ORBIT_ARENA_ALIGN bytes.
- * Growth: when capacity is exceeded, a new block is allocated.
+ * Orbit Arena — Region-based deterministic memory (Epochal VM Version).
  * ────────────────────────────────────────────────────────────────────── */
 
 #ifndef ORBIT_ARENA_ALIGN
 #define ORBIT_ARENA_ALIGN 16
 #endif
 
-typedef struct OrbitArenaBlock {
-    struct OrbitArenaBlock* next;
-    size_t                  capacity;
-    size_t                  used;
-} OrbitArenaBlock;
+#ifndef ORBIT_ARENA_DEFAULT_RESERVE
+#define ORBIT_ARENA_DEFAULT_RESERVE (64 * 1024 * 1024) // 64 MB virtual reservation
+#endif
+
+#ifndef ORBIT_ARENA_DEFAULT_COMMIT
+#define ORBIT_ARENA_DEFAULT_COMMIT (64 * 1024) // 64 KB initial physical commit
+#endif
+
+#ifndef ORBIT_ARENA_GROWTH_GRANULARITY
+#define ORBIT_ARENA_GROWTH_GRANULARITY (64 * 1024) // 64 KB increments
+#endif
+
+#ifndef ORBIT_ARENA_HOT_RETENTION_LIMIT
+#define ORBIT_ARENA_HOT_RETENTION_LIMIT (256 * 1024) // Retain 256 KB hot committed memory on reset
+#endif
+
+typedef struct OrbitArenaOverflow {
+    struct OrbitArenaOverflow* next;
+    void*                      ptr;
+    size_t                     size;
+} OrbitArenaOverflow;
+
+// Forward declaration of local string pool
+struct OrbitStringPoolLocal;
 
 typedef struct OrbitArena {
-    OrbitArenaBlock*  first_block;
-    OrbitArenaBlock*  current_block;
+    unsigned char* base;
+    unsigned char* cursor;
+    unsigned char* committed_end;
+    unsigned char* reserved_end;
+
+    size_t page_size;
+    size_t requested_bytes;
+    size_t aligned_bytes;
+    size_t peak_used;
+    size_t committed_bytes;
+    size_t reserved_bytes;
+
+    uint64_t generation;
+    uint64_t alloc_count;
+
     struct OrbitArena* parent;      /* NULL for root/global arenas */
-    uint64_t          alloc_count;  /* total allocations (profiling) */
+
+    // Local string pool (generation-aware)
+    struct OrbitStringPoolLocal* local_string_pool;
+
+    // Overflow segments list
+    OrbitArenaOverflow* overflow_list;
 
     /* compatibility fields */
-    char*             buffer;       /* points to current_block's data buffer */
-    size_t            capacity;     /* current_block's capacity */
-    size_t            used;         /* current_block's used bytes */
+    char*             buffer;       /* points to base */
+    size_t            capacity;     /* total reserved capacity */
+    size_t            used;         /* current used bytes */
 } OrbitArena;
+
+typedef struct {
+    size_t offset;
+    uint64_t generation;
+} OrbitArenaCheckpoint;
+
+/* ── Virtual Memory Abstraction ──────────────────────────────────────── */
+
+static inline size_t orbit_get_page_size(void) {
+#ifdef _WIN32
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return (size_t)si.dwPageSize;
+#else
+    long sz = sysconf(_SC_PAGESIZE);
+    return sz > 0 ? (size_t)sz : 4096;
+#endif
+}
+
+static inline void* orbit_virtual_reserve(size_t size) {
+#ifdef _WIN32
+    return VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_NOACCESS);
+#else
+    void* addr = mmap(NULL, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return (addr == MAP_FAILED) ? NULL : addr;
+#endif
+}
+
+static inline bool orbit_virtual_commit(void* addr, size_t size) {
+    if (!addr || size == 0) return true;
+#ifdef _WIN32
+    return VirtualAlloc(addr, size, MEM_COMMIT, PAGE_READWRITE) != NULL;
+#else
+    return mprotect(addr, size, PROT_READ | PROT_WRITE) == 0;
+#endif
+}
+
+static inline void orbit_virtual_decommit(void* addr, size_t size) {
+    if (!addr || size == 0) return;
+#ifdef _WIN32
+    VirtualFree(addr, size, MEM_DECOMMIT);
+#else
+#ifdef MADV_DONTNEED
+    madvise(addr, size, MADV_DONTNEED);
+#endif
+    mprotect(addr, size, PROT_NONE);
+#endif
+}
+
+static inline void orbit_virtual_release(void* addr, size_t size) {
+    if (!addr || size == 0) return;
+#ifdef _WIN32
+    VirtualFree(addr, 0, MEM_RELEASE);
+#else
+    munmap(addr, size);
+#endif
+}
+
+/* ── Safe Overflow Checked Helpers ───────────────────────────────────── */
+
+static inline size_t orbit_align_up(size_t size, size_t alignment) {
+    if (size > SIZE_MAX - (alignment - 1)) {
+        return 0; // Overflow
+    }
+    return (size + (alignment - 1)) & ~(alignment - 1);
+}
+
+/* Forward declarations for string pool integration */
+static void orbit_string_pool_local_destroy(struct OrbitStringPoolLocal* pool);
+static void orbit_string_pool_local_reset(struct OrbitStringPoolLocal* pool);
 
 /* ── Creation & Destruction ─────────────────────────────────────────── */
 
 OrbitArena* orbit_arena_create(size_t initial_capacity) {
-    OrbitArena* arena = (OrbitArena*)malloc(sizeof(OrbitArena));
-    if (!arena) return NULL;
+    size_t page_size = orbit_get_page_size();
+    
+    size_t reserve_size = ORBIT_ARENA_DEFAULT_RESERVE;
+    if (initial_capacity > reserve_size) {
+        reserve_size = initial_capacity;
+    }
+    reserve_size = orbit_align_up(reserve_size, page_size);
+    if (reserve_size == 0) return NULL;
+    
+    size_t commit_size = initial_capacity > 0 ? initial_capacity : ORBIT_ARENA_DEFAULT_COMMIT;
+    commit_size = orbit_align_up(commit_size, page_size);
+    if (commit_size == 0) return NULL;
 
-    OrbitArenaBlock* first_block = (OrbitArenaBlock*)malloc(sizeof(OrbitArenaBlock) + initial_capacity);
-    if (!first_block) {
-        free(arena);
+    if (commit_size > reserve_size) {
+        reserve_size = commit_size;
+    }
+    
+    void* reserved = orbit_virtual_reserve(reserve_size);
+    if (!reserved) return NULL;
+    
+    if (!orbit_virtual_commit(reserved, commit_size)) {
+        orbit_virtual_release(reserved, reserve_size);
         return NULL;
     }
+    
+    OrbitArena* arena = (OrbitArena*)malloc(sizeof(OrbitArena));
+    if (!arena) {
+        orbit_virtual_release(reserved, reserve_size);
+        return NULL;
+    }
+    
+    arena->base = (unsigned char*)reserved;
+    arena->cursor = (unsigned char*)reserved;
+    arena->committed_end = (unsigned char*)reserved + commit_size;
+    arena->reserved_end = (unsigned char*)reserved + reserve_size;
+    
+    arena->page_size = page_size;
+    arena->requested_bytes = 0;
+    arena->aligned_bytes = 0;
+    arena->peak_used = 0;
+    arena->committed_bytes = commit_size;
+    arena->reserved_bytes = reserve_size;
+    
+    arena->generation = 1;
+    arena->alloc_count = 0;
+    arena->parent = NULL;
+    
+    arena->local_string_pool = NULL;
+    arena->overflow_list = NULL;
+    
+    // Compatibility fields
+    arena->buffer = (char*)arena->base;
+    arena->capacity = arena->reserved_bytes;
+    arena->used = 0;
 
-    first_block->next     = NULL;
-    first_block->capacity = initial_capacity;
-    first_block->used     = 0;
-
-    arena->first_block   = first_block;
-    arena->current_block = first_block;
-    arena->parent        = NULL;
-    arena->alloc_count   = 0;
-
-    /* Maintain compatibility fields */
-    arena->buffer        = (char*)first_block + sizeof(OrbitArenaBlock);
-    arena->capacity      = initial_capacity;
-    arena->used          = 0;
-
+    // Telemetry
+    orbit_perf_record_virtual_reserved(reserve_size);
+    orbit_perf_record_committed(commit_size);
+    orbit_perf_record_commit_op();
+    
     return arena;
 }
 
 OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity) {
+    if (!parent) return NULL;
     OrbitArena* child = orbit_arena_create(initial_capacity);
     if (child) {
         child->parent = parent;
@@ -78,13 +226,24 @@ OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity
 
 void orbit_arena_destroy(OrbitArena* arena) {
     if (!arena) return;
-
-    OrbitArenaBlock* block = arena->first_block;
-    while (block) {
-        OrbitArenaBlock* next = block->next;
-        free(block);
-        block = next;
+    
+    // 1. Release overflow segments
+    OrbitArenaOverflow* overflow = arena->overflow_list;
+    while (overflow) {
+        OrbitArenaOverflow* next = overflow->next;
+        orbit_virtual_release(overflow->ptr, overflow->size);
+        free(overflow);
+        overflow = next;
     }
+    
+    // 2. Release main virtual reservation
+    orbit_virtual_release(arena->base, (size_t)(arena->reserved_end - arena->base));
+    
+    // 3. Destroy local string pool if any
+    if (arena->local_string_pool) {
+        orbit_string_pool_local_destroy(arena->local_string_pool);
+    }
+    
     free(arena);
 }
 
@@ -93,62 +252,144 @@ void orbit_arena_destroy(OrbitArena* arena) {
 void* orbit_alloc(OrbitArena* arena, size_t bytes) {
     if (!arena || bytes == 0) return NULL;
 
-    /* Align to ORBIT_ARENA_ALIGN boundary */
-    size_t aligned = (bytes + (ORBIT_ARENA_ALIGN - 1)) & ~(ORBIT_ARENA_ALIGN - 1);
-
-    /* Grow if needed: check if current block has space */
-    if (arena->current_block->used + aligned > arena->current_block->capacity) {
-        OrbitArenaBlock* next_block = arena->current_block->next;
-
-        if (next_block && next_block->capacity >= aligned) {
-            /* Reuse existing block from a previous reset */
-            next_block->used = 0;
-            arena->current_block = next_block;
-        } else {
-            /* Allocate a new block (double capacity of current block) */
-            size_t new_cap = arena->current_block->capacity * 2;
-            if (new_cap < aligned) {
-                new_cap = aligned;
-            }
-
-            OrbitArenaBlock* new_block = (OrbitArenaBlock*)malloc(sizeof(OrbitArenaBlock) + new_cap);
-            if (!new_block) return NULL;
-
-            new_block->next     = NULL;
-            new_block->capacity = new_cap;
-            new_block->used     = 0;
-
-            /* Free any smaller/unused subsequent blocks to avoid leakage */
-            if (next_block) {
-                OrbitArenaBlock* curr = next_block;
-                while (curr) {
-                    OrbitArenaBlock* tmp = curr->next;
-                    free(curr);
-                    curr = tmp;
-                }
-            }
-
-            arena->current_block->next = new_block;
-            arena->current_block       = new_block;
-        }
+    /* Align to ORBIT_ARENA_ALIGN boundary safely */
+    size_t aligned = orbit_align_up(bytes, ORBIT_ARENA_ALIGN);
+    if (aligned == 0) {
+        orbit_perf_record_oom();
+        return NULL; /* Overflow protection */
     }
 
-    void* ptr = (char*)arena->current_block + sizeof(OrbitArenaBlock) + arena->current_block->used;
-    arena->current_block->used += aligned;
+    orbit_perf_record_requested_bytes(bytes);
+    unsigned char* new_cursor = arena->cursor + aligned;
+
+    /* Fast path: fits inside currently committed space */
+    if (new_cursor <= arena->committed_end) {
+        void* ptr = arena->cursor;
+        arena->cursor = new_cursor;
+        arena->alloc_count++;
+        arena->requested_bytes += bytes;
+        arena->aligned_bytes += aligned;
+        
+        size_t current_used = (size_t)(arena->cursor - arena->base);
+        if (current_used > arena->peak_used) {
+            arena->peak_used = current_used;
+            if (current_used > orbit_perf_stats.arena_peak_used_bytes) {
+                orbit_perf_stats.arena_peak_used_bytes = current_used;
+            }
+        }
+        
+        /* Update compatibility fields */
+        arena->used = current_used;
+        
+        orbit_perf_record_total_alloc(aligned);
+        return ptr;
+    }
+
+    /* Slow path: fits inside reservation, commit more pages */
+    if (new_cursor <= arena->reserved_end) {
+        size_t needed = (size_t)(new_cursor - arena->committed_end);
+        size_t page_aligned = orbit_align_up(needed, arena->page_size);
+        if (page_aligned == 0) {
+            orbit_perf_record_oom();
+            return NULL;
+        }
+
+        orbit_perf_record_commit_op();
+        if (!orbit_virtual_commit(arena->committed_end, page_aligned)) {
+            orbit_perf_record_oom();
+            return NULL; /* Out of physical memory */
+        }
+        
+        arena->committed_end += page_aligned;
+        arena->committed_bytes += page_aligned;
+        orbit_perf_record_committed(page_aligned);
+        
+        void* ptr = arena->cursor;
+        arena->cursor = new_cursor;
+        arena->alloc_count++;
+        arena->requested_bytes += bytes;
+        arena->aligned_bytes += aligned;
+        
+        size_t current_used = (size_t)(arena->cursor - arena->base);
+        if (current_used > arena->peak_used) {
+            arena->peak_used = current_used;
+            if (current_used > orbit_perf_stats.arena_peak_used_bytes) {
+                orbit_perf_stats.arena_peak_used_bytes = current_used;
+            }
+        }
+        
+        /* Update compatibility fields */
+        arena->used = current_used;
+        
+        orbit_perf_record_total_alloc(aligned);
+        return ptr;
+    }
+
+    /* Exception/Overflow path: active segment reservation fully exhausted */
+    /* We allocate a new segment of virtual memory, swap it in, and save the old segment in overflow_list */
+    size_t new_reserve = aligned > ORBIT_ARENA_DEFAULT_RESERVE ? aligned : ORBIT_ARENA_DEFAULT_RESERVE;
+    new_reserve = orbit_align_up(new_reserve, arena->page_size);
+    if (new_reserve == 0) {
+        orbit_perf_record_oom();
+        return NULL;
+    }
+    
+    void* new_mem = orbit_virtual_reserve(new_reserve);
+    if (!new_mem) {
+        orbit_perf_record_oom();
+        return NULL;
+    }
+    
+    size_t new_commit = aligned > ORBIT_ARENA_DEFAULT_COMMIT ? aligned : ORBIT_ARENA_DEFAULT_COMMIT;
+    new_commit = orbit_align_up(new_commit, arena->page_size);
+    if (new_commit == 0 || !orbit_virtual_commit(new_mem, new_commit)) {
+        orbit_virtual_release(new_mem, new_reserve);
+        orbit_perf_record_oom();
+        return NULL;
+    }
+    
+    // Save old segment to overflow list
+    OrbitArenaOverflow* overflow = (OrbitArenaOverflow*)malloc(sizeof(OrbitArenaOverflow));
+    if (!overflow) {
+        orbit_virtual_release(new_mem, new_reserve);
+        orbit_perf_record_oom();
+        return NULL;
+    }
+    
+    // Save old segment fields
+    overflow->ptr = arena->base;
+    overflow->size = (size_t)(arena->reserved_end - arena->base);
+    overflow->next = arena->overflow_list;
+    arena->overflow_list = overflow;
+    
+    // Update main pointers to the new segment
+    arena->base = (unsigned char*)new_mem;
+    arena->cursor = (unsigned char*)new_mem + aligned;
+    arena->committed_end = (unsigned char*)new_mem + new_commit;
+    arena->reserved_end = (unsigned char*)new_mem + new_reserve;
+    
+    arena->reserved_bytes += new_reserve;
+    arena->committed_bytes += new_commit;
+    
+    // Update compatibility fields to match the active segment
+    arena->buffer = (char*)arena->base;
+    arena->capacity = new_reserve;
+    arena->used = aligned;
+    
+    orbit_perf_record_overflow_alloc();
+    orbit_perf_record_virtual_reserved(new_reserve);
+    orbit_perf_record_committed(new_commit);
+    orbit_perf_record_commit_op();
+
+    void* ptr = new_mem;
     arena->alloc_count++;
-
-    /* Update compatibility fields */
-    arena->buffer   = (char*)arena->current_block + sizeof(OrbitArenaBlock);
-    arena->capacity = arena->current_block->capacity;
-    arena->used     = arena->current_block->used;
-
-    /* Telemetry hook */
-    orbit_perf_stats.total_alloc_bytes += aligned;
-
+    arena->requested_bytes += bytes;
+    arena->aligned_bytes += aligned;
+    
+    orbit_perf_record_total_alloc(aligned);
     return ptr;
 }
 
-/* Arena-allocated strdup */
 char* orbit_arena_strdup(OrbitArena* arena, const char* src) {
     if (!src) return NULL;
     size_t len = strlen(src);
@@ -160,31 +401,98 @@ char* orbit_arena_strdup(OrbitArena* arena, const char* src) {
     return dst;
 }
 
-/* ── Reset (O(1) cleanup) ──────────────────────────────────────────── */
+/* ── Reset (O(1) logical cleanup & decommit reclamation policy) ─────── */
 
 void orbit_arena_reset(OrbitArena* arena) {
     if (!arena) return;
 
-    /* Reset all blocks' usage counters to 0 to allow reuse */
-    OrbitArenaBlock* block = arena->first_block;
-    while (block) {
-        block->used = 0;
-        block = block->next;
+    orbit_perf_record_reset();
+
+    // 1. Release overflow segments (which were the old active segments)
+    OrbitArenaOverflow* overflow = arena->overflow_list;
+    while (overflow) {
+        OrbitArenaOverflow* next = overflow->next;
+        orbit_virtual_release(overflow->ptr, overflow->size);
+        free(overflow);
+        overflow = next;
     }
+    arena->overflow_list = NULL;
 
-    arena->current_block = arena->first_block;
-    arena->alloc_count   = 0;
+    // 2. Reset the current active segment
+    size_t keep_size = ORBIT_ARENA_HOT_RETENTION_LIMIT;
+    size_t page_size = arena->page_size;
+    keep_size = orbit_align_up(keep_size, page_size);
+    
+    size_t total_reserved = (size_t)(arena->reserved_end - arena->base);
+    if (keep_size > total_reserved) {
+        keep_size = total_reserved;
+    }
+    
+    unsigned char* keep_end = arena->base + keep_size;
+    if (arena->committed_end > keep_end) {
+        size_t decommit_size = (size_t)(arena->committed_end - keep_end);
+        orbit_virtual_decommit(keep_end, decommit_size);
+        orbit_perf_record_decommit_op();
+        arena->committed_end = keep_end;
+    }
+    
+    arena->committed_bytes = (size_t)(arena->committed_end - arena->base);
+    arena->reserved_bytes = total_reserved;
 
-    /* Update compatibility fields */
-    arena->buffer        = (char*)arena->first_block + sizeof(OrbitArenaBlock);
-    arena->capacity      = arena->first_block->capacity;
-    arena->used          = 0;
+    // 3. Reset pointers and update generation
+    arena->cursor = arena->base;
+    arena->requested_bytes = 0;
+    arena->aligned_bytes = 0;
+    arena->alloc_count = 0;
+    arena->generation++;
+
+    // Sync compatibility fields
+    arena->used = 0;
+    arena->capacity = total_reserved;
+    arena->buffer = (char*)arena->base;
+
+    // 4. Reset local string pool
+    if (arena->local_string_pool) {
+        orbit_string_pool_local_reset(arena->local_string_pool);
+    }
 }
 
-/* ── Promote: copy a value from child arena to parent arena ─────── */
+/* ── Checkpoints & Rewind ───────────────────────────────────────────── */
+
+OrbitArenaCheckpoint orbit_arena_checkpoint(const OrbitArena* arena) {
+    OrbitArenaCheckpoint cp = {0, 0};
+    if (!arena) return cp;
+    orbit_perf_record_checkpoint();
+    cp.offset = (size_t)(arena->cursor - arena->base);
+    cp.generation = arena->generation;
+    return cp;
+}
+
+bool orbit_arena_rewind(OrbitArena* arena, OrbitArenaCheckpoint checkpoint) {
+    if (!arena) return false;
+    
+    orbit_perf_record_rewind();
+
+    if (checkpoint.generation != arena->generation) {
+        return false; /* Invalid checkpoint from past epoch */
+    }
+    
+    size_t current_offset = (size_t)(arena->cursor - arena->base);
+    if (checkpoint.offset > current_offset) {
+        return false; /* Cannot rewind forward */
+    }
+    
+    arena->cursor = arena->base + checkpoint.offset;
+    arena->used = checkpoint.offset;
+    return true;
+}
+
+/* ── Promote: copy values (trivially copyable block promotion) ──────── */
 
 void* orbit_arena_promote(OrbitArena* child, const void* ptr, size_t bytes) {
-    if (!child || !child->parent || !ptr) return NULL;
+    if (!child || !child->parent || !ptr || bytes == 0) return NULL;
+    
+    /* Checked addition/overflow validation for copying */
     void* promoted = orbit_alloc(child->parent, bytes);
     if (promoted) {
         memcpy(promoted, ptr, bytes);
@@ -196,24 +504,17 @@ void* orbit_arena_promote(OrbitArena* child, const void* ptr, size_t bytes) {
 
 size_t orbit_arena_used(const OrbitArena* arena) {
     if (!arena) return 0;
-    size_t total_used = 0;
-    OrbitArenaBlock* block = arena->first_block;
-    while (block) {
-        total_used += block->used;
-        block = block->next;
+    size_t total_used = (size_t)(arena->cursor - arena->base);
+    OrbitArenaOverflow* overflow = arena->overflow_list;
+    while (overflow) {
+        total_used += overflow->size; // Count full overflow block size as used
+        overflow = overflow->next;
     }
     return total_used;
 }
 
 size_t orbit_arena_capacity(const OrbitArena* arena) {
-    if (!arena) return 0;
-    size_t total_capacity = 0;
-    OrbitArenaBlock* block = arena->first_block;
-    while (block) {
-        total_capacity += block->capacity;
-        block = block->next;
-    }
-    return total_capacity;
+    return arena ? arena->reserved_bytes : 0;
 }
 
 uint64_t orbit_arena_alloc_count(const OrbitArena* arena) {
