@@ -9,26 +9,34 @@
  * Orbit Arena — Region-based deterministic memory.
  *
  * Design:
- *   - Every Arena is a contiguous bump allocator.
- *   - Arenas form a hierarchy: Global → Request → Computation.
- *   - A child Arena can read from its parent (parent outlives child).
- *   - Cleanup is O(1): reset the bump pointer.
+ *   - Chained block allocator to ensure stable pointer addresses.
+ *   - Every block is contiguous. Growth allocates a new block.
  *   - No GC, no reference counting, no tracing.
  *
  * Alignment: all allocations are aligned to ORBIT_ARENA_ALIGN bytes.
- * Growth: when capacity is exceeded, the buffer doubles (realloc).
+ * Growth: when capacity is exceeded, a new block is allocated.
  * ────────────────────────────────────────────────────────────────────── */
 
 #ifndef ORBIT_ARENA_ALIGN
 #define ORBIT_ARENA_ALIGN 16
 #endif
 
+typedef struct OrbitArenaBlock {
+    struct OrbitArenaBlock* next;
+    size_t                  capacity;
+    size_t                  used;
+} OrbitArenaBlock;
+
 typedef struct OrbitArena {
-    char*            buffer;
-    size_t           capacity;
-    size_t           used;
+    OrbitArenaBlock*  first_block;
+    OrbitArenaBlock*  current_block;
     struct OrbitArena* parent;      /* NULL for root/global arenas */
-    uint64_t         alloc_count;   /* total allocations (profiling) */
+    uint64_t          alloc_count;  /* total allocations (profiling) */
+
+    /* compatibility fields */
+    char*             buffer;       /* points to current_block's data buffer */
+    size_t            capacity;     /* current_block's capacity */
+    size_t            used;         /* current_block's used bytes */
 } OrbitArena;
 
 /* ── Creation & Destruction ─────────────────────────────────────────── */
@@ -37,16 +45,26 @@ OrbitArena* orbit_arena_create(size_t initial_capacity) {
     OrbitArena* arena = (OrbitArena*)malloc(sizeof(OrbitArena));
     if (!arena) return NULL;
 
-    arena->buffer = (char*)malloc(initial_capacity);
-    if (!arena->buffer) {
+    OrbitArenaBlock* first_block = (OrbitArenaBlock*)malloc(sizeof(OrbitArenaBlock) + initial_capacity);
+    if (!first_block) {
         free(arena);
         return NULL;
     }
 
-    arena->capacity    = initial_capacity;
-    arena->used        = 0;
-    arena->parent      = NULL;
-    arena->alloc_count = 0;
+    first_block->next     = NULL;
+    first_block->capacity = initial_capacity;
+    first_block->used     = 0;
+
+    arena->first_block   = first_block;
+    arena->current_block = first_block;
+    arena->parent        = NULL;
+    arena->alloc_count   = 0;
+
+    /* Maintain compatibility fields */
+    arena->buffer        = (char*)first_block + sizeof(OrbitArenaBlock);
+    arena->capacity      = initial_capacity;
+    arena->used          = 0;
+
     return arena;
 }
 
@@ -60,7 +78,13 @@ OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity
 
 void orbit_arena_destroy(OrbitArena* arena) {
     if (!arena) return;
-    free(arena->buffer);
+
+    OrbitArenaBlock* block = arena->first_block;
+    while (block) {
+        OrbitArenaBlock* next = block->next;
+        free(block);
+        block = next;
+    }
     free(arena);
 }
 
@@ -72,27 +96,55 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
     /* Align to ORBIT_ARENA_ALIGN boundary */
     size_t aligned = (bytes + (ORBIT_ARENA_ALIGN - 1)) & ~(ORBIT_ARENA_ALIGN - 1);
 
-    /* Grow if needed (double until it fits) */
-    if (arena->used + aligned > arena->capacity) {
-        size_t new_cap = arena->capacity * 2;
-        while (new_cap < arena->used + aligned) {
-            new_cap *= 2;
+    /* Grow if needed: check if current block has space */
+    if (arena->current_block->used + aligned > arena->current_block->capacity) {
+        OrbitArenaBlock* next_block = arena->current_block->next;
+
+        if (next_block && next_block->capacity >= aligned) {
+            /* Reuse existing block from a previous reset */
+            next_block->used = 0;
+            arena->current_block = next_block;
+        } else {
+            /* Allocate a new block (double capacity of current block) */
+            size_t new_cap = arena->current_block->capacity * 2;
+            if (new_cap < aligned) {
+                new_cap = aligned;
+            }
+
+            OrbitArenaBlock* new_block = (OrbitArenaBlock*)malloc(sizeof(OrbitArenaBlock) + new_cap);
+            if (!new_block) return NULL;
+
+            new_block->next     = NULL;
+            new_block->capacity = new_cap;
+            new_block->used     = 0;
+
+            /* Free any smaller/unused subsequent blocks to avoid leakage */
+            if (next_block) {
+                OrbitArenaBlock* curr = next_block;
+                while (curr) {
+                    OrbitArenaBlock* tmp = curr->next;
+                    free(curr);
+                    curr = tmp;
+                }
+            }
+
+            arena->current_block->next = new_block;
+            arena->current_block       = new_block;
         }
-
-        char* new_buf = (char*)realloc(arena->buffer, new_cap);
-        if (!new_buf) return NULL;
-
-        arena->buffer   = new_buf;
-        arena->capacity = new_cap;
     }
 
-    void* ptr = arena->buffer + arena->used;
-    arena->used += aligned;
+    void* ptr = (char*)arena->current_block + sizeof(OrbitArenaBlock) + arena->current_block->used;
+    arena->current_block->used += aligned;
     arena->alloc_count++;
 
-    // Telemetry hook
+    /* Update compatibility fields */
+    arena->buffer   = (char*)arena->current_block + sizeof(OrbitArenaBlock);
+    arena->capacity = arena->current_block->capacity;
+    arena->used     = arena->current_block->used;
+
+    /* Telemetry hook */
     orbit_perf_stats.total_alloc_bytes += aligned;
-    
+
     return ptr;
 }
 
@@ -112,9 +164,21 @@ char* orbit_arena_strdup(OrbitArena* arena, const char* src) {
 
 void orbit_arena_reset(OrbitArena* arena) {
     if (!arena) return;
-    arena->used        = 0;
-    arena->alloc_count = 0;
-    /* buffer is NOT freed — reused for next lifecycle */
+
+    /* Reset all blocks' usage counters to 0 to allow reuse */
+    OrbitArenaBlock* block = arena->first_block;
+    while (block) {
+        block->used = 0;
+        block = block->next;
+    }
+
+    arena->current_block = arena->first_block;
+    arena->alloc_count   = 0;
+
+    /* Update compatibility fields */
+    arena->buffer        = (char*)arena->first_block + sizeof(OrbitArenaBlock);
+    arena->capacity      = arena->first_block->capacity;
+    arena->used          = 0;
 }
 
 /* ── Promote: copy a value from child arena to parent arena ─────── */
@@ -131,11 +195,25 @@ void* orbit_arena_promote(OrbitArena* child, const void* ptr, size_t bytes) {
 /* ── Diagnostics ────────────────────────────────────────────────────── */
 
 size_t orbit_arena_used(const OrbitArena* arena) {
-    return arena ? arena->used : 0;
+    if (!arena) return 0;
+    size_t total_used = 0;
+    OrbitArenaBlock* block = arena->first_block;
+    while (block) {
+        total_used += block->used;
+        block = block->next;
+    }
+    return total_used;
 }
 
 size_t orbit_arena_capacity(const OrbitArena* arena) {
-    return arena ? arena->capacity : 0;
+    if (!arena) return 0;
+    size_t total_capacity = 0;
+    OrbitArenaBlock* block = arena->first_block;
+    while (block) {
+        total_capacity += block->capacity;
+        block = block->next;
+    }
+    return total_capacity;
 }
 
 uint64_t orbit_arena_alloc_count(const OrbitArena* arena) {

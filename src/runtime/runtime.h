@@ -20,6 +20,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdint.h>
+#include "socket_compat.h"
 
 /* ── Core types & Result<T,E> ──────────────────────────────────────── */
 #include "types.c"
@@ -41,19 +42,30 @@
 #include "os.c"
 
 /* ── Data ───────────────────────────────────────────────────────────── */
+#ifndef ORBIT_CUSTOM_ROUTER
+int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed);
+#endif
+#ifdef ORBIT_WITH_DB
 #include "database.c"
+#endif
 
 /* ── Auth (sessions/users, Bearer tokens) ──────────────────────────── */
+#ifdef ORBIT_WITH_DB
 #include "auth.c"
+#endif
 
 
 /* ── Network ────────────────────────────────────────────────────────── */
+#ifdef ORBIT_WITH_NET
 #include "http.c"
-
-/* ── Security ───────────────────────────────────────────────────────── */
 #include "kynx.c"
+#endif
 
 /* ── Convenience ────────────────────────────────────────────────────── */
-#define print(...) do { printf(__VA_ARGS__); fflush(stdout); } while(0)
+#define print(...) do { printf(__VA_ARGS__); } while(0)
+
+static inline int bit_op(int i) {
+    return ((i * 17) ^ (i >> 2)) & 0xFFFF;
+}
 
 #endif

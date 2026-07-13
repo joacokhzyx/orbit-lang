@@ -46,7 +46,8 @@ pub const CodegenC = struct {
         const main_func = try RuntimeLoader.generateMainFunction(
             self.allocator,
             self.has_server_init,
-            self.config.port
+            false,
+            self.config
         );
         try self.output.appendSlice(self.allocator, main_func);
         
@@ -75,7 +76,20 @@ pub const CodegenC = struct {
 
         if (self.has_server_init) {
             try route_gen.generateRouteDispatcher();
-        } else {
+        }
+
+        var has_user_main = false;
+        for (root.data.root.decls) |decl| {
+            if (decl.tag == .fn_decl) {
+                const fn_data = decl.data.fn_decl;
+                const fn_name = fn_data.name.getText(self.source);
+                if (std.mem.eql(u8, fn_name, "main")) {
+                    has_user_main = true;
+                }
+            }
+        }
+
+        if (!has_user_main) {
             try self.generateStandaloneMain(root);
         }
     }
@@ -162,7 +176,7 @@ pub const CodegenC = struct {
     }
 
     fn generateStandaloneMain(self: *CodegenC, root: *Node) !void {
-        try self.output.appendSlice(self.allocator, "void orbit_main(OrbitArena* arena) {\n");
+        try self.output.appendSlice(self.allocator, "int orbit_main(OrbitArena* arena) {\n");
         
         var stmt_gen = StatementGenerator.init(self.allocator, &self.output, self.source);
         stmt_gen.indent_level = 1;
@@ -173,7 +187,7 @@ pub const CodegenC = struct {
             }
         }
         
-        try self.output.appendSlice(self.allocator, "}\n\n");
+        try self.output.appendSlice(self.allocator, "    return 0;\n}\n\n");
     }
 
     fn mapOrbitTypeToC(self: *CodegenC, orbit_type: []const u8) []const u8 {

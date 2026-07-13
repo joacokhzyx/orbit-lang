@@ -20,7 +20,7 @@ New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
 New-Item -ItemType Directory -Path $sqliteDir -Force | Out-Null
 
 # 2. Check and copy local binaries and sources
-$localExe = "zig-out\bin\orbit_binary.exe"
+$localExe = "zig-out\bin\orbit.exe"
 if (-not (Test-Path $localExe)) {
     Write-Host "Building Orbit compiler using 'zig build' first..." -ForegroundColor Yellow
     & zig build

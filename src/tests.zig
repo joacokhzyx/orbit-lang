@@ -556,6 +556,8 @@ test "codegen.c_backend_golden_snapshot" {
     
     const expected = 
         \\#define ORBIT_CUSTOM_ROUTER
+        \\#include "socket_compat.h"
+        \\#include "thread_pool.c"
         \\#include "runtime.h"
         \\
         \\
@@ -569,34 +571,42 @@ test "codegen.c_backend_golden_snapshot" {
         \\    return 0;
         \\}
         \\
-        \\void orbit_handle_request(SOCKET client_sock, const char* raw_request, OrbitArena* arena) {
+        \\#ifdef ORBIT_WITH_NET
+        \\int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
         \\    uint64_t start = orbit_rdtsc();
         \\    orbit_perf_start_request();
         \\
-        \\    OrbitRequest* req = orbit_http_parse_request(arena, raw_request, strlen(raw_request));
-        \\    if (!req) return;
+        \\    OrbitRequest* req = NULL;
+        \\    size_t consumed = orbit_http_parse_request(arena, raw_request, raw_len, &req);
+        \\    if (out_consumed) *out_consumed = consumed;
+        \\    if (!req) return 1;
+        \\
+        \\    int keep_alive = 1;
+        \\    if (strstr(raw_request, "Connection: close") || strstr(raw_request, "connection: close")) keep_alive = 0;
         \\
         \\    if (req->path && strcmp(req->path, "/_pulse") == 0) {
         \\        OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
         \\        orbit_send_response(client_sock, res);
         \\        orbit_perf_end_request(start);
-        \\        return;
+        \\        return keep_alive;
         \\    }
         \\    if (req->path && strcmp(req->path, "/_pulse/data") == 0) {
         \\        orbit_string json = orbit_pulse_get_stats_json(arena);
         \\        OrbitResponse* res = orbit_response_json(arena, 200, json);
         \\        orbit_send_response(client_sock, res);
         \\        orbit_perf_end_request(start);
-        \\        return;
+        \\        return keep_alive;
         \\    }
+        \\    // Fallback 404 if no route matched
+        \\    printf("404 Not Found: %s %s\n", req->method ? req->method : "(null)", req->path ? req->path : "(null)");
         \\    OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
         \\    orbit_send_response(client_sock, res);
         \\    orbit_perf_end_request(start);
+        \\    return keep_alive;
         \\}
+        \\#endif
         \\int main(void) {
-        \\    void orbit_anti_debug(void);
-        \\    orbit_anti_debug();
-        \\    orbit_db_init("orbit.db");
+        \\    
         \\    orbit_string_pool_init(4096);
         \\    OrbitArena* arena = orbit_arena_create(65536);
         \\
@@ -604,7 +614,7 @@ test "codegen.c_backend_golden_snapshot" {
         \\
         \\    orbit_arena_destroy(arena);
         \\    orbit_string_pool_cleanup();
-        \\    orbit_db_close();
+        \\    
         \\    return _orbit_exit_code;
         \\}
         \\

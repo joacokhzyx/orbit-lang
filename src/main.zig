@@ -61,7 +61,14 @@ fn printHelp() void {
     , .{ORBIT_VERSION});
 }
 
-fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool, config: AtlasConfig) ![]const u8 {
+fn compileToBinary(
+    init: std.process.Init,
+    file_path: []const u8,
+    no_kynx: bool,
+    config: AtlasConfig,
+    out_bin_path: []const u8,
+    out_c_path: []const u8,
+) ![]const u8 {
     _ = no_kynx;
     const arena = init.arena.allocator();
     var timer = try OrbitTimer.start(init.io);
@@ -86,13 +93,41 @@ fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool,
     }
 
     var builder = IRBuilder.init(arena, source, &sema.node_types, &sema.model_registry);
-    const ir_module = try builder.build(root);
+    var ir_module = try builder.build(root);
+
+    var has_db = false;
+    if (sema.has_server_init) {
+        has_db = true;
+    } else {
+        for (ir_module.functions.items) |func| {
+            for (func.instructions.items) |instr| {
+                switch (instr.opcode) {
+                    .db_get, .db_set, .db_all, .db_where => {
+                        has_db = true;
+                        break;
+                    },
+                    else => {},
+                }
+            }
+            if (has_db) break;
+        }
+    }
+
+    // Run IR optimizations
+    var constant_folder = @import("ir/optimizer.zig").ConstantFolder.init(arena);
+    try constant_folder.optimize(&ir_module);
+
+    var cse = @import("ir/optimizer.zig").CommonSubexpressionEliminator.init(arena);
+    try cse.optimize(&ir_module);
+
+    var copy_prop = @import("ir/optimizer.zig").CopyPropagator.init(arena);
+    try copy_prop.optimize(&ir_module);
+
+    var dce = @import("ir/optimizer.zig").DeadCodeEliminator.init(arena);
+    try dce.optimize(&ir_module);
 
     var backend = CBackend.init(arena, config, sema.has_server_init);
     const c_code = try backend.generate(ir_module);
-
-    const out_c_path = "orbit.c";
-    const out_bin_name = try std.fmt.allocPrint(arena, "{s}.exe", .{config.output_name});
 
     var cwd = std.Io.Dir.cwd();
     var out_file = try cwd.createFile(init.io, out_c_path, .{ .truncate = true });
@@ -105,6 +140,10 @@ fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool,
     // Resolve installation paths dynamically
     const self_exe_dir = std.process.executableDirPathAlloc(init.io, arena) catch ".";
 
+    const sqlite_c_cand_dev = try std.fs.path.join(arena, &.{ self_exe_dir, "../../src/lib/sqlite/sqlite3.c" });
+    const sqlite_inc_cand_dev = try std.fs.path.join(arena, &.{ self_exe_dir, "../../src/lib/sqlite" });
+    const runtime_inc_cand_dev = try std.fs.path.join(arena, &.{ self_exe_dir, "../../src/runtime" });
+
     const sqlite_c_cand1 = try std.fs.path.join(arena, &.{ self_exe_dir, "../src/lib/sqlite/sqlite3.c" });
     const sqlite_inc_cand1 = try std.fs.path.join(arena, &.{ self_exe_dir, "../src/lib/sqlite" });
     const runtime_inc_cand1 = try std.fs.path.join(arena, &.{ self_exe_dir, "../src/runtime" });
@@ -113,38 +152,74 @@ fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool,
     var sqlite_inc: []const u8 = "-Isrc/lib/sqlite";
     var runtime_inc: []const u8 = "-Isrc/runtime";
 
-    var cand1_exists = false;
+    var cand_dev_exists = false;
     var cand_cwd = std.Io.Dir.cwd();
-    if (cand_cwd.openFile(init.io, sqlite_c_cand1, .{})) |f| {
+    if (cand_cwd.openFile(init.io, sqlite_c_cand_dev, .{})) |f| {
         f.close(init.io);
-        cand1_exists = true;
+        cand_dev_exists = true;
     } else |_| {}
 
-    if (cand1_exists) {
-        sqlite_c = sqlite_c_cand1;
-        sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand1});
-        runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand1});
+    if (cand_dev_exists) {
+        sqlite_c = sqlite_c_cand_dev;
+        sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand_dev});
+        runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand_dev});
     } else {
-        const sqlite_c_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/lib/sqlite/sqlite3.c" });
-        const sqlite_inc_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/lib/sqlite" });
-        const runtime_inc_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/runtime" });
-
-        var cand2_exists = false;
-        if (cand_cwd.openFile(init.io, sqlite_c_cand2, .{})) |f| {
+        var cand1_exists = false;
+        if (cand_cwd.openFile(init.io, sqlite_c_cand1, .{})) |f| {
             f.close(init.io);
-            cand2_exists = true;
+            cand1_exists = true;
         } else |_| {}
 
-        if (cand2_exists) {
-            sqlite_c = sqlite_c_cand2;
-            sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand2});
-            runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand2});
+        if (cand1_exists) {
+            sqlite_c = sqlite_c_cand1;
+            sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand1});
+            runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand1});
+        } else {
+            const sqlite_c_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/lib/sqlite/sqlite3.c" });
+            const sqlite_inc_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/lib/sqlite" });
+            const runtime_inc_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/runtime" });
+
+            var cand2_exists = false;
+            if (cand_cwd.openFile(init.io, sqlite_c_cand2, .{})) |f| {
+                f.close(init.io);
+                cand2_exists = true;
+            } else |_| {}
+
+            if (cand2_exists) {
+                sqlite_c = sqlite_c_cand2;
+                sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand2});
+                runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand2});
+            }
         }
     }
 
     std.debug.print("Invoking zig cc -O3...\n", .{});
+    var args_list = std.ArrayListUnmanaged([]const u8).empty;
+    try args_list.append(arena, "zig");
+    try args_list.append(arena, "cc");
+    try args_list.append(arena, out_c_path);
+    if (has_db) {
+        try args_list.append(arena, sqlite_c);
+        try args_list.append(arena, "-DORBIT_WITH_DB");
+    }
+    try args_list.append(arena, "-o");
+    try args_list.append(arena, out_bin_path);
+    try args_list.append(arena, "-O3");
+    try args_list.append(arena, "-s");
+    if (has_db) {
+        try args_list.append(arena, sqlite_inc);
+    }
+    try args_list.append(arena, runtime_inc);
+    if (sema.has_server_init) {
+        try args_list.append(arena, "-DORBIT_WITH_NET");
+        const builtin = @import("builtin");
+        if (builtin.os.tag == .windows) {
+            try args_list.append(arena, "-lws2_32");
+        }
+    }
+
     var child = try std.process.spawn(init.io, .{
-        .argv = &[_][]const u8{ "zig", "cc", out_c_path, sqlite_c, "-o", out_bin_name, "-O3", "-s", sqlite_inc, runtime_inc, "-lws2_32" },
+        .argv = args_list.items,
     });
     const term = try child.wait(init.io);
 
@@ -153,12 +228,12 @@ fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool,
     if (term == .exited and term.exited == 0) {
         std.debug.print("\n ⏣ Orbit  build successful\n\n", .{});
         std.debug.print("  Project    {s} v{s}\n", .{config.project, config.version});
-        std.debug.print("  Output     {s}\n", .{out_bin_name});
+        std.debug.print("  Output     {s}\n", .{out_bin_path});
         std.debug.print("  Backend    C -> zig cc -O3\n", .{});
         std.debug.print("  Kynx       {s}\n", .{if (config.no_kynx) "disabled" else "compiled-in"});
         std.debug.print("  Arena      pool={d} cap={d}\n", .{config.arena_pool_size, config.arena_default_capacity});
         std.debug.print("  Duration   {d:.2}s\n\n", .{duration_s});
-        return out_bin_name;
+        return out_bin_path;
     } else {
         std.debug.print("Compilation failed.\n", .{});
         return error.NativeCompilationFailed;
@@ -168,19 +243,73 @@ fn compileToBinary(init: std.process.Init, file_path: []const u8, no_kynx: bool,
 
 fn runBuildMode(init: std.process.Init, file_path: []const u8, debug: bool, no_kynx: bool, config: AtlasConfig) !void {
     _ = debug;
-    _ = try compileToBinary(init, file_path, no_kynx, config);
+    const arena = init.arena.allocator();
+    const temp_dir = try getOrbitTempDir(init, arena);
+    const temp_c_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_build.c" });
+    const out_bin_path = try std.fmt.allocPrint(arena, "{s}.exe", .{config.output_name});
+
+    _ = try compileToBinary(init, file_path, no_kynx, config, out_bin_path, temp_c_path);
+    std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
 }
 
 fn runExecuteMode(init: std.process.Init, file_path: []const u8, debug: bool, no_kynx: bool, config: AtlasConfig) !void {
     _ = debug;
     const arena = init.arena.allocator();
-    const out_bin_name = try compileToBinary(init, file_path, no_kynx, config);
+    
+    // 1. Read entry file, resolve dependencies, and compute transitively merged hash
+    var use_cache = false;
+    var bin_path_to_run: []const u8 = "";
+    
+    var compiler = Compiler.init(arena);
+    defer compiler.deinit();
 
-    const bin_path = try std.fmt.allocPrint(arena, ".\\{s}", .{out_bin_name});
-    std.debug.print("  [orbit] running {s}\n\n", .{out_bin_name});
+    if (compiler.loadEntry(init.io, file_path)) |_| {
+        if (compiler.mergedSource()) |source_content| {
+            const hash_val = fnv1a(source_content);
+            if (getCachePath(init, arena, file_path, hash_val)) |cb_path| {
+                // Check if cached binary already exists
+                var cwd = std.Io.Dir.cwd();
+                if (cwd.openFile(init.io, cb_path, .{})) |f| {
+                    f.close(init.io);
+                    use_cache = true;
+                    bin_path_to_run = cb_path;
+                } else |_| {}
+                
+                if (!use_cache) {
+                    const cb_c_path = try getCacheCPath(arena, cb_path);
+                    const built_bin_path = try compileToBinary(init, file_path, no_kynx, config, cb_path, cb_c_path);
+                    std.Io.Dir.deleteFileAbsolute(init.io, cb_c_path) catch {};
+                    bin_path_to_run = built_bin_path;
+                    use_cache = true;
+                }
+            } else |_| use_cache = false;
+        } else |_| use_cache = false;
+    } else |_| use_cache = false;
 
-    var child = try std.process.spawn(init.io, .{ .argv = &[_][]const u8{bin_path} });
+    if (!use_cache and bin_path_to_run.len == 0) {
+        const temp_dir = try getOrbitTempDir(init, arena);
+        const temp_bin_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_run.exe" });
+        const temp_c_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_run.c" });
+        bin_path_to_run = try compileToBinary(init, file_path, no_kynx, config, temp_bin_path, temp_c_path);
+        std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
+    }
+
+    const raw_args = try init.minimal.args.toSlice(arena);
+    var forward_args = std.ArrayListUnmanaged([]const u8).empty;
+    try forward_args.append(arena, bin_path_to_run);
+    for (raw_args[3..]) |arg| {
+        if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "--no-kynx")) {
+            continue;
+        }
+        try forward_args.append(arena, arg);
+    }
+
+    var child = try std.process.spawn(init.io, .{ .argv = forward_args.items });
     const term = try child.wait(init.io);
+
+    if (bin_path_to_run.len > 0 and std.mem.indexOf(u8, bin_path_to_run, "temp_run.exe") != null) {
+        std.Io.Dir.deleteFileAbsolute(init.io, bin_path_to_run) catch {};
+    }
 
     if (term != .exited or term.exited != 0) {
         const code: i64 = if (term == .exited) @intCast(term.exited) else -1;
@@ -192,13 +321,19 @@ fn runExecuteMode(init: std.process.Init, file_path: []const u8, debug: bool, no
 fn runTestMode(init: std.process.Init, file_path: []const u8, debug: bool, no_kynx: bool, config: AtlasConfig) !void {
     _ = debug;
     const arena = init.arena.allocator();
-    const out_bin_name = try compileToBinary(init, file_path, no_kynx, config);
+    const temp_dir = try getOrbitTempDir(init, arena);
+    const test_bin_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_test.exe" });
+    const test_c_path = try std.fs.path.join(arena, &.{ temp_dir, "temp_test.c" });
 
-    const bin_path = try std.fmt.allocPrint(arena, ".\\{s}", .{out_bin_name});
-    std.debug.print("\n  [orbit test] running {s}\n\n", .{out_bin_name});
+    _ = try compileToBinary(init, file_path, no_kynx, config, test_bin_path, test_c_path);
+    std.Io.Dir.deleteFileAbsolute(init.io, test_c_path) catch {};
 
-    var child = try std.process.spawn(init.io, .{ .argv = &[_][]const u8{bin_path} });
+    std.debug.print("\n  [orbit test] running {s}\n\n", .{test_bin_path});
+
+    var child = try std.process.spawn(init.io, .{ .argv = &[_][]const u8{test_bin_path} });
     const term = try child.wait(init.io);
+
+    std.Io.Dir.deleteFileAbsolute(init.io, test_bin_path) catch {};
 
     if (term == .exited and term.exited == 0) {
         std.debug.print("\n  \u{2705} [orbit test] PASS ({s})\n", .{file_path});
@@ -289,3 +424,99 @@ const OrbitTimer = struct {
         }
     }
 };
+
+fn getOrbitCacheDir(init: std.process.Init, arena: std.mem.Allocator) ![]const u8 {
+    const builtin = @import("builtin");
+    const home_env = if (builtin.os.tag == .windows) "USERPROFILE" else "HOME";
+    if (init.environ_map.get(home_env)) |home| {
+        const cache_dir = try std.fs.path.join(arena, &.{ home, ".orbit", "cache" });
+        std.Io.Dir.cwd().createDirPath(init.io, cache_dir) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+        return cache_dir;
+    } else {
+        return ".";
+    }
+}
+
+fn getOrbitTempDir(init: std.process.Init, arena: std.mem.Allocator) ![]const u8 {
+    const builtin = @import("builtin");
+    const temp_env = if (builtin.os.tag == .windows) "TEMP" else "TMPDIR";
+    if (init.environ_map.get(temp_env)) |temp| {
+        const orbit_temp = try std.fs.path.join(arena, &.{ temp, "orbit" });
+        std.Io.Dir.cwd().createDirPath(init.io, orbit_temp) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+        return orbit_temp;
+    } else {
+        const fallback = if (builtin.os.tag == .windows) "C:\\Windows\\Temp\\orbit" else "/tmp/orbit";
+        std.Io.Dir.cwd().createDirPath(init.io, fallback) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+        return fallback;
+    }
+}
+
+fn getCachePath(init: std.process.Init, arena: std.mem.Allocator, file_path: []const u8, source_hash: u64) ![]const u8 {
+    var sanitised = try arena.alloc(u8, file_path.len);
+    for (file_path, 0..) |c, i| {
+        if (std.ascii.isAlphanumeric(c)) {
+            sanitised[i] = c;
+        } else {
+            sanitised[i] = '_';
+        }
+    }
+    const cache_dir = try getOrbitCacheDir(init, arena);
+    const cache_bin_name = try std.fmt.allocPrint(arena, "cache_{s}_{d}.exe", .{ sanitised, source_hash });
+    return try std.fs.path.join(arena, &.{ cache_dir, cache_bin_name });
+}
+
+fn getCacheCPath(arena: std.mem.Allocator, bin_path: []const u8) ![]const u8 {
+    if (std.mem.endsWith(u8, bin_path, ".exe")) {
+        return try std.fmt.allocPrint(arena, "{s}.c", .{bin_path[0..bin_path.len - 4]});
+    }
+    return try std.fmt.allocPrint(arena, "{s}.c", .{bin_path});
+}
+
+fn fnv1a(data: []const u8) u64 {
+    var hash: u64 = 14695981039346656037;
+    for (data) |byte| {
+        hash ^= byte;
+        hash = hash *% 1099511628211;
+    }
+    return hash;
+}
+
+fn readSourceFile(allocator: std.mem.Allocator, io: anytype, file_path: []const u8) ![]u8 {
+    var cwd = std.Io.Dir.cwd();
+    var file = try cwd.openFile(io, file_path, .{});
+    defer file.close(io);
+
+    const file_len = try file.length(io);
+    const source = try allocator.alloc(u8, file_len);
+
+    var read_buffer: [8192]u8 = undefined;
+    var reader = std.Io.File.Reader.init(file, io, &read_buffer);
+    try reader.interface.readSliceAll(source);
+    return source;
+}
+
+fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []const u8) !void {
+    var cwd = std.Io.Dir.cwd();
+    var src_file = try cwd.openFile(io, src, .{});
+    defer src_file.close(io);
+    const len = try src_file.length(io);
+    const buffer = try allocator.alloc(u8, len);
+    defer allocator.free(buffer);
+    
+    var read_buf: [8192]u8 = undefined;
+    var reader = std.Io.File.Reader.init(src_file, io, &read_buf);
+    try reader.interface.readSliceAll(buffer);
+    
+    var dest_file = try cwd.createFile(io, dest, .{ .truncate = true });
+    defer dest_file.close(io);
+    var write_buf: [8192]u8 = undefined;
+    var writer = std.Io.File.Writer.init(dest_file, io, &write_buf);
+    try writer.interface.writeAll(buffer);
+    try writer.flush();
+}
