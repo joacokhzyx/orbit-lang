@@ -40,6 +40,8 @@ compiler/selfhost/*.exe
 
 # Package and installer outputs
 node_modules/
+package.json
+package-lock.json
 scratch/
 dist/
 scripts/dist/
