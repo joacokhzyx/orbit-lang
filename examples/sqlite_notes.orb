@@ -1,0 +1,12 @@
+// Schema for a SQLite-backed notes service. Keep schema migrations in your
+// deployment process and use parameterized database operations for user input.
+
+model Note {
+    id: string
+    title: string
+    body: string
+}
+
+route GET "/health" {
+    return ok 200 "{\"database\":\"configured\"}"
+}

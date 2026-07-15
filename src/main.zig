@@ -52,7 +52,7 @@ pub const LinkerMode = enum {
     native,
 };
 
-const ORBIT_VERSION = "0.1.0-rc.1";
+const ORBIT_VERSION = "0.1.0-rc.2";
 
 pub const CompilationProfiler = struct {
     timer: OrbitTimer,
@@ -339,7 +339,6 @@ fn printHelp() void {
         \\    --timings=json   Show phase compilation profiles in JSON format
         \\    --color=MODE     auto, always, never
         \\    --unicode=MODE   auto, always, never
-        \\    --backend=MODE   steel (default), native, auto
         \\    --emit=MODE      exe (default), obj, mir
         \\
     , .{ORBIT_VERSION});
@@ -984,8 +983,9 @@ fn runBuildMode(
         std.debug.print("    Duration     {d:.0} ms\n\n", .{@as(f64, @floatFromInt(session.profiler.total_ns)) / 1_000_000.0});
 
         if (!no_kynx) {
-            const bold_green = if (term.capabilities.get().has_color) "\x1b[1;32m" else "";
-            std.debug.print("{s}Secured by Kynx.{s}\n", .{ bold_green, reset });
+            const cyan = if (term.capabilities.get().has_color) "\x1b[1;36m" else "";
+            const sky = if (term.capabilities.get().has_color) "\x1b[1;96m" else "";
+            std.debug.print("{s}Secured by {s}Kynx.{s}\n", .{ cyan, sky, reset });
         }
     }
 }

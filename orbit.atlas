@@ -1,5 +1,5 @@
 project: "Bootstrap Engine"
-version: "0.1.0-alpha"
+version: "0.1.0-rc.2"
 port: 3000
 db_path: "orbit.db"
 output: "orbit"

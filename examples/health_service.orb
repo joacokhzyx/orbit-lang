@@ -1,0 +1,9 @@
+// A minimal health service suitable for a load balancer or orchestrator probe.
+
+route GET "/health" {
+    return ok 200 "{\"status\":\"ok\"}"
+}
+
+route GET "/ready" {
+    return ok 200 "{\"ready\":true}"
+}
