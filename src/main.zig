@@ -1375,22 +1375,25 @@ fn printEchoes(diagnostics: []const Sema.Diagnostic) void {
 }
 
 const OrbitTimer = struct {
-    start_instant: std.time.Instant,
+    start_timestamp: std.Io.Clock.Timestamp,
 
     fn start() OrbitTimer {
+        const io = std.Io.Threaded.global_single_threaded.io();
         return .{
-            .start_instant = std.time.Instant.now() catch @panic("std.time.Instant is not supported on this platform"),
+            .start_timestamp = std.Io.Clock.Timestamp.now(io, .awake) catch @panic("a monotonic clock is not supported on this platform"),
         };
     }
 
     fn readSeconds(self: *OrbitTimer) f64 {
-        const now = std.time.Instant.now() catch @panic("std.time.Instant is not supported on this platform");
-        const diff_ns = now.since(self.start_instant);
-        return @as(f64, @floatFromInt(diff_ns)) / 1_000_000_000.0;
+        const io = std.Io.Threaded.global_single_threaded.io();
+        const now = std.Io.Clock.Timestamp.now(io, .awake) catch @panic("a monotonic clock is not supported on this platform");
+        const elapsed = self.start_timestamp.durationTo(now);
+        return @as(f64, @floatFromInt(elapsed.raw.nanoseconds)) / 1_000_000_000.0;
     }
 
     fn reset(self: *OrbitTimer) void {
-        self.start_instant = std.time.Instant.now() catch @panic("std.time.Instant is not supported on this platform");
+        const io = std.Io.Threaded.global_single_threaded.io();
+        self.start_timestamp = std.Io.Clock.Timestamp.now(io, .awake) catch @panic("a monotonic clock is not supported on this platform");
     }
 };
 
