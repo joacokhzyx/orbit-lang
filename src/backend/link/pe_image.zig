@@ -742,7 +742,7 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
     try out.appendSlice(&coff_hdr);
 
     // Optional Header PE32+ (240 bytes / 0xF0)
-    var opt = [_]u8{0} ** 240;
+    var opt: [240]u8 = @splat(0);
     // Magic: PE32+ (0x020b)
     std.mem.writeInt(u16, opt[0..2], 0x020B, .little);
     // Linker version
@@ -860,7 +860,7 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
     for (linker.merged_sections.items) |ms| {
         const raw_sz = if (ms.kind == .bss) 0 else layout.alignTo(ms.size, file_alignment);
         var sh = IMAGE_SECTION_HEADER{
-            .Name = [_]u8{0} ** 8,
+            .Name = @splat(0),
             .VirtualSize = @intCast(ms.size),
             .VirtualAddress = @intCast(ms.virtual_address - image_base),
             .SizeOfRawData = @intCast(raw_sz),

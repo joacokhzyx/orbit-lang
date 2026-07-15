@@ -15,7 +15,7 @@ pub const ElfIdent = extern struct {
     version: u8 = 1,
     osabi: u8 = 0,
     abiversion: u8 = 0,
-    pad: [7]u8 = [_]u8{0} ** 7,
+    pad: [7]u8 = @splat(0),
 };
 
 /// ELF64 File Header.
