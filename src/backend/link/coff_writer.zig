@@ -131,7 +131,7 @@ pub fn writeObject(allocator: std.mem.Allocator, obj: *const Object) ![]const u8
     defer coff_symbols.deinit(allocator);
 
     for (obj.symbols.items) |sym| {
-        var name_buf: [8]u8 = [_]u8{0} ** 8;
+        var name_buf: [8]u8 = @splat(0);
         if (sym.name.len <= 8) {
             @memcpy(name_buf[0..sym.name.len], sym.name);
         } else {

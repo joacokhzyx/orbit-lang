@@ -62,7 +62,7 @@ pub const ElfIdent = extern struct {
     version: u8 = EV_CURRENT,
     osabi: u8 = 0,
     abiversion: u8 = 0,
-    pad: [7]u8 = [_]u8{0} ** 7,
+    pad: [7]u8 = @splat(0),
 };
 
 pub const Elf64Header = extern struct {
