@@ -1,151 +1,75 @@
-name: Compile and Release Orbit Language
+name: Release
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
-  pull_request:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build-windows:
-    name: Build Windows Compiler & Installer
-    runs-on: windows-latest
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x86_64
+            binary: zig-out/bin/orbit.exe
+            asset: orbit-windows-x86_64.exe
+          - os: ubuntu-latest
+            name: linux-x86_64
+            binary: zig-out/bin/orbit
+            asset: orbit-linux-x86_64
 
-      - name: Setup Zig
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: master
 
-      - name: Compile Orbit Compiler
+      - name: Build release compiler
         run: zig build -Doptimize=ReleaseFast
 
-      - name: Build Windows Installer Wizard
+      - name: Package compiler
+        shell: bash
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts/windows_installer.iss
+          mkdir -p dist
+          cp "${{ matrix.binary }}" "dist/${{ matrix.asset }}"
 
-      - name: Upload Installer Artifact
+      - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: orbit-windows-installer
-          path: scripts/dist/orbit-windows-setup.exe
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
 
-  build-linux:
-    name: Build Linux Compiler & Package
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: master
-
-      - name: Compile Orbit Compiler
-        run: zig build -Doptimize=ReleaseFast
-
-      - name: Create Linux Package
-        run: |
-          mkdir -p dist/orbit-linux/bin
-          mkdir -p dist/orbit-linux/src/runtime
-          mkdir -p dist/orbit-linux/src/lib/sqlite
-          
-          # Copy compiler binary, headers and installer script
-          cp zig-out/bin/orbit dist/orbit-linux/bin/
-          cp -r src/runtime/* dist/orbit-linux/src/runtime/
-          cp -r src/lib/sqlite/* dist/orbit-linux/src/lib/sqlite/
-          cp scripts/install-linux.sh dist/orbit-linux/install.sh
-          chmod +x dist/orbit-linux/install.sh
-          
-          # Tarball archive
-          cd dist
-          tar -czf orbit-linux-x86_64.tar.gz orbit-linux/
-
-      - name: Upload Linux Archive Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: orbit-linux-package
-          path: dist/orbit-linux-x86_64.tar.gz
-
-  build-macos:
-    name: Build macOS Compiler & Package
-    runs-on: macos-latest
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: master
-
-      - name: Compile Orbit Compiler
-        run: zig build -Doptimize=ReleaseFast
-
-      - name: Create macOS Package
-        run: |
-          mkdir -p dist/orbit-macos/bin
-          mkdir -p dist/orbit-macos/src/runtime
-          mkdir -p dist/orbit-macos/src/lib/sqlite
-          
-          # Copy compiler binary, headers and installer script
-          cp zig-out/bin/orbit dist/orbit-macos/bin/
-          cp -r src/runtime/* dist/orbit-macos/src/runtime/
-          cp -r src/lib/sqlite/* dist/orbit-macos/src/lib/sqlite/
-          cp scripts/install-linux.sh dist/orbit-macos/install.sh
-          chmod +x dist/orbit-macos/install.sh
-          
-          # Tarball archive
-          cd dist
-          tar -czf orbit-macos-x86_64.tar.gz orbit-macos/
-
-      - name: Upload macOS Archive Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: orbit-macos-package
-          path: dist/orbit-macos-x86_64.tar.gz
-
-  release:
-    name: Publish Github Release
-    needs: [build-windows, build-linux, build-macos]
-    runs-on: ubuntu-latest
+  publish:
+    name: Publish GitHub release
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
-      - name: Download Windows Installer
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: orbit-windows-installer
-          path: release-assets/
+          path: release-assets
+          merge-multiple: true
 
-      - name: Download Linux Package
-        uses: actions/download-artifact@v4
-        with:
-          name: orbit-linux-package
-          path: release-assets/
-
-      - name: Download macOS Package
-        uses: actions/download-artifact@v4
-        with:
-          name: orbit-macos-package
-          path: release-assets/
-
-      - name: Create Release and Upload Assets
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release-assets/orbit-windows-setup.exe
-            release-assets/orbit-linux-x86_64.tar.gz
-            release-assets/orbit-macos-x86_64.tar.gz
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          generate_release_notes: true
+          files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
