@@ -213,11 +213,11 @@ pub const ExpressionParser = struct {
         return left;
     }
 
-    /// Parses multiplicative expressions (`*`, `/`), left-associative.
+    /// Parses multiplicative expressions (`*`, `/`, `%`), left-associative.
     fn parseFactor(self: *ExpressionParser) !*Node {
         var left = try self.parseUnary();
 
-        while (self.match(.Asterisk) or self.match(.Slash)) {
+        while (self.match(.Asterisk) or self.match(.Slash) or self.match(.Percent)) {
             const op = self.previous_token.*;
             const right = try self.parseUnary();
 
@@ -476,7 +476,7 @@ pub const ExpressionParser = struct {
             return node;
         }
 
-        if (self.match(.Identifier) or self.match(.KeywordOk) or self.match(.KeywordErr)) {
+        if (self.match(.Identifier) or self.match(.KeywordOk) or self.match(.KeywordErr) or self.match(.KeywordReq)) {
             const node = try self.createNode(.identifier, .{ .identifier = self.previous_token.* });
             return node;
         }

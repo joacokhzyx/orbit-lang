@@ -276,7 +276,11 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
                 const hn_offset = idata_bytes.items.len;
                 // Hint (u16)
                 try idata_bytes.appendSlice(&.{ 0, 0 });
-                try idata_bytes.appendSlice(imp.sym_name);
+                const sym_to_write = if (std.mem.eql(u8, imp.sym_name, "snprintf"))
+                    "_snprintf"
+                else
+                    imp.sym_name;
+                try idata_bytes.appendSlice(sym_to_write);
                 try idata_bytes.append(0);
                 if (idata_bytes.items.len % 2 != 0) {
                     try idata_bytes.append(0); // padding

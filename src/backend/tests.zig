@@ -1,6 +1,6 @@
 //! orbit/src/backend/tests.zig
 //!
-//! Unit tests for the Photon Native backend.
+//! Unit tests for the Native backend.
 //!
 //! Tests are grouped in three sections:
 //!   1. Encoder byte-exact tests – verify x86-64 instruction encoding.
@@ -169,6 +169,75 @@ test "encoder: comprehensive instruction byte-exact verification" {
     defer enc.deinit();
     const bytes = try enc.encodeFunction(&func);
     try std.testing.expect(bytes.len > 0);
+}
+
+test "encoder: setcc and movzx encoding" {
+    const encoder_mod = @import("x86_64/encoder.zig");
+    const lir_mod = @import("lir/lir.zig");
+    const reg_mod = @import("x86_64/registers.zig");
+    const inst_mod = @import("x86_64/instruction.zig");
+    const Encoder = encoder_mod.Encoder;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var block = lir_mod.LirBasicBlock{
+        .id = 0,
+        .instructions = std.ArrayListUnmanaged(lir_mod.LirInstruction).empty,
+    };
+
+    // 1. sete_r RAX (low byte AL, RAX=0)
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.sete_r),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+    });
+
+    // 2. sete_r R8 (low byte R8B, R8=8 -> requires REX.B)
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.sete_r),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.r8), .is_physical = true },
+    });
+
+    // 3. movzx_rr RAX, RAX
+    try block.instructions.append(alloc, .{
+        .opcode = @intFromEnum(inst_mod.X86Opcode.movzx_rr),
+        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true } },
+    });
+
+    var func = lir_mod.LirFunction{
+        .name = "test_setcc",
+        .blocks = std.ArrayListUnmanaged(lir_mod.LirBasicBlock).empty,
+    };
+    try func.blocks.append(alloc, block);
+
+    var enc = Encoder.init(alloc);
+    defer enc.deinit();
+    const bytes = try enc.encodeFunction(&func);
+    try std.testing.expect(bytes.len > 0);
+
+    // Let's verify byte-exact values:
+    // 1. sete_r RAX (dest=RAX=0, no REX since RAX < 4) -> 0x0F 0x94 0xC0
+    // 2. sete_r R8 (dest=R8=8, dest >= 8 -> REX prefix 0x41, followed by 0x0F 0x94 0xC0)
+    // 3. movzx_rr RAX, RAX -> REX.W prefix 0x48, followed by 0x0F 0xB6 0xC0
+    
+    // Check 1. sete_r RAX -> 0x0F, 0x94, 0xC0
+    try std.testing.expectEqual(@as(u8, 0x0F), bytes[0]);
+    try std.testing.expectEqual(@as(u8, 0x94), bytes[1]);
+    try std.testing.expectEqual(@as(u8, 0xC0), bytes[2]);
+
+    // Check 2. sete_r R8 -> 0x41, 0x0F, 0x94, 0xC0
+    try std.testing.expectEqual(@as(u8, 0x41), bytes[3]);
+    try std.testing.expectEqual(@as(u8, 0x0F), bytes[4]);
+    try std.testing.expectEqual(@as(u8, 0x94), bytes[5]);
+    try std.testing.expectEqual(@as(u8, 0xC0), bytes[6]);
+
+    // Check 3. movzx_rr RAX, RAX -> 0x48, 0x0F, 0xB6, 0xC0
+    try std.testing.expectEqual(@as(u8, 0x48), bytes[7]);
+    try std.testing.expectEqual(@as(u8, 0x0F), bytes[8]);
+    try std.testing.expectEqual(@as(u8, 0xB6), bytes[9]);
+    try std.testing.expectEqual(@as(u8, 0xC0), bytes[10]);
 }
 
 // ── Section 2: Backend capability probe ──────────────────────────────────────
@@ -652,3 +721,117 @@ test "link.reloc.overflow_errors" {
     const res = lnk.applyRelocations(0x400000);
     try std.testing.expectError(error.RelocationOverflow, res);
 }
+
+test "native end-to-end: return 42" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var threaded = std.Io.Threaded.init(alloc, .{
+        .environ = std.process.Environ.empty,
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const temp_dir = "C:\\Users\\Alumnos\\AppData\\Local\\Temp\\orbit_native_test";
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    defer {
+        // Clean up
+        cwd.deleteTree(io, temp_dir) catch {};
+    }
+
+    const src_path = try std.fs.path.join(alloc, &.{ temp_dir, "test.orb" });
+    const bin_path = try std.fs.path.join(alloc, &.{ temp_dir, "test_exe.exe" });
+
+    var file = try cwd.createFile(io, src_path, .{ .truncate = true });
+    var wb: [1024]u8 = undefined;
+    var fw = std.Io.File.Writer.init(file, io, &wb);
+    try fw.interface.writeAll("fn main() -> int {\n  return 42\n}\n");
+    try fw.flush();
+    file.close(io);
+
+    const compiler_path = "C:\\Users\\Alumnos\\Downloads\\orbit\\orbit-binary\\zig-out\\bin\\orbit.exe";
+    
+    // Compile to object file first to inspect bytes
+    const compile_result = try std.process.run(alloc, io, .{
+        .argv = &.{
+            compiler_path,
+            "build",
+            src_path,
+            "-o",
+            bin_path,
+            "--backend=native",
+            "--emit=obj",
+            "--verbose",
+        },
+    });
+    defer alloc.free(compile_result.stdout);
+    defer alloc.free(compile_result.stderr);
+
+    if (compile_result.term != .exited or compile_result.term.exited != 0) {
+        std.debug.print("Compilation failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ compile_result.stdout, compile_result.stderr });
+        return error.CompilationFailed;
+    }
+
+    // Read the object file and print the bytes of the text section
+    const link_mod = @import("link/mod.zig");
+    const builtin = @import("builtin");
+
+    var obj_file = try cwd.openFile(io, bin_path, .{});
+    const obj_len = try obj_file.length(io);
+    const obj_bytes = try alloc.alloc(u8, obj_len);
+    defer alloc.free(obj_bytes);
+    var read_buf: [8192]u8 = undefined;
+    var reader = std.Io.File.Reader.init(obj_file, io, &read_buf);
+    try reader.interface.readSliceAll(obj_bytes);
+    obj_file.close(io);
+
+    var obj = try switch (builtin.os.tag) {
+        .windows => link_mod.coff_reader.readObject(alloc, obj_bytes),
+        else => link_mod.elf_reader.readObject(alloc, obj_bytes),
+    };
+    defer obj.deinit(alloc);
+
+    for (obj.sections.items) |sec| {
+        if (std.mem.eql(u8, sec.name, ".text")) {
+            std.debug.print("EMITTED BYTES: ", .{});
+            for (sec.bytes.items) |b| {
+                std.debug.print("{X:0>2} ", .{b});
+            }
+            std.debug.print("\n", .{});
+        }
+    }
+
+    // Now link the object to an executable
+    const exe_path = try std.mem.concat(alloc, u8, &.{ bin_path, ".exe" });
+    const link_result = try std.process.run(alloc, io, .{
+        .argv = &.{
+            compiler_path,
+            "build",
+            src_path,
+            "-o",
+            exe_path,
+            "--backend=native",
+            "--linker=native",
+            "--verbose",
+        },
+    });
+    defer alloc.free(link_result.stdout);
+    defer alloc.free(link_result.stderr);
+
+    if (link_result.term != .exited or link_result.term.exited != 0) {
+        std.debug.print("Linking failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+        return error.LinkingFailed;
+    }
+
+    const run_result = try std.process.run(alloc, io, .{
+        .argv = &.{exe_path},
+    });
+    defer alloc.free(run_result.stdout);
+    defer alloc.free(run_result.stderr);
+    
+    try std.testing.expect(run_result.term == .exited);
+    try std.testing.expectEqual(@as(u32, 42), run_result.term.exited);
+}
+

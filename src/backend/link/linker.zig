@@ -30,6 +30,7 @@ fn isStandardWin32Symbol(name: []const u8) bool {
         "malloc", "free", "realloc", "calloc", "memset", "memcpy", "strlen", "strcmp", "strcpy", "exit", "abort",
         "printf", "fprintf", "sprintf", "snprintf", "fclose", "fopen", "fread", "fwrite", "fseek", "ftell", "fgets",
         "getenv", "readdir", "opendir", "closedir", "sscanf", "strtol", "strtod", "_popen", "_pclose",
+        "strncmp", "atoi", "atof", "strchr", "strstr",
         // compiler intrinsics
         "__main", "@feat.00", ".file", "__stack_chk_fail", "__stack_chk_guard",
         "__ubsan_handle_nonnull_arg", "__ubsan_handle_pointer_overflow", "__ubsan_handle_type_mismatch_v1",
@@ -38,8 +39,8 @@ fn isStandardWin32Symbol(name: []const u8) bool {
         // ws2_32
         "WSAStartup", "WSACleanup", "socket", "connect", "send", "recv", "closesocket", "htons", "setsockopt", "bind", "listen", "accept", "select", "__WSAFDIsSet", "getaddrinfo", "freeaddrinfo",
         // kernel32
-        "ExitProcess", "GetStdHandle", "WriteFile", "ReadFile", "CreateFileA", "CloseHandle", "GetLastError", "Sleep", "GetSystemTime", "GetTimeZoneInformation", "GetSystemInfo", "VirtualAlloc", "VirtualFree", "IsDebuggerPresent", "CheckRemoteDebuggerPresent", "GetCurrentProcess",
-        "FindFirstFileA", "FindNextFileA", "FindClose",
+        "ExitProcess", "GetCommandLineA", "GetStdHandle", "WriteFile", "ReadFile", "CreateFileA", "CloseHandle", "GetLastError", "Sleep", "GetSystemTime", "GetTimeZoneInformation", "GetSystemInfo", "VirtualAlloc", "VirtualFree", "IsDebuggerPresent", "CheckRemoteDebuggerPresent", "GetCurrentProcess",
+        "FindFirstFileA", "FindNextFileA", "FindClose", "QueryPerformanceCounter", "QueryPerformanceFrequency",
     };
     for (std_symbols) |s| {
         if (std.mem.eql(u8, name, s)) return true;

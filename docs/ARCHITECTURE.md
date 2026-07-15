@@ -212,9 +212,9 @@ HTTP server (generated code)
 
 ---
 
-## Photon Native Backend
+## Native Backend
 
-Photon Native (`--backend=native`) compiles Orbit IR directly into relocatable machine-code object files, bypassing the C intermediate representation and avoiding external C compiler dependencies for user code.
+The Native backend (`--backend=native`) compiles Orbit IR directly into relocatable machine-code object files, bypassing the C intermediate representation and avoiding external C compiler dependencies for user code.
 
 ### Native Pipeline
 
@@ -222,7 +222,7 @@ Photon Native (`--backend=native`) compiles Orbit IR directly into relocatable m
 flowchart TD
     IR["Orbit IR\nsrc/ir/ir.zig"]
     
-    subgraph Photon Native Backend
+    subgraph Native Backend
         MIR["MIR Builder\nsrc/backend/mir/builder.zig"]
         VER["MIR Verifier\nsrc/backend/mir/verifier.zig"]
         LIR["LIR Lowering\nsrc/backend/x86_64/lowering.zig"]

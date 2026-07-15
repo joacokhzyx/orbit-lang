@@ -131,7 +131,7 @@ pub const CBackend = struct {
 
                 try self.output.print(self.allocator,
                     \\    if (req->path && strcmp(req->path, "{s}") == 0 && req->method && strcmp(req->method, "{s}") == 0) {{
-                    \\        OrbitResponse* res = {s}(arena);
+                    \\        OrbitResponse* res = {s}(arena, req);
                     \\        orbit_send_response(client_sock, res);
                     \\        if (lease) orbit_kynx_lease_destroy(lease);
                     \\        orbit_perf_end_request(start);
@@ -186,6 +186,7 @@ pub const CBackend = struct {
         try self.registerArenaFunction("orbit_int_to_string");
         try self.registerArenaFunction("orbit_float_to_string");
         try self.registerArenaFunction("orbit_bool_to_string");
+        try self.registerArenaFunction("orbit_http_query_get");
 
         const headers = try RuntimeLoader.generateHeaders(self.allocator);
         try self.output.appendSlice(self.allocator, headers);
@@ -300,7 +301,7 @@ pub const CBackend = struct {
         if (std.mem.eql(u8, func_name, "orbit_main")) {
             try self.output.appendSlice(self.allocator, "OrbitArena* _init_arena");
         } else if (std.mem.startsWith(u8, func_name, "route_")) {
-            try self.output.appendSlice(self.allocator, "OrbitArena* arena");
+            try self.output.appendSlice(self.allocator, "OrbitArena* arena, OrbitRequest* req");
         } else {
             if (func.params.len == 0) {
                 try self.output.appendSlice(self.allocator, "void");
@@ -426,6 +427,7 @@ pub const CBackend = struct {
             .sub => try self.generateBinaryOp(instr, " - "),
             .mul => try self.generateBinaryOp(instr, " * "),
             .div => try self.generateBinaryOp(instr, " / "),
+            .mod => try self.generateBinaryOp(instr, " % "),
             .eq => try self.generateBinaryOp(instr, " == "),
             .ne => try self.generateBinaryOp(instr, " != "),
             .lt => try self.generateBinaryOp(instr, " < "),

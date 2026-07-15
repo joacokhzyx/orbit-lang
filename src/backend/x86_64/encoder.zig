@@ -27,9 +27,20 @@ const encodeRegMem = op_mod.encodeRegMem;
 const inst_mod = @import("instruction.zig");
 const X86Opcode = inst_mod.X86Opcode;
 
+const object_mod = @import("../link/object.zig");
+const RelocKind = object_mod.RelocKind;
+
 pub const Encoder = struct {
+    pub const SymbolReloc = struct {
+        patch_offset: usize,
+        symbol_name: []const u8,
+        kind: RelocKind,
+        addend: i64,
+    };
+
     code: std.ArrayListUnmanaged(u8),
     allocator: std.mem.Allocator,
+    symbol_relocs: std.ArrayListUnmanaged(SymbolReloc),
 
     pub const Relocation = struct {
         patch_offset: usize, // Offset in code where the 32-bit displacement sits
@@ -40,6 +51,7 @@ pub const Encoder = struct {
         return .{
             .code = .empty,
             .allocator = allocator,
+            .symbol_relocs = .empty,
         };
     }
 
@@ -53,6 +65,7 @@ pub const Encoder = struct {
 
     pub fn deinit(self: *Encoder) void {
         self.code.deinit(self.allocator);
+        self.symbol_relocs.deinit(self.allocator);
     }
 
     /// Encodes a single function to machine bytes.
@@ -127,15 +140,27 @@ pub const Encoder = struct {
             },
             .mov_ri => {
                 const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const val = instr.op1.imm_int;
                 const dest_val = @intFromEnum(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
                 try self.append(0xB8 + @as(u8, @intCast(dest_val & 7)));
 
-                var bytes: [8]u8 = undefined;
-                std.mem.writeInt(i64, &bytes, val, .little);
-                try self.appendSlice(&bytes);
+                const patch_idx = self.code.items.len;
+                try self.appendSlice(&.{ 0, 0, 0, 0, 0, 0, 0, 0 });
+
+                if (instr.op1 == .symbol) {
+                    try self.symbol_relocs.append(self.allocator, .{
+                        .patch_offset = patch_idx,
+                        .symbol_name = instr.op1.symbol,
+                        .kind = .ABS64,
+                        .addend = 0,
+                    });
+                } else {
+                    const val = instr.op1.imm_int;
+                    var bytes: [8]u8 = undefined;
+                    std.mem.writeInt(i64, &bytes, val, .little);
+                    @memcpy(self.code.items[patch_idx..], &bytes);
+                }
             },
             .mov_rm => {
                 // mov reg, [base + disp] -> 0x8B
@@ -320,6 +345,27 @@ pub const Encoder = struct {
                 try self.append(0x85);
                 try self.append(enc.modrm.toByte());
             },
+            .sete_r, .setne_r, .setl_r, .setle_r, .setg_r, .setge_r => {
+                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest_val = @intFromEnum(dest);
+                if (dest_val >= 4) {
+                    const rex = Rex{ .b = dest_val >= 8 };
+                    try self.append(rex.toByte());
+                }
+                try self.append(0x0F);
+                const cond_byte: u8 = switch (opcode) {
+                    .sete_r => 0x94,
+                    .setne_r => 0x95,
+                    .setl_r => 0x9C,
+                    .setle_r => 0x9D,
+                    .setg_r => 0x9F,
+                    .setge_r => 0x9E,
+                    else => unreachable,
+                };
+                try self.append(cond_byte);
+                const modrm = ModRm{ .mod = 3, .reg = 0, .rm = @intCast(dest_val & 7) };
+                try self.append(modrm.toByte());
+            },
             .jmp => {
                 // Near relative jump (0xE9)
                 try self.append(0xE9);
@@ -354,11 +400,14 @@ pub const Encoder = struct {
                     // Call by symbol: we encode an indirect call RAX placeholder or similar if external,
                     // or a dummy near relative call. Let's do direct relative E8 with symbol resolution later.
                     try self.append(0xE8);
-                    // For JIT execution, we patch absolute address dynamically, or use indirect call [RAX].
-                    // Let's use indirect call [RAX] for simple JIT external calls, which is extremely robust!
-                    // To do this, we load the external function pointer to RAX (via mov_ri RAX, ptr) and then call RAX.
-                    // But if this is a standard relative call, we leave a placeholder.
+                    const patch_idx = self.code.items.len;
                     try self.appendSlice(&.{ 0, 0, 0, 0 });
+                    try self.symbol_relocs.append(self.allocator, .{
+                        .patch_offset = patch_idx,
+                        .symbol_name = instr.op1.symbol,
+                        .kind = .PC32,
+                        .addend = -4,
+                    });
                 } else {
                     const reg: RegisterId = @enumFromInt(instr.op1.reg.id);
                     const reg_val = @intFromEnum(reg);
@@ -369,7 +418,51 @@ pub const Encoder = struct {
                     try self.append(modrm.toByte());
                 }
             },
-            else => return error.UnsupportedOpcode,
+            .shl_r => {
+                // shl reg, cl -> REX.W 0xD3 /4
+                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest_val = @intFromEnum(dest);
+                const rex = Rex{ .w = true, .b = dest_val >= 8 };
+                try self.append(rex.toByte());
+                try self.append(0xD3);
+                const modrm = ModRm{ .mod = 3, .reg = 4, .rm = @intCast(dest_val & 7) };
+                try self.append(modrm.toByte());
+            },
+            .shr_r => {
+                // shr reg, cl -> REX.W 0xD3 /5
+                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest_val = @intFromEnum(dest);
+                const rex = Rex{ .w = true, .b = dest_val >= 8 };
+                try self.append(rex.toByte());
+                try self.append(0xD3);
+                const modrm = ModRm{ .mod = 3, .reg = 5, .rm = @intCast(dest_val & 7) };
+                try self.append(modrm.toByte());
+            },
+            .neg_r => {
+                // neg reg -> REX.W 0xF7 /3
+                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest_val = @intFromEnum(dest);
+                const rex = Rex{ .w = true, .b = dest_val >= 8 };
+                try self.append(rex.toByte());
+                try self.append(0xF7);
+                const modrm = ModRm{ .mod = 3, .reg = 3, .rm = @intCast(dest_val & 7) };
+                try self.append(modrm.toByte());
+            },
+            .not_r => {
+                // not reg -> REX.W 0xF7 /2
+                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest_val = @intFromEnum(dest);
+                const rex = Rex{ .w = true, .b = dest_val >= 8 };
+                try self.append(rex.toByte());
+                try self.append(0xF7);
+                const modrm = ModRm{ .mod = 3, .reg = 2, .rm = @intCast(dest_val & 7) };
+                try self.append(modrm.toByte());
+            },
+            .cqo => {
+                // cqo -> REX.W 0x99 (sign-extend RAX into RDX:RAX)
+                try self.append(0x48);
+                try self.append(0x99);
+            },
         }
     }
 

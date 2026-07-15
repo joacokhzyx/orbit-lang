@@ -119,6 +119,11 @@ pub const IRBuilder = struct {
                 for (self.module.functions.items) |f| {
                     if (std.mem.eql(u8, f.name, name)) return f.return_type;
                 }
+                if (std.mem.eql(u8, name, "orbit_os_argv")) return .string;
+                if (std.mem.eql(u8, name, "orbit_string_to_int")) return .int;
+                if (std.mem.eql(u8, name, "orbit_clock_ns")) return .int;
+                if (std.mem.eql(u8, name, "orbit_int_to_string")) return .string;
+                if (std.mem.eql(u8, name, "orbit_http_query_get")) return .string;
             }
         }
 
@@ -219,6 +224,7 @@ pub const IRBuilder = struct {
                         .method = method,
                         .path = path,
                     };
+                    func.return_type = .response;
                     // Routes currently don't have explicit parameters in AST, but might in future.
                     // For now, they implicitly take a context or request object.
                     // We'll leave params empty for now.
@@ -252,6 +258,26 @@ pub const IRBuilder = struct {
                             } else {
                                 try self.buildStmt(fn_data.body);
                             }
+
+                            const needs_ret = if (f.instructions.items.len == 0) true else blk: {
+                                const last = f.instructions.items[f.instructions.items.len - 1];
+                                break :blk last.opcode != .ret;
+                            };
+                            if (needs_ret) {
+                                var ret_instr = IRInstruction.init(.ret);
+                                if (f.return_type != .void and f.return_type != .unknown) {
+                                    ret_instr.operand1 = switch (f.return_type) {
+                                        .int => IRValue{ .int = 0 },
+                                        .float => IRValue{ .float = 0.0 },
+                                        .bool => IRValue{ .bool = false },
+                                        else => .none,
+                                    };
+                                } else {
+                                    ret_instr.operand1 = .none;
+                                }
+                                try f.emit(self.allocator, ret_instr);
+                            }
+
                             // Clear parameters from variable_types
                             for (f.params) |p_name| {
                                 _ = self.variable_types.remove(p_name);
@@ -281,6 +307,17 @@ pub const IRBuilder = struct {
                             } else {
                                 try self.buildStmt(route_data.body);
                             }
+
+                            const needs_ret = if (f.instructions.items.len == 0) true else blk: {
+                                const last = f.instructions.items[f.instructions.items.len - 1];
+                                break :blk last.opcode != .ret;
+                            };
+                            if (needs_ret) {
+                                var ret_instr = IRInstruction.init(.ret);
+                                ret_instr.operand1 = .none;
+                                try f.emit(self.allocator, ret_instr);
+                            }
+
                             break;
                         }
                     }
@@ -297,12 +334,19 @@ pub const IRBuilder = struct {
             }
         }
 
-        if (self.main_function.instructions.items.len > 0) {
-            try self.module.addFunction(self.main_function);
-        } else if (self.module.functions.items.len == 0) {
-            // Ensure at least one function exists if the module is empty
-            try self.module.addFunction(self.main_function);
-        }
+         const is_main_added = (self.main_function.instructions.items.len > 0) or (self.module.functions.items.len == 0);
+         if (is_main_added) {
+             const main_needs_ret = if (self.main_function.instructions.items.len == 0) true else blk: {
+                 const last = self.main_function.instructions.items[self.main_function.instructions.items.len - 1];
+                 break :blk last.opcode != .ret;
+             };
+             if (main_needs_ret) {
+                 var ret_instr = IRInstruction.init(.ret);
+                 ret_instr.operand1 = .none;
+                 try self.main_function.emit(self.allocator, ret_instr);
+             }
+             try self.module.addFunction(self.main_function);
+         }
 
         return self.module;
     }
@@ -433,6 +477,27 @@ pub const IRBuilder = struct {
             } else {
                 try self.buildStmt(fn_data.body);
             }
+
+            const needs_ret = if (func.instructions.items.len == 0) true else blk: {
+                const last = func.instructions.items[func.instructions.items.len - 1];
+                break :blk last.opcode != .ret;
+            };
+            std.debug.print("buildFunction: func={s}, len={d}, needs_ret={}\n", .{func.name, func.instructions.items.len, needs_ret});
+            if (needs_ret) {
+                var ret_instr = IRInstruction.init(.ret);
+                if (func.return_type != .void and func.return_type != .unknown) {
+                    ret_instr.operand1 = switch (func.return_type) {
+                        .int => IRValue{ .int = 0 },
+                        .float => IRValue{ .float = 0.0 },
+                        .bool => IRValue{ .bool = false },
+                        else => .none,
+                    };
+                } else {
+                    ret_instr.operand1 = .none;
+                }
+                std.debug.print("buildFunction: emitting ret for {s}\n", .{func.name});
+                try func.emit(self.allocator, ret_instr);
+            }
         }
 
         try self.module.addFunction(func);
@@ -453,6 +518,7 @@ pub const IRBuilder = struct {
             .method = method,
             .path = path,
         };
+        func.return_type = .response;
         self.current_function = &func;
 
         if (route_data.body.tag == .block) {
@@ -461,6 +527,16 @@ pub const IRBuilder = struct {
             }
         } else {
             try self.buildStmt(route_data.body);
+        }
+
+        const needs_ret = if (func.instructions.items.len == 0) true else blk: {
+            const last = func.instructions.items[func.instructions.items.len - 1];
+            break :blk last.opcode != .ret;
+        };
+        if (needs_ret) {
+            var ret_instr = IRInstruction.init(.ret);
+            ret_instr.operand1 = .none;
+            try func.emit(self.allocator, ret_instr);
         }
 
         try self.module.addFunction(func);
@@ -865,6 +941,7 @@ pub const IRBuilder = struct {
             .Minus => .sub,
             .Asterisk => .mul,
             .Slash => .div,
+            .Percent => .mod,
             .DoubleEqual => .eq,
             .NotEqual => .ne,
             .Less => .lt,

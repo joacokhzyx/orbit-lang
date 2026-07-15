@@ -11,6 +11,7 @@ const std = @import("std");
 /// Target-independent MIR Opcodes.
 pub const MirOpcode = enum {
     nop,
+    arg,
 
     // Constants & Memory
     const_int,

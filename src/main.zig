@@ -6,7 +6,7 @@
 //!
 //! Two backends are available:
 //!   steel  – C-generation path (default, production-stable)
-//!   native – Photon Native path (x86-64 direct emission, experimental)
+//!   native – Native backend path (x86-64 direct emission, experimental)
 //!
 //! Entry point: `pub fn main()`.
 
@@ -20,7 +20,7 @@ const CBackend = @import("codegen/c_backend.zig").CBackend;
 const AtlasConfig = @import("atlas.zig").AtlasConfig;
 const term = @import("terminal/terminal.zig");
 
-// ── Photon Native backend ─────────────────────────────────────────────────────
+// ── Native backend ────────────────────────────────────────────────────────────
 const NativeBackend = @import("backend/backend.zig").Backend;
 const Capabilities = @import("backend/capabilities.zig");
 const NativeDiag = @import("backend/diagnostics.zig");
@@ -31,7 +31,7 @@ const MirPrinter = @import("backend/mir/printer.zig").MirPrinter;
 pub const BackendMode = enum {
     /// Default: generate C, compile with zig cc.  Oracle / production path.
     steel,
-    /// Photon Native: lower to MIR → LIR → x86-64 machine code directly.
+    /// Native backend: lower to MIR → LIR → x86-64 machine code directly.
     /// Falls back to steel on unsupported features when mode is `auto`.
     native,
     /// Automatically selects native when fully supported, steel otherwise.
@@ -474,7 +474,7 @@ fn compileToBinary(
     var compile_sources = std.ArrayListUnmanaged([]const u8).empty;
     defer compile_sources.deinit(arena);
 
-    // ── Photon Native path ────────────────────────────────────────────────────
+    // ── Native backend path ───────────────────────────────────────────────────
     if (effective_backend == .native) {
         // If the user asked --backend=native but the IR is out of scope,
         // surface a clear error rather than emitting silent wrong code.
@@ -519,13 +519,228 @@ fn compileToBinary(
             return obj_path;
         }
 
-        // Write native stub C file to include runtime.h
+        // Write native stub C file to include runtime.h and implement wraps
         const temp_dir = try getOrbitTempDir(init, arena);
         const native_stub_c_path = try std.fs.path.join(arena, &.{ temp_dir, "native_stub.c" });
         var stub_file = try cwd.createFile(init.io, native_stub_c_path, .{ .truncate = true });
         var stub_wb: [1024]u8 = undefined;
         var stub_fw = std.Io.File.Writer.init(stub_file, init.io, &stub_wb);
-        try stub_fw.interface.writeAll("#include \"runtime.h\"\n");
+        try stub_fw.interface.writeAll(
+            \\#ifdef ORBIT_WITH_NET
+            \\#define orbit_http_query_get original_orbit_http_query_get
+            \\#define orbit_response_create original_orbit_response_create
+            \\#endif
+            \\#define orbit_list_create original_orbit_list_create
+            \\#define orbit_map_create original_orbit_map_create
+            \\#define orbit_string_slice original_orbit_string_slice
+            \\#define orbit_int_to_string original_orbit_int_to_string
+            \\#define orbit_float_to_string original_orbit_float_to_string
+            \\#define orbit_bool_to_string original_orbit_bool_to_string
+            \\#define orbit_string_concat original_orbit_string_concat
+            \\#define orbit_string_split original_orbit_string_split
+            \\#define orbit_string_replace original_orbit_string_replace
+            \\#define orbit_file_read original_orbit_file_read
+            \\#define orbit_file_list_dir original_orbit_file_list_dir
+            \\#define orbit_os_env original_orbit_os_env
+            \\#define orbit_os_exec original_orbit_os_exec
+            \\#define orbit_os_argv original_orbit_os_argv
+            \\
+            \\#include "runtime.h"
+            \\
+            \\#ifdef ORBIT_WITH_NET
+            \\#undef orbit_http_query_get
+            \\#undef orbit_response_create
+            \\#endif
+            \\#undef orbit_list_create
+            \\#undef orbit_map_create
+            \\#undef orbit_string_slice
+            \\#undef orbit_int_to_string
+            \\#undef orbit_float_to_string
+            \\#undef orbit_bool_to_string
+            \\#undef orbit_string_concat
+            \\#undef orbit_string_split
+            \\#undef orbit_string_replace
+            \\#undef orbit_file_read
+            \\#undef orbit_file_list_dir
+            \\#undef orbit_os_env
+            \\#undef orbit_os_exec
+            \\#undef orbit_os_argv
+            \\
+            \\#ifdef __cplusplus
+            \\extern "C" {
+            \\#endif
+            \\
+            \\void __main(void) {}
+            \\int strcmp(const char* s1, const char* s2) {
+            \\    while (*s1 && (*s1 == *s2)) {
+            \\        s1++;
+            \\        s2++;
+            \\    }
+            \\    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+            \\}
+            \\void* orbit_global_arena = NULL;
+            \\extern char** _orbit_argv;
+            \\extern int _orbit_argc;
+            \\extern int orbit_main(void);
+            \\
+            \\#ifdef ORBIT_WITH_NET
+            \\orbit_string orbit_http_query_get(OrbitRequest* req, orbit_string key) {
+            \\    return original_orbit_http_query_get((OrbitArena*)orbit_global_arena, req, key);
+            \\}
+            \\#endif
+            \\OrbitResult orbit_list_create(size_t elem_size, size_t initial_capacity) {
+            \\    return original_orbit_list_create((OrbitArena*)orbit_global_arena, elem_size, initial_capacity);
+            \\}
+            \\OrbitResult orbit_map_create(size_t value_size) {
+            \\    return original_orbit_map_create((OrbitArena*)orbit_global_arena, value_size);
+            \\}
+            \\orbit_string orbit_string_slice(orbit_string s, orbit_int start, orbit_int end) {
+            \\    return original_orbit_string_slice((OrbitArena*)orbit_global_arena, s, start, end);
+            \\}
+            \\orbit_string orbit_int_to_string(orbit_int value) {
+            \\    return original_orbit_int_to_string((OrbitArena*)orbit_global_arena, value);
+            \\}
+            \\orbit_string orbit_float_to_string(orbit_float value) {
+            \\    return original_orbit_float_to_string((OrbitArena*)orbit_global_arena, value);
+            \\}
+            \\orbit_string orbit_bool_to_string(orbit_bool value) {
+            \\    return original_orbit_bool_to_string((OrbitArena*)orbit_global_arena, value);
+            \\}
+            \\orbit_string orbit_string_concat(orbit_string a, orbit_string b) {
+            \\    return original_orbit_string_concat((OrbitArena*)orbit_global_arena, a, b);
+            \\}
+            \\OrbitList* orbit_string_split(orbit_string s, orbit_string delim) {
+            \\    return original_orbit_string_split((OrbitArena*)orbit_global_arena, s, delim);
+            \\}
+            \\orbit_string orbit_string_replace(orbit_string s, orbit_string old_str, orbit_string new_str) {
+            \\    return original_orbit_string_replace((OrbitArena*)orbit_global_arena, s, old_str, new_str);
+            \\}
+            \\OrbitResult orbit_file_read(const char* filename) {
+            \\    return original_orbit_file_read((OrbitArena*)orbit_global_arena, filename);
+            \\}
+            \\OrbitList* orbit_file_list_dir(const char* path) {
+            \\    return original_orbit_file_list_dir((OrbitArena*)orbit_global_arena, path);
+            \\}
+            \\#ifdef ORBIT_WITH_NET
+            \\OrbitResponse* orbit_response_create(int status, const char* content_type, const char* body) {
+            \\    return original_orbit_response_create((OrbitArena*)orbit_global_arena, status, content_type, body);
+            \\}
+            \\#endif
+            \\orbit_string orbit_os_env(orbit_string var_name) {
+            \\    return original_orbit_os_env((OrbitArena*)orbit_global_arena, var_name);
+            \\}
+            \\orbit_string orbit_os_exec(orbit_string command) {
+            \\    return original_orbit_os_exec((OrbitArena*)orbit_global_arena, command);
+            \\}
+            \\orbit_string orbit_os_argv(orbit_int index) {
+            \\    return original_orbit_os_argv((OrbitArena*)orbit_global_arena, index);
+            \\}
+            \\
+            \\#ifdef _WIN32
+            \\static void raw_win32_print(const char* s) {
+            \\    void* stdout_handle = GetStdHandle(-11); // STD_OUTPUT_HANDLE
+            \\    unsigned int len = 0;
+            \\    while (s[len]) len++;
+            \\    unsigned long written;
+            \\    WriteFile(stdout_handle, s, len, &written, NULL);
+            \\}
+            \\#endif
+            \\
+            \\#undef print
+            \\void print(const char* s) {
+            \\#ifdef _WIN32
+            \\    raw_win32_print(s);
+            \\    raw_win32_print("\r\n");
+            \\#else
+            \\    printf("%s\n", s);
+            \\#endif
+            \\}
+            \\
+            \\#ifdef _WIN32
+            \\__declspec(dllimport) char* __stdcall GetCommandLineA(void);
+            \\
+            \\static void parse_command_line(const char* cmdline, int* argc, char*** argv) {
+            \\    int cap = 16;
+            \\    *argv = (char**)malloc(cap * sizeof(char*));
+            \\    int count = 0;
+            \\    const char* p = cmdline;
+            \\    while (*p) {
+            \\        while (*p && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) {
+            \\            p++;
+            \\        }
+            \\        if (!*p) break;
+            \\        const char* start = p;
+            \\        int in_quotes = 0;
+            \\        while (*p) {
+            \\            if (*p == '"') {
+            \\                in_quotes = !in_quotes;
+            \\            } else if (!in_quotes && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) {
+            \\                break;
+            \\            }
+            \\            p++;
+            \\        }
+            \\        size_t len = p - start;
+            \\        char* token = (char*)malloc(len + 1);
+            \\        int dest_idx = 0;
+            \\        for (size_t i = 0; i < len; i++) {
+            \\            if (start[i] != '"') {
+            \\                token[dest_idx++] = start[i];
+            \\            }
+            \\        }
+            \\        token[dest_idx] = '\0';
+            \\        if (count >= cap) {
+            \\            cap *= 2;
+            \\            *argv = (char**)realloc(*argv, cap * sizeof(char*));
+            \\        }
+            \\        (*argv)[count++] = token;
+            \\    }
+            \\    *argc = count;
+            \\}
+            \\#endif
+            \\
+            \\int main(int argc, char* argv[]) {
+            \\#ifdef _WIN32
+            \\    raw_win32_print("DEBUG STUB START\r\n");
+            \\#else
+            \\    printf("DEBUG STUB START\n");
+            \\    fflush(stdout);
+            \\#endif
+            \\#ifdef _WIN32
+            \\    (void)argc; (void)argv;
+            \\    char* cmdline = GetCommandLineA();
+            \\    int parsed_argc = 0;
+            \\    char** parsed_argv = NULL;
+            \\    parse_command_line(cmdline, &parsed_argc, &parsed_argv);
+            \\    _orbit_argv = parsed_argv;
+            \\    _orbit_argc = parsed_argc;
+            \\#else
+            \\    _orbit_argv = argv;
+            \\    _orbit_argc = argc;
+            \\#endif
+            \\    orbit_string_pool_init(1024);
+            \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
+            \\#ifdef _WIN32
+            \\    raw_win32_print("DEBUG STUB: parsed args done\r\n");
+            \\#else
+            \\    printf("DEBUG STUB: _orbit_argc=%d, _orbit_argv[0]=%s\n", _orbit_argc, _orbit_argv[0]);
+            \\#endif
+            \\    orbit_main();
+            \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
+            \\    orbit_string_pool_cleanup();
+            \\#ifdef _WIN32
+            \\    for (int i = 0; i < parsed_argc; i++) {
+            \\        free(parsed_argv[i]);
+            \\    }
+            \\    free(parsed_argv);
+            \\#endif
+            \\    return 0;
+            \\}
+            \\
+            \\#ifdef __cplusplus
+            \\}
+            \\#endif
+            \\
+        );
         try stub_fw.flush();
         stub_file.close(init.io);
 
@@ -958,9 +1173,9 @@ fn runBuildMode(
     }
 
     if (!use_cache) {
-        _ = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode, linker_mode);
+        const actual_out_path = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode, linker_mode);
         std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
-        try copyFile(init.io, arena, cb_path, out_bin_name);
+        try copyFile(init.io, arena, actual_out_path, out_bin_name);
     }
 
     const elapsed_s = session.profiler.timer.readSeconds();
