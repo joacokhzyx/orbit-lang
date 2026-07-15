@@ -731,7 +731,7 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
 
     // COFF File Header (20 bytes)
     const num_sections = linker.merged_sections.items.len;
-    var coff_hdr = [_]u8{0} ** 20;
+    var coff_hdr: [20]u8 = @splat(0);
     std.mem.writeInt(u16, coff_hdr[0..2], 0x8664, .little);
     std.mem.writeInt(u16, coff_hdr[2..4], @intCast(num_sections), .little);
     std.mem.writeInt(u32, coff_hdr[4..8], 0, .little); // TimeDateStamp
