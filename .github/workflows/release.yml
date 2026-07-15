@@ -32,7 +32,7 @@ jobs:
       - name: Set up Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.16.0-dev.2223+4f16e80ce
+          version: master
 
       - name: Build release compiler
         run: zig build -Doptimize=ReleaseFast
