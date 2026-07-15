@@ -253,7 +253,7 @@ pub fn writeObject(allocator: std.mem.Allocator, obj: *const Object) ![]const u8
     @memcpy(out_bytes.items[0..header_size], std.mem.asBytes(&header));
 
     for (obj.sections.items, 0..) |sec, idx| {
-        var name_buf: [8]u8 = [_]u8{0} ** 8;
+        var name_buf: [8]u8 = @splat(0);
         const len = @min(sec.name.len, 8);
         @memcpy(name_buf[0..len], sec.name[0..len]);
 
