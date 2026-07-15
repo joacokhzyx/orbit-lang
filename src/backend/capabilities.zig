@@ -1,7 +1,7 @@
 //! orbit/src/backend/capabilities.zig
 //!
 //! Inspects an IRModule and reports which opcodes are not yet covered by the
-//! Photon Native backend.  Used to implement --backend=auto fallback logic and
+//! Native backend.  Used to implement --backend=auto fallback logic and
 //! --backend=native hard-failure mode.
 
 const std = @import("std");
@@ -54,6 +54,9 @@ fn isSupported(op: IROpcode) bool {
 /// covered by the native backend.
 pub fn firstUnsupported(module: *const IRModule) ?[]const u8 {
     for (module.functions.items) |func| {
+        if (func.route_info != null) {
+            return "http_routes";
+        }
         for (func.instructions.items) |instr| {
             if (!isSupported(instr.opcode)) {
                 return @tagName(instr.opcode);

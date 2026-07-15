@@ -36,6 +36,12 @@ pub const X86Opcode = enum(u32) {
     cmp_rr,
     cmp_ri,
     test_rr,
+    sete_r,
+    setne_r,
+    setl_r,
+    setle_r,
+    setg_r,
+    setge_r,
 
     // Control Flow
     jmp,
@@ -49,4 +55,9 @@ pub const X86Opcode = enum(u32) {
     ret,
     nop,
     ud2, // Undefined instruction for traps/panics
+
+    // Unary arithmetic and sign extension (added for full integer coverage).
+    neg_r, // Two's-complement negation (F7 /3)
+    not_r, // One's-complement negation (F7 /2)
+    cqo, // Sign-extend RAX into RDX:RAX before idiv (REX.W 99)
 };

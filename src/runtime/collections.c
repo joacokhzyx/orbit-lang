@@ -385,7 +385,7 @@ static orbit_string orbit_string_slice(OrbitArena* arena, orbit_string s, orbit_
     return buf;
 }
 
-static orbit_string orbit_int_to_string(OrbitArena* arena, orbit_int value) {
+orbit_string orbit_int_to_string(OrbitArena* arena, orbit_int value) {
     if (!arena) return "";
 
     char tmp[32];
@@ -399,7 +399,7 @@ static orbit_string orbit_int_to_string(OrbitArena* arena, orbit_int value) {
     return buf;
 }
 
-static orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
+orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
     if (!arena) return "";
 
     char tmp[64];
@@ -413,7 +413,7 @@ static orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) 
     return buf;
 }
 
-static orbit_string orbit_bool_to_string(OrbitArena* arena, orbit_bool value) {
+orbit_string orbit_bool_to_string(OrbitArena* arena, orbit_bool value) {
     (void)arena;
     return value ? "true" : "false";
 }

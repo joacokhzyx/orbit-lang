@@ -1,6 +1,6 @@
 //! orbit/src/backend/diagnostics.zig
 //!
-//! Standardised error messages for the Photon Native backend.
+//! Standardised error messages for the Native backend.
 //! Every unsupported-feature diagnostic follows the ORB-NATIVE-UNSUPPORTED format
 //! so that tooling can parse and react to them reliably.
 

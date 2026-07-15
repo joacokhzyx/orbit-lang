@@ -808,6 +808,9 @@ test "bootstrap.fixed_point_verification" {
     // stdio lets the child write freely without ever blocking on the parent.
     var child = try std.process.spawn(io, .{
         .argv = args.items,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
     });
     const term = try child.wait(io);
 

@@ -55,6 +55,11 @@ pub const MirBuilder = struct {
     }
 
     fn buildFunction(self: *MirBuilder, ir_func: *const IRFunction) !MirFunction {
+        std.debug.print("IR instructions for function {s}:\n", .{ir_func.name});
+        for (ir_func.instructions.items, 0..) |ins, idx| {
+            std.debug.print("  {d}: opcode={s} dest={?} op1={}\n", .{ idx, @tagName(ins.opcode), ins.dest, ins.operand1 });
+        }
+
         // Map parameter types
         var param_types = try self.allocator.alloc(MirType, ir_func.params.len);
         for (ir_func.param_types, 0..) |pt, i| {
@@ -71,6 +76,15 @@ pub const MirBuilder = struct {
         // Pre-allocate register types mapping
         for (ir_func.register_types.items) |rt| {
             _ = try mir_func.addRegister(self.allocator, mapType(rt));
+        }
+
+        var variable_map = std.StringHashMap(ValueId).init(self.allocator);
+        defer variable_map.deinit();
+
+        // Allocate registers for parameters
+        for (ir_func.params, ir_func.param_types) |p_name, p_type| {
+            const reg_id = try mir_func.addRegister(self.allocator, mapType(p_type));
+            try variable_map.put(p_name, reg_id);
         }
 
         // First pass: scan for labels to identify basic block boundaries.
@@ -130,7 +144,7 @@ pub const MirBuilder = struct {
             }
 
             // Lower instruction to MIR
-            const mir_instr = try self.lowerInstruction(ir_instr, &idx_to_block, ir_func.instructions.items);
+            const mir_instr = try self.lowerInstruction(ir_instr, &idx_to_block, ir_func.instructions.items, &variable_map, &mir_func);
             if (mir_instr.opcode != .nop) {
                 try mir_func.blocks.items[current_block_id].instructions.append(self.allocator, mir_instr);
             }
@@ -144,12 +158,12 @@ pub const MirBuilder = struct {
 
             if (last.opcode == .jmp) {
                 const target_ir_idx = last.op1.imm_int;
-                const target_bid = idx_to_block.get(@intCast(target_ir_idx)) orelse 0;
+                const target_bid = idx_to_block.get(@intCast(target_ir_idx)) orelse return error.UnresolvedBlock;
                 last.op1 = .{ .block = target_bid };
                 try addCfgEdge(block, &mir_func.blocks.items[target_bid], self.allocator);
             } else if (last.opcode == .jmp_if) {
                 const target_ir_idx = last.op2.imm_int;
-                const target_bid = idx_to_block.get(@intCast(target_ir_idx)) orelse 0;
+                const target_bid = idx_to_block.get(@intCast(target_ir_idx)) orelse return error.UnresolvedBlock;
                 last.op2 = .{ .block = target_bid };
                 try addCfgEdge(block, &mir_func.blocks.items[target_bid], self.allocator);
 
@@ -187,31 +201,76 @@ pub const MirBuilder = struct {
         try to.predecessors.append(allocator, from.id);
     }
 
-    fn mapValue(val: IRValue) MirOperand {
+    fn mapValue(val: IRValue, variable_map: *const std.StringHashMap(ValueId)) MirOperand {
         return switch (val) {
             .int => |v| .{ .imm_int = v },
             .float => |v| .{ .imm_float = v },
-            .string => |v| .{ .imm_str = v },
+            .string => |v| {
+                if (variable_map.get(v)) |reg_id| {
+                    return .{ .reg = reg_id };
+                }
+                return .{ .imm_str = v };
+            },
+            .symbol => |v| {
+                if (variable_map.get(v)) |reg_id| {
+                    return .{ .reg = reg_id };
+                }
+                return .{ .imm_str = v };
+            },
             .bool => |v| .{ .imm_bool = v },
             .register => |v| .{ .reg = v },
             .label => |v| .{ .imm_int = @intCast(v) }, // Kept temporarily as instruction index
             .none => .none,
-            else => .none,
         };
     }
 
-    fn findLabelInstructionIndex(label_id: u32, instructions: []const ir_mod.IRInstruction) usize {
+    fn findLabelInstructionIndex(label_id: u32, instructions: []const ir_mod.IRInstruction) ?usize {
+        // Labels are emitted by the IR builder with their id in `operand1` as a
+        // `.label` value (see src/ir/builder.zig). The previous lookup matched
+        // `operand2.register`, which never matched, so every jump silently
+        // resolved to instruction index 0 (the entry block) -> infinite loop.
         for (instructions, 0..) |instr, i| {
-            if (instr.opcode == .label and instr.operand2 == .register and instr.operand2.register == label_id) {
+            if (instr.opcode == .label and instr.operand1 == .label and instr.operand1.label == label_id) {
                 return i;
             }
         }
-        return 0;
+        return null;
     }
 
-    fn lowerInstruction(self: *MirBuilder, ir_instr: ir_mod.IRInstruction, idx_to_block: *const std.AutoHashMap(usize, u32), instructions: []const ir_mod.IRInstruction) !MirInstruction {
-        _ = self;
+    fn lowerInstruction(self: *MirBuilder, ir_instr: ir_mod.IRInstruction, idx_to_block: *const std.AutoHashMap(usize, u32), instructions: []const ir_mod.IRInstruction, variable_map: *std.StringHashMap(ValueId), mir_func: *MirFunction) !MirInstruction {
         _ = idx_to_block;
+
+        if (ir_instr.opcode == .decl_var) {
+            const var_name = ir_instr.operand1.string;
+            var var_type: MirType = .int;
+            if (ir_instr.operand2 != .none) {
+                if (ir_instr.operand2 == .register) {
+                    const reg_idx = ir_instr.operand2.register;
+                    if (reg_idx < mir_func.val_types.items.len) {
+                        var_type = mir_func.val_types.items[reg_idx];
+                    }
+                } else if (ir_instr.operand2 == .string or ir_instr.operand2 == .symbol) {
+                    if (!variable_map.contains(ir_instr.operand2.string)) {
+                        var_type = .string;
+                    }
+                }
+            }
+            if (ir_instr.operand3 == .string) {
+                var_type = mapType(IRType.fromString(ir_instr.operand3.string));
+            }
+            const reg_id = try mir_func.addRegister(self.allocator, var_type);
+            try variable_map.put(var_name, reg_id);
+            
+            if (ir_instr.operand2 != .none) {
+                const init_val = mapValue(ir_instr.operand2, variable_map);
+                return MirInstruction{
+                    .opcode = .copy,
+                    .dest = reg_id,
+                    .op1 = init_val,
+                };
+            }
+            return .{ .opcode = .nop, .dest = null };
+        }
 
         const opcode = switch (ir_instr.opcode) {
             .nop => MirOpcode.nop,
@@ -236,6 +295,7 @@ pub const MirBuilder = struct {
             .neg => MirOpcode.neg,
             .call => MirOpcode.call,
             .ret => MirOpcode.ret,
+            .arg => MirOpcode.arg,
             .jump => MirOpcode.jmp,
             .jump_if_false => MirOpcode.jmp_if,
             .alloc => MirOpcode.arena_alloc,
@@ -248,29 +308,37 @@ pub const MirBuilder = struct {
             return .{ .opcode = .nop, .dest = null };
         }
 
-        var op1 = mapValue(ir_instr.operand1);
-        var op2 = mapValue(ir_instr.operand2);
-        const op3 = mapValue(ir_instr.operand3);
+        var op1 = mapValue(ir_instr.operand1, variable_map);
+        var op2 = mapValue(ir_instr.operand2, variable_map);
+        const op3 = mapValue(ir_instr.operand3, variable_map);
+
+        var dest = ir_instr.dest;
+        if (ir_instr.opcode == .store_var) {
+            const var_name = ir_instr.operand1.string;
+            dest = variable_map.get(var_name);
+            op1 = op2;
+            op2 = .none;
+        }
 
         // Resolve label values into target instruction index
         if (ir_instr.opcode == .jump) {
             if (ir_instr.operand1 == .label) {
-                const idx = findLabelInstructionIndex(ir_instr.operand1.label, instructions);
+                const idx = findLabelInstructionIndex(ir_instr.operand1.label, instructions) orelse return error.UnresolvedLabel;
                 op1 = .{ .imm_int = @intCast(idx) };
             }
         } else if (ir_instr.opcode == .jump_if_false) {
             // jmp_if cond target -> in MIR: jmp_if_not cond target
             // We implement it by mapping condition to op1, target to op2
-            op1 = mapValue(ir_instr.operand1);
+            op1 = mapValue(ir_instr.operand1, variable_map);
             if (ir_instr.operand2 == .label) {
-                const idx = findLabelInstructionIndex(ir_instr.operand2.label, instructions);
+                const idx = findLabelInstructionIndex(ir_instr.operand2.label, instructions) orelse return error.UnresolvedLabel;
                 op2 = .{ .imm_int = @intCast(idx) };
             }
         }
 
         return MirInstruction{
             .opcode = opcode,
-            .dest = ir_instr.dest,
+            .dest = dest,
             .op1 = op1,
             .op2 = op2,
             .op3 = op3,

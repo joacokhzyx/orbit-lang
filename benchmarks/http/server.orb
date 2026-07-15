@@ -1,0 +1,36 @@
+// Orbit HTTP benchmark server.
+//
+// Routes:
+//   GET /         -> 200 "OK\n"
+//   GET /fib?n=N  -> 200 "<fib(N)>\n"  iterative, mod 1_000_000_007
+//
+// Port from argv[1]; runtime handles socket binding.
+// Silent on start — harness detects readiness via TCP poll.
+
+fn fib(n: int) -> int {
+    val MOD = 1000000007
+    if n <= 0 { return 0 }
+    if n == 1 { return 1 }
+    if n > 1000000 { return fib(1000000) }
+    var a = 0
+    var b = 1
+    var i = 2
+    while i <= n {
+        val c = (a + b) % MOD
+        a = b
+        b = c
+        i = i + 1
+    }
+    return b
+}
+
+route GET "/" {
+    return ok 200 "OK\n"
+}
+
+route GET "/fib" {
+    val n_str = orbit_http_query_get(req, "n")
+    val n     = orbit_string_to_int(n_str)
+    val ans   = fib(n)
+    return ok 200 orbit_int_to_string(ans)
+}

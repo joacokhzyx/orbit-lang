@@ -1,0 +1,9 @@
+fn main() {
+    val name = orbit_os_argv(1)
+    print("Arg 1 is: " + name)
+    if name == "test" {
+        print("Comparison: MATCH!")
+    } else {
+        print("Comparison: NO MATCH!")
+    }
+}

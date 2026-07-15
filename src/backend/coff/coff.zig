@@ -1,7 +1,7 @@
 //! orbit/src/backend/coff/coff.zig
 //!
 //! Generates Microsoft COFF (Common Object File Format) relocatable object files
-//! for x86-64. Used by Photon Native to link with external C compilers.
+//! for x86-64. Used by the Native backend to link with external C compilers.
 //!
 //! Reference: Microsoft PE and COFF Specification, Revision 11.0.
 
