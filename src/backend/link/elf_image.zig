@@ -19,7 +19,7 @@ const Elf64Header = extern struct {
     version: u8 = 1,
     osabi: u8 = 0, // System V
     abiversion: u8 = 0,
-    pad: [7]u8 = .{0} ** 7,
+    pad: [7]u8 = @splat(0),
     type_field: u16, // ET_EXEC
     machine: u16 = 0x3E, // x86-64
     version2: u32 = 1,

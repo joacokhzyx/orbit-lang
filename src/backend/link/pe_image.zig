@@ -710,7 +710,7 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
     errdefer out.deinit();
 
     // MZ Header (64 bytes)
-    var mz: [64]u8 = [_]u8{0} ** 64;
+    var mz: [64]u8 = @splat(0);
     mz[0] = 'M';
     mz[1] = 'Z';
     mz[2] = 0x80;

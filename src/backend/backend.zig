@@ -107,7 +107,7 @@ pub const Backend = struct {
     pub fn emitObject(self: *Backend, allocator: std.mem.Allocator) ![]const u8 {
         _ = allocator;
         if (self.mir_module == null) return error.MirNotReady;
-        var mir = &self.mir_module.?;
+        const mir = &self.mir_module.?;
 
         if (mir.functions.items.len == 0) {
             return error.EmptyModule;
