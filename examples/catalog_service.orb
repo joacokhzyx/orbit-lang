@@ -1,0 +1,14 @@
+// A small public API surface. In a full service, validation and persistence
+// happen before returning the response.
+
+route GET "/v1/catalog" {
+    return ok 200 "[]"
+}
+
+route GET "/v1/catalog/featured" {
+    return ok 200 "{\"items\":[]}"
+}
+
+route GET "/v1/catalog/missing" {
+    err 404 "catalog item not found"
+}
