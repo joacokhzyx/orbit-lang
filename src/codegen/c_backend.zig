@@ -21,6 +21,7 @@ const superluminal_emitter = @import("../superluminal/emitter.zig");
 const superluminal_semantic = @import("../superluminal/semantic_enhancer.zig");
 const superluminal_superopt = @import("../superluminal/superoptimizer.zig");
 const superluminal_dualpath = @import("../superluminal/dual_path.zig");
+const superluminal_synthesis = @import("../superluminal/synthesis.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -596,10 +597,13 @@ pub const CBackend = struct {
 
         const emit_slice = if (superopt_instructions) |s| s else func.instructions.items;
 
-        // Pattern-based code emission
+        // Synthesis-based + pattern-based code emission
         var instr_i: usize = 0;
         while (instr_i < emit_slice.len) {
-            if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
+            if (superluminal_synthesis.findSynthesis(emit_slice, instr_i)) |m| {
+                try self.emitSynthesis(emit_slice, m);
+                instr_i += m.length;
+            } else if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
                 try superluminal_emitter.emitPattern(self, emit_slice, m);
                 instr_i += m.length;
             } else {
@@ -628,6 +632,91 @@ pub const CBackend = struct {
             }
         }
         try self.output.appendSlice(self.allocator, "}\n\n");
+    }
+
+    fn emitSynthesis(self: *CBackend, instructions: []const IRInstruction, m: superluminal_synthesis.SynthesisMatch) !void {
+        const info = superluminal_synthesis.getRuleInfo(m.rule_index);
+        if (std.mem.eql(u8, info.name, "mul2_shl1")) {
+            const i = instructions[m.start];
+            const d = i.dest.?;
+            var shift: u6 = 0;
+            var val = i.operand1;
+            if (i.operand1 == .int) {
+                shift = @intCast(@ctz(@as(i64, i.operand1.int)));
+                val = i.operand2;
+            } else if (i.operand2 == .int) {
+                shift = @intCast(@ctz(@as(i64, i.operand2.int)));
+                val = i.operand1;
+            }
+            try self.output.print(self.allocator, "r_{d} = ", .{d});
+            try self.generateValue(val);
+            try self.output.print(self.allocator, " << {d};\n", .{shift});
+        } else if (std.mem.eql(u8, info.name, "div2_shr1")) {
+            const i = instructions[m.start];
+            const d = i.dest.?;
+            const shift = @as(u6, @intCast(@ctz(@as(i64, i.operand2.int))));
+            try self.output.print(self.allocator, "r_{d} = ", .{d});
+            try self.generateValue(i.operand1);
+            try self.output.print(self.allocator, " >> {d};\n", .{shift});
+        } else if (std.mem.eql(u8, info.name, "mod_pow2_and")) {
+            const i = instructions[m.start];
+            const d = i.dest.?;
+            const mask = i.operand2.int - 1;
+            try self.output.print(self.allocator, "r_{d} = ", .{d});
+            try self.generateValue(i.operand1);
+            try self.output.print(self.allocator, " & {d};\n", .{mask});
+        } else if (std.mem.eql(u8, info.name, "double_neg") or std.mem.eql(u8, info.name, "not_not")) {
+            const i = instructions[m.start + 1];
+            const d = i.dest.?;
+            try self.output.print(self.allocator, "r_{d} = ", .{d});
+            try self.generateValue(instructions[m.start].operand1);
+            try self.output.appendSlice(self.allocator, ";\n");
+        } else if (std.mem.eql(u8, info.name, "add_zero") or std.mem.eql(u8, info.name, "bool_and_true")) {
+            const i = instructions[m.start];
+            const d = i.dest.?;
+            const val = if (isIntConst(i.operand1, 0) or isIntConst(i.operand1, 1)) i.operand2 else i.operand1;
+            try self.output.print(self.allocator, "r_{d} = ", .{d});
+            try self.generateValue(val);
+            try self.output.appendSlice(self.allocator, ";\n");
+        } else if (std.mem.eql(u8, info.name, "bool_or_false")) {
+            const i = instructions[m.start];
+            const d = i.dest.?;
+            const val = if (isIntConst(i.operand1, 0)) i.operand2 else i.operand1;
+            try self.output.print(self.allocator, "r_{d} = ", .{d});
+            try self.generateValue(val);
+            try self.output.appendSlice(self.allocator, ";\n");
+        } else if (std.mem.eql(u8, info.name, "mul_one")) {
+            const i = instructions[m.start];
+            const d = i.dest.?;
+            const val = if (isIntConst(i.operand1, 1)) i.operand2 else i.operand1;
+            try self.output.print(self.allocator, "r_{d} = ", .{d});
+            try self.generateValue(val);
+            try self.output.appendSlice(self.allocator, ";\n");
+        } else if (std.mem.eql(u8, info.name, "mul_zero")) {
+            const d = instructions[m.start].dest.?;
+            try self.output.print(self.allocator, "r_{d} = 0;\n", .{d});
+        } else if (std.mem.eql(u8, info.name, "sub_self")) {
+            const d = instructions[m.start].dest.?;
+            try self.output.print(self.allocator, "r_{d} = 0;\n", .{d});
+        } else if (std.mem.eql(u8, info.name, "increment")) {
+            const store = instructions[m.start + 1];
+            try self.output.print(self.allocator, "++{s};\n", .{store.operand1.string});
+        } else if (std.mem.eql(u8, info.name, "decrement")) {
+            const store = instructions[m.start + 1];
+            try self.output.print(self.allocator, "--{s};\n", .{store.operand1.string});
+        } else if (std.mem.eql(u8, info.name, "copy_self")) {
+            // r_x = r_x — no-op
+        } else {
+            // Fallback: emit individual instructions
+            var j: usize = 0;
+            while (j < m.length) : (j += 1) {
+                try self.generateInstruction(instructions[m.start + j]);
+            }
+        }
+    }
+
+    fn isIntConst(val: IRValue, c: i64) bool {
+        return val == .int and val.int == c;
     }
 
     pub fn generateInstruction(self: *CBackend, instr: IRInstruction) !void {
