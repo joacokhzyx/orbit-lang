@@ -1,16 +1,93 @@
 // Orbit Sovereign Standard Library
 // std/collections/map.orb
-// Hash map with deterministic iteration.
+// Ordered map backed by parallel lists. Provides O(n) operations;
+// the high-performance hash map is in the C runtime (collections.c).
 
 model Map<K, V> {
-    keys: List<K>
-    values: List<V>
+    keys: list
+    values: list
+    count: int
 }
 
 fn newMap() -> Map<K, V> {
     var m: Map<K, V> = Map {
-        keys: newList(),
-        values: newList()
+        keys: [],
+        values: [],
+        count: 0
     }
-    return m;
+    return m
+}
+
+fn mapHas(map: Map<K, V>, key: K) -> bool {
+    var i = 0
+    while i < map.keys.len() {
+        if map.keys.get(i) == key {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn mapGet(map: Map<K, V>, key: K) -> V {
+    var i = 0
+    while i < map.keys.len() {
+        if map.keys.get(i) == key {
+            return map.values.get(i)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+fn mapSet(map: Map<K, V>, key: K, value: V) {
+    var i = 0
+    while i < map.keys.len() {
+        if map.keys.get(i) == key {
+            // Replace: rebuild values list
+            var mut newValues = []
+            var j = 0
+            while j < map.values.len() {
+                if j == i {
+                    newValues.push(value)
+                } else {
+                    newValues.push(map.values.get(j))
+                }
+                j = j + 1
+            }
+            map.values = newValues
+            return
+        }
+        i = i + 1
+    }
+    map.keys.push(key)
+    map.values.push(value)
+    map.count = map.count + 1
+}
+
+fn mapDelete(map: Map<K, V>, key: K) {
+    var i = 0
+    while i < map.keys.len() {
+        if map.keys.get(i) == key {
+            var mut newKeys = []
+            var mut newValues = []
+            var j = 0
+            while j < map.keys.len() {
+                if j != i {
+                    newKeys.push(map.keys.get(j))
+                    newValues.push(map.values.get(j))
+                }
+                j = j + 1
+            }
+            map.keys = newKeys
+            map.values = newValues
+            map.count = map.count - 1
+            return
+        }
+        i = i + 1
+    }
+}
+
+fn mapLen(map: Map<K, V>) -> int {
+    return map.count
 }
