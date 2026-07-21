@@ -1,6 +1,6 @@
 // Orbit Sovereign Standard Library
 // std/collections/list.orb
-// Dynamic array list wrapper.
+// Dynamic array list wrapper with bounds checking.
 
 model List<T> {
     data: pointer
@@ -14,5 +14,17 @@ fn newList() -> List<T> {
         len: 0,
         capacity: 0
     }
-    return l;
+    return l
+}
+
+fn listLen(l: List<T>) -> int {
+    return l.len
+}
+
+fn listIsEmpty(l: List<T>) -> bool {
+    return l.len == 0
+}
+
+fn listValidIndex(l: List<T>, index: int) -> bool {
+    return index >= 0 && index < l.len
 }
