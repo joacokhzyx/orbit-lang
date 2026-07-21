@@ -22,6 +22,7 @@ const superluminal_semantic = @import("../superluminal/semantic_enhancer.zig");
 const superluminal_superopt = @import("../superluminal/superoptimizer.zig");
 const superluminal_dualpath = @import("../superluminal/dual_path.zig");
 const superluminal_synthesis = @import("../superluminal/synthesis.zig");
+const superluminal_boost = @import("../superluminal/boost_display.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -48,6 +49,9 @@ pub const CBackend = struct {
 
     /// Local variable types in the current function being generated.
     local_variable_types: std.StringHashMapUnmanaged(IRType),
+
+    /// Superluminal boost metrics accumulated across all functions.
+    boost_metrics: superluminal_boost.BoostMetrics = .{},
 
     // ─── Lifecycle ───────────────────────────────────────────────────────────
 
@@ -333,6 +337,11 @@ pub const CBackend = struct {
         const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, has_db, self.config);
         try self.output.appendSlice(self.allocator, main_func);
 
+        const pct = self.boost_metrics.boostPercent();
+        if (pct >= 0.5) {
+            superluminal_boost.printBoost(self.boost_metrics);
+        }
+
         return try self.output.toOwnedSlice(self.allocator);
     }
 
@@ -590,27 +599,55 @@ pub const CBackend = struct {
         var superopt_instructions: ?[]const IRInstruction = null;
         defer if (superopt_instructions) |s| self.allocator.free(s);
 
+        const superluminal_cost = @import("../superluminal/cost_model.zig");
+
         if (func.instructions.items.len <= 20) {
             var superopt = superluminal_superopt.Superoptimizer.init(self.allocator);
             superopt_instructions = superopt.optimize(func.instructions.items) catch null;
         }
 
-        const emit_slice = if (superopt_instructions) |s| s else func.instructions.items;
+        const emit_slice = if (superopt_instructions) |s| blk: {
+            self.boost_metrics.superopt_improvements += 1;
+            break :blk s;
+        } else func.instructions.items;
+
+        const base_cost = superluminal_cost.evaluateSlice(func.instructions.items);
+        self.boost_metrics.total_instructions += func.instructions.items.len;
+        self.boost_metrics.total_cost_before += base_cost.total();
 
         // Synthesis-based + pattern-based code emission
         var instr_i: usize = 0;
+        var emit_cost = superluminal_cost.Cost{};
         while (instr_i < emit_slice.len) {
             if (superluminal_synthesis.findSynthesis(emit_slice, instr_i)) |m| {
+                self.boost_metrics.synthesis_hits += 1;
                 try self.emitSynthesis(emit_slice, m);
+                emit_cost.alu += 1;
                 instr_i += m.length;
             } else if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
+                self.boost_metrics.pattern_hits += 1;
                 try superluminal_emitter.emitPattern(self, emit_slice, m);
+                emit_cost.alu += m.cost_after.alu;
+                emit_cost.mem_read += m.cost_after.mem_read;
+                emit_cost.mem_write += m.cost_after.mem_write;
+                emit_cost.branch += m.cost_after.branch;
+                emit_cost.reg_assign += m.cost_after.reg_assign;
+                emit_cost.call += m.cost_after.call;
                 instr_i += m.length;
             } else {
                 try self.generateInstruction(emit_slice[instr_i]);
+                const c = superluminal_cost.evaluate(emit_slice[instr_i]);
+                emit_cost.alu += c.alu;
+                emit_cost.mem_read += c.mem_read;
+                emit_cost.mem_write += c.mem_write;
+                emit_cost.branch += c.branch;
+                emit_cost.reg_assign += c.reg_assign;
+                emit_cost.call += c.call;
                 instr_i += 1;
             }
         }
+
+        self.boost_metrics.total_cost_after += emit_cost.total();
 
         // Fallback return
         const has_trailing_ret = if (emit_slice.len > 0)
