@@ -77,9 +77,54 @@ pub const CBackend = struct {
         try self.arena_functions.put(self.allocator, name, {});
     }
 
+    fn routeHash(path: []const u8, method: []const u8) u64 {
+        var h: u64 = 14695981039346656037;
+        for (method) |c| { h = (h ^ @as(u64, c)) *% 1099511628211; }
+        h = (h ^ @as(u64, ':')) *% 1099511628211;
+        for (path) |c| { h = (h ^ @as(u64, c)) *% 1099511628211; }
+        return h;
+    }
+
     fn generateRouter(self: *CBackend, module: IRModule) !void {
         try self.output.appendSlice(self.allocator, "#ifdef ORBIT_WITH_NET\n");
         try self.output.appendSlice(self.allocator,
+            \\static inline uint64_t orbit_route_hash(const char* method, const char* path) {
+            \\    uint64_t h = 14695981039346656037ULL;
+            \\    if (!method || !path) return 0;
+            \\    while (*method) { h = (h ^ (unsigned char)*method++) * 1099511628211ULL; }
+            \\    h = (h ^ ':') * 1099511628211ULL;
+            \\    while (*path) { h = (h ^ (unsigned char)*path++) * 1099511628211ULL; }
+            \\    return h;
+            \\}
+            \\
+            \\static inline void orbit_log_request_fmt(const char* method, const char* path, int status, uint64_t start_rdtsc) {
+            \\    uint64_t elapsed_cycles = orbit_rdtsc() - start_rdtsc;
+            \\    double ms = (double)elapsed_cycles / 2500000.0;
+            \\    if (ms < 0.05) ms = 0.1;
+            \\
+            \\    const char* method_str = (method && method[0]) ? method : "GET";
+            \\    const char* path_str = (path && path[0]) ? path : "/";
+            \\
+            \\    const char* status_color = "\x1b[32m";
+            \\    if (status >= 300 && status < 400) status_color = "\x1b[36m";
+            \\    else if (status >= 400 && status < 500) status_color = "\x1b[33m";
+            \\    else if (status >= 500) status_color = "\x1b[31m";
+            \\
+            \\    const char* status_text = "OK";
+            \\    if (status == 201) status_text = "Created";
+            \\    else if (status == 204) status_text = "No Content";
+            \\    else if (status == 304) status_text = "Not Modified";
+            \\    else if (status == 400) status_text = "Bad Request";
+            \\    else if (status == 401) status_text = "Unauthorized";
+            \\    else if (status == 403) status_text = "Forbidden";
+            \\    else if (status == 404) status_text = "Not Found";
+            \\    else if (status == 500) status_text = "Internal Error";
+            \\    else if (status == 503) status_text = "Siege Mode Active";
+            \\
+            \\    printf("  \x1b[1;36m%-6s\x1b[0m \x1b[1;37m%-32s\x1b[0m %s%d %-18s\x1b[0m \x1b[2;90m%.1f ms\x1b[0m\n",
+            \\        method_str, path_str, status_color, status, status_text, ms);
+            \\}
+            \\
             \\int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
             \\    uint64_t start = orbit_rdtsc();
             \\    orbit_perf_start_request();
@@ -98,6 +143,7 @@ pub const CBackend = struct {
             \\    if (lease && (lease->flags & 1)) {
             \\        OrbitResponse* res = orbit_response_create(arena, 503, "text/plain", "503 Siege Mode Active - Non-critical Route Blocked");
             \\        orbit_send_response(client_sock, res);
+            \\        orbit_log_request_fmt(req->method, req->path, 503, start);
             \\        orbit_kynx_lease_destroy(lease);
             \\        orbit_perf_end_request(start);
             \\        return 0;
@@ -106,6 +152,7 @@ pub const CBackend = struct {
             \\    if (req->path && strcmp(req->path, "/_pulse") == 0) {
             \\        OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
             \\        orbit_send_response(client_sock, res);
+            \\        orbit_log_request_fmt(req->method, req->path, 200, start);
             \\        if (lease) orbit_kynx_lease_destroy(lease);
             \\        orbit_perf_end_request(start);
             \\        return keep_alive;
@@ -114,6 +161,7 @@ pub const CBackend = struct {
             \\        orbit_string json = orbit_pulse_get_stats_json(arena);
             \\        OrbitResponse* res = orbit_response_json(arena, 200, json);
             \\        orbit_send_response(client_sock, res);
+            \\        orbit_log_request_fmt(req->method, req->path, 200, start);
             \\        if (lease) orbit_kynx_lease_destroy(lease);
             \\        orbit_perf_end_request(start);
             \\        return keep_alive;
@@ -121,8 +169,14 @@ pub const CBackend = struct {
             \\
         );
 
+        try self.output.appendSlice(self.allocator,
+            \\    uint64_t route_key = orbit_route_hash(req->method, req->path);
+            \\    switch (route_key) {
+        );
+
         for (module.functions.items) |func| {
             if (func.route_info) |info| {
+                const h = routeHash(info.path, info.method);
                 const sanitized_name = try self.allocator.dupe(u8, func.name);
                 defer self.allocator.free(sanitized_name);
                 for (sanitized_name) |*c| {
@@ -130,26 +184,32 @@ pub const CBackend = struct {
                 }
 
                 try self.output.print(self.allocator,
-                    \\    if (req->path && strcmp(req->path, "{s}") == 0 && req->method && strcmp(req->method, "{s}") == 0) {{
-                    \\        OrbitResponse* res = {s}(arena, req);
-                    \\        orbit_send_response(client_sock, res);
-                    \\        if (lease) orbit_kynx_lease_destroy(lease);
-                    \\        orbit_perf_end_request(start);
-                    \\        return keep_alive;
+                    \\    case {d}: {{
+                    \\        if (strcmp(req->path, "{s}") == 0 && strcmp(req->method, "{s}") == 0) {{
+                    \\            OrbitResponse* res = {s}(arena, req);
+                    \\            orbit_send_response(client_sock, res);
+                    \\            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);
+                    \\            if (lease) orbit_kynx_lease_destroy(lease);
+                    \\            orbit_perf_end_request(start);
+                    \\            return keep_alive;
+                    \\        }}
+                    \\        break;
                     \\    }}
                     \\
-                , .{ info.path, info.method, sanitized_name });
+                , .{ h, info.path, info.method, sanitized_name });
             }
         }
 
         try self.output.appendSlice(self.allocator,
-            \\    // Fallback 404 if no route matched
-            \\    printf("404 Not Found: %s %s\n", req->method ? req->method : "(null)", req->path ? req->path : "(null)");
-            \\    OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
-            \\    orbit_send_response(client_sock, res);
-            \\    if (lease) orbit_kynx_lease_destroy(lease);
-            \\    orbit_perf_end_request(start);
-            \\    return keep_alive;
+            \\    default: {
+            \\        OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
+            \\        orbit_send_response(client_sock, res);
+            \\        orbit_log_request_fmt(req->method, req->path, 404, start);
+            \\        if (lease) orbit_kynx_lease_destroy(lease);
+            \\        orbit_perf_end_request(start);
+            \\        return keep_alive;
+            \\    }
+            \\    }
             \\}
             \\#endif
             \\
@@ -171,7 +231,6 @@ pub const CBackend = struct {
 
         // Register known arena-requiring runtime functions
         try self.registerArenaFunction("orbit_file_read");
-        try self.registerArenaFunction("orbit_file_write");
         try self.registerArenaFunction("orbit_file_list_dir");
         try self.registerArenaFunction("orbit_list_create");
         try self.registerArenaFunction("orbit_map_create");
@@ -351,6 +410,16 @@ pub const CBackend = struct {
             try self.output.print(self.allocator, " r_{d};\n", .{i});
         }
 
+        // Declare local variables at top of function scope to prevent redefinitions
+        var var_iter = self.local_variable_types.iterator();
+        while (var_iter.next()) |entry| {
+            const var_name = entry.key_ptr.*;
+            if (std.mem.eql(u8, var_name, "_")) continue;
+            const var_type = entry.value_ptr.*;
+            const c_type = try self.mapTypeToC(var_type);
+            try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, var_name });
+        }
+
         for (func.instructions.items) |instr| {
             try self.generateInstruction(instr);
         }
@@ -388,7 +457,6 @@ pub const CBackend = struct {
             },
             .load_var => {
                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
-                // Output variable name WITHOUT quotes — it's an identifier, not a string
                 try self.output.appendSlice(self.allocator, instr.operand1.string);
                 try self.output.appendSlice(self.allocator, ";\n");
             },
@@ -405,23 +473,28 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .store_var => {
-                try self.output.appendSlice(self.allocator, instr.operand1.string);
-                try self.output.appendSlice(self.allocator, " = ");
-                try self.generateValue(instr.operand2);
-                try self.output.appendSlice(self.allocator, ";\n");
+                if (std.mem.eql(u8, instr.operand1.string, "_")) {
+                    try self.output.appendSlice(self.allocator, "(void)");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                } else {
+                    try self.output.appendSlice(self.allocator, instr.operand1.string);
+                    try self.output.appendSlice(self.allocator, " = ");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                }
             },
             .decl_var => {
-                var val_type = self.getValueType(instr.operand2);
-                if (instr.operand3 == .string) {
-                    val_type = IRType.fromString(instr.operand3.string);
+                if (std.mem.eql(u8, instr.operand1.string, "_")) {
+                    try self.output.appendSlice(self.allocator, "(void)");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                } else {
+                    try self.output.appendSlice(self.allocator, instr.operand1.string);
+                    try self.output.appendSlice(self.allocator, " = ");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, ";\n");
                 }
-                const c_type = try self.mapTypeToC(val_type);
-                try self.output.appendSlice(self.allocator, c_type);
-                try self.output.append(self.allocator, ' ');
-                try self.output.appendSlice(self.allocator, instr.operand1.string);
-                try self.output.appendSlice(self.allocator, " = ");
-                try self.generateValue(instr.operand2);
-                try self.output.appendSlice(self.allocator, ";\n");
             },
             .add => try self.generateBinaryOp(instr, " + "),
             .sub => try self.generateBinaryOp(instr, " - "),
@@ -525,8 +598,15 @@ pub const CBackend = struct {
                 if (instr.operand1 == .none) {
                     if (std.mem.eql(u8, self.current_func.?.name, "main")) {
                         try self.output.appendSlice(self.allocator, "return 0;\n");
-                    } else {
+                    } else if (self.current_func.?.return_type == .void) {
                         try self.output.appendSlice(self.allocator, "return;\n");
+                    } else {
+                        switch (self.current_func.?.return_type) {
+                            .int, .enumeration => try self.output.appendSlice(self.allocator, "return 0;\n"),
+                            .float => try self.output.appendSlice(self.allocator, "return 0.0;\n"),
+                            .bool => try self.output.appendSlice(self.allocator, "return false;\n"),
+                            else => try self.output.appendSlice(self.allocator, "return NULL;\n"),
+                        }
                     }
                 } else {
                     try self.output.appendSlice(self.allocator, "return ");
