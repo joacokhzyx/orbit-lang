@@ -541,6 +541,13 @@ pub const CommonSubexpressionEliminator = struct {
         while (i < func.instructions.items.len) {
             const instr = &func.instructions.items[i];
 
+            // Clear available expressions at block boundaries (labels are branch targets)
+            if (instr.opcode == .label) {
+                available_exprs.clearRetainingCapacity();
+                i += 1;
+                continue;
+            }
+
             if (instr.opcode == .add or instr.opcode == .sub or instr.opcode == .mul or instr.opcode == .div) {
                 const key = ExprKey{
                     .opcode = instr.opcode,
@@ -618,8 +625,6 @@ pub const CopyPropagator = struct {
                     try replacements.put(self.allocator, dest, IRValue{ .symbol = instr.operand1.string });
                 }
             } else if (instr.opcode == .store_var) {
-                replacements.clearRetainingCapacity();
-            } else if (instr.opcode == .label) {
                 replacements.clearRetainingCapacity();
             }
 
