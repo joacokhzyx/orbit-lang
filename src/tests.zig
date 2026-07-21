@@ -866,6 +866,48 @@ test "bootstrap.fixed_point_verification" {
     }
 }
 
+test "superluminal.z3_equivalence" {
+    const z3 = @import("superluminal/z3_integration.zig");
+    if (!z3.isAvailable()) return error.SkipZigTest;
+
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // Test: add(x, 0) == x
+    const orig = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 0, .operand1 = IRValue{ .int = 0 }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .add, .dest = 1, .operand1 = IRValue{ .register = 0 }, .operand2 = IRValue{ .register = 0 }, .operand3 = .none },
+    };
+    const trans = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 1, .operand1 = IRValue{ .int = 0 }, .operand2 = .none, .operand3 = .none },
+    };
+
+    const equiv = try z3.verifyEquivalence(allocator, &orig, &trans);
+    try std.testing.expect(equiv);
+}
+
+test "superluminal.z3_nonequivalence" {
+    const z3 = @import("superluminal/z3_integration.zig");
+    if (!z3.isAvailable()) return error.SkipZigTest;
+
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    // Test: x + 1 != x
+    const orig = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 0, .operand1 = IRValue{ .int = 1 }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .add, .dest = 1, .operand1 = IRValue{ .register = 0 }, .operand2 = IRValue{ .register = 0 }, .operand3 = .none },
+    };
+    const trans = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 1, .operand1 = IRValue{ .int = 0 }, .operand2 = .none, .operand3 = .none },
+    };
+
+    const equiv = try z3.verifyEquivalence(allocator, &orig, &trans);
+    try std.testing.expect(!equiv);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Workstream I: Golden file validation (TIR frontend outputs)
 // ─────────────────────────────────────────────────────────────────────────────
