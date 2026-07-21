@@ -105,9 +105,48 @@ fn emitReturnLocal(backend: *CBackend, instructions: []const IRInstruction, m: m
 }
 
 fn emitArgInline(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = backend;
-    _ = instructions;
-    _ = m;
+    const start = m.start;
+    const len = m.length;
+    const call_instr = instructions[start + len - 1];
+    const func_name = call_instr.operand1.string;
+
+    if (call_instr.dest) |d| {
+        const reg_type = if (backend.current_func) |f| f.register_types.items[d] else .unknown;
+        if (reg_type != .void) {
+            try backend.output.print(backend.allocator, "    r_{d} = ", .{d});
+        }
+    } else {
+        try backend.output.appendSlice(backend.allocator, "    ");
+    }
+
+    const func_name_buf = try backend.allocator.dupe(u8, func_name);
+    defer backend.allocator.free(func_name_buf);
+    for (func_name_buf) |*c| {
+        if (!std.ascii.isAlphanumeric(c.*)) c.* = '_';
+    }
+    try backend.output.appendSlice(backend.allocator, func_name_buf);
+    try backend.output.append(backend.allocator, '(');
+
+    var first = true;
+
+    // First, drain any existing call_args from prior singleton arg emissions
+    for (backend.call_args.items) |arg| {
+        if (!first) try backend.output.appendSlice(backend.allocator, ", ");
+        try backend.generateValue(arg);
+        first = false;
+    }
+    backend.call_args.clearRetainingCapacity();
+
+    // Now emit the pattern's arg values inline
+    var i = start;
+    while (i < start + len - 1) : (i += 1) {
+        if (instructions[i].opcode != .arg) continue;
+        if (!first) try backend.output.appendSlice(backend.allocator, ", ");
+        try backend.generateValue(instructions[i].operand1);
+        first = false;
+    }
+
+    try backend.output.appendSlice(backend.allocator, ");\n");
 }
 
 fn emitMatchSwitch(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {

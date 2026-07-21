@@ -36,6 +36,7 @@ pub fn findBest(instructions: []const IRInstruction, start: usize) ?Match {
         tryTernaryRescue(instructions, start),
         tryChainedField(instructions, start),
         tryReturnLocal(instructions, start),
+        tryArgInline(instructions, start),
     };
 
     var best: ?Match = null;
@@ -233,6 +234,41 @@ fn tryReturnLocal(instructions: []const IRInstruction, start: usize) ?Match {
         .kind = .return_local,
         .start = start,
         .length = 2,
+        .cost_before = before,
+        .cost_after = after,
+    };
+}
+
+fn tryArgInline(instructions: []const IRInstruction, start: usize) ?Match {
+    if (start >= instructions.len) return null;
+    if (instructions[start].opcode != .arg) return null;
+
+    // Count consecutive arg instructions
+    var arg_count: usize = 0;
+    var pos = start;
+    while (pos < instructions.len and instructions[pos].opcode == .arg) {
+        arg_count += 1;
+        pos += 1;
+    }
+
+    if (arg_count == 0) return null;
+    if (pos >= instructions.len or instructions[pos].opcode != .call) return null;
+
+    const total_len = arg_count + 1;
+
+    const before = cost_model.evaluateSlice(instructions[start .. start + total_len]);
+    const after = Cost{
+        .mem_read = 0,
+        .alu = 0,
+        .branch = 0,
+        .reg_assign = 0,
+        .call = 1,
+    };
+
+    return Match{
+        .kind = .arg_inline,
+        .start = start,
+        .length = total_len,
         .cost_before = before,
         .cost_after = after,
     };
