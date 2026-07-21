@@ -80,8 +80,8 @@ pub fn init(color_pref: ColorPreference, unicode_pref: UnicodePreference, io: an
             const is_utf8 = std.mem.indexOf(u8, lang, "UTF-8") != null or std.mem.indexOf(u8, lang, "utf8") != null;
 
             if (builtin.os.tag == .windows) {
-                // Windows supports unicode by default in modern terminals or if code page is UTF-8
-                unicode = true;
+                const is_wt = environ_map.get("WT_SESSION") != null;
+                unicode = is_wt or isWindowsUtf8();
             } else {
                 unicode = is_utf8 or (environ_map.get("TERM") != null and !std.mem.eql(u8, environ_map.get("TERM").?, "dumb"));
             }
@@ -108,6 +108,13 @@ pub fn get() TerminalCapabilities {
         .is_stdout_tty = false,
         .is_stderr_tty = false,
     };
+}
+
+fn isWindowsUtf8() bool {
+    if (builtin.os.tag != .windows) return true;
+    const windows = std.os.windows;
+    _ = windows.kernel32.SetConsoleOutputCP(65001);
+    return windows.kernel32.GetConsoleOutputCP() == 65001;
 }
 
 fn checkStdoutTty() bool {
@@ -152,14 +159,25 @@ fn checkStderrTty() bool {
 
 fn enableWindowsVT() void {
     const windows = std.os.windows;
-    const raw_handle = windows.kernel32.GetStdHandle(windows.STD_OUTPUT_HANDLE);
-    if (raw_handle) |handle| {
-        if (handle != windows.INVALID_HANDLE_VALUE) {
-            var mode: windows.DWORD = 0;
-            if (windows.kernel32.GetConsoleMode(handle, &mode) != 0) {
-                mode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
-                _ = windows.kernel32.SetConsoleMode(handle, mode);
-            }
+    _ = windows.kernel32.SetConsoleOutputCP(65001);
+    enableVTOnHandle(windows.STD_OUTPUT_HANDLE);
+    enableVTOnHandle(windows.STD_ERROR_HANDLE);
+}
+
+/// Enables ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004) and
+/// ENABLE_PROCESSED_OUTPUT (0x0001) on the given standard handle so that
+/// ANSI escape sequences (colors, cursor movement) and UTF-8 braille frames
+/// render correctly when writing raw bytes via WriteFile.
+fn enableVTOnHandle(std_handle: std.os.windows.DWORD) void {
+    const windows = std.os.windows;
+    const raw = windows.kernel32.GetStdHandle(std_handle);
+    if (raw) |h| {
+        if (h == windows.INVALID_HANDLE_VALUE) return;
+        var mode: windows.DWORD = 0;
+        if (windows.kernel32.GetConsoleMode(h, &mode) != 0) {
+            mode |= 0x0001; // ENABLE_PROCESSED_OUTPUT
+            mode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            _ = windows.kernel32.SetConsoleMode(h, mode);
         }
     }
 }

@@ -10,11 +10,11 @@ const capabilities = @import("capabilities.zig");
 pub const Symbol = enum {
     /// The Orbit logo glyph (`⏣` or `*`).
     orbit,
-    /// Success indicator (`✓` or `OK`).
+    /// Success indicator (`✔` or `OK`).
     success,
-    /// Error indicator (`×` or `X`).
+    /// Error indicator (`✖` or `X`).
     err,
-    /// Warning indicator (always `!`).
+    /// Warning indicator (`▲` or `!`).
     warning,
     /// Right-arrow (`→` or `->`).
     arrow,
@@ -24,6 +24,20 @@ pub const Symbol = enum {
     branch,
     /// Last tree branch connector (`└─` or `\-`).
     last_branch,
+    /// Sparkle glyph (`✦` or `*`).
+    sparkle,
+    /// Diamond glyph (`◈` or `<>`).
+    diamond,
+    /// Pointer arrow (`──>` or `-->`).
+    pointer,
+    /// Info symbol (`ℹ` or `i`).
+    info,
+    /// Dot bullet (`•` or `*`).
+    dot,
+    /// Checkmark (`✔` or `[v]`).
+    check,
+    /// Cross (`✖` or `[x]`).
+    cross,
 };
 
 /// Returns the string representation of `sym` for the current terminal.
@@ -34,13 +48,20 @@ pub fn get(sym: Symbol) []const u8 {
     const unicode = caps.has_unicode;
 
     switch (sym) {
-        .orbit => return if (unicode) "⏣" else "*",
-        .success => return if (unicode) "✓" else "OK",
-        .err => return if (unicode) "×" else "X",
-        .warning => return "!",
-        .arrow => return if (unicode) "→" else "->",
-        .node => return if (unicode) "●" else "o",
-        .branch => return if (unicode) "├─" else "+-",
-        .last_branch => return if (unicode) "└─" else "\\-",
+        .orbit => return if (unicode) "o" else "*",
+        .success => return if (unicode) "+" else "OK",
+        .err => return if (unicode) "x" else "X",
+        .warning => return if (unicode) "!" else "!",
+        .arrow => return if (unicode) "->" else "->",
+        .node => return if (unicode) "*" else "*",
+        .branch => return if (unicode) "|-" else "+-",
+        .last_branch => return if (unicode) "`-" else "\\-",
+        .sparkle => return if (unicode) ">" else "*",
+        .diamond => return if (unicode) "<>" else "<>",
+        .pointer => return if (unicode) "->" else "-->",
+        .info => return if (unicode) "i" else "i",
+        .dot => return if (unicode) "*" else "*",
+        .check => return if (unicode) "+" else "v",
+        .cross => return if (unicode) "x" else "x",
     }
 }

@@ -1,0 +1,14 @@
+orbit-tir 1
+module control-flow
+function 0 choose int
+param 0 0 flag bool
+block 0 0
+instr 0 0 0 load bool flag
+instr 0 0 1 branch unit v0 b1 b2
+block 0 1
+instr 0 1 2 const int 1
+instr 0 1 3 return unit v2
+block 0 2
+instr 0 2 4 const int 2
+instr 0 2 5 return unit v4
+end-function 0

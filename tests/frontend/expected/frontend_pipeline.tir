@@ -1,0 +1,11 @@
+orbit-tir 1
+module fixture
+function 0 add int
+param 0 0 left int
+param 0 1 right int
+block 0 0
+instr 0 0 0 load int left
+instr 0 0 1 load int right
+instr 0 0 2 + int v0 v1
+instr 0 0 3 return unit v2
+end-function 0

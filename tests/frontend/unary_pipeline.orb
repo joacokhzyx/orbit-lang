@@ -1,0 +1,6 @@
+import "../../compiler/frontend/frontend.orb"
+
+fn main() {
+    val source = "fn enabled(flag: bool) -> bool { return !flag || false }"
+    print(compileFrontendSource("unary", source))
+}

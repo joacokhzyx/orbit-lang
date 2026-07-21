@@ -55,10 +55,6 @@ pub const MirBuilder = struct {
     }
 
     fn buildFunction(self: *MirBuilder, ir_func: *const IRFunction) !MirFunction {
-        std.debug.print("IR instructions for function {s}:\n", .{ir_func.name});
-        for (ir_func.instructions.items, 0..) |ins, idx| {
-            std.debug.print("  {d}: opcode={s} dest={?} op1={}\n", .{ idx, @tagName(ins.opcode), ins.dest, ins.operand1 });
-        }
 
         // Map parameter types
         var param_types = try self.allocator.alloc(MirType, ir_func.params.len);

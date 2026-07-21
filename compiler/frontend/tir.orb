@@ -1,0 +1,177 @@
+// Canonical Typed IR v1.
+//
+// This is frontend-owned: consumers may read the canonical text output but
+// must not depend on the representation of these models in memory.
+
+model TirDiagnostic {
+    severity: string
+    code: string
+    message: string
+    line: int
+    column: int
+}
+
+model TirParameter {
+    name: string
+    typeName: string
+}
+
+model TirInstruction {
+    blockId: int
+    valueId: int
+    opcode: string
+    typeName: string
+    operands: string
+}
+
+model TirFunction {
+    id: int
+    name: string
+    returnType: string
+    parameters: list
+    instructions: list
+    nextValueId: int
+    nextBlockId: int
+}
+
+model TirModule {
+    name: string
+    functions: list
+    diagnostics: list
+}
+
+fn initTirModule(name: string) -> TirModule {
+    return TirModule(name, [], [])
+}
+
+fn initTirFunction(id: int, name: string, returnType: string) -> TirFunction {
+    return TirFunction(id, name, returnType, [], [], 0, 0)
+}
+
+fn tirAddFunction(module: TirModule, name: string, returnType: string) -> TirFunction {
+    val id = module.functions.len()
+    val function = initTirFunction(id, name, returnType)
+    module.functions.push(function)
+    return function
+}
+
+fn tirAddParameter(function: TirFunction, name: string, typeName: string) {
+    function.parameters.push(TirParameter(name, typeName))
+}
+
+fn tirCreateBlock(function: TirFunction) -> int {
+    val id = function.nextBlockId
+    function.nextBlockId = function.nextBlockId + 1
+    return id
+}
+
+fn tirEmit(function: TirFunction, blockId: int, opcode: string, typeName: string, operands: string) -> int {
+    val valueId = function.nextValueId
+    function.nextValueId = function.nextValueId + 1
+    function.instructions.push(TirInstruction(blockId, valueId, opcode, typeName, operands))
+    return valueId
+}
+
+fn tirError(module: TirModule, code: string, message: string, line: int, column: int) {
+    module.diagnostics.push(TirDiagnostic("error", code, message, line, column))
+}
+
+fn tirHasErrors(module: TirModule) -> bool {
+    var i = 0
+    while i < module.diagnostics.len() {
+        val diagnostic: TirDiagnostic = module.diagnostics.get(i)
+        if diagnostic.severity == "error" {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn tirHasUnknownTypes(module: TirModule) -> bool {
+    var functionIndex = 0
+    while functionIndex < module.functions.len() {
+        val function: TirFunction = module.functions.get(functionIndex)
+        if function.returnType == "unknown" { return true }
+
+        var parameterIndex = 0
+        while parameterIndex < function.parameters.len() {
+            val parameter: TirParameter = function.parameters.get(parameterIndex)
+            if parameter.typeName == "unknown" { return true }
+            parameterIndex = parameterIndex + 1
+        }
+
+        var instructionIndex = 0
+        while instructionIndex < function.instructions.len() {
+            val instruction: TirInstruction = function.instructions.get(instructionIndex)
+            if instruction.typeName == "unknown" { return true }
+            instructionIndex = instructionIndex + 1
+        }
+        functionIndex = functionIndex + 1
+    }
+    return false
+}
+
+fn tirEscape(text: string) -> string {
+    var result = ""
+    var i = 0
+    while i < text.length {
+        val c = text.at(i)
+        if c == 92 { result = result + "\\\\" }
+        else { if c == 10 { result = result + "\\n" }
+        else { if c == 13 { result = result + "\\r" }
+        else { if c == 9 { result = result + "\\t" }
+        else { result = result + text.slice(i, i + 1) } } } }
+        i = i + 1
+    }
+    return result
+}
+
+fn tirIntText(value: int) -> string {
+    if value == 0 { return "0" }
+    var remaining = value
+    var result = ""
+    while remaining > 0 {
+        val digit = remaining - (remaining / 10) * 10
+        result = "0123456789".slice(digit, digit + 1) + result
+        remaining = remaining / 10
+    }
+    return result
+}
+
+fn tirCanonical(module: TirModule) -> string {
+    if tirHasErrors(module) { return "" }
+    // `unknown` is useful while analysing source, but it is never part of the
+    // frontend/backend contract.  A backend may therefore trust all TIR types.
+    if tirHasUnknownTypes(module) { return "" }
+
+    var output = "orbit-tir 1\nmodule " + tirEscape(module.name) + "\n"
+    var functionIndex = 0
+    while functionIndex < module.functions.len() {
+        val function: TirFunction = module.functions.get(functionIndex)
+        output = output + "function " + tirIntText(function.id) + " " + tirEscape(function.name) + " " + tirEscape(function.returnType) + "\n"
+
+        var parameterIndex = 0
+        while parameterIndex < function.parameters.len() {
+            val parameter: TirParameter = function.parameters.get(parameterIndex)
+            output = output + "param " + tirIntText(function.id) + " " + tirIntText(parameterIndex) + " " + tirEscape(parameter.name) + " " + tirEscape(parameter.typeName) + "\n"
+            parameterIndex = parameterIndex + 1
+        }
+
+        var instructionIndex = 0
+        var currentBlock = -1
+        while instructionIndex < function.instructions.len() {
+            val instruction: TirInstruction = function.instructions.get(instructionIndex)
+            if currentBlock != instruction.blockId {
+                output = output + "block " + tirIntText(function.id) + " " + tirIntText(instruction.blockId) + "\n"
+                currentBlock = instruction.blockId
+            }
+            output = output + "instr " + tirIntText(function.id) + " " + tirIntText(instruction.blockId) + " " + tirIntText(instruction.valueId) + " " + tirEscape(instruction.opcode) + " " + tirEscape(instruction.typeName) + " " + tirEscape(instruction.operands) + "\n"
+            instructionIndex = instructionIndex + 1
+        }
+
+        output = output + "end-function " + tirIntText(function.id) + "\n"
+        functionIndex = functionIndex + 1
+    }
+    return output
+}

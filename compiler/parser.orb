@@ -2,16 +2,23 @@ import "./ast.orb"
 import "./token.orb"
 import "./lexer.orb"
 
+model ParserDiagnostic {
+    message: string
+    line: int
+    column: int
+}
+
 model Parser {
     lexer: Lexer
     currentToken: Token
     previousToken: Token
+    diagnostics: list
 }
 
 fn initParser(source: string) -> Parser {
     val lex = initLexer(source)
     val dummy = Token(TokType.EOF, "", 1, 1)
-    val mut parser = Parser(lex, dummy, dummy)
+    val mut parser = Parser(lex, dummy, dummy, [])
     advanceParser(parser)
     return parser
 }
@@ -37,14 +44,20 @@ fn isAtEnd(parser: Parser) -> bool {
     return parser.currentToken.tag == TokType.EOF
 }
 
+fn parserError(parser: Parser, message: string) {
+    parser.diagnostics.push(ParserDiagnostic(message, parser.currentToken.line, parser.currentToken.col))
+}
+
 fn consume(parser: Parser, expected: TokType, message: string) {
     if check(parser, expected) {
         advanceParser(parser)
     } else {
-        print("Parse Error at line:")
-        print(parser.currentToken.line)
-        print("Message:")
-        print(message)
+        parserError(parser, message)
+        // Consuming one unexpected token guarantees that malformed input
+        // cannot keep a block or top-level parser in an infinite loop.
+        if isAtEnd(parser) == false {
+            advanceParser(parser)
+        }
     }
 }
 
@@ -66,6 +79,14 @@ fn getPrecedence(tag: TokType) -> int {
 }
 
 fn parsePrimary(parser: Parser) -> ASTNode {
+    if matchToken(parser, TokType.Bang) {
+        val operand = parsePrimary(parser)
+        return ASTNode.UnaryOp(UnaryOpNode("!", operand))
+    }
+    if matchToken(parser, TokType.Minus) {
+        val operand = parsePrimary(parser)
+        return ASTNode.UnaryOp(UnaryOpNode("-", operand))
+    }
     if matchToken(parser, TokType.IntegerLiteral) {
         return ASTNode.Literal(LiteralNode("int", parser.previousToken.text))
     }
@@ -77,6 +98,8 @@ fn parsePrimary(parser: Parser) -> ASTNode {
     }
     if matchToken(parser, TokType.Identifier) {
         val name = parser.previousToken.text
+        if name == "true" { return ASTNode.Literal(LiteralNode("bool", name)) }
+        if name == "false" { return ASTNode.Literal(LiteralNode("bool", name)) }
         if matchToken(parser, TokType.OpenParen) {
             // Function call
             var args = []
@@ -101,8 +124,10 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         return expr
     }
     
-    print("Unexpected token in expression:")
-    print(tokTypeToString(parser.currentToken.tag))
+    parserError(parser, "Unexpected token in expression: " + tokTypeToString(parser.currentToken.tag))
+    if isAtEnd(parser) == false {
+        advanceParser(parser)
+    }
     return ASTNode.Empty
 }
 
@@ -135,6 +160,26 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
     return ASTNode.VarDecl(VarDeclNode(name, isMutable, value))
 }
 
+fn parseIfStatement(parser: Parser) -> ASTNode {
+    val condition = parseExpression(parser)
+    val thenBody = parseBlock(parser)
+    var elseBody = ASTNode.Empty
+    if matchToken(parser, TokType.KeywordElse) {
+        if matchToken(parser, TokType.KeywordIf) {
+            elseBody = parseIfStatement(parser)
+        } else {
+            elseBody = parseBlock(parser)
+        }
+    }
+    return ASTNode.If(IfNode(condition, thenBody, elseBody))
+}
+
+fn parseWhileStatement(parser: Parser) -> ASTNode {
+    val condition = parseExpression(parser)
+    val body = parseBlock(parser)
+    return ASTNode.While(WhileNode(condition, body))
+}
+
 fn parseStatement(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.KeywordVal) {
         return parseVarDecl(parser, false)
@@ -145,6 +190,12 @@ fn parseStatement(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.KeywordReturn) {
         val expr = parseExpression(parser)
         return ASTNode.Return(ReturnNode(expr))
+    }
+    if matchToken(parser, TokType.KeywordIf) {
+        return parseIfStatement(parser)
+    }
+    if matchToken(parser, TokType.KeywordWhile) {
+        return parseWhileStatement(parser)
     }
     return parseExpression(parser) // Expr statement
 }
@@ -174,11 +225,18 @@ fn parseFunctionDecl(parser: Parser) -> ASTNode {
     
     consume(parser, TokType.OpenParen, "Expected '(' after function name.")
     var params = []
+    var paramTypes = []
     if check(parser, TokType.CloseParen) == false {
         var parsingParams = true
         while parsingParams {
             consume(parser, TokType.Identifier, "Expected parameter name.")
             params.push(parser.previousToken.text)
+            var paramType = "unknown"
+            if matchToken(parser, TokType.Colon) {
+                consume(parser, TokType.Identifier, "Expected parameter type.")
+                paramType = parser.previousToken.text
+            }
+            paramTypes.push(paramType)
             if matchToken(parser, TokType.Comma) {
                 // Keep parsing params
             } else {
@@ -196,11 +254,16 @@ fn parseFunctionDecl(parser: Parser) -> ASTNode {
     
     val body = parseBlock(parser)
     
-    return ASTNode.FunctionDecl(FunctionDeclNode(name, params, returnType, body))
+    return ASTNode.FunctionDecl(FunctionDeclNode(name, params, paramTypes, returnType, body))
 }
 
 fn parseDeclaration(parser: Parser) -> ASTNode {
     if check(parser, TokType.EOF) {
+        return ASTNode.Empty
+    }
+    if check(parser, TokType.Invalid) {
+        parserError(parser, "Invalid character: " + parser.currentToken.text)
+        advanceParser(parser)
         return ASTNode.Empty
     }
     if matchToken(parser, TokType.KeywordFn) {
@@ -221,7 +284,7 @@ fn parseProgram(parser: Parser) -> ASTNode {
     var decls = []
     while check(parser, TokType.EOF) == false {
         val decl = parseDeclaration(parser)
-        // decls.push(decl)
+        decls.push(decl)
     }
     return ASTNode.Program(ProgramNode(decls))
 }

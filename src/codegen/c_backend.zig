@@ -19,6 +19,7 @@ const AtlasConfig = @import("../atlas.zig").AtlasConfig;
 const superluminal_matcher = @import("../superluminal/pattern_matcher.zig");
 const superluminal_emitter = @import("../superluminal/emitter.zig");
 const superluminal_semantic = @import("../superluminal/semantic_enhancer.zig");
+const superluminal_superopt = @import("../superluminal/superoptimizer.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -431,21 +432,32 @@ pub const CBackend = struct {
             try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, var_name });
         }
 
+        // Superluminal superoptimizer: try variants and pick cheapest
+        var superopt_instructions: ?[]const IRInstruction = null;
+        defer if (superopt_instructions) |s| self.allocator.free(s);
+
+        if (func.instructions.items.len <= 20) {
+            var superopt = superluminal_superopt.Superoptimizer.init(self.allocator);
+            superopt_instructions = superopt.optimize(func.instructions.items) catch null;
+        }
+
+        const emit_slice = if (superopt_instructions) |s| s else func.instructions.items;
+
         // Superluminal pattern-based code emission
         var instr_i: usize = 0;
-        while (instr_i < func.instructions.items.len) {
-            if (superluminal_matcher.findBest(func.instructions.items, instr_i)) |m| {
-                try superluminal_emitter.emitPattern(self, func.instructions.items, m);
+        while (instr_i < emit_slice.len) {
+            if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
+                try superluminal_emitter.emitPattern(self, emit_slice, m);
                 instr_i += m.length;
             } else {
-                try self.generateInstruction(func.instructions.items[instr_i]);
+                try self.generateInstruction(emit_slice[instr_i]);
                 instr_i += 1;
             }
         }
 
         // Only emit fallback return if the last instruction wasn't already a ret.
-        const has_trailing_ret = if (func.instructions.items.len > 0)
-            func.instructions.items[func.instructions.items.len - 1].opcode == .ret else false;
+        const has_trailing_ret = if (emit_slice.len > 0)
+            emit_slice[emit_slice.len - 1].opcode == .ret else false;
 
         if (!has_trailing_ret) {
             if (is_main) {

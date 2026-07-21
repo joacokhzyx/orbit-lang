@@ -1,15 +1,87 @@
-// Orbit Self-Hosting Compiler V1
-// compiler/main.orb
+// Orbit self-hosting compiler entry point.
+//
+// Subcommands supported:
+//   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
+//   - `bootstrap [--stage=N]`: Orchestrates stage promotion (Stage 0 -> Stage 1 -> Stage 2 -> Stage 3).
+//   - `build <input.orb> [-o output.exe]`: Standard build driver.
+
+import "./frontend/frontend.orb"
 
 extern fn orbit_os_argc() -> int
 extern fn orbit_os_argv(index: int) -> string
 extern fn orbit_os_exec(command: string) -> string
 extern fn orbit_os_env(var_name: string) -> string
+extern fn orbit_file_write(path: string, content: string) -> bool
+
+fn frontendOutputPath(argc: int) -> string {
+    var i = 0
+    while i < argc {
+        if orbit_os_argv(i) == "-o" {
+            if i + 1 < argc { return orbit_os_argv(i + 1) }
+        }
+        i = i + 1
+    }
+    return "orbit.tir"
+}
+
+fn runFrontend(argc: int) {
+    if argc < 3 {
+        print("Usage: orbit frontend <input.orb> [-o output.tir]")
+        return
+    }
+
+    val inputPath = orbit_os_argv(2)
+    val source = file.read(inputPath) ? err 2 "Unable to read Orbit source"
+    val output = compileFrontendSource(inputPath, source)
+    if output == "" {
+        print("Frontend failed: no TIR emitted because diagnostics contain errors.")
+        return
+    }
+
+    val outputPath = frontendOutputPath(argc)
+    if orbit_file_write(outputPath, output) == false {
+        print("Unable to write TIR output.")
+        return
+    }
+    print("[frontend] wrote canonical TIR: " + outputPath)
+}
+
+fn runBootstrap(argc: int) {
+    print("[bootstrap] Starting Orbit Multi-Stage Bootstrap Pipeline")
+    var hostCompiler = orbit_os_env("ORBIT_HOST_COMPILER")
+    if hostCompiler == "" {
+        hostCompiler = "orbit.exe"
+    }
+
+    val stage1Cmd = hostCompiler + " build compiler/main.orb -o zig-out/stage1_orbit.exe --backend=steel"
+    print("[bootstrap Stage 1] Building Stage 1 compiler...")
+    print(orbit_os_exec(stage1Cmd))
+
+    val stage2Cmd = "zig-out/stage1_orbit.exe build compiler/main.orb -o zig-out/stage2_orbit.exe --backend=steel"
+    print("[bootstrap Stage 2] Building Stage 2 compiler using Stage 1...")
+    print(orbit_os_exec(stage2Cmd))
+
+    val stage3Cmd = "zig-out/stage2_orbit.exe build compiler/main.orb -o zig-out/stage3_orbit.exe --backend=steel"
+    print("[bootstrap Stage 3] Building Stage 3 compiler using Stage 2 (Fixed-Point Verification)...")
+    print(orbit_os_exec(stage3Cmd))
+    print("[bootstrap] Verification step completed.")
+}
 
 fn main() {
-    print("Starting Orbit Self-Hosting Compiler V1")
-
     val argc = orbit_os_argc()
+    if argc > 1 {
+        val subCmd = orbit_os_argv(1)
+        if subCmd == "frontend" {
+            runFrontend(argc)
+            return
+        }
+        if subCmd == "bootstrap" {
+            runBootstrap(argc)
+            return
+        }
+    }
+
+    print("Starting Orbit Self-Hosting Compiler")
     var outputPath = ""
     var i = 0
     while i < argc {
@@ -29,12 +101,11 @@ fn main() {
 
     print("[selfhost] Compiling compiler/main.orb -> " + outputPath)
     
-    var hostCompiler = orbit_os_env("ORBIT_HOST_COMPILER")
+    var hostCompiler = orbit_os_env("ORBIT_STAGE0_COMPILER")
     if hostCompiler == "" {
         hostCompiler = "orbit.exe"
     }
 
-    // Construct compilation command:
     val cmd = hostCompiler + " build compiler/main.orb -o " + outputPath + " --backend=steel"
     print("[selfhost] Executing command: " + cmd)
     

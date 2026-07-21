@@ -288,8 +288,6 @@ pub const Sema = struct {
         _ = scope;
 
         const fn_data = node.data.fn_decl;
-        const fn_name = fn_data.name.getText(self.source);
-        std.debug.print("SEMA analyzeFunction: {s}\n", .{fn_name});
         const return_type = if (fn_data.return_type) |rt|
             try self.internString(rt.getText(self.source))
         else

@@ -1,0 +1,9 @@
+import "../../compiler/frontend/frontend.orb"
+
+fn main() {
+    val source = "fn broken(left: int { return left }"
+    val output = compileFrontendSource("syntax-error", source)
+    if output == "" {
+        print("syntax diagnostic suppressed TIR")
+    }
+}

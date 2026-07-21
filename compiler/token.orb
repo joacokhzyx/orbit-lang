@@ -1,5 +1,6 @@
 enum TokType {
     EOF,
+    Invalid,
     Identifier,
     StringLiteral,
     IntegerLiteral,
@@ -73,6 +74,7 @@ model Token {
 fn tokTypeToString(tag: TokType) -> string {
     match tag {
         TokType.EOF => return "EOF"
+        TokType.Invalid => return "Invalid"
         TokType.Identifier => return "Identifier"
         TokType.StringLiteral => return "StringLiteral"
         TokType.IntegerLiteral => return "IntegerLiteral"

@@ -7,6 +7,7 @@ model ProgramNode {
 model FunctionDeclNode {
     name: string
     params: list
+    paramTypes: list
     returnType: string
     body: ASTNode
 }
@@ -76,6 +77,17 @@ model ReturnNode {
     expr: ASTNode
 }
 
+model IfNode {
+    condition: ASTNode
+    thenBody: ASTNode
+    elseBody: ASTNode
+}
+
+model WhileNode {
+    condition: ASTNode
+    body: ASTNode
+}
+
 union ASTNode {
     Program(ProgramNode),
     FunctionDecl(FunctionDeclNode),
@@ -91,5 +103,7 @@ union ASTNode {
     FieldDecl(FieldDeclNode),
     Block(BlockNode),
     Return(ReturnNode),
+    If(IfNode),
+    While(WhileNode),
     Empty
 }
