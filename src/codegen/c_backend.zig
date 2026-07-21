@@ -424,18 +424,23 @@ pub const CBackend = struct {
             try self.generateInstruction(instr);
         }
 
-        // Emit defensive fallbacks for generated non-void functions.
-        if (is_main) {
-            try self.output.appendSlice(self.allocator, "    return 0;\n");
-        } else if (is_route) {
-            try self.output.appendSlice(self.allocator, "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n");
-        } else if (func.return_type != .void) {
-            switch (func.return_type) {
-                .int, .enumeration => try self.output.appendSlice(self.allocator, "    return 0;\n"),
-                .float => try self.output.appendSlice(self.allocator, "    return 0.0;\n"),
-                .bool => try self.output.appendSlice(self.allocator, "    return false;\n"),
-                .tagged_union => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
-                else => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
+        // Only emit fallback return if the last instruction wasn't already a ret.
+        const has_trailing_ret = if (func.instructions.items.len > 0)
+            func.instructions.items[func.instructions.items.len - 1].opcode == .ret else false;
+
+        if (!has_trailing_ret) {
+            if (is_main) {
+                try self.output.appendSlice(self.allocator, "    return 0;\n");
+            } else if (is_route) {
+                try self.output.appendSlice(self.allocator, "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n");
+            } else if (func.return_type != .void) {
+                switch (func.return_type) {
+                    .int, .enumeration => try self.output.appendSlice(self.allocator, "    return 0;\n"),
+                    .float => try self.output.appendSlice(self.allocator, "    return 0.0;\n"),
+                    .bool => try self.output.appendSlice(self.allocator, "    return false;\n"),
+                    .tagged_union => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
+                    else => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
+                }
             }
         }
         try self.output.appendSlice(self.allocator, "}\n\n");
