@@ -1,0 +1,138 @@
+import "./summary.orb"
+
+model ScannerState {
+    source: string
+    pos: int
+    inString: bool
+    inLineComment: bool
+    braceDepth: int
+    parenDepth: int
+    previousWasBoundary: bool
+}
+
+fn initScanner(source: string) -> ScannerState {
+    return ScannerState(source, 0, false, false, 0, 0, true)
+}
+
+fn scannerEOF(s: ScannerState) -> bool {
+    return s.pos >= s.source.length
+}
+
+fn scannerChar(s: ScannerState) -> int {
+    if scannerEOF(s) {
+        return 0
+    }
+    return s.source.at(s.pos)
+}
+
+fn scannerIsAtKeywordStart(s: ScannerState) -> bool {
+    return s.braceDepth == 0 && s.previousWasBoundary
+}
+
+fn scannerStep(s: ScannerState) -> int {
+    if scannerEOF(s) {
+        return 0
+    }
+
+    val c = scannerChar(s)
+
+    // In line comment - skip until newline
+    if s.inLineComment {
+        if c == 10 {
+            s.inLineComment = false
+            s.previousWasBoundary = true
+        }
+        s.pos = s.pos + 1
+        return 1
+    }
+
+    // In string - handle escapes
+    if s.inString {
+        if c == 92 {
+            val esc = s.pos + 1
+            if esc < s.source.length {
+                s.pos = s.pos + 2
+            } else {
+                s.pos = s.pos + 1
+            }
+        } else {
+            if c == 34 {
+                s.inString = false
+                s.previousWasBoundary = true
+            }
+            s.pos = s.pos + 1
+        }
+        return 1
+    }
+
+    // Check for comment start '//'
+    if c == 47 {
+        val n = s.pos + 1
+        if n < s.source.length {
+            if s.source.at(n) == 47 {
+                s.inLineComment = true
+                s.pos = s.pos + 2
+                return 1
+            }
+        }
+    }
+
+    // String start
+    if c == 34 {
+        s.inString = true
+        s.previousWasBoundary = true
+        s.pos = s.pos + 1
+        return 1
+    }
+
+    // Brace tracking
+    if c == 123 {
+        s.braceDepth = s.braceDepth + 1
+        s.previousWasBoundary = true
+        s.pos = s.pos + 1
+        return 1
+    }
+    if c == 125 {
+        if s.braceDepth > 0 {
+            s.braceDepth = s.braceDepth - 1
+        }
+        s.previousWasBoundary = true
+        s.pos = s.pos + 1
+        return 1
+    }
+
+    // Paren tracking
+    if c == 40 {
+        s.parenDepth = s.parenDepth + 1
+        s.previousWasBoundary = true
+        s.pos = s.pos + 1
+        return 1
+    }
+    if c == 41 {
+        if s.parenDepth > 0 {
+            s.parenDepth = s.parenDepth - 1
+        }
+        s.previousWasBoundary = true
+        s.pos = s.pos + 1
+        return 1
+    }
+
+    // Plain character - update boundary state
+    s.previousWasBoundary = isAlphaNumeric(c) == false
+    s.pos = s.pos + 1
+    return 1
+}
+
+fn scannerScanToEOL(s: ScannerState) {
+    while scannerEOF(s) == false {
+        val c = scannerChar(s)
+        if c == 10 {
+            s.inLineComment = false
+            s.pos = s.pos + 1
+            s.previousWasBoundary = true
+            return
+        }
+        s.pos = s.pos + 1
+    }
+    s.inLineComment = false
+}
