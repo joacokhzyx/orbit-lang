@@ -562,7 +562,8 @@ test "codegen.c_backend_golden_snapshot" {
         \\
         \\int orbit_main(OrbitArena* _init_arena);
         \\
-        \\int orbit_main(OrbitArena* _init_arena) {
+        \\__attribute__((always_inline))
+        \\    int orbit_main(OrbitArena* _init_arena) {
         \\    arena = _init_arena;
         \\    return 42;
         \\}

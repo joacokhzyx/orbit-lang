@@ -57,9 +57,26 @@ fn emitCompoundAssign(backend: *CBackend, instructions: []const IRInstruction, m
 }
 
 fn emitTernaryRescue(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = backend;
-    _ = instructions;
     _ = m;
+    const is_ok = instructions[0];
+    const unwrap = instructions[3];
+    const fallback = instructions[8];
+    const val_reg = unwrap.dest.?;
+    const result_val = is_ok.operand1;
+
+    try backend.output.print(backend.allocator, "    r_{d} = ", .{val_reg});
+    try backend.generateValue(result_val);
+    try backend.output.appendSlice(backend.allocator, ".ok ? ");
+    try backend.generateValue(result_val);
+    try backend.output.appendSlice(backend.allocator, ".value : ");
+
+    switch (fallback.opcode) {
+        .copy => try backend.generateValue(fallback.operand1),
+        .load_var => try backend.output.appendSlice(backend.allocator, fallback.operand1.string),
+        .load_const => try backend.generateValue(fallback.operand1),
+        else => {},
+    }
+    try backend.output.appendSlice(backend.allocator, ";\n");
 }
 
 fn emitChainedField(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
@@ -94,7 +111,59 @@ fn emitArgInline(backend: *CBackend, instructions: []const IRInstruction, m: mat
 }
 
 fn emitMatchSwitch(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = backend;
-    _ = instructions;
     _ = m;
+    const get_tag = instructions[0];
+    const obj_val = get_tag.operand1;
+
+    try backend.output.appendSlice(backend.allocator, "    switch (");
+    try backend.generateValue(obj_val);
+    try backend.output.appendSlice(backend.allocator, "->tag) {\n");
+
+    var pos: usize = 1;
+    while (pos < instructions.len) {
+        const eq = instructions[pos];
+        if (eq.opcode != .eq) break;
+        const tag_symbol = eq.operand2.symbol;
+
+        const bb = instructions[pos + 2];
+        _ = bb;
+
+        var body_start = pos + 3;
+        const maybe_get_data = instructions[body_start];
+        if (maybe_get_data.opcode == .union_get_data and std.meta.eql(maybe_get_data.operand1, obj_val)) {
+            body_start += 1;
+            const maybe_decl = instructions[body_start];
+            if (maybe_decl.opcode == .decl_var) {
+                body_start += 1;
+            }
+        }
+
+        try backend.output.print(backend.allocator, "        case {s}: {{\n", .{tag_symbol});
+
+        var depth: usize = 1;
+        var scan = body_start;
+        while (scan < instructions.len and depth > 0) {
+            const instr = instructions[scan];
+            if (instr.opcode == .begin_block) depth += 1;
+            if (instr.opcode == .end_block) depth -= 1;
+            if (depth > 0) {
+                try backend.generateInstruction(instr);
+            }
+            scan += 1;
+        }
+
+        try backend.output.appendSlice(backend.allocator, "            break;\n");
+        try backend.output.appendSlice(backend.allocator, "        }}\n");
+
+        pos = scan;
+        if (pos < instructions.len and instructions[pos].opcode == .label) {
+            const is_end_label = instructions[pos].operand1 == .label and
+                (instructions.len > 5 and instructions[5].operand1 == .label and instructions[pos].operand1.label == instructions[5].operand1.label);
+            if (is_end_label) break;
+            pos += 1;
+        }
+    }
+
+    try backend.output.appendSlice(backend.allocator, "        default: break;\n");
+    try backend.output.appendSlice(backend.allocator, "    }\n");
 }

@@ -117,9 +117,69 @@ fn tryCompoundAssign(instructions: []const IRInstruction, start: usize) ?Match {
 }
 
 fn tryTernaryRescue(instructions: []const IRInstruction, start: usize) ?Match {
-    _ = instructions;
-    _ = start;
-    return null;
+    // Pattern: result_is_ok rA -> rB; jump_if_false rB label_err;
+    //          begin_block; result_unwrap rA -> rC; end_block;
+    //          jump label_end; label_err:; begin_block; <simple_val> -> rC; end_block; label_end:
+    if (start + 11 >= instructions.len) return null;
+
+    const is_ok = instructions[start];
+    if (is_ok.opcode != .result_is_ok) return null;
+    const result_reg = is_ok.operand1;
+    const ok_reg = is_ok.dest orelse return null;
+
+    const jmp_if = instructions[start + 1];
+    if (jmp_if.opcode != .jump_if_false) return null;
+    if (jmp_if.operand1 != .register or jmp_if.operand1.register != ok_reg) return null;
+    const err_label = if (jmp_if.operand2 == .label) jmp_if.operand2.label else return null;
+
+    const bb1 = instructions[start + 2];
+    if (bb1.opcode != .begin_block) return null;
+
+    const unwrap = instructions[start + 3];
+    if (unwrap.opcode != .result_unwrap) return null;
+    if (!std.meta.eql(unwrap.operand1, result_reg)) return null;
+    _ = unwrap.dest orelse return null;
+
+    const eb1 = instructions[start + 4];
+    if (eb1.opcode != .end_block) return null;
+
+    const jump_end_instr = instructions[start + 5];
+    if (jump_end_instr.opcode != .jump) return null;
+    const end_label = if (jump_end_instr.operand1 == .label) jump_end_instr.operand1.label else return null;
+
+    const label_err_instr = instructions[start + 6];
+    if (label_err_instr.opcode != .label) return null;
+    if (label_err_instr.operand1 != .label or label_err_instr.operand1.label != err_label) return null;
+
+    const bb2 = instructions[start + 7];
+    if (bb2.opcode != .begin_block) return null;
+
+    const fallback = instructions[start + 8];
+    const fallback_reg = fallback.dest orelse return null;
+
+    const eb2 = instructions[start + 9];
+    if (eb2.opcode != .end_block) return null;
+
+    const label_end_instr = instructions[start + 10];
+    if (label_end_instr.opcode != .label) return null;
+    if (label_end_instr.operand1 != .label or label_end_instr.operand1.label != end_label) return null;
+
+    if (fallback.opcode != .copy and fallback.opcode != .load_var and fallback.opcode != .load_const) return null;
+    _ = fallback_reg;
+
+    const before = cost_model.evaluateSlice(instructions[start .. start + 11]);
+    const after = Cost{
+        .mem_read = 2,
+        .alu = 1,
+    };
+
+    return Match{
+        .kind = .ternary_rescue,
+        .start = start,
+        .length = 11,
+        .cost_before = before,
+        .cost_after = after,
+    };
 }
 
 fn tryChainedField(instructions: []const IRInstruction, start: usize) ?Match {
@@ -179,7 +239,116 @@ fn tryReturnLocal(instructions: []const IRInstruction, start: usize) ?Match {
 }
 
 fn tryMatchSwitch(instructions: []const IRInstruction, start: usize) ?Match {
-    _ = instructions;
-    _ = start;
-    return null;
+    // Pattern: union_get_tag r_obj -> r_tag;
+    //          { eq r_tag TAG_N -> r_cmpN; jump_if_false r_cmpN label_N;
+    //            begin_block; union_get_data r_obj TAG_N -> r_dataN;
+    //            (optional: decl_var name r_dataN); <body...>; end_block; jump label_end;
+    //            label_N:; } * N
+    //          label_end:
+    if (start + 3 >= instructions.len) return null;
+
+    const get_tag = instructions[start];
+    if (get_tag.opcode != .union_get_tag) return null;
+    const tag_reg = get_tag.dest orelse return null;
+    const obj_val = get_tag.operand1;
+
+    var case_count: usize = 0;
+    var pos = start + 1;
+    var found_end_label: ?u32 = null;
+    var total_instructions: usize = 1;
+
+    while (pos < instructions.len) {
+        const eq = instructions[pos];
+        if (eq.opcode != .eq) break;
+        if (eq.operand1 != .register or eq.operand1.register != tag_reg) break;
+        const tag_symbol = if (eq.operand2 == .symbol) eq.operand2.symbol else break;
+        // Verify tag name follows convention *_TAG_*
+        var found_tag: bool = false;
+        for (tag_symbol, 0..) |c, i| {
+            if (i + 4 < tag_symbol.len and c == '_' and tag_symbol[i+1] == 'T' and tag_symbol[i+2] == 'A' and tag_symbol[i+3] == 'G' and tag_symbol[i+4] == '_') {
+                found_tag = true;
+                break;
+            }
+        }
+        if (!found_tag) break;
+        _ = eq.dest orelse break;
+
+        const jf = instructions[pos + 1];
+        if (jf.opcode != .jump_if_false) break;
+
+        const bb = instructions[pos + 2];
+        if (bb.opcode != .begin_block) break;
+
+        // Check for optional union_get_data + decl_var
+        var body_start = pos + 3;
+        const maybe_get_data = instructions[body_start];
+        if (maybe_get_data.opcode == .union_get_data) {
+            if (std.meta.eql(maybe_get_data.operand1, obj_val)) {
+                body_start += 1;
+                const maybe_decl = instructions[body_start];
+                if (maybe_decl.opcode == .decl_var) {
+                    body_start += 1;
+                }
+            }
+        }
+
+        // Find end_block closing this case
+        var case_body_len: usize = 0;
+        var depth: usize = 1;
+        var scan = body_start;
+        while (scan < instructions.len and depth > 0) {
+            if (instructions[scan].opcode == .begin_block) depth += 1;
+            if (instructions[scan].opcode == .end_block) depth -= 1;
+            case_body_len += 1;
+            scan += 1;
+        }
+        if (depth != 0) break;
+
+        const jmp = instructions[body_start + case_body_len - 2]; // jump before end_block
+        if (jmp.opcode != .jump) break;
+        if (jmp.operand1 == .label) {
+            found_end_label = jmp.operand1.label;
+        }
+
+        const case_label = instructions[pos + 1].operand2; // target of jump_if_false
+        _ = case_label;
+
+        pos = body_start + case_body_len;
+        case_count += 1;
+
+        // Check for label at this position (next case or end)
+        if (pos >= instructions.len) break;
+        const next_label = instructions[pos];
+        if (next_label.opcode == .label) {
+            if (found_end_label) |el| {
+                if (next_label.operand1 == .label and next_label.operand1.label == el) {
+                    pos += 1;
+                    break;
+                }
+            }
+            pos += 1;
+        } else {
+            break;
+        }
+    }
+
+    if (case_count < 2) return null;
+
+    total_instructions = pos - start;
+    const before = cost_model.evaluateSlice(instructions[start..pos]);
+
+    // After optimization: switch overhead + 1 branch per case (implicit in switch)
+    const after = Cost{
+        .mem_read = 1,
+        .alu = 1,
+        .branch = @as(u32, @intCast(case_count)),
+    };
+
+    return Match{
+        .kind = .match_switch,
+        .start = start,
+        .length = total_instructions,
+        .cost_before = before,
+        .cost_after = after,
+    };
 }
