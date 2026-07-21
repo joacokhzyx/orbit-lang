@@ -18,6 +18,17 @@ pub const Style = enum {
     label,
     value,
     code,
+    bold_primary,
+    bold_accent,
+    bold_success,
+    bold_err,
+    bold_warning,
+    bold_white,
+    dim,
+    badge_err,
+    badge_success,
+    badge_info,
+    badge_warn,
 };
 
 /// Returns the ANSI opening escape sequence for `style`, or an empty string
@@ -36,6 +47,17 @@ pub fn getEsc(style: Style) []const u8 {
         .label => return "\x1b[1;37m", // Bold White
         .value => return "\x1b[37m", // White
         .code => return "\x1b[36m", // Cyan
+        .bold_primary => return "\x1b[1;36m", // Bold Cyan
+        .bold_accent => return "\x1b[1;35m", // Bold Magenta
+        .bold_success => return "\x1b[1;32m", // Bold Green
+        .bold_err => return "\x1b[1;31m", // Bold Red
+        .bold_warning => return "\x1b[1;33m", // Bold Yellow
+        .bold_white => return "\x1b[1;97m", // Bold Bright White
+        .dim => return "\x1b[2;90m", // Dim Gray
+        .badge_err => return "\x1b[1;97;41m", // White on Red
+        .badge_success => return "\x1b[1;97;42m", // White on Green
+        .badge_info => return "\x1b[1;97;44m", // White on Blue
+        .badge_warn => return "\x1b[1;30;43m", // Black on Yellow
     }
 }
 

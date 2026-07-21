@@ -1,0 +1,12 @@
+import "../../compiler/frontend/tir.orb"
+
+fn main() {
+    val module = initTirModule("frontend-test")
+    val function = tirAddFunction(module, "sum", "int")
+    tirAddParameter(function, "left", "int")
+    tirAddParameter(function, "right", "int")
+    val entry = tirCreateBlock(function)
+    tirEmit(function, entry, "add", "int", "v0 v1")
+    tirEmit(function, entry, "return", "unit", "v2")
+    print(tirCanonical(module))
+}

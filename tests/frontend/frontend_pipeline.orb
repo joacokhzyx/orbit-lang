@@ -1,0 +1,6 @@
+import "../../compiler/frontend/frontend.orb"
+
+fn main() {
+    val source = "fn add(left: int, right: int) -> int { return left + right }"
+    print(compileFrontendSource("fixture", source))
+}

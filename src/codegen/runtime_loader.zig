@@ -249,13 +249,34 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\        return 1;
             \\    }}
             \\
-            \\    printf("Orbit listening on port %d\n", port);
+            \\#ifdef _WIN32
+            \\    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+            \\    if (hOut != INVALID_HANDLE_VALUE) {{
+            \\        DWORD dwMode = 0;
+            \\        if (GetConsoleMode(hOut, &dwMode)) {{
+            \\            SetConsoleMode(hOut, dwMode | 0x0001 | 0x0004);
+            \\        }}
+            \\        SetConsoleOutputCP(65001);
+            \\    }}
+            \\#endif
             \\
             \\    int num_workers = {d};
             \\    if (num_workers == 0) num_workers = ORBIT_CPU_COUNT();
             \\    if (num_workers < 1) num_workers = 1;
             \\    if (num_workers > 64) num_workers = 64;
-            \\    printf("Orbit spawning %d worker threads\n", num_workers);
+            \\
+            \\    printf("\n  \x1b[2;90m┌── \x1b[1;36mOrbit Server ready \x1b[2;90m──────────────────────────────────────────┐\x1b[0m\n");
+            \\    printf("  \x1b[2;90m│\x1b[0m                                                                \x1b[2;90m│\x1b[0m\n");
+            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Local        \x1b[1;37mhttp://localhost:%-5d\x1b[0m                          \x1b[2;90m│\x1b[0m\n", port);
+            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Network      \x1b[90mhttp://127.0.0.1:%-5d\x1b[0m                          \x1b[2;90m│\x1b[0m\n", port);
+            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Workers      \x1b[90m%-2d worker threads active\x1b[0m                    \x1b[2;90m│\x1b[0m\n", num_workers);
+            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Engine       \x1b[90mSteel C Runtime\x1b[0m                            \x1b[2;90m│\x1b[0m\n");
+            \\    if (kynx_cfg.enabled) {{
+            \\        printf("  \x1b[2;90m│\x1b[0m                                                                \x1b[2;90m│\x1b[0m\n");
+            \\        printf("  \x1b[2;90m│\x1b[0m  \x1b[38;2;96;165;250mSecured by Kynx\x1b[0m                                              \x1b[2;90m│\x1b[0m\n");
+            \\    }}
+            \\    printf("  \x1b[2;90m│\x1b[0m                                                                \x1b[2;90m│\x1b[0m\n");
+            \\    printf("  \x1b[2;90m└───\x1b[0m─────────────────────────────────────────────────────────────\x1b[2;90m┘\x1b[0m\n\n");
             \\
             \\    orbit_thread_t* workers = (orbit_thread_t*)malloc(sizeof(orbit_thread_t) * (size_t)num_workers);
             \\    OrbitWorkerCtx* ctxs = (OrbitWorkerCtx*)malloc(sizeof(OrbitWorkerCtx) * (size_t)num_workers);

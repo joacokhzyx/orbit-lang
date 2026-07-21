@@ -1,0 +1,245 @@
+// Lower the frontend AST into frontend-owned Canonical Typed IR.
+// No backend data structure is imported here.
+
+import "../ast.orb"
+import "./tir.orb"
+
+model TirBinding {
+    name: string
+    typeName: string
+}
+
+fn tirValue(valueId: int) -> string {
+    return "v" + tirIntText(valueId)
+}
+
+fn tirLiteralType(node: LiteralNode) -> string {
+    if node.valType == "identifier" { return "unknown" }
+    return node.valType
+}
+
+fn tirBinaryType(op: string, leftType: string, rightType: string) -> string {
+    if op == "==" { return "bool" }
+    if op == "!=" { return "bool" }
+    if op == "<" { return "bool" }
+    if op == "<=" { return "bool" }
+    if op == ">" { return "bool" }
+    if op == ">=" { return "bool" }
+    if op == "&&" { return "bool" }
+    if op == "||" { return "bool" }
+    if leftType == rightType { return leftType }
+    return "unknown"
+}
+
+fn bindingType(bindings: list, name: string) -> string {
+    var i = bindings.len()
+    while i > 0 {
+        i = i - 1
+        val binding: TirBinding = bindings.get(i)
+        if binding.name == name { return binding.typeName }
+    }
+    return "unknown"
+}
+
+fn copyBindings(bindings: list) -> list {
+    var copied = []
+    var i = 0
+    while i < bindings.len() {
+        copied.push(bindings.get(i))
+        i = i + 1
+    }
+    return copied
+}
+
+fn typeOfExpression(bindings: list, node: ASTNode) -> string {
+    match node {
+        ASTNode.Literal(literal) => {
+            if literal.valType == "identifier" { return bindingType(bindings, literal.text) }
+            return literal.valType
+        }
+        ASTNode.BinaryOp(binary) => {
+            return tirBinaryType(binary.op, typeOfExpression(bindings, binary.lhs), typeOfExpression(bindings, binary.rhs))
+        }
+        ASTNode.UnaryOp(unary) => {
+            val operandType = typeOfExpression(bindings, unary.operand)
+            if unary.op == "!" {
+                if operandType == "bool" { return "bool" }
+                return "unknown"
+            }
+            if unary.op == "-" {
+                if operandType == "int" { return "int" }
+                if operandType == "float" { return "float" }
+            }
+            return "unknown"
+        }
+        _ => return "unknown"
+    }
+}
+
+fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list, node: ASTNode) -> int {
+    match node {
+        ASTNode.Literal(literal) => {
+            if literal.valType == "identifier" {
+                val typeName = bindingType(bindings, literal.text)
+                if typeName == "unknown" {
+                    tirError(module, "E2001", "unknown identifier " + literal.text, 0, 0)
+                }
+                return tirEmit(function, blockId, "load", typeName, literal.text)
+            }
+            return tirEmit(function, blockId, "const", tirLiteralType(literal), literal.text)
+        }
+        ASTNode.BinaryOp(binary) => {
+            val leftType = typeOfExpression(bindings, binary.lhs)
+            val rightType = typeOfExpression(bindings, binary.rhs)
+            val left = lowerExpression(module, function, blockId, bindings, binary.lhs)
+            val right = lowerExpression(module, function, blockId, bindings, binary.rhs)
+            val resultType = tirBinaryType(binary.op, leftType, rightType)
+            if resultType == "unknown" {
+                tirError(module, "E2002", "incompatible operands for " + binary.op, 0, 0)
+            }
+            return tirEmit(function, blockId, binary.op, resultType, tirValue(left) + " " + tirValue(right))
+        }
+        ASTNode.UnaryOp(unary) => {
+            val operand = lowerExpression(module, function, blockId, bindings, unary.operand)
+            val resultType = typeOfExpression(bindings, node)
+            if resultType == "unknown" {
+                tirError(module, "E2003", "invalid operand for unary " + unary.op, 0, 0)
+            }
+            return tirEmit(function, blockId, "unary." + unary.op, resultType, tirValue(operand))
+        }
+        ASTNode.Call(call) => {
+            val callee = lowerExpression(module, function, blockId, bindings, call.func)
+            var operands = tirValue(callee)
+            var i = 0
+            while i < call.args.len() {
+                val argument: ASTNode = call.args.get(i)
+                val value = lowerExpression(module, function, blockId, bindings, argument)
+                operands = operands + " " + tirValue(value)
+                i = i + 1
+            }
+            return tirEmit(function, blockId, "call", "unknown", operands)
+        }
+        _ => {
+            tirError(module, "E3001", "expression cannot be lowered to TIR", 0, 0)
+            return -1
+        }
+    }
+}
+
+// Returns the block into which the following statement must be emitted.
+// A terminator returns -1, which makes later source statements unreachable.
+fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list, node: ASTNode) -> int {
+    if blockId < 0 { return blockId }
+    match node {
+        ASTNode.VarDecl(declaration) => {
+            val value = lowerExpression(module, function, blockId, bindings, declaration.value)
+            tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(value))
+            bindings.push(TirBinding(declaration.name, typeOfExpression(bindings, declaration.value)))
+            return blockId
+        }
+        ASTNode.Return(ret) => {
+            val value = lowerExpression(module, function, blockId, bindings, ret.expr)
+            tirEmit(function, blockId, "return", "unit", tirValue(value))
+            return -1
+        }
+        ASTNode.Block(block) => {
+            var i = 0
+            var currentBlock = blockId
+            while i < block.statements.len() {
+                val statement: ASTNode = block.statements.get(i)
+                currentBlock = lowerStatement(module, function, currentBlock, bindings, statement)
+                i = i + 1
+            }
+            return currentBlock
+        }
+        ASTNode.If(branch) => {
+            val condition = lowerExpression(module, function, blockId, bindings, branch.condition)
+            if typeOfExpression(bindings, branch.condition) != "bool" {
+                tirError(module, "E2100", "if condition must have type bool", 0, 0)
+            }
+            val thenBlock = tirCreateBlock(function)
+            val elseBlock = tirCreateBlock(function)
+            val mergeBlock = tirCreateBlock(function)
+            tirEmit(function, blockId, "branch", "unit", tirValue(condition) + " b" + tirIntText(thenBlock) + " b" + tirIntText(elseBlock))
+
+            val thenBindings = copyBindings(bindings)
+            val thenEnd = lowerStatement(module, function, thenBlock, thenBindings, branch.thenBody)
+            if thenEnd >= 0 {
+                tirEmit(function, thenEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            }
+
+            val elseBindings = copyBindings(bindings)
+            val elseEnd = lowerStatement(module, function, elseBlock, elseBindings, branch.elseBody)
+            if elseEnd >= 0 {
+                tirEmit(function, elseEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
+            }
+            return mergeBlock
+        }
+        ASTNode.While(loopNode) => {
+            val conditionBlock = tirCreateBlock(function)
+            val bodyBlock = tirCreateBlock(function)
+            val exitBlock = tirCreateBlock(function)
+            tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(conditionBlock))
+
+            val condition = lowerExpression(module, function, conditionBlock, bindings, loopNode.condition)
+            if typeOfExpression(bindings, loopNode.condition) != "bool" {
+                tirError(module, "E2101", "while condition must have type bool", 0, 0)
+            }
+            tirEmit(function, conditionBlock, "branch", "unit", tirValue(condition) + " b" + tirIntText(bodyBlock) + " b" + tirIntText(exitBlock))
+
+            val bodyBindings = copyBindings(bindings)
+            val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body)
+            if bodyEnd >= 0 {
+                tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(conditionBlock))
+            }
+            return exitBlock
+        }
+        _ => {
+            _ = lowerExpression(module, function, blockId, bindings, node)
+            return blockId
+        }
+    }
+}
+
+fn lowerFunction(module: TirModule, declaration: FunctionDeclNode) {
+    val returnType = declaration.returnType
+    val function = tirAddFunction(module, declaration.name, returnType)
+
+    var paramIndex = 0
+    while paramIndex < declaration.params.len() {
+        val name: string = declaration.params.get(paramIndex)
+        val typeName: string = declaration.paramTypes.get(paramIndex)
+        tirAddParameter(function, name, typeName)
+        paramIndex = paramIndex + 1
+    }
+
+    val entry = tirCreateBlock(function)
+    var bindings = []
+    paramIndex = 0
+    while paramIndex < declaration.params.len() {
+        val name: string = declaration.params.get(paramIndex)
+        val typeName: string = declaration.paramTypes.get(paramIndex)
+        bindings.push(TirBinding(name, typeName))
+        paramIndex = paramIndex + 1
+    }
+    lowerStatement(module, function, entry, bindings, declaration.body)
+}
+
+fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
+    val module = initTirModule(moduleName)
+    match root {
+        ASTNode.Program(program) => {
+            var i = 0
+            while i < program.decls.len() {
+                val declaration: ASTNode = program.decls.get(i)
+                match declaration {
+                    ASTNode.FunctionDecl(function) => lowerFunction(module, function)
+                    _ => tirError(module, "E3000", "top-level declaration cannot be lowered to TIR", 0, 0)
+                }
+                i = i + 1
+            }
+        }
+        _ => tirError(module, "E3002", "frontend expected a program root", 0, 0)
+    }
+    return module
+}

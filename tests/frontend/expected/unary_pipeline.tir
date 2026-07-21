@@ -1,0 +1,11 @@
+orbit-tir 1
+module unary
+function 0 enabled bool
+param 0 0 flag bool
+block 0 0
+instr 0 0 0 load bool flag
+instr 0 0 1 unary.! bool v0
+instr 0 0 2 const bool false
+instr 0 0 3 || bool v1 v2
+instr 0 0 4 return unit v3
+end-function 0

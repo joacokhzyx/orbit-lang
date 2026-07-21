@@ -58,7 +58,6 @@ pub const IRBuilder = struct {
 
     fn getNodeType(self: *IRBuilder, node: *Node) IRType {
         if (self.node_types.get(node)) |type_name| {
-            std.debug.print("getNodeType: node tag {s} has type '{s}'\n", .{ @tagName(node.tag), type_name });
             for (self.module.types.items) |t| {
                 if (std.mem.eql(u8, t.name, type_name)) {
                     if (t.kind == .enumeration) return .{ .enumeration = type_name };
@@ -68,8 +67,6 @@ pub const IRBuilder = struct {
 
             const t = IRType.fromString(type_name);
             if (t != .unknown) return t;
-        } else {
-            std.debug.print("getNodeType: node tag {s} NOT found in node_types\n", .{@tagName(node.tag)});
         }
 
         // Fallback for identifier types if we can find them in the variable table
@@ -179,11 +176,6 @@ pub const IRBuilder = struct {
                 else => {},
             }
         }
-        std.debug.print("--- REGISTERED TYPES ---\n", .{});
-        for (self.module.types.items) |t| {
-            std.debug.print("Type: {s}, Kind: {s}\n", .{ t.name, @tagName(t.kind) });
-        }
-        std.debug.print("------------------------\n", .{});
 
         // Pass 2: Register all function signatures (including routes)
         // This ensures functions are known before they are called.
@@ -458,7 +450,6 @@ pub const IRBuilder = struct {
     fn buildFunction(self: *IRBuilder, node: *Node) !void {
         const fn_data = node.data.fn_decl;
         const fn_name = fn_data.name.getText(self.source);
-        std.debug.print("Builder buildFunction: {s}\n", .{fn_name});
         var func = IRFunction.init(self.allocator, fn_name);
         func.is_extern = fn_data.is_extern;
 
@@ -482,8 +473,7 @@ pub const IRBuilder = struct {
                 const last = func.instructions.items[func.instructions.items.len - 1];
                 break :blk last.opcode != .ret;
             };
-            std.debug.print("buildFunction: func={s}, len={d}, needs_ret={}\n", .{func.name, func.instructions.items.len, needs_ret});
-            if (needs_ret) {
+            if (func.instructions.items.len == 0 or needs_ret) {
                 var ret_instr = IRInstruction.init(.ret);
                 if (func.return_type != .void and func.return_type != .unknown) {
                     ret_instr.operand1 = switch (func.return_type) {
@@ -495,7 +485,6 @@ pub const IRBuilder = struct {
                 } else {
                     ret_instr.operand1 = .none;
                 }
-                std.debug.print("buildFunction: emitting ret for {s}\n", .{func.name});
                 try func.emit(self.allocator, ret_instr);
             }
         }
@@ -880,7 +869,6 @@ pub const IRBuilder = struct {
                         if (t.kind == .union_type) is_union = true;
                     }
                 }
-                std.debug.print("buildMemberAccess: obj_name={s}, member_name={s}, is_union={}\n", .{ obj_name, member_name, is_union });
 
                 const full_name = try std.fmt.allocPrint(self.allocator, "{s}_TAG_{s}", .{ obj_name, member_name });
 

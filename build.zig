@@ -162,6 +162,7 @@ pub fn build(b: *std.Build) void {
     run_mod_tests.step.dependOn(b.getInstallStep());
     run_exe_tests.step.dependOn(&run_mod_tests.step);
     run_orbit_tests.step.dependOn(&run_exe_tests.step);
+    run_orbit_tests.step.dependOn(b.getInstallStep());
     test_step.dependOn(&run_orbit_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
