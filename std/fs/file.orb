@@ -11,7 +11,8 @@ fn open(path: string, mode: string) -> Result<File, int> {
     return Result.Ok(File{ handle: 0 });
 }
 
-fn write(file: File, data: string) -> int {
+fn write(file: File, data: string) -> Result<int, int> {
     // OS specific write
-    return 0;
+    // Returns Ok(bytes_written) on success, Err(error_code) on failure.
+    return Result.Ok(data.len());
 }
