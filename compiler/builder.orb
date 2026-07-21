@@ -32,15 +32,8 @@ fn pushVariableScope(builder: IRBuilder) {
 }
 
 fn popVariableScope(builder: IRBuilder) {
-    val len = builder.variableScopes.len()
-    if len > 0 {
-        var newList = []
-        var i = 0
-        while i < len - 1 {
-            newList.push(builder.variableScopes.get(i))
-            i = i + 1
-        }
-        builder.variableScopes = newList
+    if builder.variableScopes.len() > 0 {
+        builder.variableScopes.pop()
     }
 }
 
@@ -164,6 +157,12 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
     }
 }
 
+fn allocLabel(builder: IRBuilder) -> int {
+    val lbl = builder.labelCounter
+    builder.labelCounter = builder.labelCounter + 1
+    return lbl
+}
+
 fn buildNode(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.Block(b) => {
@@ -174,6 +173,64 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
                 i = i + 1
             }
             popVariableScope(builder)
+        }
+        ASTNode.If(stmt) => {
+            val condReg = buildExpr(builder, stmt.cond)
+            val elseLabel = allocLabel(builder)
+            val endLabel = allocLabel(builder)
+
+            // Jump to elseLabel if condition evaluates to false
+            val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
+            jmpFalse.operand1 = ir_register(condReg)
+            jmpFalse.operand2 = ir_label(elseLabel)
+            ir_emit(builder.currentFunction, jmpFalse)
+
+            // Then block
+            buildNode(builder, stmt.thenBranch)
+            val jmpEnd = ir_init_instr(IROpcode.jump)
+            jmpEnd.operand1 = ir_label(endLabel)
+            ir_emit(builder.currentFunction, jmpEnd)
+
+            // Else label & block
+            val lblElseInstr = ir_init_instr(IROpcode.label)
+            lblElseInstr.operand1 = ir_label(elseLabel)
+            ir_emit(builder.currentFunction, lblElseInstr)
+            
+            buildNode(builder, stmt.elseBranch)
+
+            // End label
+            val lblEndInstr = ir_init_instr(IROpcode.label)
+            lblEndInstr.operand1 = ir_label(endLabel)
+            ir_emit(builder.currentFunction, lblEndInstr)
+        }
+        ASTNode.While(stmt) => {
+            val startLabel = allocLabel(builder)
+            val endLabel = allocLabel(builder)
+
+            // Loop start label
+            val lblStartInstr = ir_init_instr(IROpcode.label)
+            lblStartInstr.operand1 = ir_label(startLabel)
+            ir_emit(builder.currentFunction, lblStartInstr)
+
+            // Evaluate condition
+            val condReg = buildExpr(builder, stmt.cond)
+            val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
+            jmpFalse.operand1 = ir_register(condReg)
+            jmpFalse.operand2 = ir_label(endLabel)
+            ir_emit(builder.currentFunction, jmpFalse)
+
+            // Loop body
+            buildNode(builder, stmt.body)
+
+            // Jump back to start
+            val jmpStart = ir_init_instr(IROpcode.jump)
+            jmpStart.operand1 = ir_label(startLabel)
+            ir_emit(builder.currentFunction, jmpStart)
+
+            // End label
+            val lblEndInstr = ir_init_instr(IROpcode.label)
+            lblEndInstr.operand1 = ir_label(endLabel)
+            ir_emit(builder.currentFunction, lblEndInstr)
         }
         ASTNode.Return(r) => {
             val retReg = buildExpr(builder, r.expr)
@@ -191,7 +248,6 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
         }
         ASTNode.Empty => {}
         _ => {
-            // Expression statement
             buildExpr(builder, node)
         }
     }
@@ -204,12 +260,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val typeVal = lit.valType
             val litReg = ir_alloc_register(builder.currentFunction, typeVal)
             litInstr.dest = litReg
-            if typeVal == "int" {
-                // TODO: string to int conversion needed here, or store string and backend parses
-                litInstr.operand1 = ir_string(lit.text)
-            } else {
-                litInstr.operand1 = ir_string(lit.text)
-            }
+            litInstr.operand1 = ir_string(lit.text)
             ir_emit(builder.currentFunction, litInstr)
             return litReg
         }
@@ -222,7 +273,15 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == "-" { opCode = IROpcode.sub }
             if bin.op == "*" { opCode = IROpcode.mul }
             if bin.op == "/" { opCode = IROpcode.div }
+            if bin.op == "%" { opCode = IROpcode.mod }
             if bin.op == "==" { opCode = IROpcode.eq }
+            if bin.op == "!=" { opCode = IROpcode.ne }
+            if bin.op == "<" { opCode = IROpcode.lt }
+            if bin.op == "<=" { opCode = IROpcode.le }
+            if bin.op == ">" { opCode = IROpcode.gt }
+            if bin.op == ">=" { opCode = IROpcode.ge }
+            if bin.op == "&&" { opCode = IROpcode.and_op }
+            if bin.op == "||" { opCode = IROpcode.or_op }
             
             val binInstr = ir_init_instr(opCode)
             val binReg = ir_alloc_register(builder.currentFunction, "unknown")
