@@ -1,5 +1,21 @@
 import "./token.orb"
 
+val CHAR_SPACE = 32
+val CHAR_TAB = 9
+val CHAR_CR = 13
+val CHAR_LF = 10
+val CHAR_DQUOTE = 34
+val CHAR_SLASH = 47
+val CHAR_BACKSLASH = 92
+val CHAR_DOT = 46
+val CHAR_ZERO = 48
+val CHAR_NINE = 57
+val CHAR_A_UPPER = 65
+val CHAR_Z_UPPER = 90
+val CHAR_A_LOWER = 97
+val CHAR_Z_LOWER = 122
+val CHAR_UNDERSCORE = 95
+
 model Lexer {
     source: string
     pos: int
@@ -12,15 +28,15 @@ fn initLexer(source: string) -> Lexer {
 }
 
 fn isWhitespace(c: int) -> bool {
-    return c == 32 || c == 9 || c == 13 || c == 10
+    return c == CHAR_SPACE || c == CHAR_TAB || c == CHAR_CR || c == CHAR_LF
 }
 
 fn isDigit(c: int) -> bool {
-    return c >= 48 && c <= 57
+    return c >= CHAR_ZERO && c <= CHAR_NINE
 }
 
 fn isAlpha(c: int) -> bool {
-    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+    return (c >= CHAR_A_UPPER && c <= CHAR_Z_UPPER) || (c >= CHAR_A_LOWER && c <= CHAR_Z_LOWER) || c == CHAR_UNDERSCORE
 }
 
 fn isAlphaNumeric(c: int) -> bool {
@@ -62,9 +78,9 @@ fn skipWhitespaceAndComments(lexer: Lexer) {
         if isWhitespace(c) {
             advance(lexer)
         } else {
-            if c == 47 { // '/'
+            if c == CHAR_SLASH {
                 val next = peekNext(lexer)
-                if next == 47 { // '//'
+                if next == CHAR_SLASH {
                     advance(lexer)
                     advance(lexer)
                     while lexer.pos < lexer.source.len() && peek(lexer) != 10 {
@@ -133,7 +149,7 @@ fn nextToken(lexer: Lexer) -> Token {
         while isDigit(peek(lexer)) {
             advance(lexer)
         }
-        if peek(lexer) == 46 { // '.'
+        if peek(lexer) == CHAR_DOT {
             if isDigit(peekNext(lexer)) {
                 isFloat = true
                 advance(lexer) // '.'
@@ -150,14 +166,14 @@ fn nextToken(lexer: Lexer) -> Token {
         return Token(tagDigit, textDigit, line, col)
     }
     
-    if c == 34 { // '"'
-        while lexer.pos < lexer.source.len() && peek(lexer) != 34 {
-            if peek(lexer) == 92 { // '\'
+    if c == CHAR_DQUOTE {
+        while lexer.pos < lexer.source.len() && peek(lexer) != CHAR_DQUOTE {
+            if peek(lexer) == CHAR_BACKSLASH {
                 advance(lexer)
             }
             advance(lexer)
         }
-        if peek(lexer) == 34 {
+        if peek(lexer) == CHAR_DQUOTE {
             advance(lexer)
         }
         val textString = lexer.source.slice(start, lexer.pos)
@@ -242,5 +258,5 @@ fn nextToken(lexer: Lexer) -> Token {
     
     // Default fallback
     val textFallback = lexer.source.slice(start, lexer.pos)
-    return Token(TokType.EOF, textFallback, line, col)
+    return Token(TokType.Invalid, textFallback, line, col)
 }
