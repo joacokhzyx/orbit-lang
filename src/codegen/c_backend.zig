@@ -18,6 +18,7 @@ const RuntimeLoader = @import("runtime_loader.zig");
 const AtlasConfig = @import("../atlas.zig").AtlasConfig;
 const superluminal_matcher = @import("../superluminal/pattern_matcher.zig");
 const superluminal_emitter = @import("../superluminal/emitter.zig");
+const superluminal_semantic = @import("../superluminal/semantic_enhancer.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -372,6 +373,9 @@ pub const CBackend = struct {
                     const param_type = if (func.param_types.len > i) func.param_types[i] else .int;
                     try self.output.appendSlice(self.allocator, try self.mapTypeToC(param_type));
                     try self.output.append(self.allocator, ' ');
+                    if (param_type == .model or param_type == .tagged_union or param_type == .pointer or param_type == .mut_pointer) {
+                        try self.output.appendSlice(self.allocator, "__restrict ");
+                    }
                     try self.output.appendSlice(self.allocator, param);
                 }
             }
@@ -393,6 +397,11 @@ pub const CBackend = struct {
                 }
                 try self.local_variable_types.put(self.allocator, var_name, var_type);
             }
+        }
+
+        // Semantic hint: always_inline for small functions
+        if (superluminal_semantic.shouldAnnotateFunction(func)) {
+            try self.output.appendSlice(self.allocator, "__attribute__((always_inline))\n    ");
         }
 
         try self.generateFunctionSignature(func);
@@ -456,7 +465,7 @@ pub const CBackend = struct {
         try self.output.appendSlice(self.allocator, "}\n\n");
     }
 
-    fn generateInstruction(self: *CBackend, instr: IRInstruction) !void {
+    pub fn generateInstruction(self: *CBackend, instr: IRInstruction) !void {
         if (instr.opcode != .arg) {
             try self.output.appendSlice(self.allocator, "    ");
         }
@@ -476,6 +485,11 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .load_field => {
+                if (self.getValueType(instr.operand1) == .model or self.getValueType(instr.operand1) == .tagged_union) {
+                    try self.output.appendSlice(self.allocator, "__builtin_assume(");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, " != (void*)0);\n    ");
+                }
                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
                 try self.generateValue(instr.operand1);
                 const obj_type = self.getValueType(instr.operand1);
@@ -635,9 +649,9 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .jump_if_false => {
-                try self.output.appendSlice(self.allocator, "if (!");
+                try self.output.appendSlice(self.allocator, "if (__builtin_expect(");
                 try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ") goto ");
+                try self.output.appendSlice(self.allocator, ", 0)) goto ");
                 try self.generateValue(instr.operand2);
                 try self.output.appendSlice(self.allocator, ";\n");
             },
@@ -647,6 +661,11 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ":;\n");
             },
             .store_field => {
+                if (self.getValueType(instr.operand1) == .model or self.getValueType(instr.operand1) == .tagged_union) {
+                    try self.output.appendSlice(self.allocator, "__builtin_assume(");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, " != (void*)0);\n    ");
+                }
                 try self.generateValue(instr.operand1);
                 const obj_type = self.getValueType(instr.operand1);
                 if (obj_type == .model or obj_type == .unknown or obj_type == .int) {
