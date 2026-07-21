@@ -1,4 +1,4 @@
-import "./summary.orb"
+import "./scanner.orb"
 import "./parser.orb"
 
 model SemaReport {
@@ -18,7 +18,6 @@ model DupResult {
     diagnostics: string
 }
 
-// Nombre "pelado" de una declaración top-level en i (fn/model/type/enum/union), o "".
 fn declNameAt(source: string, i: int) -> string {
     if keywordMatches(source, i, "fn") {
         return nameAfterKeyword(source, i, 2)
@@ -57,100 +56,34 @@ fn declKeywordLength(source: string, i: int) -> int {
     return 0
 }
 
-// Cuenta cuántas declaraciones top-level con nombre == target empiezan en índice <= limit.
+fn skipDeclKeyword(s: ScannerState, pos: int, kwLen: int) {
+    s.pos = pos + kwLen
+    s.previousWasBoundary = false
+}
+
 fn countDeclNameUpTo(source: string, target: string, limit: int) -> int {
-    val mut i = 0
-    val mut braceDepth = 0
-    val mut previousWasBoundary = true
-    val mut inString = false
-    val mut inLineComment = false
+    val s = initScanner(source)
     val mut count = 0
 
-    while i < source.length {
-        val c = source.at(i)
-
-        if inLineComment {
-            if c == 10 {
-                inLineComment = false
-                previousWasBoundary = true
-            }
-            i = i + 1
-        } else {
-            if inString {
-                if c == 92 {
-                    val esc = i + 1
-                    if esc < source.length {
-                        i = i + 2
-                    } else {
-                        i = i + 1
+    while scannerEOF(s) == false {
+        if scannerIsAtKeywordStart(s) {
+            val pos = s.pos
+            val declLen = declKeywordLength(source, pos)
+            if declLen > 0 {
+                val declName = declNameAt(source, pos)
+                if pos <= limit {
+                    if declName == target {
+                        if declName != "" {
+                            count = count + 1
+                        }
                     }
-                } else {
-                    if c == 34 {
-                        inString = false
-                        previousWasBoundary = true
-                    }
-                    i = i + 1
                 }
+                skipDeclKeyword(s, pos, declLen)
             } else {
-                val mut startsComment = false
-                if c == 47 {
-                    val n = i + 1
-                    if n < source.length {
-                        if source.at(n) == 47 {
-                            startsComment = true
-                        }
-                    }
-                }
-
-                if startsComment {
-                    inLineComment = true
-                    i = i + 2
-                } else {
-                    if c == 34 {
-                        inString = true
-                        previousWasBoundary = true
-                        i = i + 1
-                    } else {
-                        if c == 123 {
-                            braceDepth = braceDepth + 1
-                            previousWasBoundary = true
-                            i = i + 1
-                        } else {
-                            if c == 125 {
-                                if braceDepth > 0 {
-                                    braceDepth = braceDepth - 1
-                                }
-                                previousWasBoundary = true
-                                i = i + 1
-                            } else {
-                                val mut handled = false
-                                if braceDepth == 0 {
-                                    if previousWasBoundary {
-                                        val declLen = declKeywordLength(source, i)
-                                        if declLen > 0 {
-                                            val declName = declNameAt(source, i)
-                                            if i <= limit {
-                                                if declName == target {
-                                                    if declName != "" {
-                                                        count = count + 1
-                                                    }
-                                                }
-                                            }
-                                            i = i + declLen
-                                            previousWasBoundary = false
-                                            handled = true
-                                        }
-                                    }
-                                }
-                                if handled == false {
-                                    previousWasBoundary = isAlphaNumeric(c) == false
-                                    i = i + 1
-                                }
-                            }
-                        }
-                    }
-                }
+                scannerStep(s)
             }
+        } else {
+            scannerStep(s)
         }
     }
 
@@ -158,106 +91,35 @@ fn countDeclNameUpTo(source: string, target: string, limit: int) -> int {
 }
 
 fn findDuplicates(source: string) -> DupResult {
-    val mut i = 0
-    val mut braceDepth = 0
-    val mut previousWasBoundary = true
-    val mut inString = false
-    val mut inLineComment = false
+    val s = initScanner(source)
     val mut errors = 0
     val mut diagnostics = ""
 
-    while i < source.length {
-        val c = source.at(i)
-
-        if inLineComment {
-            if c == 10 {
-                inLineComment = false
-                previousWasBoundary = true
-            }
-            i = i + 1
-        } else {
-            if inString {
-                if c == 92 {
-                    val esc = i + 1
-                    if esc < source.length {
-                        i = i + 2
-                    } else {
-                        i = i + 1
+    while scannerEOF(s) == false {
+        if scannerIsAtKeywordStart(s) {
+            val pos = s.pos
+            val declLen = declKeywordLength(source, pos)
+            if declLen > 0 {
+                val declName = declNameAt(source, pos)
+                if declName != "" {
+                    val occ = countDeclNameUpTo(source, declName, pos)
+                    if occ == 2 {
+                        diagnostics = diagnostics + "error: duplicate declaration '" + declName + "'\n"
+                        errors = errors + 1
                     }
-                } else {
-                    if c == 34 {
-                        inString = false
-                        previousWasBoundary = true
-                    }
-                    i = i + 1
                 }
+                skipDeclKeyword(s, pos, declLen)
             } else {
-                val mut startsComment = false
-                if c == 47 {
-                    val n = i + 1
-                    if n < source.length {
-                        if source.at(n) == 47 {
-                            startsComment = true
-                        }
-                    }
-                }
-
-                if startsComment {
-                    inLineComment = true
-                    i = i + 2
-                } else {
-                    if c == 34 {
-                        inString = true
-                        previousWasBoundary = true
-                        i = i + 1
-                    } else {
-                        if c == 123 {
-                            braceDepth = braceDepth + 1
-                            previousWasBoundary = true
-                            i = i + 1
-                        } else {
-                            if c == 125 {
-                                if braceDepth > 0 {
-                                    braceDepth = braceDepth - 1
-                                }
-                                previousWasBoundary = true
-                                i = i + 1
-                            } else {
-                                val mut handled = false
-                                if braceDepth == 0 {
-                                    if previousWasBoundary {
-                                        val declLen = declKeywordLength(source, i)
-                                        if declLen > 0 {
-                                            val declName = declNameAt(source, i)
-                                            if declName != "" {
-                                                val occ = countDeclNameUpTo(source, declName, i)
-                                                if occ == 2 {
-                                                    diagnostics = diagnostics + "error: duplicate declaration '" + declName + "'\n"
-                                                    errors = errors + 1
-                                                }
-                                            }
-                                            i = i + declLen
-                                            previousWasBoundary = false
-                                            handled = true
-                                        }
-                                    }
-                                }
-                                if handled == false {
-                                    previousWasBoundary = isAlphaNumeric(c) == false
-                                    i = i + 1
-                                }
-                            }
-                        }
-                    }
-                }
+                scannerStep(s)
             }
+        } else {
+            scannerStep(s)
         }
     }
 
     return DupResult(errors: errors, diagnostics: diagnostics)
 }
 
-// Devuelve el tipo de retorno de la fn que empieza en `start` ("" si es void).
 fn functionReturnTypeAt(source: string, start: int) -> string {
     val nameCursor = skipWhitespaceFrom(source, start + 2)
     val fnName = readIdentifierFrom(source, nameCursor)
@@ -270,7 +132,7 @@ fn functionReturnTypeAt(source: string, start: int) -> string {
     if parenCursor >= source.length {
         return ""
     }
-    if source.at(parenCursor) != 40 {   // '('
+    if source.at(parenCursor) != 40 {
         return ""
     }
 
@@ -295,107 +157,26 @@ fn functionReturnTypeAt(source: string, start: int) -> string {
 }
 
 fn checkSemantics(source: string) -> SemaReport {
-    val mut i = 0
-    val mut braceBalance = 0
-    val mut parenBalance = 0
-    val mut inString = false
-    val mut inLineComment = false
-    val mut previousWasBoundary = true
+    val s = initScanner(source)
     val mut functions = 0
     val mut typedFunctions = 0
 
-    while i < source.length {
-        val c = source.at(i)
-
-        if inLineComment {
-            if c == 10 {
-                inLineComment = false
-                previousWasBoundary = true
-            }
-            i = i + 1
-        } else {
-            if inString {
-                if c == 92 {                // '\'
-                    val esc = i + 1
-                    if esc < source.length {
-                        i = i + 2
-                    } else {
-                        i = i + 1
-                    }
-                } else {
-                    if c == 34 {            // '"'
-                        inString = false
-                        previousWasBoundary = true
-                    }
-                    i = i + 1
+    while scannerEOF(s) == false {
+        if scannerIsAtKeywordStart(s) {
+            val pos = s.pos
+            if keywordMatches(source, pos, "fn") {
+                functions = functions + 1
+                val ret = functionReturnTypeAt(source, pos)
+                if ret != "" {
+                    typedFunctions = typedFunctions + 1
                 }
+                s.pos = pos + 2
+                s.previousWasBoundary = false
             } else {
-                val mut startsComment = false
-                if c == 47 {                // '/'
-                    val n = i + 1
-                    if n < source.length {
-                        if source.at(n) == 47 {
-                            startsComment = true
-                        }
-                    }
-                }
-
-                if startsComment {
-                    inLineComment = true
-                    i = i + 2
-                } else {
-                    if c == 34 {            // '"'
-                        inString = true
-                        previousWasBoundary = true
-                        i = i + 1
-                    } else {
-                        if c == 123 {       // '{'
-                            braceBalance = braceBalance + 1
-                            previousWasBoundary = true
-                            i = i + 1
-                        } else {
-                            if c == 125 {   // '}'
-                                braceBalance = braceBalance - 1
-                                previousWasBoundary = true
-                                i = i + 1
-                            } else {
-                                if c == 40 {        // '('
-                                    parenBalance = parenBalance + 1
-                                    previousWasBoundary = true
-                                    i = i + 1
-                                } else {
-                                    if c == 41 {    // ')'
-                                        parenBalance = parenBalance - 1
-                                        previousWasBoundary = true
-                                        i = i + 1
-                                    } else {
-                                        val mut handled = false
-                                        if braceBalance == 0 {
-                                            if previousWasBoundary {
-                                                if keywordMatches(source, i, "fn") {
-                                                    functions = functions + 1
-                                                    val ret = functionReturnTypeAt(source, i)
-                                                    if ret != "" {
-                                                        typedFunctions = typedFunctions + 1
-                                                    }
-                                                    i = i + 2
-                                                    previousWasBoundary = false
-                                                    handled = true
-                                                }
-                                            }
-                                        }
-
-                                        if handled == false {
-                                            previousWasBoundary = isAlphaNumeric(c) == false
-                                            i = i + 1
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                scannerStep(s)
             }
+        } else {
+            scannerStep(s)
         }
     }
 
@@ -403,16 +184,16 @@ fn checkSemantics(source: string) -> SemaReport {
     val mut warnings = 0
     val mut diagnostics = ""
 
-    if inString {
+    if s.inString {
         diagnostics = diagnostics + "error: unterminated string literal\n"
         errors = errors + 1
     }
-    if braceBalance != 0 {
-        diagnostics = diagnostics + "error: unbalanced braces (" + braceBalance + ")\n"
+    if s.braceDepth != 0 {
+        diagnostics = diagnostics + "error: unbalanced braces (" + s.braceDepth + ")\n"
         errors = errors + 1
     }
-    if parenBalance != 0 {
-        diagnostics = diagnostics + "error: unbalanced parentheses (" + parenBalance + ")\n"
+    if s.parenDepth != 0 {
+        diagnostics = diagnostics + "error: unbalanced parentheses (" + s.parenDepth + ")\n"
         errors = errors + 1
     }
 
@@ -429,9 +210,9 @@ fn checkSemantics(source: string) -> SemaReport {
     return SemaReport(
         errors: errors,
         warnings: warnings,
-        braceBalance: braceBalance,
-        parenBalance: parenBalance,
-        unterminatedString: inString,
+        braceBalance: s.braceDepth,
+        parenBalance: s.parenDepth,
+        unterminatedString: s.inString,
         functions: functions,
         typedFunctions: typedFunctions,
         voidFunctions: voidFunctions,
