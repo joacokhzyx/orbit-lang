@@ -36,23 +36,13 @@ fn mapTypeToC(orbitType: string) -> string {
 
 fn orbit_itoa(n: int) -> string {
     if n == 0 { return "0" }
+    val digits = "0123456789"
     var str = ""
     var temp = n
     while temp > 0 {
         val div = temp / 10
         val rem = temp - (div * 10)
-        var c = ""
-        if rem == 0 { c = "0" }
-        if rem == 1 { c = "1" }
-        if rem == 2 { c = "2" }
-        if rem == 3 { c = "3" }
-        if rem == 4 { c = "4" }
-        if rem == 5 { c = "5" }
-        if rem == 6 { c = "6" }
-        if rem == 7 { c = "7" }
-        if rem == 8 { c = "8" }
-        if rem == 9 { c = "9" }
-        str = c + str
+        str = digits.slice(rem, rem + 1) + str
         temp = temp / 10
     }
     return str
@@ -142,6 +132,51 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
         IROpcode.mul => {
             backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + " * " + generateValue(backend, instr.operand2) + ";\n"
         }
+        IROpcode.div => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + " / " + generateValue(backend, instr.operand2) + ";\n"
+        }
+        IROpcode.mod => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + generateValue(backend, instr.operand1) + " % " + generateValue(backend, instr.operand2) + ";\n"
+        }
+        IROpcode.eq => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " == " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.ne => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " != " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.lt => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " < " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.le => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " <= " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.gt => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " > " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.ge => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " >= " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.and_op => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " && " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.or_op => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " || " + generateValue(backend, instr.operand2) + ");\n"
+        }
+        IROpcode.not_op => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = !" + generateValue(backend, instr.operand1) + ";\n"
+        }
+        IROpcode.neg => {
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = -" + generateValue(backend, instr.operand1) + ";\n"
+        }
+        IROpcode.label => {
+            backend.output = backend.output + "label_" + generateValue(backend, instr.operand1) + ":;\n"
+        }
+        IROpcode.jump => {
+            backend.output = backend.output + "    goto label_" + generateValue(backend, instr.operand1) + ";\n"
+        }
+        IROpcode.jump_if_false => {
+            backend.output = backend.output + "    if (!" + generateValue(backend, instr.operand1) + ") goto label_" + generateValue(backend, instr.operand2) + ";\n"
+        }
         IROpcode.arg => {
             backend.callArgs.push(generateValue(backend, instr.operand1))
         }
@@ -161,7 +196,6 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
                 i = i + 1
             }
             backend.output = backend.output + ");\n"
-            // clear args
             var emptyArgs = []
             backend.callArgs = emptyArgs
         }
@@ -180,7 +214,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
             }
         }
         _ => {
-            backend.output = backend.output + "    // op: ...\n"
+            backend.output = backend.output + "    /* Opcode omitted */\n"
         }
     }
 }
