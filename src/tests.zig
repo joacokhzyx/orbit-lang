@@ -913,3 +913,151 @@ test "superluminal.z3_nonequivalence" {
 // ─────────────────────────────────────────────────────────────────────────────
 // Temporarily disabled due to Zig std.Io API changes.
 // test "golden.tir_files_well_formed" { ... }
+
+// -----------------------------------------------------------------------------
+// Superluminal Benchmark Suite
+// -----------------------------------------------------------------------------
+const superluminal_cost = @import("superluminal/cost_model.zig");
+const superluminal_matcher = @import("superluminal/pattern_matcher.zig");
+const superluminal_synthesis = @import("superluminal/synthesis.zig");
+
+test "superluminal.benchmark" {
+    _ = std.testing.allocator;
+
+    const map_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_field, .dest = 0, .operand1 = .{ .string = "m" }, .operand2 = .{ .string = "data" }, .operand3 = .none },
+        IRInstruction{ .opcode = .load_field, .dest = 1, .operand1 = .{ .string = "m" }, .operand2 = .{ .string = "len" }, .operand3 = .none },
+    };
+
+    const compound_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_var, .dest = 0, .operand1 = .{ .string = "total" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_var, .dest = 1, .operand1 = .{ .string = "i" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .add, .dest = 2, .operand1 = .{ .register = 0 }, .operand2 = .{ .register = 1 }, .operand3 = .none },
+        IRInstruction{ .opcode = .store_var, .dest = 0, .operand1 = .{ .string = "total" }, .operand2 = .{ .register = 2 }, .operand3 = .none },
+    };
+
+    const retlocal_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_var, .dest = 0, .operand1 = .{ .string = "result" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .ret, .dest = 0, .operand1 = .{ .register = 0 }, .operand2 = .none, .operand3 = .none },
+    };
+
+    const mulpow2_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 0, .operand1 = .{ .int = 8 }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_var, .dest = 1, .operand1 = .{ .string = "x" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .mul, .dest = 2, .operand1 = .{ .register = 1 }, .operand2 = .{ .register = 0 }, .operand3 = .none },
+    };
+
+    const mulone_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 0, .operand1 = .{ .int = 1 }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_var, .dest = 1, .operand1 = .{ .string = "x" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .mul, .dest = 2, .operand1 = .{ .register = 1 }, .operand2 = .{ .register = 0 }, .operand3 = .none },
+    };
+
+    const subself_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_var, .dest = 0, .operand1 = .{ .string = "x" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_var, .dest = 1, .operand1 = .{ .string = "x" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .sub, .dest = 2, .operand1 = .{ .register = 0 }, .operand2 = .{ .register = 1 }, .operand3 = .none },
+    };
+
+    const addzero_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 0, .operand1 = .{ .int = 0 }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_var, .dest = 1, .operand1 = .{ .string = "x" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .add, .dest = 2, .operand1 = .{ .register = 0 }, .operand2 = .{ .register = 1 }, .operand3 = .none },
+    };
+
+    const booland_program = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_var, .dest = 0, .operand1 = .{ .string = "a" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_var, .dest = 1, .operand1 = .{ .string = "a" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .and_op, .dest = 2, .operand1 = .{ .register = 0 }, .operand2 = .{ .register = 1 }, .operand3 = .none },
+    };
+
+    const programs = [_]struct { name: []const u8, instrs: []const IRInstruction }{
+        .{ .name = "map_load", .instrs = &map_program },
+        .{ .name = "compound_assign", .instrs = &compound_program },
+        .{ .name = "return_local", .instrs = &retlocal_program },
+        .{ .name = "mul_pow2", .instrs = &mulpow2_program },
+        .{ .name = "mul_one", .instrs = &mulone_program },
+        .{ .name = "sub_self", .instrs = &subself_program },
+        .{ .name = "add_zero", .instrs = &addzero_program },
+        .{ .name = "bool_and_self", .instrs = &booland_program },
+    };
+
+    var total_before: f64 = 0;
+    var total_after: f64 = 0;
+    var synthesis_hit_count: usize = 0;
+    var pattern_hit_count: usize = 0;
+
+    inline for (programs) |p| {
+        const base_cost = superluminal_cost.evaluateSlice(p.instrs);
+
+        var opt_cost = superluminal_cost.Cost{};
+        var local_synth: usize = 0;
+        var local_pattern: usize = 0;
+        var i: usize = 0;
+        while (i < p.instrs.len) {
+            if (superluminal_synthesis.findSynthesis(p.instrs, i)) |m| {
+                local_synth += 1;
+                i += m.length;
+            } else if (superluminal_matcher.findBest(p.instrs, i)) |m| {
+                local_pattern += 1;
+                opt_cost.alu += m.cost_after.alu;
+                opt_cost.mem_read += m.cost_after.mem_read;
+                opt_cost.mem_write += m.cost_after.mem_write;
+                opt_cost.branch += m.cost_after.branch;
+                opt_cost.reg_assign += m.cost_after.reg_assign;
+                opt_cost.call += m.cost_after.call;
+                i += m.length;
+            } else {
+                const c = superluminal_cost.evaluate(p.instrs[i]);
+                opt_cost.alu += c.alu;
+                opt_cost.mem_read += c.mem_read;
+                opt_cost.mem_write += c.mem_write;
+                opt_cost.branch += c.branch;
+                opt_cost.reg_assign += c.reg_assign;
+                opt_cost.call += c.call;
+                i += 1;
+            }
+        }
+        synthesis_hit_count += local_synth;
+        pattern_hit_count += local_pattern;
+
+        const bt = base_cost.total();
+        const at = opt_cost.total();
+        total_before += bt;
+        total_after += at;
+    }
+
+    const improvement = if (total_after < total_before)
+        (1.0 - total_after / total_before) * 100.0
+    else
+        0.0;
+
+    try std.testing.expect(improvement > 0.0);
+    try std.testing.expect(pattern_hit_count > 0 or synthesis_hit_count > 0);
+}
+
+test "superluminal.benchmark_superoptimizer" {
+    const allocator = std.testing.allocator;
+    const superluminal_superopt = @import("superluminal/superoptimizer.zig");
+
+    var superopt = superluminal_superopt.Superoptimizer.init(allocator);
+
+    const small_prog = [_]IRInstruction{
+        IRInstruction{ .opcode = .load_const, .dest = 0, .operand1 = .{ .int = 5 }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_var, .dest = 1, .operand1 = .{ .string = "x" }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .load_const, .dest = 2, .operand1 = .{ .int = 0 }, .operand2 = .none, .operand3 = .none },
+        IRInstruction{ .opcode = .add, .dest = 3, .operand1 = .{ .register = 1 }, .operand2 = .{ .register = 2 }, .operand3 = .none },
+        IRInstruction{ .opcode = .ret, .dest = 0, .operand1 = .{ .register = 3 }, .operand2 = .none, .operand3 = .none },
+    };
+
+    const result = superopt.optimize(&small_prog) catch null;
+    defer if (result) |opt| allocator.free(opt);
+    try std.testing.expect(result != null);
+    if (result) |opt| {
+        const base_cost = superluminal_cost.evaluateSlice(&small_prog);
+        const opt_cost = superluminal_cost.evaluateSlice(opt);
+        try std.testing.expect(opt_cost.total() <= base_cost.total());
+    }
+}
+
+
