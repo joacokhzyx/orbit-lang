@@ -1032,6 +1032,9 @@ test "superluminal.benchmark" {
     else
         0.0;
 
+    std.debug.print("\n  Superluminal benchmark: {d:.1}% cost reduction across {d} programs (pattern hits={d}, synthesis hits={d})", .{
+        improvement, programs.len, pattern_hit_count, synthesis_hit_count,
+    });
     try std.testing.expect(improvement > 0.0);
     try std.testing.expect(pattern_hit_count > 0 or synthesis_hit_count > 0);
 }
@@ -1056,6 +1059,13 @@ test "superluminal.benchmark_superoptimizer" {
     if (result) |opt| {
         const base_cost = superluminal_cost.evaluateSlice(&small_prog);
         const opt_cost = superluminal_cost.evaluateSlice(opt);
+        const improvement = if (opt_cost.total() < base_cost.total())
+            (1.0 - opt_cost.total() / base_cost.total()) * 100.0
+        else
+            0.0;
+        std.debug.print("\n  Superoptimizer: {d:.1}% cost reduction (base={d:.1} opt={d:.1})", .{
+            improvement, base_cost.total(), opt_cost.total(),
+        });
         try std.testing.expect(opt_cost.total() <= base_cost.total());
     }
 }
