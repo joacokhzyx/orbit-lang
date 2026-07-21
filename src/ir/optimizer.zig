@@ -42,82 +42,186 @@ pub const ConstantFolder = struct {
         }
     }
 
+    fn isConstantInt(val: IRValue, expected: i64) bool {
+        return val == .int and val.int == expected;
+    }
+
+    fn isConstantFloat(val: IRValue, expected: f64) bool {
+        return val == .float and val.float == expected;
+    }
+
+    fn bothInt(a: IRValue, b: IRValue) bool {
+        return a == .int and b == .int;
+    }
+
+    fn bothFloat(a: IRValue, b: IRValue) bool {
+        return a == .float and b == .float;
+    }
+
     fn foldInstruction(self: *ConstantFolder, instr: *IRInstruction) !bool {
         _ = self;
 
         switch (instr.opcode) {
             .add => {
-                if (instr.operand1 == .int and instr.operand2 == .int) {
-                    const result = instr.operand1.int + instr.operand2.int;
+                if (bothInt(instr.operand1, instr.operand2)) {
                     instr.opcode = .load_const;
-                    instr.operand1 = IRValue{ .int = result };
+                    instr.operand1 = IRValue{ .int = instr.operand1.int + instr.operand2.int };
                     instr.operand2 = .none;
                     return true;
                 }
-                if (instr.operand1 == .int and instr.operand1.int == 0) {
-                    instr.opcode = .copy; // x + 0 = x
+                if (bothFloat(instr.operand1, instr.operand2)) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .float = instr.operand1.float + instr.operand2.float };
+                    instr.operand2 = .none;
+                    return true;
+                }
+                if (isConstantInt(instr.operand1, 0) or isConstantFloat(instr.operand1, 0)) {
+                    instr.opcode = .copy;
                     instr.operand1 = instr.operand2;
                     instr.operand2 = .none;
                     return true;
                 }
-                if (instr.operand2 == .int and instr.operand2.int == 0) {
-                    instr.opcode = .copy; // x + 0 = x
+                if (isConstantInt(instr.operand2, 0) or isConstantFloat(instr.operand2, 0)) {
+                    instr.opcode = .copy;
                     instr.operand2 = .none;
                     return true;
                 }
             },
             .mul => {
-                if (instr.operand1 == .int and instr.operand2 == .int) {
-                    const result = instr.operand1.int * instr.operand2.int;
+                if (bothInt(instr.operand1, instr.operand2)) {
                     instr.opcode = .load_const;
-                    instr.operand1 = IRValue{ .int = result };
+                    instr.operand1 = IRValue{ .int = instr.operand1.int * instr.operand2.int };
                     instr.operand2 = .none;
                     return true;
                 }
-                if (instr.operand1 == .int and instr.operand1.int == 1) {
-                    instr.opcode = .copy; // 1 * x = x
+                if (bothFloat(instr.operand1, instr.operand2)) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .float = instr.operand1.float * instr.operand2.float };
+                    instr.operand2 = .none;
+                    return true;
+                }
+                if (isConstantInt(instr.operand1, 1) or isConstantFloat(instr.operand1, 1)) {
+                    instr.opcode = .copy;
                     instr.operand1 = instr.operand2;
                     instr.operand2 = .none;
                     return true;
                 }
-                if (instr.operand2 == .int and instr.operand2.int == 1) {
-                    instr.opcode = .copy; // x * 1 = x
+                if (isConstantInt(instr.operand2, 1) or isConstantFloat(instr.operand2, 1)) {
+                    instr.opcode = .copy;
                     instr.operand2 = .none;
                     return true;
                 }
-                if (instr.operand2 == .int and instr.operand2.int == 2) {
-                    instr.opcode = .add; // x * 2 = x + x
+                if (isConstantInt(instr.operand2, 2)) {
+                    instr.opcode = .add;
                     instr.operand2 = instr.operand1;
                     return true;
                 }
-                if ((instr.operand1 == .int and instr.operand1.int == 0) or
-                    (instr.operand2 == .int and instr.operand2.int == 0))
-                {
-                    instr.opcode = .load_const; // x * 0 = 0
+                if (isConstantInt(instr.operand1, 0) or isConstantInt(instr.operand2, 0)) {
+                    instr.opcode = .load_const;
                     instr.operand1 = IRValue{ .int = 0 };
                     instr.operand2 = .none;
                     return true;
                 }
             },
             .sub => {
-                if (instr.operand1 == .int and instr.operand2 == .int) {
-                    const result = instr.operand1.int - instr.operand2.int;
+                if (bothInt(instr.operand1, instr.operand2)) {
                     instr.opcode = .load_const;
-                    instr.operand1 = IRValue{ .int = result };
+                    instr.operand1 = IRValue{ .int = instr.operand1.int - instr.operand2.int };
                     instr.operand2 = .none;
                     return true;
                 }
-                if (instr.operand2 == .int and instr.operand2.int == 0) {
-                    instr.opcode = .copy; // x - 0 = x
+                if (bothFloat(instr.operand1, instr.operand2)) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .float = instr.operand1.float - instr.operand2.float };
+                    instr.operand2 = .none;
+                    return true;
+                }
+                if (isConstantInt(instr.operand2, 0) or isConstantFloat(instr.operand2, 0)) {
+                    instr.opcode = .copy;
+                    instr.operand2 = .none;
+                    return true;
+                }
+                // x - x = 0
+                if (std.meta.eql(instr.operand1, instr.operand2)) {
+                    const is_num = instr.operand1 == .int or instr.operand1 == .float or
+                        instr.operand1 == .register;
+                    if (is_num) {
+                        instr.opcode = .load_const;
+                        instr.operand1 = IRValue{ .int = 0 };
+                        instr.operand2 = .none;
+                        return true;
+                    }
+                }
+            },
+            .div => {
+                if (bothInt(instr.operand1, instr.operand2) and instr.operand2.int != 0) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .int = @divTrunc(instr.operand1.int, instr.operand2.int) };
+                    instr.operand2 = .none;
+                    return true;
+                }
+                if (bothFloat(instr.operand1, instr.operand2) and instr.operand2.float != 0) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .float = instr.operand1.float / instr.operand2.float };
+                    instr.operand2 = .none;
+                    return true;
+                }
+                if (isConstantInt(instr.operand2, 1) or isConstantFloat(instr.operand2, 1)) {
+                    instr.opcode = .copy; // x / 1 = x
                     instr.operand2 = .none;
                     return true;
                 }
             },
-            .div => {
-                if (instr.operand1 == .int and instr.operand2 == .int and instr.operand2.int != 0) {
-                    const result = @divTrunc(instr.operand1.int, instr.operand2.int);
+            .eq, .ne, .lt, .le, .gt, .ge => {
+                if (bothInt(instr.operand1, instr.operand2)) {
+                    const result = switch (instr.opcode) {
+                        .eq => instr.operand1.int == instr.operand2.int,
+                        .ne => instr.operand1.int != instr.operand2.int,
+                        .lt => instr.operand1.int < instr.operand2.int,
+                        .le => instr.operand1.int <= instr.operand2.int,
+                        .gt => instr.operand1.int > instr.operand2.int,
+                        .ge => instr.operand1.int >= instr.operand2.int,
+                        else => unreachable,
+                    };
                     instr.opcode = .load_const;
-                    instr.operand1 = IRValue{ .int = result };
+                    instr.operand1 = IRValue{ .bool = result };
+                    instr.operand2 = .none;
+                    return true;
+                }
+                if (bothFloat(instr.operand1, instr.operand2)) {
+                    const result = switch (instr.opcode) {
+                        .eq => instr.operand1.float == instr.operand2.float,
+                        .ne => instr.operand1.float != instr.operand2.float,
+                        .lt => instr.operand1.float < instr.operand2.float,
+                        .le => instr.operand1.float <= instr.operand2.float,
+                        .gt => instr.operand1.float > instr.operand2.float,
+                        .ge => instr.operand1.float >= instr.operand2.float,
+                        else => unreachable,
+                    };
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .bool = result };
+                    instr.operand2 = .none;
+                    return true;
+                }
+            },
+            .neg => {
+                if (instr.operand1 == .int) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .int = -instr.operand1.int };
+                    instr.operand2 = .none;
+                    return true;
+                }
+                if (instr.operand1 == .float) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .float = -instr.operand1.float };
+                    instr.operand2 = .none;
+                    return true;
+                }
+            },
+            .not_op => {
+                if (instr.operand1 == .bool) {
+                    instr.opcode = .load_const;
+                    instr.operand1 = IRValue{ .bool = !instr.operand1.bool };
                     instr.operand2 = .none;
                     return true;
                 }
