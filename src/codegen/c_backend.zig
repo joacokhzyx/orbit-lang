@@ -20,6 +20,7 @@ const superluminal_matcher = @import("../superluminal/pattern_matcher.zig");
 const superluminal_emitter = @import("../superluminal/emitter.zig");
 const superluminal_semantic = @import("../superluminal/semantic_enhancer.zig");
 const superluminal_superopt = @import("../superluminal/superoptimizer.zig");
+const superluminal_dualpath = @import("../superluminal/dual_path.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -28,6 +29,8 @@ pub const CBackend = struct {
     has_server_init: bool,
     call_args: std.ArrayListUnmanaged(IRValue),
     current_func: ?*const IRFunction = null,
+    golden_mode: bool = false,
+    handler_emitted: bool = false,
 
     /// Set of known functions that require OrbitArena* as first argument.
     /// Dynamically checked — not hardcoded per function name.
@@ -400,13 +403,163 @@ pub const CBackend = struct {
             }
         }
 
-        // Semantic hint: always_inline for small functions
-        if (superluminal_semantic.shouldAnnotateFunction(func)) {
+        if (superluminal_dualpath.qualifies(func) and !std.mem.eql(u8, func.name, "main") and !std.mem.startsWith(u8, func.name, "route_")) {
+            // Dual-path: emit golden + slow + wrapper with signal-based fallback
+            const return_type_c = try self.mapTypeToC(func.return_type);
+
+            // Emit signal handler once at file level
+            if (!self.handler_emitted) {
+                self.handler_emitted = true;
+                try self.output.appendSlice(self.allocator,
+                    "#include <signal.h>\n" ++
+                    "#include <setjmp.h>\n" ++
+                    "static thread_local jmp_buf sl_recovery;\n" ++
+                    "static thread_local int sl_fallback = 0;\n" ++
+                    "static void sl_handler(int sig) {\n" ++
+                    "    (void)sig;\n" ++
+                    "    sl_fallback = 1;\n" ++
+                    "    longjmp(sl_recovery, 1);\n" ++
+                    "}\n\n");
+            }
+
+            // 1. Golden variant (no safety checks)
+            self.golden_mode = true;
             try self.output.appendSlice(self.allocator, "__attribute__((always_inline))\n    ");
+            try self.generateSignatureWithSuffix(func, "_golden");
+            try self.emitFunctionBody(func, .golden);
+            self.golden_mode = false;
+
+            // 2. Slow variant (full safety checks)
+            try self.generateSignatureWithSuffix(func, "_slow");
+            try self.emitFunctionBody(func, .normal);
+
+            // 3. Wrapper: try golden, fall back to slow on SIGSEGV
+            try self.output.appendSlice(self.allocator, return_type_c);
+            try self.output.append(self.allocator, ' ');
+            try self.output.appendSlice(self.allocator, func.name);
+            try self.output.append(self.allocator, '(');
+            try self.emitSignatureParams(func);
+            try self.output.appendSlice(self.allocator, ") {\n");
+            try self.output.print(self.allocator, "    void (*_sl_prev)(int) = signal(SIGSEGV, sl_handler);\n", .{});
+            try self.output.appendSlice(self.allocator, "    if (setjmp(sl_recovery) == 0) {\n");
+            try self.output.print(self.allocator, "        {s} _sl_result = {s}_golden(", .{ return_type_c, func.name });
+            try self.emitCallArgs(func);
+            try self.output.appendSlice(self.allocator, ");\n");
+            try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
+            try self.output.appendSlice(self.allocator, "        return _sl_result;\n");
+            try self.output.appendSlice(self.allocator, "    } else {\n");
+            try self.output.appendSlice(self.allocator, "        sl_fallback = 0;\n");
+            try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
+            try self.output.print(self.allocator, "        return {s}_slow(", .{func.name});
+            try self.emitCallArgs(func);
+            try self.output.appendSlice(self.allocator, ");\n");
+            try self.output.appendSlice(self.allocator, "    }\n");
+            try self.output.appendSlice(self.allocator, "}\n\n");
+        } else {
+            // Normal emission
+            if (superluminal_semantic.shouldAnnotateFunction(func)) {
+                try self.output.appendSlice(self.allocator, "__attribute__((always_inline))\n    ");
+            }
+            try self.generateFunctionSignature(func);
+            try self.emitFunctionBody(func, .normal);
+        }
+    }
+
+    fn generateSignatureWithSuffix(self: *CBackend, func: IRFunction, suffix: []const u8) !void {
+        var func_name = try self.allocator.dupe(u8, func.name);
+        defer self.allocator.free(func_name);
+
+        if (std.mem.eql(u8, func_name, "main")) {
+            self.allocator.free(func_name);
+            func_name = try self.allocator.dupe(u8, "orbit_main");
         }
 
-        try self.generateFunctionSignature(func);
+        for (func_name) |*c| {
+            if (!std.ascii.isAlphanumeric(c.*)) {
+                c.* = '_';
+            }
+        }
+
+        var ret_type: []const u8 = try self.mapTypeToC(func.return_type);
+        if (std.mem.startsWith(u8, func_name, "route_")) {
+            ret_type = "OrbitResponse*";
+        } else if (std.mem.eql(u8, func_name, "orbit_main")) {
+            ret_type = "int";
+        }
+
+        try self.output.appendSlice(self.allocator, ret_type);
+        try self.output.append(self.allocator, ' ');
+        try self.output.appendSlice(self.allocator, func_name);
+        try self.output.appendSlice(self.allocator, suffix);
+        try self.output.append(self.allocator, '(');
+
+        if (std.mem.eql(u8, func_name, "orbit_main")) {
+            try self.output.appendSlice(self.allocator, "OrbitArena* _init_arena");
+        } else if (std.mem.startsWith(u8, func_name, "route_")) {
+            try self.output.appendSlice(self.allocator, "OrbitArena* arena, OrbitRequest* req");
+        } else {
+            if (func.params.len == 0) {
+                try self.output.appendSlice(self.allocator, "void");
+            } else {
+                for (func.params, 0..) |param, i| {
+                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    const param_type = if (func.param_types.len > i) func.param_types[i] else .int;
+                    try self.output.appendSlice(self.allocator, try self.mapTypeToC(param_type));
+                    try self.output.append(self.allocator, ' ');
+                    if (param_type == .model or param_type == .tagged_union or param_type == .pointer or param_type == .mut_pointer) {
+                        try self.output.appendSlice(self.allocator, "__restrict ");
+                    }
+                    try self.output.appendSlice(self.allocator, param);
+                }
+            }
+        }
+
+        try self.output.append(self.allocator, ')');
+    }
+
+    fn emitSignatureParams(self: *CBackend, func: IRFunction) !void {
+        if (std.mem.eql(u8, func.name, "main")) {
+            try self.output.appendSlice(self.allocator, "OrbitArena* _init_arena");
+        } else if (std.mem.startsWith(u8, func.name, "route_")) {
+            try self.output.appendSlice(self.allocator, "OrbitArena* arena, OrbitRequest* req");
+        } else {
+            if (func.params.len == 0) {
+                try self.output.appendSlice(self.allocator, "void");
+            } else {
+                for (func.params, 0..) |param, i| {
+                    if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+                    const param_type = if (func.param_types.len > i) func.param_types[i] else .int;
+                    try self.output.appendSlice(self.allocator, try self.mapTypeToC(param_type));
+                    try self.output.append(self.allocator, ' ');
+                    if (param_type == .model or param_type == .tagged_union or param_type == .pointer or param_type == .mut_pointer) {
+                        try self.output.appendSlice(self.allocator, "__restrict ");
+                    }
+                    try self.output.appendSlice(self.allocator, param);
+                }
+            }
+        }
+    }
+
+    fn emitCallArgs(self: *CBackend, func: IRFunction) !void {
+        if (func.params.len == 0) return;
+        for (func.params, 0..) |param, i| {
+            if (i > 0) try self.output.appendSlice(self.allocator, ", ");
+            try self.output.appendSlice(self.allocator, param);
+        }
+    }
+
+    const EmitMode = enum { normal, golden };
+
+    fn emitFunctionBody(self: *CBackend, func: IRFunction, mode: EmitMode) !void {
+        if (mode == .golden) {
+            self.golden_mode = true;
+        } else {
+            self.golden_mode = false;
+        }
+        self.current_func = &func;
+
         try self.output.appendSlice(self.allocator, " {\n");
+
         const is_main = std.mem.eql(u8, func.name, "main");
         const is_route = std.mem.startsWith(u8, func.name, "route_");
 
@@ -416,13 +569,13 @@ pub const CBackend = struct {
 
         // Declare registers
         for (func.register_types.items, 0..) |reg_type, i| {
-            if (reg_type == .void) continue; // Don't declare void registers
+            if (reg_type == .void) continue;
             try self.output.appendSlice(self.allocator, "    ");
             try self.output.appendSlice(self.allocator, try self.mapTypeToC(reg_type));
             try self.output.print(self.allocator, " r_{d};\n", .{i});
         }
 
-        // Declare local variables at top of function scope to prevent redefinitions
+        // Declare local variables at top of function scope
         var var_iter = self.local_variable_types.iterator();
         while (var_iter.next()) |entry| {
             const var_name = entry.key_ptr.*;
@@ -432,7 +585,7 @@ pub const CBackend = struct {
             try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, var_name });
         }
 
-        // Superluminal superoptimizer: try variants and pick cheapest
+        // Superluminal superoptimizer
         var superopt_instructions: ?[]const IRInstruction = null;
         defer if (superopt_instructions) |s| self.allocator.free(s);
 
@@ -443,7 +596,7 @@ pub const CBackend = struct {
 
         const emit_slice = if (superopt_instructions) |s| s else func.instructions.items;
 
-        // Superluminal pattern-based code emission
+        // Pattern-based code emission
         var instr_i: usize = 0;
         while (instr_i < emit_slice.len) {
             if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
@@ -455,7 +608,7 @@ pub const CBackend = struct {
             }
         }
 
-        // Only emit fallback return if the last instruction wasn't already a ret.
+        // Fallback return
         const has_trailing_ret = if (emit_slice.len > 0)
             emit_slice[emit_slice.len - 1].opcode == .ret else false;
 
@@ -497,7 +650,7 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .load_field => {
-                if (self.getValueType(instr.operand1) == .model or self.getValueType(instr.operand1) == .tagged_union) {
+                if (!self.golden_mode and (self.getValueType(instr.operand1) == .model or self.getValueType(instr.operand1) == .tagged_union)) {
                     try self.output.appendSlice(self.allocator, "__builtin_assume(");
                     try self.generateValue(instr.operand1);
                     try self.output.appendSlice(self.allocator, " != (void*)0);\n    ");
@@ -673,7 +826,7 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ":;\n");
             },
             .store_field => {
-                if (self.getValueType(instr.operand1) == .model or self.getValueType(instr.operand1) == .tagged_union) {
+                if (!self.golden_mode and (self.getValueType(instr.operand1) == .model or self.getValueType(instr.operand1) == .tagged_union)) {
                     try self.output.appendSlice(self.allocator, "__builtin_assume(");
                     try self.generateValue(instr.operand1);
                     try self.output.appendSlice(self.allocator, " != (void*)0);\n    ");
@@ -717,19 +870,27 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ");\n");
             },
             .list_get => {
-                try self.output.appendSlice(self.allocator, "{ OrbitResult _lr = orbit_list_get(");
-                try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ", ");
-                try self.generateValue(instr.operand2);
-                try self.output.print(self.allocator, "); r_{d} = ", .{instr.dest.?});
-                const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
-                switch (dest_type) {
-                    .int => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_int*)_lr.value : 0; }\n"),
-                    .float => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_float*)_lr.value : 0.0; }\n"),
-                    .string => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_string*)_lr.value : NULL; }\n"),
-                    .bool => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_bool*)_lr.value : false; }\n"),
-                    .tagged_union => |name| try self.output.print(self.allocator, "_lr.ok ? *({s}**)_lr.value : NULL; }}\n", .{name}),
-                    else => try self.output.appendSlice(self.allocator, "_lr.ok ? *(void**)_lr.value : NULL; }\n"),
+                if (self.golden_mode) {
+                    try self.output.print(self.allocator, "r_{d} = ((", .{instr.dest.?});
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ")->data)[");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, "];\n");
+                } else {
+                    try self.output.appendSlice(self.allocator, "{ OrbitResult _lr = orbit_list_get(");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.generateValue(instr.operand2);
+                    try self.output.print(self.allocator, "); r_{d} = ", .{instr.dest.?});
+                    const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
+                    switch (dest_type) {
+                        .int => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_int*)_lr.value : 0; }\n"),
+                        .float => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_float*)_lr.value : 0.0; }\n"),
+                        .string => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_string*)_lr.value : NULL; }\n"),
+                        .bool => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_bool*)_lr.value : false; }\n"),
+                        .tagged_union => |name| try self.output.print(self.allocator, "_lr.ok ? *({s}**)_lr.value : NULL; }}\n", .{name}),
+                        else => try self.output.appendSlice(self.allocator, "_lr.ok ? *(void**)_lr.value : NULL; }\n"),
+                    }
                 }
             },
             .list_len => {
@@ -744,44 +905,67 @@ pub const CBackend = struct {
                 });
             },
             .map_set => {
-                try self.output.appendSlice(self.allocator, "orbit_map_set(");
-                try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ", ");
-                try self.generateValue(instr.operand2);
-                try self.output.appendSlice(self.allocator, ", ");
-                switch (instr.operand3) {
-                    .int => |v| try self.output.print(self.allocator, "&(orbit_int){{{d}}}", .{v}),
-                    .float => |v| try self.output.print(self.allocator, "&(orbit_float){{{d}}}", .{v}),
-                    .string => |v| try self.output.print(self.allocator, "&(orbit_string){{\"{s}\"}}", .{v}),
-                    .bool => |v| try self.output.print(self.allocator, "&(orbit_bool){{{s}}}", .{if (v) "true" else "false"}),
-                    else => {
-                        if (instr.operand3 == .register) {
-                            try self.output.appendSlice(self.allocator, "&");
-                            try self.generateValue(instr.operand3);
-                        } else {
-                            try self.generateValue(instr.operand3);
-                        }
-                    },
+                if (self.golden_mode) {
+                    try self.output.appendSlice(self.allocator, "{ *(void**)");
+                    try self.output.appendSlice(self.allocator, "orbit_map_get_raw(");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, ") = ");
+                    if (instr.operand3 == .register) {
+                        try self.generateValue(instr.operand3);
+                    } else {
+                        try self.output.appendSlice(self.allocator, "NULL /* const map_set not supported in golden */");
+                    }
+                    try self.output.appendSlice(self.allocator, "; }\n");
+                } else {
+                    try self.output.appendSlice(self.allocator, "orbit_map_set(");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    switch (instr.operand3) {
+                        .int => |v| try self.output.print(self.allocator, "&(orbit_int){{{d}}}", .{v}),
+                        .float => |v| try self.output.print(self.allocator, "&(orbit_float){{{d}}}", .{v}),
+                        .string => |v| try self.output.print(self.allocator, "&(orbit_string){{\"{s}\"}}", .{v}),
+                        .bool => |v| try self.output.print(self.allocator, "&(orbit_bool){{{s}}}", .{if (v) "true" else "false"}),
+                        else => {
+                            if (instr.operand3 == .register) {
+                                try self.output.appendSlice(self.allocator, "&");
+                                try self.generateValue(instr.operand3);
+                            } else {
+                                try self.output.appendSlice(self.allocator, "NULL /* unsupported operand */");
+                            }
+                        },
+                    }
+                    try self.output.appendSlice(self.allocator, ");\n");
                 }
-                try self.output.appendSlice(self.allocator, ");\n");
             },
             .map_get => {
-                try self.output.appendSlice(self.allocator, "{ OrbitResult _mr = orbit_map_get(");
-                try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ", ");
-                try self.generateValue(instr.operand2);
-                try self.output.print(self.allocator, "); r_{d} = ", .{instr.dest.?});
-                const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
-                if (dest_type == .int) {
-                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_int*)_mr.value : 0; }\n");
-                } else if (dest_type == .float) {
-                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_float*)_mr.value : 0.0; }\n");
-                } else if (dest_type == .string) {
-                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_string*)_mr.value : NULL; }\n");
-                } else if (dest_type == .bool) {
-                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_bool*)_mr.value : false; }\n");
+                if (self.golden_mode) {
+                    try self.output.print(self.allocator, "r_{d} = *(void**)orbit_map_get_raw(", .{instr.dest.?});
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.generateValue(instr.operand2);
+                    try self.output.appendSlice(self.allocator, ");\n");
                 } else {
-                    try self.output.appendSlice(self.allocator, "_mr.ok ? *(void**)_mr.value : NULL; }\n");
+                    try self.output.appendSlice(self.allocator, "{ OrbitResult _mr = orbit_map_get(");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ", ");
+                    try self.generateValue(instr.operand2);
+                    try self.output.print(self.allocator, "); r_{d} = ", .{instr.dest.?});
+                    const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
+                    if (dest_type == .int) {
+                        try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_int*)_mr.value : 0; }\n");
+                    } else if (dest_type == .float) {
+                        try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_float*)_mr.value : 0.0; }\n");
+                    } else if (dest_type == .string) {
+                        try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_string*)_mr.value : NULL; }\n");
+                    } else if (dest_type == .bool) {
+                        try self.output.appendSlice(self.allocator, "_mr.ok ? *(orbit_bool*)_mr.value : false; }\n");
+                    } else {
+                        try self.output.appendSlice(self.allocator, "_mr.ok ? *(void**)_mr.value : NULL; }\n");
+                    }
                 }
             },
             .map_has => {
