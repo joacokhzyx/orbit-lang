@@ -59,6 +59,21 @@ fn isSameReg(a: IRValue, b: IRValue) bool {
     return a == .register and b == .register and a.register == b.register;
 }
 
+fn getConst(instructions: []const IRInstruction, start: usize, reg: u32) ?i64 {
+    if (start == 0) return null;
+    var i: usize = start;
+    while (i > 0) {
+        i -= 1;
+        const instr = instructions[i];
+        if (instr.opcode == .load_const) {
+            if (instr.dest) |d| {
+                if (d == reg and instr.operand1 == .int) return instr.operand1.int;
+            }
+        }
+    }
+    return null;
+}
+
 fn isIntConst(val: IRValue, c: i64) bool {
     return val == .int and val.int == c;
 }
@@ -73,7 +88,13 @@ fn matchMulPow2(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .mul) return null;
     if (i.operand1 == .int and isPow2(i.operand1.int)) return 1;
+    if (i.operand1 == .register) {
+        if (getConst(instructions, start, i.operand1.register)) |v| { if (isPow2(v)) return 1; }
+    }
     if (i.operand2 == .int and isPow2(i.operand2.int)) return 1;
+    if (i.operand2 == .register) {
+        if (getConst(instructions, start, i.operand2.register)) |v| { if (isPow2(v)) return 1; }
+    }
     return null;
 }
 
@@ -82,6 +103,9 @@ fn matchDivPow2(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .div) return null;
     if (i.operand2 == .int and isPow2(i.operand2.int)) return 1;
+    if (i.operand2 == .register) {
+        if (getConst(instructions, start, i.operand2.register)) |v| { if (isPow2(v)) return 1; }
+    }
     return null;
 }
 
@@ -90,6 +114,9 @@ fn matchModPow2(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .mod) return null;
     if (i.operand2 == .int and isPow2(i.operand2.int)) return 1;
+    if (i.operand2 == .register) {
+        if (getConst(instructions, start, i.operand2.register)) |v| { if (isPow2(v)) return 1; }
+    }
     return null;
 }
 
@@ -116,6 +143,8 @@ fn matchAddZero(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .add) return null;
     if (isIntConst(i.operand1, 0) or isIntConst(i.operand2, 0)) return 1;
+    if (i.operand1 == .register) if (getConst(instructions, start, i.operand1.register)) |v| if (v == 0) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 0) return 1;
     return null;
 }
 
@@ -124,6 +153,8 @@ fn matchMulOne(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .mul) return null;
     if (isIntConst(i.operand1, 1) or isIntConst(i.operand2, 1)) return 1;
+    if (i.operand1 == .register) if (getConst(instructions, start, i.operand1.register)) |v| if (v == 1) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 1) return 1;
     return null;
 }
 
@@ -132,6 +163,8 @@ fn matchMulZero(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .mul) return null;
     if (isIntConst(i.operand1, 0) or isIntConst(i.operand2, 0)) return 1;
+    if (i.operand1 == .register) if (getConst(instructions, start, i.operand1.register)) |v| if (v == 0) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 0) return 1;
     return null;
 }
 
@@ -148,7 +181,11 @@ fn matchInc(instructions: []const IRInstruction, start: usize) ?usize {
     const ir0 = instructions[start];
     const ir1 = instructions[start + 1];
     if (ir0.opcode != .add or ir1.opcode != .store_var) return null;
-    if (!isIntConst(ir0.operand2, 1) and !isIntConst(ir0.operand1, 1)) return null;
+    if (isIntConst(ir0.operand2, 1) or isIntConst(ir0.operand1, 1)) {} else {
+        const is_reg1 = ir0.operand1 == .register and (getConst(instructions, start, ir0.operand1.register) orelse 0) == 1;
+        const is_reg2 = ir0.operand2 == .register and (getConst(instructions, start, ir0.operand2.register) orelse 0) == 1;
+        if (!is_reg1 and !is_reg2) return null;
+    }
     if (ir1.operand2 == .register and ir0.dest == ir1.operand2.register) return 2;
     return null;
 }
@@ -158,7 +195,11 @@ fn matchDec(instructions: []const IRInstruction, start: usize) ?usize {
     const ir0 = instructions[start];
     const ir1 = instructions[start + 1];
     if (ir0.opcode != .sub or ir1.opcode != .store_var) return null;
-    if (!isIntConst(ir0.operand2, 1) and !isIntConst(ir0.operand1, 1)) return null;
+    if (isIntConst(ir0.operand2, 1) or isIntConst(ir0.operand1, 1)) {} else {
+        const is_reg1 = ir0.operand1 == .register and (getConst(instructions, start, ir0.operand1.register) orelse 0) == 1;
+        const is_reg2 = ir0.operand2 == .register and (getConst(instructions, start, ir0.operand2.register) orelse 0) == 1;
+        if (!is_reg1 and !is_reg2) return null;
+    }
     if (ir1.operand2 == .register and ir0.dest == ir1.operand2.register) return 2;
     return null;
 }
@@ -168,6 +209,8 @@ fn matchBoolAndTrue(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .and_op) return null;
     if (isIntConst(i.operand1, 1) or isIntConst(i.operand2, 1)) return 1;
+    if (i.operand1 == .register) if (getConst(instructions, start, i.operand1.register)) |v| if (v == 1) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 1) return 1;
     return null;
 }
 
@@ -176,6 +219,8 @@ fn matchBoolOrFalse(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .or_op) return null;
     if (isIntConst(i.operand1, 0) or isIntConst(i.operand2, 0)) return 1;
+    if (i.operand1 == .register) if (getConst(instructions, start, i.operand1.register)) |v| if (v == 0) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 0) return 1;
     return null;
 }
 
