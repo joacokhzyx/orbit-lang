@@ -14,6 +14,24 @@ pub fn isAvailable() bool {
 }
 
 fn findZ3() bool {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const searches = [_][]const u8{ "z3", "z3.exe", "/usr/bin/z3", "/usr/local/bin/z3", "/opt/homebrew/bin/z3" };
+    for (searches) |cmd| {
+        const result = std.process.run(allocator, io, .{ .argv = &.{ cmd, "--version" } }) catch continue;
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+        if (result.term == .exited and result.term.exited == 0) {
+            z3_path = cmd;
+            return true;
+        }
+    }
     return false;
 }
 
@@ -191,7 +209,27 @@ fn encVal(allocator: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8), val: I
 }
 
 fn runZ3(allocator: std.mem.Allocator, smt_input: []const u8) !bool {
-    _ = allocator;
-    _ = smt_input;
-    return false;
+    var threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer threaded.deinit();
+    const io = threaded.io();
+    const cwd = std.Io.Dir.cwd();
+
+    const tmp_path = "z3v.smt2";
+    var tmp_file = try cwd.createFile(io, tmp_path, .{ .truncate = true });
+    var tmp_buf: [4096]u8 = undefined;
+    var tmp_writer = std.Io.File.Writer.init(tmp_file, io, &tmp_buf);
+    try tmp_writer.interface.writeAll(smt_input);
+    try tmp_writer.flush();
+    tmp_file.close(io);
+
+    const result = std.process.run(allocator, io, .{ .argv = &.{ z3_path, tmp_path } }) catch {
+        cwd.deleteFile(io, tmp_path) catch {};
+        return false;
+    };
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    cwd.deleteFile(io, tmp_path) catch {};
+
+    const trimmed = std.mem.trim(u8, result.stdout, " \n\r");
+    return result.term == .exited and result.term.exited == 0 and std.mem.eql(u8, trimmed, "unsat");
 }
