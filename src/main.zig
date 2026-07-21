@@ -319,29 +319,45 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn printHelp() void {
-    std.debug.print(
-        \\
-        \\  ⏣ Orbit  - v{s}
-        \\
-        \\  Usage: orbit <command> <file.orb> [options]
-        \\
-        \\  Commands:
-        \\    dev      Compile + run (alias de 'run')
-        \\    run      Compile + run and propagate exit code
-        \\    build    Compile to native optimized binary
-        \\    test     Compile + run, PASS if exit code is 0
-        \\
-        \\  Options:
-        \\    --debug          Enable verbose runtime logs
-        \\    --no-kynx        Disable Kynx autonomous protection
-        \\    --verbose        Print internal compiler details and tool invocations
-        \\    --timings        Show phase-by-phase compilation profiles
-        \\    --timings=json   Show phase compilation profiles in JSON format
-        \\    --color=MODE     auto, always, never
-        \\    --unicode=MODE   auto, always, never
-        \\    --emit=MODE      exe (default), obj, mir
-        \\
-    , .{ORBIT_VERSION});
+    const yellow = term.style.getEsc(.bold_warning);
+    const reset = term.style.getReset();
+
+    var title_buf: [64]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buf, "Orbit Compiler v{s}", .{ORBIT_VERSION}) catch "Orbit Compiler";
+
+    var opt1: [128]u8 = undefined;
+    const opt1_s = std.fmt.bufPrint(&opt1, "  {s}--backend=MODE{s}   steel (C engine), native (x86_64 direct)", .{ yellow, reset }) catch "";
+    var opt2: [128]u8 = undefined;
+    const opt2_s = std.fmt.bufPrint(&opt2, "  {s}--emit=MODE{s}      exe (default), obj, mir", .{ yellow, reset }) catch "";
+    var opt3: [128]u8 = undefined;
+    const opt3_s = std.fmt.bufPrint(&opt3, "  {s}--timings{s}        Show phase-by-phase compilation profiler", .{ yellow, reset }) catch "";
+    var opt4: [128]u8 = undefined;
+    const opt4_s = std.fmt.bufPrint(&opt4, "  {s}--no-kynx{s}        Disable Kynx safety verification", .{ yellow, reset }) catch "";
+
+    var kynx_buf: [512]u8 = undefined;
+    const kynx_line = term.layout.renderGradientTextBuf(&kynx_buf, "Secured by Kynx", .{ 96, 165, 250 }, .{ 30, 58, 138 });
+
+    const lines = [_][]const u8{
+        "USAGE",
+        "  orbit <command> <file.orb> [options]",
+        "",
+        "COMMANDS",
+        "  dev        Compile + instant execution with diagnostics",
+        "  run        Compile + run and propagate process exit code",
+        "  build      Compile to standalone native optimized binary",
+        "  test       Execute isolated runtime unit tests",
+        "  bootstrap  Run multi-stage self-hosting compiler build",
+        "",
+        "FLAGS & OPTIONS",
+        opt1_s,
+        opt2_s,
+        opt3_s,
+        opt4_s,
+        "",
+        kynx_line,
+    };
+
+    term.layout.renderBoxCardStderr(title, &lines, 68);
 }
 
 fn getOrCompileSqliteCache(init: std.process.Init, arena: std.mem.Allocator, sqlite_c: []const u8, sqlite_inc_dir: []const u8, verbose: bool, profiler: *CompilationProfiler) ![]const u8 {
@@ -377,7 +393,11 @@ fn getOrCompileSqliteCache(init: std.process.Init, arena: std.mem.Allocator, sql
         if (verbose) {
             std.debug.print("Executing: zig cc -c {s} -o {s} -O3 {s}\n", .{ sqlite_c, cache_obj_path, sqlite_inc_dir });
         }
-        var child = try std.process.spawn(init.io, .{ .argv = sqlite_args.items });
+        var child = try std.process.spawn(init.io, .{
+            .argv = sqlite_args.items,
+            .stdout = .ignore,
+            .stderr = .ignore,
+        });
         const term_status = try child.wait(init.io);
         if (term_status != .exited or term_status.exited != 0) {
             return error.SqliteCompilationFailed;
@@ -499,7 +519,6 @@ fn compileToBinary(
 
             try mw.flush();
             mf.close(init.io);
-            std.debug.print("[native] MIR written to {s}\n", .{mir_path});
             return out_bin_path;
         }
 
@@ -515,7 +534,6 @@ fn compileToBinary(
         obj_file.close(init.io);
 
         if (emit_mode == .obj) {
-            std.debug.print("[native] object written to {s}\n", .{obj_path});
             return obj_path;
         }
 
@@ -700,12 +718,6 @@ fn compileToBinary(
             \\
             \\int main(int argc, char* argv[]) {
             \\#ifdef _WIN32
-            \\    raw_win32_print("DEBUG STUB START\r\n");
-            \\#else
-            \\    printf("DEBUG STUB START\n");
-            \\    fflush(stdout);
-            \\#endif
-            \\#ifdef _WIN32
             \\    (void)argc; (void)argv;
             \\    char* cmdline = GetCommandLineA();
             \\    int parsed_argc = 0;
@@ -719,11 +731,6 @@ fn compileToBinary(
             \\#endif
             \\    orbit_string_pool_init(1024);
             \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
-            \\#ifdef _WIN32
-            \\    raw_win32_print("DEBUG STUB: parsed args done\r\n");
-            \\#else
-            \\    printf("DEBUG STUB: _orbit_argc=%d, _orbit_argv[0]=%s\n", _orbit_argc, _orbit_argv[0]);
-            \\#endif
             \\    orbit_main();
             \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
             \\    orbit_string_pool_cleanup();
@@ -746,7 +753,6 @@ fn compileToBinary(
 
         try compile_sources.append(arena, obj_path);
         try compile_sources.append(arena, native_stub_c_path);
-        std.debug.print("[native] object ready, linking via bootstrap: {s}\n", .{obj_path});
     } else {
         // ── Steel (C-backend) path ──────────────────────────────────────────────────
         var backend = CBackend.init(arena, session.config, sema.has_server_init);
@@ -857,7 +863,11 @@ fn compileToBinary(
                 std.debug.print("[native-linker] Compiling native stub: zig cc -c {s} -o {s} {s}\n", .{ native_stub_c_path, native_stub_o_path, runtime_inc });
             }
             
-            var stub_child = try std.process.spawn(init.io, .{ .argv = stub_args.items });
+            var stub_child = try std.process.spawn(init.io, .{
+                .argv = stub_args.items,
+                .stdout = .ignore,
+                .stderr = .ignore,
+            });
             const stub_status = try stub_child.wait(init.io);
             if (stub_status != .exited or stub_status.exited != 0) {
                 return error.StubCompilationFailed;
@@ -892,7 +902,11 @@ fn compileToBinary(
                 std.debug.print("[native-linker] Compiling steel source: zig cc -c {s} -o {s}\n", .{ main_c_path, main_o_path });
             }
             
-            var comp_child = try std.process.spawn(init.io, .{ .argv = compile_args.items });
+            var comp_child = try std.process.spawn(init.io, .{
+                .argv = compile_args.items,
+                .stdout = .ignore,
+                .stderr = .ignore,
+            });
             const comp_status = try comp_child.wait(init.io);
             if (comp_status != .exited or comp_status.exited != 0) {
                 return error.SteelObjectCompilationFailed;
@@ -978,6 +992,8 @@ fn compileToBinary(
 
     var child = try std.process.spawn(init.io, .{
         .argv = args_list.items,
+        .stdout = .ignore,
+        .stderr = .ignore,
     });
     const term_status = try child.wait(init.io);
     profiler.record(&profiler.compile_app_ns);
@@ -1172,11 +1188,19 @@ fn runBuildMode(
         } else |_| {}
     }
 
+    // Create the spinner in its final stack location FIRST, then spawn the
+    // thread — this prevents the dangling-pointer bug that occurred when
+    // Spinner.start() returned by value after passing &self to the thread.
+    var spinner = term.layout.Spinner.init("Compiling...");
+    spinner.spawn() catch {};
+
     if (!use_cache) {
         const actual_out_path = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode, linker_mode);
         std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
         try copyFile(init.io, arena, actual_out_path, out_bin_name);
     }
+
+    spinner.stop();
 
     const elapsed_s = session.profiler.timer.readSeconds();
     session.profiler.total_ns = @intFromFloat(elapsed_s * 1_000_000_000.0);
@@ -1186,22 +1210,50 @@ fn runBuildMode(
     }
 
     if (!session.timings_json) {
-        const orbit_sym = term.symbols.get(.orbit);
-        const accent_esc = term.style.getEsc(.accent);
+        const check = term.symbols.get(.check);
+        const green = term.style.getEsc(.bold_success);
+        const white = term.style.getEsc(.bold_white);
         const reset = term.style.getReset();
 
-        std.debug.print("  {s} {s}Orbit{s}\n", .{ orbit_sym, accent_esc, reset });
-        std.debug.print("    Resolving    {d} modules\n", .{session.compiler.units.items.len});
-        std.debug.print("    Checking     complete\n", .{});
-        std.debug.print("    Emitting     native binary\n", .{});
-        std.debug.print("    Output       {s}\n", .{out_bin_name});
-        std.debug.print("    Duration     {d:.0} ms\n\n", .{@as(f64, @floatFromInt(session.profiler.total_ns)) / 1_000_000.0});
+        var l1: [128]u8 = undefined;
+        const line1 = std.fmt.bufPrint(&l1, "{s}{s}{s} Modules      {d} source modules resolved", .{ green, check, reset, session.compiler.units.items.len }) catch "";
 
+        var l2: [128]u8 = undefined;
+        const line2 = std.fmt.bufPrint(&l2, "{s}{s}{s} Semantic     0 errors, 0 warnings", .{ green, check, reset }) catch "";
+
+        var l3: [256]u8 = undefined;
+        const backend_name = if (backend_mode == .steel) "Steel C Engine" else "Direct Native CodeGen";
+        const line3 = std.fmt.bufPrint(&l3, "{s}{s}{s} Target       {s}", .{ green, check, reset, backend_name }) catch "";
+
+        var l4: [256]u8 = undefined;
+        const line4 = std.fmt.bufPrint(&l4, "{s}{s}{s} Output       {s}{s}{s}", .{ green, check, reset, white, out_bin_name, reset }) catch "";
+
+        var l5: [128]u8 = undefined;
+        const line5 = std.fmt.bufPrint(&l5, "{s}{s}{s} Duration     {d:.0} ms", .{ green, check, reset, @as(f64, @floatFromInt(session.profiler.total_ns)) / 1_000_000.0 }) catch "";
+
+        var title_buf: [512]u8 = undefined;
+        const title = term.layout.renderGradientTextBuf(&title_buf, "Orbit build complete", .{ 0, 229, 255 }, .{ 0, 176, 255 });
+
+        // Build kynx footer only when Kynx verification is active
+        const maybe_kynx: []const u8 = if (!no_kynx) blk: {
+            var kynx_buf: [512]u8 = undefined;
+            break :blk term.layout.renderGradientTextBuf(&kynx_buf, "Secured by Kynx", .{ 96, 165, 250 }, .{ 30, 58, 138 });
+        } else "";
+
+        var card_lines_buf: [8][]const u8 = undefined;
+        var n_lines: usize = 5;
+        card_lines_buf[0] = line1;
+        card_lines_buf[1] = line2;
+        card_lines_buf[2] = line3;
+        card_lines_buf[3] = line4;
+        card_lines_buf[4] = line5;
         if (!no_kynx) {
-            const cyan = if (term.capabilities.get().has_color) "\x1b[1;36m" else "";
-            const sky = if (term.capabilities.get().has_color) "\x1b[1;96m" else "";
-            std.debug.print("{s}Secured by {s}Kynx.{s}\n", .{ cyan, sky, reset });
+            card_lines_buf[5] = "";
+            card_lines_buf[6] = maybe_kynx;
+            n_lines = 7;
         }
+
+        term.layout.renderBoxCardStderr(title, card_lines_buf[0..n_lines], 64);
     }
 }
 
@@ -1325,53 +1377,42 @@ fn runTestMode(
 fn reportSyntaxError(tok: anytype) void {
     const path = if (tok.file_path.len > 0) tok.file_path else "<unknown>";
     const src = tok.file_source;
-    std.debug.print("\n ⏣ Orbit v{s}  failed to start\n\n", .{ORBIT_VERSION});
-    std.debug.print("  [SYNTAX ERROR] unexpectedly found '{s}'\n", .{@tagName(tok.tag)});
-    std.debug.print("\n  file: {s}:{d}\n", .{ path, tok.loc.line });
+
+    var snippet: []const u8 = "";
     var line_count: usize = 1;
     var it = std.mem.splitScalar(u8, src, '\n');
     while (it.next()) |line| {
         if (line_count == tok.loc.line) {
-            std.debug.print("    {d} | {s}\n", .{ line_count, line });
-            std.debug.print("      | ", .{});
-            var i: usize = 1;
-            while (i < tok.loc.col) : (i += 1) {
-                std.debug.print(" ", .{});
-            }
-            std.debug.print("^-- here\n", .{});
+            snippet = line;
             break;
         }
         line_count += 1;
     }
+
+    var msg_buf: [128]u8 = undefined;
+    const msg = std.fmt.bufPrint(&msg_buf, "Unexpected token '{s}'", .{@tagName(tok.tag)}) catch "Syntax Error";
+
+    term.layout.renderErrorCardStderr("E0001", msg, path, tok.loc.line, tok.loc.col, snippet, "Check syntax rules around this token.", 68);
 }
 
 fn printEchoes(diagnostics: []const Sema.Diagnostic) void {
-    std.debug.print("\n⏣ Orbit echo: Consistency Resonant Failures\n", .{});
-    std.debug.print("  ------------------------------------------\n", .{});
-
     for (diagnostics) |diag| {
         const src = if (diag.file_source.len > 0) diag.file_source else "";
         const path = if (diag.file_path.len > 0) diag.file_path else "<unknown>";
-        std.debug.print("\n  [ {s} ] {s}\n", .{ diag.code, diag.message });
-        std.debug.print("  at {s}:{d}:{d}\n\n", .{ path, diag.line, diag.col });
 
+        var snippet: []const u8 = "";
         var line_count: usize = 1;
         var it = std.mem.splitScalar(u8, src, '\n');
         while (it.next()) |line| {
             if (line_count == diag.line) {
-                std.debug.print("    {d} | {s}\n", .{ line_count, line });
-                std.debug.print("      | ", .{});
-                var i: usize = 1;
-                while (i < diag.col) : (i += 1) {
-                    std.debug.print(" ", .{});
-                }
-                std.debug.print("^-- here\n", .{});
+                snippet = line;
                 break;
             }
             line_count += 1;
         }
+
+        term.layout.renderErrorCardStderr(diag.code, diag.message, path, diag.line, diag.col, snippet, "Ensure type consistency and scope rules are satisfied.", 68);
     }
-    std.debug.print("\n  The system cannot maintain gravity. Fix the echoes above.\n\n", .{});
 }
 
 const OrbitTimer = struct {
@@ -1494,7 +1535,14 @@ fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []
     var reader = std.Io.File.Reader.init(src_file, io, &read_buf);
     try reader.interface.readSliceAll(buffer);
 
-    var dest_file = try cwd.createFile(io, dest, .{ .truncate = true });
+    cwd.deleteFile(io, dest) catch {};
+    var dest_file = cwd.createFile(io, dest, .{ .truncate = true }) catch |err| blk: {
+        if (err == error.AccessDenied) {
+            cwd.deleteFile(io, dest) catch {};
+            break :blk try cwd.createFile(io, dest, .{ .truncate = true });
+        }
+        return err;
+    };
     defer dest_file.close(io);
     var write_buf: [8192]u8 = undefined;
     var writer = std.Io.File.Writer.init(dest_file, io, &write_buf);
