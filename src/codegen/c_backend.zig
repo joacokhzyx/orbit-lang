@@ -16,6 +16,8 @@ const IRTypeDecl = ir.IRTypeDecl;
 const IRModel = ir.IRModel;
 const RuntimeLoader = @import("runtime_loader.zig");
 const AtlasConfig = @import("../atlas.zig").AtlasConfig;
+const superluminal_matcher = @import("../superluminal/pattern_matcher.zig");
+const superluminal_emitter = @import("../superluminal/emitter.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -420,8 +422,16 @@ pub const CBackend = struct {
             try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, var_name });
         }
 
-        for (func.instructions.items) |instr| {
-            try self.generateInstruction(instr);
+        // Superluminal pattern-based code emission
+        var instr_i: usize = 0;
+        while (instr_i < func.instructions.items.len) {
+            if (superluminal_matcher.findBest(func.instructions.items, instr_i)) |m| {
+                try superluminal_emitter.emitPattern(self, func.instructions.items, m);
+                instr_i += m.length;
+            } else {
+                try self.generateInstruction(func.instructions.items[instr_i]);
+                instr_i += 1;
+            }
         }
 
         // Only emit fallback return if the last instruction wasn't already a ret.
@@ -871,7 +881,7 @@ pub const CBackend = struct {
         }
     }
 
-    fn getValueType(self: *CBackend, val: IRValue) IRType {
+    pub fn getValueType(self: *CBackend, val: IRValue) IRType {
         return switch (val) {
             .int => .int,
             .float => .float,
@@ -892,7 +902,7 @@ pub const CBackend = struct {
         };
     }
 
-    fn generateValue(self: *CBackend, val: IRValue) !void {
+    pub fn generateValue(self: *CBackend, val: IRValue) !void {
         switch (val) {
             .int => |v| try self.output.print(self.allocator, "{d}", .{v}),
             .float => |v| try self.output.print(self.allocator, "{d}", .{v}),
