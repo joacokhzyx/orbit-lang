@@ -1396,8 +1396,8 @@ pub const IRBuilder = struct {
         const last_then = if (self.current_function.?.instructions.items.len > 0)
             self.current_function.?.instructions.getLast()
         else
-            IRInstruction.init(.nop);
-        const then_terminates = isTerminator(last_then);
+            null;
+        const then_terminates = if (last_then) |lt| isTerminator(lt) else false;
 
         if (!then_terminates) {
             var jump_end = IRInstruction.init(.jump);
@@ -1414,7 +1414,7 @@ pub const IRBuilder = struct {
         }
 
         const else_terminates = if (if_data.else_branch != null and self.current_function.?.instructions.items.len > 0)
-            isTerminator(self.current_function.?.instructions.getLast())
+            (if (self.current_function.?.instructions.getLast()) |last_else| isTerminator(last_else) else false)
         else
             then_terminates;
 

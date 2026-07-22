@@ -1591,20 +1591,20 @@ const OrbitTimer = struct {
     fn start() OrbitTimer {
         const io = std.Io.Threaded.global_single_threaded.io();
         return .{
-            .start_timestamp = std.Io.Clock.Timestamp.now(io, .awake) catch @panic("a monotonic clock is not supported on this platform"),
+            .start_timestamp = std.Io.Clock.Timestamp.now(io, .awake),
         };
     }
 
     fn readSeconds(self: *OrbitTimer) f64 {
         const io = std.Io.Threaded.global_single_threaded.io();
-        const now = std.Io.Clock.Timestamp.now(io, .awake) catch @panic("a monotonic clock is not supported on this platform");
+        const now = std.Io.Clock.Timestamp.now(io, .awake);
         const elapsed = self.start_timestamp.durationTo(now);
         return @as(f64, @floatFromInt(elapsed.raw.nanoseconds)) / 1_000_000_000.0;
     }
 
     fn reset(self: *OrbitTimer) void {
         const io = std.Io.Threaded.global_single_threaded.io();
-        self.start_timestamp = std.Io.Clock.Timestamp.now(io, .awake) catch @panic("a monotonic clock is not supported on this platform");
+        self.start_timestamp = std.Io.Clock.Timestamp.now(io, .awake);
     }
 };
 
@@ -1844,7 +1844,7 @@ fn sendLspResponse(writer: anytype, payload: []const u8) !void {
 }
 
 fn readLspLine(reader: anytype, allocator: std.mem.Allocator) ![]const u8 {
-    var line_list = std.ArrayListUnmanaged(u8){};
+    var line_list = std.ArrayListUnmanaged(u8).empty;
     while (true) {
         const b = reader.interface.takeByte() catch |err| return err;
         if (b == '\n') break;
@@ -1856,18 +1856,23 @@ fn readLspLine(reader: anytype, allocator: std.mem.Allocator) ![]const u8 {
 fn runLspMode(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const builtin = @import("builtin");
+    const STD_INPUT_HANDLE: std.os.windows.DWORD = @bitCast(@as(i32, -10));
+    const STD_OUTPUT_HANDLE: std.os.windows.DWORD = @bitCast(@as(i32, -11));
+    const win32_k32 = struct {
+        pub extern "kernel32" fn GetStdHandle(nStdHandle: std.os.windows.DWORD) callconv(.winapi) ?std.os.windows.HANDLE;
+    };
     const stdout_handle: std.Io.File.Handle = if (builtin.os.tag == .windows)
-        std.os.windows.kernel32.GetStdHandle(std.os.windows.STD_OUTPUT_HANDLE) orelse @as(std.os.windows.HANDLE, @ptrFromInt(1))
+        win32_k32.GetStdHandle(STD_OUTPUT_HANDLE) orelse @as(std.os.windows.HANDLE, @ptrFromInt(1))
     else
         1;
 
     const stdin_handle: std.Io.File.Handle = if (builtin.os.tag == .windows)
-        std.os.windows.kernel32.GetStdHandle(std.os.windows.STD_INPUT_HANDLE) orelse @as(std.os.windows.HANDLE, @ptrFromInt(1))
+        win32_k32.GetStdHandle(STD_INPUT_HANDLE) orelse @as(std.os.windows.HANDLE, @ptrFromInt(1))
     else
         0;
 
-    const stdout_file = std.Io.File{ .handle = stdout_handle };
-    const stdin_file = std.Io.File{ .handle = stdin_handle };
+    const stdout_file = std.Io.File{ .handle = stdout_handle, .flags = .{ .nonblocking = false } };
+    const stdin_file = std.Io.File{ .handle = stdin_handle, .flags = .{ .nonblocking = false } };
 
     var write_buf: [8192]u8 = undefined;
     var writer = std.Io.File.Writer.init(stdout_file, init.io, &write_buf);

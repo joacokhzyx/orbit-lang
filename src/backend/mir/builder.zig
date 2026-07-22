@@ -110,7 +110,7 @@ pub const MirBuilder = struct {
         var idx_to_block = std.AutoHashMap(usize, u32).init(self.allocator);
         defer idx_to_block.deinit();
 
-        var sorted_starts = std.ArrayListUnmanaged(usize){};
+        var sorted_starts = std.ArrayListUnmanaged(usize).empty;
         defer sorted_starts.deinit(self.allocator);
 
         var it = block_starts.keyIterator();

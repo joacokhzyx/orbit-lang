@@ -137,6 +137,12 @@ pub fn renderPanel(writer: anytype, title: []const u8, content: []const u8, widt
     try writer.writeAll("\n");
 }
 
+const win32_k32 = struct {
+    const STD_ERROR_HANDLE: std.os.windows.DWORD = @bitCast(@as(i32, -12));
+    pub extern "kernel32" fn GetStdHandle(nStdHandle: std.os.windows.DWORD) callconv(.winapi) ?std.os.windows.HANDLE;
+    pub extern "kernel32" fn WriteFile(hControlFile: std.os.windows.HANDLE, lpBuffer: ?[*]const u8, nNumberOfBytesToWrite: std.os.windows.DWORD, lpNumberOfBytesWritten: ?*std.os.windows.DWORD, lpOverlapped: ?*anyopaque) callconv(.winapi) c_int;
+};
+
 /// Write raw bytes directly to stderr, bypassing Zig's Io.Threaded streaming
 /// writer which uses WriteFileGather on Windows and requires page-aligned buffers.
 /// Plain WriteFile works with any memory layout.
@@ -144,10 +150,10 @@ fn writeStderr(bytes: []const u8) void {
     if (bytes.len == 0) return;
     if (@import("builtin").os.tag == .windows) {
         const windows = std.os.windows;
-        const h = windows.kernel32.GetStdHandle(windows.STD_ERROR_HANDLE) orelse return;
+        const h = win32_k32.GetStdHandle(win32_k32.STD_ERROR_HANDLE) orelse return;
         if (h == windows.INVALID_HANDLE_VALUE) return;
         var written: windows.DWORD = 0;
-        _ = windows.kernel32.WriteFile(h, bytes.ptr, @intCast(bytes.len), &written, null);
+        _ = win32_k32.WriteFile(h, bytes.ptr, @intCast(bytes.len), &written, null);
     } else {
         std.debug.print("{s}", .{bytes});
     }
@@ -209,7 +215,21 @@ pub fn renderBoxCardAnimated(lines: []const []const u8, frame_delay_ms: u64) voi
     }
 }
 
-var stderr_mutex: std.Thread.Mutex = .{};
+const SimpleMutex = struct {
+    state: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
+
+    pub fn lock(self: *SimpleMutex) void {
+        while (self.state.cmpxchgWeak(0, 1, .acquire, .monotonic)) |_| {
+            std.Thread.yield() catch {};
+        }
+    }
+
+    pub fn unlock(self: *SimpleMutex) void {
+        self.state.store(0, .release);
+    }
+};
+
+var stderr_mutex: SimpleMutex = .{};
 
 pub fn lockStderr() void {
     stderr_mutex.lock();

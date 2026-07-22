@@ -114,7 +114,7 @@ pub const Backend = struct {
         }
 
         // Collect and rewrite string literals
-        var string_literals = std.ArrayListUnmanaged(u8){};
+        var string_literals = std.ArrayListUnmanaged(u8).empty;
         defer string_literals.deinit(self.allocator);
         var string_literal_offsets = std.StringHashMap(u32).init(self.allocator);
         defer string_literal_offsets.deinit();
@@ -155,7 +155,7 @@ pub const Backend = struct {
         // Process all functions, encoding each and accumulating code.
         // For multi-function programs we use the first function as the entry
         // point; complete multi-function linking is tracked in issue #NATIVE-2.
-        var all_code = std.ArrayListUnmanaged(u8){};
+        var all_code = std.ArrayListUnmanaged(u8).empty;
         var entry_name: []const u8 = "orbit_main";
 
         // Construct neutral Object
@@ -165,7 +165,7 @@ pub const Backend = struct {
         var symbol_map = std.StringHashMap(u32).init(self.allocator);
         defer symbol_map.deinit();
 
-        var sec_relocs = std.ArrayListUnmanaged(Reloc){};
+        var sec_relocs = std.ArrayListUnmanaged(Reloc).empty;
         defer sec_relocs.deinit(self.allocator);
 
         const TempReloc = struct {
@@ -174,7 +174,7 @@ pub const Backend = struct {
             kind: RelocKind,
             addend: i64,
         };
-        var temp_relocs = std.ArrayListUnmanaged(TempReloc){};
+        var temp_relocs = std.ArrayListUnmanaged(TempReloc).empty;
         defer {
             for (temp_relocs.items) |r| {
                 self.allocator.free(r.symbol_name);
@@ -364,7 +364,7 @@ pub const Backend = struct {
         });
         try symbol_map.put(func_name, 0);
 
-        var sec_relocs = std.ArrayListUnmanaged(Reloc){};
+        var sec_relocs = std.ArrayListUnmanaged(Reloc).empty;
         defer sec_relocs.deinit(self.allocator);
 
         for (encoder.symbol_relocs.items) |rel| {
