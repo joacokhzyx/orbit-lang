@@ -1,7 +1,7 @@
 # Orbit Programming Language
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Zig Version](https://img.shields.io/badge/Zig-0.15.2%2B-orange.svg)](https://ziglang.org/)
+[![Zig Version](https://img.shields.io/badge/Zig-0.16.0%2B-orange.svg)](https://ziglang.org/)
 [![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](STATUS.md)
 
 ![Orbit Banner](assets/orbit_banner.png)
