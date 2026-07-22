@@ -121,7 +121,7 @@ const MemoMap = std.HashMapUnmanaged(MemoKey, i64, MemoContext, std.hash_map.def
 // ─── Interpreter register file ────────────────────────────────────────────────
 
 const RegFile = struct {
-    regs: [MAX_REGISTERS]?i64 = [_]?i64{null} ** MAX_REGISTERS,
+    regs: [MAX_REGISTERS]?i64 = @splat(null),
 
     pub fn get(self: *const RegFile, reg: u32) ?i64 {
         if (reg >= MAX_REGISTERS) return null;
@@ -227,7 +227,7 @@ pub const CTEvaluator = struct {
 
         // Scan for preceding arg instructions by building a local constant map
         // from what we know at this point in the function.
-        var known: [MAX_REGISTERS]?i64 = [_]?i64{null} ** MAX_REGISTERS;
+        var known: [MAX_REGISTERS]?i64 = @splat(null);
         for (func.instructions.items[0..call_idx]) |prev| {
             if (prev.opcode == .load_const and prev.dest != null) {
                 if (prev.operand1 == .int) {
