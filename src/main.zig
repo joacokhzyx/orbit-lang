@@ -460,6 +460,12 @@ fn compileToBinary(
     }
     profiler.record(&profiler.sema_ns);
 
+    // Bug 3 fix: if the source declared a `port N` directive, override the
+    // atlas config so code-generation and the runtime use the intended port.
+    if (sema.orb_port) |orb_p| {
+        session.config.port = orb_p;
+    }
+
     var builder = IRBuilder.init(arena, source, &sema.node_types, &sema.model_registry);
     var ir_module = try builder.build(root);
     profiler.record(&profiler.build_ir_ns);
@@ -1098,6 +1104,43 @@ fn compileToBinary(
         profiler.record(&profiler.compile_app_ns);
         profiler.linking_ns = 0;
         return out_bin_path;
+    }
+
+    // Bug 1 fix: verify that `zig` is available in PATH before invoking it.
+    // Without this check, `zig cc` failures produce a silent exit-code 1 on
+    // the steel backend, giving the user no actionable hint.
+    {
+        var zig_check = std.process.spawn(init.io, .{
+            .argv = &[_][]const u8{ "zig", "version" },
+            .stdout = .ignore,
+            .stderr = .ignore,
+        }) catch {
+            std.debug.print(
+                \\error: `zig` was not found in PATH.
+                \\
+                \\The steel backend (default) requires Zig to compile the generated C code.
+                \\Install Zig 0.13+ from https://ziglang.org/download/ and make sure `zig`
+                \\is on your PATH, then retry.
+                \\
+                \\  Quick install: pip install ziglang        (adds `zig` wrapper to PATH)
+                \\  Or download:   https://ziglang.org/download/
+                \\
+                \\Alternatively, pass --backend=native to use the built-in x86-64 backend
+                \\which does not require Zig.
+                \\
+            , .{});
+            return error.ZigNotFound;
+        };
+        const zig_status = try zig_check.wait(init.io);
+        if (zig_status != .exited or zig_status.exited != 0) {
+            std.debug.print(
+                \\error: `zig version` exited with a non-zero status; Zig may be broken.
+                \\
+                \\Please verify your Zig installation and ensure the binary is executable.
+                \\
+            , .{});
+            return error.ZigNotFound;
+        }
     }
 
     if (session.verbose) {

@@ -64,6 +64,10 @@ pub const Sema = struct {
 
     has_server_init: bool,
     current_function_return_type: ?[]const u8,
+    /// Port declared via `port N` in the .orb source, if any.  When set,
+    /// the compilation pipeline overrides AtlasConfig.port with this value
+    /// so the compiled server actually listens on the declared port.
+    orb_port: ?u16,
 
     /// Heap-allocates and fully initialises a `Sema` instance.
     ///
@@ -83,6 +87,7 @@ pub const Sema = struct {
             .diagnostics = DiagnosticReporter.init(allocator),
             .has_server_init = false,
             .current_function_return_type = null,
+            .orb_port = null,
         };
 
         self.type_checker = TypeChecker.init(allocator, &self.node_types, source);
@@ -159,10 +164,24 @@ pub const Sema = struct {
             }
         }
 
-        // Pass 4: Function Bodies and Routes
+        // Pass 4: Function Bodies, Routes, and Config declarations
         for (root.data.root.decls) |decl| {
             switch (decl.tag) {
                 .fn_decl, .route_decl => try self.analyzeDeclaration(decl, global_scope),
+                .config_decl => {
+                    // Extract port from `port N` directive in source
+                    const cfg = decl.data.config_decl;
+                    const key_text = cfg.key.getText(self.source);
+                    if (std.mem.eql(u8, key_text, "port")) {
+                        // config value node is an integer_literal whose payload is the token
+                        if (cfg.value.tag == .integer_literal) {
+                            const val_text = cfg.value.data.integer_literal.getText(self.source);
+                            if (std.fmt.parseInt(u16, val_text, 10)) |port_num| {
+                                self.orb_port = port_num;
+                            } else |_| {}
+                        }
+                    }
+                },
                 else => {},
             }
         }

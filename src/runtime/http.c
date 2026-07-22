@@ -17,7 +17,9 @@
 #include "arena.c"
 #include "types.c"
 
+#ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
+#endif
 
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit HTTP — Arena-backed request/response handling.
@@ -27,8 +29,6 @@
  * by hardcoded buffer constants.
  * ────────────────────────────────────────────────────────────────────── */
 
-#ifndef ORBIT_HTTP_H
-#define ORBIT_HTTP_H
 typedef struct {
     char* method;
     char* path;
@@ -38,7 +38,6 @@ typedef struct {
     size_t body_len;
     size_t headers_len;
 } OrbitRequest;
-#endif
 
 /** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
@@ -196,17 +195,40 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     }
     #endif
 
+    /* Resolve HTTP reason phrase for the status code */
+    const char* reason;
+    switch (resp->status) {
+        case 200: reason = "OK"; break;
+        case 201: reason = "Created"; break;
+        case 204: reason = "No Content"; break;
+        case 301: reason = "Moved Permanently"; break;
+        case 302: reason = "Found"; break;
+        case 304: reason = "Not Modified"; break;
+        case 400: reason = "Bad Request"; break;
+        case 401: reason = "Unauthorized"; break;
+        case 403: reason = "Forbidden"; break;
+        case 404: reason = "Not Found"; break;
+        case 405: reason = "Method Not Allowed"; break;
+        case 409: reason = "Conflict"; break;
+        case 422: reason = "Unprocessable Entity"; break;
+        case 429: reason = "Too Many Requests"; break;
+        case 500: reason = "Internal Server Error"; break;
+        case 502: reason = "Bad Gateway"; break;
+        case 503: reason = "Service Unavailable"; break;
+        default:  reason = "OK"; break;
+    }
+
     /* Ultra-Fast Header Building & Single-Syscall Direct Buffer Flush */
     char header[512];
     int header_len = snprintf(header, sizeof(header),
-        "HTTP/1.1 %d OK\r\n"
+        "HTTP/1.1 %d %s\r\n"
         "Server: Orbit-Steel\r\n"
         "Content-Type: %s\r\n"
         "Connection: keep-alive\r\n"
         "Keep-Alive: timeout=30, max=1000\r\n"
         "Content-Length: %d\r\n"
         "\r\n",
-        resp->status, ct, (int)body_len);
+        resp->status, reason, ct, (int)body_len);
 
     if (header_len > 0) {
         size_t total_len = (size_t)header_len + body_len;
