@@ -77,10 +77,7 @@ pub fn readObject(allocator: std.mem.Allocator, bytes: []const u8) !Object {
             !std.mem.eql(u8, name, ".note.GNU-stack");
 
         if (is_user_sec) {
-            const kind: object.SectionKind = if (sh.type_field == 8) .bss
-            else if ((sh.flags & SHF_EXECINSTR) != 0) .text
-            else if ((sh.flags & SHF_WRITE) != 0) .data
-            else .rodata;
+            const kind: object.SectionKind = if (sh.type_field == 8) .bss else if ((sh.flags & SHF_EXECINSTR) != 0) .text else if ((sh.flags & SHF_WRITE) != 0) .data else .rodata;
 
             var sec = Section{
                 .name = try allocator.dupe(u8, name),

@@ -102,19 +102,19 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .color = ansi.cyan,
         .tool = orbit_bin,
         .compute_compile = try a.dupe([]const u8, &.{
-            orbit_bin, "build",
-            try std.fs.path.join(a, &.{ compute_dir, "bench.orb" }),
-            "-o", try std.fs.path.join(a, &.{ bin, "compute_orbit_steel" ++ exe_ext }),
-            "--backend=steel",
+            orbit_bin,                                                            "build",
+            try std.fs.path.join(a, &.{ compute_dir, "bench.orb" }),              "-o",
+            try std.fs.path.join(a, &.{ bin, "compute_orbit_steel" ++ exe_ext }), "--backend=steel",
+            "--linker=native",
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_orbit_steel" ++ exe_ext }),
         }),
         .http_compile = try a.dupe([]const u8, &.{
-            orbit_bin, "build",
-            try std.fs.path.join(a, &.{ http_dir, "server.orb" }),
-            "-o", try std.fs.path.join(a, &.{ bin, "server_orbit_steel" ++ exe_ext }),
-            "--backend=steel",
+            orbit_bin,                                                           "build",
+            try std.fs.path.join(a, &.{ http_dir, "server.orb" }),               "-o",
+            try std.fs.path.join(a, &.{ bin, "server_orbit_steel" ++ exe_ext }), "--backend=steel",
+            "--linker=native",
         }),
         .http_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "server_orbit_steel" ++ exe_ext }),
@@ -126,19 +126,19 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .color = ansi.magenta,
         .tool = orbit_bin,
         .compute_compile = try a.dupe([]const u8, &.{
-            orbit_bin, "build",
-            try std.fs.path.join(a, &.{ compute_dir, "bench.orb" }),
-            "-o", try std.fs.path.join(a, &.{ bin, "compute_orbit_native" ++ exe_ext }),
-            "--backend=native", "--linker=native",
+            orbit_bin,                                                             "build",
+            try std.fs.path.join(a, &.{ compute_dir, "bench.orb" }),               "-o",
+            try std.fs.path.join(a, &.{ bin, "compute_orbit_native" ++ exe_ext }), "--backend=native",
+            "--linker=native",
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_orbit_native" ++ exe_ext }),
         }),
         .http_compile = try a.dupe([]const u8, &.{
-            orbit_bin, "build",
-            try std.fs.path.join(a, &.{ http_dir, "server.orb" }),
-            "-o", try std.fs.path.join(a, &.{ bin, "server_orbit_native" ++ exe_ext }),
-            "--backend=native", "--linker=native",
+            orbit_bin,                                                            "build",
+            try std.fs.path.join(a, &.{ http_dir, "server.orb" }),                "-o",
+            try std.fs.path.join(a, &.{ bin, "server_orbit_native" ++ exe_ext }), "--backend=native",
+            "--linker=native",
         }),
         .http_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "server_orbit_native" ++ exe_ext }),
@@ -150,17 +150,15 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .color = ansi.cyan,
         .tool = "go",
         .compute_compile = try a.dupe([]const u8, &.{
-            "go", "build", "-o",
-            try std.fs.path.join(a, &.{ bin, "compute_go" ++ exe_ext }),
-            try std.fs.path.join(a, &.{ compute_dir, "bench.go" }),
+            "go",                                                        "build",                                                "-o",
+            try std.fs.path.join(a, &.{ bin, "compute_go" ++ exe_ext }), try std.fs.path.join(a, &.{ compute_dir, "bench.go" }),
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_go" ++ exe_ext }),
         }),
         .http_compile = try a.dupe([]const u8, &.{
-            "go", "build", "-o",
-            try std.fs.path.join(a, &.{ bin, "server_go" ++ exe_ext }),
-            try std.fs.path.join(a, &.{ http_dir, "server.go" }),
+            "go",                                                       "build",                                              "-o",
+            try std.fs.path.join(a, &.{ bin, "server_go" ++ exe_ext }), try std.fs.path.join(a, &.{ http_dir, "server.go" }),
         }),
         .http_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "server_go" ++ exe_ext }),
@@ -172,18 +170,15 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .color = ansi.yellow,
         .tool = "cargo",
         .compute_compile = try a.dupe([]const u8, &.{
-            "rustc", "--edition", "2021", "-C", "opt-level=3",
-            "-o", try std.fs.path.join(a, &.{ bin, "compute_rust" ++ exe_ext }),
-            try std.fs.path.join(a, &.{ compute_dir, "bench.rs" }),
+            "rustc", "--edition",                                                   "2021",                                                 "-C", "opt-level=3",
+            "-o",    try std.fs.path.join(a, &.{ bin, "compute_rust" ++ exe_ext }), try std.fs.path.join(a, &.{ compute_dir, "bench.rs" }),
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_rust" ++ exe_ext }),
         }),
         .http_compile = try a.dupe([]const u8, &.{
-            "cargo", "build", "--release",
-            "--manifest-path",
-            try std.fs.path.join(a, &.{ http_dir, "Cargo.toml" }),
-            "--target-dir",
+            "cargo",                                           "build",                                               "--release",
+            "--manifest-path",                                 try std.fs.path.join(a, &.{ http_dir, "Cargo.toml" }), "--target-dir",
             try std.fs.path.join(a, &.{ http_dir, "target" }),
         }),
         .http_run = try a.dupe([]const u8, &.{
@@ -196,17 +191,15 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .color = ansi.blue,
         .tool = "zig",
         .compute_compile = try a.dupe([]const u8, &.{
-            "zig", "cc", "-O2", "-o",
-            try std.fs.path.join(a, &.{ bin, "compute_c" ++ exe_ext }),
-            try std.fs.path.join(a, &.{ compute_dir, "bench.c" }),
+            "zig",                                                      "cc",                                                  "-O2", "-o",
+            try std.fs.path.join(a, &.{ bin, "compute_c" ++ exe_ext }), try std.fs.path.join(a, &.{ compute_dir, "bench.c" }),
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_c" ++ exe_ext }),
         }),
         .http_compile = try a.dupe([]const u8, &.{
-            "zig", "cc", "-O2", "-o",
-            try std.fs.path.join(a, &.{ bin, "server_c" ++ exe_ext }),
-            try std.fs.path.join(a, &.{ http_dir, "server.c" }),
+            "zig",                                                     "cc",                                                "-O2", "-o",
+            try std.fs.path.join(a, &.{ bin, "server_c" ++ exe_ext }), try std.fs.path.join(a, &.{ http_dir, "server.c" }),
         }),
         .http_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "server_c" ++ exe_ext }),
@@ -218,17 +211,15 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .color = ansi.blue,
         .tool = "zig",
         .compute_compile = try a.dupe([]const u8, &.{
-            "zig", "c++", "-std=c++17", "-O2", "-o",
-            try std.fs.path.join(a, &.{ bin, "compute_cpp" ++ exe_ext }),
-            try std.fs.path.join(a, &.{ compute_dir, "bench.cpp" }),
+            "zig",                                                        "c++",                                                   "-std=c++17", "-O2", "-o",
+            try std.fs.path.join(a, &.{ bin, "compute_cpp" ++ exe_ext }), try std.fs.path.join(a, &.{ compute_dir, "bench.cpp" }),
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_cpp" ++ exe_ext }),
         }),
         .http_compile = try a.dupe([]const u8, &.{
-            "zig", "c++", "-std=c++17", "-O2", "-o",
-            try std.fs.path.join(a, &.{ bin, "server_cpp" ++ exe_ext }),
-            try std.fs.path.join(a, &.{ http_dir, "server.cpp" }),
+            "zig",                                                       "c++",                                                 "-std=c++17", "-O2", "-o",
+            try std.fs.path.join(a, &.{ bin, "server_cpp" ++ exe_ext }), try std.fs.path.join(a, &.{ http_dir, "server.cpp" }),
         }),
         .http_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "server_cpp" ++ exe_ext }),
@@ -275,10 +266,10 @@ const ComputeTest = struct {
 };
 
 const COMPUTE_TESTS = [_]ComputeTest{
-    .{ .name = "fib_recursive", .param = "40",        .description = "fib(40) recursive" },
-    .{ .name = "fib_iterative", .param = "1000000",   .description = "fib(1M) iterative" },
-    .{ .name = "sieve",         .param = "2000000",   .description = "sieve(2M primes)" },
-    .{ .name = "sum",           .param = "100000000", .description = "sum(1..100M)" },
+    .{ .name = "fib_recursive", .param = "40", .description = "fib(40) recursive" },
+    .{ .name = "fib_iterative", .param = "1000000", .description = "fib(1M) iterative" },
+    .{ .name = "sieve", .param = "2000000", .description = "sieve(2M primes)" },
+    .{ .name = "sum", .param = "100000000", .description = "sum(1..100M)" },
 };
 
 // ── Result types ──────────────────────────────────────────────────────────────
@@ -552,14 +543,15 @@ fn printHeader(w: anytype, text: []const u8, cfg: Config) !void {
 
 fn fmtNs(ns: u64) [16]u8 {
     var buf: [16]u8 = undefined;
+    @memset(&buf, 0);
     if (ns < 1_000) {
         _ = std.fmt.bufPrint(&buf, "{d} ns", .{ns}) catch {};
     } else if (ns < 1_000_000) {
-        _ = std.fmt.bufPrint(&buf, "{d:.1} µs", .{@as(f64, @floatFromInt(ns)) / 1000.0}) catch {};
+        _ = std.fmt.bufPrint(&buf, "{d:.2} µs", .{@as(f64, @floatFromInt(ns)) / 1000.0}) catch {};
     } else if (ns < 1_000_000_000) {
-        _ = std.fmt.bufPrint(&buf, "{d:.1} ms", .{@as(f64, @floatFromInt(ns)) / 1_000_000.0}) catch {};
+        _ = std.fmt.bufPrint(&buf, "{d:.3} ms", .{@as(f64, @floatFromInt(ns)) / 1_000_000.0}) catch {};
     } else {
-        _ = std.fmt.bufPrint(&buf, "{d:.2} s", .{@as(f64, @floatFromInt(ns)) / 1_000_000_000.0}) catch {};
+        _ = std.fmt.bufPrint(&buf, "{d:.4} s", .{@as(f64, @floatFromInt(ns)) / 1_000_000_000.0}) catch {};
     }
     return buf;
 }
@@ -580,9 +572,9 @@ fn printComputeTable(
         if (r.skipped) {
             if (cfg.color) {
                 try w.print("{s}{s:<20}{s} {s:<22} {s}skipped: {s}{s}\n", .{
-                    ansi.dim, r.lang_id, ansi.reset,
-                    r.test_name,
-                    ansi.dim, r.skip_reason, ansi.reset,
+                    ansi.dim,    r.lang_id, ansi.reset,
+                    r.test_name, ansi.dim,  r.skip_reason,
+                    ansi.reset,
                 });
             } else {
                 try w.print("{s:<20} {s:<22} skipped: {s}\n", .{ r.lang_id, r.test_name, r.skip_reason });
@@ -591,9 +583,8 @@ fn printComputeTable(
             const med = fmtNs(r.median_ns);
             const std_ = fmtNs(r.stddev_ns);
             try w.print("{s:<20} {s:<22} {s:>14} {s:>14}\n", .{
-                r.lang_id, r.test_name,
-                std.mem.trim(u8, &med, "\x00 "),
-                std.mem.trim(u8, &std_, "\x00 "),
+                r.lang_id,                       r.test_name,
+                std.mem.trim(u8, &med, "\x00 "), std.mem.trim(u8, &std_, "\x00 "),
             });
         }
     }
@@ -609,7 +600,7 @@ fn printHttpTable(w: anytype, results: []HttpResult, cfg: Config) !void {
         if (r.skipped) {
             if (cfg.color) {
                 try w.print("{s}{s:<20}{s}   {s}skipped: {s}{s}\n", .{
-                    ansi.dim, r.lang_id, ansi.reset,
+                    ansi.dim, r.lang_id,     ansi.reset,
                     ansi.dim, r.skip_reason, ansi.reset,
                 });
             } else {
@@ -634,7 +625,7 @@ fn printDeathTable(w: anytype, results: []DeathResult, cfg: Config) !void {
         if (r.skipped) {
             if (cfg.color) {
                 try w.print("{s}{s:<20}{s}   {s}skipped: {s}{s}\n", .{
-                    ansi.dim, r.lang_id, ansi.reset,
+                    ansi.dim, r.lang_id,     ansi.reset,
                     ansi.dim, r.skip_reason, ansi.reset,
                 });
             } else {
@@ -876,6 +867,7 @@ pub fn main(init: std.process.Init) !void {
                     times[run_count] = r.time_ns;
                     last_result = r.result;
                     run_count += 1;
+                    if (r.time_ns > 2_000_000_000) break; // Don't repeat multi-second runs
                 }
 
                 if (run_count == 0) {

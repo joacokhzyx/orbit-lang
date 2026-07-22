@@ -256,7 +256,7 @@ pub const MirBuilder = struct {
             }
             const reg_id = try mir_func.addRegister(self.allocator, var_type);
             try variable_map.put(var_name, reg_id);
-            
+
             if (ir_instr.operand2 != .none) {
                 const init_val = mapValue(ir_instr.operand2, variable_map);
                 return MirInstruction{

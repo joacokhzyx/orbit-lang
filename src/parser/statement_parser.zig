@@ -121,15 +121,23 @@ pub const StatementParser = struct {
         var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
         const condition = try expr_parser.parseExpression();
 
-        _ = try self.consume(.OpenBrace);
-        var then_block = std.ArrayListUnmanaged(*Node).empty;
+        var then_node: *Node = undefined;
+        if (self.match(.OpenBrace)) {
+            var then_block = std.ArrayListUnmanaged(*Node).empty;
 
-        while (!self.check(.CloseBrace) and !self.check(.EOF)) {
-            const stmt = try self.parseStatement();
-            try then_block.append(self.allocator, stmt);
+            while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+                const stmt = try self.parseStatement();
+                try then_block.append(self.allocator, stmt);
+            }
+
+            _ = try self.consume(.CloseBrace);
+            then_node = try self.createNode(.block, .{ .block = .{ .stmts = try then_block.toOwnedSlice(self.allocator) } });
+        } else {
+            const single_stmt = try self.parseStatement();
+            var stmts = try self.allocator.alloc(*Node, 1);
+            stmts[0] = single_stmt;
+            then_node = try self.createNode(.block, .{ .block = .{ .stmts = stmts } });
         }
-
-        _ = try self.consume(.CloseBrace);
 
         var else_block: ?[]const *Node = null;
         if (self.match(.KeywordElse)) {
@@ -150,8 +158,6 @@ pub const StatementParser = struct {
                 else_block = try else_stmts.toOwnedSlice(self.allocator);
             }
         }
-        const then_node = try self.createNode(.block, .{ .block = .{ .stmts = try then_block.toOwnedSlice(self.allocator) } });
-
         var else_node: ?*Node = null;
         if (else_block) |eb| {
             const n = try self.createNode(.block, .{ .block = .{ .stmts = eb } });

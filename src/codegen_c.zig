@@ -43,7 +43,7 @@ pub const CodegenC = struct {
 
         try self.generateDeclarations(root);
 
-        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, false, self.config);
+        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, false, self.config, 0.0);
         try self.output.appendSlice(self.allocator, main_func);
 
         return try self.output.toOwnedSlice(self.allocator);

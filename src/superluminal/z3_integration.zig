@@ -208,13 +208,18 @@ fn encVal(allocator: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8), val: I
     }
 }
 
+var z3_counter: std.atomic.Value(u64) = std.atomic.Value(u64).init(1);
+
 fn runZ3(allocator: std.mem.Allocator, smt_input: []const u8) !bool {
     var threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
     defer threaded.deinit();
     const io = threaded.io();
     const cwd = std.Io.Dir.cwd();
 
-    const tmp_path = "z3v.smt2";
+    const id = z3_counter.fetchAdd(1, .monotonic);
+    const tmp_path = try std.fmt.allocPrint(allocator, "z3v_{d}.smt2", .{id});
+    defer allocator.free(tmp_path);
+
     var tmp_file = try cwd.createFile(io, tmp_path, .{ .truncate = true });
     var tmp_buf: [4096]u8 = undefined;
     var tmp_writer = std.Io.File.Writer.init(tmp_file, io, &tmp_buf);

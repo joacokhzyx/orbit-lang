@@ -124,18 +124,20 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
                 // exist in any standard Windows import DLL. Skip them so the import
                 // table does not reference a function that cannot be resolved at load time.
                 const blocklist = [_][]const u8{
-                    "__stack_chk_fail", "__stack_chk_guard",
-                    "__ubsan_handle_nonnull_arg", "__ubsan_handle_pointer_overflow",
-                    "__ubsan_handle_type_mismatch_v1", "__ubsan_handle_builtin_unreachable",
+                    "__stack_chk_fail",                  "__stack_chk_guard",
+                    "__ubsan_handle_nonnull_arg",        "__ubsan_handle_pointer_overflow",
+                    "__ubsan_handle_type_mismatch_v1",   "__ubsan_handle_builtin_unreachable",
                     "__ubsan_handle_load_invalid_value", "__ubsan_handle_add_overflow",
-                    "__ubsan_handle_sub_overflow", "__ubsan_handle_mul_overflow",
-                    "__ubsan_handle_divrem_overflow", "__ubsan_handle_shift_out_of_bounds",
-                    "__ubsan_handle_out_of_bounds", "__ubsan_handle_missing_return",
-                    "opendir", "readdir", "closedir", "scandir",
+                    "__ubsan_handle_sub_overflow",       "__ubsan_handle_mul_overflow",
+                    "__ubsan_handle_divrem_overflow",    "__ubsan_handle_shift_out_of_bounds",
+                    "__ubsan_handle_out_of_bounds",      "__ubsan_handle_missing_return",
+                    "opendir",                           "readdir",
+                    "closedir",                          "scandir",
                     "__main",
                     // Stack-probe intrinsics: provided internally by the compiler runtime,
                     // not by any import DLL.
-                    "___chkstk_ms", "__chkstk", "__chkstk_ms",
+                                               "___chkstk_ms",
+                    "__chkstk",                          "__chkstk_ms",
                 };
                 var blocked = false;
                 for (blocklist) |bl| {
@@ -161,7 +163,8 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
                     std.mem.eql(u8, name_clean, "select") or
                     std.mem.eql(u8, name_clean, "__WSAFDIsSet") or
                     std.mem.eql(u8, name_clean, "getaddrinfo") or
-                    std.mem.eql(u8, name_clean, "freeaddrinfo")) {
+                    std.mem.eql(u8, name_clean, "freeaddrinfo"))
+                {
                     dll_name_opt = "ws2_32.dll";
                 } else if (name_clean[0] >= 'A' and name_clean[0] <= 'Z') {
                     dll_name_opt = "kernel32.dll";
@@ -467,8 +470,9 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
 
         var count: usize = 0;
         while (pre_idx + count < pre_relocs.items.len and
-               std.mem.eql(u8, pre_relocs.items[pre_idx + count].ms_name, ms_name) and
-               (pre_relocs.items[pre_idx + count].offset & 0xFFFFF000) == page_offset) {
+            std.mem.eql(u8, pre_relocs.items[pre_idx + count].ms_name, ms_name) and
+            (pre_relocs.items[pre_idx + count].offset & 0xFFFFF000) == page_offset)
+        {
             count += 1;
         }
 
@@ -511,7 +515,8 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
             if (ms.size == 0 or
                 std.mem.startsWith(u8, ms.name, ".debug") or
                 std.mem.eql(u8, ms.name, ".llvm_addrsig") or
-                std.mem.startsWith(u8, ms.name, ".llvm_ad")) {
+                std.mem.startsWith(u8, ms.name, ".llvm_ad"))
+            {
                 var removed_ms = linker.merged_sections.orderedRemove(i);
                 removed_ms.deinit(allocator);
             } else {
@@ -633,7 +638,7 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
             std.debug.print("[debug-disp] imp_name={s} iat_slot_va=0x{x} next_inst_va=0x{x}\n", .{ imp_name, iat_slot_va, next_inst_va });
             const displacement = @as(i64, @intCast(iat_slot_va)) - @as(i64, @intCast(next_inst_va));
 
-            std.mem.writeInt(i32, text_sec.?.bytes.items[stub.stub_offset + 2..][0..4], @intCast(displacement), .little);
+            std.mem.writeInt(i32, text_sec.?.bytes.items[stub.stub_offset + 2 ..][0..4], @intCast(displacement), .little);
         }
     }
 
@@ -677,7 +682,8 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
 
                 var count: usize = 0;
                 while (br_idx + count < linker.base_relocs.items.len and
-                       (linker.base_relocs.items[br_idx + count].rva & 0xFFFFF000) == page_rva) {
+                    (linker.base_relocs.items[br_idx + count].rva & 0xFFFFF000) == page_rva)
+                {
                     count += 1;
                 }
 
@@ -689,7 +695,7 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
                 const block_size_u32 = @as(u32, @intCast(block_size));
                 try reloc_sec.bytes.appendSlice(allocator, std.mem.asBytes(&block_size_u32));
 
-                for (linker.base_relocs.items[br_idx..br_idx+count]) |br| {
+                for (linker.base_relocs.items[br_idx .. br_idx + count]) |br| {
                     const offset = @as(u16, @intCast(br.rva & 0x0FFF));
                     const entry = (@as(u16, br.type) << 12) | offset;
                     try reloc_sec.bytes.appendSlice(allocator, std.mem.asBytes(&entry));

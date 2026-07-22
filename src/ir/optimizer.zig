@@ -364,7 +364,23 @@ pub const InlineOptimizer = struct {
 
         for (module.functions.items) |*func| {
             if (func.instructions.items.len <= self.max_inline_size) {
-                try inline_candidates.put(self.allocator, func.name, func);
+                var is_recursive = false;
+                for (func.instructions.items) |instr| {
+                    if (instr.opcode == .call) {
+                        const call_name = switch (instr.operand1) {
+                            .string => |s| s,
+                            .symbol => |s| s,
+                            else => "",
+                        };
+                        if (std.mem.eql(u8, call_name, func.name)) {
+                            is_recursive = true;
+                            break;
+                        }
+                    }
+                }
+                if (!is_recursive) {
+                    try inline_candidates.put(self.allocator, func.name, func);
+                }
             }
         }
 
@@ -377,108 +393,118 @@ pub const InlineOptimizer = struct {
         var i: usize = 0;
         while (i < func.instructions.items.len) {
             const instr = &func.instructions.items[i];
-            if (instr.opcode == .call and instr.operand1 == .symbol) {
-                const callee_name = instr.operand1.symbol;
-                if (candidates.get(callee_name)) |callee| {
-                    const call_dest = instr.dest;
+            if (instr.opcode == .call) {
+                const callee_name = switch (instr.operand1) {
+                    .string => |s| s,
+                    .symbol => |s| s,
+                    else => "",
+                };
+                if (callee_name.len > 0 and !std.mem.eql(u8, callee_name, func.name)) {
+                    if (candidates.get(callee_name)) |callee| {
+                        const call_dest = instr.dest;
 
-                    var arg_start = i;
-                    while (arg_start > 0) {
-                        arg_start -= 1;
-                        if (func.instructions.items[arg_start].opcode != .arg) {
-                            arg_start += 1;
-                            break;
+                        var arg_start = i;
+                        while (arg_start > 0) {
+                            arg_start -= 1;
+                            if (func.instructions.items[arg_start].opcode != .arg) {
+                                arg_start += 1;
+                                break;
+                            }
                         }
+
+                        var arg_regs = std.ArrayListUnmanaged(u32){};
+                        defer arg_regs.deinit(self.allocator);
+
+                        var k = arg_start;
+                        while (k < i) : (k += 1) {
+                            const arg_instr = func.instructions.items[k];
+                            if (arg_instr.operand1 == .register) {
+                                try arg_regs.append(self.allocator, arg_instr.operand1.register);
+                            }
+                        }
+
+                        const base_reg = func.register_count;
+                        const callee_reg_count = callee.register_count;
+                        func.register_count += callee_reg_count;
+                        try func.register_types.appendNTimes(self.allocator, .unknown, callee_reg_count);
+
+                        var callee_instrs = std.ArrayListUnmanaged(IRInstruction){};
+                        defer callee_instrs.deinit(self.allocator);
+                        try callee_instrs.ensureTotalCapacity(self.allocator, callee.instructions.items.len);
+
+                        for (callee.instructions.items) |ci| {
+                            var new_instr = ci;
+                            if (new_instr.dest) |d| {
+                                new_instr.dest = base_reg + d;
+                            }
+                            if (new_instr.operand1 == .register) {
+                                new_instr.operand1 = IRValue{ .register = new_instr.operand1.register + base_reg };
+                            }
+                            if (new_instr.operand2 == .register) {
+                                new_instr.operand2 = IRValue{ .register = new_instr.operand2.register + base_reg };
+                            }
+                            if (new_instr.operand3 == .register) {
+                                new_instr.operand3 = IRValue{ .register = new_instr.operand3.register + base_reg };
+                            }
+
+                            if (new_instr.opcode == .ret) {
+                                if (call_dest) |dest| {
+                                    const copy_instr = IRInstruction{
+                                        .opcode = .copy,
+                                        .dest = dest,
+                                        .operand1 = new_instr.operand1,
+                                        .operand2 = .none,
+                                        .operand3 = .none,
+                                    };
+                                    callee_instrs.appendAssumeCapacity(copy_instr);
+                                }
+                                // If call_dest is null (void return), skip the ret — the
+                                // inlined body simply falls through.
+                            } else {
+                                callee_instrs.appendAssumeCapacity(new_instr);
+                            }
+                        }
+
+                        var param_copies = std.ArrayListUnmanaged(IRInstruction){};
+                        defer param_copies.deinit(self.allocator);
+                        try param_copies.ensureTotalCapacity(self.allocator, callee.params.len);
+
+                        for (callee.params, 0..) |_, param_idx| {
+                            if (param_idx < arg_regs.items.len) {
+                                const param_reg: u32 = base_reg + @as(u32, @intCast(param_idx));
+                                const copy_instr = IRInstruction{
+                                    .opcode = .copy,
+                                    .dest = param_reg,
+                                    .operand1 = IRValue{ .register = arg_regs.items[param_idx] },
+                                    .operand2 = .none,
+                                    .operand3 = .none,
+                                };
+                                param_copies.appendAssumeCapacity(copy_instr);
+                            }
+                        }
+
+                        const removal_count = i - arg_start + 1;
+                        var ri: usize = 0;
+                        while (ri < removal_count) : (ri += 1) {
+                            _ = func.instructions.orderedRemove(arg_start);
+                            if (i > 0) i -= 1;
+                        }
+
+                        var insert_pos = arg_start;
+                        for (param_copies.items) |pc| {
+                            try func.instructions.insert(self.allocator, insert_pos, pc);
+                            insert_pos += 1;
+                            i += 1;
+                        }
+                        for (callee_instrs.items) |ci| {
+                            try func.instructions.insert(self.allocator, insert_pos, ci);
+                            insert_pos += 1;
+                            i += 1;
+                        }
+
+                        self.inlined_count += 1;
+                        continue;
                     }
-
-                    var arg_regs = std.ArrayListUnmanaged(u32){};
-                    defer arg_regs.deinit(self.allocator);
-
-                    var k = arg_start;
-                    while (k < i) : (k += 1) {
-                        const arg_instr = func.instructions.items[k];
-                        if (arg_instr.operand1 == .register) {
-                            try arg_regs.append(self.allocator, arg_instr.operand1.register);
-                        }
-                    }
-
-                    const base_reg = func.register_count;
-                    const callee_reg_count = callee.register_count;
-                    func.register_count += callee_reg_count;
-                    try func.register_types.appendNTimes(self.allocator, .unknown, callee_reg_count);
-
-                    var callee_instrs = std.ArrayListUnmanaged(IRInstruction){};
-                    defer callee_instrs.deinit(self.allocator);
-                    try callee_instrs.ensureTotalCapacity(self.allocator, callee.instructions.items.len);
-
-                    for (callee.instructions.items) |ci| {
-                        var new_instr = ci;
-                        if (new_instr.dest) |d| {
-                            new_instr.dest = base_reg + d;
-                        }
-                        if (new_instr.operand1 == .register) {
-                            new_instr.operand1 = IRValue{ .register = new_instr.operand1.register + base_reg };
-                        }
-                        if (new_instr.operand2 == .register) {
-                            new_instr.operand2 = IRValue{ .register = new_instr.operand2.register + base_reg };
-                        }
-                        if (new_instr.operand3 == .register) {
-                            new_instr.operand3 = IRValue{ .register = new_instr.operand3.register + base_reg };
-                        }
-
-                        if (new_instr.opcode == .ret and call_dest) |dest| {
-                            const copy_instr = IRInstruction{
-                                .opcode = .copy,
-                                .dest = dest,
-                                .operand1 = new_instr.operand1,
-                                .operand2 = .none,
-                                .operand3 = .none,
-                            };
-                            callee_instrs.appendAssumeCapacity(copy_instr);
-                        } else {
-                            callee_instrs.appendAssumeCapacity(new_instr);
-                        }
-                    }
-
-                    var param_copies = std.ArrayListUnmanaged(IRInstruction){};
-                    defer param_copies.deinit(self.allocator);
-                    try param_copies.ensureTotalCapacity(self.allocator, callee.params.len);
-
-                    for (callee.params, 0..) |_, param_idx| {
-                        if (param_idx < arg_regs.items.len) {
-                            const param_reg = base_reg + param_idx;
-                            const copy_instr = IRInstruction{
-                                .opcode = .copy,
-                                .dest = param_reg,
-                                .operand1 = IRValue{ .register = arg_regs.items[param_idx] },
-                                .operand2 = .none,
-                                .operand3 = .none,
-                            };
-                            param_copies.appendAssumeCapacity(copy_instr);
-                        }
-                    }
-
-                    const removal_count = i - arg_start + 1;
-                    var ri: usize = 0;
-                    while (ri < removal_count) : (ri += 1) {
-                        _ = func.instructions.orderedRemove(arg_start);
-                        i -= 1;
-                    }
-
-                    var insert_pos = arg_start;
-                    for (param_copies.items) |pc| {
-                        try func.instructions.insert(self.allocator, insert_pos, pc);
-                        insert_pos += 1;
-                        i += 1;
-                    }
-                    for (callee_instrs.items) |ci| {
-                        try func.instructions.insert(self.allocator, insert_pos, ci);
-                        insert_pos += 1;
-                        i += 1;
-                    }
-
-                    self.inlined_count += 1;
-                    continue;
                 }
             }
             i += 1;

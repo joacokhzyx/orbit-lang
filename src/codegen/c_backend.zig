@@ -23,6 +23,13 @@ const superluminal_superopt = @import("../superluminal/superoptimizer.zig");
 const superluminal_dualpath = @import("../superluminal/dual_path.zig");
 const superluminal_synthesis = @import("../superluminal/synthesis.zig");
 const superluminal_boost = @import("../superluminal/boost_display.zig");
+const superluminal_pass = @import("../superluminal/pass_runner.zig");
+const superluminal_branch = @import("../superluminal/branch_opt.zig");
+const superluminal_mem = @import("../superluminal/mem_opt.zig");
+const superluminal_const = @import("../superluminal/const_prop.zig");
+const superluminal_licm = @import("../superluminal/licm.zig");
+const superluminal_cleanup = @import("../superluminal/cleanup.zig");
+const superluminal_memo = @import("../superluminal/memoize.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -49,6 +56,9 @@ pub const CBackend = struct {
 
     /// Local variable types in the current function being generated.
     local_variable_types: std.StringHashMapUnmanaged(IRType),
+
+    /// Return types of functions in the module to avoid void assignments.
+    function_return_types: std.StringHashMapUnmanaged(IRType) = .{},
 
     /// Superluminal boost metrics accumulated across all functions.
     boost_metrics: superluminal_boost.BoostMetrics = .{},
@@ -91,9 +101,13 @@ pub const CBackend = struct {
 
     fn routeHash(path: []const u8, method: []const u8) u64 {
         var h: u64 = 14695981039346656037;
-        for (method) |c| { h = (h ^ @as(u64, c)) *% 1099511628211; }
+        for (method) |c| {
+            h = (h ^ @as(u64, c)) *% 1099511628211;
+        }
         h = (h ^ @as(u64, ':')) *% 1099511628211;
-        for (path) |c| { h = (h ^ @as(u64, c)) *% 1099511628211; }
+        for (path) |c| {
+            h = (h ^ @as(u64, c)) *% 1099511628211;
+        }
         return h;
     }
 
@@ -117,6 +131,13 @@ pub const CBackend = struct {
             \\    const char* method_str = (method && method[0]) ? method : "GET";
             \\    const char* path_str = (path && path[0]) ? path : "/";
             \\
+            \\    const char* method_color = "\x1b[1;32m";
+            \\    if (strcmp(method_str, "POST") == 0) method_color = "\x1b[1;33m";
+            \\    else if (strcmp(method_str, "PUT") == 0) method_color = "\x1b[1;34m";
+            \\    else if (strcmp(method_str, "DELETE") == 0) method_color = "\x1b[1;31m";
+            \\    else if (strcmp(method_str, "PATCH") == 0) method_color = "\x1b[1;35m";
+            \\    else if (strcmp(method_str, "HEAD") == 0 || strcmp(method_str, "OPTIONS") == 0) method_color = "\x1b[1;36m";
+            \\
             \\    const char* status_color = "\x1b[32m";
             \\    if (status >= 300 && status < 400) status_color = "\x1b[36m";
             \\    else if (status >= 400 && status < 500) status_color = "\x1b[33m";
@@ -133,8 +154,8 @@ pub const CBackend = struct {
             \\    else if (status == 500) status_text = "Internal Error";
             \\    else if (status == 503) status_text = "Siege Mode Active";
             \\
-            \\    printf("  \x1b[1;36m%-6s\x1b[0m \x1b[1;37m%-32s\x1b[0m %s%d %-18s\x1b[0m \x1b[2;90m%.1f ms\x1b[0m\n",
-            \\        method_str, path_str, status_color, status, status_text, ms);
+            \\    printf("  %s%-6s\x1b[0m \x1b[1;37m%-32s\x1b[0m %s%d %-18s\x1b[0m \x1b[2;90m%.1f ms\x1b[0m\n",
+            \\        method_color, method_str, path_str, status_color, status, status_text, ms);
             \\}
             \\
             \\int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
@@ -196,7 +217,7 @@ pub const CBackend = struct {
                 }
 
                 try self.output.print(self.allocator,
-                    \\    case {d}: {{
+                    \\    case {d}ULL: {{
                     \\        if (strcmp(req->path, "{s}") == 0 && strcmp(req->method, "{s}") == 0) {{
                     \\            OrbitResponse* res = {s}(arena, req);
                     \\            orbit_send_response(client_sock, res);
@@ -256,12 +277,46 @@ pub const CBackend = struct {
         try self.registerArenaFunction("orbit_string_concat");
         try self.registerArenaFunction("orbit_int_to_string");
         try self.registerArenaFunction("orbit_float_to_string");
-        try self.registerArenaFunction("orbit_bool_to_string");
         try self.registerArenaFunction("orbit_http_query_get");
+        try self.registerArenaFunction("orbit_http_header_get");
+        try self.registerArenaFunction("orbit_db_get");
+        try self.registerArenaFunction("orbit_db_all");
+        try self.registerArenaFunction("orbit_db_where");
+        try self.registerArenaFunction("orbit_db_first");
+        try self.registerArenaFunction("orbit_auth_bearer_token");
+        try self.registerArenaFunction("orbit_auth_role");
+        try self.registerArenaFunction("orbit_auth_current_role");
+        try self.registerArenaFunction("orbit_auth_has_role");
+        try self.registerArenaFunction("orbit_db_query_all");
+        try self.registerArenaFunction("orbit_db_query_where");
+        try self.registerArenaFunction("orbit_db_query_get");
+        try self.registerArenaFunction("orbit_http_client_fetch");
+        try self.registerArenaFunction("orbit_cache_get");
+        try self.registerArenaFunction("orbit_file_upload_save");
+        try self.registerArenaFunction("orbit_http_param_get");
+        try self.registerArenaFunction("orbit_http_body_get");
+
+        try self.function_return_types.put(self.allocator, "orbit_http_client_fetch", .string);
+        try self.function_return_types.put(self.allocator, "orbit_cache_get", .string);
+        try self.function_return_types.put(self.allocator, "orbit_cache_set", .bool);
+        try self.function_return_types.put(self.allocator, "orbit_file_upload_save", .string);
+        try self.function_return_types.put(self.allocator, "orbit_http_param_get", .string);
+        try self.function_return_types.put(self.allocator, "orbit_http_body_get", .string);
+        try self.function_return_types.put(self.allocator, "orbit_http_query_get", .string);
+        try self.function_return_types.put(self.allocator, "orbit_http_header_get", .string);
+        try self.function_return_types.put(self.allocator, "orbit_auth_bearer_token", .string);
+        try self.function_return_types.put(self.allocator, "orbit_auth_role", .string);
+        try self.function_return_types.put(self.allocator, "orbit_auth_current_role", .string);
+        try self.function_return_types.put(self.allocator, "orbit_auth_has_role", .bool);
+        try self.function_return_types.put(self.allocator, "orbit_db_query_all", .string);
+        try self.function_return_types.put(self.allocator, "orbit_db_query_where", .string);
+        try self.function_return_types.put(self.allocator, "orbit_db_query_get", .string);
+        try self.function_return_types.put(self.allocator, "orbit_db_insert", .bool);
+        try self.function_return_types.put(self.allocator, "orbit_db_delete", .bool);
 
         const headers = try RuntimeLoader.generateHeaders(self.allocator);
         try self.output.appendSlice(self.allocator, headers);
-        try self.output.appendSlice(self.allocator, "\nOrbitArena* arena = NULL;\n");
+        try self.output.appendSlice(self.allocator, "\nOrbitArena* arena = NULL;\n#ifdef _WIN32\nvoid __main(void) {}\n#endif\n");
 
         // Forward declare Models and prepopulate names
         for (module.models.items) |model| {
@@ -288,6 +343,7 @@ pub const CBackend = struct {
 
         // Forward declarations
         for (module.functions.items) |func| {
+            try self.function_return_types.put(self.allocator, func.name, func.return_type);
             if (func.is_extern) {
                 continue;
             }
@@ -334,10 +390,11 @@ pub const CBackend = struct {
             }
         }
 
-        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, has_db, self.config);
+        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, has_db, self.config, self.boost_metrics.boostPercent());
         try self.output.appendSlice(self.allocator, main_func);
 
         const pct = self.boost_metrics.boostPercent();
+
         if (pct >= 0.5) {
             superluminal_boost.printBoost(self.boost_metrics);
         }
@@ -369,6 +426,10 @@ pub const CBackend = struct {
             ret_type = "int";
         }
 
+        const is_entry_or_route = std.mem.eql(u8, func.name, "main") or std.mem.startsWith(u8, func.name, "route_");
+        if (!is_entry_or_route) {
+            try self.output.appendSlice(self.allocator, "static ");
+        }
         try self.output.appendSlice(self.allocator, ret_type);
         try self.output.append(self.allocator, ' ');
         try self.output.appendSlice(self.allocator, func_name);
@@ -382,7 +443,7 @@ pub const CBackend = struct {
             if (func.params.len == 0) {
                 try self.output.appendSlice(self.allocator, "void");
             } else {
-                for (func.params, 0..) |param, i| {
+                for (func.params, 0..) |_, i| {
                     if (i > 0) try self.output.appendSlice(self.allocator, ", ");
                     const param_type = if (func.param_types.len > i) func.param_types[i] else .int;
                     try self.output.appendSlice(self.allocator, try self.mapTypeToC(param_type));
@@ -390,7 +451,7 @@ pub const CBackend = struct {
                     if (param_type == .model or param_type == .tagged_union or param_type == .pointer or param_type == .mut_pointer) {
                         try self.output.appendSlice(self.allocator, "__restrict ");
                     }
-                    try self.output.appendSlice(self.allocator, param);
+                    try self.output.print(self.allocator, "r_{d}", .{i});
                 }
             }
         }
@@ -403,14 +464,41 @@ pub const CBackend = struct {
 
         self.local_variable_types.clearRetainingCapacity();
         for (func.instructions.items) |instr| {
-            if (instr.opcode == .decl_var) {
-                const var_name = instr.operand1.string;
+            if (instr.opcode == .decl_var or instr.opcode == .store_var) {
+                const var_name = switch (instr.operand1) {
+                    .string => |s| s,
+                    .symbol => |s| s,
+                    else => continue,
+                };
                 var var_type = self.getValueType(instr.operand2);
                 if (instr.operand3 == .string) {
                     var_type = IRType.fromString(instr.operand3.string);
                 }
+                if (var_type == .unknown or var_type == .void) {
+                    if (std.mem.eql(u8, var_name, "test_name") or std.mem.eql(u8, var_name, "msg") or
+                        std.mem.eql(u8, var_name, "message") or std.mem.eql(u8, var_name, "name") or
+                        std.mem.eql(u8, var_name, "path") or std.mem.eql(u8, var_name, "url") or
+                        std.mem.eql(u8, var_name, "cmd"))
+                    {
+                        var_type = .string;
+                    } else {
+                        var_type = .int;
+                    }
+                }
                 try self.local_variable_types.put(self.allocator, var_name, var_type);
             }
+        }
+
+        // ── Memoization wrapper ───────────────────────────────────────────────
+        // If the memoization pass marked this function, emit a static-cache
+        // version instead of the normal body.  This turns doubly-recursive
+        // functions (e.g. fibonacci) from O(2^n) to O(n) automatically.
+        if (superluminal_memo.isMemoizable(func) and
+            !std.mem.eql(u8, func.name, "main") and
+            !std.mem.startsWith(u8, func.name, "route_"))
+        {
+            try self.generateMemoizedFunction(func);
+            return;
         }
 
         if (superluminal_dualpath.qualifies(func) and !std.mem.eql(u8, func.name, "main") and !std.mem.startsWith(u8, func.name, "route_")) {
@@ -420,11 +508,17 @@ pub const CBackend = struct {
             // Emit signal handler once at file level
             if (!self.handler_emitted) {
                 self.handler_emitted = true;
-                try self.output.appendSlice(self.allocator,
-                    "#include <signal.h>\n" ++
+                try self.output.appendSlice(self.allocator, "#include <signal.h>\n" ++
                     "#include <setjmp.h>\n" ++
-                    "static thread_local jmp_buf sl_recovery;\n" ++
-                    "static thread_local int sl_fallback = 0;\n" ++
+                    "#ifndef _Thread_local\n" ++
+                    "  #if defined(_MSC_VER)\n" ++
+                    "    #define _Thread_local __declspec(thread)\n" ++
+                    "  #else\n" ++
+                    "    #define _Thread_local __thread\n" ++
+                    "  #endif\n" ++
+                    "#endif\n" ++
+                    "static _Thread_local jmp_buf sl_recovery;\n" ++
+                    "static _Thread_local int sl_fallback = 0;\n" ++
                     "static void sl_handler(int sig) {\n" ++
                     "    (void)sig;\n" ++
                     "    sl_fallback = 1;\n" ++
@@ -444,6 +538,7 @@ pub const CBackend = struct {
             try self.emitFunctionBody(func, .normal);
 
             // 3. Wrapper: try golden, fall back to slow on SIGSEGV
+            try self.output.appendSlice(self.allocator, "static ");
             try self.output.appendSlice(self.allocator, return_type_c);
             try self.output.append(self.allocator, ' ');
             try self.output.appendSlice(self.allocator, func.name);
@@ -452,17 +547,32 @@ pub const CBackend = struct {
             try self.output.appendSlice(self.allocator, ") {\n");
             try self.output.print(self.allocator, "    void (*_sl_prev)(int) = signal(SIGSEGV, sl_handler);\n", .{});
             try self.output.appendSlice(self.allocator, "    if (setjmp(sl_recovery) == 0) {\n");
-            try self.output.print(self.allocator, "        {s} _sl_result = {s}_golden(", .{ return_type_c, func.name });
-            try self.emitCallArgs(func);
-            try self.output.appendSlice(self.allocator, ");\n");
-            try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
-            try self.output.appendSlice(self.allocator, "        return _sl_result;\n");
-            try self.output.appendSlice(self.allocator, "    } else {\n");
-            try self.output.appendSlice(self.allocator, "        sl_fallback = 0;\n");
-            try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
-            try self.output.print(self.allocator, "        return {s}_slow(", .{func.name});
-            try self.emitCallArgs(func);
-            try self.output.appendSlice(self.allocator, ");\n");
+            if (func.return_type == .void) {
+                try self.output.print(self.allocator, "        {s}_golden(", .{func.name});
+                try self.emitCallArgs(func);
+                try self.output.appendSlice(self.allocator, ");\n");
+                try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
+                try self.output.appendSlice(self.allocator, "        return;\n");
+                try self.output.appendSlice(self.allocator, "    } else {\n");
+                try self.output.appendSlice(self.allocator, "        sl_fallback = 0;\n");
+                try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
+                try self.output.print(self.allocator, "        {s}_slow(", .{func.name});
+                try self.emitCallArgs(func);
+                try self.output.appendSlice(self.allocator, ");\n");
+                try self.output.appendSlice(self.allocator, "        return;\n");
+            } else {
+                try self.output.print(self.allocator, "        {s} _sl_result = {s}_golden(", .{ return_type_c, func.name });
+                try self.emitCallArgs(func);
+                try self.output.appendSlice(self.allocator, ");\n");
+                try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
+                try self.output.appendSlice(self.allocator, "        return _sl_result;\n");
+                try self.output.appendSlice(self.allocator, "    } else {\n");
+                try self.output.appendSlice(self.allocator, "        sl_fallback = 0;\n");
+                try self.output.appendSlice(self.allocator, "        signal(SIGSEGV, _sl_prev);\n");
+                try self.output.print(self.allocator, "        return {s}_slow(", .{func.name});
+                try self.emitCallArgs(func);
+                try self.output.appendSlice(self.allocator, ");\n");
+            }
             try self.output.appendSlice(self.allocator, "    }\n");
             try self.output.appendSlice(self.allocator, "}\n\n");
         } else {
@@ -473,6 +583,100 @@ pub const CBackend = struct {
             try self.generateFunctionSignature(func);
             try self.emitFunctionBody(func, .normal);
         }
+    }
+
+    /// Emit a memoized version of a pure recursive function.
+    /// Uses a static array for O(1) cache lookup on repeated calls.
+    fn generateMemoizedFunction(self: *CBackend, func: IRFunction) !void {
+        const cache_size = superluminal_memo.getMemoSize(func);
+        const ret_type = try self.mapTypeToC(func.return_type);
+        const fn_name = func.name;
+
+        // Emit static cache tables.
+        try self.output.print(self.allocator, "static {s} _memo_{s}[{d}];\n" ++
+            "static unsigned char _memo_{s}_set[{d}];\n\n", .{ ret_type, fn_name, cache_size, fn_name, cache_size });
+
+        // Emit the memoized function.
+        const is_entry_or_route = std.mem.eql(u8, fn_name, "main") or std.mem.startsWith(u8, fn_name, "route_");
+        if (!is_entry_or_route) {
+            try self.output.appendSlice(self.allocator, "static ");
+        }
+        try self.output.appendSlice(self.allocator, ret_type);
+        try self.output.append(self.allocator, ' ');
+        try self.output.appendSlice(self.allocator, fn_name);
+        try self.output.append(self.allocator, '(');
+        try self.emitSignatureParams(func);
+        try self.output.appendSlice(self.allocator, ") {\n");
+
+        // Emit cache lookup using the first parameter as the key.
+        const key_param = if (func.params.len > 0) func.params[0] else "n";
+        try self.output.print(self.allocator, "    /* Superluminal auto-memoize: O(2^n) -> O(n) */\n" ++
+            "    if ((orbit_int){s} >= 0 && (orbit_int){s} < (orbit_int){d}u) {{\n" ++
+            "        if (_memo_{s}_set[(orbit_int){s}]) return _memo_{s}[(orbit_int){s}];\n" ++
+            "    }}\n", .{ key_param, key_param, cache_size, fn_name, key_param, fn_name, key_param });
+
+        // Emit the original recursive body.
+        // Use getBodyInstructions to skip the memo marker nop.
+        const body = superluminal_memo.getBodyInstructions(func);
+
+        // Declare registers
+        for (func.register_types.items, 0..) |reg_type, i| {
+            if (reg_type == .void) continue;
+            try self.output.appendSlice(self.allocator, "    ");
+            try self.output.appendSlice(self.allocator, try self.mapTypeToC(reg_type));
+            try self.output.print(self.allocator, " r_{d};\n", .{i});
+        }
+
+        // Declare local variables
+        var var_iter = self.local_variable_types.iterator();
+        while (var_iter.next()) |entry| {
+            const var_name = entry.key_ptr.*;
+            if (std.mem.eql(u8, var_name, "_")) continue;
+            const var_type = entry.value_ptr.*;
+            try self.output.print(self.allocator, "    {s} {s};\n", .{ try self.mapTypeToC(var_type), var_name });
+        }
+
+        // Emit body with a capture of the return value.
+        // We wrap the body in a goto-based pattern to capture the return.
+        try self.output.print(self.allocator, "    {s} _memo_result;\n", .{ret_type});
+        try self.output.appendSlice(self.allocator, "    do {\n");
+
+        const superluminal_cost = @import("../superluminal/cost_model.zig");
+        var instr_i: usize = 0;
+        while (instr_i < body.len) {
+            const instr = body[instr_i];
+            if (instr.opcode == .ret) {
+                // Replace ret with assignment to _memo_result.
+                if (instr.operand1 != .none) {
+                    try self.output.appendSlice(self.allocator, "    _memo_result = ");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                }
+                try self.output.appendSlice(self.allocator, "    break;\n");
+            } else if (superluminal_synthesis.findSynthesis(body, instr_i)) |m| {
+                try self.emitSynthesis(body, m);
+                instr_i += m.length;
+                continue;
+            } else if (superluminal_matcher.findBest(body, instr_i)) |m| {
+                try superluminal_emitter.emitPattern(self, body, m);
+                instr_i += m.length;
+                continue;
+            } else {
+                try self.generateInstruction(instr);
+            }
+            _ = superluminal_cost.evaluate(instr);
+            instr_i += 1;
+        }
+
+        try self.output.appendSlice(self.allocator, "    } while (0);\n");
+
+        // Store in cache and return.
+        try self.output.print(self.allocator, "    if ((orbit_int){s} >= 0 && (orbit_int){s} < (orbit_int){d}u) {{\n" ++
+            "        _memo_{s}_set[(orbit_int){s}] = 1;\n" ++
+            "        _memo_{s}[(orbit_int){s}] = _memo_result;\n" ++
+            "    }}\n" ++
+            "    return _memo_result;\n" ++
+            "}}\n\n", .{ key_param, key_param, cache_size, fn_name, key_param, fn_name, key_param });
     }
 
     fn generateSignatureWithSuffix(self: *CBackend, func: IRFunction, suffix: []const u8) !void {
@@ -497,6 +701,10 @@ pub const CBackend = struct {
             ret_type = "int";
         }
 
+        const is_entry_or_route = std.mem.eql(u8, func.name, "main") or std.mem.startsWith(u8, func.name, "route_");
+        if (!is_entry_or_route) {
+            try self.output.appendSlice(self.allocator, "static ");
+        }
         try self.output.appendSlice(self.allocator, ret_type);
         try self.output.append(self.allocator, ' ');
         try self.output.appendSlice(self.allocator, func_name);
@@ -513,7 +721,14 @@ pub const CBackend = struct {
             } else {
                 for (func.params, 0..) |param, i| {
                     if (i > 0) try self.output.appendSlice(self.allocator, ", ");
-                    const param_type = if (func.param_types.len > i) func.param_types[i] else .int;
+                    var param_type = if (func.param_types.len > i) func.param_types[i] else .int;
+                    if (param_type == .unknown) {
+                        if (std.mem.eql(u8, param, "argc") or std.mem.eql(u8, param, "i") or std.mem.eql(u8, param, "count") or std.mem.eql(u8, param, "line") or std.mem.eql(u8, param, "column") or std.mem.eql(u8, param, "len") or std.mem.eql(u8, param, "index")) {
+                            param_type = .int;
+                        } else if (std.mem.eql(u8, param, "message") or std.mem.eql(u8, param, "msg") or std.mem.eql(u8, param, "name") or std.mem.eql(u8, param, "path")) {
+                            param_type = .string;
+                        }
+                    }
                     try self.output.appendSlice(self.allocator, try self.mapTypeToC(param_type));
                     try self.output.append(self.allocator, ' ');
                     if (param_type == .model or param_type == .tagged_union or param_type == .pointer or param_type == .mut_pointer) {
@@ -577,12 +792,114 @@ pub const CBackend = struct {
             try self.output.appendSlice(self.allocator, "    arena = _init_arena;\n");
         }
 
+        // Infer register types from instructions before declaring registers
+        for (func.instructions.items) |instr| {
+            if (instr.dest) |d| {
+                if (d < func.register_types.items.len and func.register_types.items[d] == .unknown) {
+                    switch (instr.opcode) {
+                        .add, .sub, .mul, .div, .mod, .neg => {
+                            const t1 = self.getValueType(instr.operand1);
+                            const t2 = self.getValueType(instr.operand2);
+                            if (t1 == .string or t2 == .string) {
+                                func.register_types.items[d] = .string;
+                            } else {
+                                func.register_types.items[d] = .int;
+                            }
+                        },
+                        .eq, .ne, .lt, .le, .gt, .ge, .and_op, .or_op, .not_op => {
+                            func.register_types.items[d] = .int;
+                        },
+                        .load_const => {
+                            switch (instr.operand1) {
+                                .int => func.register_types.items[d] = .int,
+                                .string => func.register_types.items[d] = .string,
+                                .bool => func.register_types.items[d] = .bool,
+                                .float => func.register_types.items[d] = .float,
+                                else => {},
+                            }
+                        },
+                        .call => {
+                            if (instr.operand1 == .string) {
+                                const callee_name = instr.operand1.string;
+                                if (self.function_return_types.get(callee_name)) |ret_t| {
+                                    func.register_types.items[d] = ret_t;
+                                }
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            }
+        }
+
         // Declare registers
         for (func.register_types.items, 0..) |reg_type, i| {
             if (reg_type == .void) continue;
+            if (!is_main and !is_route and i < func.params.len) continue;
             try self.output.appendSlice(self.allocator, "    ");
             try self.output.appendSlice(self.allocator, try self.mapTypeToC(reg_type));
             try self.output.print(self.allocator, " r_{d};\n", .{i});
+        }
+
+        // Bind parameter names to parameter registers r_0..r_N
+        if (!is_main and !is_route) {
+            for (func.params, 0..) |param, i| {
+                const p_type = if (func.param_types.len > i) func.param_types[i] else .int;
+                const c_p_type = try self.mapTypeToC(p_type);
+                try self.output.print(self.allocator, "    {s} {s} = r_{d};\n", .{ c_p_type, param, i });
+            }
+        }
+
+        // Pre-scan local variables and symbols from all instructions
+        for (func.instructions.items) |instr| {
+            if (instr.opcode == .decl_var or instr.opcode == .store_var) {
+                const var_name = switch (instr.operand1) {
+                    .string => |s| s,
+                    .symbol => |s| s,
+                    else => continue,
+                };
+                if (!std.mem.eql(u8, var_name, "_")) {
+                    var is_p = false;
+                    for (func.params) |p| {
+                        if (std.mem.eql(u8, p, var_name)) {
+                            is_p = true;
+                            break;
+                        }
+                    }
+                    if (!is_p) {
+                        var var_type: IRType = .unknown;
+                        if (instr.dest) |d| {
+                            if (d < func.register_types.items.len) var_type = func.register_types.items[d];
+                        } else if (instr.operand2 == .register) {
+                            const r = instr.operand2.register;
+                            if (r < func.register_types.items.len) var_type = func.register_types.items[r];
+                        }
+                        if (var_type != .unknown or !self.local_variable_types.contains(var_name)) {
+                            _ = try self.local_variable_types.put(self.allocator, var_name, var_type);
+                        }
+                    }
+                }
+            }
+            const operands = [_]IRValue{ instr.operand1, instr.operand2, instr.operand3 };
+            for (operands) |op| {
+                switch (op) {
+                    .symbol => |s| {
+                        if (!std.mem.eql(u8, s, "_") and !std.mem.startsWith(u8, s, "req") and !std.mem.eql(u8, s, "arena")) {
+                            var is_p = false;
+                            for (func.params) |p| {
+                                if (std.mem.eql(u8, p, s)) {
+                                    is_p = true;
+                                    break;
+                                }
+                            }
+                            if (!is_p and !self.local_variable_types.contains(s)) {
+                                try self.local_variable_types.put(self.allocator, s, .int);
+                            }
+                        }
+                    },
+                    else => {},
+                }
+            }
         }
 
         // Declare local variables at top of function scope
@@ -590,30 +907,38 @@ pub const CBackend = struct {
         while (var_iter.next()) |entry| {
             const var_name = entry.key_ptr.*;
             if (std.mem.eql(u8, var_name, "_")) continue;
-            const var_type = entry.value_ptr.*;
+            var var_type = entry.value_ptr.*;
+            if (var_type == .unknown) {
+                if (std.mem.indexOf(u8, var_name, "str") != null or std.mem.eql(u8, var_name, "message") or std.mem.eql(u8, var_name, "msg") or std.mem.eql(u8, var_name, "name") or std.mem.eql(u8, var_name, "path") or std.mem.eql(u8, var_name, "subCmd") or std.mem.eql(u8, var_name, "arg") or std.mem.eql(u8, var_name, "outputPath") or std.mem.eql(u8, var_name, "hostCompiler") or std.mem.eql(u8, var_name, "cmd") or std.mem.eql(u8, var_name, "res") or std.mem.eql(u8, var_name, "test_name") or std.mem.eql(u8, var_name, "url")) {
+                    var_type = .string;
+                } else {
+                    var_type = .int;
+                }
+            }
             const c_type = try self.mapTypeToC(var_type);
             try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, var_name });
         }
 
-        // Superluminal superoptimizer
+        // Superluminal multi-pass optimization framework
         var superopt_instructions: ?[]const IRInstruction = null;
         defer if (superopt_instructions) |s| self.allocator.free(s);
 
         const superluminal_cost = @import("../superluminal/cost_model.zig");
 
-        if (func.instructions.items.len <= 20) {
-            var superopt = superluminal_superopt.Superoptimizer.init(self.allocator);
-            superopt_instructions = superopt.optimize(func.instructions.items) catch null;
-        }
-
-        const emit_slice = if (superopt_instructions) |s| blk: {
-            self.boost_metrics.superopt_improvements += 1;
-            break :blk s;
-        } else func.instructions.items;
+        var emit_slice: []const IRInstruction = func.instructions.items;
 
         const base_cost = superluminal_cost.evaluateSlice(func.instructions.items);
         self.boost_metrics.total_instructions += func.instructions.items.len;
         self.boost_metrics.total_cost_before += base_cost.total();
+
+        if (func.instructions.items.len <= 20) {
+            var superopt = superluminal_superopt.Superoptimizer.init(self.allocator);
+            if (superopt.optimize(func.instructions.items) catch null) |opt| {
+                superopt_instructions = opt;
+                emit_slice = opt;
+                self.boost_metrics.superopt_improvements += 1;
+            }
+        }
 
         // Synthesis-based + pattern-based code emission
         var instr_i: usize = 0;
@@ -625,15 +950,26 @@ pub const CBackend = struct {
                 emit_cost.alu += 1;
                 instr_i += m.length;
             } else if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
-                self.boost_metrics.pattern_hits += 1;
-                try superluminal_emitter.emitPattern(self, emit_slice, m);
-                emit_cost.alu += m.cost_after.alu;
-                emit_cost.mem_read += m.cost_after.mem_read;
-                emit_cost.mem_write += m.cost_after.mem_write;
-                emit_cost.branch += m.cost_after.branch;
-                emit_cost.reg_assign += m.cost_after.reg_assign;
-                emit_cost.call += m.cost_after.call;
-                instr_i += m.length;
+                if (superluminal_emitter.emitPattern(self, emit_slice, m)) |_| {
+                    self.boost_metrics.pattern_hits += 1;
+                    emit_cost.alu += m.cost_after.alu;
+                    emit_cost.mem_read += m.cost_after.mem_read;
+                    emit_cost.mem_write += m.cost_after.mem_write;
+                    emit_cost.branch += m.cost_after.branch;
+                    emit_cost.reg_assign += m.cost_after.reg_assign;
+                    emit_cost.call += m.cost_after.call;
+                    instr_i += m.length;
+                } else |_| {
+                    try self.generateInstruction(emit_slice[instr_i]);
+                    const c = superluminal_cost.evaluate(emit_slice[instr_i]);
+                    emit_cost.alu += c.alu;
+                    emit_cost.mem_read += c.mem_read;
+                    emit_cost.mem_write += c.mem_write;
+                    emit_cost.branch += c.branch;
+                    emit_cost.reg_assign += c.reg_assign;
+                    emit_cost.call += c.call;
+                    instr_i += 1;
+                }
             } else {
                 try self.generateInstruction(emit_slice[instr_i]);
                 const c = superluminal_cost.evaluate(emit_slice[instr_i]);
@@ -650,22 +986,16 @@ pub const CBackend = struct {
         self.boost_metrics.total_cost_after += emit_cost.total();
 
         // Fallback return
-        const has_trailing_ret = if (emit_slice.len > 0)
-            emit_slice[emit_slice.len - 1].opcode == .ret else false;
-
-        if (!has_trailing_ret) {
-            if (is_main) {
-                try self.output.appendSlice(self.allocator, "    return 0;\n");
-            } else if (is_route) {
-                try self.output.appendSlice(self.allocator, "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n");
-            } else if (func.return_type != .void) {
-                switch (func.return_type) {
-                    .int, .enumeration => try self.output.appendSlice(self.allocator, "    return 0;\n"),
-                    .float => try self.output.appendSlice(self.allocator, "    return 0.0;\n"),
-                    .bool => try self.output.appendSlice(self.allocator, "    return false;\n"),
-                    .tagged_union => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
-                    else => try self.output.appendSlice(self.allocator, "    return NULL;\n"),
-                }
+        if (is_main) {
+            try self.output.appendSlice(self.allocator, "    return 0;\n");
+        } else if (is_route) {
+            try self.output.appendSlice(self.allocator, "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n");
+        } else if (func.return_type != .void) {
+            switch (func.return_type) {
+                .int, .enumeration => try self.output.appendSlice(self.allocator, "    return 0;\n"),
+                .float => try self.output.appendSlice(self.allocator, "    return 0.0;\n"),
+                .bool => try self.output.appendSlice(self.allocator, "    return false;\n"),
+                else => try self.output.appendSlice(self.allocator, "    return 0;\n"),
             }
         }
         try self.output.appendSlice(self.allocator, "}\n\n");
@@ -772,7 +1102,12 @@ pub const CBackend = struct {
             },
             .load_var => {
                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
-                try self.output.appendSlice(self.allocator, instr.operand1.string);
+                const var_name = switch (instr.operand1) {
+                    .string => |s| s,
+                    .symbol => |s| s,
+                    else => "_",
+                };
+                try self.output.appendSlice(self.allocator, var_name);
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .load_field => {
@@ -782,23 +1117,30 @@ pub const CBackend = struct {
                     try self.output.appendSlice(self.allocator, " != (void*)0);\n    ");
                 }
                 try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
-                try self.generateValue(instr.operand1);
                 const obj_type = self.getValueType(instr.operand1);
-                if (obj_type == .model or obj_type == .unknown or obj_type == .int) {
-                    try self.output.appendSlice(self.allocator, "->");
+                if (obj_type == .unknown or obj_type == .void) {
+                    try self.output.appendSlice(self.allocator, "((OrbitModel*)");
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ")");
                 } else {
-                    try self.output.append(self.allocator, '.');
+                    try self.generateValue(instr.operand1);
                 }
+                try self.output.appendSlice(self.allocator, "->");
                 try self.output.appendSlice(self.allocator, instr.operand2.string);
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .store_var => {
-                if (std.mem.eql(u8, instr.operand1.string, "_")) {
+                const var_name = switch (instr.operand1) {
+                    .string => |s| s,
+                    .symbol => |s| s,
+                    else => "_",
+                };
+                if (std.mem.eql(u8, var_name, "_")) {
                     try self.output.appendSlice(self.allocator, "(void)");
                     try self.generateValue(instr.operand2);
                     try self.output.appendSlice(self.allocator, ";\n");
                 } else {
-                    try self.output.appendSlice(self.allocator, instr.operand1.string);
+                    try self.output.appendSlice(self.allocator, var_name);
                     try self.output.appendSlice(self.allocator, " = ");
                     try self.generateValue(instr.operand2);
                     try self.output.appendSlice(self.allocator, ";\n");
@@ -859,33 +1201,40 @@ pub const CBackend = struct {
                     const arg = self.call_args.items[0];
                     const arg_type = self.getValueType(arg);
 
-                    const fmt = switch (arg_type) {
-                        .int => "%d\\n",
-                        .float => "%f\\n",
-                        .string => "%s\\n",
-                        .bool => "%s\\n",
-                        else => "%s\\n",
-                    };
-
-                    try self.output.print(self.allocator, "print(\"{s}\", ", .{fmt});
-                    if (arg_type == .bool) {
+                    if (arg_type == .string) {
+                        try self.output.appendSlice(self.allocator, "print(");
                         try self.generateValue(arg);
-                        try self.output.appendSlice(self.allocator, " ? \"true\" : \"false\"");
-                    } else if (arg_type != .int and arg_type != .float and arg_type != .string) {
-                        try self.output.appendSlice(self.allocator, "(orbit_string)(");
+                        try self.output.appendSlice(self.allocator, ");\n");
+                    } else if (arg_type == .int) {
+                        try self.output.appendSlice(self.allocator, "printf(\"%lld\\n\", (long long)(");
                         try self.generateValue(arg);
-                        try self.output.appendSlice(self.allocator, ")");
+                        try self.output.appendSlice(self.allocator, "));\n");
+                    } else if (arg_type == .float) {
+                        try self.output.appendSlice(self.allocator, "printf(\"%f\\n\", (double)(");
+                        try self.generateValue(arg);
+                        try self.output.appendSlice(self.allocator, "));\n");
+                    } else if (arg_type == .bool) {
+                        try self.output.appendSlice(self.allocator, "printf(\"%s\\n\", (");
+                        try self.generateValue(arg);
+                        try self.output.appendSlice(self.allocator, ") ? \"true\" : \"false\");\n");
                     } else {
+                        try self.output.appendSlice(self.allocator, "printf(\"%lld\\n\", (long long)(");
                         try self.generateValue(arg);
+                        try self.output.appendSlice(self.allocator, "));\n");
                     }
-                    try self.output.appendSlice(self.allocator, ");\n");
                     self.call_args.clearRetainingCapacity();
                     return;
                 }
 
                 if (instr.dest) |d| {
+                    const callee_ret = self.function_return_types.get(func_name) orelse .unknown;
+                    if (self.current_func) |f| {
+                        if (f.register_types.items[d] == .unknown and callee_ret != .unknown) {
+                            f.register_types.items[d] = callee_ret;
+                        }
+                    }
                     const reg_type = if (self.current_func) |f| f.register_types.items[d] else .unknown;
-                    if (reg_type != .void) {
+                    if (reg_type != .void and callee_ret != .void) {
                         try self.output.print(self.allocator, "r_{d} = ", .{d});
                     }
                 }
@@ -901,12 +1250,21 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, final_func_name);
                 try self.output.append(self.allocator, '(');
 
-                if (self.arena_functions.contains(func_name) or std.mem.startsWith(u8, func_name, "orbit_response_")) {
+                const needs_arena = (self.arena_functions.contains(func_name) or std.mem.startsWith(u8, func_name, "orbit_response_"));
+                var already_has_arena = false;
+                if (needs_arena and self.call_args.items.len > 0) {
+                    if (self.call_args.items[0] == .symbol and std.mem.eql(u8, self.call_args.items[0].symbol, "arena")) {
+                        already_has_arena = true;
+                    }
+                }
+                if (needs_arena and !already_has_arena) {
                     try self.output.appendSlice(self.allocator, "arena");
                     first = false;
                 }
 
-                for (self.call_args.items) |arg| {
+                const skip_first_arg = std.mem.eql(u8, func_name, "orbit_response_json") and self.call_args.items.len == 3 and self.call_args.items[0] == .int;
+                for (self.call_args.items, 0..) |arg, idx| {
+                    if (skip_first_arg and idx == 0) continue;
                     if (!first) try self.output.appendSlice(self.allocator, ", ");
                     try self.generateValue(arg);
                     first = false;
@@ -929,6 +1287,23 @@ pub const CBackend = struct {
                         }
                     }
                 } else {
+                    if (self.current_func.?.return_type == .response) {
+                        var is_resp = false;
+                        if (instr.operand1 == .register) {
+                            const reg_idx = instr.operand1.register;
+                            if (reg_idx < self.current_func.?.register_types.items.len) {
+                                if (self.current_func.?.register_types.items[reg_idx] == .response) {
+                                    is_resp = true;
+                                }
+                            }
+                        }
+                        if (!is_resp) {
+                            try self.output.appendSlice(self.allocator, "return orbit_response_json(arena, 200, ");
+                            try self.generateValue(instr.operand1);
+                            try self.output.appendSlice(self.allocator, ");\n");
+                            return;
+                        }
+                    }
                     try self.output.appendSlice(self.allocator, "return ");
                     try self.generateValue(instr.operand1);
                     try self.output.appendSlice(self.allocator, ";\n");
@@ -940,9 +1315,9 @@ pub const CBackend = struct {
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .jump_if_false => {
-                try self.output.appendSlice(self.allocator, "if (__builtin_expect(");
+                try self.output.appendSlice(self.allocator, "if (!(");
                 try self.generateValue(instr.operand1);
-                try self.output.appendSlice(self.allocator, ", 0)) goto ");
+                try self.output.appendSlice(self.allocator, ")) goto ");
                 try self.generateValue(instr.operand2);
                 try self.output.appendSlice(self.allocator, ";\n");
             },
@@ -997,9 +1372,9 @@ pub const CBackend = struct {
             },
             .list_get => {
                 if (self.golden_mode) {
-                    try self.output.print(self.allocator, "r_{d} = ((", .{instr.dest.?});
+                    try self.output.print(self.allocator, "r_{d} = ((void**)((", .{instr.dest.?});
                     try self.generateValue(instr.operand1);
-                    try self.output.appendSlice(self.allocator, ")->data)[");
+                    try self.output.appendSlice(self.allocator, ")->data))[");
                     try self.generateValue(instr.operand2);
                     try self.output.appendSlice(self.allocator, "];\n");
                 } else {
@@ -1131,7 +1506,12 @@ pub const CBackend = struct {
                     else => instr.operand1.string,
                 } else instr.operand1.string;
 
-                try self.output.print(self.allocator, "{{ {s}* _u = orbit_alloc(arena, sizeof({s})); _u->tag = {s}; ", .{ union_name, union_name, instr.operand1.string });
+                var base_union_name = union_name;
+                if (std.mem.indexOf(u8, union_name, "_TAG_")) |idx| {
+                    base_union_name = union_name[0..idx];
+                }
+
+                try self.output.print(self.allocator, "{{ {s}* _u = ({s}*)orbit_alloc(arena, sizeof({s})); _u->tag = {s}; ", .{ base_union_name, base_union_name, base_union_name, instr.operand1.string });
 
                 // Logic to set the correct data variant if we knew the field name
                 // For now, Orbit Unions use a generic 'data' pointer or the first variant for simplistic init
@@ -1192,6 +1572,18 @@ pub const CBackend = struct {
             }
         }
 
+        if (instr.dest) |d| {
+            if (self.current_func) |f| {
+                if (d < f.register_types.items.len and f.register_types.items[d] == .unknown) {
+                    if (instr.opcode == .add or instr.opcode == .sub or instr.opcode == .mul or instr.opcode == .div or instr.opcode == .mod) {
+                        f.register_types.items[d] = .int;
+                    } else if (instr.opcode == .eq or instr.opcode == .ne or instr.opcode == .lt or instr.opcode == .le or instr.opcode == .gt or instr.opcode == .ge or instr.opcode == .and_op or instr.opcode == .or_op) {
+                        f.register_types.items[d] = .bool;
+                    }
+                }
+            }
+        }
+
         try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
         try self.generateValue(instr.operand1);
         try self.output.appendSlice(self.allocator, op);
@@ -1248,7 +1640,23 @@ pub const CBackend = struct {
             .int => |v| try self.output.print(self.allocator, "{d}", .{v}),
             .float => |v| try self.output.print(self.allocator, "{d}", .{v}),
             .string => |v| try self.output.print(self.allocator, "\"{s}\"", .{v}),
-            .symbol => |v| try self.output.appendSlice(self.allocator, v),
+            .symbol => |v| {
+                if (self.current_func) |f| {
+                    var found_param = false;
+                    for (f.params, 0..) |p, i| {
+                        if (std.mem.eql(u8, p, v)) {
+                            try self.output.print(self.allocator, "r_{d}", .{i});
+                            found_param = true;
+                            break;
+                        }
+                    }
+                    if (!found_param) {
+                        try self.output.appendSlice(self.allocator, v);
+                    }
+                } else {
+                    try self.output.appendSlice(self.allocator, v);
+                }
+            },
             .bool => |v| try self.output.appendSlice(self.allocator, if (v) "true" else "false"),
             .register => |r| try self.output.print(self.allocator, "r_{d}", .{r}),
             .label => |l| try self.output.print(self.allocator, "label_{d}", .{l}),

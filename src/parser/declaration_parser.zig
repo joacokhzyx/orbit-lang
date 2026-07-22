@@ -157,6 +157,21 @@ pub const DeclarationParser = struct {
         _ = try self.consume(.Colon);
         const type_name = try self.consumeType();
 
+        while (self.check(.Identifier) and !self.check(.CloseBrace) and !self.check(.Equal)) {
+            const tok_text = self.current_token.text;
+            if (std.mem.eql(u8, tok_text, "primary") or std.mem.eql(u8, tok_text, "unique") or std.mem.eql(u8, tok_text, "auto") or std.mem.eql(u8, tok_text, "index")) {
+                const mod_dec = try self.allocator.create(Node);
+                mod_dec.* = .{
+                    .tag = .decorator,
+                    .data = .{ .decorator = .{ .name = self.current_token.*, .args = &[_]*Node{} } },
+                };
+                self.advance();
+                try decorators.append(self.allocator, mod_dec);
+            } else {
+                break;
+            }
+        }
+
         var default_val: ?*Node = null;
         if (self.match(.Equal)) {
             var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
@@ -219,23 +234,66 @@ pub const DeclarationParser = struct {
 
         var params = std.ArrayListUnmanaged(*Node).empty;
 
-        var body = std.ArrayListUnmanaged(*Node).empty;
-        _ = try self.consume(.OpenBrace);
+        var body_node: *Node = undefined;
 
-        var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
+        if (self.match(.FatArrow)) {
+            if (self.check(.OpenBrace)) {
+                _ = try self.consume(.OpenBrace);
+                var body = std.ArrayListUnmanaged(*Node).empty;
+                var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
 
-        while (!self.check(.CloseBrace) and !self.check(.EOF)) {
-            const stmt = try stmt_parser.parseStatement();
-            try body.append(self.allocator, stmt);
+                while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+                    const stmt = try stmt_parser.parseStatement();
+                    try body.append(self.allocator, stmt);
+                }
+
+                _ = try self.consume(.CloseBrace);
+
+                const b = try self.allocator.create(Node);
+                b.* = .{
+                    .tag = .block,
+                    .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
+                };
+                body_node = b;
+            } else {
+                var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
+                const expr = try expr_parser.parseExpression();
+
+                const ret_node = try self.allocator.create(Node);
+                ret_node.* = .{
+                    .tag = .return_stmt,
+                    .data = .{ .return_stmt = .{ .expr = expr, .status = null } },
+                };
+
+                var stmts = try self.allocator.alloc(*Node, 1);
+                stmts[0] = ret_node;
+
+                const b = try self.allocator.create(Node);
+                b.* = .{
+                    .tag = .block,
+                    .data = .{ .block = .{ .stmts = stmts } },
+                };
+                body_node = b;
+            }
+        } else {
+            _ = try self.consume(.OpenBrace);
+            var body = std.ArrayListUnmanaged(*Node).empty;
+            var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
+
+            while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+                const stmt = try stmt_parser.parseStatement();
+                try body.append(self.allocator, stmt);
+            }
+
+            _ = try self.consume(.CloseBrace);
+
+            const b = try self.allocator.create(Node);
+            b.* = .{
+                .tag = .block,
+                .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
+            };
+            body_node = b;
         }
-
-        _ = try self.consume(.CloseBrace);
-
-        const body_node = try self.allocator.create(Node);
-        body_node.* = .{
-            .tag = .block,
-            .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
-        };
 
         const node = try self.allocator.create(Node);
         node.* = .{
@@ -376,7 +434,29 @@ pub const DeclarationParser = struct {
 
         _ = try self.consume(.KeywordType);
         const name = try self.consume(.Identifier);
-        _ = try self.consume(.Equal);
+
+        if (self.check(.OpenBrace)) {
+            _ = try self.consume(.OpenBrace);
+            var fields = std.ArrayListUnmanaged(*Node).empty;
+            while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+                const field_node = try self.parseFieldDecl();
+                try fields.append(self.allocator, field_node);
+            }
+            _ = try self.consume(.CloseBrace);
+
+            const node = try self.allocator.create(Node);
+            node.* = .{
+                .tag = .model_decl,
+                .data = .{ .model_decl = .{
+                    .name = name,
+                    .fields = try fields.toOwnedSlice(self.allocator),
+                    .is_private = is_private,
+                } },
+            };
+            return node;
+        }
+
+        _ = self.match(.Equal);
 
         if (self.match(.KeywordEnum)) {
             return try self.parseEnumDecl(name, is_private);

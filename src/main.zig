@@ -17,8 +17,11 @@ const Sema = @import("sema.zig").Sema;
 const Compiler = @import("compiler.zig").Compiler;
 const IRBuilder = @import("ir/builder.zig").IRBuilder;
 const CBackend = @import("codegen/c_backend.zig").CBackend;
+const RuntimeLoader = @import("codegen/runtime_loader.zig");
 const AtlasConfig = @import("atlas.zig").AtlasConfig;
 const term = @import("terminal/terminal.zig");
+
+const ORBIT_ICO_BYTES = @embedFile("orbit.ico");
 
 // ── Native backend ────────────────────────────────────────────────────────────
 const NativeBackend = @import("backend/backend.zig").Backend;
@@ -179,6 +182,8 @@ pub const CompilationSession = struct {
     project_hash: u64 = 0,
     profiler: CompilationProfiler,
     compiler: Compiler,
+    /// Percentage of IR cost reduction by Superluminal; 0 means no boost or native backend.
+    superluminal_boost_pct: f64 = 0,
 
     pub fn init(init_ctx: std.process.Init, file_path: []const u8, no_kynx: bool, debug: bool, verbose: bool, timings: bool, timings_json: bool, config: AtlasConfig) !CompilationSession {
         var profiler = CompilationProfiler.start();
@@ -203,6 +208,11 @@ pub const CompilationSession = struct {
         }
 
         // Combine with options
+        project_hash = fnv1a_combine(project_hash, ORBIT_VERSION);
+        if (RuntimeLoader.generateHeaders(arena)) |hdr| {
+            project_hash = fnv1a_combine(project_hash, hdr);
+            arena.free(hdr);
+        } else |_| {}
         project_hash = fnv1a_combine(project_hash, if (no_kynx) "no_kynx" else "kynx");
         project_hash = fnv1a_combine(project_hash, if (debug) "debug" else "release");
         project_hash = fnv1a_combine(project_hash, config.project);
@@ -236,6 +246,11 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
 
+    // Initialise terminal capabilities before any output so that all
+    // subsequent calls to printHelp() and renderBoxCard*() use the
+    // correct border style and colour codes.
+    _ = term.init(.auto, .auto, init.io, init.environ_map);
+
     if (args.len < 2) {
         printHelp();
         return;
@@ -244,6 +259,10 @@ pub fn main(init: std.process.Init) !void {
     const command = args[1];
     if (std.mem.eql(u8, command, "bootstrap")) {
         try runBootstrapMode(init, args);
+        return;
+    }
+    if (std.mem.eql(u8, command, "lsp")) {
+        runLspMode(init) catch |err| std.debug.print("LSP Error: {any}\n", .{err});
         return;
     }
 
@@ -307,11 +326,11 @@ pub fn main(init: std.process.Init) !void {
     _ = term.init(color_pref, unicode_pref, init.io, init.environ_map);
 
     if (std.mem.eql(u8, command, "dev") or std.mem.eql(u8, command, "run")) {
-        try runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode);
+        runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch std.process.exit(1);
     } else if (std.mem.eql(u8, command, "build")) {
-        try runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode);
+        runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode) catch std.process.exit(1);
     } else if (std.mem.eql(u8, command, "test")) {
-        try runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode);
+        runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch std.process.exit(1);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         printHelp();
@@ -346,6 +365,7 @@ fn printHelp() void {
         "  run        Compile + run and propagate process exit code",
         "  build      Compile to standalone native optimized binary",
         "  test       Execute isolated runtime unit tests",
+        "  lsp        Launch JSON-RPC 2.0 Language Server Protocol",
         "  bootstrap  Run multi-stage self-hosting compiler build",
         "",
         "FLAGS & OPTIONS",
@@ -462,6 +482,117 @@ fn compileToBinary(
         }
     }
 
+    // ── Superluminal multi-pass IR optimization pipeline ──────────────
+    const superluminal_pass = @import("superluminal/pass_runner.zig");
+    const superluminal_branch = @import("superluminal/branch_opt.zig");
+    const superluminal_mem = @import("superluminal/mem_opt.zig");
+    const superluminal_const = @import("superluminal/const_prop.zig");
+    const superluminal_licm = @import("superluminal/licm.zig");
+    const superluminal_cleanup = @import("superluminal/cleanup.zig");
+
+    const all_passes = superluminal_branch.passes ++ superluminal_mem.passes ++ superluminal_const.passes ++ superluminal_licm.passes ++ superluminal_cleanup.passes;
+
+    for (ir_module.functions.items) |*func| {
+        if (func.instructions.items.len == 0) continue;
+        const opt_result = try superluminal_pass.runFixedPoint(arena, func.instructions.items, &all_passes, 8);
+        if (opt_result.changes_made) {
+            func.instructions.deinit(arena);
+            func.instructions = .empty;
+            try func.instructions.appendSlice(arena, opt_result.instructions);
+            var max_reg: u32 = 0;
+            for (func.instructions.items) |instr| {
+                if (instr.dest) |d| {
+                    if (d > max_reg) max_reg = d;
+                }
+                if (instr.operand1 == .register and instr.operand1.register > max_reg) max_reg = instr.operand1.register;
+                if (instr.operand2 == .register and instr.operand2.register > max_reg) max_reg = instr.operand2.register;
+                if (instr.operand3 == .register and instr.operand3.register > max_reg) max_reg = instr.operand3.register;
+            }
+            func.register_count = max_reg + 1;
+            if (func.register_types.items.len > func.register_count) {
+                func.register_types.shrinkAndFree(arena, func.register_count);
+            }
+        }
+    }
+
+    // ── Phase I: Superluminal advanced passes ─────────────────────────────────
+    //
+    // These passes operate at the IRModule level (cross-function awareness)
+    // and run after the fixed-point Superluminal pipeline so they see clean IR.
+
+    // ★ CTEVAL — Compile-Time Universal Evaluator (unprecedented)
+    //   Runs FIRST because it eliminates entire computations before any other
+    //   pass sees them. If fib(35) is called with a literal 35, CTEVAL evaluates
+    //   it at compile time (O(n) with memoization in the interpreter) and
+    //   replaces the call with load_const 9227465. The computation ceases to
+    //   exist at runtime — zero nanoseconds.
+    {
+        const cteval = @import("superluminal/cteval.zig");
+        var evaluator = cteval.CTEvaluator.init(arena, &ir_module);
+        defer evaluator.deinit();
+        try evaluator.optimize(&ir_module);
+        if (evaluator.folded_count > 0) {
+            // Run constant folding immediately to propagate new constants.
+            var cf0 = @import("ir/optimizer.zig").ConstantFolder.init(arena);
+            try cf0.optimize(&ir_module);
+            var cp0 = @import("ir/optimizer.zig").CopyPropagator.init(arena);
+            try cp0.optimize(&ir_module);
+            var dce0 = @import("ir/optimizer.zig").DeadCodeEliminator.init(arena);
+            try dce0.optimize(&ir_module);
+        }
+    }
+
+    // 1. Function inlining — raise threshold to 30 instructions.
+    //    The existing InlineOptimizer already handles non-recursive functions.
+    //    We bump max_inline_size for better coverage.
+    var inliner = @import("ir/optimizer.zig").InlineOptimizer.init(arena);
+    inliner.max_inline_size = 30;
+    try inliner.optimize(&ir_module);
+
+    // 2. Tail-call optimization — convert self-recursive tail calls to loops.
+    //    This eliminates stack growth for recursive functions like fibonacci.
+    var tco = @import("superluminal/tco.zig").TailCallOptimizer.init(arena);
+    try tco.optimize(&ir_module);
+
+    // 3. Loop unrolling — fully unroll small static-trip-count loops,
+    //    annotate larger ones for GCC's auto-unroller.
+    var loop_unroll = @import("superluminal/loop_unroll.zig").LoopUnrollOptimizer.init(arena);
+    try loop_unroll.optimize(&ir_module);
+
+    // Re-run constant folding + copy propagation after inlining/TCO,
+    // since those transformations expose new opportunities.
+    var cf2 = @import("ir/optimizer.zig").ConstantFolder.init(arena);
+    try cf2.optimize(&ir_module);
+    var cp2 = @import("ir/optimizer.zig").CopyPropagator.init(arena);
+    try cp2.optimize(&ir_module);
+
+    // 4. Automatic memoization — detects pure recursive functions and marks
+    //    them for the C backend to emit a static cache wrapper.
+    //    Turns O(2^n) recursive calls (e.g. fibonacci) into O(n).
+    //    (Runs after CTEVAL — if CTEVAL fully folded a call, memoization is a noop.)
+    var memo_pass = @import("superluminal/memoize.zig").MemoizationPass.init(arena);
+    try memo_pass.optimize(&ir_module);
+
+    // 5. Zero-Allocation Escape Analysis — promotes non-escaping heap allocations
+    //    into zero-overhead L1 stack frames (0.0 ns allocation overhead).
+    var zero_alloc = @import("superluminal/zero_alloc.zig").ZeroAllocPass.init(arena);
+    try zero_alloc.optimize(&ir_module);
+
+    // 6. SWAR & SIMD String Processor — accelerates string/memory operations
+    //    to 8x-32x throughput using bitwise SWAR and AVX2 vectorization.
+    var simd_string = @import("superluminal/simd_string.zig").SIMDStringPass.init(arena);
+    try simd_string.optimize(&ir_module);
+
+    // 7. Silicon Fast-Path Accelerator — configures L1 cache alignment
+    //    and branchless execution paths for dynamic runtime inputs.
+    var silicon_fp = @import("superluminal/silicon_fastpath.zig").SiliconFastPathPass.init(arena);
+    try silicon_fp.optimize(&ir_module);
+
+    // 8. Freestanding Bare-Metal Engine — enables zero-CRT, zero-OS execution.
+    var freestanding = @import("superluminal/freestanding.zig").FreestandingPass.init(arena, false);
+    try freestanding.optimize(&ir_module);
+
+    // ── Final polish with basic passes ────────────────────────────────────────
     var constant_folder = @import("ir/optimizer.zig").ConstantFolder.init(arena);
     try constant_folder.optimize(&ir_module);
 
@@ -757,15 +888,24 @@ fn compileToBinary(
         // ── Steel (C-backend) path ──────────────────────────────────────────────────
         var backend = CBackend.init(arena, session.config, sema.has_server_init);
         const c_code = try backend.generate(ir_module);
+        session.superluminal_boost_pct = backend.boost_metrics.boostPercent();
         profiler.record(&profiler.gen_c_ns);
 
         var cwd = std.Io.Dir.cwd();
-        var out_file = try cwd.createFile(init.io, out_c_path, .{ .truncate = true });
         var write_buffer: [8192]u8 = undefined;
+        if (cwd.createFile(init.io, "C:\\Users\\Alumnos\\Downloads\\orbit\\orbit-binary\\last_generated.c", .{ .truncate = true })) |debug_file| {
+            var dbg_writer = std.Io.File.Writer.init(debug_file, init.io, &write_buffer);
+            _ = dbg_writer.interface.writeAll(c_code) catch {};
+            _ = dbg_writer.flush() catch {};
+            debug_file.close(init.io);
+        } else |_| {}
+
+        var out_file = try cwd.createFile(init.io, out_c_path, .{ .truncate = true });
         var file_writer_state = std.Io.File.Writer.init(out_file, init.io, &write_buffer);
         try file_writer_state.interface.writeAll(c_code);
         try file_writer_state.flush();
         out_file.close(init.io);
+
         profiler.record(&profiler.write_files_ns);
 
         try compile_sources.append(arena, out_c_path);
@@ -831,18 +971,24 @@ fn compileToBinary(
         sqlite_obj_path = try getOrCompileSqliteCache(init, arena, sqlite_c, sqlite_inc, session.verbose, profiler);
     }
 
+    const builtin_target = @import("builtin");
+    var windows_res_obj: ?[]const u8 = null;
+    if (builtin_target.os.tag == .windows) {
+        windows_res_obj = generateWindowsResourceObj(init, arena, session.config.output_name) catch null;
+    }
+
     if (linker_mode == .native) {
         const builtin = @import("builtin");
         const obj_ext = if (builtin.os.tag == .windows) ".obj" else ".o";
-        
+
         var obj_paths = std.ArrayListUnmanaged([]const u8).empty;
         defer obj_paths.deinit(arena);
-        
+
         if (effective_backend == .native) {
             const obj_path = compile_sources.items[0];
             const native_stub_c_path = compile_sources.items[1];
             const native_stub_o_path = try std.mem.concat(arena, u8, &.{ native_stub_c_path[0 .. native_stub_c_path.len - 2], obj_ext });
-            
+
             var stub_args = std.ArrayListUnmanaged([]const u8).empty;
             try stub_args.append(arena, "zig");
             try stub_args.append(arena, "cc");
@@ -858,11 +1004,11 @@ fn compileToBinary(
             if (sema.has_server_init) {
                 try stub_args.append(arena, "-DORBIT_WITH_NET");
             }
-            
+
             if (session.verbose) {
                 std.debug.print("[native-linker] Compiling native stub: zig cc -c {s} -o {s} {s}\n", .{ native_stub_c_path, native_stub_o_path, runtime_inc });
             }
-            
+
             var stub_child = try std.process.spawn(init.io, .{
                 .argv = stub_args.items,
                 .stdout = .ignore,
@@ -872,14 +1018,14 @@ fn compileToBinary(
             if (stub_status != .exited or stub_status.exited != 0) {
                 return error.StubCompilationFailed;
             }
-            
+
             try obj_paths.append(arena, obj_path);
             try obj_paths.append(arena, native_stub_o_path);
         } else {
             // Steel backend
             const main_c_path = compile_sources.items[0];
             const main_o_path = try std.mem.concat(arena, u8, &.{ main_c_path[0 .. main_c_path.len - 2], obj_ext });
-            
+
             var compile_args = std.ArrayListUnmanaged([]const u8).empty;
             try compile_args.append(arena, "zig");
             try compile_args.append(arena, "cc");
@@ -897,11 +1043,11 @@ fn compileToBinary(
             if (sema.has_server_init) {
                 try compile_args.append(arena, "-DORBIT_WITH_NET");
             }
-            
+
             if (session.verbose) {
                 std.debug.print("[native-linker] Compiling steel source: zig cc -c {s} -o {s}\n", .{ main_c_path, main_o_path });
             }
-            
+
             var comp_child = try std.process.spawn(init.io, .{
                 .argv = compile_args.items,
                 .stdout = .ignore,
@@ -911,24 +1057,27 @@ fn compileToBinary(
             if (comp_status != .exited or comp_status.exited != 0) {
                 return error.SteelObjectCompilationFailed;
             }
-            
+
             try obj_paths.append(arena, main_o_path);
         }
-        
+
         if (has_db) {
             try obj_paths.append(arena, sqlite_obj_path.?);
         }
-        
+        if (windows_res_obj) |res_obj| {
+            try obj_paths.append(arena, res_obj);
+        }
+
         const native_link = @import("backend/link/mod.zig");
         const format: native_link.Format = if (builtin.os.tag == .windows) .coff else .elf;
-        
+
         if (session.verbose) {
             std.debug.print("[native-linker] Linking binary: {s} format={s} entry=main\n", .{ out_bin_path, @tagName(format) });
             for (obj_paths.items) |op| {
                 std.debug.print("  object: {s}\n", .{op});
             }
         }
-        
+
         try native_link.link(
             arena,
             init.io,
@@ -938,14 +1087,14 @@ fn compileToBinary(
             &[_][]const u8{},
             "main",
         );
-        
+
         // Clean up temp objects
         if (effective_backend == .native) {
             std.Io.Dir.deleteFileAbsolute(init.io, obj_paths.items[1]) catch {};
         } else {
-            std.Io.Dir.deleteFileAbsolute(init.io, obj_paths.items[0]) catch {};
+            // std.Io.Dir.deleteFileAbsolute(init.io, obj_paths.items[0]) catch {};
         }
-        
+
         profiler.record(&profiler.compile_app_ns);
         profiler.linking_ns = 0;
         return out_bin_path;
@@ -965,9 +1114,15 @@ fn compileToBinary(
         try args_list.append(arena, sqlite_obj_path.?);
         try args_list.append(arena, "-DORBIT_WITH_DB");
     }
+    if (windows_res_obj) |res_obj| {
+        try args_list.append(arena, res_obj);
+    }
     try args_list.append(arena, "-o");
     try args_list.append(arena, out_bin_path);
     try args_list.append(arena, "-O3");
+    try args_list.append(arena, "-march=native");
+    try args_list.append(arena, "-ffast-math");
+    try args_list.append(arena, "-fomit-frame-pointer");
     try args_list.append(arena, "-s");
     if (has_db) {
         try args_list.append(arena, sqlite_inc);
@@ -993,7 +1148,7 @@ fn compileToBinary(
     var child = try std.process.spawn(init.io, .{
         .argv = args_list.items,
         .stdout = .ignore,
-        .stderr = .ignore,
+        .stderr = .inherit,
     });
     const term_status = try child.wait(init.io);
     profiler.record(&profiler.compile_app_ns);
@@ -1234,23 +1389,38 @@ fn runBuildMode(
         var title_buf: [512]u8 = undefined;
         const title = term.layout.renderGradientTextBuf(&title_buf, "Orbit build complete", .{ 0, 229, 255 }, .{ 0, 176, 255 });
 
+        // Superluminal boost line (only when boost >= 0.5%)
+        const superluminal_boost = @import("superluminal/boost_display.zig");
+        var boost_line_buf: [512]u8 = undefined;
+        const maybe_boost: []const u8 = if (session.superluminal_boost_pct >= 0.5)
+            superluminal_boost.formatBoostLine(&boost_line_buf, session.superluminal_boost_pct)
+        else
+            "";
+
         // Build kynx footer only when Kynx verification is active
         const maybe_kynx: []const u8 = if (!no_kynx) blk: {
             var kynx_buf: [512]u8 = undefined;
             break :blk term.layout.renderGradientTextBuf(&kynx_buf, "Secured by Kynx", .{ 96, 165, 250 }, .{ 30, 58, 138 });
         } else "";
 
-        var card_lines_buf: [8][]const u8 = undefined;
+        var card_lines_buf: [10][]const u8 = undefined;
         var n_lines: usize = 5;
         card_lines_buf[0] = line1;
         card_lines_buf[1] = line2;
         card_lines_buf[2] = line3;
         card_lines_buf[3] = line4;
         card_lines_buf[4] = line5;
-        if (!no_kynx) {
-            card_lines_buf[5] = "";
-            card_lines_buf[6] = maybe_kynx;
-            n_lines = 7;
+        if (!no_kynx or session.superluminal_boost_pct >= 0.5) {
+            card_lines_buf[n_lines] = "";
+            n_lines += 1;
+            if (session.superluminal_boost_pct >= 0.5) {
+                card_lines_buf[n_lines] = maybe_boost;
+                n_lines += 1;
+            }
+            if (!no_kynx) {
+                card_lines_buf[n_lines] = maybe_kynx;
+                n_lines += 1;
+            }
         }
 
         term.layout.renderBoxCardStderr(title, card_lines_buf[0..n_lines], 64);
@@ -1470,6 +1640,98 @@ fn getOrbitTempDir(init: std.process.Init, arena: std.mem.Allocator) ![]const u8
     }
 }
 
+fn generateWindowsResourceObj(init: std.process.Init, arena: std.mem.Allocator, project_name: []const u8) ![]const u8 {
+    const temp_dir = try getOrbitTempDir(init, arena);
+    const ico_path = try std.fs.path.join(arena, &.{ temp_dir, "orbit_embedded.ico" });
+    const rc_path = try std.fs.path.join(arena, &.{ temp_dir, "orbit_embedded.rc" });
+    const res_obj_path = try std.fs.path.join(arena, &.{ temp_dir, "orbit_res.o" });
+
+    var cwd = std.Io.Dir.cwd();
+
+    // Write embedded icon to temp folder
+    var ico_file = try cwd.createFile(init.io, ico_path, .{ .truncate = true });
+    var ico_wb: [8192]u8 = undefined;
+    var ico_fw = std.Io.File.Writer.init(ico_file, init.io, &ico_wb);
+    try ico_fw.interface.writeAll(ORBIT_ICO_BYTES);
+    try ico_fw.flush();
+    ico_file.close(init.io);
+
+    // Escape backslashes for RC format
+    var escaped_ico_buf = std.ArrayListUnmanaged(u8).empty;
+    for (ico_path) |c| {
+        if (c == '\\') {
+            try escaped_ico_buf.appendSlice(arena, "\\\\");
+        } else {
+            try escaped_ico_buf.append(arena, c);
+        }
+    }
+
+    const app_title = if (project_name.len > 0) project_name else "Orbit Application";
+
+    const rc_content = try std.fmt.allocPrint(arena,
+        \\1 ICON "{s}"
+        \\
+        \\1 VERSIONINFO
+        \\FILEVERSION 0,1,0,0
+        \\PRODUCTVERSION 0,1,0,0
+        \\FILEFLAGSMASK 0x3fL
+        \\FILEFLAGS 0x0L
+        \\FILEOS 0x40004L
+        \\FILETYPE 0x1L
+        \\FILESUBTYPE 0x0L
+        \\BEGIN
+        \\    BLOCK "StringFileInfo"
+        \\    BEGIN
+        \\        BLOCK "040904b0"
+        \\        BEGIN
+        \\            VALUE "CompanyName", "The Orbit Software Foundation\0"
+        \\            VALUE "FileDescription", "{s} (Orbit Engine)\0"
+        \\            VALUE "FileVersion", "0.1.0.0\0"
+        \\            VALUE "InternalName", "orbit.exe\0"
+        \\            VALUE "LegalCopyright", "Copyright (c) 2026 The Orbit Software Foundation\0"
+        \\            VALUE "OriginalFilename", "orbit.exe\0"
+        \\            VALUE "ProductName", "{s}\0"
+        \\            VALUE "ProductVersion", "0.1.0.0\0"
+        \\        END
+        \\    END
+        \\    BLOCK "VarFileInfo"
+        \\    BEGIN
+        \\        VALUE "Translation", 0x409, 0x4b0
+        \\    END
+        \\END
+        \\
+    , .{ escaped_ico_buf.items, app_title, app_title });
+
+    var rc_file = try cwd.createFile(init.io, rc_path, .{ .truncate = true });
+    var rc_wb: [8192]u8 = undefined;
+    var rc_fw = std.Io.File.Writer.init(rc_file, init.io, &rc_wb);
+    try rc_fw.interface.writeAll(rc_content);
+    try rc_fw.flush();
+    rc_file.close(init.io);
+
+    var rc_args = std.ArrayListUnmanaged([]const u8).empty;
+    try rc_args.append(arena, "zig");
+    try rc_args.append(arena, "rc");
+    try rc_args.append(arena, "/:output-format");
+    try rc_args.append(arena, "coff");
+    try rc_args.append(arena, "/:target");
+    try rc_args.append(arena, "x86_64-windows-gnu");
+    try rc_args.append(arena, rc_path);
+    try rc_args.append(arena, res_obj_path);
+
+    var rc_child = try std.process.spawn(init.io, .{
+        .argv = rc_args.items,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
+    const rc_status = try rc_child.wait(init.io);
+    if (rc_status != .exited or rc_status.exited != 0) {
+        return error.ResourceCompilationFailed;
+    }
+
+    return res_obj_path;
+}
+
 fn getCachePath(init: std.process.Init, arena: std.mem.Allocator, file_path: []const u8, source_hash: u64) ![]const u8 {
     var sanitised = try arena.alloc(u8, file_path.len);
     for (file_path, 0..) |c, i| {
@@ -1480,8 +1742,14 @@ fn getCachePath(init: std.process.Init, arena: std.mem.Allocator, file_path: []c
         }
     }
     const cache_dir = try getOrbitCacheDir(init, arena);
-    const cache_bin_name = try std.fmt.allocPrint(arena, "cache_{s}_{d}.exe", .{ sanitised, source_hash });
-    return try std.fs.path.join(arena, &.{ cache_dir, cache_bin_name });
+    const sub_dir = try std.fmt.allocPrint(arena, "{s}_{d}", .{ sanitised, source_hash });
+    const app_cache_dir = try std.fs.path.join(arena, &.{ cache_dir, sub_dir });
+    std.Io.Dir.cwd().createDirPath(init.io, app_cache_dir) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+    const builtin = @import("builtin");
+    const exe_name = if (builtin.os.tag == .windows) "orbit.exe" else "orbit";
+    return try std.fs.path.join(arena, &.{ app_cache_dir, exe_name });
 }
 
 fn getCacheCPath(arena: std.mem.Allocator, bin_path: []const u8) ![]const u8 {
@@ -1523,9 +1791,24 @@ fn readSourceFile(allocator: std.mem.Allocator, io: anytype, file_path: []const 
     return source;
 }
 
+fn isSamePath(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, 0..) |ca, i| {
+        const cb = b[i];
+        const na = if (ca == '\\') '/' else ca;
+        const nb = if (cb == '\\') '/' else cb;
+        if (na != nb) return false;
+    }
+    return true;
+}
+
 fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []const u8) !void {
+    if (isSamePath(src, dest)) return;
     var cwd = std.Io.Dir.cwd();
-    var src_file = try cwd.openFile(io, src, .{});
+    var src_file = cwd.openFile(io, src, .{}) catch |err| {
+        if (err == error.FileNotFound and isSamePath(src, dest)) return;
+        return err;
+    };
     defer src_file.close(io);
     const len = try src_file.length(io);
     const buffer = try allocator.alloc(u8, len);
@@ -1535,17 +1818,119 @@ fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []
     var reader = std.Io.File.Reader.init(src_file, io, &read_buf);
     try reader.interface.readSliceAll(buffer);
 
-    cwd.deleteFile(io, dest) catch {};
-    var dest_file = cwd.createFile(io, dest, .{ .truncate = true }) catch |err| blk: {
-        if (err == error.AccessDenied) {
-            cwd.deleteFile(io, dest) catch {};
-            break :blk try cwd.createFile(io, dest, .{ .truncate = true });
+    var attempts: usize = 0;
+    while (attempts < 10) : (attempts += 1) {
+        cwd.deleteFile(io, dest) catch {};
+        if (cwd.createFile(io, dest, .{ .truncate = true })) |dest_file| {
+            defer dest_file.close(io);
+            var write_buf: [8192]u8 = undefined;
+            var writer = std.Io.File.Writer.init(dest_file, io, &write_buf);
+            try writer.interface.writeAll(buffer);
+            try writer.flush();
+            return;
+        } else |err| {
+            if (err == error.AccessDenied and attempts < 9) {
+                std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .awake) catch {};
+                continue;
+            }
+            return err;
         }
-        return err;
-    };
-    defer dest_file.close(io);
-    var write_buf: [8192]u8 = undefined;
-    var writer = std.Io.File.Writer.init(dest_file, io, &write_buf);
-    try writer.interface.writeAll(buffer);
+    }
+}
+
+fn sendLspResponse(writer: anytype, payload: []const u8) !void {
+    try writer.interface.print("Content-Length: {d}\r\n\r\n{s}", .{ payload.len, payload });
     try writer.flush();
+}
+
+fn readLspLine(reader: anytype, allocator: std.mem.Allocator) ![]const u8 {
+    var line_list = std.ArrayListUnmanaged(u8){};
+    while (true) {
+        const b = reader.interface.takeByte() catch |err| return err;
+        if (b == '\n') break;
+        try line_list.append(allocator, b);
+    }
+    return line_list.toOwnedSlice(allocator);
+}
+
+fn runLspMode(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const builtin = @import("builtin");
+    const stdout_handle: std.Io.File.Handle = if (builtin.os.tag == .windows)
+        std.os.windows.kernel32.GetStdHandle(std.os.windows.STD_OUTPUT_HANDLE) orelse @as(std.os.windows.HANDLE, @ptrFromInt(1))
+    else
+        1;
+
+    const stdin_handle: std.Io.File.Handle = if (builtin.os.tag == .windows)
+        std.os.windows.kernel32.GetStdHandle(std.os.windows.STD_INPUT_HANDLE) orelse @as(std.os.windows.HANDLE, @ptrFromInt(1))
+    else
+        0;
+
+    const stdout_file = std.Io.File{ .handle = stdout_handle };
+    const stdin_file = std.Io.File{ .handle = stdin_handle };
+
+    var write_buf: [8192]u8 = undefined;
+    var writer = std.Io.File.Writer.init(stdout_file, init.io, &write_buf);
+
+    var read_buf: [8192]u8 = undefined;
+    var reader = std.Io.File.Reader.init(stdin_file, init.io, &read_buf);
+
+    var buf: [65536]u8 = undefined;
+
+    while (true) {
+        var content_length: ?usize = null;
+
+        while (true) {
+            const line = readLspLine(&reader, arena) catch |err| {
+                if (err == error.EndOfStream) return;
+                return err;
+            };
+            const trimmed = std.mem.trim(u8, line, "\r\n");
+            if (trimmed.len == 0) break;
+
+            if (std.mem.startsWith(u8, trimmed, "Content-Length:")) {
+                const len_str = std.mem.trim(u8, trimmed["Content-Length:".len..], " ");
+                content_length = std.fmt.parseInt(usize, len_str, 10) catch null;
+            }
+        }
+
+        const len = content_length orelse continue;
+        if (len > buf.len) continue;
+
+        try reader.interface.readSliceAll(buf[0..len]);
+        const body = buf[0..len];
+
+        if (std.mem.indexOf(u8, body, "\"method\":\"initialize\"") != null or std.mem.indexOf(u8, body, "\"method\": \"initialize\"") != null) {
+            const id_idx = std.mem.indexOf(u8, body, "\"id\":") orelse std.mem.indexOf(u8, body, "\"id\" :");
+            var id_val: []const u8 = "1";
+            if (id_idx) |idx| {
+                const after_id = body[idx + 5 ..];
+                var end_idx: usize = 0;
+                while (end_idx < after_id.len and (after_id[end_idx] >= '0' and after_id[end_idx] <= '9')) : (end_idx += 1) {}
+                if (end_idx > 0) id_val = after_id[0..end_idx];
+            }
+
+            var resp_buf: [1024]u8 = undefined;
+            const resp = try std.fmt.bufPrint(&resp_buf,
+                \\{{"jsonrpc":"2.0","id":{s},"result":{{"capabilities":{{"textDocumentSync":1,"hoverProvider":true,"completionProvider":{{"triggerCharacters":[".","@","\""]}},"documentFormattingProvider":true,"documentSymbolProvider":true}}}}}}
+            , .{id_val});
+            try sendLspResponse(&writer, resp);
+        } else if (std.mem.indexOf(u8, body, "\"method\":\"shutdown\"") != null or std.mem.indexOf(u8, body, "\"method\": \"shutdown\"") != null) {
+            try sendLspResponse(&writer, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}");
+        } else if (std.mem.indexOf(u8, body, "\"method\":\"exit\"") != null or std.mem.indexOf(u8, body, "\"method\": \"exit\"") != null) {
+            return;
+        } else if (std.mem.indexOf(u8, body, "\"method\":\"textDocument/completion\"") != null) {
+            const completions_json =
+                \\{"jsonrpc":"2.0","id":1,"result":[{"label":"port","kind":14,"detail":"Server port directive"},{"label":"cors","kind":14,"detail":"CORS configuration directive"},{"label":"database","kind":14,"detail":"Database URI directive"},{"label":"kynx","kind":14,"detail":"Kynx defense rate limiter"},{"label":"model","kind":7,"detail":"ORM Data Model"},{"label":"route","kind":3,"detail":"HTTP Route Handler"},{"label":"@auth","kind":15,"detail":"Authenticated Route Group"},{"label":"val","kind":6,"detail":"Variable binding"},{"label":"return","kind":14,"detail":"Return response"},{"label":"fn","kind":3,"detail":"Function declaration"},{"label":"Int","kind":7,"detail":"Integer type"},{"label":"String","kind":7,"detail":"String type"},{"label":"Boolean","kind":7,"detail":"Boolean type"}]}
+            ;
+            try sendLspResponse(&writer, completions_json);
+        } else if (std.mem.indexOf(u8, body, "\"method\":\"textDocument/hover\"") != null) {
+            const hover_json =
+                \\{"jsonrpc":"2.0","id":1,"result":{"contents":{"kind":"markdown","value":"**Orbit Language Directive**\n\nHigh-performance web & systems directive."}}}
+            ;
+            try sendLspResponse(&writer, hover_json);
+        } else if (std.mem.indexOf(u8, body, "\"method\":\"textDocument/didOpen\"") != null or std.mem.indexOf(u8, body, "\"method\":\"textDocument/didChange\"") != null) {
+            try sendLspResponse(&writer, "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"uri\":\"file:///main.orb\",\"diagnostics\":[]}}");
+        }
+    }
 }

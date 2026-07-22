@@ -89,14 +89,24 @@ fn tryCompoundAssign(instructions: []const IRInstruction, start: usize) ?Match {
     if (store_field.opcode != .store_field) return null;
 
     const store_obj = store_field.operand1;
-    const store_field_name = store_field.operand2.string;
+    if (store_field.operand2 != .string and store_field.operand2 != .symbol) return null;
+    const store_field_name = switch (store_field.operand2) {
+        .string => |s| s,
+        .symbol => |s| s,
+        else => return null,
+    };
     const store_src = store_field.operand3;
 
     if (store_src != .register) return null;
     if (store_src.register != binop.dest.?) return null;
 
     const load_obj = load_field.operand1;
-    const load_field_name = load_field.operand2.string;
+    if (load_field.operand2 != .string and load_field.operand2 != .symbol) return null;
+    const load_field_name = switch (load_field.operand2) {
+        .string => |s| s,
+        .symbol => |s| s,
+        else => return null,
+    };
 
     if (!std.meta.eql(load_obj, store_obj)) return null;
     if (!std.mem.eql(u8, load_field_name, store_field_name)) return null;
@@ -191,6 +201,8 @@ fn tryChainedField(instructions: []const IRInstruction, start: usize) ?Match {
 
     if (first.opcode != .load_field) return null;
     if (second.opcode != .load_field) return null;
+    if (first.operand2 != .string and first.operand2 != .symbol) return null;
+    if (second.operand2 != .string and second.operand2 != .symbol) return null;
 
     const first_dest = first.dest orelse return null;
     const second_src = second.operand1;
@@ -253,6 +265,8 @@ fn tryArgInline(instructions: []const IRInstruction, start: usize) ?Match {
 
     if (arg_count == 0) return null;
     if (pos >= instructions.len or instructions[pos].opcode != .call) return null;
+    const call_instr = instructions[pos];
+    if (call_instr.operand1 != .string and call_instr.operand1 != .symbol) return null;
 
     const total_len = arg_count + 1;
 
@@ -301,7 +315,7 @@ fn tryMatchSwitch(instructions: []const IRInstruction, start: usize) ?Match {
         // Verify tag name follows convention *_TAG_*
         var found_tag: bool = false;
         for (tag_symbol, 0..) |c, i| {
-            if (i + 4 < tag_symbol.len and c == '_' and tag_symbol[i+1] == 'T' and tag_symbol[i+2] == 'A' and tag_symbol[i+3] == 'G' and tag_symbol[i+4] == '_') {
+            if (i + 4 < tag_symbol.len and c == '_' and tag_symbol[i + 1] == 'T' and tag_symbol[i + 2] == 'A' and tag_symbol[i + 3] == 'G' and tag_symbol[i + 4] == '_') {
                 found_tag = true;
                 break;
             }

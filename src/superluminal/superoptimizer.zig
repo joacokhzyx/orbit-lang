@@ -116,11 +116,7 @@ const DeadCodeElim = struct {
 
         for (instructions) |instr| {
             const has_side_effect = switch (instr.opcode) {
-                .call, .ret, .store_var, .store_field, .jump, .jump_if_false,
-                .label, .begin_block, .end_block, .arg, .list_push, .list_create,
-                .map_set, .map_create, .union_create, .result_ok, .result_err,
-                .db_get, .db_set, .db_all, .db_where, .http_response,
-                .alloc, .free => true,
+                .call, .ret, .store_var, .store_field, .jump, .jump_if_false, .label, .begin_block, .end_block, .arg, .list_push, .list_create, .map_set, .map_create, .union_create, .result_ok, .result_err, .db_get, .db_set, .db_all, .db_where, .http_response, .alloc, .free => true,
                 else => false,
             };
 

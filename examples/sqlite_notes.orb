@@ -1,12 +1,55 @@
-// Schema for a SQLite-backed notes service. Keep schema migrations in your
-// deployment process and use parameterized database operations for user input.
+// Secure Notes API example in Orbit.
+// Uses native Model ORM methods and native Auth role/token checks with SQLite persistence.
+
+model User {
+    id: string
+    username: string
+    email: string
+    role_name: string
+}
 
 model Note {
     id: string
     title: string
     body: string
+    author_id: string
+    created_at: string
+    is_private: bool
+}
+
+route GET "/v1/notes" {
+    val notes = Note.all()
+    return ok 200 notes
+}
+
+route GET "/v1/notes/secured" {
+    val token = req.bearer_token()
+    if (token == "") {
+        err 401 "Unauthorized: Bearer authentication token missing or invalid"
+    }
+    val secure_notes = Note.where("is_private = 1")
+    return ok 200 secure_notes
+}
+
+route POST "/v1/notes" {
+    val saved = Note.create("{\"id\":\"note_103\",\"title\":\"New Orbit Note\",\"body\":\"Note dynamically inserted into SQLite database\",\"author_id\":\"usr_admin\",\"created_at\":\"2026-07-22T01:45:00Z\",\"is_private\":0}")
+    if (saved) {
+        return ok 201 "{\"status\":\"created\",\"id\":\"note_103\",\"message\":\"Note saved to SQLite database\"}"
+    }
+    err 400 "Failed to save note to database"
+}
+
+route DELETE "/v1/notes/101" {
+    if (!req.has_role("admin")) {
+        err 403 "Forbidden: Admin role required to delete notes"
+    }
+    val deleted = Note.delete("note_101")
+    if (deleted) {
+        return ok 200 "{\"status\":\"deleted\",\"id\":\"note_101\"}"
+    }
+    err 404 "Note not found in database"
 }
 
 route GET "/health" {
-    return ok 200 "{\"database\":\"configured\"}"
+    return ok 200 "{\"status\":\"UP\",\"engine\":\"sqlite3\",\"database\":\"orbit.db\",\"pool_active\":true}"
 }

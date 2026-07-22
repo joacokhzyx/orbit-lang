@@ -107,7 +107,7 @@ pub const Lowering = struct {
         // Emit parameter passing copies at the beginning of block 0
         if (lir_func.blocks.items.len > 0) {
             var entry_block = &lir_func.blocks.items[0];
-            
+
             const abi_regs: []const RegisterId = if (self.target.abi == .windows_x64)
                 &.{ .rcx, .rdx, .r8, .r9 }
             else
@@ -120,7 +120,7 @@ pub const Lowering = struct {
             while (param_idx < num_params) : (param_idx += 1) {
                 const param_reg_id = start_reg_id + param_idx;
                 const dest_reg = LirRegister{ .id = @intCast(param_reg_id), .is_physical = false };
-                
+
                 if (param_idx < abi_regs.len) {
                     const src_phys_reg = LirRegister{ .id = @intFromEnum(abi_regs[param_idx]), .is_physical = true };
                     // Prepend mov dest_reg, src_phys_reg
@@ -272,7 +272,7 @@ pub const Lowering = struct {
             },
             .eq, .ne, .lt, .le, .gt, .ge => {
                 const dest = mapReg(mir_instr.dest.?);
-                
+
                 var rhs_val = op2_lir;
                 if (op2_lir == .symbol) {
                     const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };

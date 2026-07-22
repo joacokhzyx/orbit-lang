@@ -54,6 +54,39 @@ void orbit_db_init(const char* db_path) {
     sqlite3_open(db_path, &orbit_db_conn);
     if (orbit_db_conn) {
         sqlite3_progress_handler(orbit_db_conn, 10, orbit_sqlite_progress_handler, NULL);
+        const char* init_sql =
+            "CREATE TABLE IF NOT EXISTS notes ("
+            "  id TEXT PRIMARY KEY, title TEXT, body TEXT, author_id TEXT, created_at TEXT, is_private INTEGER"
+            ");"
+            "CREATE TABLE IF NOT EXISTS products ("
+            "  id TEXT PRIMARY KEY, name TEXT, description TEXT, price REAL, category TEXT, in_stock INTEGER, rating REAL"
+            ");"
+            "CREATE TABLE IF NOT EXISTS users ("
+            "  id TEXT PRIMARY KEY, username TEXT, email TEXT, role_name TEXT"
+            ");"
+            "CREATE TABLE IF NOT EXISTS sessions ("
+            "  token TEXT PRIMARY KEY, user_id TEXT, expires_at INTEGER"
+            ");";
+        sqlite3_exec(orbit_db_conn, init_sql, NULL, NULL, NULL);
+
+        int count = 0;
+        sqlite3_stmt* stmt = NULL;
+        if (sqlite3_prepare_v2(orbit_db_conn, "SELECT COUNT(*) FROM products;", -1, &stmt, NULL) == SQLITE_OK) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) count = sqlite3_column_int(stmt, 0);
+            sqlite3_finalize(stmt);
+        }
+        if (count == 0) {
+            const char* seed_sql =
+                "INSERT INTO products VALUES ('prod_101', 'Orbit Compiler Pro', 'Ultra-high performance C runtime compiler for web microservices', 299.99, 'Developer Tools', 1, 4.9);"
+                "INSERT INTO products VALUES ('prod_102', 'Kynx Security Shield', 'O(1) sharded rate limiter and DDoS mitigation engine', 149.50, 'Security', 1, 4.8);"
+                "INSERT INTO products VALUES ('prod_103', 'Steel Memory Profiler', 'Zero-overhead memory arena tracker and profiler', 89.00, 'Developer Tools', 1, 4.7);"
+                "INSERT INTO notes VALUES ('note_101', 'Orbit Architecture Notes', 'Steel C runtime manages thread-local arena memory without global lock contention.', 'usr_admin', '2026-07-22T01:00:00Z', 0);"
+                "INSERT INTO notes VALUES ('note_102', 'Superluminal Optimizer Guide', 'IR passes execute fixed-point optimizations including CTEVAL and auto-memoization.', 'usr_dev', '2026-07-22T01:15:00Z', 0);"
+                "INSERT INTO users VALUES ('usr_admin', 'admin', 'admin@orbit.dev', 'admin');"
+                "INSERT INTO users VALUES ('usr_dev', 'developer', 'dev@orbit.dev', 'developer');"
+                "INSERT INTO sessions VALUES ('bearer-secret-token-123', 'usr_admin', 0);";
+            sqlite3_exec(orbit_db_conn, seed_sql, NULL, NULL, NULL);
+        }
     }
 }
 
@@ -391,4 +424,30 @@ orbit_string orbit_json_get(OrbitArena* arena, orbit_string json, const char* ke
     return res;
 }
 
+orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
+    orbit_collection col = { table_name, NULL };
+    return orbit_db_all(arena, col);
+}
+
+orbit_string orbit_db_query_where(OrbitArena* arena, const char* table_name, const char* condition) {
+    orbit_collection col = { table_name, NULL };
+    return orbit_db_where(arena, col, condition);
+}
+
+orbit_string orbit_db_query_get(OrbitArena* arena, const char* table_name, const char* id) {
+    orbit_collection col = { table_name, NULL };
+    return orbit_db_get(arena, col, id);
+}
+
+bool orbit_db_insert(const char* table_name, const char* json_data) {
+    orbit_collection col = { table_name, NULL };
+    return orbit_db_add(col, json_data);
+}
+
+bool orbit_db_delete(const char* table_name, const char* id) {
+    orbit_collection col = { table_name, NULL };
+    return orbit_db_del(col, id);
+}
+
 #endif
+

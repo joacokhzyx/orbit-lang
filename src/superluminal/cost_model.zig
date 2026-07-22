@@ -13,13 +13,7 @@ pub const Cost = struct {
     call: u32 = 0,
 
     pub fn total(self: Cost) f64 {
-        return @as(f64, @floatFromInt(self.alu)) * 1.0
-            + @as(f64, @floatFromInt(self.mem_read)) * 3.0
-            + @as(f64, @floatFromInt(self.mem_write)) * 3.0
-            + @as(f64, @floatFromInt(self.branch)) * 10.0
-            + @as(f64, @floatFromInt(self.reg_assign)) * 0.5
-            + @as(f64, @floatFromInt(self.label)) * 2.0
-            + @as(f64, @floatFromInt(self.call)) * 15.0;
+        return @as(f64, @floatFromInt(self.alu)) * 1.0 + @as(f64, @floatFromInt(self.mem_read)) * 3.0 + @as(f64, @floatFromInt(self.mem_write)) * 3.0 + @as(f64, @floatFromInt(self.branch)) * 10.0 + @as(f64, @floatFromInt(self.reg_assign)) * 0.5 + @as(f64, @floatFromInt(self.label)) * 2.0 + @as(f64, @floatFromInt(self.call)) * 15.0;
     }
 
     pub fn format(self: Cost, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {

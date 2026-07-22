@@ -107,8 +107,78 @@ pub const Parser = struct {
             try decorators.append(self.allocator, dec);
         }
 
+        if (decorators.items.len > 0 and self.match(.OpenBrace)) {
+            var group_nodes = std.ArrayListUnmanaged(*Node).empty;
+            const group_decs = try decorators.toOwnedSlice(self.allocator);
+            while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+                if (self.check(.KeywordRoute)) {
+                    var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
+                    const r_node = try decl_parser.parseRoute(group_decs);
+                    try group_nodes.append(self.allocator, r_node);
+                } else {
+                    const inner_node = try self.parseTopLevel();
+                    try group_nodes.append(self.allocator, inner_node);
+                }
+            }
+            _ = self.match(.CloseBrace);
+            const node = try self.allocator.create(Node);
+            node.* = .{
+                .tag = .block,
+                .data = .{ .block = .{ .stmts = try group_nodes.toOwnedSlice(self.allocator) } },
+            };
+            return node;
+        }
+
         const is_private = self.match(.KeywordPrivate);
         const is_extern = self.match(.KeywordExtern);
+
+        if (self.check(.Identifier)) {
+            const tok_text = self.current_token.text;
+            if (std.mem.eql(u8, tok_text, "port") or std.mem.eql(u8, tok_text, "cors") or std.mem.eql(u8, tok_text, "db") or std.mem.eql(u8, tok_text, "env")) {
+                const key = self.current_token;
+                self.advance();
+                var expr_parser = ExpressionParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
+                const val = try expr_parser.parseExpression();
+
+                const node = try self.allocator.create(Node);
+                node.* = .{
+                    .tag = .config_decl,
+                    .data = .{ .config_decl = .{
+                        .key = key,
+                        .value = val,
+                    } },
+                };
+                return node;
+            }
+        }
+
+        if (self.match(.KeywordEvery)) {
+            const amount = self.current_token;
+            self.advance();
+            const unit = self.current_token;
+            self.advance();
+            var at_time: ?Token = null;
+            if (self.current_token.tag == .Identifier and std.mem.eql(u8, self.current_token.text, "at")) {
+                self.advance();
+                at_time = self.current_token;
+                self.advance();
+            }
+            _ = self.match(.FatArrow);
+            var expr_parser = ExpressionParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
+            const handler = try expr_parser.parseExpression();
+
+            const node = try self.allocator.create(Node);
+            node.* = .{
+                .tag = .schedule_decl,
+                .data = .{ .schedule_decl = .{
+                    .amount = amount,
+                    .unit = unit,
+                    .at_time = at_time,
+                    .handler = handler,
+                } },
+            };
+            return node;
+        }
 
         if (self.match(.KeywordImport)) {
             const path = self.current_token;

@@ -18,6 +18,14 @@ pub fn emitPattern(backend: *CBackend, instructions: []const IRInstruction, m: m
     }
 }
 
+fn getValString(val: IRValue) ?[]const u8 {
+    return switch (val) {
+        .string => |s| s,
+        .symbol => |s| s,
+        else => null,
+    };
+}
+
 fn emitCompoundAssign(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
     _ = m;
     const load_field = instructions[0];
@@ -25,6 +33,8 @@ fn emitCompoundAssign(backend: *CBackend, instructions: []const IRInstruction, m
     const rhs = instructions[2];
     const store_field = instructions[3];
     _ = store_field;
+
+    const f_str = getValString(load_field.operand2) orelse return error.InvalidPattern;
 
     try backend.output.appendSlice(backend.allocator, "    ");
     try backend.generateValue(load_field.operand1);
@@ -35,7 +45,7 @@ fn emitCompoundAssign(backend: *CBackend, instructions: []const IRInstruction, m
     } else {
         try backend.output.append(backend.allocator, '.');
     }
-    try backend.output.appendSlice(backend.allocator, load_field.operand2.string);
+    try backend.output.appendSlice(backend.allocator, f_str);
 
     const assign_op = switch (binop.opcode) {
         .add => " += ",
@@ -49,7 +59,7 @@ fn emitCompoundAssign(backend: *CBackend, instructions: []const IRInstruction, m
 
     switch (rhs.opcode) {
         .load_const => try backend.generateValue(rhs.operand1),
-        .load_var => try backend.output.appendSlice(backend.allocator, rhs.operand1.string),
+        .load_var => if (getValString(rhs.operand1)) |s| try backend.output.appendSlice(backend.allocator, s) else return error.InvalidPattern,
         .copy => try backend.generateValue(rhs.operand1),
         else => try backend.generateValue(binop.operand2),
     }
@@ -72,7 +82,7 @@ fn emitTernaryRescue(backend: *CBackend, instructions: []const IRInstruction, m:
 
     switch (fallback.opcode) {
         .copy => try backend.generateValue(fallback.operand1),
-        .load_var => try backend.output.appendSlice(backend.allocator, fallback.operand1.string),
+        .load_var => if (getValString(fallback.operand1)) |s| try backend.output.appendSlice(backend.allocator, s) else return error.InvalidPattern,
         .load_const => try backend.generateValue(fallback.operand1),
         else => {},
     }
@@ -84,35 +94,38 @@ fn emitChainedField(backend: *CBackend, instructions: []const IRInstruction, m: 
     const first = instructions[0];
     const second = instructions[1];
 
+    const f1_str = getValString(first.operand2) orelse return error.InvalidPattern;
+    const f2_str = getValString(second.operand2) orelse return error.InvalidPattern;
+
     try backend.output.print(backend.allocator, "    r_{d} = ", .{second.dest.?});
     try backend.generateValue(first.operand1);
-    try backend.output.append(backend.allocator, '-');
-    try backend.output.append(backend.allocator, '>');
-    try backend.output.appendSlice(backend.allocator, first.operand2.string);
-    try backend.output.append(backend.allocator, '-');
-    try backend.output.append(backend.allocator, '>');
-    try backend.output.appendSlice(backend.allocator, second.operand2.string);
+    try backend.output.appendSlice(backend.allocator, "->");
+    try backend.output.appendSlice(backend.allocator, f1_str);
+    try backend.output.appendSlice(backend.allocator, "->");
+    try backend.output.appendSlice(backend.allocator, f2_str);
     try backend.output.appendSlice(backend.allocator, ";\n");
 }
 
 fn emitReturnLocal(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
     _ = m;
     const load_var = instructions[0];
+    const var_str = getValString(load_var.operand1) orelse return error.InvalidPattern;
 
     try backend.output.appendSlice(backend.allocator, "    return ");
-    try backend.output.appendSlice(backend.allocator, load_var.operand1.string);
+    try backend.output.appendSlice(backend.allocator, var_str);
     try backend.output.appendSlice(backend.allocator, ";\n");
 }
 
 fn emitArgInline(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    const start = m.start;
     const len = m.length;
-    const call_instr = instructions[start + len - 1];
-    const func_name = call_instr.operand1.string;
+    if (len == 0 or len > instructions.len) return error.InvalidPattern;
+    const call_instr = instructions[len - 1];
+    const func_name = getValString(call_instr.operand1) orelse return error.InvalidPattern;
 
     if (call_instr.dest) |d| {
         const reg_type = if (backend.current_func) |f| f.register_types.items[d] else .unknown;
-        if (reg_type != .void) {
+        const callee_ret = backend.function_return_types.get(func_name) orelse .unknown;
+        if (reg_type != .void and callee_ret != .void) {
             try backend.output.print(backend.allocator, "    r_{d} = ", .{d});
         }
     } else {
@@ -138,8 +151,8 @@ fn emitArgInline(backend: *CBackend, instructions: []const IRInstruction, m: mat
     backend.call_args.clearRetainingCapacity();
 
     // Now emit the pattern's arg values inline
-    var i = start;
-    while (i < start + len - 1) : (i += 1) {
+    var i: usize = 0;
+    while (i < len - 1) : (i += 1) {
         if (instructions[i].opcode != .arg) continue;
         if (!first) try backend.output.appendSlice(backend.allocator, ", ");
         try backend.generateValue(instructions[i].operand1);

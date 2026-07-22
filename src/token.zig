@@ -49,6 +49,7 @@ pub const TokenType = enum {
     KeywordRoute, // route declaration
     KeywordRole, // role definition
     KeywordReq, // request body block
+    KeywordEvery, // every <num> <unit> => ...
 
     // ============================================
     // KEYWORDS - Imports & Modules

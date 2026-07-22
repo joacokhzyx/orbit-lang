@@ -221,7 +221,7 @@ test "encoder: setcc and movzx encoding" {
     // 1. sete_r RAX (dest=RAX=0, no REX since RAX < 4) -> 0x0F 0x94 0xC0
     // 2. sete_r R8 (dest=R8=8, dest >= 8 -> REX prefix 0x41, followed by 0x0F 0x94 0xC0)
     // 3. movzx_rr RAX, RAX -> REX.W prefix 0x48, followed by 0x0F 0xB6 0xC0
-    
+
     // Check 1. sete_r RAX -> 0x0F, 0x94, 0xC0
     try std.testing.expectEqual(@as(u8, 0x0F), bytes[0]);
     try std.testing.expectEqual(@as(u8, 0x94), bytes[1]);
@@ -579,7 +579,7 @@ test "link.resolve.undefined_symbol_errors" {
         .flags = .{ .read = true, .write = false, .execute = true },
         .alignment = 16,
     };
-    try sec.bytes.appendSlice(alloc, &.{0xE8, 0, 0, 0, 0});
+    try sec.bytes.appendSlice(alloc, &.{ 0xE8, 0, 0, 0, 0 });
     try sec.relocs.append(alloc, Reloc{
         .offset_in_section = 1,
         .target_symbol_index = 1,
@@ -757,7 +757,7 @@ test "native end-to-end: return 42" {
     try fw.interface.writeAll("fn main() -> int {\n  return 42\n}\n");
     try fw.flush();
     file.close(io);
-    
+
     // Check if the compiler binary exists before attempting subprocess execution
     var compiler_file = cwd.openFile(io, compiler_path, .{}) catch {
         return error.SkipZigTest;
@@ -842,10 +842,9 @@ test "native end-to-end: return 42" {
     });
     defer alloc.free(run_result.stdout);
     defer alloc.free(run_result.stderr);
-    
+
     try std.testing.expect(run_result.term == .exited);
     if (builtin.os.tag != .windows) {
         try std.testing.expectEqual(@as(u32, 42), run_result.term.exited);
     }
 }
-
