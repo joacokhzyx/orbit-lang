@@ -209,7 +209,7 @@ pub fn renderBoxCardAnimated(lines: []const []const u8, frame_delay_ms: u64) voi
     }
 }
 
-var stderr_mutex = std.Thread.Mutex{};
+var stderr_mutex: std.Thread.Mutex = .{};
 
 pub fn lockStderr() void {
     stderr_mutex.lock();
