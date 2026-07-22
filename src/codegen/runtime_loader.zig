@@ -318,7 +318,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\    if (num_workers <= 0) num_workers = 1;
             \\    if (num_workers > 64) num_workers = 64;
             \\
-            \\    orbit_render_server_banner(port, num_workers, kynx_cfg.enabled, {d:.1});
+            \\    orbit_render_server_banner(port, num_workers, kynx_cfg.enabled, {d});
             \\
             \\    orbit_thread_t* workers = (orbit_thread_t*)malloc(sizeof(orbit_thread_t) * (size_t)num_workers);
             \\    OrbitWorkerCtx* ctxs = (OrbitWorkerCtx*)malloc(sizeof(OrbitWorkerCtx) * (size_t)num_workers);

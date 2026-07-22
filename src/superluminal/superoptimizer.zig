@@ -15,14 +15,15 @@ pub const Superoptimizer = struct {
         return .{ .allocator = allocator };
     }
 
-    pub fn optimize(self: *Superoptimizer, instructions: []const IRInstruction) ![]const IRInstruction {
+    pub fn optimize(self: *Superoptimizer, instructions: []const IRInstruction) !?[]const IRInstruction {
         if (instructions.len > MAX_SUPEROPT_INSTR or instructions.len < 2) {
-            return instructions;
+            return null;
         }
 
         const baseline_cost = cost_model.evaluateSlice(instructions);
 
-        var best_instrs = try self.allocator.dupe(IRInstruction, instructions);
+        var best_instrs: ?[]IRInstruction = null;
+        errdefer if (best_instrs) |b| self.allocator.free(b);
         var best_cost = baseline_cost;
 
         const variants = [_]type{ ConstPropagate, StrengthReduce, DeadCodeElim };
@@ -32,8 +33,8 @@ pub const Superoptimizer = struct {
             if (result) |new_instrs| {
                 defer self.allocator.free(new_instrs);
                 const c = cost_model.evaluateSlice(new_instrs);
-                if (c.total() < best_cost.total() * 0.95) {
-                    self.allocator.free(best_instrs);
+                if (c.total() < best_cost.total() or (c.total() == best_cost.total() and new_instrs.len < (if (best_instrs) |b| b.len else instructions.len))) {
+                    if (best_instrs) |b| self.allocator.free(b);
                     best_instrs = try self.allocator.dupe(IRInstruction, new_instrs);
                     best_cost = c;
                 }
