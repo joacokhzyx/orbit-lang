@@ -412,7 +412,7 @@ pub const InlineOptimizer = struct {
                             }
                         }
 
-                        var arg_regs = std.ArrayListUnmanaged(u32){};
+                        var arg_regs = std.ArrayListUnmanaged(u32).empty;
                         defer arg_regs.deinit(self.allocator);
 
                         var k = arg_start;
@@ -428,7 +428,7 @@ pub const InlineOptimizer = struct {
                         func.register_count += callee_reg_count;
                         try func.register_types.appendNTimes(self.allocator, .unknown, callee_reg_count);
 
-                        var callee_instrs = std.ArrayListUnmanaged(IRInstruction){};
+                        var callee_instrs = std.ArrayListUnmanaged(IRInstruction).empty;
                         defer callee_instrs.deinit(self.allocator);
                         try callee_instrs.ensureTotalCapacity(self.allocator, callee.instructions.items.len);
 
@@ -465,7 +465,7 @@ pub const InlineOptimizer = struct {
                             }
                         }
 
-                        var param_copies = std.ArrayListUnmanaged(IRInstruction){};
+                        var param_copies = std.ArrayListUnmanaged(IRInstruction).empty;
                         defer param_copies.deinit(self.allocator);
                         try param_copies.ensureTotalCapacity(self.allocator, callee.params.len);
 

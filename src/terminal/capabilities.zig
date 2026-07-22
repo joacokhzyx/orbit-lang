@@ -110,21 +110,32 @@ pub fn get() TerminalCapabilities {
     };
 }
 
+const win32_k32 = struct {
+    pub const STD_INPUT_HANDLE: std.os.windows.DWORD = @bitCast(@as(i32, -10));
+    pub const STD_OUTPUT_HANDLE: std.os.windows.DWORD = @bitCast(@as(i32, -11));
+    pub const STD_ERROR_HANDLE: std.os.windows.DWORD = @bitCast(@as(i32, -12));
+
+    pub extern "kernel32" fn GetStdHandle(nStdHandle: std.os.windows.DWORD) callconv(.winapi) ?std.os.windows.HANDLE;
+    pub extern "kernel32" fn SetConsoleOutputCP(wCodePageID: std.os.windows.UINT) callconv(.winapi) c_int;
+    pub extern "kernel32" fn GetConsoleOutputCP() callconv(.winapi) std.os.windows.UINT;
+    pub extern "kernel32" fn GetConsoleMode(hConsoleHandle: std.os.windows.HANDLE, lpMode: *std.os.windows.DWORD) callconv(.winapi) c_int;
+    pub extern "kernel32" fn SetConsoleMode(hConsoleHandle: std.os.windows.HANDLE, dwMode: std.os.windows.DWORD) callconv(.winapi) c_int;
+};
+
 fn isWindowsUtf8() bool {
     if (builtin.os.tag != .windows) return true;
-    const windows = std.os.windows;
-    _ = windows.kernel32.SetConsoleOutputCP(65001);
-    return windows.kernel32.GetConsoleOutputCP() == 65001;
+    _ = win32_k32.SetConsoleOutputCP(65001);
+    return win32_k32.GetConsoleOutputCP() == 65001;
 }
 
 fn checkStdoutTty() bool {
     if (builtin.os.tag == .windows) {
         const windows = std.os.windows;
-        const raw_handle = windows.kernel32.GetStdHandle(windows.STD_OUTPUT_HANDLE);
+        const raw_handle = win32_k32.GetStdHandle(win32_k32.STD_OUTPUT_HANDLE);
         if (raw_handle) |handle| {
             if (handle == windows.INVALID_HANDLE_VALUE) return false;
             var mode: windows.DWORD = 0;
-            return windows.kernel32.GetConsoleMode(handle, &mode) != 0;
+            return win32_k32.GetConsoleMode(handle, &mode) != 0;
         } else {
             return false;
         }
@@ -140,11 +151,11 @@ fn checkStdoutTty() bool {
 fn checkStderrTty() bool {
     if (builtin.os.tag == .windows) {
         const windows = std.os.windows;
-        const raw_handle = windows.kernel32.GetStdHandle(windows.STD_ERROR_HANDLE);
+        const raw_handle = win32_k32.GetStdHandle(win32_k32.STD_ERROR_HANDLE);
         if (raw_handle) |handle| {
             if (handle == windows.INVALID_HANDLE_VALUE) return false;
             var mode: windows.DWORD = 0;
-            return windows.kernel32.GetConsoleMode(handle, &mode) != 0;
+            return win32_k32.GetConsoleMode(handle, &mode) != 0;
         } else {
             return false;
         }
@@ -158,10 +169,9 @@ fn checkStderrTty() bool {
 }
 
 fn enableWindowsVT() void {
-    const windows = std.os.windows;
-    _ = windows.kernel32.SetConsoleOutputCP(65001);
-    enableVTOnHandle(windows.STD_OUTPUT_HANDLE);
-    enableVTOnHandle(windows.STD_ERROR_HANDLE);
+    _ = win32_k32.SetConsoleOutputCP(65001);
+    enableVTOnHandle(win32_k32.STD_OUTPUT_HANDLE);
+    enableVTOnHandle(win32_k32.STD_ERROR_HANDLE);
 }
 
 /// Enables ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004) and
@@ -170,14 +180,14 @@ fn enableWindowsVT() void {
 /// render correctly when writing raw bytes via WriteFile.
 fn enableVTOnHandle(std_handle: std.os.windows.DWORD) void {
     const windows = std.os.windows;
-    const raw = windows.kernel32.GetStdHandle(std_handle);
+    const raw = win32_k32.GetStdHandle(std_handle);
     if (raw) |h| {
         if (h == windows.INVALID_HANDLE_VALUE) return;
         var mode: windows.DWORD = 0;
-        if (windows.kernel32.GetConsoleMode(h, &mode) != 0) {
+        if (win32_k32.GetConsoleMode(h, &mode) != 0) {
             mode |= 0x0001; // ENABLE_PROCESSED_OUTPUT
             mode |= 0x0004; // ENABLE_VIRTUAL_TERMINAL_PROCESSING
-            _ = windows.kernel32.SetConsoleMode(h, mode);
+            _ = win32_k32.SetConsoleMode(h, mode);
         }
     }
 }
