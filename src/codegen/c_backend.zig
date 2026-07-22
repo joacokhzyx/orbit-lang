@@ -909,7 +909,65 @@ pub const CBackend = struct {
             if (std.mem.eql(u8, var_name, "_")) continue;
             var var_type = entry.value_ptr.*;
             if (var_type == .unknown) {
-                if (std.mem.indexOf(u8, var_name, "str") != null or std.mem.eql(u8, var_name, "message") or std.mem.eql(u8, var_name, "msg") or std.mem.eql(u8, var_name, "name") or std.mem.eql(u8, var_name, "path") or std.mem.eql(u8, var_name, "subCmd") or std.mem.eql(u8, var_name, "arg") or std.mem.eql(u8, var_name, "outputPath") or std.mem.eql(u8, var_name, "hostCompiler") or std.mem.eql(u8, var_name, "cmd") or std.mem.eql(u8, var_name, "res") or std.mem.eql(u8, var_name, "test_name") or std.mem.eql(u8, var_name, "url")) {
+                // Second pass: try to resolve type from decl_var instruction annotations/values
+                for (func.instructions.items) |instr2| {
+                    if (instr2.opcode == .decl_var) {
+                        const iname = switch (instr2.operand1) {
+                            .string => |s| s,
+                            .symbol => |s| s,
+                            else => continue,
+                        };
+                        if (!std.mem.eql(u8, iname, var_name)) continue;
+                        // Check explicit type annotation stored in operand3
+                        if (instr2.operand3 == .string) {
+                            const ann = instr2.operand3.string;
+                            if (std.mem.eql(u8, ann, "string") or std.mem.eql(u8, ann, "str")) {
+                                var_type = .string;
+                                break;
+                            } else if (std.mem.eql(u8, ann, "int") or std.mem.eql(u8, ann, "i64") or std.mem.eql(u8, ann, "i32")) {
+                                var_type = .int;
+                                break;
+                            } else if (std.mem.eql(u8, ann, "float") or std.mem.eql(u8, ann, "f64")) {
+                                var_type = .float;
+                                break;
+                            } else if (std.mem.eql(u8, ann, "bool")) {
+                                var_type = .bool;
+                                break;
+                            }
+                        }
+                        // Check operand2 register type (may now be resolved after register inference pass)
+                        if (instr2.operand2 == .register) {
+                            const r = instr2.operand2.register;
+                            if (r < func.register_types.items.len and func.register_types.items[r] != .unknown) {
+                                var_type = func.register_types.items[r];
+                                break;
+                            }
+                        }
+                        // Infer directly from literal value
+                        if (instr2.operand2 == .string) { var_type = .string; break; }
+                        if (instr2.operand2 == .int)    { var_type = .int;    break; }
+                        if (instr2.operand2 == .float)  { var_type = .float;  break; }
+                        if (instr2.operand2 == .bool)   { var_type = .bool;   break; }
+                    }
+                }
+            }
+            if (var_type == .unknown) {
+                // Name-based heuristic as last resort — covers common string variable patterns
+                if (std.mem.indexOf(u8, var_name, "str") != null or
+                    std.mem.eql(u8, var_name, "message") or std.mem.eql(u8, var_name, "msg") or
+                    std.mem.eql(u8, var_name, "name") or std.mem.eql(u8, var_name, "path") or
+                    std.mem.eql(u8, var_name, "subCmd") or std.mem.eql(u8, var_name, "arg") or
+                    std.mem.eql(u8, var_name, "outputPath") or std.mem.eql(u8, var_name, "hostCompiler") or
+                    std.mem.eql(u8, var_name, "cmd") or std.mem.eql(u8, var_name, "res") or
+                    std.mem.eql(u8, var_name, "test_name") or std.mem.eql(u8, var_name, "url") or
+                    std.mem.eql(u8, var_name, "tok") or std.mem.eql(u8, var_name, "token") or
+                    std.mem.eql(u8, var_name, "cached") or std.mem.eql(u8, var_name, "key") or
+                    std.mem.eql(u8, var_name, "val") or std.mem.eql(u8, var_name, "body") or
+                    std.mem.eql(u8, var_name, "json") or std.mem.eql(u8, var_name, "text") or
+                    std.mem.eql(u8, var_name, "content") or std.mem.eql(u8, var_name, "header") or
+                    std.mem.eql(u8, var_name, "email") or std.mem.eql(u8, var_name, "user") or
+                    std.mem.eql(u8, var_name, "password") or std.mem.eql(u8, var_name, "hash"))
+                {
                     var_type = .string;
                 } else {
                     var_type = .int;
