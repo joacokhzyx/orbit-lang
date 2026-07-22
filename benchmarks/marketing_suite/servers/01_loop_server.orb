@@ -1,0 +1,4 @@
+port 4001
+cors "*"
+
+route GET "/loop" => "OK"

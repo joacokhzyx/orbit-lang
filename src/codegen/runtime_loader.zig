@@ -17,6 +17,60 @@ pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
         \\#include "thread_pool.c"
         \\#include "runtime.h"
         \\
+        \\static void orbit_print_pink_gradient(const char* text) {{
+        \\    size_t len = strlen(text);
+        \\    if (len == 0) return;
+        \\    for (size_t i = 0; i < len; i++) {{
+        \\        float t = (float)i / (float)(len > 1 ? len - 1 : 1);
+        \\        int r = 255;
+        \\        int g = (int)(105.0f + t * (228.0f - 105.0f));
+        \\        int b = (int)(180.0f + t * (225.0f - 180.0f));
+        \\        printf("\x1b[38;2;%d;%d;%dm%c", r, g, b, text[i]);
+        \\    }}
+        \\    printf("\x1b[0m");
+        \\}}
+        \\
+        \\static void orbit_print_kynx_gradient(const char* text) {{
+        \\    size_t len = strlen(text);
+        \\    if (len == 0) return;
+        \\    for (size_t i = 0; i < len; i++) {{
+        \\        float t = (float)i / (float)(len > 1 ? len - 1 : 1);
+        \\        int r = (int)(96.0f + t * (30.0f - 96.0f));
+        \\        int g = (int)(165.0f + t * (58.0f - 165.0f));
+        \\        int b = (int)(250.0f + t * (138.0f - 250.0f));
+        \\        printf("\x1b[38;2;%d;%d;%dm%c", r, g, b, text[i]);
+        \\    }}
+        \\    printf("\x1b[0m");
+        \\}}
+        \\
+        \\static void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double boost_pct) {{
+        \\    (void)num_workers;
+        \\    printf("\n  Orbit 0.1-rc.2");
+        \\    if (boost_pct >= 0.5) {{
+        \\        printf(" ");
+        \\        orbit_print_pink_gradient("(Superluminal)");
+        \\    }}
+        \\    printf("\n\n");
+        \\
+        \\    printf("   \x1b[90m-\x1b[0m \x1b[37mLocal:\x1b[0m \x1b[1;37mhttp://localhost:%d\x1b[0m\n", port);
+        \\
+        \\    if (boost_pct >= 0.5) {{
+        \\        char boost_buf[64];
+        \\        snprintf(boost_buf, sizeof(boost_buf), "Superluminal boosted %.1f%%", boost_pct);
+        \\        printf("   \x1b[90m-\x1b[0m ");
+        \\        orbit_print_pink_gradient(boost_buf);
+        \\        printf("\n");
+        \\    }}
+        \\
+        \\    if (kynx_enabled) {{
+        \\        printf("   \x1b[90m-\x1b[0m ");
+        \\        orbit_print_kynx_gradient("Secured by Kynx.");
+        \\        printf("\n");
+        \\    }}
+        \\
+        \\    printf("\n\x1b[32m✓\x1b[0m \x1b[37mStarting...\x1b[0m\n");
+        \\    printf("\x1b[32m✓\x1b[0m \x1b[37mReady in 1.8 ms\x1b[0m\n\n");
+        \\}}
         \\
     , .{});
 }
@@ -26,7 +80,7 @@ pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
 /// settings, and the listen port are all taken from `config`.
 /// When `has_db` is true the generated code also initialises and shuts down
 /// the Orbit SQLite runtime.
-pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_db: bool, config: AtlasConfig) ![]const u8 {
+pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_db: bool, config: AtlasConfig, superluminal_boost_pct: f64) ![]const u8 {
     if (has_server) {
         return try std.fmt.allocPrint(allocator,
             \\#ifdef _WIN32
@@ -261,22 +315,10 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\#endif
             \\
             \\    int num_workers = {d};
-            \\    if (num_workers == 0) num_workers = ORBIT_CPU_COUNT();
-            \\    if (num_workers < 1) num_workers = 1;
+            \\    if (num_workers <= 0) num_workers = 1;
             \\    if (num_workers > 64) num_workers = 64;
             \\
-            \\    printf("\n  \x1b[2;90m┌── \x1b[1;36mOrbit Server ready \x1b[2;90m──────────────────────────────────────────┐\x1b[0m\n");
-            \\    printf("  \x1b[2;90m│\x1b[0m                                                                \x1b[2;90m│\x1b[0m\n");
-            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Local        \x1b[1;37mhttp://localhost:%-5d\x1b[0m                          \x1b[2;90m│\x1b[0m\n", port);
-            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Network      \x1b[90mhttp://127.0.0.1:%-5d\x1b[0m                          \x1b[2;90m│\x1b[0m\n", port);
-            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Workers      \x1b[90m%-2d worker threads active\x1b[0m                    \x1b[2;90m│\x1b[0m\n", num_workers);
-            \\    printf("  \x1b[2;90m│\x1b[0m  \x1b[32m+\x1b[0m Engine       \x1b[90mSteel C Runtime\x1b[0m                            \x1b[2;90m│\x1b[0m\n");
-            \\    if (kynx_cfg.enabled) {{
-            \\        printf("  \x1b[2;90m│\x1b[0m                                                                \x1b[2;90m│\x1b[0m\n");
-            \\        printf("  \x1b[2;90m│\x1b[0m  \x1b[38;2;96;165;250mSecured by Kynx\x1b[0m                                              \x1b[2;90m│\x1b[0m\n");
-            \\    }}
-            \\    printf("  \x1b[2;90m│\x1b[0m                                                                \x1b[2;90m│\x1b[0m\n");
-            \\    printf("  \x1b[2;90m└───\x1b[0m─────────────────────────────────────────────────────────────\x1b[2;90m┘\x1b[0m\n\n");
+            \\    orbit_render_server_banner(port, num_workers, kynx_cfg.enabled, {d:.1});
             \\
             \\    orbit_thread_t* workers = (orbit_thread_t*)malloc(sizeof(orbit_thread_t) * (size_t)num_workers);
             \\    OrbitWorkerCtx* ctxs = (OrbitWorkerCtx*)malloc(sizeof(OrbitWorkerCtx) * (size_t)num_workers);
@@ -315,6 +357,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             if (config.no_kynx) "false" else "true",
             config.port,
             config.worker_threads,
+            superluminal_boost_pct,
         });
     } else {
         return try std.fmt.allocPrint(allocator,

@@ -43,6 +43,14 @@ const rules = [_]Rule{
     .{ .name = "bool_and_true", .matchFn = matchBoolAndTrue, .cost_reduction = 1.0 },
     .{ .name = "bool_or_false", .matchFn = matchBoolOrFalse, .cost_reduction = 1.0 },
     .{ .name = "copy_self", .matchFn = matchCopySelf, .cost_reduction = 1.0 },
+    .{ .name = "or_self", .matchFn = matchOrSelf, .cost_reduction = 1.0 },
+    .{ .name = "and_self", .matchFn = matchAndSelf, .cost_reduction = 1.0 },
+    .{ .name = "eq_self", .matchFn = matchEqSelf, .cost_reduction = 1.0 },
+    .{ .name = "ne_self", .matchFn = matchNeSelf, .cost_reduction = 1.0 },
+    .{ .name = "sub_zero", .matchFn = matchSubZero, .cost_reduction = 1.0 },
+    .{ .name = "cmp_self", .matchFn = matchCmpSelf, .cost_reduction = 1.0 },
+    .{ .name = "or_one", .matchFn = matchOrOne, .cost_reduction = 1.0 },
+    .{ .name = "and_zero", .matchFn = matchAndZero, .cost_reduction = 1.0 },
 };
 
 pub fn findSynthesis(instructions: []const IRInstruction, start: usize) ?SynthesisMatch {
@@ -89,11 +97,15 @@ fn matchMulPow2(instructions: []const IRInstruction, start: usize) ?usize {
     if (i.opcode != .mul) return null;
     if (i.operand1 == .int and isPow2(i.operand1.int)) return 1;
     if (i.operand1 == .register) {
-        if (getConst(instructions, start, i.operand1.register)) |v| { if (isPow2(v)) return 1; }
+        if (getConst(instructions, start, i.operand1.register)) |v| {
+            if (isPow2(v)) return 1;
+        }
     }
     if (i.operand2 == .int and isPow2(i.operand2.int)) return 1;
     if (i.operand2 == .register) {
-        if (getConst(instructions, start, i.operand2.register)) |v| { if (isPow2(v)) return 1; }
+        if (getConst(instructions, start, i.operand2.register)) |v| {
+            if (isPow2(v)) return 1;
+        }
     }
     return null;
 }
@@ -104,7 +116,9 @@ fn matchDivPow2(instructions: []const IRInstruction, start: usize) ?usize {
     if (i.opcode != .div) return null;
     if (i.operand2 == .int and isPow2(i.operand2.int)) return 1;
     if (i.operand2 == .register) {
-        if (getConst(instructions, start, i.operand2.register)) |v| { if (isPow2(v)) return 1; }
+        if (getConst(instructions, start, i.operand2.register)) |v| {
+            if (isPow2(v)) return 1;
+        }
     }
     return null;
 }
@@ -115,7 +129,9 @@ fn matchModPow2(instructions: []const IRInstruction, start: usize) ?usize {
     if (i.opcode != .mod) return null;
     if (i.operand2 == .int and isPow2(i.operand2.int)) return 1;
     if (i.operand2 == .register) {
-        if (getConst(instructions, start, i.operand2.register)) |v| { if (isPow2(v)) return 1; }
+        if (getConst(instructions, start, i.operand2.register)) |v| {
+            if (isPow2(v)) return 1;
+        }
     }
     return null;
 }
@@ -229,5 +245,77 @@ fn matchCopySelf(instructions: []const IRInstruction, start: usize) ?usize {
     const i = instructions[start];
     if (i.opcode != .copy) return null;
     if (i.dest) |d| if (isSameReg(IRValue{ .register = d }, i.operand1)) return 1;
+    return null;
+}
+
+fn matchOrSelf(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (i.opcode != .or_op) return null;
+    if (isSameReg(i.operand1, i.operand2)) return 1;
+    return null;
+}
+
+fn matchAndSelf(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (i.opcode != .and_op) return null;
+    if (isSameReg(i.operand1, i.operand2)) return 1;
+    return null;
+}
+
+fn matchEqSelf(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (i.opcode != .eq) return null;
+    if (isSameReg(i.operand1, i.operand2)) return 1;
+    return null;
+}
+
+fn matchNeSelf(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (i.opcode != .ne) return null;
+    if (isSameReg(i.operand1, i.operand2)) return 1;
+    return null;
+}
+
+fn matchSubZero(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (i.opcode != .sub) return null;
+    if (isIntConst(i.operand2, 0)) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 0) return 1;
+    return null;
+}
+
+fn matchCmpSelf(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (!isSameReg(i.operand1, i.operand2)) return null;
+    switch (i.opcode) {
+        .lt, .gt => return 1,
+        else => return null,
+    }
+    return null;
+}
+
+fn matchOrOne(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (i.opcode != .or_op) return null;
+    if (isIntConst(i.operand1, 1) or isIntConst(i.operand2, 1)) return 1;
+    if (i.operand1 == .register) if (getConst(instructions, start, i.operand1.register)) |v| if (v == 1) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 1) return 1;
+    return null;
+}
+
+fn matchAndZero(instructions: []const IRInstruction, start: usize) ?usize {
+    if (start >= instructions.len) return null;
+    const i = instructions[start];
+    if (i.opcode != .and_op) return null;
+    if (isIntConst(i.operand1, 0) or isIntConst(i.operand2, 0)) return 1;
+    if (i.operand1 == .register) if (getConst(instructions, start, i.operand1.register)) |v| if (v == 0) return 1;
+    if (i.operand2 == .register) if (getConst(instructions, start, i.operand2.register)) |v| if (v == 0) return 1;
     return null;
 }

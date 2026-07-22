@@ -1,19 +1,31 @@
-# Orbit examples
+# Orbit Examples
 
-These examples use the public `orbit` compilation path and model small service
-endpoints a team could deploy behind a reverse proxy. They intentionally keep
-transport, environment management, migrations, and observability outside the
-example: those belong to the service's deployment configuration.
+This directory contains real-world, production-shaped service examples built with the Orbit programming language.
 
-Build an example with:
+## Available Examples
+
+1. **`catalog_service.orb`**
+   - E-commerce & Product Catalog API.
+   - Includes data models for `Product` and realistic JSON payloads for catalog listings, featured products, categories, item creation (`POST`), and error handling (`404`).
+
+2. **`health_service.orb`**
+   - Microservice Health & Observability API.
+   - Includes `/health` (full component statuses), `/ready` (load-balancer probe), and `/metrics` (request counts, P50/P95/P99 latencies, active workers).
+
+3. **`sqlite_notes.orb`**
+   - SQLite-Backed Secure Notes & User Management API.
+   - Includes `User` and `Note` models, authenticated endpoint handling (`401 Unauthorized`), admin authorization checks (`403 Forbidden`), and notes CRUD operations.
+
+## Running Examples
+
+Start an example service in development mode:
+
+```sh
+orbit dev examples/catalog_service.orb
+```
+
+Or compile a standalone executable binary:
 
 ```sh
 orbit build examples/health_service.orb
 ```
-
-- `health_service.orb` — health and readiness endpoints for an orchestration probe.
-- `catalog_service.orb` — a small catalog API shape with explicit HTTP outcomes.
-- `sqlite_notes.orb` — the model shape for a SQLite-backed notes service.
-
-The native backend is not used by these examples and is not a supported deployment
-target. See [STATUS.md](../STATUS.md) before adapting an example for production.

@@ -127,11 +127,11 @@ pub const Backend = struct {
             for (func.blocks.items) |*block| {
                 for (block.instructions.items) |*instr| {
                     const is_call = (instr.opcode == .call);
-                    
+
                     const ops = [3]*MirOperand{ &instr.op1, &instr.op2, &instr.op3 };
                     for (ops, 0..) |op_ptr, op_idx| {
                         if (is_call and op_idx == 0) continue;
-                        
+
                         if (op_ptr.* == .imm_str) {
                             const str = op_ptr.imm_str;
                             const sym_name = if (string_literal_syms.get(str)) |sym| sym else blk: {
@@ -139,7 +139,7 @@ pub const Backend = struct {
                                 try string_literals.appendSlice(self.allocator, str);
                                 try string_literals.append(self.allocator, 0);
                                 try string_literal_offsets.put(str, offset);
-                                
+
                                 const sym = try std.fmt.allocPrint(self.allocator, "__str_{d}", .{str_counter});
                                 str_counter += 1;
                                 try string_literal_syms.put(str, sym);
@@ -243,7 +243,7 @@ pub const Backend = struct {
             const sym_name = entry.value_ptr.*;
             const offset_in_pool = string_literal_offsets.get(str_val).?;
             const abs_offset = code_size_before_strings + offset_in_pool;
-            
+
             const sym_idx = @as(u32, @intCast(obj.symbols.items.len));
             try obj.symbols.append(self.allocator, Symbol{
                 .name = try self.allocator.dupe(u8, sym_name),

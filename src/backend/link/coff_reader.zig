@@ -77,13 +77,12 @@ pub fn readObject(allocator: std.mem.Allocator, bytes: []const u8) !Object {
         }
 
         const is_bss = (sh.characteristics & 0x00000080) != 0; // IMAGE_SCN_CNT_UNINITIALIZED_DATA
-        const kind: object.SectionKind = if (is_bss) .bss
-        else if ((sh.characteristics & 0x00000020) != 0) .text // IMAGE_SCN_CNT_CODE
-        else if ((sh.characteristics & 0x00200000) != 0) .rodata // IMAGE_SCN_ALIGN_2BYTES example, wait, CNT_INITIALIZED_DATA
-        else if ((sh.characteristics & 0x00000040) != 0) blk: {
-            if ((sh.characteristics & 0x80000000) != 0) break :blk .data;
-            break :blk .rodata;
-        } else .rodata;
+        const kind: object.SectionKind = if (is_bss) .bss else if ((sh.characteristics & 0x00000020) != 0) .text // IMAGE_SCN_CNT_CODE
+            else if ((sh.characteristics & 0x00200000) != 0) .rodata // IMAGE_SCN_ALIGN_2BYTES example, wait, CNT_INITIALIZED_DATA
+            else if ((sh.characteristics & 0x00000040) != 0) blk: {
+                if ((sh.characteristics & 0x80000000) != 0) break :blk .data;
+                break :blk .rodata;
+            } else .rodata;
 
         // Alignment value from characteristics
         const align_shift = (sh.characteristics >> 20) & 0xF;

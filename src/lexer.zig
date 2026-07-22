@@ -304,6 +304,7 @@ pub const Lexer = struct {
             .{ "route", .KeywordRoute },
             .{ "role", .KeywordRole },
             .{ "req", .KeywordReq },
+            .{ "every", .KeywordEvery },
 
             .{ "use", .KeywordUse },
             .{ "import", .KeywordImport },

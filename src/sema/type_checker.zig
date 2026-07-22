@@ -98,6 +98,7 @@ pub const TypeChecker = struct {
     union_registry: std.StringHashMapUnmanaged([]const []const u8), // Phase 2
     model_registry: ?*ModelRegistry = null,
     module_registry: ?*ModuleRegistry = null,
+    diagnostics: ?*@import("diagnostic.zig").DiagnosticReporter = null,
     source: []const u8,
 
     /// Classifies the "shape" of a user-defined type for Phase 2 exhaustiveness
@@ -337,6 +338,20 @@ pub const TypeChecker = struct {
                 if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "exec")) return "string";
                 if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "env")) return "string";
                 if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "exit")) return "void";
+                if (std.mem.eql(u8, obj, "req")) {
+                    if (std.mem.eql(u8, mem, "query")) return "string";
+                    if (std.mem.eql(u8, mem, "bearer_token")) return "string";
+                    if (std.mem.eql(u8, mem, "has_role")) return "bool";
+                    if (std.mem.eql(u8, mem, "role")) return "string";
+                    if (std.mem.eql(u8, mem, "header")) return "string";
+                }
+                if (obj.len > 0 and std.ascii.isUpper(obj[0])) {
+                    if (std.mem.eql(u8, mem, "all")) return "string";
+                    if (std.mem.eql(u8, mem, "where")) return "string";
+                    if (std.mem.eql(u8, mem, "find")) return "string";
+                    if (std.mem.eql(u8, mem, "create")) return "bool";
+                    if (std.mem.eql(u8, mem, "delete")) return "bool";
+                }
                 // Phase 2: List/Map method inference
                 const obj_type = self.inferIdentifierType(ma.object, scope);
                 if (std.mem.eql(u8, obj_type, "list")) {
@@ -459,6 +474,9 @@ pub const TypeChecker = struct {
 
         // Phase 2: Result<T> is compatible with T (auto-wrap)
         if (std.mem.eql(u8, resolved_expected, "result")) return true;
+
+        // Route responses: any return value is auto-wrapped into HTTP response
+        if (std.mem.eql(u8, resolved_expected, "response")) return true;
 
         // Phase 2: int is promotable to float
         if (std.mem.eql(u8, resolved_expected, "float") and std.mem.eql(u8, resolved_actual, "int")) return true;

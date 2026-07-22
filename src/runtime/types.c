@@ -36,8 +36,17 @@ typedef double      orbit_float;
 typedef double      orbit_decimal;
 typedef bool        orbit_bool;
 
-/* ── Forward Declarations ───────────────────────────────────────────── */
 struct OrbitArena;
+
+typedef struct OrbitModel {
+    void* data;
+    orbit_string name;
+    orbit_string message;
+    orbit_int code;
+    orbit_int line;
+    orbit_int column;
+    void* diagnostics;
+} OrbitModel;
 
 /* ── Result<T, E> — Algebraic error handling ────────────────────────── *
  *

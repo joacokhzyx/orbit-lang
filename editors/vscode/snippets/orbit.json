@@ -1,0 +1,52 @@
+{
+  "Server Port": {
+    "prefix": "port",
+    "body": ["port ${1:4000}"],
+    "description": "Server listening port directive"
+  },
+  "CORS Directive": {
+    "prefix": "cors",
+    "body": ["cors \"${1:*}\""],
+    "description": "Cross-Origin Resource Sharing configuration"
+  },
+  "Database Directive": {
+    "prefix": "database",
+    "body": ["database \"sqlite:${1:app.db}\""],
+    "description": "Database connection URI"
+  },
+  "Kynx Defense Directive": {
+    "prefix": "kynx",
+    "body": ["kynx rate_limit ${1:100} ${2|per_minute,per_second|}"],
+    "description": "Kynx Bloom filter rate limiter protection"
+  },
+  "ORM Model": {
+    "prefix": "model",
+    "body": [
+      "model ${1:User} {",
+      "    id: Int",
+      "    ${2:username}: String",
+      "}"
+    ],
+    "description": "Data Entity ORM Model"
+  },
+  "HTTP Route": {
+    "prefix": "route",
+    "body": [
+      "route ${1|GET,POST,PUT,DELETE|} \"${2:/path}\" {",
+      "    return { ${3:status: \"ok\"} }",
+      "}"
+    ],
+    "description": "HTTP Route Handler"
+  },
+  "Auth Group": {
+    "prefix": "@auth",
+    "body": [
+      "@auth {",
+      "    route ${1|GET,POST|} \"${2:/protected}\" {",
+      "        return { ${3:status: \"authenticated\"} }",
+      "    }",
+      "}"
+    ],
+    "description": "Authenticated Route Group"
+  }
+}

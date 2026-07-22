@@ -88,6 +88,7 @@ pub const Sema = struct {
         self.type_checker = TypeChecker.init(allocator, &self.node_types, source);
         self.type_checker.model_registry = &self.model_registry;
         self.type_checker.module_registry = &self.module_registry;
+        self.type_checker.diagnostics = &self.diagnostics;
 
         return self;
     }

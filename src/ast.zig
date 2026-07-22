@@ -44,6 +44,8 @@ pub const Node = struct {
         type_decl, // type Name = Type
         enum_decl, // type Name = enum { ... }
         union_decl, // type Name = union { ... }
+        config_decl, // port 3000, cors "*", db "app.db", env "production"
+        schedule_decl, // every 1 hour => Note.cleanup()
 
         // ============================================
         // STATEMENTS
@@ -184,6 +186,18 @@ pub const Node = struct {
             name: Token,
             variants: []const *Node, // Each variant can be a struct-like declaration
             is_private: bool,
+        },
+
+        config_decl: struct {
+            key: Token,
+            value: *Node,
+        },
+
+        schedule_decl: struct {
+            amount: Token,
+            unit: Token,
+            at_time: ?Token,
+            handler: *Node,
         },
 
         // ============================================

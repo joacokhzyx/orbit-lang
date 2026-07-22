@@ -1,0 +1,11 @@
+port 4003
+cors "*"
+
+route GET "/page" => {
+    val cached = cache.get("html_page")
+    if (cached != "") return response.json(200, cached)
+    
+    val page = "<html><body><h1>Orbit Steel Engine - 100K RPS Server</h1></body></html>"
+    cache.set("html_page", page, 600)
+    return response.json(200, page)
+}

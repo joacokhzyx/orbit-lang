@@ -471,13 +471,27 @@ pub const ExpressionParser = struct {
             return try self.parseInterpolatedString(self.previous_token.*);
         }
 
-        if (self.match(.KeywordTrue) or self.match(.KeywordFalse)) {
-            const node = try self.createNode(.boolean_literal, .{ .boolean_literal = self.previous_token.* });
+        if (self.match(.KeywordNull)) {
+            const node = try self.createNode(.null_literal, .{ .null_literal = {} });
+            return node;
+        }
+
+        if (self.match(.KeywordAsync)) {
+            const expr = try self.parseExpression();
+            const node = try self.createNode(.await_expr, .{ .await_expr = .{ .expr = expr } });
             return node;
         }
 
         if (self.match(.Identifier) or self.match(.KeywordOk) or self.match(.KeywordErr) or self.match(.KeywordReq)) {
             const node = try self.createNode(.identifier, .{ .identifier = self.previous_token.* });
+            return node;
+        }
+
+        const t = self.current_token.tag;
+        if (t != .EOF and t != .Invalid and t != .Newline and t != .OpenParen and t != .CloseParen and t != .OpenBrace and t != .CloseBrace and t != .OpenBracket and t != .CloseBracket and t != .Comma and t != .SemiColon and t != .Colon and t != .Dot and t != .Equal and t != .Plus and t != .Minus and t != .Asterisk and t != .Slash and t != .Percent and t != .DoubleEqual and t != .NotEqual and t != .Less and t != .LessEqual and t != .Greater and t != .GreaterEqual and t != .DoubleAmpersand and t != .DoublePipe and t != .Bang and t != .Question) {
+            const tok = self.current_token.*;
+            self.advance();
+            const node = try self.createNode(.identifier, .{ .identifier = tok });
             return node;
         }
 
@@ -553,13 +567,9 @@ pub const ExpressionParser = struct {
     /// (identifier or certain keyword tokens that appear as property names).
     fn isMemberToken(self: *ExpressionParser) bool {
         const t = self.current_token.tag;
-        return t == .Identifier or
-            t == .KeywordGet or t == .KeywordPost or t == .KeywordPut or t == .KeywordDelete or
-            t == .KeywordPatch or t == .KeywordHead or t == .KeywordOptions or
-            t == .KeywordType or t == .KeywordEnum or t == .KeywordUnion or t == .KeywordModel or
-            t == .KeywordMatch or t == .KeywordReturn or t == .KeywordFn or
-            t == .KeywordOk or t == .KeywordErr or t == .KeywordVal or t == .KeywordConst or
-            t == .KeywordPrivate or t == .KeywordAsync or t == .KeywordAwait;
+        if (t == .Identifier) return true;
+        if (t == .EOF or t == .Invalid or t == .Newline or t == .OpenParen or t == .CloseParen or t == .OpenBrace or t == .CloseBrace or t == .OpenBracket or t == .CloseBracket or t == .Comma or t == .SemiColon or t == .Colon or t == .Dot) return false;
+        return true;
     }
 
     /// Returns `true` if `tag` represents a named HTTP-error shortcut keyword

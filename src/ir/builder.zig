@@ -19,6 +19,11 @@ const IRType = ir_mod.IRType;
 const IRTypeDecl = ir_mod.IRTypeDecl;
 const IRVariant = ir_mod.IRVariant;
 
+pub const LoopContext = struct {
+    start_label: u32,
+    end_label: u32,
+};
+
 pub const IRBuilder = struct {
     allocator: std.mem.Allocator,
     module: IRModule,
@@ -30,11 +35,6 @@ pub const IRBuilder = struct {
     model_registry: ?*const @import("../sema/model_registry.zig").ModelRegistry,
     variable_types: std.StringHashMap(IRType),
     loop_stack: std.ArrayListUnmanaged(LoopContext),
-
-    const LoopContext = struct {
-        start_label: u32,
-        end_label: u32,
-    };
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, node_types: *std.AutoHashMapUnmanaged(*Node, []const u8), model_registry: ?*const @import("../sema/model_registry.zig").ModelRegistry) IRBuilder {
         return .{
@@ -326,19 +326,19 @@ pub const IRBuilder = struct {
             }
         }
 
-         const is_main_added = (self.main_function.instructions.items.len > 0) or (self.module.functions.items.len == 0);
-         if (is_main_added) {
-             const main_needs_ret = if (self.main_function.instructions.items.len == 0) true else blk: {
-                 const last = self.main_function.instructions.items[self.main_function.instructions.items.len - 1];
-                 break :blk last.opcode != .ret;
-             };
-             if (main_needs_ret) {
-                 var ret_instr = IRInstruction.init(.ret);
-                 ret_instr.operand1 = .none;
-                 try self.main_function.emit(self.allocator, ret_instr);
-             }
-             try self.module.addFunction(self.main_function);
-         }
+        const is_main_added = (self.main_function.instructions.items.len > 0) or (self.module.functions.items.len == 0);
+        if (is_main_added) {
+            const main_needs_ret = if (self.main_function.instructions.items.len == 0) true else blk: {
+                const last = self.main_function.instructions.items[self.main_function.instructions.items.len - 1];
+                break :blk last.opcode != .ret;
+            };
+            if (main_needs_ret) {
+                var ret_instr = IRInstruction.init(.ret);
+                ret_instr.operand1 = .none;
+                try self.main_function.emit(self.allocator, ret_instr);
+            }
+            try self.module.addFunction(self.main_function);
+        }
 
         return self.module;
     }
@@ -569,7 +569,9 @@ pub const IRBuilder = struct {
                 const ann_type_name = ann.data.type_annotation.base.getText(self.source);
                 instr.operand3 = IRValue{ .string = ann_type_name };
             }
-            try self.current_function.?.emit(self.allocator, instr);
+            if (self.current_function) |func| {
+                try func.emit(self.allocator, instr);
+            }
         }
     }
 
@@ -863,6 +865,9 @@ pub const IRBuilder = struct {
             const obj_name = ma.object.data.identifier.getText(self.source);
             // Check if first char is UpperCase -> Enum/Type constant
             if (std.ascii.isUpper(obj_name[0])) {
+                if (std.mem.eql(u8, member_name, "all") or std.mem.eql(u8, member_name, "where") or std.mem.eql(u8, member_name, "find") or std.mem.eql(u8, member_name, "create") or std.mem.eql(u8, member_name, "delete")) {
+                    return IRValue{ .none = {} };
+                }
                 var is_union = false;
                 for (self.module.types.items) |t| {
                     if (std.mem.eql(u8, t.name, obj_name)) {
@@ -959,6 +964,82 @@ pub const IRBuilder = struct {
         if (node.data.call.func.tag == .member_access) {
             const ma = node.data.call.func.data.member_access;
             const member_name = ma.member.getText(self.source);
+            if (std.mem.eql(u8, member_name, "json")) {
+                if (ma.object.tag == .identifier) {
+                    const obj_name = ma.object.data.identifier.getText(self.source);
+                    if (std.mem.eql(u8, obj_name, "response") or std.mem.eql(u8, obj_name, "res")) {
+                        var arg_list = std.ArrayListUnmanaged(IRValue).empty;
+                        for (node.data.call.args) |arg| {
+                            const val = try self.buildExpr(arg);
+                            try arg_list.append(self.allocator, val);
+                        }
+                        for (arg_list.items) |arg_val| {
+                            var arg_instr = IRInstruction.init(.arg);
+                            arg_instr.operand1 = arg_val;
+                            try self.current_function.?.emit(self.allocator, arg_instr);
+                        }
+                        var call_instr = IRInstruction.init(.call);
+                        call_instr.dest = reg;
+                        call_instr.operand1 = IRValue{ .string = "orbit_response_json" };
+                        try self.current_function.?.emit(self.allocator, call_instr);
+                        return IRValue{ .register = reg };
+                    }
+                }
+            }
+
+            if (ma.object.tag == .identifier) {
+                const obj_name = ma.object.data.identifier.getText(self.source);
+                if (std.mem.eql(u8, obj_name, "cache")) {
+                    const func_c_name = if (std.mem.eql(u8, member_name, "get")) "orbit_cache_get" else "orbit_cache_set";
+                    const ret_type: IRType = if (std.mem.eql(u8, member_name, "get")) .string else .void;
+                    const res_reg = try self.current_function.?.allocRegister(self.allocator, ret_type);
+                    var arg_list = std.ArrayListUnmanaged(IRValue).empty;
+                    for (node.data.call.args) |arg| {
+                        const val = try self.buildExpr(arg);
+                        try arg_list.append(self.allocator, val);
+                    }
+                    for (arg_list.items) |arg_val| {
+                        var arg_instr = IRInstruction.init(.arg);
+                        arg_instr.operand1 = arg_val;
+                        try self.current_function.?.emit(self.allocator, arg_instr);
+                    }
+                    var call_instr = IRInstruction.init(.call);
+                    call_instr.dest = res_reg;
+                    call_instr.operand1 = IRValue{ .string = func_c_name };
+                    try self.current_function.?.emit(self.allocator, call_instr);
+                    return IRValue{ .register = res_reg };
+                }
+            }
+
+            if (std.mem.eql(u8, member_name, "save") and ma.object.tag == .call) {
+                const inner_call = ma.object.data.call;
+                if (inner_call.func.tag == .member_access) {
+                    const inner_ma = inner_call.func.data.member_access;
+                    const inner_mem = inner_ma.member.getText(self.source);
+                    if (std.mem.eql(u8, inner_mem, "file")) {
+                        const file_reg = try self.current_function.?.allocRegister(self.allocator, .string);
+                        var arg_list = std.ArrayListUnmanaged(IRValue).empty;
+                        if (inner_call.args.len > 0) {
+                            const val1 = try self.buildExpr(inner_call.args[0]);
+                            try arg_list.append(self.allocator, val1);
+                        }
+                        for (node.data.call.args) |arg| {
+                            const val = try self.buildExpr(arg);
+                            try arg_list.append(self.allocator, val);
+                        }
+                        for (arg_list.items) |arg_val| {
+                            var arg_instr = IRInstruction.init(.arg);
+                            arg_instr.operand1 = arg_val;
+                            try self.current_function.?.emit(self.allocator, arg_instr);
+                        }
+                        var call_instr = IRInstruction.init(.call);
+                        call_instr.dest = file_reg;
+                        call_instr.operand1 = IRValue{ .string = "orbit_file_upload_save" };
+                        try self.current_function.?.emit(self.allocator, call_instr);
+                        return IRValue{ .register = file_reg };
+                    }
+                }
+            }
 
             // Intercept collection methods
             if (std.mem.eql(u8, member_name, "push")) {
@@ -1072,7 +1153,8 @@ pub const IRBuilder = struct {
             const ma = node.data.call.func.data.member_access;
             if (ma.object.tag == .identifier) {
                 const obj_name = ma.object.data.identifier.getText(self.source);
-                if (obj_name.len > 0 and std.ascii.isUpper(obj_name[0])) {
+                const is_model = if (self.model_registry) |mreg| mreg.getModel(obj_name) != null else false;
+                if (obj_name.len > 0 and std.ascii.isUpper(obj_name[0]) and !is_model) {
                     const member_name = ma.member.getText(self.source);
                     const tag_name = try std.fmt.allocPrint(self.allocator, "{s}_TAG_{s}", .{ obj_name, member_name });
 
@@ -1093,73 +1175,191 @@ pub const IRBuilder = struct {
             }
         }
 
-        var param_vals = try self.allocator.alloc(IRValue, node.data.call.args.len);
-        defer self.allocator.free(param_vals);
-        for (node.data.call.args, 0..) |arg, i| {
-            param_vals[i] = try self.buildExpr(arg);
-        }
-        for (param_vals) |param_val| {
-            var arg_instr = IRInstruction.init(.arg);
-            arg_instr.operand1 = param_val;
-            try self.current_function.?.emit(self.allocator, arg_instr);
-        }
-
         var func_name: []const u8 = "";
+        var is_custom_member_call = false;
+
         if (node.data.call.func.tag == .member_access) {
             const ma = node.data.call.func.data.member_access;
             const obj_name = if (ma.object.tag == .identifier) ma.object.data.identifier.getText(self.source) else "";
             const member_name = ma.member.getText(self.source);
+            const is_model = if (self.model_registry) |mreg| mreg.getModel(obj_name) != null else false;
 
-            // Map common module calls to runtime functions
-            if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "read")) {
-                func_name = "orbit_file_read";
-                // Add first argument implicitly if needed, but here it expects Arena* which we'll handle in CBackend or by passing current arena
-            } else if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "write")) {
-                func_name = "orbit_file_write";
-            } else if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "list_dir")) {
-                func_name = "orbit_file_list_dir";
-            } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "exec")) {
-                func_name = "orbit_os_exec";
-            } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "env")) {
-                func_name = "orbit_os_env";
-            } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "exit")) {
-                func_name = "orbit_os_exit";
-            } else {
-                // Default formatting for module calls if not specially mapped
-                func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ obj_name, member_name });
+            if (std.mem.eql(u8, obj_name, "req")) {
+                is_custom_member_call = true;
+                if (std.mem.eql(u8, member_name, "file")) {
+                    func_name = "orbit_file_upload_save";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                    for (node.data.call.args) |arg| {
+                        var a_instr = IRInstruction.init(.arg);
+                        a_instr.operand1 = try self.buildExpr(arg);
+                        try self.current_function.?.emit(self.allocator, a_instr);
+                    }
+                } else if (std.mem.eql(u8, member_name, "param")) {
+                    func_name = "orbit_http_param_get";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                    for (node.data.call.args) |arg| {
+                        var a_instr = IRInstruction.init(.arg);
+                        a_instr.operand1 = try self.buildExpr(arg);
+                        try self.current_function.?.emit(self.allocator, a_instr);
+                    }
+                } else if (std.mem.eql(u8, member_name, "body") or std.mem.eql(u8, member_name, "json")) {
+                    func_name = "orbit_http_body_get";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                } else if (std.mem.eql(u8, member_name, "query")) {
+                    func_name = "orbit_http_query_get";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                    for (node.data.call.args) |arg| {
+                        var a_instr = IRInstruction.init(.arg);
+                        a_instr.operand1 = try self.buildExpr(arg);
+                        try self.current_function.?.emit(self.allocator, a_instr);
+                    }
+                } else if (std.mem.eql(u8, member_name, "bearer_token")) {
+                    func_name = "orbit_auth_bearer_token";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req->headers" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                } else if (std.mem.eql(u8, member_name, "has_role")) {
+                    func_name = "orbit_auth_has_role";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req->headers" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                    for (node.data.call.args) |arg| {
+                        var a_instr = IRInstruction.init(.arg);
+                        a_instr.operand1 = try self.buildExpr(arg);
+                        try self.current_function.?.emit(self.allocator, a_instr);
+                    }
+                } else if (std.mem.eql(u8, member_name, "role")) {
+                    func_name = "orbit_auth_current_role";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req->headers" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                } else if (std.mem.eql(u8, member_name, "header")) {
+                    func_name = "orbit_http_header_get";
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = IRValue{ .symbol = "req" };
+                    try self.current_function.?.emit(self.allocator, req_arg);
+                    for (node.data.call.args) |arg| {
+                        var a_instr = IRInstruction.init(.arg);
+                        a_instr.operand1 = try self.buildExpr(arg);
+                        try self.current_function.?.emit(self.allocator, a_instr);
+                    }
+                }
+            } else if (std.mem.eql(u8, obj_name, "cache")) {
+                is_custom_member_call = true;
+                if (std.mem.eql(u8, member_name, "get")) {
+                    func_name = "orbit_cache_get";
+                } else if (std.mem.eql(u8, member_name, "set")) {
+                    func_name = "orbit_cache_set";
+                }
+                for (node.data.call.args) |arg| {
+                    var a_instr = IRInstruction.init(.arg);
+                    a_instr.operand1 = try self.buildExpr(arg);
+                    try self.current_function.?.emit(self.allocator, a_instr);
+                }
+            } else if (is_model or (obj_name.len > 0 and std.ascii.isUpper(obj_name[0]))) {
+                is_custom_member_call = true;
+                var table = try self.allocator.alloc(u8, obj_name.len + 1);
+                for (obj_name, 0..) |c, i| table[i] = std.ascii.toLower(c);
+                table[obj_name.len] = 's';
+
+                var tbl_arg = IRInstruction.init(.arg);
+                tbl_arg.operand1 = IRValue{ .string = table };
+                try self.current_function.?.emit(self.allocator, tbl_arg);
+
+                for (node.data.call.args) |arg| {
+                    var a_instr = IRInstruction.init(.arg);
+                    a_instr.operand1 = try self.buildExpr(arg);
+                    try self.current_function.?.emit(self.allocator, a_instr);
+                }
+
+                if (std.mem.eql(u8, member_name, "all")) {
+                    func_name = "orbit_db_query_all";
+                } else if (std.mem.eql(u8, member_name, "where")) {
+                    func_name = "orbit_db_query_where";
+                } else if (std.mem.eql(u8, member_name, "find")) {
+                    func_name = "orbit_db_query_get";
+                } else if (std.mem.eql(u8, member_name, "create")) {
+                    func_name = "orbit_db_insert";
+                } else if (std.mem.eql(u8, member_name, "delete")) {
+                    func_name = "orbit_db_delete";
+                }
             }
-        } else {
-            func_name = node.data.call.func.data.identifier.getText(self.source);
+        }
 
-            if (std.mem.eql(u8, func_name, "ok") and node.data.call.args.len == 1) {
-                const val = try self.buildExpr(node.data.call.args[0]);
-                var instr = IRInstruction.init(.result_ok);
-                instr.operand1 = val;
+        if (!is_custom_member_call) {
+            var param_vals = try self.allocator.alloc(IRValue, node.data.call.args.len);
+            defer self.allocator.free(param_vals);
+            for (node.data.call.args, 0..) |arg, i| {
+                param_vals[i] = try self.buildExpr(arg);
+            }
+            for (param_vals) |param_val| {
+                var arg_instr = IRInstruction.init(.arg);
+                arg_instr.operand1 = param_val;
+                try self.current_function.?.emit(self.allocator, arg_instr);
+            }
+
+            if (node.data.call.func.tag == .member_access) {
+                const ma = node.data.call.func.data.member_access;
+                const obj_name = if (ma.object.tag == .identifier) ma.object.data.identifier.getText(self.source) else "";
+                const member_name = ma.member.getText(self.source);
+
+                if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "read")) {
+                    func_name = "orbit_file_read";
+                } else if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "write")) {
+                    func_name = "orbit_file_write";
+                } else if (std.mem.eql(u8, obj_name, "file") and std.mem.eql(u8, member_name, "list_dir")) {
+                    func_name = "orbit_file_list_dir";
+                } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "exec")) {
+                    func_name = "orbit_os_exec";
+                } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "env")) {
+                    func_name = "orbit_os_env";
+                } else if (std.mem.eql(u8, obj_name, "os") and std.mem.eql(u8, member_name, "exit")) {
+                    func_name = "orbit_os_exit";
+                } else {
+                    func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ obj_name, member_name });
+                }
+            } else {
+                func_name = node.data.call.func.data.identifier.getText(self.source);
+                if (std.mem.eql(u8, func_name, "fetch")) {
+                    func_name = "orbit_http_client_fetch";
+                }
+            }
+        }
+        if (std.mem.eql(u8, func_name, "ok") and node.data.call.args.len == 1) {
+            const val = try self.buildExpr(node.data.call.args[0]);
+            var instr = IRInstruction.init(.result_ok);
+            instr.operand1 = val;
+            const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
+            instr.dest = res_reg;
+            try self.current_function.?.emit(self.allocator, instr);
+            return IRValue{ .register = res_reg };
+        } else if (std.mem.eql(u8, func_name, "err")) {
+            if (node.data.call.args.len == 1) {
+                const msg = try self.buildExpr(node.data.call.args[0]);
+                var instr = IRInstruction.init(.result_err);
+                instr.operand1 = IRValue{ .int = 500 }; // default code
+                instr.operand2 = msg;
                 const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
                 instr.dest = res_reg;
                 try self.current_function.?.emit(self.allocator, instr);
                 return IRValue{ .register = res_reg };
-            } else if (std.mem.eql(u8, func_name, "err")) {
-                if (node.data.call.args.len == 1) {
-                    const msg = try self.buildExpr(node.data.call.args[0]);
-                    var instr = IRInstruction.init(.result_err);
-                    instr.operand1 = IRValue{ .int = 500 }; // default code
-                    instr.operand2 = msg;
-                    const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
-                    instr.dest = res_reg;
-                    try self.current_function.?.emit(self.allocator, instr);
-                    return IRValue{ .register = res_reg };
-                } else if (node.data.call.args.len == 2) {
-                    const code = try self.buildExpr(node.data.call.args[0]);
-                    const msg = try self.buildExpr(node.data.call.args[1]);
-                    var instr = IRInstruction.init(.result_err);
-                    instr.operand1 = code;
-                    instr.operand2 = msg;
-                    const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
-                    instr.dest = res_reg;
-                    try self.current_function.?.emit(self.allocator, instr);
-                    return IRValue{ .register = res_reg };
-                }
+            } else if (node.data.call.args.len == 2) {
+                const code = try self.buildExpr(node.data.call.args[0]);
+                const msg = try self.buildExpr(node.data.call.args[1]);
+                var instr = IRInstruction.init(.result_err);
+                instr.operand1 = code;
+                instr.operand2 = msg;
+                const res_reg = try self.current_function.?.allocRegister(self.allocator, .{ .result = null });
+                instr.dest = res_reg;
+                try self.current_function.?.emit(self.allocator, instr);
             }
         }
 
@@ -1170,6 +1370,13 @@ pub const IRBuilder = struct {
         try self.current_function.?.emit(self.allocator, instr);
 
         return IRValue{ .register = reg };
+    }
+
+    fn isTerminator(instr: IRInstruction) bool {
+        return switch (instr.opcode) {
+            .ret, .jump, .jump_if_false => true,
+            else => false,
+        };
     }
 
     fn buildIf(self: *IRBuilder, node: *Node) !void {
@@ -1186,9 +1393,17 @@ pub const IRBuilder = struct {
 
         try self.buildStmt(if_data.then_branch);
 
-        var jump_end = IRInstruction.init(.jump);
-        jump_end.operand1 = IRValue{ .label = end_label };
-        try self.current_function.?.emit(self.allocator, jump_end);
+        const last_then = if (self.current_function.?.instructions.items.len > 0)
+            self.current_function.?.instructions.getLast()
+        else
+            IRInstruction.init(.nop);
+        const then_terminates = isTerminator(last_then);
+
+        if (!then_terminates) {
+            var jump_end = IRInstruction.init(.jump);
+            jump_end.operand1 = IRValue{ .label = end_label };
+            try self.current_function.?.emit(self.allocator, jump_end);
+        }
 
         var l_else = IRInstruction.init(.label);
         l_else.operand1 = IRValue{ .label = else_label };
@@ -1198,9 +1413,16 @@ pub const IRBuilder = struct {
             try self.buildStmt(eb);
         }
 
-        var l_end = IRInstruction.init(.label);
-        l_end.operand1 = IRValue{ .label = end_label };
-        try self.current_function.?.emit(self.allocator, l_end);
+        const else_terminates = if (if_data.else_branch != null and self.current_function.?.instructions.items.len > 0)
+            isTerminator(self.current_function.?.instructions.getLast())
+        else
+            then_terminates;
+
+        if (!else_terminates) {
+            var l_end = IRInstruction.init(.label);
+            l_end.operand1 = IRValue{ .label = end_label };
+            try self.current_function.?.emit(self.allocator, l_end);
+        }
     }
 
     fn buildWhile(self: *IRBuilder, node: *Node) !void {

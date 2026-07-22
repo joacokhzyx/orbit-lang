@@ -149,11 +149,7 @@ fn writeStderr(bytes: []const u8) void {
         var written: windows.DWORD = 0;
         _ = windows.kernel32.WriteFile(h, bytes.ptr, @intCast(bytes.len), &written, null);
     } else {
-        var idx: usize = 0;
-        while (idx < bytes.len) {
-            const n = std.posix.write(std.posix.STDERR_FILENO, bytes[idx..]) catch break;
-            idx += n;
-        }
+        std.debug.print("{s}", .{bytes});
     }
 }
 
@@ -164,11 +160,54 @@ pub const DebugWriter = struct {
     }
     pub fn print(self: DebugWriter, comptime fmt: []const u8, args: anytype) !void {
         _ = self;
-        var buf: [2048]u8 = undefined;
-        const s = std.fmt.bufPrint(&buf, fmt, args) catch return;
-        writeStderr(s);
+        var buf: [4096]u8 = undefined;
+        const text = std.fmt.bufPrint(&buf, fmt, args) catch return;
+        writeStderr(text);
     }
 };
+
+fn stderrMutex() *std.Thread.Mutex {
+    return &stderr_mutex;
+}
+
+pub fn renderBoxCardAnimated(lines: []const []const u8, frame_delay_ms: u64) void {
+    _ = frame_delay_ms;
+
+    if (!capabilities.current.is_tty or capabilities.current.is_ci) {
+        stderr_mutex.lock();
+        defer stderr_mutex.unlock();
+        for (lines) |line| {
+            writeStderr(line);
+            writeStderr("\n");
+        }
+        return;
+    }
+
+    var i: usize = 0;
+    while (i < lines.len) {
+        const line = lines[i];
+        {
+            stderr_mutex.lock();
+            defer stderr_mutex.unlock();
+            writeStderr(line);
+        }
+        if (@import("builtin").os.tag == .windows) {
+            const win = struct {
+                pub extern "kernel32" fn Sleep(dwMilliseconds: std.os.windows.DWORD) callconv(.winapi) void;
+            };
+            win.Sleep(80);
+        } else {
+            const req = std.posix.system.timespec{ .sec = 0, .nsec = 80 * 1_000_000 };
+            _ = std.posix.system.nanosleep(&req, null);
+        }
+        i += 1;
+    }
+    {
+        stderr_mutex.lock();
+        defer stderr_mutex.unlock();
+        writeStderr("\r\x1b[2K");
+    }
+}
 
 var stderr_mutex = std.Thread.Mutex{};
 
@@ -266,7 +305,6 @@ pub const Spinner = struct {
         const reset = if (caps.has_color) "\x1b[0m" else "";
 
         var i: usize = 0;
-        const is_windows = @import("builtin").os.tag == .windows;
         while (self.active.load(.monotonic)) {
             const frame = frames[i % frames.len];
             // Build the line in a stack buffer then write via raw syscall —
@@ -281,14 +319,15 @@ pub const Spinner = struct {
                 defer stderr_mutex.unlock();
                 writeStderr(line);
             }
-            if (is_windows) {
-                const win = struct {
-                    pub extern "kernel32" fn Sleep(dwMilliseconds: std.os.windows.DWORD) callconv(.winapi) void;
-                };
-                win.Sleep(80);
-            } else {
-                std.posix.nanosleep(&.{ .sec = 0, .nsec = 80 * 1_000_000 }, null);
-            }
+            if (@import("builtin").os.tag == .windows) {
+            const win = struct {
+                pub extern "kernel32" fn Sleep(dwMilliseconds: std.os.windows.DWORD) callconv(.winapi) void;
+            };
+            win.Sleep(80);
+        } else {
+            const req = std.posix.system.timespec{ .sec = 0, .nsec = 80 * 1_000_000 };
+            _ = std.posix.system.nanosleep(&req, null);
+        }
             i += 1;
         }
         {
@@ -325,7 +364,7 @@ pub fn renderBoxCard(writer: anytype, title: []const u8, lines: []const []const 
     try writer.writeAll(b.h);
     try writer.writeAll(reset);
     try writer.print(" {s}{s}{s} ", .{ cyan, title, reset });
-    
+
     const title_vis_len = visibleWidth(title) + 4;
     var rem: usize = if (width > title_vis_len) width - title_vis_len else 4;
     while (rem > 0) : (rem -= 1) {
@@ -398,168 +437,35 @@ pub fn renderBoxCard(writer: anytype, title: []const u8, lines: []const []const 
 }
 
 /// Renders a Vite / Rust / Astro style diagnostic card for compiler errors.
-pub fn renderErrorCard(
-    writer: anytype,
-    code: []const u8,
-    msg: []const u8,
-    file_path: []const u8,
-    line_num: usize,
-    col_num: usize,
-    line_src: []const u8,
-    hint: ?[]const u8,
-    width: usize,
-) !void {
-    const b = getBorder();
-    const caps = capabilities.get();
-    const red = if (caps.has_color) "\x1b[1;31m" else "";
-    const badge_red = if (caps.has_color) "\x1b[1;97;41m" else "";
-    const cyan = if (caps.has_color) "\x1b[36m" else "";
-    const yellow = if (caps.has_color) "\x1b[33m" else "";
-    const dim = if (caps.has_color) "\x1b[2;90m" else "";
-    const reset = if (caps.has_color) "\x1b[0m" else "";
+pub fn renderErrorCard(writer: anytype, code: []const u8, msg: []const u8, file_path: []const u8, line_num: usize, col_num: usize, line_src: []const u8, hint: ?[]const u8, width: usize) !void {
+    _ = width;
+    const style = @import("style.zig");
+    const red = style.getEsc(.bold_err);
+    const cyan = style.getEsc(.primary);
+    const dim = style.getEsc(.dim);
+    const yellow = style.getEsc(.warning);
+    const reset = style.getReset();
 
-    // Top border with badge
-    try writer.writeAll(dim);
-    try writer.writeAll(b.tl);
-    try writer.writeAll(b.h);
-    try writer.writeAll(reset);
-    try writer.print(" {s} ✖ ERROR {s} ", .{ badge_red, reset });
-    if (code.len > 0) {
-        try writer.print("{s}[{s}]{s} ", .{ red, code, reset });
-    }
+    try writer.print("\n{s}error[{s}]: {s}{s}\n", .{ red, code, msg, reset });
+    try writer.print("  {s}-->{s} {s}:{d}:{d}\n", .{ cyan, reset, file_path, line_num, col_num });
+    try writer.print("   {s}|{s}\n", .{ dim, reset });
 
-    const title_vis = 14 + code.len;
-    var rem: usize = if (width > title_vis) width - title_vis else 4;
-    while (rem > 0) : (rem -= 1) {
-        try writer.writeAll(dim);
-        try writer.writeAll(b.h);
-        try writer.writeAll(reset);
-    }
-    try writer.writeAll(dim);
-    try writer.writeAll(b.tr);
-    try writer.writeAll(reset);
-    try writer.writeAll("\n");
-
-    // Message line
-    try writer.writeAll(dim);
-    try writer.writeAll(b.v);
-    try writer.writeAll(reset);
-    try writer.print("  {s}{s}{s}", .{ red, msg, reset });
-    const msg_vis = visibleWidth(msg) + 2;
-    if (width > msg_vis) {
-        var p: usize = width - msg_vis;
-        while (p > 0) : (p -= 1) try writer.writeAll(" ");
-    }
-    try writer.writeAll(dim);
-    try writer.writeAll(b.v);
-    try writer.writeAll(reset);
-    try writer.writeAll("\n");
-
-    // Empty line
-    try writer.writeAll(dim);
-    try writer.writeAll(b.v);
-    try writer.writeAll(reset);
-    var p: usize = 0;
-    while (p < width) : (p += 1) try writer.writeAll(" ");
-    try writer.writeAll(dim);
-    try writer.writeAll(b.v);
-    try writer.writeAll(reset);
-    try writer.writeAll("\n");
-
-    // File pointer line
-    var fp_buf: [256]u8 = undefined;
-    const fp_text = std.fmt.bufPrint(&fp_buf, "──> {s}:{d}:{d}", .{ file_path, line_num, col_num }) catch "──> file";
-    try writer.writeAll(dim);
-    try writer.writeAll(b.v);
-    try writer.writeAll(reset);
-    try writer.print("   {s}{s}{s}", .{ cyan, fp_text, reset });
-    const fp_vis = visibleWidth(fp_text) + 3;
-    if (width > fp_vis) {
-        var s: usize = width - fp_vis;
-        while (s > 0) : (s -= 1) try writer.writeAll(" ");
-    }
-    try writer.writeAll(dim);
-    try writer.writeAll(b.v);
-    try writer.writeAll(reset);
-    try writer.writeAll("\n");
-
-    // Code snippet line if available
     if (line_src.len > 0) {
-        var code_buf: [512]u8 = undefined;
-        const line_fmt = std.fmt.bufPrint(&code_buf, "{d: >4} │ {s}", .{ line_num, line_src }) catch "";
-        try writer.writeAll(dim);
-        try writer.writeAll(b.v);
-        try writer.writeAll(reset);
-        try writer.print("   {s}{s}{s}", .{ dim, line_fmt, reset });
-        const line_vis = visibleWidth(line_fmt) + 3;
-        if (width > line_vis) {
-            var s: usize = width - line_vis;
-            while (s > 0) : (s -= 1) try writer.writeAll(" ");
-        }
-        try writer.writeAll(dim);
-        try writer.writeAll(b.v);
-        try writer.writeAll(reset);
-        try writer.writeAll("\n");
+        try writer.print("{s}{d: >2} |{s} {s}\n", .{ dim, line_num, reset, line_src });
 
-        // Pointer underline
-        var arrow_buf: [256]u8 = undefined;
-        var caret_idx: usize = 0;
-        while (caret_idx < col_num and caret_idx + 7 < arrow_buf.len) : (caret_idx += 1) {
-            arrow_buf[caret_idx] = ' ';
+        try writer.print("   {s}|{s} ", .{ dim, reset });
+        var c_idx: usize = 0;
+        const target_col = if (col_num > 0) col_num - 1 else 0;
+        while (c_idx < target_col) : (c_idx += 1) {
+            try writer.writeAll(" ");
         }
-        arrow_buf[caret_idx] = '^';
-        arrow_buf[caret_idx + 1] = '-';
-        arrow_buf[caret_idx + 2] = '-';
-        arrow_buf[caret_idx + 3] = ' ';
-        arrow_buf[caret_idx + 4] = 'h';
-        arrow_buf[caret_idx + 5] = 'e';
-        arrow_buf[caret_idx + 6] = 'r';
-        arrow_buf[caret_idx + 7] = 'e';
-        const arr_sub = arrow_buf[0 .. caret_idx + 8];
-
-        var caret_fmt_buf: [512]u8 = undefined;
-        const arr_fmt = std.fmt.bufPrint(&caret_fmt_buf, "     │ {s}", .{arr_sub}) catch "";
-        try writer.writeAll(dim);
-        try writer.writeAll(b.v);
-        try writer.writeAll(reset);
-        try writer.print("   {s}{s}{s}", .{ red, arr_fmt, reset });
-        const arr_vis = visibleWidth(arr_fmt) + 3;
-        if (width > arr_vis) {
-            var s: usize = width - arr_vis;
-            while (s > 0) : (s -= 1) try writer.writeAll(" ");
-        }
-        try writer.writeAll(dim);
-        try writer.writeAll(b.v);
-        try writer.writeAll(reset);
-        try writer.writeAll("\n");
+        try writer.print("{s}^-- here{s}\n", .{ red, reset });
+        try writer.print("   {s}|{s}\n", .{ dim, reset });
     }
 
-    // Hint line if provided
     if (hint) |h| {
-        try writer.writeAll(dim);
-        try writer.writeAll(b.v);
-        try writer.writeAll(reset);
-        try writer.print("   {s}= hint: {s}{s}", .{ yellow, h, reset });
-        const h_vis = visibleWidth(h) + 11;
-        if (width > h_vis) {
-            var s: usize = width - h_vis;
-            while (s > 0) : (s -= 1) try writer.writeAll(" ");
-        }
-        try writer.writeAll(dim);
-        try writer.writeAll(b.v);
-        try writer.writeAll(reset);
-        try writer.writeAll("\n");
+        try writer.print("   {s}= help:{s} {s}\n", .{ yellow, reset, h });
     }
-
-    // Bottom border
-    try writer.writeAll(dim);
-    try writer.writeAll(b.bl);
-    var b_pad: usize = 0;
-    while (b_pad < width) : (b_pad += 1) {
-        try writer.writeAll(b.h);
-    }
-    try writer.writeAll(b.br);
-    try writer.writeAll(reset);
     try writer.writeAll("\n");
 }
 

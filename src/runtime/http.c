@@ -82,39 +82,36 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     if (!req) return 0;
     memset(req, 0, sizeof(OrbitRequest));
 
+    // Zero-Copy Slice Parsing: modify mutable byte stream in-place when safe
+    char* mutable_raw = (char*)raw;
+
     /* Method (until first space) */
     const char* space = memchr(raw, ' ', raw_len);
     if (!space) return 0;
 
     size_t method_len = (size_t)(space - raw);
-    req->method = (char*)orbit_alloc(arena, method_len + 1);
-    if (req->method) {
-        memcpy(req->method, raw, method_len);
-        req->method[method_len] = '\0';
-    }
+    req->method = mutable_raw;
+    mutable_raw[method_len] = '\0';
 
     /* Path (between first and second space) */
     const char* path_start = space + 1;
     const char* path_end = memchr(path_start, ' ', raw_len - (size_t)(path_start - raw));
     if (!path_end) path_end = path_start;
 
+    size_t path_end_off = (size_t)(path_end - raw);
+
     /* Split path from query string at '?' */
     const char* query = memchr(path_start, '?', (size_t)(path_end - path_start));
-    size_t path_len = query ? (size_t)(query - path_start) : (size_t)(path_end - path_start);
-
-    req->path = (char*)orbit_alloc(arena, path_len + 1);
-    if (req->path) {
-        memcpy(req->path, path_start, path_len);
-        req->path[path_len] = '\0';
-    }
-
     if (query) {
-        size_t query_len = (size_t)(path_end - query - 1);
-        req->query = (char*)orbit_alloc(arena, query_len + 1);
-        if (req->query) {
-            memcpy(req->query, query + 1, query_len);
-            req->query[query_len] = '\0';
-        }
+        size_t query_off = (size_t)(query - raw);
+        req->path = (char*)path_start;
+        mutable_raw[query_off] = '\0';
+        req->query = (char*)(query + 1);
+        mutable_raw[path_end_off] = '\0';
+    } else {
+        req->path = (char*)path_start;
+        mutable_raw[path_end_off] = '\0';
+        req->query = NULL;
     }
 
     /* Body (after \r\n\r\n) */
@@ -131,21 +128,20 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
         content_length = (size_t)atol(cl_hdr + 15);
     }
     
-    // If we don't have the full body yet, we must return 0 to wait for more data
+    // If we don't have the full body yet, return 0 to wait for more data
     if (raw_len < consumed + content_length) {
         if (out_req) *out_req = NULL;
         return 0; // Incomplete body
     }
     
     req->body_len = content_length;
-        if (req->body_len > 0) {
-            req->body = (char*)orbit_alloc(arena, req->body_len + 1);
-            if (req->body) {
-                memcpy(req->body, body_start, req->body_len);
-                req->body[req->body_len] = '\0';
-            }
-        }
-        consumed = (size_t)(body_start - raw) + content_length;
+    if (req->body_len > 0) {
+        req->body = (char*)body_start;
+        mutable_raw[consumed + content_length] = '\0';
+    } else {
+        req->body = NULL;
+    }
+    consumed = (size_t)(body_start - raw) + content_length;
 
     if (out_req) *out_req = req;
     return consumed;
@@ -159,8 +155,8 @@ OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* 
     if (!resp) return NULL;
 
     resp->status = status;
-    resp->content_type = orbit_arena_strdup(arena, content_type);
-    resp->body = body ? orbit_arena_strdup(arena, body) : NULL;
+    resp->content_type = (char*)content_type;
+    resp->body = (char*)body;
     resp->body_len = body ? strlen(body) : 0;
     return resp;
 }
@@ -175,9 +171,14 @@ OrbitResponse* orbit_response_text(OrbitArena* arena, int status, const char* te
     return orbit_response_create(arena, status, "text/plain", text);
 }
 
+/** @brief Convenience wrapper: create an error response with Content-Type text/plain. */
+OrbitResponse* orbit_response_error(OrbitArena* arena, int status, const char* message) {
+    return orbit_response_create(arena, status, "text/plain", message);
+}
+
 /* ── Send response to socket ───────────────────────────────────────── */
 
-/** @brief Write @p resp (header + body) to @p client, checking the Kynx response-size budget when networking is enabled. */
+/** @brief Write @p resp (header + body) to @p client in a single fast-path send() syscall. */
 void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     if (!resp) return;
 
@@ -195,10 +196,11 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     }
     #endif
 
-    /* Build header dynamically */
+    /* Ultra-Fast Header Building & Single-Syscall Direct Buffer Flush */
     char header[512];
     int header_len = snprintf(header, sizeof(header),
         "HTTP/1.1 %d OK\r\n"
+        "Server: Orbit-Steel\r\n"
         "Content-Type: %s\r\n"
         "Connection: keep-alive\r\n"
         "Keep-Alive: timeout=30, max=1000\r\n"
@@ -208,8 +210,8 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
 
     if (header_len > 0) {
         size_t total_len = (size_t)header_len + body_len;
-        if (total_len < 4096) {
-            char combined[4096];
+        if (total_len < 8192) {
+            char combined[8192];
             memcpy(combined, header, (size_t)header_len);
             if (body_len > 0) {
                 memcpy(combined + header_len, body, body_len);

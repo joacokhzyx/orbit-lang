@@ -1,0 +1,8 @@
+fn main() {
+    val target = "http://127.0.0.1:4001/loop"
+    var i = 0
+    while i < 10000 {
+        val res = fetch(target)
+        i = i + 1
+    }
+}

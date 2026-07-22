@@ -84,7 +84,30 @@ pub const Compiler = struct {
         const root = parser.parse() catch |err| {
             const tok = parser.current_token;
             const path = if (tok.file_path.len > 0) tok.file_path else file_path;
-            std.debug.print("\n ⏣ Orbit  parse error\n\n  [SYNTAX ERROR] unexpectedly found '{s}'\n  file: {s}:{d}\n\n", .{ @tagName(tok.tag), path, tok.loc.line });
+
+            var cur_line: usize = 1;
+            var line_start: usize = 0;
+            var line_end: usize = source.len;
+            for (source, 0..) |c, idx| {
+                if (cur_line == tok.loc.line) {
+                    if (c == '\n') {
+                        line_end = idx;
+                        break;
+                    }
+                } else if (c == '\n') {
+                    cur_line += 1;
+                    line_start = idx + 1;
+                }
+            }
+            if (line_start > source.len) line_start = 0;
+            if (line_end > source.len or line_end < line_start) line_end = source.len;
+            const src_line = std.mem.trim(u8, source[line_start..line_end], "\r\n");
+
+            var msg_buf: [128]u8 = undefined;
+            const msg = std.fmt.bufPrint(&msg_buf, "unexpected token '{s}'", .{@tagName(tok.tag)}) catch "syntax error";
+
+            const term = @import("terminal/layout.zig");
+            term.renderErrorCardStderr("E0301", msg, path, tok.loc.line, tok.loc.col, src_line, "Check for missing brackets, quotes, or keywords before this token.", 68);
             return err;
         };
 

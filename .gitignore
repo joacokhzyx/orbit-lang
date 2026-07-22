@@ -8,6 +8,7 @@ zig-out/
 *.o
 *.obj
 output_orbit.c
+last_generated.c
 
 # Local runtime data
 orbit.db

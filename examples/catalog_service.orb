@@ -1,14 +1,43 @@
-// A small public API surface. In a full service, validation and persistence
-// happen before returning the response.
+// Catalog Service API example in Orbit.
+// Uses native Model ORM methods and request query parameter access with SQLite database persistence.
+
+model Product {
+    id: string
+    name: string
+    description: string
+    price: float
+    category: string
+    in_stock: bool
+    rating: float
+}
 
 route GET "/v1/catalog" {
-    return ok 200 "[]"
+    val category = req.query("category")
+    if (category != "") {
+        val filtered = Product.where("category = '" + category + "'")
+        return ok 200 filtered
+    }
+    val all_products = Product.all()
+    return ok 200 all_products
 }
 
 route GET "/v1/catalog/featured" {
-    return ok 200 "{\"items\":[]}"
+    val featured = Product.where("rating >= 4.8")
+    return ok 200 featured
+}
+
+route GET "/v1/catalog/categories" {
+    return ok 200 "{\"categories\":[\"Developer Tools\",\"Security\",\"Databases\",\"Networking\"]}"
+}
+
+route POST "/v1/catalog/items" {
+    val created = Product.create("{\"id\":\"prod_104\",\"name\":\"Orbit DB ORM\",\"description\":\"High-throughput zero-copy SQLite query engine\",\"price\":199.99,\"category\":\"Databases\",\"in_stock\":1,\"rating\":5.0}")
+    if (created) {
+        return ok 201 "{\"status\":\"created\",\"id\":\"prod_104\",\"message\":\"Product saved to SQLite database\"}"
+    }
+    err 400 "Failed to insert product into database"
 }
 
 route GET "/v1/catalog/missing" {
-    err 404 "catalog item not found"
+    err 404 "Catalog item not found in database"
 }

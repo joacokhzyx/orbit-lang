@@ -1,0 +1,23 @@
+port 4002
+cors "*"
+db "auth_bench.db"
+
+model User {
+    id: string primary
+    username: string
+    token: string
+}
+
+route POST "/register" => {
+    val u = User.create(req.body)
+    return response.json(201, "{\"status\":\"registered\"}")
+}
+
+route POST "/login" => {
+    val tok = "token_secret_123"
+    return response.json(200, "{\"token\":\"" + tok + "\"}")
+}
+
+@auth {
+    route GET "/profile" => response.json(200, "{\"user\":\"authenticated\"}")
+}
