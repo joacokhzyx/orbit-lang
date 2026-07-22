@@ -727,11 +727,7 @@ test "native end-to-end: return 42" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var threaded = std.Io.Threaded.init(alloc, .{
-        .environ = std.process.Environ.empty,
-    });
-    defer threaded.deinit();
-    const io = threaded.io();
+    const io = std.Io.Threaded.global_single_threaded.io();
 
     const this_file = @src().file;
     const this_dir = std.fs.path.dirname(this_file) orelse ".";
