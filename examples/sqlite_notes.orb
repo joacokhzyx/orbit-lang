@@ -27,25 +27,26 @@ route GET "/v1/notes/secured" {
     if (token == "") {
         err 401 "Unauthorized: Bearer authentication token missing or invalid"
     }
-    val secure_notes = Note.where("is_private = 1")
+    val secure_notes = Note.where("is_private = true")
     return ok 200 secure_notes
 }
 
 route POST "/v1/notes" {
-    val saved = Note.create("{\"id\":\"note_103\",\"title\":\"New Orbit Note\",\"body\":\"Note dynamically inserted into SQLite database\",\"author_id\":\"usr_admin\",\"created_at\":\"2026-07-22T01:45:00Z\",\"is_private\":0}")
+    val saved = Note.create("{\"id\":\"note_103\",\"title\":\"New Orbit Note\",\"body\":\"Note dynamically inserted into SQLite database\",\"author_id\":\"usr_admin\",\"created_at\":\"2026-07-22T01:45:00Z\",\"is_private\":false}")
     if (saved) {
         return ok 201 "{\"status\":\"created\",\"id\":\"note_103\",\"message\":\"Note saved to SQLite database\"}"
     }
     err 400 "Failed to save note to database"
 }
 
-route DELETE "/v1/notes/101" {
+route DELETE "/v1/notes/:id" {
+    val id = req.param("id")
     if (!req.has_role("admin")) {
         err 403 "Forbidden: Admin role required to delete notes"
     }
-    val deleted = Note.delete("note_101")
+    val deleted = Note.delete(id)
     if (deleted) {
-        return ok 200 "{\"status\":\"deleted\",\"id\":\"note_101\"}"
+        return ok 200 "{\"status\":\"deleted\",\"id\":\"" + id + "\"}"
     }
     err 404 "Note not found in database"
 }

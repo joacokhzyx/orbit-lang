@@ -8,14 +8,14 @@
 
 **Orbit** is a high-performance, statically typed systems programming language engineered for high-concurrency web services, microservices, and network APIs. 
 
-Orbit combines an expressive single-line directive syntax with the **Steel C Engine**—a high-performance runtime featuring $O(1)$ lock-free thread-local arena recycling, zero-copy HTTP request parsing, and **Kynx Shield** 1-nanosecond Bloom filter DDoS protection.
+Orbit combines an expressive single-line directive syntax with a high-performance **C Target** runtime featuring $O(1)$ lock-free thread-local arena recycling, zero-copy HTTP request parsing, and **Kynx** 1-nanosecond Bloom filter DDoS protection.
 
 ---
 
 ## Key Features
 
-- **Steel C Engine**: Zero-copy HTTP parsing and single-syscall socket flushing delivering **10,000+ RPS** under extreme concurrency.
-- **Kynx Shield Protection**: Built-in 1-nanosecond admission control and rate-limiting to protect sensitive routes under high load.
+- **C Compiler**: Zero-copy HTTP parsing and single-syscall socket flushing delivering **10,000+ RPS** under extreme concurrency.
+- **Secured By Kynx**: Built-in 1-nanosecond admission control and rate-limiting to protect sensitive routes under high load.
 - **Expressive Web Syntax**: Concise top-level single-line directives for server configuration (`port 3000`, `cors "*"`), routing (`route GET "/users" { ... }`), and ORM entities (`model User { ... }`).
 - **Memory Safety & Zero GC**: Deterministic thread-local arena allocation eliminates Garbage Collector pauses without manual memory management overhead.
 - **High-Performance C Code Generation**: Compiles down to optimized C99 linked directly with the platform C toolchain.
@@ -114,7 +114,7 @@ For full details, view the [Marketing & Stress Benchmark Report](benchmarks/mark
 
 ```text
 src/          Zig compiler pipeline (lexer, parser, sema, IR, C backend, diagnostics)
-src/runtime/  Steel C engine (http, arena_pool, kynx, orm, json)
+src/runtime/  C runtime (http, arena_pool, kynx, orm, json)
 benchmarks/   Multi-language stress testing suite (Go, Node.js, C, Orbit)
 docs/         Language reference and internal design documentation
 examples/     Production-shaped Orbit service examples

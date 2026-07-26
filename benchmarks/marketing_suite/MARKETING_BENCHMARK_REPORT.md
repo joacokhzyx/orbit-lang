@@ -1,7 +1,7 @@
 # Orbit Language Benchmark & Stress Resilience Report
 
 ## Overview
-This document records isolated stress performance benchmarks across 4 core server categories powered by the Orbit Steel C Engine and Kynx Admission Protection. Load testing clients written in **Go**, **Node.js**, **C (via Zig CC)**, and native **Orbit** were launched concurrently against each server category to evaluate maximum Requests Per Second (RPS), zero-copy arena memory recycling, and Kynx rate-limiting protection under load.
+This document records isolated stress performance benchmarks across 4 core server categories powered by the Orbit C Target and Kynx Admission Protection. Load testing clients written in **Go**, **Node.js**, **C (via Zig CC)**, and native **Orbit** were launched concurrently against each server category to evaluate maximum Requests Per Second (RPS), zero-copy arena memory recycling, and Kynx rate-limiting protection under load.
 
 ---
 

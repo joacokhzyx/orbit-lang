@@ -113,7 +113,7 @@ Procedure:
 - Each server binds a distinct port; no port reuse between runs
 - System is idle during measurement (no other load generators)
 - All binaries compiled fresh before each run
-- Orbit is measured twice: Steel backend (→ C → cc) and Native backend
+- Orbit is measured twice: C backend (→ C → cc) and Native backend
   (→ COFF/ELF → internal linker)
 
 ## Understanding results
@@ -122,6 +122,6 @@ Orbit is pre-release software. The purpose of this benchmark is to establish
 a reproducible baseline for tracking compiler and runtime improvements over
 time, not to claim performance equivalence with mature runtimes.
 
-Orbit Steel performance is bounded by the C compiler it targets. Orbit Native
+Orbit C Target performance is bounded by the C compiler it targets. Orbit Native
 performance reflects the quality of the x86-64 code emitter, which is in
 active development.

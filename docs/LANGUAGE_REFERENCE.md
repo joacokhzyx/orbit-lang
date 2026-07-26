@@ -114,10 +114,12 @@ stable, so keep module boundaries small and pin the compiler version in CI.
 ## Compiler commands
 
 ```sh
-orbit build app.orb
-orbit run app.orb
-orbit test app.orb
-orbit bootstrap --stage=3 --verify
+orbit build app.orb                # Default C target
+orbit build app.orb --backend=c     # Explicit C target
+orbit build app.orb --backend=native # Direct x86_64 native target
+orbit run app.orb                  # Compile and execute
+orbit test app.orb                 # Run test blocks
+orbit bootstrap                    # Multi-stage self-hosting bootstrap
 ```
 
 See [the release status](../STATUS.md) for backend and platform limitations.

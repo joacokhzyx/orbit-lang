@@ -1,3 +1,5 @@
+// use orbit/validation
+
 port 3000
 cors "*"
 db "store.db"
@@ -10,6 +12,11 @@ model Product {
     category: string
 }
 
+model User {
+    email: Email
+    website: URL
+}
+
 type ProductInput {
     title: string
     price: float
@@ -20,9 +27,11 @@ route GET "/v1/catalog" => Product.all()
 
 route GET "/v1/external-rates" => {
     val cached = cache.get("rates")
-    if (cached != "") return response.json(200, cached)
+    if (cached != null) return response.json(200, cached)
 
-    val rates = fetch("https://api.exchangerates.io/latest")
+    val rates = try fetch("https://api.exchangerates.io/latest") catch {
+        err 503 "{\"error\":\"service unavailable\"}"
+    }
     cache.set("rates", rates, 300)
     return response.json(200, rates)
 }

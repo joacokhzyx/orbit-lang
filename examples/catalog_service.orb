@@ -14,7 +14,7 @@ model Product {
 route GET "/v1/catalog" {
     val category = req.query("category")
     if (category != "") {
-        val filtered = Product.where("category = '" + category + "'")
+        val filtered = Product.where("category = ?", category)
         return ok 200 filtered
     }
     val all_products = Product.all()
@@ -31,9 +31,10 @@ route GET "/v1/catalog/categories" {
 }
 
 route POST "/v1/catalog/items" {
-    val created = Product.create("{\"id\":\"prod_104\",\"name\":\"Orbit DB ORM\",\"description\":\"High-throughput zero-copy SQLite query engine\",\"price\":199.99,\"category\":\"Databases\",\"in_stock\":1,\"rating\":5.0}")
+    val body = req.body()
+    val created = Product.create(body)
     if (created) {
-        return ok 201 "{\"status\":\"created\",\"id\":\"prod_104\",\"message\":\"Product saved to SQLite database\"}"
+        return ok 201 "{\"status\":\"created\",\"id\":\"" + body.id + "\",\"message\":\"Product saved to SQLite database\"}"
     }
     err 400 "Failed to insert product into database"
 }
