@@ -345,7 +345,7 @@ pub fn main(init: std.process.Init) !void {
             .show_diff = show_diff,
         };
         const fmt_target = if (file_path.len > 0) file_path else ".";
-        fmt_mod.runFormatter(init.io, arena, fmt_target, options) catch |err| {
+        fmt_mod.runFormatter(init.io, arena, fmt_target, ORBIT_VERSION, options) catch |err| {
             if (err == error.FormattingRequired) {
                 std.process.exit(1);
             } else {

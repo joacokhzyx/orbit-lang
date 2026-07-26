@@ -13,7 +13,7 @@ pub const StdoutWriter = struct {
     }
 };
 
-pub fn runFormatter(io: std.Io, allocator: std.mem.Allocator, target_path: []const u8, options: rules.FormatterOptions) !void {
+pub fn runFormatter(io: std.Io, allocator: std.mem.Allocator, target_path: []const u8, version: []const u8, options: rules.FormatterOptions) !void {
     const stdout = StdoutWriter{};
     const t_start = std.Io.Clock.Timestamp.now(io, .awake);
 
@@ -21,7 +21,7 @@ pub fn runFormatter(io: std.Io, allocator: std.mem.Allocator, target_path: []con
         .check_mode = options.check_only,
     };
 
-    try ui.renderHeader(stdout, options.check_only);
+    try ui.renderHeader(stdout, options.check_only, version);
 
     var cwd = std.Io.Dir.cwd();
 
