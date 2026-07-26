@@ -109,4 +109,15 @@ OrbitList* orbit_file_list_dir(OrbitArena* arena, const char* path) {
     return list;
 }
 
+bool orbit_file_exists(const char* filename) {
+    FILE* f = fopen(filename, "rb");
+    if (!f) return false;
+    fclose(f);
+    return true;
+}
+
+bool orbit_file_delete(const char* filename) {
+    return remove(filename) == 0;
+}
+
 #endif

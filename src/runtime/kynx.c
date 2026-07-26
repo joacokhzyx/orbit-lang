@@ -84,13 +84,14 @@ typedef enum {
 
 /* ── Global State ───────────────────────────────────────────────────── */
 
-static OrbitKynxShard   orbit_kynx_shards[KYNX_SHARD_COUNT];
-static volatile uint64_t orbit_kynx_banned_bloom[1024] = {0};
-static OrbitKynxConfig  orbit_kynx_config = {0};
-static volatile int64_t orbit_kynx_total_checks   = 0;
-static volatile int64_t orbit_kynx_total_blocked  = 0;
-static volatile int64_t orbit_kynx_active_leases  = 0;
-static OrbitKynxState   orbit_kynx_state = KYNX_STATE_STABLE;
+static OrbitKynxShard          orbit_kynx_shards[KYNX_SHARD_COUNT];
+static volatile uint64_t        orbit_kynx_banned_bloom[1024] = {0};
+static OrbitKynxConfig         orbit_kynx_config = {0};
+static volatile int64_t        orbit_kynx_total_checks   = 0;
+static volatile int64_t        orbit_kynx_total_blocked  = 0;
+static volatile int64_t        orbit_kynx_active_leases  = 0;
+static volatile OrbitKynxState orbit_kynx_state = KYNX_STATE_STABLE;
+static volatile bool           kynx_siege_active = false;
 
 ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease = NULL;
 
@@ -233,11 +234,13 @@ static bool kynx_ip_eq(const OrbitKynxIP* a, const OrbitKynxIP* b) {
 /** @brief Initialise Kynx with @p config, zeroing all shard tables and counters. */
 void orbit_kynx_init(OrbitKynxConfig config) {
     orbit_kynx_config = config;
+    __atomic_store_n(&orbit_kynx_config.enabled, config.enabled, __ATOMIC_SEQ_CST);
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
-    orbit_kynx_total_checks = 0;
-    orbit_kynx_total_blocked = 0;
-    orbit_kynx_active_leases = 0;
-    orbit_kynx_state = KYNX_STATE_STABLE;
+    __atomic_store_n(&orbit_kynx_total_checks, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&orbit_kynx_total_blocked, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&orbit_kynx_active_leases, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&orbit_kynx_state, KYNX_STATE_STABLE, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&kynx_siege_active, false, __ATOMIC_SEQ_CST);
 }
 
 /** @brief Wipe all shard tables (e.g., when the server is stopping). */
@@ -248,31 +251,33 @@ void orbit_kynx_cleanup(void) {
 /** @brief Reset all shard tables and global counters to their initial state. */
 void orbit_kynx_reset(void) {
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
-    orbit_kynx_total_checks = 0;
-    orbit_kynx_total_blocked = 0;
-    orbit_kynx_active_leases = 0;
-    orbit_kynx_state = KYNX_STATE_STABLE;
+    __atomic_store_n(&orbit_kynx_total_checks, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&orbit_kynx_total_blocked, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&orbit_kynx_active_leases, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&orbit_kynx_state, KYNX_STATE_STABLE, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&kynx_siege_active, false, __ATOMIC_SEQ_CST);
 }
 
 /* ── Admission Control Core ─────────────────────────────────────────── */
 
 /** @brief Check whether the client at @p ip_str is allowed to proceed.  Returns true (allow) or false (block/ban). */
 bool orbit_kynx_check(const char* ip_str) {
-    if (!orbit_kynx_config.enabled || !ip_str) return true;
+    if (!__atomic_load_n(&orbit_kynx_config.enabled, __ATOMIC_RELAXED) || !ip_str) return true;
 
     OrbitKynxIP ip;
     if (!kynx_parse_ip(ip_str, &ip)) return true; // Fail open for malformed internally
 
-    orbit_perf_atomic_inc64(&orbit_kynx_total_checks);
+    __atomic_fetch_add(&orbit_kynx_total_checks, 1, __ATOMIC_RELAXED);
     uint32_t hash = kynx_hash_ip(&ip);
 
     // ── 1-Nanosecond Lock-Free Bloom Filter Guard ─────────────────────────
     // Fast path check: if the IP's Bloom bit is set, check if banned directly.
     uint32_t bloom_idx = hash % 1024;
     uint64_t bloom_bit = 1ULL << (hash & 63);
-    if ((orbit_kynx_banned_bloom[bloom_idx] & bloom_bit) != 0) {
+    uint64_t bloom_val = __atomic_load_n(&orbit_kynx_banned_bloom[bloom_idx], __ATOMIC_RELAXED);
+    if ((bloom_val & bloom_bit) != 0) {
         // Fast-path early rejection for banned IPs under DDoS attack!
-        orbit_perf_atomic_inc64(&orbit_kynx_total_blocked);
+        __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
         return false;
@@ -305,9 +310,9 @@ bool orbit_kynx_check(const char* ip_str) {
                 if (now - e->banned_at_ns > 300ULL * 1000000000ULL) {
                     e->is_banned = false;
                     e->suspicion_score /= 2;
-                    orbit_kynx_banned_bloom[bloom_idx] &= ~bloom_bit;
+                    __atomic_fetch_and(&orbit_kynx_banned_bloom[bloom_idx], ~bloom_bit, __ATOMIC_SEQ_CST);
                 } else {
-                    orbit_perf_atomic_inc64(&orbit_kynx_total_blocked);
+                    __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
                     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
                     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
                     kynx_lock_release(&shard->lock);
@@ -323,8 +328,8 @@ bool orbit_kynx_check(const char* ip_str) {
                     if (e->suspicion_score >= orbit_kynx_config.ban_threshold) {
                         e->is_banned = true;
                         e->banned_at_ns = now;
-                        orbit_kynx_banned_bloom[bloom_idx] |= bloom_bit;
-                        orbit_perf_atomic_inc64(&orbit_kynx_total_blocked);
+                        __atomic_fetch_or(&orbit_kynx_banned_bloom[bloom_idx], bloom_bit, __ATOMIC_SEQ_CST);
+                        __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
                         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
                         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
                         kynx_lock_release(&shard->lock);
@@ -378,25 +383,29 @@ bool orbit_kynx_check(const char* ip_str) {
 /* ── Admission Control States ───────────────────────────────────────── */
 
 static inline void kynx_transition_state(OrbitKynxState new_state) {
-    if (orbit_kynx_state != new_state) {
-        orbit_kynx_state = new_state;
+    OrbitKynxState cur = (OrbitKynxState)__atomic_load_n(&orbit_kynx_state, __ATOMIC_RELAXED);
+    if (cur != new_state) {
+        __atomic_store_n(&orbit_kynx_state, new_state, __ATOMIC_SEQ_CST);
+        bool siege = (new_state == KYNX_STATE_SIEGE);
+        __atomic_store_n(&kynx_siege_active, siege, __ATOMIC_SEQ_CST);
         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_state_transitions);
     }
 }
 
 static inline void kynx_update_admission_state(void) {
-    int64_t active = orbit_kynx_active_leases;
-    
+    int64_t active = __atomic_load_n(&orbit_kynx_active_leases, __ATOMIC_RELAXED);
+    OrbitKynxState state = (OrbitKynxState)__atomic_load_n(&orbit_kynx_state, __ATOMIC_RELAXED);
+
     // Hysteresis based transitions
-    if (orbit_kynx_state == KYNX_STATE_STABLE) {
+    if (state == KYNX_STATE_STABLE) {
         if (active > 32) kynx_transition_state(KYNX_STATE_SHAPED);
-    } else if (orbit_kynx_state == KYNX_STATE_SHAPED) {
+    } else if (state == KYNX_STATE_SHAPED) {
         if (active > 128) kynx_transition_state(KYNX_STATE_GUARDED);
         else if (active <= 24) kynx_transition_state(KYNX_STATE_STABLE);
-    } else if (orbit_kynx_state == KYNX_STATE_GUARDED) {
+    } else if (state == KYNX_STATE_GUARDED) {
         if (active > 512) kynx_transition_state(KYNX_STATE_SIEGE);
         else if (active <= 96) kynx_transition_state(KYNX_STATE_SHAPED);
-    } else if (orbit_kynx_state == KYNX_STATE_SIEGE) {
+    } else if (state == KYNX_STATE_SIEGE) {
         if (active <= 384) kynx_transition_state(KYNX_STATE_GUARDED);
     }
 }
@@ -405,11 +414,8 @@ static inline void kynx_update_admission_state(void) {
 
 /** @brief Allocate and initialise a Computational Lease for the given @p path and @p method, adjusting budgets for the current admission state. */
 OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena) {
-    #ifdef _WIN32
-    InterlockedIncrement64(&orbit_kynx_active_leases);
-    #else
-    __sync_fetch_and_add(&orbit_kynx_active_leases, 1);
-    #endif
+    (void)method;
+    __atomic_fetch_add(&orbit_kynx_active_leases, 1, __ATOMIC_SEQ_CST);
     kynx_update_admission_state();
 
     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_admissions);
@@ -427,19 +433,21 @@ OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* 
     lease->db_steps_limit   = 100000;
     lease->flags = 0;
 
+    OrbitKynxState cur_state = (OrbitKynxState)__atomic_load_n(&orbit_kynx_state, __ATOMIC_RELAXED);
+
     /* SHAPED: halve the deadline, reduce DB step budget. */
-    if (orbit_kynx_state == KYNX_STATE_SHAPED) {
+    if (cur_state == KYNX_STATE_SHAPED) {
         lease->deadline_ns    = orbit_kynx_now_ns() + 250ULL * 1000000ULL;
         lease->db_steps_limit = 50000;
         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_throttled);
-    } else if (orbit_kynx_state == KYNX_STATE_GUARDED) {
+    } else if (cur_state == KYNX_STATE_GUARDED) {
         /* GUARDED: severely restrict CPU, memory, and database access. */
         lease->deadline_ns      = orbit_kynx_now_ns() + 100ULL * 1000000ULL; /* 100 ms */
         lease->arena_limit      = 2 * 1024 * 1024; /* 2 MB */
         lease->db_queries_limit = 3;
         lease->db_steps_limit   = 10000;
         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_throttled);
-    } else if (orbit_kynx_state == KYNX_STATE_SIEGE) {
+    } else if (cur_state == KYNX_STATE_SIEGE) {
         /* SIEGE: allow only health/auth/root routes with minimal budgets; reject everything else immediately. */
         bool is_critical = false;
         if (path && (strcmp(path, "/health") == 0 || strcmp(path, "/auth") == 0 || strcmp(path, "/") == 0)) {
@@ -483,11 +491,7 @@ void orbit_kynx_lease_destroy(OrbitKynxLease* lease) {
     if (lease == current_lease) {
         current_lease = NULL;
     }
-    #ifdef _WIN32
-    InterlockedDecrement64(&orbit_kynx_active_leases);
-    #else
-    __sync_fetch_and_sub(&orbit_kynx_active_leases, 1);
-    #endif
+    __atomic_fetch_sub(&orbit_kynx_active_leases, 1, __ATOMIC_SEQ_CST);
     kynx_update_admission_state();
 }
 
@@ -535,8 +539,10 @@ int orbit_sqlite_progress_handler(void* param) {
 /* ── Compatibility Getters ──────────────────────────────────────────── */
 
 /** @brief Return the lifetime count of admission checks performed. */
-uint64_t orbit_kynx_get_total_checks(void)  { return (uint64_t)orbit_kynx_total_checks; }
+uint64_t orbit_kynx_get_total_checks(void)  { return (uint64_t)__atomic_load_n(&orbit_kynx_total_checks, __ATOMIC_RELAXED); }
 /** @brief Return the lifetime count of requests blocked or banned. */
-uint64_t orbit_kynx_get_total_blocked(void) { return (uint64_t)orbit_kynx_total_blocked; }
+uint64_t orbit_kynx_get_total_blocked(void) { return (uint64_t)__atomic_load_n(&orbit_kynx_total_blocked, __ATOMIC_RELAXED); }
+/** @brief Return whether Kynx is currently in siege mode. */
+bool     orbit_kynx_is_siege_mode(void)     { return __atomic_load_n(&kynx_siege_active, __ATOMIC_RELAXED); }
 
 #endif

@@ -516,5 +516,74 @@ static orbit_string orbit_string_replace(OrbitArena* arena, orbit_string s, orbi
     return buf;
 }
 
+// ─── Extended String Utilities ─────────────────────────────────────────
+
+bool orbit_string_starts_with(orbit_string s, orbit_string prefix) {
+    if (!s || !prefix) return false;
+    size_t sl = strlen(s);
+    size_t pl = strlen(prefix);
+    if (pl > sl) return false;
+    return memcmp(s, prefix, pl) == 0;
+}
+
+bool orbit_string_ends_with(orbit_string s, orbit_string suffix) {
+    if (!s || !suffix) return false;
+    size_t sl = strlen(s);
+    size_t sul = strlen(suffix);
+    if (sul > sl) return false;
+    return memcmp(s + sl - sul, suffix, sul) == 0;
+}
+
+bool orbit_string_contains(orbit_string s, orbit_string substr) {
+    if (!s || !substr) return false;
+    return strstr(s, substr) != NULL;
+}
+
+orbit_int orbit_string_indexOf(orbit_string s, orbit_string substr) {
+    if (!s || !substr) return -1;
+    const char* p = strstr(s, substr);
+    return p ? (orbit_int)(p - s) : -1;
+}
+
+orbit_string orbit_string_to_upper(OrbitArena* arena, orbit_string s) {
+    if (!s || !arena) return "";
+    size_t len = strlen(s);
+    char* buf = (char*)orbit_alloc(arena, len + 1);
+    if (!buf) return "";
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        buf[i] = (c >= 'a' && c <= 'z') ? (c - 32) : c;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+orbit_string orbit_string_to_lower(OrbitArena* arena, orbit_string s) {
+    if (!s || !arena) return "";
+    size_t len = strlen(s);
+    char* buf = (char*)orbit_alloc(arena, len + 1);
+    if (!buf) return "";
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        buf[i] = (c >= 'A' && c <= 'Z') ? (c + 32) : c;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+orbit_string orbit_string_trim(OrbitArena* arena, orbit_string s) {
+    if (!s || !arena) return "";
+    const char* start = s;
+    const char* end = s + strlen(s) - 1;
+    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') start++;
+    if (start > end) return "";
+    while (end > start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) end--;
+    size_t len = (size_t)(end - start + 1);
+    char* buf = (char*)orbit_alloc(arena, len + 1);
+    if (!buf) return "";
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+    return buf;
+}
 
 #endif

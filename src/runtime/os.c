@@ -13,6 +13,33 @@
 #include "arena.c"
 #include <stdlib.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
+
+orbit_string orbit_os_cwd(OrbitArena* arena) {
+#ifdef _WIN32
+    char buf[4096];
+    if (!_getcwd(buf, sizeof(buf))) return "";
+#else
+    char buf[4096];
+    if (!getcwd(buf, sizeof(buf))) return "";
+#endif
+    size_t len = strlen(buf);
+    char* result = (char*)orbit_alloc(arena, len + 1);
+    if (!result) return "";
+    memcpy(result, buf, len);
+    result[len] = '\0';
+    return result;
+}
+
+bool orbit_os_chdir(orbit_string path) {
+#ifdef _WIN32
+    return _chdir(path) == 0;
+#else
+    return chdir(path) == 0;
+#endif
+}
 
 orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name) {
     if (!var_name || !arena) return "";

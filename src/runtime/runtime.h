@@ -73,7 +73,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
 #endif
 
 /* ── Convenience ────────────────────────────────────────────────────── */
-#define print(...) do { printf(__VA_ARGS__); } while(0)
+#define print(...) do { printf(__VA_ARGS__); printf("\n"); fflush(stdout); } while(0)
 
 static inline int bit_op(int i) {
     return ((i * 17) ^ (i >> 2)) & 0xFFFF;

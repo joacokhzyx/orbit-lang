@@ -222,7 +222,7 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     char header[512];
     int header_len = snprintf(header, sizeof(header),
         "HTTP/1.1 %d %s\r\n"
-        "Server: Orbit-Steel\r\n"
+        "Server: Orbit\r\n"
         "Content-Type: %s\r\n"
         "Connection: keep-alive\r\n"
         "Keep-Alive: timeout=30, max=1000\r\n"
@@ -290,6 +290,45 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
     orbit_perf_end_request(start);
     return keep_alive;
 }
+/* ── Header accessor ────────────────────────────────────────────────── */
+
+/** @brief Case-insensitive header name match helper. */
+static bool header_name_match(const char* raw, const char* name, size_t name_len) {
+    for (size_t i = 0; i < name_len; i++) {
+        char a = raw[i];
+        char b = name[i];
+        if (a >= 'A' && a <= 'Z') a += 32;
+        if (b >= 'A' && b <= 'Z') b += 32;
+        if (a != b) return false;
+    }
+    return true;
+}
+
+/** @brief Look up a request header by name (case-insensitive). Returns empty string if not found. */
+orbit_string orbit_http_header_get(OrbitArena* arena, OrbitRequest* req, orbit_string name) {
+    if (!req || !req->headers || !name) return "";
+    const char* raw = req->headers;
+    size_t name_len = strlen(name);
+    while (*raw) {
+        while (*raw == '\r' || *raw == '\n') { raw++; }
+        if (!*raw || (*raw == '\r' && *(raw + 1) == '\n')) break;
+        const char* colon = strchr(raw, ':');
+        if (!colon) break;
+        size_t hdr_len = (size_t)(colon - raw);
+        if (hdr_len == name_len && header_name_match(raw, name, name_len)) {
+            const char* val_start = colon + 1;
+            while (*val_start == ' ') val_start++;
+            const char* val_end = val_start;
+            while (*val_end && *val_end != '\r' && *val_end != '\n') val_end++;
+            return orbit_string_slice(arena, val_start, 0, (orbit_int)(val_end - val_start));
+        }
+        const char* eol = strstr(raw, "\r\n");
+        if (!eol) break;
+        raw = eol + 2;
+    }
+    return "";
+}
+
 #endif
 
 #endif
