@@ -22,6 +22,7 @@ const AtlasConfig = @import("atlas.zig").AtlasConfig;
 const term = @import("terminal/terminal.zig");
 const fmt_mod = @import("fmt/mod.zig");
 const doctor_mod = @import("doctor/mod.zig");
+const init_mod = @import("init/mod.zig");
 
 const ORBIT_ICO_BYTES = @embedFile("orbit.ico");
 
@@ -285,6 +286,8 @@ pub fn main(init: std.process.Init) !void {
     var debug = false;
     var no_kynx = config.no_kynx;
     var auto_fix = false;
+    var selected_preset: init_mod.templates.PresetKind = .microservice;
+    var enable_ci = false;
     var verbose = false;
     var timings = false;
     var timings_json = false;
@@ -329,6 +332,13 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, arg, "--emit=obj")) emit_mode = .obj;
         if (std.mem.eql(u8, arg, "--emit=mir")) emit_mode = .mir;
         if (std.mem.eql(u8, arg, "--fix")) auto_fix = true;
+        if (std.mem.startsWith(u8, arg, "--preset=")) {
+            const val = arg["--preset=".len..];
+            if (init_mod.templates.PresetKind.fromString(val)) |p| {
+                selected_preset = p;
+            }
+        }
+        if (std.mem.eql(u8, arg, "--ci")) enable_ci = true;
         // Output path override
         if (std.mem.eql(u8, arg, "-o") and i + 1 < args.len) {
             output_override = args[i + 1];
@@ -368,6 +378,15 @@ pub fn main(init: std.process.Init) !void {
         doctor_mod.runDoctor(init.io, arena, target_dir, ORBIT_VERSION, options) catch {
             std.process.exit(1);
         };
+    } else if (std.mem.eql(u8, command, "init")) {
+        const options = init_mod.scaffold.InitOptions{
+            .preset = selected_preset,
+            .enable_ci = enable_ci,
+        };
+        const proj_name = if (file_path.len > 0) file_path else ".";
+        init_mod.runInit(init.io, arena, proj_name, ORBIT_VERSION, options) catch {
+            std.process.exit(1);
+        };
     } else {
         if (!std.mem.eql(u8, command, "--help") and !std.mem.eql(u8, command, "-h") and !std.mem.eql(u8, command, "help")) {
             std.debug.print("Unknown command: {s}\n", .{command});
@@ -395,6 +414,7 @@ fn printHelp() void {
         \\    dev        Compile + instant execution with diagnostics
         \\    run        Compile + run and propagate process exit code
         \\    build      Compile to standalone native C target binary
+        \\    init       Scaffold Orbit project (--preset=api|db|secured|lib, --ci)
         \\    fmt        Auto-format Orbit source code (--check, --diff)
         \\    doctor     Run toolchain & project diagnostics (--fix)
         \\    test       Execute isolated runtime unit tests
@@ -402,6 +422,8 @@ fn printHelp() void {
         \\    bootstrap  Run multi-stage self-hosting compiler build
         \\
         \\  {s}FLAGS & OPTIONS{s}
+        \\    {s}--preset=TYPE{s}   microservice, database_app, secured_api, library
+        \\    {s}--ci{s}            Generate GitHub Actions CI workflow
         \\    {s}--backend=MODE{s}   c (C target), native (x86_64 direct)
         \\    {s}--emit=MODE{s}      exe (default), obj, mir
         \\    {s}--check{s}          Check formatting without writing files
@@ -418,6 +440,8 @@ fn printHelp() void {
         bold, reset,
         bold, reset,
         bold, reset,
+        yellow, reset,
+        yellow, reset,
         yellow, reset,
         yellow, reset,
         yellow, reset,
