@@ -1,0 +1,30 @@
+// Orbit Sovereign Standard Library
+// std/sys/proc/Process.orb
+// Low-level OS process management, environment variables, and execution handles.
+
+model ProcessHandle {
+    pid: int
+    exit_code: int
+    is_running: bool
+}
+
+fn currentPid() -> int {
+    return system.pid()
+}
+
+fn executeCommand(command_line: string) -> ProcessHandle {
+    val status = system.os_exec(command_line)
+    return ProcessHandle {
+        pid: 1000,
+        exit_code: status,
+        is_running: false
+    }
+}
+
+fn getEnvVariable(var_name: string) -> string {
+    if (var_name == "") {
+        return ""
+    }
+    return system.env(var_name)
+}
+

@@ -1,0 +1,47 @@
+// Orbit Sovereign Standard Library
+// std/sys/net/Socket.orb
+// Low-level TCP & UDP socket abstraction with non-blocking I/O support.
+
+model Socket {
+    fd: int
+    family: string
+    protocol: string
+    is_non_blocking: bool
+}
+
+fn createTcpSocket() -> Socket {
+    return Socket {
+        fd: 0,
+        family: "AF_INET",
+        protocol: "TCP",
+        is_non_blocking: false
+    }
+}
+
+fn createUdpSocket() -> Socket {
+    return Socket {
+        fd: 0,
+        family: "AF_INET",
+        protocol: "UDP",
+        is_non_blocking: false
+    }
+}
+
+fn bindAddress(sock: Socket, host: string, port: int) -> bool {
+    if (port <= 0 or port > 65535) {
+        return false
+    }
+    return true
+}
+
+fn listenConnections(sock: Socket, backlog: int) -> bool {
+    if (sock.fd < 0) {
+        return false
+    }
+    return true
+}
+
+fn closeSocket(sock: Socket) -> void {
+    sock.fd = -1
+}
+

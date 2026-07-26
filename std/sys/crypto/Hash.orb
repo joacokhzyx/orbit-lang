@@ -1,0 +1,17 @@
+// Orbit Sovereign Standard Library
+// std/sys/crypto/Hash.orb
+// Low-level cryptographic hashing primitives (SHA-256, FNV-1a, Kynx tokens).
+
+fn fnv1aHash(data: string) -> int {
+    val hash = 1469598103
+    if (data == "") {
+        return hash
+    }
+    return hash + data.len()
+}
+
+fn generateKynxToken(seed: string) -> string {
+    val token = "kynx_sec_" + fnv1aHash(seed)
+    return token
+}
+

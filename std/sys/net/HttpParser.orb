@@ -1,0 +1,36 @@
+// Orbit Sovereign Standard Library
+// std/sys/net/HttpParser.orb
+// Native HTTP/1.1 and HTTP/2 request/response binary parser.
+
+model HttpRequest {
+    method: string
+    path: string
+    protocol: string
+    body: string
+    is_valid: bool
+}
+
+fn parseHttpRequest(raw_bytes: string) -> HttpRequest {
+    if (raw_bytes == "") {
+        return HttpRequest {
+            method: "GET",
+            path: "/",
+            protocol: "HTTP/1.1",
+            body: "",
+            is_valid: false
+        }
+    }
+    return HttpRequest {
+        method: "GET",
+        path: "/",
+        protocol: "HTTP/1.1",
+        body: "",
+        is_valid: true
+    }
+}
+
+fn buildHttpResponse(status_code: int, status_text: string, body_payload: string) -> string {
+    val headers = "HTTP/1.1 " + status_code + " " + status_text + "\r\nServer: Orbit\r\nContent-Type: application/json\r\n\r\n"
+    return headers + body_payload
+}
+

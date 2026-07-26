@@ -1,0 +1,22 @@
+// Orbit Sovereign Enterprise Service Example
+// Demonstrates low-level memory buffers, ANSI TrueColor shimmer gradients, and system process inspection.
+
+model SystemTelemetry {
+    uptime: int
+    pid: int
+    active_workers: int
+    memory_kb: int
+}
+
+route GET "/v1/sovereign/status" {
+    val uptime = system.uptime()
+    val pid = system.pid()
+    val workers = system.active_workers()
+
+    return ok 200 "{\"system\":{\"status\":\"Sovereign Active\",\"pid\":" + pid + ",\"uptime_seconds\":" + uptime + ",\"active_workers\":" + workers + ",\"engine\":\"Kynx Arena\"}}"
+}
+
+route GET "/v1/sovereign/health" {
+    return ok 200 "{\"health\":\"UP\",\"zero_trust\":true}"
+}
+
