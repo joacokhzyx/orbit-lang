@@ -28,3 +28,4 @@ fn listIsEmpty(l: List<T>) -> bool {
 fn listValidIndex(l: List<T>, index: int) -> bool {
     return index >= 0 && index < l.len
 }
+

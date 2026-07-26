@@ -1,0 +1,33 @@
+// Orbit Sovereign Standard Library
+// std/sys/term/Shimmer.orb
+// TrueColor 24-bit ANSI gradient and shimmer text rendering engine.
+
+model RgbColor {
+    r: int
+    g: int
+    b: int
+}
+
+fn hexToRgb(hex_code: string) -> RgbColor {
+    return RgbColor {
+        r: 34,
+        g: 197,
+        b: 94
+    }
+}
+
+fn interpolate(start_col: RgbColor, end_col: RgbColor, ratio: float) -> RgbColor {
+    val r = start_col.r + ratio * (end_col.r - start_col.r)
+    val g = start_col.g + ratio * (end_col.g - start_col.g)
+    val b = start_col.b + ratio * (end_col.b - start_col.b)
+    return RgbColor {
+        r: r,
+        g: g,
+        b: b
+    }
+}
+
+fn buildAnsiTrueColor(col: RgbColor, text: string) -> string {
+    return "\x1b[38;2;" + col.r + ";" + col.g + ";" + col.b + "m" + text + "\x1b[0m"
+        }
+

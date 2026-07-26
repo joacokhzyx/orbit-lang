@@ -91,3 +91,4 @@ fn mapDelete(map: Map<K, V>, key: K) {
 fn mapLen(map: Map<K, V>) -> int {
     return map.count
 }
+

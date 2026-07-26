@@ -26,17 +26,8 @@ pub fn runFormatter(io: std.Io, allocator: std.mem.Allocator, target_path: []con
     var cwd = std.Io.Dir.cwd();
 
     if (cwd.openDir(io, target_path, .{ .iterate = true })) |dir| {
-        var mut_dir = dir;
-        defer mut_dir.close(io);
-
-        var iterator = mut_dir.iterate();
-        while (try iterator.next(io)) |entry| {
-            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".orb")) {
-                const full_path = try std.fs.path.join(allocator, &.{ target_path, entry.name });
-                defer allocator.free(full_path);
-                try formatSingleFile(io, allocator, full_path, options, &summary, stdout);
-            }
-        }
+        _ = dir;
+        try formatDirectoryRecursive(io, allocator, target_path, options, &summary, stdout);
     } else |_| {
         // Single file
         try formatSingleFile(io, allocator, target_path, options, &summary, stdout);
@@ -50,6 +41,27 @@ pub fn runFormatter(io: std.Io, allocator: std.mem.Allocator, target_path: []con
 
     if (options.check_only and (summary.formatted_count > 0 or summary.error_count > 0)) {
         return error.FormattingRequired;
+    }
+}
+
+fn formatDirectoryRecursive(io: std.Io, allocator: std.mem.Allocator, dir_path: []const u8, options: rules.FormatterOptions, summary: *ui.FmtSummary, stdout: anytype) !void {
+    var cwd = std.Io.Dir.cwd();
+    var dir = cwd.openDir(io, dir_path, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+
+    var iterator = dir.iterate();
+    while (try iterator.next(io)) |entry| {
+        const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.name });
+        defer allocator.free(full_path);
+
+        const is_dir = if (entry.kind == .directory) true else if (entry.kind == .file) false else (cwd.openDir(io, full_path, .{}) catch null) != null;
+
+        if (is_dir) {
+            if (std.mem.startsWith(u8, entry.name, ".") or std.mem.eql(u8, entry.name, "zig-out") or std.mem.eql(u8, entry.name, "zig-cache")) continue;
+            try formatDirectoryRecursive(io, allocator, full_path, options, summary, stdout);
+        } else if (std.mem.endsWith(u8, entry.name, ".orb")) {
+            try formatSingleFile(io, allocator, full_path, options, summary, stdout);
+        }
     }
 }
 

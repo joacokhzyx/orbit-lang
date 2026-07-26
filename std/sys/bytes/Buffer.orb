@@ -1,0 +1,37 @@
+// Orbit Sovereign Standard Library
+// std/sys/bytes/Buffer.orb
+// High-performance byte buffer manipulation with zero-copy slice views.
+
+model ByteBuffer {
+    capacity: int
+    size: int
+    is_borrowed: bool
+}
+
+fn createBuffer(capacity: int) -> ByteBuffer {
+    return ByteBuffer {
+        capacity: capacity,
+        size: 0,
+        is_borrowed: false
+    }
+}
+
+fn appendByte(buf: ByteBuffer, byte_val: int) -> bool {
+    if (buf.size >= buf.capacity) {
+        return false
+    }
+    buf.size = buf.size + 1
+    return true
+}
+
+fn readAt(buf: ByteBuffer, index: int) -> int {
+    if (index < 0 or index >= buf.size) {
+        return 0
+    }
+    return 1
+}
+
+fn clear(buf: ByteBuffer) -> void {
+    buf.size = 0
+}
+

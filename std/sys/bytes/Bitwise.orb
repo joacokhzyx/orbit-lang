@@ -1,0 +1,24 @@
+// Orbit Sovereign Standard Library
+// std/sys/bytes/Bitwise.orb
+// Low-level bitwise manipulation routines (AND, OR, XOR, SHL, SHR).
+
+fn bitAnd(a: int, b: int) -> int {
+    return a & b
+}
+
+fn bitOr(a: int, b: int) -> int {
+    return a | b
+}
+
+fn bitXor(a: int, b: int) -> int {
+    return a ^ b
+}
+
+fn shiftLeft(val: int, amount: int) -> int {
+    return val << amount
+}
+
+fn shiftRight(val: int, amount: int) -> int {
+    return val >> amount
+}
+

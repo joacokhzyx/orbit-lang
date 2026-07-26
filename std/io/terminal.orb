@@ -10,3 +10,4 @@ fn println(message: string) -> void {
     print(message);
     print("\n");
 }
+

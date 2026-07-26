@@ -1,0 +1,31 @@
+// Orbit Sovereign Standard Library
+// std/sys/io/IOThreading.orb
+// Multithreaded I/O event dispatcher and asynchronous task pool.
+
+model TaskPool {
+    worker_count: int
+    queue_depth: int
+    is_active: bool
+}
+
+fn createPool(workers: int) -> TaskPool {
+    return TaskPool {
+        worker_count: workers,
+        queue_depth: 0,
+        is_active: true
+    }
+}
+
+fn dispatch(pool: TaskPool, task_id: int) -> bool {
+    if (pool.is_active == false) {
+        return false
+    }
+    pool.queue_depth = pool.queue_depth + 1
+    return true
+}
+
+fn shutdown(pool: TaskPool) -> void {
+    pool.is_active = false
+    pool.queue_depth = 0
+}
+

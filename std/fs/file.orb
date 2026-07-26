@@ -16,3 +16,4 @@ fn write(file: File, data: string) -> Result<int, int> {
     // Returns Ok(bytes_written) on success, Err(error_code) on failure.
     return Result.Ok(data.len());
 }
+
