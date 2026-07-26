@@ -20,6 +20,7 @@ const CBackend = @import("codegen/c_backend.zig").CBackend;
 const RuntimeLoader = @import("codegen/runtime_loader.zig");
 const AtlasConfig = @import("atlas.zig").AtlasConfig;
 const term = @import("terminal/terminal.zig");
+const fmt_mod = @import("fmt/mod.zig");
 
 const ORBIT_ICO_BYTES = @embedFile("orbit.ico");
 
@@ -266,12 +267,14 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    if (args.len < 3) {
-        printHelp();
-        return;
+    var target_file_path: []const u8 = "";
+    for (args[2..]) |arg| {
+        if (!std.mem.startsWith(u8, arg, "-")) {
+            target_file_path = arg;
+            break;
+        }
     }
-
-    const file_path = args[2];
+    const file_path = target_file_path;
     const config = AtlasConfig.load(arena, init.io) catch AtlasConfig{};
 
     var debug = false;
@@ -287,12 +290,17 @@ pub fn main(init: std.process.Init) !void {
     var output_override: ?[]const u8 = null;
 
     var i: usize = 0;
+    var check_only = false;
+    var show_diff = false;
+
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--debug")) debug = true;
         if (std.mem.eql(u8, arg, "--no-kynx")) no_kynx = true;
         if (std.mem.eql(u8, arg, "--verbose")) verbose = true;
         if (std.mem.eql(u8, arg, "--timings")) timings = true;
+        if (std.mem.eql(u8, arg, "--check")) check_only = true;
+        if (std.mem.eql(u8, arg, "--diff")) show_diff = true;
         if (std.mem.eql(u8, arg, "--timings=json")) {
             timings = true;
             timings_json = true;
@@ -331,6 +339,19 @@ pub fn main(init: std.process.Init) !void {
         runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode) catch std.process.exit(1);
     } else if (std.mem.eql(u8, command, "test")) {
         runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch std.process.exit(1);
+    } else if (std.mem.eql(u8, command, "fmt")) {
+        const options = fmt_mod.rules.FormatterOptions{
+            .check_only = check_only,
+            .show_diff = show_diff,
+        };
+        const fmt_target = if (file_path.len > 0) file_path else ".";
+        fmt_mod.runFormatter(init.io, arena, fmt_target, options) catch |err| {
+            if (err == error.FormattingRequired) {
+                std.process.exit(1);
+            } else {
+                std.process.exit(1);
+            }
+        };
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         printHelp();
