@@ -1,0 +1,43 @@
+name: CI - Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.17.0-dev.1442
+
+      - name: Build
+        run: zig build
+
+      - name: Run tests
+        run: zig build test
+
+      - name: Test orbit.exe on a simple .orb file
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ORBIT="./zig-out/bin/orbit.exe"
+            OUTPUT="test_simple_output.exe"
+          else
+            ORBIT="./zig-out/bin/orbit"
+            OUTPUT="test_simple_output"
+          fi
+          $ORBIT build test_simple.orb -o $OUTPUT
+          $OUTPUT
+
+      - name: Lint format check
+        run: zig fmt --check src/

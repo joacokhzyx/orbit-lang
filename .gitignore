@@ -49,3 +49,6 @@ scripts/dist/
 repomix-output.xml
 repomix-output*.xml
 .repomixignore
+
+# Local agent skills/configs
+.agents/
