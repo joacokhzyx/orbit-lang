@@ -29,6 +29,8 @@
  * by hardcoded buffer constants.
  * ────────────────────────────────────────────────────────────────────── */
 
+#ifndef ORBIT_HTTP_H
+#define ORBIT_HTTP_H
 typedef struct {
     char* method;
     char* path;
@@ -38,6 +40,7 @@ typedef struct {
     size_t body_len;
     size_t headers_len;
 } OrbitRequest;
+#endif
 
 /** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
