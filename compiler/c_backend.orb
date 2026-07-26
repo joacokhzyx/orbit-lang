@@ -66,32 +66,32 @@ fn generateFunction(backend: CBackend, func: IRFunction) {
         }
     }
     backend.output = backend.output + ") {\n"
-    // Declare registers
-    i = 0
-    while i < func.registerCount {
-        val rType = mapTypeToC(func.registerTypes.get(i))
-        if rType != "void" {
-            backend.output = backend.output + "    " + rType + " r_" + orbit_itoa(i) + ";\n"
+        // Declare registers
+        i = 0
+        while i < func.registerCount {
+            val rType = mapTypeToC(func.registerTypes.get(i))
+            if rType != "void" {
+                backend.output = backend.output + "    " + rType + " r_" + orbit_itoa(i) + ";\n"
+            }
+            i = i + 1
         }
-        i = i + 1
-    }
-    // Generate instructions
-    i = 0
-    while i < func.instructions.len() {
-        val instr = func.instructions.get(i)
-        generateInstruction(backend, instr)
-        i = i + 1
-    }
-    if func.returnType != "void" {
-        if retType == "orbit_int" {
-            backend.output = backend.output + "    return 0;\n"
-        } else if retType == "orbit_bool" {
-            backend.output = backend.output + "    return false;\n"
-        } else {
-            backend.output = backend.output + "    return NULL;\n"
+        // Generate instructions
+        i = 0
+        while i < func.instructions.len() {
+            val instr = func.instructions.get(i)
+            generateInstruction(backend, instr)
+            i = i + 1
         }
-    }
-    backend.output = backend.output + "}\n\n"
+        if func.returnType != "void" {
+            if retType == "orbit_int" {
+                backend.output = backend.output + "    return 0;\n"
+            } else if retType == "orbit_bool" {
+                backend.output = backend.output + "    return false;\n"
+            } else {
+                backend.output = backend.output + "    return NULL;\n"
+            }
+        }
+        backend.output = backend.output + "}\n\n"
 }
 
 fn generateValue(backend: CBackend, value: IRValue) -> string {
@@ -174,9 +174,9 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
         }
         IROpcode.begin_block => {
             backend.output = backend.output + "    {\n"
-        }
-        IROpcode.end_block => {
-            backend.output = backend.output + "    }\n"
+            }
+            IROpcode.end_block => {
+                backend.output = backend.output + "    }\n"
         }
         IROpcode.label => {
             backend.output = backend.output + "label_" + generateValue(backend, instr.operand1) + ":;\n"
@@ -338,69 +338,70 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
             val exprVal = generateValue(backend, instr.operand1)
             if exprVal != "" {
                 backend.output = backend.output + "    switch (" + exprVal + ") {\n"
-            } else {
-                backend.output = backend.output + "    /* switch_op */\n"
+                } else {
+                    backend.output = backend.output + "    /* switch_op */\n"
+                }
             }
-        }
-        IROpcode.type_info => {
-            backend.output = backend.output + "    /* type_info */\n"
-        }
-        IROpcode.db_get => {
-            val arg1 = generateValue(backend, instr.operand1)
-            val arg2 = generateValue(backend, instr.operand2)
-            var argsStr = arg1
-            if arg2 != "" {
-                argsStr = argsStr + ", " + arg2
+            IROpcode.type_info => {
+                backend.output = backend.output + "    /* type_info */\n"
             }
-            if instr.dest != -1 {
-                backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_get(" + argsStr + ");\n"
-            } else {
-                backend.output = backend.output + "    orbit_db_get(" + argsStr + ");\n"
+            IROpcode.db_get => {
+                val arg1 = generateValue(backend, instr.operand1)
+                val arg2 = generateValue(backend, instr.operand2)
+                var argsStr = arg1
+                if arg2 != "" {
+                    argsStr = argsStr + ", " + arg2
+                }
+                if instr.dest != -1 {
+                    backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_get(" + argsStr + ");\n"
+                } else {
+                    backend.output = backend.output + "    orbit_db_get(" + argsStr + ");\n"
+                }
             }
-        }
-        IROpcode.db_set => {
-            val arg1 = generateValue(backend, instr.operand1)
-            val arg2 = generateValue(backend, instr.operand2)
-            val arg3 = generateValue(backend, instr.operand3)
-            var argsStr = arg1
-            if arg2 != "" {
-                argsStr = argsStr + ", " + arg2
+            IROpcode.db_set => {
+                val arg1 = generateValue(backend, instr.operand1)
+                val arg2 = generateValue(backend, instr.operand2)
+                val arg3 = generateValue(backend, instr.operand3)
+                var argsStr = arg1
+                if arg2 != "" {
+                    argsStr = argsStr + ", " + arg2
+                }
+                if arg3 != "" {
+                    argsStr = argsStr + ", " + arg3
+                }
+                if instr.dest != -1 {
+                    backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_set(" + argsStr + ");\n"
+                } else {
+                    backend.output = backend.output + "    orbit_db_set(" + argsStr + ");\n"
+                }
             }
-            if arg3 != "" {
-                argsStr = argsStr + ", " + arg3
+            IROpcode.db_all => {
+                val arg1 = generateValue(backend, instr.operand1)
+                if instr.dest != -1 {
+                    backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_all(" + arg1 + ");\n"
+                } else {
+                    backend.output = backend.output + "    orbit_db_all(" + arg1 + ");\n"
+                }
             }
-            if instr.dest != -1 {
-                backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_set(" + argsStr + ");\n"
-            } else {
-                backend.output = backend.output + "    orbit_db_set(" + argsStr + ");\n"
+            IROpcode.db_where => {
+                val arg1 = generateValue(backend, instr.operand1)
+                val arg2 = generateValue(backend, instr.operand2)
+                var argsStr = arg1
+                if arg2 != "" {
+                    argsStr = argsStr + ", " + arg2
+                }
+                if instr.dest != -1 {
+                    backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_where(" + argsStr + ");\n"
+                } else {
+                    backend.output = backend.output + "    orbit_db_where(" + argsStr + ");\n"
+                }
             }
-        }
-        IROpcode.db_all => {
-            val arg1 = generateValue(backend, instr.operand1)
-            if instr.dest != -1 {
-                backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_all(" + arg1 + ");\n"
-            } else {
-                backend.output = backend.output + "    orbit_db_all(" + arg1 + ");\n"
+            IROpcode.http_response => {
+                backend.output = backend.output + "    ORBIT_API_RESPONSE(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n"
             }
-        }
-        IROpcode.db_where => {
-            val arg1 = generateValue(backend, instr.operand1)
-            val arg2 = generateValue(backend, instr.operand2)
-            var argsStr = arg1
-            if arg2 != "" {
-                argsStr = argsStr + ", " + arg2
+            _ => {
+                backend.output = backend.output + "    /* Unknown opcode */\n"
             }
-            if instr.dest != -1 {
-                backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_db_where(" + argsStr + ");\n"
-            } else {
-                backend.output = backend.output + "    orbit_db_where(" + argsStr + ");\n"
-            }
-        }
-        IROpcode.http_response => {
-            backend.output = backend.output + "    ORBIT_API_RESPONSE(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n"
-        }
-        _ => {
-            backend.output = backend.output + "    /* Unknown opcode */\n"
         }
     }
-}
+

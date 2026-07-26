@@ -1,249 +1,57 @@
-import "./token.orb"
+// Orbit Self-Hosted Compiler - Abstract Syntax Tree Definitions
+// compiler/ast.orb
 
-model ProgramNode {
-    decls: list
+model Loc {
+    line: int
+    column: int
 }
 
-model FunctionDeclNode {
+model IdentifierNode {
     name: string
-    params: list
-    paramTypes: list
-    returnType: string
-    body: ASTNode
-    isAsync: bool
-    isPrivate: bool
-    isExtern: bool
-    genericParams: list
-}
-
-model VarDeclNode {
-    name: string
-    isMutable: bool
-    value: ASTNode
-}
-
-model BinaryOpNode {
-    op: string
-    lhs: ASTNode
-    rhs: ASTNode
-}
-
-model UnaryOpNode {
-    op: string
-    operand: ASTNode
-}
-
-model LiteralNode {
-    valType: string
-    text: string
-}
-
-model MatchNode {
-    expr: ASTNode
-    cases: list
-}
-
-model MatchCaseNode {
-    pattern: ASTNode
-    body: ASTNode
-}
-
-model CallNode {
-    func: ASTNode
-    args: list
-}
-
-model MemberAccessNode {
-    object: ASTNode
-    member: Token
-}
-
-model IndexAccessNode {
-    object: ASTNode
-    index: ASTNode
-}
-
-model ModelDeclNode {
-    name: Token
-    fields: list
-    genericParams: list
-}
-
-model FieldDeclNode {
-    name: Token
-    typeName: Token
-    decorators: list
-}
-
-model BlockNode {
-    statements: list
-}
-
-model ReturnNode {
-    expr: ASTNode
-}
-
-model IfNode {
-    condition: ASTNode
-    thenBody: ASTNode
-    elseBody: ASTNode
-}
-
-model WhileNode {
-    condition: ASTNode
-    body: ASTNode
-}
-
-model ForNode {
-    item: Token
-    iterable: ASTNode
-    body: ASTNode
-}
-
-model TypeDeclNode {
-    name: Token
-    kind: string
-    variants: list
-    baseType: Token
-}
-
-model VariantNode {
-    name: Token
-    payloadType: Token
-}
-
-model RouteDeclNode {
-    method: Token
-    path: Token
-    params: list
-    body: ASTNode
-}
-
-model TryNode {
-    expr: ASTNode
-}
-
-model GenericParamNode {
-    name: Token
-    constraint: Token
-}
-
-model TraitDeclNode {
-    name: Token
-    genericParams: list
-    methods: list
-    isPrivate: bool
-}
-
-model ImplDeclNode {
-    traitName: Token
-    typeName: Token
-    methods: list
-}
-
-model ConstDeclNode {
-    name: Token
-    value: ASTNode
-    isPrivate: bool
-}
-
-model ScheduleDeclNode {
-    amount: Token
-    unit: Token
-    atTime: Token
-    handler: ASTNode
-}
-
-model ConfigDeclNode {
-    key: Token
-    value: ASTNode
-}
-
-model BreakNode {
-}
-
-model ContinueNode {
-}
-
-model ImportStmtNode {
-    path: Token
-}
-
-model UseStmtNode {
-    module: Token
+    loc: Loc
 }
 
 model ParamNode {
-    name: Token
-    typeName: Token
+    name: string
+    type_name: string
 }
 
-model DecoratorNode {
-    name: Token
-    args: list
+model FunctionNode {
+    name: string
+    params: list
+    return_type: string
+    is_async: bool
 }
 
-model TypeAnnotationNode {
-    base: Token
-    isOptional: bool
+model RouteNode {
+    http_method: string
+    path: string
+    body_statements: list
 }
 
-model FieldInitNode {
-    name: Token
-    value: ASTNode
+model ModelFieldNode {
+    field_name: string
+    type_name: string
 }
 
-model ExpressionStmtNode {
-    expr: ASTNode
+model ModelNode {
+    name: string
+    fields: list
 }
 
-model ListLiteralNode {
-    elements: list
+model ProgramNode {
+    file_path: string
+    functions: list
+    routes: list
+    models: list
 }
 
-model AssignmentNode {
-    target: ASTNode
-    value: ASTNode
+fn createProgram(path: string) -> ProgramNode {
+    return ProgramNode {
+        file_path: path,
+        functions: [],
+        routes: [],
+        models: []
+    }
 }
 
-union ASTNode {
-    Program(ProgramNode),
-    FunctionDecl(FunctionDeclNode),
-    VarDecl(VarDeclNode),
-    BinaryOp(BinaryOpNode),
-    UnaryOp(UnaryOpNode),
-    Literal(LiteralNode),
-    Match(MatchNode),
-    Call(CallNode),
-    MemberAccess(MemberAccessNode),
-    IndexAccess(IndexAccessNode),
-    ModelDecl(ModelDeclNode),
-    FieldDecl(FieldDeclNode),
-    Block(BlockNode),
-    Return(ReturnNode),
-    If(IfNode),
-    While(WhileNode),
-    For(ForNode),
-    TypeDecl(TypeDeclNode),
-    RouteDecl(RouteDeclNode),
-    Try(TryNode),
-    MatchCase(MatchCaseNode),
-    GenericParam(GenericParamNode),
-    TraitDecl(TraitDeclNode),
-    ImplDecl(ImplDeclNode),
-    ConstDecl(ConstDeclNode),
-    ScheduleDecl(ScheduleDeclNode),
-    ConfigDecl(ConfigDeclNode),
-    Break(BreakNode),
-    Continue(ContinueNode),
-    ImportStmt(ImportStmtNode),
-    UseStmt(UseStmtNode),
-    Param(ParamNode),
-    Decorator(DecoratorNode),
-    TypeAnnotation(TypeAnnotationNode),
-    FieldInit(FieldInitNode),
-    ExpressionStmt(ExpressionStmtNode),
-    Assignment(AssignmentNode),
-    ListLiteral(ListLiteralNode),
-    Empty
-}

@@ -41,7 +41,7 @@ union IROpcode {
     store_field,
     switch_op,
     type_info,
-    
+
     // Collection opcodes
     list_create,
     list_push,
@@ -215,3 +215,4 @@ model IRGlobal {
 fn initIRModule() -> IRModule {
     return IRModule([], [], [], [])
 }
+

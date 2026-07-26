@@ -28,3 +28,4 @@ fn compileFrontendSource(moduleName: string, source: string) -> string {
     val module = compileFrontendModule(moduleName, source)
     return tirCanonical(module)
 }
+

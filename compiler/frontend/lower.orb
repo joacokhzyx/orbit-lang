@@ -243,3 +243,4 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
     }
     return module
 }
+

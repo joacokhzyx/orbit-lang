@@ -1,0 +1,36 @@
+// Orbit Self-Hosted Compiler - Code Formatter Engine
+// compiler/fmt.orb
+
+model FormatterOptions {
+    indent_size: int
+    check_only: bool
+    show_diff: bool
+}
+
+fn createDefaultOptions() -> FormatterOptions {
+    return FormatterOptions {
+        indent_size: 4,
+        check_only: false,
+        show_diff: false
+    }
+}
+
+fn formatLine(line_content: string, indent_level: int, indent_size: int) -> string {
+    val trimmed = line_content
+    if (trimmed == "") {
+        return ""
+    }
+    var prefix = ""
+    val total_spaces = indent_level * indent_size
+    var i = 0
+    while (i < total_spaces) {
+        prefix = prefix + " "
+        i = i + 1
+    }
+    return prefix + trimmed
+}
+
+fn isFormatted(original_source: string, formatted_source: string) -> bool {
+    return original_source == formatted_source
+}
+

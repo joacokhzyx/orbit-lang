@@ -119,9 +119,9 @@ fn tirEscape(text: string) -> string {
         val c = text.at(i)
         if c == 92 { result = result + "\\\\" }
         else { if c == 10 { result = result + "\\n" }
-        else { if c == 13 { result = result + "\\r" }
-        else { if c == 9 { result = result + "\\t" }
-        else { result = result + text.slice(i, i + 1) } } } }
+            else { if c == 13 { result = result + "\\r" }
+                else { if c == 9 { result = result + "\\t" }
+                    else { result = result + text.slice(i, i + 1) } } } }
         i = i + 1
     }
     return result
@@ -175,3 +175,4 @@ fn tirCanonical(module: TirModule) -> string {
     }
     return output
 }
+

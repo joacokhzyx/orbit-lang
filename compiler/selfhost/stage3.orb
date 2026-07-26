@@ -39,3 +39,4 @@ fn checkPath(path: string) -> int {
 
     return totalErrors
 }
+

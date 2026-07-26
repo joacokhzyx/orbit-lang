@@ -1,5 +1,4 @@
 
-
 import "../lexer.orb"
 import "../token.orb"
 
@@ -23,8 +22,6 @@ fn advanceCtx(ctx: ParseContext) {
     ctx.current = ctx.peek
     ctx.peek = nextToken(ctx.lexer)
 }
-
-
 
 // Simple Expression Parser returning S-Expression string
 fn parseExpression(ctx: ParseContext) -> string {
@@ -56,7 +53,7 @@ fn parsePrimary(ctx: ParseContext) -> string {
         }
         return "(Id " + name + ")"
     }
-    
+
     val text = ctx.current.text
     advanceCtx(ctx)
     return "(Unknown " + text + ")"
@@ -76,7 +73,7 @@ fn parseStatement(ctx: ParseContext) -> string {
         val valExpr = parseExpression(ctx)
         return "(Val " + name + " " + valExpr + ")"
     }
-    
+
     val stmtExpr = parseExpression(ctx)
     return "(Expr " + stmtExpr + ")"
 }
@@ -91,11 +88,11 @@ fn parseFunction(ctx: ParseContext) -> string {
         advanceCtx(ctx)
     }
     if ctx.current.tag == TokType.CloseParen { advanceCtx(ctx) }
-    
+
     if ctx.current.tag == TokType.Arrow {
         advanceCtx(ctx) // Type
     }
-    
+
     if ctx.current.tag == TokType.OpenBrace { advanceCtx(ctx) }
     val mut body = ""
     while ctx.current.tag != TokType.CloseBrace {
@@ -105,7 +102,7 @@ fn parseFunction(ctx: ParseContext) -> string {
         body = body + parseStatement(ctx) + " "
     }
     if ctx.current.tag == TokType.CloseBrace { advanceCtx(ctx) }
-    
+
     return "(Fn " + name + " (Block " + body + "))"
 }
 
@@ -126,3 +123,4 @@ fn generateAST(source: string) -> string {
     val ctx = initContext(source)
     return parseProgram(ctx)
 }
+

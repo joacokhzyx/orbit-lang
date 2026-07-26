@@ -191,7 +191,7 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
             }
             val prevReturn = sema.currentReturnType
             sema.currentReturnType = returnType
-            
+
             pushScope(sema)
             var i = 0
             while i < f.params.len() {
@@ -205,7 +205,7 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
             }
             checkNode(sema, f.body)
             popScope(sema)
-            
+
             sema.currentReturnType = prevReturn
         }
         _ => {}
@@ -619,3 +619,4 @@ fn checkNode(sema: Sema, node: ASTNode) {
 fn analyze(sema: Sema, node: ASTNode) {
     checkNode(sema, node)
 }
+

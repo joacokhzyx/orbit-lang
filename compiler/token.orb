@@ -5,7 +5,7 @@ enum TokType {
     StringLiteral,
     IntegerLiteral,
     FloatLiteral,
-    
+
     // Keywords
     KeywordIf,
     KeywordElse,
@@ -35,7 +35,7 @@ enum TokType {
     KeywordImport,
     KeywordTrait,
     KeywordImpl,
-    
+
     // Operators
     Plus,
     Minus,
@@ -55,7 +55,7 @@ enum TokType {
     Arrow,
     FatArrow,
     At,
-    
+
     // Delimiters
     OpenBrace,
     CloseBrace,
@@ -131,11 +131,11 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.FatArrow => return "=>"
         TokType.At => return "@"
         TokType.OpenBrace => return "{"
-        TokType.CloseBrace => return "}"
+            TokType.CloseBrace => return "}"
         TokType.OpenParen => return "("
         TokType.CloseParen => return ")"
         TokType.OpenBracket => return "["
-        TokType.CloseBracket => return "]"
+            TokType.CloseBracket => return "]"
         TokType.Colon => return ":"
         TokType.Dot => return "."
         TokType.Comma => return ","
@@ -143,3 +143,4 @@ fn tokTypeToString(tag: TokType) -> string {
         _ => return "unknown"
     }
 }
+

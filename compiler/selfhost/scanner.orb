@@ -136,3 +136,4 @@ fn scannerScanToEOL(s: ScannerState) {
     }
     s.inLineComment = false
 }
+

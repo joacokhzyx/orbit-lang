@@ -208,14 +208,15 @@ fn checkSemantics(source: string) -> SemaReport {
     }
 
     return SemaReport(
-        errors: errors,
-        warnings: warnings,
-        braceBalance: s.braceDepth,
-        parenBalance: s.parenDepth,
-        unterminatedString: s.inString,
-        functions: functions,
-        typedFunctions: typedFunctions,
-        voidFunctions: voidFunctions,
-        diagnostics: diagnostics
+    errors: errors,
+    warnings: warnings,
+    braceBalance: s.braceDepth,
+    parenBalance: s.parenDepth,
+    unterminatedString: s.inString,
+    functions: functions,
+    typedFunctions: typedFunctions,
+    voidFunctions: voidFunctions,
+    diagnostics: diagnostics
     )
 }
+

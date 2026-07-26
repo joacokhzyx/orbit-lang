@@ -130,16 +130,16 @@ fn matchKeyword(text: string) -> TokType {
 
 fn nextToken(lexer: Lexer) -> Token {
     skipWhitespaceAndComments(lexer)
-    
+
     val start = lexer.pos
     val line = lexer.line
     val col = lexer.col
-    
+
     val c = advance(lexer)
     if c == 0 {
         return Token(TokType.EOF, "", line, col)
     }
-    
+
     if isAlpha(c) {
         while isAlphaNumeric(peek(lexer)) {
             advance(lexer)
@@ -148,7 +148,7 @@ fn nextToken(lexer: Lexer) -> Token {
         val tagAlpha = matchKeyword(textAlpha)
         return Token(tagAlpha, textAlpha, line, col)
     }
-    
+
     if isDigit(c) {
         var isFloat = false
         while isDigit(peek(lexer)) {
@@ -170,7 +170,7 @@ fn nextToken(lexer: Lexer) -> Token {
         }
         return Token(tagDigit, textDigit, line, col)
     }
-    
+
     if c == CHAR_DQUOTE {
         while lexer.pos < lexer.source.len() && peek(lexer) != CHAR_DQUOTE {
             if peek(lexer) == CHAR_BACKSLASH {
@@ -184,21 +184,21 @@ fn nextToken(lexer: Lexer) -> Token {
         val textString = lexer.source.slice(start, lexer.pos)
         return Token(TokType.StringLiteral, textString, line, col)
     }
-    
+
     // Operators and delimiters
     if c == 123 { return Token(TokType.OpenBrace, "{", line, col) }
-    if c == 125 { return Token(TokType.CloseBrace, "}", line, col) }
+        if c == 125 { return Token(TokType.CloseBrace, "}", line, col) }
     if c == 40 { return Token(TokType.OpenParen, "(", line, col) }
     if c == 41 { return Token(TokType.CloseParen, ")", line, col) }
     if c == 91 { return Token(TokType.OpenBracket, "[", line, col) }
-    if c == 93 { return Token(TokType.CloseBracket, "]", line, col) }
+        if c == 93 { return Token(TokType.CloseBracket, "]", line, col) }
     if c == 44 { return Token(TokType.Comma, ",", line, col) }
     if c == 58 { return Token(TokType.Colon, ":", line, col) }
     if c == 46 { return Token(TokType.Dot, ".", line, col) }
     if c == 59 { return Token(TokType.SemiColon, ";", line, col) }
     if c == 64 { return Token(TokType.At, "@", line, col) }
     if c == 37 { return Token(TokType.Percent, "%", line, col) }
-    
+
     if c == 43 { // '+'
         return Token(TokType.Plus, "+", line, col)
     }
@@ -215,7 +215,7 @@ fn nextToken(lexer: Lexer) -> Token {
     if c == 47 { // '/'
         return Token(TokType.Slash, "/", line, col)
     }
-    
+
     if c == 61 { // '='
         if peek(lexer) == 61 { // '=='
             advance(lexer)
@@ -260,8 +260,9 @@ fn nextToken(lexer: Lexer) -> Token {
             return Token(TokType.DoubleAmpersand, "&&", line, col)
         }
     }
-    
+
     // Default fallback
     val textFallback = lexer.source.slice(start, lexer.pos)
     return Token(TokType.Invalid, textFallback, line, col)
 }
+

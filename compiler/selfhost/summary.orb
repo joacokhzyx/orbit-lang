@@ -217,18 +217,18 @@ fn analyzeLexical(source: string) -> ParseSummary {
     }
 
     return ParseSummary(
-        functions: 0,
-        models: 0,
-        routes: 0,
-        types: 0,
-        enums: 0,
-        unions: 0,
-        matches: 0,
-        tokens: tokens,
-        identifiers: identifiers,
-        numbers: numbers,
-        strings: strings,
-        symbols: symbols
+    functions: 0,
+    models: 0,
+    routes: 0,
+    types: 0,
+    enums: 0,
+    unions: 0,
+    matches: 0,
+    tokens: tokens,
+    identifiers: identifiers,
+    numbers: numbers,
+    strings: strings,
+    symbols: symbols
     )
 }
 
@@ -244,17 +244,18 @@ fn buildSummary(source: string) -> ParseSummary {
     val matchCount = countKeyword(source, "match")
 
     return ParseSummary(
-        functions: fnCount,
-        models: modelCount,
-        routes: routeCount,
-        types: typeCount,
-        enums: enumCount,
-        unions: unionCount,
-        matches: matchCount,
-        tokens: lexical.tokens,
-        identifiers: lexical.identifiers,
-        numbers: lexical.numbers,
-        strings: lexical.strings,
-        symbols: lexical.symbols
+    functions: fnCount,
+    models: modelCount,
+    routes: routeCount,
+    types: typeCount,
+    enums: enumCount,
+    unions: unionCount,
+    matches: matchCount,
+    tokens: lexical.tokens,
+    identifiers: lexical.identifiers,
+    numbers: lexical.numbers,
+    strings: lexical.strings,
+    symbols: lexical.symbols
     )
 }
+
