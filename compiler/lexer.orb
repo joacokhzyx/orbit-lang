@@ -105,6 +105,9 @@ fn matchKeyword(text: string) -> TokType {
     if text == "const" { return TokType.KeywordConst }
     if text == "mut" { return TokType.KeywordMut }
     if text == "private" { return TokType.KeywordPrivate }
+    if text == "extern" { return TokType.KeywordExtern }
+    if text == "every" { return TokType.KeywordEvery }
+    if text == "async" { return TokType.KeywordAsync }
     if text == "if" { return TokType.KeywordIf }
     if text == "else" { return TokType.KeywordElse }
     if text == "for" { return TokType.KeywordFor }
@@ -120,6 +123,8 @@ fn matchKeyword(text: string) -> TokType {
     if text == "union" { return TokType.KeywordUnion }
     if text == "use" { return TokType.KeywordUse }
     if text == "import" { return TokType.KeywordImport }
+    if text == "trait" { return TokType.KeywordTrait }
+    if text == "impl" { return TokType.KeywordImpl }
     return TokType.Identifier
 }
 

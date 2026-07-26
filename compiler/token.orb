@@ -25,11 +25,16 @@ enum TokType {
     KeywordVar,
     KeywordMut,
     KeywordPrivate,
+    KeywordExtern,
+    KeywordEvery,
     KeywordFn,
+    KeywordAsync,
     KeywordModel,
     KeywordRoute,
     KeywordUse,
     KeywordImport,
+    KeywordTrait,
+    KeywordImpl,
     
     // Operators
     Plus,
@@ -97,11 +102,16 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.KeywordVar => return "var"
         TokType.KeywordMut => return "mut"
         TokType.KeywordPrivate => return "private"
+        TokType.KeywordExtern => return "extern"
+        TokType.KeywordEvery => return "every"
+        TokType.KeywordAsync => return "async"
         TokType.KeywordFn => return "fn"
         TokType.KeywordModel => return "model"
         TokType.KeywordRoute => return "route"
         TokType.KeywordUse => return "use"
         TokType.KeywordImport => return "import"
+        TokType.KeywordTrait => return "trait"
+        TokType.KeywordImpl => return "impl"
         TokType.Plus => return "+"
         TokType.Minus => return "-"
         TokType.Asterisk => return "*"

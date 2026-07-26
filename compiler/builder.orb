@@ -6,12 +6,15 @@ model IRBuilder {
     currentFunction: IRFunction
     labelCounter: int
     variableScopes: list
+    loopStartLabels: list
+    loopEndLabels: list
+    modelNames: list
 }
 
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
-    val mainFunc = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFunc, 0, [])
+    val mainFn = initIRFunction("orbit_main")
+    return IRBuilder(mod, mainFn, 0, [], [], [], [])
 }
 
 model Variable {
@@ -99,13 +102,94 @@ fn resolveIRType(builder: IRBuilder, typeName: string) -> string {
     return typeName
 }
 
+fn isModelName(name: string) -> bool {
+    if name.len() == 0 { return false }
+    val first = name.slice(0, 1)
+    return first >= "A" && first <= "Z"
+}
+
+fn allocLabel(builder: IRBuilder) -> int {
+    val lbl = builder.labelCounter
+    builder.labelCounter = builder.labelCounter + 1
+    return lbl
+}
+
+fn registerModel(builder: IRBuilder, node: ASTNode) {
+    match node {
+        ASTNode.ModelDecl(m) => {
+            builder.modelNames.push(m.name.text)
+        }
+        _ => {}
+    }
+}
+
+fn builderRegisterType(builder: IRBuilder, node: ASTNode) {
+    match node {
+        ASTNode.TypeDecl(t) => {
+            val irType = IRTypeDecl(t.name.text, "alias", [], [], [])
+            builder.module.types.push(irType)
+        }
+        _ => {}
+    }
+}
+
+fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
+    match node {
+        ASTNode.FunctionDecl(f) => {
+            val func = initIRFunction(f.name)
+            func.returnType = f.returnType
+            var i = 0
+            while i < f.params.len() {
+                val p = f.params.get(i)
+                func.params.push(p)
+                val pType = f.paramTypes.get(i)
+                func.paramTypes.push(pType)
+                i = i + 1
+            }
+            builder.module.functions.push(func)
+        }
+        ASTNode.RouteDecl(r) => {
+            val routeName = "route_" + r.method.text + "_" + r.path.text
+            val func = initIRFunction(routeName)
+            func.returnType = "response"
+            builder.module.functions.push(func)
+        }
+        _ => {}
+    }
+}
+
+fn findFunction(module: IRModule, name: string) -> int {
+    var i = 0
+    while i < module.functions.len() {
+        val f = module.functions.get(i)
+        if f.name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
 fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
     match rootNode {
         ASTNode.Program(p) => {
+            // Pass 1: Register models and types
             var i = 0
-            // Pass 1: Types and Signatures (skipped for now, assuming simple)
-            
-            // Pass 2: Functions
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                registerModel(builder, decl)
+                builderRegisterType(builder, decl)
+                i = i + 1
+            }
+            // Pass 2: Register function signatures
+            i = 0
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                registerFunctionSignature(builder, decl)
+                i = i + 1
+            }
+            // Pass 3: Build function bodies and other declarations
+            i = 0
             while i < p.decls.len() {
                 val decl = p.decls.get(i)
                 buildDecl(builder, decl)
@@ -114,53 +198,118 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
         }
         _ => {}
     }
+    // Add main function if it has instructions
+    if builder.currentFunction.instructions.len() > 0 {
+        val needsRet = builder.currentFunction.instructions.len() == 0
+        if needsRet == false {
+            val last = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
+            if last.opcode != IROpcode.ret {
+                builder.module.functions.push(builder.currentFunction)
+            }
+        } else {
+            builder.module.functions.push(builder.currentFunction)
+        }
+    }
     return builder.module
+}
+
+fn getOrCreateFunction(builder: IRBuilder, name: string) -> IRFunction {
+    val idx = findFunction(builder.module, name)
+    if idx >= 0 {
+        return builder.module.functions.get(idx)
+    }
+    val func = initIRFunction(name)
+    builder.module.functions.push(func)
+    return func
 }
 
 fn buildDecl(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
-            val func = initIRFunction(f.name)
-            func.returnType = f.returnType
-            
-            // add to module
-            builder.module.functions.push(func)
-            
-            val prevFunc = builder.currentFunction
-            builder.currentFunction = func
-            
-            pushVariableScope(builder)
-            
-            var i = 0
-            while i < f.params.len() {
-                val p = f.params.get(i)
-                // Assume p is string for now in AST
-                func.params.push(p)
-                func.paramTypes.push("unknown")
-                defineVariable(builder, p, "unknown")
-                
-                // create arg instruction
-                val instr = ir_init_instr(IROpcode.arg)
-                instr.dest = ir_alloc_register(func, "unknown")
-                instr.operand1 = ir_int(i)
-                ir_emit(func, instr)
-                
-                i = i + 1
-            }
-            
-            buildNode(builder, f.body)
-            
-            popVariableScope(builder)
-            builder.currentFunction = prevFunc
+            buildFunction(builder, f)
+        }
+        ASTNode.RouteDecl(r) => {
+            buildRoute(builder, r)
+        }
+        ASTNode.VarDecl(v) => {
+            val func = builder.currentFunction
+            val varReg = buildExpr(builder, v.value)
+            val instr = ir_init_instr(IROpcode.decl_var)
+            instr.operand1 = ir_symbol(v.name)
+            instr.operand2 = ir_register(varReg)
+            ir_emit(func, instr)
+            defineVariable(builder, v.name, "unknown")
+        }
+        ASTNode.ConstDecl(c) => {
+            val valueReg = buildExpr(builder, c.value)
+            val irGlobal = IRGlobal(c.name.text, ir_register(valueReg))
+            builder.module.globals.push(irGlobal)
         }
         _ => {}
     }
 }
 
-fn allocLabel(builder: IRBuilder) -> int {
-    val lbl = builder.labelCounter
-    builder.labelCounter = builder.labelCounter + 1
-    return lbl
+fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
+    val func = getOrCreateFunction(builder, f.name)
+    func.returnType = f.returnType
+    val prevFunc = builder.currentFunction
+    builder.currentFunction = func
+    pushVariableScope(builder)
+    var i = 0
+    while i < f.params.len() {
+        val p = f.params.get(i)
+        val pType = "unknown"
+        if i < f.paramTypes.len() {
+            // pType already set from signature
+        }
+        defineVariable(builder, p, pType)
+        val instr = ir_init_instr(IROpcode.arg)
+        instr.dest = ir_alloc_register(func, pType)
+        instr.operand1 = ir_int(i)
+        ir_emit(func, instr)
+        i = i + 1
+    }
+    buildNode(builder, f.body)
+    // Auto-append ret if missing
+    val needsRet = func.instructions.len() == 0
+    var needsRet2 = false
+    if needsRet == false {
+        val last = func.instructions.get(func.instructions.len() - 1)
+        if last.opcode != IROpcode.ret {
+            needsRet2 = true
+        }
+    }
+    if needsRet || needsRet2 {
+        val ret = ir_init_instr(IROpcode.ret)
+        ret.operand1 = ir_none()
+        ir_emit(func, ret)
+    }
+    popVariableScope(builder)
+    builder.currentFunction = prevFunc
+}
+
+fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
+    val routeName = "route_" + r.method.text + "_" + r.path.text
+    val func = getOrCreateFunction(builder, routeName)
+    val prevFunc = builder.currentFunction
+    builder.currentFunction = func
+    pushVariableScope(builder)
+    buildNode(builder, r.body)
+    val needsRet = func.instructions.len() == 0
+    var needsRet2 = false
+    if needsRet == false {
+        val last = func.instructions.get(func.instructions.len() - 1)
+        if last.opcode != IROpcode.ret {
+            needsRet2 = true
+        }
+    }
+    if needsRet || needsRet2 {
+        val ret = ir_init_instr(IROpcode.ret)
+        ret.operand1 = ir_none()
+        ir_emit(func, ret)
+    }
+    popVariableScope(builder)
+    builder.currentFunction = prevFunc
 }
 
 fn buildNode(builder: IRBuilder, node: ASTNode) {
@@ -175,30 +324,21 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             popVariableScope(builder)
         }
         ASTNode.If(stmt) => {
-            val condReg = buildExpr(builder, stmt.cond)
+            val condReg = buildExpr(builder, stmt.condition)
             val elseLabel = allocLabel(builder)
             val endLabel = allocLabel(builder)
-
-            // Jump to elseLabel if condition evaluates to false
             val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
             jmpFalse.operand1 = ir_register(condReg)
             jmpFalse.operand2 = ir_label(elseLabel)
             ir_emit(builder.currentFunction, jmpFalse)
-
-            // Then block
-            buildNode(builder, stmt.thenBranch)
+            buildNode(builder, stmt.thenBody)
             val jmpEnd = ir_init_instr(IROpcode.jump)
             jmpEnd.operand1 = ir_label(endLabel)
             ir_emit(builder.currentFunction, jmpEnd)
-
-            // Else label & block
             val lblElseInstr = ir_init_instr(IROpcode.label)
             lblElseInstr.operand1 = ir_label(elseLabel)
             ir_emit(builder.currentFunction, lblElseInstr)
-            
-            buildNode(builder, stmt.elseBranch)
-
-            // End label
+            buildNode(builder, stmt.elseBody)
             val lblEndInstr = ir_init_instr(IROpcode.label)
             lblEndInstr.operand1 = ir_label(endLabel)
             ir_emit(builder.currentFunction, lblEndInstr)
@@ -206,37 +346,108 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
         ASTNode.While(stmt) => {
             val startLabel = allocLabel(builder)
             val endLabel = allocLabel(builder)
-
-            // Loop start label
+            builder.loopStartLabels.push(startLabel)
+            builder.loopEndLabels.push(endLabel)
             val lblStartInstr = ir_init_instr(IROpcode.label)
             lblStartInstr.operand1 = ir_label(startLabel)
             ir_emit(builder.currentFunction, lblStartInstr)
-
-            // Evaluate condition
-            val condReg = buildExpr(builder, stmt.cond)
+            val condReg = buildExpr(builder, stmt.condition)
             val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
             jmpFalse.operand1 = ir_register(condReg)
             jmpFalse.operand2 = ir_label(endLabel)
             ir_emit(builder.currentFunction, jmpFalse)
-
-            // Loop body
             buildNode(builder, stmt.body)
-
-            // Jump back to start
             val jmpStart = ir_init_instr(IROpcode.jump)
             jmpStart.operand1 = ir_label(startLabel)
             ir_emit(builder.currentFunction, jmpStart)
-
-            // End label
             val lblEndInstr = ir_init_instr(IROpcode.label)
             lblEndInstr.operand1 = ir_label(endLabel)
             ir_emit(builder.currentFunction, lblEndInstr)
+            builder.loopStartLabels.pop()
+            builder.loopEndLabels.pop()
+        }
+        ASTNode.For(stmt) => {
+            val iterReg = buildExpr(builder, stmt.iterable)
+            val lenReg = ir_alloc_register(builder.currentFunction, "int")
+            val lenInstr = ir_init_instr(IROpcode.list_len)
+            lenInstr.dest = lenReg
+            lenInstr.operand1 = ir_register(iterReg)
+            ir_emit(builder.currentFunction, lenInstr)
+            val idxReg = ir_alloc_register(builder.currentFunction, "int")
+            val idxInit = ir_init_instr(IROpcode.decl_var)
+            idxInit.dest = idxReg
+            idxInit.operand1 = ir_int(0)
+            ir_emit(builder.currentFunction, idxInit)
+            defineVariable(builder, stmt.item.text, "unknown")
+            val startLabel = allocLabel(builder)
+            val endLabel = allocLabel(builder)
+            builder.loopStartLabels.push(startLabel)
+            builder.loopEndLabels.push(endLabel)
+            val lblStart = ir_init_instr(IROpcode.label)
+            lblStart.operand1 = ir_label(startLabel)
+            ir_emit(builder.currentFunction, lblStart)
+            // Load idx from variable
+            val idxLoadReg = ir_alloc_register(builder.currentFunction, "int")
+            val idxLoad = ir_init_instr(IROpcode.load_var)
+            idxLoad.dest = idxLoadReg
+            idxLoad.operand1 = ir_symbol(stmt.item.text + "_idx")
+            ir_emit(builder.currentFunction, idxLoad)
+            val condReg = ir_alloc_register(builder.currentFunction, "bool")
+            val condInstr = ir_init_instr(IROpcode.lt)
+            condInstr.dest = condReg
+            condInstr.operand1 = ir_register(idxLoadReg)
+            condInstr.operand2 = ir_register(lenReg)
+            ir_emit(builder.currentFunction, condInstr)
+            val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
+            jmpFalse.operand1 = ir_register(condReg)
+            jmpFalse.operand2 = ir_label(endLabel)
+            ir_emit(builder.currentFunction, jmpFalse)
+            val itemReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val getInstr = ir_init_instr(IROpcode.list_get)
+            getInstr.dest = itemReg
+            getInstr.operand1 = ir_register(iterReg)
+            getInstr.operand2 = ir_register(idxLoadReg)
+            ir_emit(builder.currentFunction, getInstr)
+            val declItem = ir_init_instr(IROpcode.decl_var)
+            declItem.operand1 = ir_symbol(stmt.item.text)
+            declItem.operand2 = ir_register(itemReg)
+            ir_emit(builder.currentFunction, declItem)
+            buildNode(builder, stmt.body)
+            // Increment and store idx
+            val incReg = ir_alloc_register(builder.currentFunction, "int")
+            val incInstr = ir_init_instr(IROpcode.add)
+            incInstr.dest = incReg
+            incInstr.operand1 = ir_register(idxLoadReg)
+            incInstr.operand2 = ir_int(1)
+            ir_emit(builder.currentFunction, incInstr)
+            val storeIdx = ir_init_instr(IROpcode.store_var)
+            storeIdx.operand1 = ir_symbol(stmt.item.text + "_idx")
+            storeIdx.operand2 = ir_register(incReg)
+            ir_emit(builder.currentFunction, storeIdx)
+            val jmpStart = ir_init_instr(IROpcode.jump)
+            jmpStart.operand1 = ir_label(startLabel)
+            ir_emit(builder.currentFunction, jmpStart)
+            val lblEnd = ir_init_instr(IROpcode.label)
+            lblEnd.operand1 = ir_label(endLabel)
+            ir_emit(builder.currentFunction, lblEnd)
+            builder.loopStartLabels.pop()
+            builder.loopEndLabels.pop()
         }
         ASTNode.Return(r) => {
-            val retReg = buildExpr(builder, r.expr)
-            val retInstr = ir_init_instr(IROpcode.ret)
-            retInstr.operand1 = ir_register(retReg)
-            ir_emit(builder.currentFunction, retInstr)
+            // Check for Empty expr
+            match r.expr {
+                ASTNode.Empty => {
+                    val retInstr = ir_init_instr(IROpcode.ret)
+                    retInstr.operand1 = ir_none()
+                    ir_emit(builder.currentFunction, retInstr)
+                }
+                _ => {
+                    val retReg = buildExpr(builder, r.expr)
+                    val retInstr = ir_init_instr(IROpcode.ret)
+                    retInstr.operand1 = ir_register(retReg)
+                    ir_emit(builder.currentFunction, retInstr)
+                }
+            }
         }
         ASTNode.VarDecl(v) => {
             val varReg = buildExpr(builder, v.value)
@@ -246,9 +457,387 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             ir_emit(builder.currentFunction, varInstr)
             defineVariable(builder, v.name, "unknown")
         }
+        ASTNode.Match(m) => {
+            buildMatchStatement(builder, m)
+        }
+        ASTNode.ModelDecl(m) => {
+            // Models are registered in pass 1, no codegen needed
+        }
+        ASTNode.TypeDecl(t) => {
+            // Types are registered in pass 1
+        }
+        ASTNode.RouteDecl(r) => {
+            // Routes are handled in pass 2/3
+        }
         ASTNode.Empty => {}
         _ => {
+            // Expression statement
             buildExpr(builder, node)
+        }
+    }
+}
+
+fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
+    val matchReg = buildExpr(builder, m.expr)
+    val endLabel = allocLabel(builder)
+    val numCases = m.cases.len()
+    var caseLabels = []
+    var i = 0
+    while i < numCases {
+        caseLabels.push(allocLabel(builder))
+        i = i + 1
+    }
+    i = 0
+    while i < numCases {
+        val caseNode = m.cases.get(i)
+        match caseNode {
+            ASTNode.MatchCase(c) => {
+                val caseLabel = caseLabels.get(i)
+                var nextLabel = endLabel
+                if i + 1 < numCases {
+                    nextLabel = caseLabels.get(i + 1)
+                }
+                match c.pattern {
+                    ASTNode.Literal(lit) => {
+                        if lit.text == "_" {
+                            // Wildcard: always match
+                        } else {
+                            // Simple value comparison
+                            val patReg = buildExpr(builder, c.pattern)
+                            val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+                            val eqInstr = ir_init_instr(IROpcode.eq)
+                            eqInstr.dest = eqReg
+                            eqInstr.operand1 = ir_register(matchReg)
+                            eqInstr.operand2 = ir_register(patReg)
+                            ir_emit(builder.currentFunction, eqInstr)
+                            val jmp = ir_init_instr(IROpcode.jump_if_false)
+                            jmp.operand1 = ir_register(eqReg)
+                            jmp.operand2 = ir_label(nextLabel)
+                            ir_emit(builder.currentFunction, jmp)
+                        }
+                    }
+                    _ => {
+                        // Complex pattern: build and compare
+                        val patReg = buildExpr(builder, c.pattern)
+                        val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+                        val eqInstr = ir_init_instr(IROpcode.eq)
+                        eqInstr.dest = eqReg
+                        eqInstr.operand1 = ir_register(matchReg)
+                        eqInstr.operand2 = ir_register(patReg)
+                        ir_emit(builder.currentFunction, eqInstr)
+                        val jmp = ir_init_instr(IROpcode.jump_if_false)
+                        jmp.operand1 = ir_register(eqReg)
+                        jmp.operand2 = ir_label(nextLabel)
+                        ir_emit(builder.currentFunction, jmp)
+                    }
+                }
+                buildNode(builder, c.body)
+                val jmpEnd = ir_init_instr(IROpcode.jump)
+                jmpEnd.operand1 = ir_label(endLabel)
+                ir_emit(builder.currentFunction, jmpEnd)
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    // Place case labels (unused ones are NOPs)
+    i = 0
+    while i < numCases {
+        val lblInstr = ir_init_instr(IROpcode.label)
+        lblInstr.operand1 = ir_label(caseLabels.get(i))
+        ir_emit(builder.currentFunction, lblInstr)
+        i = i + 1
+    }
+    val lblEnd = ir_init_instr(IROpcode.label)
+    lblEnd.operand1 = ir_label(endLabel)
+    ir_emit(builder.currentFunction, lblEnd)
+}
+
+fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
+    val matchReg = buildExpr(builder, m.expr)
+    val resultReg = ir_alloc_register(builder.currentFunction, "unknown")
+    val endLabel = allocLabel(builder)
+    val numCases = m.cases.len()
+    var caseLabels = []
+    var i = 0
+    while i < numCases {
+        caseLabels.push(allocLabel(builder))
+        i = i + 1
+    }
+    i = 0
+    while i < numCases {
+        val caseNode = m.cases.get(i)
+        match caseNode {
+            ASTNode.MatchCase(c) => {
+                var nextLabel = endLabel
+                if i + 1 < numCases {
+                    nextLabel = caseLabels.get(i + 1)
+                }
+                match c.pattern {
+                    ASTNode.Literal(lit) => {
+                        if lit.text == "_" {
+                            // Wildcard
+                        } else {
+                            val patReg = buildExpr(builder, c.pattern)
+                            val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+                            val eqInstr = ir_init_instr(IROpcode.eq)
+                            eqInstr.dest = eqReg
+                            eqInstr.operand1 = ir_register(matchReg)
+                            eqInstr.operand2 = ir_register(patReg)
+                            ir_emit(builder.currentFunction, eqInstr)
+                            val jmp = ir_init_instr(IROpcode.jump_if_false)
+                            jmp.operand1 = ir_register(eqReg)
+                            jmp.operand2 = ir_label(nextLabel)
+                            ir_emit(builder.currentFunction, jmp)
+                        }
+                    }
+                    _ => {
+                        val patReg = buildExpr(builder, c.pattern)
+                        val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+                        val eqInstr = ir_init_instr(IROpcode.eq)
+                        eqInstr.dest = eqReg
+                        eqInstr.operand1 = ir_register(matchReg)
+                        eqInstr.operand2 = ir_register(patReg)
+                        ir_emit(builder.currentFunction, eqInstr)
+                        val jmp = ir_init_instr(IROpcode.jump_if_false)
+                        jmp.operand1 = ir_register(eqReg)
+                        jmp.operand2 = ir_label(nextLabel)
+                        ir_emit(builder.currentFunction, jmp)
+                    }
+                }
+                val bodyReg = buildExpr(builder, c.body)
+                val copyInstr = ir_init_instr(IROpcode.copy)
+                copyInstr.dest = resultReg
+                copyInstr.operand1 = ir_register(bodyReg)
+                ir_emit(builder.currentFunction, copyInstr)
+                val jmpEnd = ir_init_instr(IROpcode.jump)
+                jmpEnd.operand1 = ir_label(endLabel)
+                ir_emit(builder.currentFunction, jmpEnd)
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < numCases {
+        val lblInstr = ir_init_instr(IROpcode.label)
+        lblInstr.operand1 = ir_label(caseLabels.get(i))
+        ir_emit(builder.currentFunction, lblInstr)
+        i = i + 1
+    }
+    val lblEnd = ir_init_instr(IROpcode.label)
+    lblEnd.operand1 = ir_label(endLabel)
+    ir_emit(builder.currentFunction, lblEnd)
+    return resultReg
+}
+
+fn extractMemberAccessName(node: ASTNode) -> string {
+    match node {
+        ASTNode.MemberAccess(ma) => {
+            return ma.member.text
+        }
+        _ => { return "" }
+    }
+}
+
+fn buildCall(builder: IRBuilder, c: CallNode) -> int {
+    // Check if it's a method call (member access)
+    match c.func {
+        ASTNode.MemberAccess(ma) => {
+            val objReg = buildExpr(builder, ma.object)
+            val memberName = ma.member.text
+            // Collection methods
+            if memberName == "push" && c.args.len() >= 1 {
+                val valReg = buildExpr(builder, c.args.get(0))
+                val pushInstr = ir_init_instr(IROpcode.list_push)
+                pushInstr.operand1 = ir_register(objReg)
+                pushInstr.operand2 = ir_register(valReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "void")
+                pushInstr.dest = resReg
+                ir_emit(builder.currentFunction, pushInstr)
+                return resReg
+            }
+            if memberName == "get" && c.args.len() >= 1 {
+                val idxReg = buildExpr(builder, c.args.get(0))
+                val getInstr = ir_init_instr(IROpcode.list_get)
+                getInstr.operand1 = ir_register(objReg)
+                getInstr.operand2 = ir_register(idxReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+                getInstr.dest = resReg
+                ir_emit(builder.currentFunction, getInstr)
+                return resReg
+            }
+            if memberName == "set" && c.args.len() >= 2 {
+                val idxReg = buildExpr(builder, c.args.get(0))
+                val valReg = buildExpr(builder, c.args.get(1))
+                val setInstr = ir_init_instr(IROpcode.list_set)
+                setInstr.operand1 = ir_register(objReg)
+                setInstr.operand2 = ir_register(idxReg)
+                setInstr.operand3 = ir_register(valReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "void")
+                setInstr.dest = resReg
+                ir_emit(builder.currentFunction, setInstr)
+                return resReg
+            }
+            if memberName == "len" {
+                val lenInstr = ir_init_instr(IROpcode.list_len)
+                lenInstr.operand1 = ir_register(objReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "int")
+                lenInstr.dest = resReg
+                ir_emit(builder.currentFunction, lenInstr)
+                return resReg
+            }
+            if memberName == "pop" {
+                val popInstr = ir_init_instr(IROpcode.list_pop)
+                popInstr.operand1 = ir_register(objReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+                popInstr.dest = resReg
+                ir_emit(builder.currentFunction, popInstr)
+                return resReg
+            }
+            if memberName == "has" && c.args.len() >= 1 {
+                val keyReg = buildExpr(builder, c.args.get(0))
+                val hasInstr = ir_init_instr(IROpcode.map_has)
+                hasInstr.operand1 = ir_register(objReg)
+                hasInstr.operand2 = ir_register(keyReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "bool")
+                hasInstr.dest = resReg
+                ir_emit(builder.currentFunction, hasInstr)
+                return resReg
+            }
+            if memberName == "delete" && c.args.len() >= 1 {
+                val keyReg = buildExpr(builder, c.args.get(0))
+                val delInstr = ir_init_instr(IROpcode.map_delete)
+                delInstr.operand1 = ir_register(objReg)
+                delInstr.operand2 = ir_register(keyReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "void")
+                delInstr.dest = resReg
+                ir_emit(builder.currentFunction, delInstr)
+                return resReg
+            }
+            if memberName == "keys" {
+                val keysInstr = ir_init_instr(IROpcode.map_keys)
+                keysInstr.operand1 = ir_register(objReg)
+                val resReg = ir_alloc_register(builder.currentFunction, "list")
+                keysInstr.dest = resReg
+                ir_emit(builder.currentFunction, keysInstr)
+                return resReg
+            }
+            // String methods become calls to runtime functions
+            if memberName == "contains" && c.args.len() >= 1 {
+                val subReg = buildExpr(builder, c.args.get(0))
+                val arg1 = ir_init_instr(IROpcode.arg)
+                arg1.operand1 = ir_register(objReg)
+                ir_emit(builder.currentFunction, arg1)
+                val arg2 = ir_init_instr(IROpcode.arg)
+                arg2.operand1 = ir_register(subReg)
+                ir_emit(builder.currentFunction, arg2)
+                val callInstr = ir_init_instr(IROpcode.call)
+                val resReg = ir_alloc_register(builder.currentFunction, "bool")
+                callInstr.dest = resReg
+                callInstr.operand1 = ir_string("orbit_string_contains")
+                ir_emit(builder.currentFunction, callInstr)
+                return resReg
+            }
+            if memberName == "slice" && c.args.len() >= 2 {
+                val startReg = buildExpr(builder, c.args.get(0))
+                val endReg = buildExpr(builder, c.args.get(1))
+                val arg1 = ir_init_instr(IROpcode.arg)
+                arg1.operand1 = ir_register(objReg)
+                ir_emit(builder.currentFunction, arg1)
+                val arg2 = ir_init_instr(IROpcode.arg)
+                arg2.operand1 = ir_register(startReg)
+                ir_emit(builder.currentFunction, arg2)
+                val arg3 = ir_init_instr(IROpcode.arg)
+                arg3.operand1 = ir_register(endReg)
+                ir_emit(builder.currentFunction, arg3)
+                val callInstr = ir_init_instr(IROpcode.call)
+                val resReg = ir_alloc_register(builder.currentFunction, "string")
+                callInstr.dest = resReg
+                callInstr.operand1 = ir_string("orbit_string_slice")
+                ir_emit(builder.currentFunction, callInstr)
+                return resReg
+            }
+            // Default method call: emit obj as first arg, then call memberName as function
+            val arg1 = ir_init_instr(IROpcode.arg)
+            arg1.operand1 = ir_register(objReg)
+            ir_emit(builder.currentFunction, arg1)
+            var ai = 0
+            while ai < c.args.len() {
+                val argReg = buildExpr(builder, c.args.get(ai))
+                val argInstr = ir_init_instr(IROpcode.arg)
+                argInstr.operand1 = ir_register(argReg)
+                ir_emit(builder.currentFunction, argInstr)
+                ai = ai + 1
+            }
+            val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val callInstr = ir_init_instr(IROpcode.call)
+            callInstr.dest = resReg
+            callInstr.operand1 = ir_string(memberName)
+            ir_emit(builder.currentFunction, callInstr)
+            return resReg
+        }
+        _ => {
+            val litText = ""
+            match c.func {
+                ASTNode.Literal(lit) => {
+                    // Direct function call by name
+                    if lit.text == "ok" && c.args.len() == 1 {
+                        val valReg = buildExpr(builder, c.args.get(0))
+                        val instr = ir_init_instr(IROpcode.result_ok)
+                        instr.operand1 = ir_register(valReg)
+                        val resReg = ir_alloc_register(builder.currentFunction, "result")
+                        instr.dest = resReg
+                        ir_emit(builder.currentFunction, instr)
+                        return resReg
+                    }
+                    if lit.text == "err" && c.args.len() >= 1 {
+                        val msgReg = buildExpr(builder, c.args.get(0))
+                        var codeReg = ir_int(500)
+                        if c.args.len() >= 2 {
+                            codeReg = buildExpr(builder, c.args.get(1))
+                        }
+                        val instr = ir_init_instr(IROpcode.result_err)
+                        instr.operand1 = ir_register(msgReg)
+                        instr.operand2 = ir_register(codeReg)
+                        val resReg = ir_alloc_register(builder.currentFunction, "result")
+                        instr.dest = resReg
+                        ir_emit(builder.currentFunction, instr)
+                        return resReg
+                    }
+                    // Regular function call
+                    var ai = 0
+                    while ai < c.args.len() {
+                        val argReg = buildExpr(builder, c.args.get(ai))
+                        val argInstr = ir_init_instr(IROpcode.arg)
+                        argInstr.operand1 = ir_register(argReg)
+                        ir_emit(builder.currentFunction, argInstr)
+                        ai = ai + 1
+                    }
+                    val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+                    val callInstr = ir_init_instr(IROpcode.call)
+                    callInstr.dest = resReg
+                    callInstr.operand1 = ir_string(lit.text)
+                    ir_emit(builder.currentFunction, callInstr)
+                    return resReg
+                }
+                _ => {
+                    var ai = 0
+                    while ai < c.args.len() {
+                        val argReg = buildExpr(builder, c.args.get(ai))
+                        val argInstr = ir_init_instr(IROpcode.arg)
+                        argInstr.operand1 = ir_register(argReg)
+                        ir_emit(builder.currentFunction, argInstr)
+                        ai = ai + 1
+                    }
+                    val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+                    val callInstr = ir_init_instr(IROpcode.call)
+                    callInstr.dest = resReg
+                    callInstr.operand1 = ir_string("")
+                    ir_emit(builder.currentFunction, callInstr)
+                    return resReg
+                }
+            }
         }
     }
 }
@@ -256,18 +845,71 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(lit) => {
+            if lit.valType == "identifier" {
+                val varType = lookupVariable(builder, lit.text)
+                if varType != "unknown" {
+                    val varReg = ir_alloc_register(builder.currentFunction, varType)
+                    val loadVar = ir_init_instr(IROpcode.load_var)
+                    loadVar.dest = varReg
+                    loadVar.operand1 = ir_symbol(lit.text)
+                    ir_emit(builder.currentFunction, loadVar)
+                    return varReg
+                }
+                // Check if it's an uppercase (type/enum constant)
+            if lit.text.len() > 0 {
+                val first = lit.text.slice(0, 1)
+                if first >= "A" && first <= "Z" {
+                        val typeReg = ir_alloc_register(builder.currentFunction, lit.text)
+                        val loadConst = ir_init_instr(IROpcode.load_const)
+                        loadConst.dest = typeReg
+                        loadConst.operand1 = ir_symbol(lit.text)
+                        ir_emit(builder.currentFunction, loadConst)
+                        return typeReg
+                    }
+                }
+                // Unknown identifier - emit load anyway
+                val unknownReg = ir_alloc_register(builder.currentFunction, "unknown")
+                val loadInstr = ir_init_instr(IROpcode.load_var)
+                loadInstr.dest = unknownReg
+                loadInstr.operand1 = ir_symbol(lit.text)
+                ir_emit(builder.currentFunction, loadInstr)
+                return unknownReg
+            }
+            val litReg = ir_alloc_register(builder.currentFunction, lit.valType)
             val litInstr = ir_init_instr(IROpcode.load_const)
-            val typeVal = lit.valType
-            val litReg = ir_alloc_register(builder.currentFunction, typeVal)
             litInstr.dest = litReg
             litInstr.operand1 = ir_string(lit.text)
             ir_emit(builder.currentFunction, litInstr)
             return litReg
         }
         ASTNode.BinaryOp(bin) => {
+            if bin.op == "=" {
+                // Assignment
+                val rhsReg = buildExpr(builder, bin.rhs)
+                match bin.lhs {
+                    ASTNode.Literal(lit) => {
+                        val storeInstr = ir_init_instr(IROpcode.store_var)
+                        storeInstr.operand1 = ir_symbol(lit.text)
+                        storeInstr.operand2 = ir_register(rhsReg)
+                        ir_emit(builder.currentFunction, storeInstr)
+                        return rhsReg
+                    }
+                    ASTNode.MemberAccess(ma) => {
+                        val objReg = buildExpr(builder, ma.object)
+                        val storeField = ir_init_instr(IROpcode.store_field)
+                        storeField.operand1 = ir_register(objReg)
+                        storeField.operand2 = ir_symbol(ma.member.text)
+                        storeField.operand3 = ir_register(rhsReg)
+                        ir_emit(builder.currentFunction, storeField)
+                        return rhsReg
+                    }
+                    _ => {
+                        return rhsReg
+                    }
+                }
+            }
             val lhsReg = buildExpr(builder, bin.lhs)
             val rhsReg = buildExpr(builder, bin.rhs)
-            
             var opCode = IROpcode.add
             if bin.op == "+" { opCode = IROpcode.add }
             if bin.op == "-" { opCode = IROpcode.sub }
@@ -282,7 +924,6 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == ">=" { opCode = IROpcode.ge }
             if bin.op == "&&" { opCode = IROpcode.and_op }
             if bin.op == "||" { opCode = IROpcode.or_op }
-            
             val binInstr = ir_init_instr(opCode)
             val binReg = ir_alloc_register(builder.currentFunction, "unknown")
             binInstr.dest = binReg
@@ -291,8 +932,181 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             ir_emit(builder.currentFunction, binInstr)
             return binReg
         }
+        ASTNode.UnaryOp(u) => {
+            val operandReg = buildExpr(builder, u.operand)
+            if u.op == "!" {
+                val reg = ir_alloc_register(builder.currentFunction, "bool")
+                val instr = ir_init_instr(IROpcode.not_op)
+                instr.dest = reg
+                instr.operand1 = ir_register(operandReg)
+                ir_emit(builder.currentFunction, instr)
+                return reg
+            }
+            if u.op == "-" {
+                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                val instr = ir_init_instr(IROpcode.neg)
+                instr.dest = reg
+                instr.operand1 = ir_register(operandReg)
+                ir_emit(builder.currentFunction, instr)
+                return reg
+            }
+            return operandReg
+        }
+        ASTNode.Call(c) => {
+            return buildCall(builder, c)
+        }
+        ASTNode.MemberAccess(ma) => {
+            val objReg = buildExpr(builder, ma.object)
+            val memberText = ma.member.text
+            // Check if object is uppercase (type/enum constant reference like Type.Variant)
+            var isUpper = false
+            match ma.object {
+                ASTNode.Literal(lit) => {
+                    if lit.valType == "identifier" && lit.text.len() > 0 {
+                        val first = lit.text.slice(0, 1)
+                        if first >= "A" && first <= "Z" {
+                            isUpper = true
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if isUpper {
+                // Enum/Union variant reference: Type.Variant
+                // Emit load_const for the tag/constant
+                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                val instr = ir_init_instr(IROpcode.load_const)
+                instr.dest = reg
+                instr.operand1 = ir_symbol(memberText)
+                ir_emit(builder.currentFunction, instr)
+                return reg
+            }
+            // Regular field access
+            val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val fieldInstr = ir_init_instr(IROpcode.load_field)
+            fieldInstr.dest = fieldReg
+            fieldInstr.operand1 = ir_register(objReg)
+            fieldInstr.operand2 = ir_symbol(memberText)
+            ir_emit(builder.currentFunction, fieldInstr)
+            return fieldReg
+        }
+        ASTNode.ListLiteral(ll) => {
+            val elemCount = ll.elements.len()
+            val listReg = ir_alloc_register(builder.currentFunction, "list")
+            val createInstr = ir_init_instr(IROpcode.list_create)
+            createInstr.dest = listReg
+            createInstr.operand1 = ir_int(8)
+            createInstr.operand2 = ir_int(elemCount)
+            ir_emit(builder.currentFunction, createInstr)
+            var ei = 0
+            while ei < elemCount {
+                val elemReg = buildExpr(builder, ll.elements.get(ei))
+                val pushInstr = ir_init_instr(IROpcode.list_push)
+                pushInstr.operand1 = ir_register(listReg)
+                pushInstr.operand2 = ir_register(elemReg)
+                val voidReg = ir_alloc_register(builder.currentFunction, "void")
+                pushInstr.dest = voidReg
+                ir_emit(builder.currentFunction, pushInstr)
+                ei = ei + 1
+            }
+            return listReg
+        }
+        ASTNode.IndexAccess(ia) => {
+            val objReg = buildExpr(builder, ia.object)
+            val idxReg = buildExpr(builder, ia.index)
+            val getInstr = ir_init_instr(IROpcode.list_get)
+            val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+            getInstr.dest = resReg
+            getInstr.operand1 = ir_register(objReg)
+            getInstr.operand2 = ir_register(idxReg)
+            ir_emit(builder.currentFunction, getInstr)
+            return resReg
+        }
+        ASTNode.Match(m) => {
+            return buildMatchExpr(builder, m)
+        }
+        ASTNode.Try(t) => {
+            return buildTryExpr(builder, t)
+        }
+        ASTNode.Assignment(a) => {
+            val rhsReg = buildExpr(builder, a.value)
+            match a.target {
+                ASTNode.Literal(lit) => {
+                    val storeInstr = ir_init_instr(IROpcode.store_var)
+                    storeInstr.operand1 = ir_symbol(lit.text)
+                    storeInstr.operand2 = ir_register(rhsReg)
+                    ir_emit(builder.currentFunction, storeInstr)
+                    return rhsReg
+                }
+                ASTNode.MemberAccess(ma) => {
+                    val objReg = buildExpr(builder, ma.object)
+                    val storeField = ir_init_instr(IROpcode.store_field)
+                    storeField.operand1 = ir_register(objReg)
+                    storeField.operand2 = ir_symbol(ma.member.text)
+                    storeField.operand3 = ir_register(rhsReg)
+                    ir_emit(builder.currentFunction, storeField)
+                    return rhsReg
+                }
+                _ => { return rhsReg }
+            }
+        }
+        ASTNode.Break(b) => {
+            val endLabels = builder.loopEndLabels
+            if endLabels.len() > 0 {
+                val endLabel = endLabels.get(endLabels.len() - 1)
+                val jmp = ir_init_instr(IROpcode.jump)
+                jmp.operand1 = ir_label(endLabel)
+                ir_emit(builder.currentFunction, jmp)
+            }
+            return -1
+        }
+        ASTNode.Continue(c) => {
+            val startLabels = builder.loopStartLabels
+            if startLabels.len() > 0 {
+                val startLabel = startLabels.get(startLabels.len() - 1)
+                val jmp = ir_init_instr(IROpcode.jump)
+                jmp.operand1 = ir_label(startLabel)
+                ir_emit(builder.currentFunction, jmp)
+            }
+            return -1
+        }
         _ => {
             return -1
         }
     }
+}
+
+fn buildTryExpr(builder: IRBuilder, t: TryNode) -> int {
+    val exprReg = buildExpr(builder, t.expr)
+    val func = builder.currentFunction
+    val isOkReg = ir_alloc_register(func, "bool")
+    val checkInstr = ir_init_instr(IROpcode.result_is_ok)
+    checkInstr.dest = isOkReg
+    checkInstr.operand1 = ir_register(exprReg)
+    ir_emit(func, checkInstr)
+    val errLabel = allocLabel(builder)
+    val endLabel = allocLabel(builder)
+    val jmp = ir_init_instr(IROpcode.jump_if_false)
+    jmp.operand1 = ir_register(isOkReg)
+    jmp.operand2 = ir_label(errLabel)
+    ir_emit(func, jmp)
+    val unwrapReg = ir_alloc_register(func, "unknown")
+    val unwrapInstr = ir_init_instr(IROpcode.result_unwrap)
+    unwrapInstr.dest = unwrapReg
+    unwrapInstr.operand1 = ir_register(exprReg)
+    ir_emit(func, unwrapInstr)
+    val jmpEnd = ir_init_instr(IROpcode.jump)
+    jmpEnd.operand1 = ir_label(endLabel)
+    ir_emit(func, jmpEnd)
+    val lblErr = ir_init_instr(IROpcode.label)
+    lblErr.operand1 = ir_label(errLabel)
+    ir_emit(func, lblErr)
+    // Propagate error: return expr (which is the result itself)
+    val retInstr = ir_init_instr(IROpcode.ret)
+    retInstr.operand1 = ir_register(exprReg)
+    ir_emit(func, retInstr)
+    val lblEnd = ir_init_instr(IROpcode.label)
+    lblEnd.operand1 = ir_label(endLabel)
+    ir_emit(func, lblEnd)
+    return unwrapReg
 }

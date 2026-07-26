@@ -10,6 +10,10 @@ model FunctionDeclNode {
     paramTypes: list
     returnType: string
     body: ASTNode
+    isAsync: bool
+    isPrivate: bool
+    isExtern: bool
+    genericParams: list
 }
 
 model VarDeclNode {
@@ -62,11 +66,13 @@ model IndexAccessNode {
 model ModelDeclNode {
     name: Token
     fields: list
+    genericParams: list
 }
 
 model FieldDeclNode {
     name: Token
     typeName: Token
+    decorators: list
 }
 
 model BlockNode {
@@ -88,6 +94,118 @@ model WhileNode {
     body: ASTNode
 }
 
+model ForNode {
+    item: Token
+    iterable: ASTNode
+    body: ASTNode
+}
+
+model TypeDeclNode {
+    name: Token
+    kind: string
+    variants: list
+    baseType: Token
+}
+
+model VariantNode {
+    name: Token
+    payloadType: Token
+}
+
+model RouteDeclNode {
+    method: Token
+    path: Token
+    params: list
+    body: ASTNode
+}
+
+model TryNode {
+    expr: ASTNode
+}
+
+model GenericParamNode {
+    name: Token
+    constraint: Token
+}
+
+model TraitDeclNode {
+    name: Token
+    genericParams: list
+    methods: list
+    isPrivate: bool
+}
+
+model ImplDeclNode {
+    traitName: Token
+    typeName: Token
+    methods: list
+}
+
+model ConstDeclNode {
+    name: Token
+    value: ASTNode
+    isPrivate: bool
+}
+
+model ScheduleDeclNode {
+    amount: Token
+    unit: Token
+    atTime: Token
+    handler: ASTNode
+}
+
+model ConfigDeclNode {
+    key: Token
+    value: ASTNode
+}
+
+model BreakNode {
+}
+
+model ContinueNode {
+}
+
+model ImportStmtNode {
+    path: Token
+}
+
+model UseStmtNode {
+    module: Token
+}
+
+model ParamNode {
+    name: Token
+    typeName: Token
+}
+
+model DecoratorNode {
+    name: Token
+    args: list
+}
+
+model TypeAnnotationNode {
+    base: Token
+    isOptional: bool
+}
+
+model FieldInitNode {
+    name: Token
+    value: ASTNode
+}
+
+model ExpressionStmtNode {
+    expr: ASTNode
+}
+
+model ListLiteralNode {
+    elements: list
+}
+
+model AssignmentNode {
+    target: ASTNode
+    value: ASTNode
+}
+
 union ASTNode {
     Program(ProgramNode),
     FunctionDecl(FunctionDeclNode),
@@ -105,5 +223,27 @@ union ASTNode {
     Return(ReturnNode),
     If(IfNode),
     While(WhileNode),
+    For(ForNode),
+    TypeDecl(TypeDeclNode),
+    RouteDecl(RouteDeclNode),
+    Try(TryNode),
+    MatchCase(MatchCaseNode),
+    GenericParam(GenericParamNode),
+    TraitDecl(TraitDeclNode),
+    ImplDecl(ImplDeclNode),
+    ConstDecl(ConstDeclNode),
+    ScheduleDecl(ScheduleDeclNode),
+    ConfigDecl(ConfigDeclNode),
+    Break(BreakNode),
+    Continue(ContinueNode),
+    ImportStmt(ImportStmtNode),
+    UseStmt(UseStmtNode),
+    Param(ParamNode),
+    Decorator(DecoratorNode),
+    TypeAnnotation(TypeAnnotationNode),
+    FieldInit(FieldInitNode),
+    ExpressionStmt(ExpressionStmtNode),
+    Assignment(AssignmentNode),
+    ListLiteral(ListLiteralNode),
     Empty
 }

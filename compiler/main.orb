@@ -6,39 +6,44 @@
 //   - `build <input.orb> [-o output.exe]`: Standard build driver.
 
 import "./frontend/frontend.orb"
+import "./pipeline.orb"
 
 extern fn orbit_os_argc() -> int
 extern fn orbit_os_argv(index: int) -> string
 extern fn orbit_os_exec(command: string) -> string
 extern fn orbit_os_env(var_name: string) -> string
 extern fn orbit_file_write(path: string, content: string) -> bool
+extern fn orbit_file_read(path: string) -> string
 
-fn frontendOutputPath(argc: int) -> string {
-    var i = 0
-    while i < argc {
-        if orbit_os_argv(i) == "-o" {
-            if i + 1 < argc { return orbit_os_argv(i + 1) }
+fn frontendOutputPath() -> string {
+    var i = 2
+    while true {
+        val a = orbit_os_argv(i)
+        if a == "" { break }
+        if a == "-o" {
+            val next = orbit_os_argv(i + 1)
+            if next != "" { return next }
         }
         i = i + 1
     }
     return "orbit.tir"
 }
 
-fn runFrontend(argc: int) {
-    if argc < 3 {
+fn runFrontend() {
+    val inputPath = orbit_os_argv(2)
+    if inputPath == "" {
         print("Usage: orbit frontend <input.orb> [-o output.tir]")
         return
     }
 
-    val inputPath = orbit_os_argv(2)
-    val source = file.read(inputPath) ? err 2 "Unable to read Orbit source"
+    val source = orbit_file_read(inputPath)
     val output = compileFrontendSource(inputPath, source)
     if output == "" {
         print("Frontend failed: no TIR emitted because diagnostics contain errors.")
         return
     }
 
-    val outputPath = frontendOutputPath(argc)
+    val outputPath = frontendOutputPath()
     if orbit_file_write(outputPath, output) == false {
         print("Unable to write TIR output.")
         return
@@ -46,69 +51,80 @@ fn runFrontend(argc: int) {
     print("[frontend] wrote canonical TIR: " + outputPath)
 }
 
-fn runBootstrap(argc: int) {
+fn runBootstrap() {
     print("[bootstrap] Starting Orbit Multi-Stage Bootstrap Pipeline")
     var hostCompiler = orbit_os_env("ORBIT_HOST_COMPILER")
     if hostCompiler == "" {
         hostCompiler = "orbit.exe"
     }
 
-    val stage1Cmd = hostCompiler + " build compiler/main.orb -o zig-out/stage1_orbit.exe --backend=steel"
+    val stage1Cmd = "\"" + hostCompiler + "\" build \"compiler/main.orb\" -o \"zig-out/stage1_orbit.exe\" --backend=steel"
     print("[bootstrap Stage 1] Building Stage 1 compiler...")
     print(orbit_os_exec(stage1Cmd))
 
-    val stage2Cmd = "zig-out/stage1_orbit.exe build compiler/main.orb -o zig-out/stage2_orbit.exe --backend=steel"
+    val stage2Cmd = "\"zig-out/stage1_orbit.exe\" build \"compiler/main.orb\" -o \"zig-out/stage2_orbit.exe\" --backend=steel"
     print("[bootstrap Stage 2] Building Stage 2 compiler using Stage 1...")
     print(orbit_os_exec(stage2Cmd))
 
-    val stage3Cmd = "zig-out/stage2_orbit.exe build compiler/main.orb -o zig-out/stage3_orbit.exe --backend=steel"
+    val stage3Cmd = "\"zig-out/stage2_orbit.exe\" build \"compiler/main.orb\" -o \"zig-out/stage3_orbit.exe\" --backend=steel"
     print("[bootstrap Stage 3] Building Stage 3 compiler using Stage 2 (Fixed-Point Verification)...")
     print(orbit_os_exec(stage3Cmd))
     print("[bootstrap] Verification step completed.")
 }
 
 fn main() {
-    val argc = orbit_os_argc()
-    if argc > 1 {
-        val subCmd = orbit_os_argv(1)
-        if subCmd == "frontend" {
-            runFrontend(argc)
-            return
-        }
-        if subCmd == "bootstrap" {
-            runBootstrap(argc)
-            return
-        }
-    }
-
-    print("Starting Orbit Self-Hosting Compiler")
+    print("[selfhost] Self-hosted compiler pipeline starting")
     var outputPath = ""
-    var i = 0
-    while i < argc {
+    var inputPath = ""
+    var i = 1
+    while true {
         val arg = orbit_os_argv(i)
+        if arg == "" { break }
+
+        if arg == "frontend" {
+            runFrontend()
+            return
+        }
+
+        if arg == "bootstrap" {
+            runBootstrap()
+            return
+        }
+
         if arg == "-o" {
-            if i + 1 < argc {
-                outputPath = orbit_os_argv(i + 1)
+            val nextArg = orbit_os_argv(i + 1)
+            if nextArg != "" {
+                outputPath = nextArg
+                i = i + 1
+            }
+        } else {
+            if arg != "build" && inputPath == "" {
+                inputPath = arg
             }
         }
         i = i + 1
     }
 
-    if outputPath == "" {
-        print("Error: No output path specified via -o.")
+    if inputPath == "" {
+        print("Error: No input file specified.")
         return
     }
 
-    print("[selfhost] Compiling compiler/main.orb -> " + outputPath)
-    
-    var hostCompiler = orbit_os_env("ORBIT_STAGE0_COMPILER")
-    if hostCompiler == "" {
-        hostCompiler = "orbit.exe"
+    if outputPath == "" {
+        outputPath = inputPath + ".c"
     }
 
-    val cmd = hostCompiler + " build compiler/main.orb -o " + outputPath + " --backend=steel"
-    print("[selfhost] Executing command: " + cmd)
-    
-    val res = orbit_os_exec(cmd)
-    print(res)
+    print("[selfhost] Compiling " + inputPath + " -> " + outputPath)
+
+    val source = orbit_file_read(inputPath)
+    if source == "" {
+        print("Error: Could not read input file: " + inputPath)
+        return
+    }
+
+    if compileSource(source, outputPath) {
+        print("[selfhost] Compilation successful: " + outputPath)
+    } else {
+        print("[selfhost] Compilation FAILED")
+    }
 }

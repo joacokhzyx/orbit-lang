@@ -1,117 +1,621 @@
-// Semantic Analyzer for Orbit Self-Hosting Compiler
 import "./ast.orb"
 
 model Symbol {
     name: string
     typeName: string
     isMutable: bool
+    isFunction: bool
 }
 
 model Scope {
-    symbols: list // list of Symbol
-    parentId: int // -1 if global
+    symbols: list
+    parentId: int
+}
+
+model TypeInfo {
+    name: string
+    kind: string
+    variants: list
 }
 
 model Sema {
     scopes: list
     currentScope: int
     errors: list
+    typeRegistry: list
+    currentReturnType: string
 }
 
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [])
+    return Sema(initialScopes, 0, [], [], "")
 }
 
 fn reportError(sema: Sema, message: string) {
     sema.errors.push(message)
-    print("Semantic Error:")
-    print(message)
 }
 
-fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool) {
-    val scope: Scope = sema.scopes.get(sema.currentScope)
-    
-    // Check if already declared in current scope
+fn hasErrors(sema: Sema) -> bool {
+    return sema.errors.len() > 0
+}
+
+fn registerType(sema: Sema, name: string, kind: string, variants: list) {
     var i = 0
-    while i < scope.symbols.len() {
-        val sym: Symbol = scope.symbols.get(i)
-        if sym.name == name {
-            reportError(sema, "Duplicate symbol definition in same scope.")
+    while i < sema.typeRegistry.len() {
+        val t = sema.typeRegistry.get(i)
+        if t.name == name {
             return
         }
         i = i + 1
     }
-    
-    scope.symbols.push(Symbol(name, typeName, isMutable))
+    sema.typeRegistry.push(TypeInfo(name, kind, variants))
 }
 
-fn checkVarDecl(sema: Sema, decl: VarDeclNode) {
-    // In a full compiler we'd resolve `decl.value` type first.
-    // For now we just assume 'any' or let it pass for High Speed bootstrap.
-    checkNode(sema, decl.value)
-    declareSymbol(sema, decl.name, "unknown", decl.isMutable)
+fn findType(sema: Sema, name: string) -> int {
+    var i = 0
+    while i < sema.typeRegistry.len() {
+        val t = sema.typeRegistry.get(i)
+        if t.name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
 }
 
-fn checkFunctionDecl(sema: Sema, decl: FunctionDeclNode) {
-    declareSymbol(sema, decl.name, "fn", false)
-    
-    // Enter new scope for function body
+fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool) {
+    val scope = sema.scopes.get(sema.currentScope)
+    var i = 0
+    while i < scope.symbols.len() {
+        val sym = scope.symbols.get(i)
+        if sym.name == name {
+            reportError(sema, "Duplicate symbol: " + name)
+            return
+        }
+        i = i + 1
+    }
+    scope.symbols.push(Symbol(name, typeName, isMutable, isFunction))
+}
+
+fn lookupSymbol(sema: Sema, name: string) -> string {
+    var scopeId = sema.currentScope
+    while scopeId >= 0 {
+        val scope = sema.scopes.get(scopeId)
+        var i = 0
+        while i < scope.symbols.len() {
+            val sym = scope.symbols.get(i)
+            if sym.name == name {
+                return sym.typeName
+            }
+            i = i + 1
+        }
+        scopeId = scope.parentId
+    }
+    return "unknown"
+}
+
+fn lookupFunction(sema: Sema, name: string) -> string {
+    var scopeId = sema.currentScope
+    while scopeId >= 0 {
+        val scope = sema.scopes.get(scopeId)
+        var i = 0
+        while i < scope.symbols.len() {
+            val sym = scope.symbols.get(i)
+            if sym.name == name && sym.isFunction {
+                return sym.typeName
+            }
+            i = i + 1
+        }
+        scopeId = scope.parentId
+    }
+    return "unknown"
+}
+
+fn checkCompatibility(sema: Sema, expected: string, actual: string) -> bool {
+    if expected == "unknown" || actual == "unknown" { return true }
+    if expected == actual { return true }
+    if expected == "result" { return true }
+    if expected == "response" { return true }
+    return false
+}
+
+fn isTypeCompatible(sema: Sema, expected: string, actual: string) -> bool {
+    return checkCompatibility(sema, expected, actual)
+}
+
+fn pushScope(sema: Sema) {
     val newScopeId = sema.scopes.len()
     sema.scopes.push(Scope([], sema.currentScope))
     sema.currentScope = newScopeId
-    
-    // Declare params
-    var i = 0
-    while i < decl.params.len() {
-        val paramName = decl.params.get(i)
-        declareSymbol(sema, paramName, "unknown", false)
-        i = i + 1
-    }
-    
-    // Check body
-    checkNode(sema, decl.body)
-    
-    // Leave scope
-    val parentScope: Scope = sema.scopes.get(sema.currentScope)
+}
+
+fn popScope(sema: Sema) {
+    val parentScope = sema.scopes.get(sema.currentScope)
     sema.currentScope = parentScope.parentId
 }
 
-fn checkBlock(sema: Sema, block: BlockNode) {
-    // Enter new scope
-    val newScopeId = sema.scopes.len()
-    sema.scopes.push(Scope([], sema.currentScope))
-    val oldScope = sema.currentScope
-    sema.currentScope = newScopeId
-    
-    var i = 0
-    while i < block.statements.len() {
-        val stmt: ASTNode = block.statements.get(i)
-        checkNode(sema, stmt)
-        i = i + 1
+fn checkModelDecl(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.ModelDecl(m) => {
+            declareSymbol(sema, m.name.text, "model", false, false)
+            var i = 0
+            while i < m.fields.len() {
+                checkNode(sema, m.fields.get(i))
+                i = i + 1
+            }
+        }
+        _ => {}
     }
-    
-    // Leave scope
-    sema.currentScope = oldScope
+}
+
+fn checkVarDecl(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.VarDecl(v) => {
+            val valueType = inferType(sema, v.value)
+            declareSymbol(sema, v.name, valueType, v.isMutable, false)
+        }
+        _ => {}
+    }
+}
+
+fn checkConstDecl(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.ConstDecl(c) => {
+            val valueType = inferType(sema, c.value)
+            declareSymbol(sema, c.name.text, valueType, false, false)
+        }
+        _ => {}
+    }
+}
+
+fn checkFunctionSignature(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.FunctionDecl(f) => {
+            var returnType = f.returnType
+            if returnType == "" {
+                returnType = "void"
+            }
+            declareSymbol(sema, f.name, returnType, false, true)
+        }
+        _ => {}
+    }
+}
+
+fn checkFunctionBody(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.FunctionDecl(f) => {
+            var returnType = f.returnType
+            if returnType == "" {
+                returnType = "void"
+            }
+            val prevReturn = sema.currentReturnType
+            sema.currentReturnType = returnType
+            
+            pushScope(sema)
+            var i = 0
+            while i < f.params.len() {
+                val pName = f.params.get(i)
+                var pType = "unknown"
+                if i < f.paramTypes.len() {
+                    pType = f.paramTypes.get(i)
+                }
+                declareSymbol(sema, pName, pType, false, false)
+                i = i + 1
+            }
+            checkNode(sema, f.body)
+            popScope(sema)
+            
+            sema.currentReturnType = prevReturn
+        }
+        _ => {}
+    }
+}
+
+fn checkRouteBody(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.RouteDecl(r) => {
+            val prevReturn = sema.currentReturnType
+            sema.currentReturnType = "response"
+            pushScope(sema)
+            declareSymbol(sema, "req", "request", false, false)
+            declareSymbol(sema, "res", "response", false, false)
+            checkNode(sema, r.body)
+            popScope(sema)
+            sema.currentReturnType = prevReturn
+        }
+        _ => {}
+    }
+}
+
+fn checkBlock(sema: Sema, block: ASTNode) {
+    match block {
+        ASTNode.Block(b) => {
+            pushScope(sema)
+            var i = 0
+            while i < b.statements.len() {
+                checkNode(sema, b.statements.get(i))
+                i = i + 1
+            }
+            popScope(sema)
+        }
+        _ => {}
+    }
+}
+
+fn checkIfStatement(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.If(stmt) => {
+            inferType(sema, stmt.condition)
+            checkNode(sema, stmt.thenBody)
+            checkNode(sema, stmt.elseBody)
+        }
+        _ => {}
+    }
+}
+
+fn checkWhileLoop(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.While(w) => {
+            inferType(sema, w.condition)
+            checkNode(sema, w.body)
+        }
+        _ => {}
+    }
+}
+
+fn checkForLoop(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.For(f) => {
+            inferType(sema, f.iterable)
+            pushScope(sema)
+            declareSymbol(sema, f.item.text, "unknown", false, false)
+            checkNode(sema, f.body)
+            popScope(sema)
+        }
+        _ => {}
+    }
+}
+
+fn checkMatch(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.Match(m) => {
+            val matchType = inferType(sema, m.expr)
+            var i = 0
+            while i < m.cases.len() {
+                val caseNode = m.cases.get(i)
+                match caseNode {
+                    ASTNode.MatchCase(c) => {
+                        inferType(sema, c.pattern)
+                        pushScope(sema)
+                        checkNode(sema, c.body)
+                        popScope(sema)
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            // Check exhaustiveness for enum types
+            val typeIdx = findType(sema, matchType)
+            if typeIdx >= 0 {
+                val t = sema.typeRegistry.get(typeIdx)
+                if t.kind == "enum" || t.kind == "union" {
+                    // Check if wildcard exists
+                    var hasWildcard = false
+                    var j = 0
+                    while j < m.cases.len() {
+                        val cnode = m.cases.get(j)
+                        match cnode {
+                            ASTNode.MatchCase(c) => {
+                                match c.pattern {
+                                    ASTNode.Literal(l) => {
+                                        if l.text == "_" { hasWildcard = true }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                        j = j + 1
+                    }
+                    if hasWildcard == false {
+                        var coveredVariants = []
+                        var k = 0
+                        while k < m.cases.len() {
+                            val cn = m.cases.get(k)
+                            match cn {
+                                ASTNode.MatchCase(c) => {
+                                    match c.pattern {
+                                        ASTNode.MemberAccess(ma) => {
+                                            coveredVariants.push(ma.member.text)
+                                        }
+                                        ASTNode.Call(call) => {
+                                            match call.func {
+                                                ASTNode.MemberAccess(ma2) => {
+                                                    coveredVariants.push(ma2.member.text)
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                _ => {}
+                            }
+                            k = k + 1
+                        }
+                        // Check for missing variants
+                        var v = 0
+                        while v < t.variants.len() {
+                            val variant = t.variants.get(v)
+                            var found = false
+                            var ck = 0
+                            while ck < coveredVariants.len() {
+                                if coveredVariants.get(ck) == variant {
+                                    found = true
+                                }
+                                ck = ck + 1
+                            }
+                            if found == false {
+                                reportError(sema, "Non-exhaustive match. Missing variant: " + variant)
+                            }
+                            v = v + 1
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn checkReturn(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.Return(r) => {
+            var expectedType = sema.currentReturnType
+            if expectedType == "" {
+                expectedType = "void"
+            }
+            match r.expr {
+                ASTNode.Empty => {
+                    if expectedType != "void" {
+                        reportError(sema, "Non-void function must return a value")
+                    }
+                }
+                _ => {
+                    val actualType = inferType(sema, r.expr)
+                    if checkCompatibility(sema, expectedType, actualType) == false {
+                        reportError(sema, "Return type mismatch: expected " + expectedType + ", got " + actualType)
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn inferType(sema: Sema, node: ASTNode) -> string {
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" {
+                val typeName = lookupSymbol(sema, l.text)
+                if typeName != "unknown" { return typeName }
+                if l.text.len() > 0 {
+                    val first = l.text.slice(0, 1)
+                    if first >= "A" && first <= "Z" { return l.text }
+                }
+                return "unknown"
+            }
+            return l.valType
+        }
+        ASTNode.BinaryOp(b) => {
+            val lhsType = inferType(sema, b.lhs)
+            val rhsType = inferType(sema, b.rhs)
+            if b.op == "==" || b.op == "!=" || b.op == "<" || b.op == "<=" || b.op == ">" || b.op == ">=" {
+                return "bool"
+            }
+            if b.op == "&&" || b.op == "||" { return "bool" }
+            if b.op == "+" && (lhsType == "string" || rhsType == "string") { return "string" }
+            if lhsType == "float" || rhsType == "float" { return "float" }
+            if lhsType == "int" && rhsType == "int" { return "int" }
+            return "unknown"
+        }
+        ASTNode.UnaryOp(u) => {
+            val operandType = inferType(sema, u.operand)
+            if u.op == "!" { return "bool" }
+            return operandType
+        }
+        ASTNode.Call(c) => {
+            inferType(sema, c.func)
+            var i = 0
+            while i < c.args.len() {
+                inferType(sema, c.args.get(i))
+                i = i + 1
+            }
+            // Check for builtins
+            match c.func {
+                ASTNode.Literal(l) => {
+                    if l.valType == "identifier" {
+                        if l.text == "ok" { return "result" }
+                        if l.text == "err" { return "result" }
+                        if l.text == "print" { return "void" }
+                        val fnType = lookupFunction(sema, l.text)
+                        if fnType != "unknown" { return fnType }
+                    }
+                }
+                ASTNode.MemberAccess(ma) => {
+                    val objType = inferType(sema, ma.object)
+                    val member = ma.member.text
+                    if objType == "string" {
+                        if member == "len" { return "int" }
+                        if member == "contains" { return "bool" }
+                        if member == "slice" { return "string" }
+                        if member == "to_int" { return "int" }
+                    }
+                    if objType == "list" || objType == "List" {
+                        if member == "len" { return "int" }
+                        if member == "push" { return "void" }
+                        if member == "get" { return "unknown" }
+                    }
+                    if objType == "map" || objType == "Map" {
+                        if member == "has" { return "bool" }
+                        if member == "keys" { return "list" }
+                        if member == "delete" { return "void" }
+                    }
+                }
+                _ => {}
+            }
+            return "unknown"
+        }
+        ASTNode.MemberAccess(ma) => {
+            val objType = inferType(sema, ma.object)
+            val member = ma.member.text
+            if objType == "string" && member == "length" { return "int" }
+            val objName = ""
+            match ma.object {
+                ASTNode.Literal(l) => { if l.valType == "identifier" { /* objName = l.text */ } }
+                _ => {}
+            }
+            return "unknown"
+        }
+        ASTNode.IndexAccess(ia) => {
+            inferType(sema, ia.object)
+            inferType(sema, ia.index)
+            return "unknown"
+        }
+        ASTNode.If(stmt) => {
+            inferType(sema, stmt.condition)
+            val thenType = inferType(sema, stmt.thenBody)
+            return thenType
+        }
+        ASTNode.Match(m) => {
+            inferType(sema, m.expr)
+            if m.cases.len() > 0 {
+                match m.cases.get(0) {
+                    ASTNode.MatchCase(c) => { return inferType(sema, c.body) }
+                    _ => { return "void" }
+                }
+            }
+            return "void"
+        }
+        ASTNode.Block(b) => {
+            if b.statements.len() > 0 {
+                return inferType(sema, b.statements.get(b.statements.len() - 1))
+            }
+            return "void"
+        }
+        _ => { return "void" }
+    }
 }
 
 fn checkNode(sema: Sema, node: ASTNode) {
     match node {
-        ASTNode.FunctionDecl(fdecl) => checkFunctionDecl(sema, fdecl)
-        ASTNode.VarDecl(vdecl) => checkVarDecl(sema, vdecl)
-        ASTNode.Block(block) => checkBlock(sema, block)
-        ASTNode.Return(retNode) => checkNode(sema, retNode.expr)
         ASTNode.Program(prog) => {
+            // Pass 1: Register types and models
             var i = 0
             while i < prog.decls.len() {
-                val pdecl: ASTNode = prog.decls.get(i)
-                checkNode(sema, pdecl)
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.ModelDecl(m) => { declareSymbol(sema, m.name.text, "model", false, false) }
+                    ASTNode.TypeDecl(t) => { registerType(sema, t.name.text, t.kind, t.variants) }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            // Pass 2: Register function signatures
+            i = 0
+            while i < prog.decls.len() {
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.FunctionDecl(f) => { checkFunctionSignature(sema, decl) }
+                    ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name.text, "type", false, false) }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            // Pass 3: Constants and top-level vals
+            i = 0
+            while i < prog.decls.len() {
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.ConstDecl(c) => { checkConstDecl(sema, decl) }
+                    ASTNode.VarDecl(v) => { checkVarDecl(sema, decl) }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            // Pass 4: Function bodies, routes, impls
+            i = 0
+            while i < prog.decls.len() {
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, decl) }
+                    ASTNode.RouteDecl(r) => { checkRouteBody(sema, decl) }
+                    ASTNode.ImplDecl(impl) => {
+                        var j = 0
+                        while j < impl.methods.len() {
+                            checkFunctionBody(sema, impl.methods.get(j))
+                            j = j + 1
+                        }
+                    }
+                    _ => {}
+                }
                 i = i + 1
             }
         }
-        _ => {
-            // Ignore other nodes for this minimal bootstrap
+        ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, node) }
+        ASTNode.VarDecl(v) => { checkVarDecl(sema, node) }
+        ASTNode.ConstDecl(c) => { checkConstDecl(sema, node) }
+        ASTNode.BinaryOp(b) => { inferType(sema, node) }
+        ASTNode.UnaryOp(u) => { inferType(sema, node) }
+        ASTNode.Literal(l) => {}
+        ASTNode.Match(m) => { checkMatch(sema, node) }
+        ASTNode.Call(c) => { inferType(sema, node) }
+        ASTNode.MemberAccess(ma) => { inferType(sema, node) }
+        ASTNode.IndexAccess(ia) => { inferType(sema, node) }
+        ASTNode.ModelDecl(m) => { checkModelDecl(sema, node) }
+        ASTNode.FieldDecl(fd) => {}
+        ASTNode.Block(block) => { checkBlock(sema, node) }
+        ASTNode.Return(r) => { checkReturn(sema, node) }
+        ASTNode.If(stmt) => { checkIfStatement(sema, node) }
+        ASTNode.While(w) => { checkWhileLoop(sema, node) }
+        ASTNode.For(f) => { checkForLoop(sema, node) }
+        ASTNode.TypeDecl(t) => { registerType(sema, t.name.text, t.kind, t.variants) }
+        ASTNode.RouteDecl(r) => { checkRouteBody(sema, node) }
+        ASTNode.Try(t) => { inferType(sema, t.expr) }
+        ASTNode.MatchCase(mc) => {}
+        ASTNode.GenericParam(gp) => {}
+        ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name.text, "type", false, false) }
+        ASTNode.ImplDecl(impl) => {
+            var j = 0
+            while j < impl.methods.len() {
+                checkFunctionBody(sema, impl.methods.get(j))
+                j = j + 1
+            }
         }
+        ASTNode.ScheduleDecl(s) => { inferType(sema, s.handler) }
+        ASTNode.ConfigDecl(cfg) => { inferType(sema, cfg.value) }
+        ASTNode.Break(b) => {}
+        ASTNode.Continue(c) => {}
+        ASTNode.ImportStmt(i) => {}
+        ASTNode.UseStmt(u) => {}
+        ASTNode.Param(p) => {}
+        ASTNode.Decorator(d) => {}
+        ASTNode.TypeAnnotation(ta) => {}
+        ASTNode.FieldInit(fi) => { inferType(sema, fi.value) }
+        ASTNode.ExpressionStmt(e) => { inferType(sema, e.expr) }
+        ASTNode.Assignment(a) => { inferType(sema, a.value) }
+        ASTNode.ListLiteral(ll) => {
+            var ei = 0
+            while ei < ll.elements.len() {
+                inferType(sema, ll.elements.get(ei))
+                ei = ei + 1
+            }
+        }
+        ASTNode.Empty => {}
     }
+}
+
+fn analyze(sema: Sema, node: ASTNode) {
+    checkNode(sema, node)
 }

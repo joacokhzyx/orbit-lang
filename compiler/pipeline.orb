@@ -1,0 +1,39 @@
+import "./lexer.orb"
+import "./parser.orb"
+import "./sema.orb"
+import "./builder.orb"
+import "./ir.orb"
+import "./c_backend.orb"
+
+fn compileSource(source: string, outputPath: string) -> bool {
+    val parser = initParser(source)
+    val ast = parseProgram(parser)
+    var i = 0
+    while i < parser.diagnostics.len() {
+        val diag: ParserDiagnostic = parser.diagnostics.get(i)
+        print("Parser error at line " + orbit_itoa(diag.line) + ": " + diag.message)
+        i = i + 1
+    }
+    if parser.diagnostics.len() > 0 {
+        return false
+    }
+
+    val sema = initSema()
+    analyze(sema, ast)
+    if hasErrors(sema) {
+        var ei = 0
+        while ei < sema.errors.len() {
+            print("Semantic error: " + sema.errors.get(ei))
+            ei = ei + 1
+        }
+        return false
+    }
+
+    val builder = initIRBuilder()
+    val irModule = buildAST(builder, ast)
+
+    val backend = initCBackend(irModule)
+    val cCode = generateC(backend)
+
+    return orbit_file_write(outputPath, cCode)
+}
