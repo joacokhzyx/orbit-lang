@@ -1,2 +1,54 @@
-port3000cors"*"db"store.db"env"production"model Product{id: stringprimarytitle: stringprice: floatcategory: string}model User{email: Emailwebsite: URL}typeProductInput{title: stringprice: floatcategory: string}route GET"/v1/catalog" => Product.all()route GET"/v1/external-rates" => {val cached = cache.get("rates")if (cached != null)return response.json(200, cached)val rates = tryfetch("https://api.exchangerates.io/latest")catch{err503"{\"error\":\"service unavailable\"}"}cache.set("rates", rates, 300)return response.json(200, rates)}@auth{route POST"/v1/upload-avatar" => {val path = req.file("avatar").save("./uploads")return response.json(200, "{\"url\":\"" + path + "\"}")}}@admin{route POST"/v1/products" => {val created = Product.create(req.body)return response.json(201, created)}}every12hours => Product.all()
+// use orbit/validation
+
+port 3000
+cors "*"
+db "store.db"
+env "production"
+
+model Product {
+    id: string primary
+    title: string
+    price: float
+    category: string
+}
+
+model User {
+    email: Email
+    website: URL
+}
+
+type ProductInput {
+    title: string
+    price: float
+    category: string
+}
+
+route GET "/v1/catalog" => Product.all()
+
+route GET "/v1/external-rates" => {
+    val cached = cache.get("rates")
+    if (cached != null) return response.json(200, cached)
+
+    val rates = try fetch("https://api.exchangerates.io/latest") catch {
+    err 503 "{\"error\":\"service unavailable\"}"
+}
+cache.set("rates", rates, 300)
+return response.json(200, rates)
+}
+
+@auth {
+    route POST "/v1/upload-avatar" => {
+        val path = req.file("avatar").save("./uploads")
+        return response.json(200, "{\"url\":\"" + path + "\"}")
+    }
+}
+
+@admin {
+    route POST "/v1/products" => {
+        val created = Product.create(req.body)
+        return response.json(201, created)
+    }
+}
+
+every 12 hours => Product.all()
 

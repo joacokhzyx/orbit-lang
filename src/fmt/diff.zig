@@ -40,8 +40,8 @@ pub fn computeDiff(allocator: std.mem.Allocator, original: []const u8, formatted
 
         if (orig_opt == null and fmt_opt == null) break;
 
-        const orig = orig_opt orelse "";
-        const fmt = fmt_opt orelse "";
+        const orig = std.mem.trim(u8, orig_opt orelse "", "\r");
+        const fmt = std.mem.trim(u8, fmt_opt orelse "", "\r");
 
         if (!std.mem.eql(u8, orig, fmt)) {
             try result.chunks.append(allocator, .{

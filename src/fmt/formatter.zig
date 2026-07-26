@@ -15,7 +15,7 @@ pub fn formatSource(allocator: std.mem.Allocator, source: []const u8, options: r
     while (lines.next()) |raw_line| {
         const trimmed = std.mem.trim(u8, raw_line, " \t\r");
 
-        // Handle empty lines (collapse 3+ to max 2)
+        // Handle empty lines (allow 1 empty line, collapse 2+)
         if (trimmed.len == 0) {
             consecutive_empty_lines += 1;
             if (consecutive_empty_lines <= 1) {
@@ -26,7 +26,7 @@ pub fn formatSource(allocator: std.mem.Allocator, source: []const u8, options: r
 
         consecutive_empty_lines = 0;
 
-        // Dedent line if it starts with a closing brace
+        // Dedent line if it starts with a closing brace/bracket
         if (trimmed.len > 0 and (trimmed[0] == '}' or trimmed[0] == ']')) {
             if (indent_level > 0) indent_level -= 1;
         }
@@ -44,7 +44,7 @@ pub fn formatSource(allocator: std.mem.Allocator, source: []const u8, options: r
         try out.appendSlice(allocator, formatted_line);
         try out.append(allocator, '\n');
 
-        // Increase indent level for unclosed opening braces at line end (excluding comments)
+        // Adjust indentation for opening braces on this line (excluding comments & string literals)
         const comment_idx = std.mem.indexOf(u8, trimmed, "//") orelse trimmed.len;
         const code_part = trimmed[0..comment_idx];
 
@@ -52,7 +52,6 @@ pub fn formatSource(allocator: std.mem.Allocator, source: []const u8, options: r
             if (ch == '{' or ch == '[') {
                 indent_level += 1;
             } else if (ch == '}' or ch == ']') {
-                // If closing brace was inside line (not at start)
                 if (trimmed[0] != '}' and trimmed[0] != ']' and indent_level > 0) {
                     indent_level -= 1;
                 }
@@ -85,7 +84,6 @@ fn formatLineSpacing(allocator: std.mem.Allocator, line: []const u8) ![]u8 {
 
         // Comment check
         if (!in_string and c == '/' and idx + 1 < line.len and line[idx + 1] == '/') {
-            // Append rest of line as comment
             try result.appendSlice(allocator, line[idx..]);
             break;
         }
