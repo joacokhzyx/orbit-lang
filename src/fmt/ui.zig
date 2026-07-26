@@ -35,19 +35,14 @@ pub fn renderGreenShimmer(writer: anytype, text: []const u8) !void {
 }
 
 pub fn renderHeader(writer: anytype, check_mode: bool, version: []const u8) !void {
-    try writer.print("\n  ", .{});
-    var buf: [64]u8 = undefined;
-    const title = if (check_mode)
-        std.fmt.bufPrint(&buf, "Orbit {s} (Check Mode)", .{version}) catch "Orbit (Check Mode)"
-    else
-        std.fmt.bufPrint(&buf, "Orbit {s}", .{version}) catch "Orbit";
+    const bold = "\x1b[1m";
+    const reset = "\x1b[0m";
+
+    try writer.print("\n  {s}Orbit {s}{s}", .{ bold, version, reset });
 
     if (check_mode) {
-        try renderGreenShimmer(writer, title);
-    } else {
-        const bold = "\x1b[1m";
-        const reset = "\x1b[0m";
-        try writer.print("{s}{s}{s}", .{ bold, title, reset });
+        try writer.print(" ", .{});
+        try renderGreenShimmer(writer, "(Check Mode)");
     }
     try writer.print("\n\n", .{});
 }
