@@ -185,10 +185,12 @@ pub const IRBuilder = struct {
                     const fn_data = decl.data.fn_decl;
                     var func = IRFunction.init(self.allocator, fn_data.name.getText(self.source));
                     func.is_extern = fn_data.is_extern;
-                    if (fn_data.return_type) |rt| {
-                        func.return_type = self.resolveType(rt.getText(self.source));
-                    }
-
+        // Phase 2: Set return type from annotation
+        if (fn_data.return_type) |rt| {
+            func.return_type = IRType.fromString(rt.getText(self.source));
+        } else if (std.mem.eql(u8, fn_data.name.getText(self.source), "main")) {
+            func.return_type = .int;
+        }
                     // Track param types
                     var param_types = std.ArrayListUnmanaged(IRType).empty;
                     var param_names = std.ArrayListUnmanaged([]const u8).empty;
@@ -423,7 +425,7 @@ pub const IRBuilder = struct {
             if (v.tag == .union_variant) {
                 const uv = v.data.union_variant;
                 vname = try self.allocator.dupe(u8, uv.name.getText(self.source));
-                if (uv.payload) |p| {
+                if (uv.payloads.len > 0) { const p = uv.payloads[0];
                     payload_type = IRType.fromString(p.data.identifier.getText(self.source));
                 }
             } else {
@@ -456,6 +458,8 @@ pub const IRBuilder = struct {
         // Phase 2: Set return type from annotation
         if (fn_data.return_type) |rt| {
             func.return_type = IRType.fromString(rt.getText(self.source));
+        } else if (std.mem.eql(u8, fn_data.name.getText(self.source), "main")) {
+            func.return_type = .int;
         }
 
         self.current_function = &func;
@@ -561,6 +565,10 @@ pub const IRBuilder = struct {
             }
 
             try self.variable_types.put(name, var_type);
+            // Also store in module globals for module-level val declarations
+            if (self.current_function == null) {
+                try self.module.addGlobal(name, value);
+            }
 
             var instr = IRInstruction.init(.decl_var);
             instr.operand1 = IRValue{ .string = name };
@@ -683,11 +691,22 @@ pub const IRBuilder = struct {
             },
             .boolean_literal => IRValue{ .bool = std.mem.eql(u8, node.data.boolean_literal.getText(self.source), "true") },
             .identifier => blk: {
+                const name = node.data.identifier.getText(self.source);
+                // Check global constants first
+                if (self.module.globals.get(name)) |global_val| {
+                    const type_val = self.getNodeType(node);
+                    const reg = try self.current_function.?.allocRegister(self.allocator, type_val);
+                    var instr = IRInstruction.init(.copy);
+                    instr.dest = reg;
+                    instr.operand1 = global_val;
+                    try self.current_function.?.emit(self.allocator, instr);
+                    break :blk IRValue{ .register = reg };
+                }
                 const type_val = self.getNodeType(node);
                 const reg = try self.current_function.?.allocRegister(self.allocator, type_val);
                 var instr = IRInstruction.init(.load_var);
                 instr.dest = reg;
-                instr.operand1 = IRValue{ .string = node.data.identifier.getText(self.source) };
+                instr.operand1 = IRValue{ .string = name };
                 try self.current_function.?.emit(self.allocator, instr);
                 break :blk IRValue{ .register = reg };
             },
@@ -1054,6 +1073,14 @@ pub const IRBuilder = struct {
                     try self.current_function.?.emit(self.allocator, instr);
                     return IRValue{ .register = push_res };
                 }
+            } else if (std.mem.eql(u8, member_name, "pop")) {
+                const obj = try self.buildExpr(ma.object);
+                var instr = IRInstruction.init(.list_pop);
+                instr.operand1 = obj;
+                const pop_res = try self.current_function.?.allocRegister(self.allocator, .unknown);
+                instr.dest = pop_res;
+                try self.current_function.?.emit(self.allocator, instr);
+                return IRValue{ .register = pop_res };
             } else if (std.mem.eql(u8, member_name, "at")) {
                 const obj = try self.buildExpr(ma.object);
                 const obj_type = self.getNodeType(ma.object);
@@ -1095,6 +1122,26 @@ pub const IRBuilder = struct {
                     var call_instr = IRInstruction.init(.call);
                     call_instr.dest = reg;
                     call_instr.operand1 = IRValue{ .string = "orbit_string_slice" };
+                    try self.current_function.?.emit(self.allocator, call_instr);
+                    return IRValue{ .register = reg };
+                }
+            } else if (std.mem.eql(u8, member_name, "indexOf")) {
+                const obj = try self.buildExpr(ma.object);
+                const obj_type = self.getNodeType(ma.object);
+                if (obj_type == .string and node.data.call.args.len == 1) {
+                    const sub_val = try self.buildExpr(node.data.call.args[0]);
+
+                    var arg_instr = IRInstruction.init(.arg);
+                    arg_instr.operand1 = obj;
+                    try self.current_function.?.emit(self.allocator, arg_instr);
+
+                    var arg2_instr = IRInstruction.init(.arg);
+                    arg2_instr.operand1 = sub_val;
+                    try self.current_function.?.emit(self.allocator, arg2_instr);
+
+                    var call_instr = IRInstruction.init(.call);
+                    call_instr.dest = reg;
+                    call_instr.operand1 = IRValue{ .string = "orbit_string_indexOf" };
                     try self.current_function.?.emit(self.allocator, call_instr);
                     return IRValue{ .register = reg };
                 }
@@ -1475,6 +1522,31 @@ pub const IRBuilder = struct {
                     if (t.kind == .enumeration) is_enum = true;
                     break;
                 }
+            }
+        }
+
+        if (!is_union and !is_enum) {
+            for (match_data.cases) |case| {
+                const case_data = case.data.match_case;
+                var ma_node: ?*Node = null;
+                if (case_data.pattern.tag == .member_access) {
+                    ma_node = case_data.pattern;
+                } else if (case_data.pattern.tag == .call and case_data.pattern.data.call.func.tag == .member_access) {
+                    ma_node = case_data.pattern.data.call.func;
+                }
+                if (ma_node) |man| {
+                    if (man.data.member_access.object.tag == .identifier) {
+                        const obj_name = man.data.member_access.object.data.identifier.getText(self.source);
+                        for (self.module.types.items) |t| {
+                            if (std.mem.eql(u8, t.name, obj_name)) {
+                                if (t.kind == .union_type) is_union = true;
+                                if (t.kind == .enumeration) is_enum = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (is_union or is_enum) break;
             }
         }
 

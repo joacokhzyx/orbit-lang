@@ -132,10 +132,7 @@ pub const Lowering = struct {
                 } else {
                     // Parameter passed on stack.
                     // The stack parameters are located at [RBP + 16 + (param_idx - abi_regs.len)*8]
-                    const disp: i32 = if (self.target.abi == .windows_x64)
-                        @intCast(16 + param_idx * 8)
-                    else
-                        @intCast(16 + (param_idx - abi_regs.len) * 8);
+                    const disp: i32 = @intCast(16 + (param_idx - abi_regs.len) * 8);
 
                     const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
                     // Prepend mov dest_reg, [RBP + disp]

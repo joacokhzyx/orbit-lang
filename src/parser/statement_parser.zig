@@ -193,21 +193,13 @@ pub const StatementParser = struct {
 
         _ = try self.consume(.CloseBrace);
 
-        const body_node = try self.allocator.create(Node);
-        body_node.* = .{
-            .tag = .block,
-            .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
-        };
+        const body_node = try self.createNode(.block, .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } });
 
-        const node = try self.allocator.create(Node);
-        node.* = .{
-            .tag = .for_stmt,
-            .data = .{ .for_stmt = .{
-                .item = item,
-                .iterable = iterable,
-                .body = body_node,
-            } },
-        };
+        const node = try self.createNode(.for_stmt, .{ .for_stmt = .{
+            .item = item,
+            .iterable = iterable,
+            .body = body_node,
+        } });
         return node;
     }
 
@@ -228,20 +220,12 @@ pub const StatementParser = struct {
 
         _ = try self.consume(.CloseBrace);
 
-        const body_node = try self.allocator.create(Node);
-        body_node.* = .{
-            .tag = .block,
-            .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
-        };
+        const body_node = try self.createNode(.block, .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } });
 
-        const node = try self.allocator.create(Node);
-        node.* = .{
-            .tag = .while_stmt,
-            .data = .{ .while_stmt = .{
-                .condition = condition,
-                .body = body_node,
-            } },
-        };
+        const node = try self.createNode(.while_stmt, .{ .while_stmt = .{
+            .condition = condition,
+            .body = body_node,
+        } });
         return node;
     }
 
@@ -259,17 +243,9 @@ pub const StatementParser = struct {
 
         _ = try self.consume(.CloseBrace);
 
-        const body_node = try self.allocator.create(Node);
-        body_node.* = .{
-            .tag = .block,
-            .data = .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } },
-        };
+        const body_node = try self.createNode(.block, .{ .block = .{ .stmts = try body.toOwnedSlice(self.allocator) } });
 
-        const node = try self.allocator.create(Node);
-        node.* = .{
-            .tag = .loop_stmt,
-            .data = .{ .loop_stmt = .{ .body = body_node } },
-        };
+        const node = try self.createNode(.loop_stmt, .{ .loop_stmt = .{ .body = body_node } });
         return node;
     }
 
@@ -289,11 +265,7 @@ pub const StatementParser = struct {
             var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
             const value = try expr_parser.parseExpression();
 
-            const node = try self.allocator.create(Node);
-            node.* = .{
-                .tag = .return_ok,
-                .data = .{ .return_ok = .{ .expr = value, .status = status_tok } },
-            };
+            const node = try self.createNode(.return_ok, .{ .return_ok = .{ .expr = value, .status = status_tok } });
             _ = self.match(.SemiColon);
             return node;
         }
@@ -310,11 +282,7 @@ pub const StatementParser = struct {
             status_tok = try self.consume(.IntegerLiteral);
         }
 
-        const node = try self.allocator.create(Node);
-        node.* = .{
-            .tag = .return_stmt,
-            .data = .{ .return_stmt = .{ .expr = value, .status = status_tok } },
-        };
+        const node = try self.createNode(.return_stmt, .{ .return_stmt = .{ .expr = value, .status = status_tok } });
 
         _ = self.match(.SemiColon);
         return node;
@@ -331,11 +299,7 @@ pub const StatementParser = struct {
 
         _ = self.match(.SemiColon);
 
-        const node = try self.allocator.create(Node);
-        node.* = .{
-            .tag = .err_stmt,
-            .data = .{ .err_stmt = .{ .code = code, .message = message } },
-        };
+        const node = try self.createNode(.err_stmt, .{ .err_stmt = .{ .code = code, .message = message } });
         return node;
     }
 
@@ -360,26 +324,27 @@ pub const StatementParser = struct {
             const type_tok = self.current_token.*;
             self.advance(); // consume identifier or type keyword
 
-            // Skip generics if any
+            // Skip generics with nesting tracking
             if (self.match(.Less)) {
-                while (!self.check(.Greater) and !self.check(.EOF)) {
-                    _ = self.advance(); // skip generic token
+                var depth: usize = 1;
+                while (depth > 0 and !self.check(.EOF)) {
+                    if (self.match(.Less)) {
+                        depth += 1;
+                    } else if (self.match(.Greater)) {
+                        depth -= 1;
+                    } else {
+                        self.advance();
+                    }
                 }
-                _ = try self.consume(.Greater);
             }
             // Skip optional
             _ = self.match(.Question);
 
-            const t_node = try self.allocator.create(Node);
-            t_node.* = .{
-                .tag = .type_annotation,
-                .data = .{ .type_annotation = .{
-                    .base = type_tok,
-                    .generics = &.{},
-                    .is_optional = false,
-                } },
-            };
-            type_ann_node = t_node;
+            type_ann_node = try self.createNode(.type_annotation, .{ .type_annotation = .{
+                .base = type_tok,
+                .generics = &.{},
+                .is_optional = false,
+            } });
         }
 
         var value: ?*Node = null;
@@ -389,17 +354,13 @@ pub const StatementParser = struct {
         }
         _ = self.match(.SemiColon);
 
-        const node = try self.allocator.create(Node);
-        node.* = .{
-            .tag = .val_decl,
-            .data = .{ .val_decl = .{
-                .name = name,
-                .value = value,
-                .type_annotation = type_ann_node,
-                .is_mut = is_mut,
-                .is_private = is_private,
-            } },
-        };
+        const node = try self.createNode(.val_decl, .{ .val_decl = .{
+            .name = name,
+            .value = value,
+            .type_annotation = type_ann_node,
+            .is_mut = is_mut,
+            .is_private = is_private,
+        } });
         return node;
     }
 
@@ -457,11 +418,7 @@ pub const StatementParser = struct {
 
         _ = self.match(.SemiColon);
 
-        const node = try self.allocator.create(Node);
-        node.* = .{
-            .tag = .expression_stmt,
-            .data = .{ .expression_stmt = .{ .expr = expr } },
-        };
+        const node = try self.createNode(.expression_stmt, .{ .expression_stmt = .{ .expr = expr } });
         return node;
     }
 

@@ -50,6 +50,8 @@ pub const TokenType = enum {
     KeywordRole, // role definition
     KeywordReq, // request body block
     KeywordEvery, // every <num> <unit> => ...
+    KeywordTrait, // trait declaration
+    KeywordImpl, // impl block
 
     // ============================================
     // KEYWORDS - Imports & Modules

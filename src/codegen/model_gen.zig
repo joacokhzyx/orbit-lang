@@ -8,6 +8,7 @@
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;
+const mapOrbitTypeToC = @import("type_map.zig").mapOrbitTypeToC;
 
 /// Generates a C struct definition and `orbit_collection` entry for one model.
 pub const ModelGenerator = struct {
@@ -37,7 +38,7 @@ pub const ModelGenerator = struct {
             const field_type = field_data.type_name.getText(self.source);
 
             try self.output.appendSlice(self.allocator, "    ");
-            try self.output.appendSlice(self.allocator, self.mapOrbitTypeToC(field_type));
+            try self.output.appendSlice(self.allocator, mapOrbitTypeToC(field_type));
             try self.output.append(self.allocator, ' ');
             try self.output.appendSlice(self.allocator, field_name);
             try self.output.appendSlice(self.allocator, ";\n");
@@ -66,12 +67,4 @@ pub const ModelGenerator = struct {
         try self.output.appendSlice(self.allocator, "};\n\n");
     }
 
-    fn mapOrbitTypeToC(self: *ModelGenerator, orbit_type: []const u8) []const u8 {
-        _ = self;
-        if (std.mem.eql(u8, orbit_type, "int")) return "orbit_int";
-        if (std.mem.eql(u8, orbit_type, "float")) return "orbit_float";
-        if (std.mem.eql(u8, orbit_type, "string")) return "orbit_string";
-        if (std.mem.eql(u8, orbit_type, "bool")) return "orbit_bool";
-        return "orbit_string";
-    }
 };

@@ -24,6 +24,7 @@ const ModelRegistry = @import("sema/model_registry.zig").ModelRegistry;
 const ModelInfo = @import("sema/model_registry.zig").ModelInfo;
 const ModelField = @import("sema/model_registry.zig").ModelField;
 const DiagnosticReporter = @import("sema/diagnostic.zig").DiagnosticReporter;
+const TraitMethod = @import("sema/type_checker.zig").TraitMethod;
 
 // ─── Error set ────────────────────────────────────────────────────────────────
 
@@ -141,18 +142,19 @@ pub const Sema = struct {
 
         if (root.tag != .root) return error.NotARootNode;
 
-        // Pass 1: Types, Models, Enums, Unions
+        // Pass 1: Types, Models, Enums, Unions, Traits
         for (root.data.root.decls) |decl| {
             switch (decl.tag) {
-                .model_decl, .type_decl, .enum_decl, .union_decl => try self.analyzeDeclaration(decl, global_scope),
+                .model_decl, .type_decl, .enum_decl, .union_decl, .trait_decl => try self.analyzeDeclaration(decl, global_scope),
                 else => {},
             }
         }
 
-        // Pass 2: Function Signatures
+        // Pass 2: Function Signatures (including trait methods)
         for (root.data.root.decls) |decl| {
-            if (decl.tag == .fn_decl) {
-                try self.registerFunctionSignature(decl, global_scope);
+            switch (decl.tag) {
+                .fn_decl => try self.registerFunctionSignature(decl, global_scope),
+                else => {},
             }
         }
 
@@ -164,10 +166,10 @@ pub const Sema = struct {
             }
         }
 
-        // Pass 4: Function Bodies, Routes, and Config declarations
+        // Pass 4: Function Bodies, Routes, Config, and Impl declarations
         for (root.data.root.decls) |decl| {
             switch (decl.tag) {
-                .fn_decl, .route_decl => try self.analyzeDeclaration(decl, global_scope),
+                .fn_decl, .route_decl, .impl_decl => try self.analyzeDeclaration(decl, global_scope),
                 .config_decl => {
                     // Extract port from `port N` directive in source
                     const cfg = decl.data.config_decl;
@@ -202,6 +204,8 @@ pub const Sema = struct {
             .type_decl => try self.analyzeType(node, scope),
             .enum_decl => try self.analyzeEnum(node, scope),
             .union_decl => try self.analyzeUnion(node, scope),
+            .trait_decl => try self.analyzeTrait(node, scope),
+            .impl_decl => try self.analyzeImpl(node, scope),
             .expression_stmt => {
                 _ = try self.analyzeExpression(node.data.expression_stmt.expr, scope);
             },
@@ -222,6 +226,7 @@ pub const Sema = struct {
         scope.defineFunction(fn_name, return_type) catch |err| {
             if (err == error.DuplicateDefinition) {
                 const msg = try std.fmt.allocPrint(self.allocator, "Function '{s}' is already defined", .{fn_name});
+                defer self.allocator.free(msg);
                 try self.diagnostics.reportError("E001", msg, fn_data.name);
             } else {
                 return err;
@@ -367,8 +372,10 @@ pub const Sema = struct {
 
         if (val_data.type_annotation) |type_ann| {
             const ann_type = try self.internString(type_ann.data.type_annotation.base.getText(self.source));
-            if (!std.mem.eql(u8, final_type, "unknown") and !self.type_checker.checkCompatibility(ann_type, final_type)) {
-                return error.TypeMismatch;
+            if (!std.mem.eql(u8, final_type, "unknown")) {
+                if (!self.type_checker.checkCompatibility(ann_type, final_type)) {
+                    return error.TypeMismatch;
+                }
             }
             final_type = ann_type;
         }
@@ -421,6 +428,7 @@ pub const Sema = struct {
                     "Return type mismatch: expected '{s}', got '{s}'",
                     .{ expected_type, actual_type },
                 );
+                defer self.allocator.free(message);
                 const tok = self.getNodeToken(value);
                 try self.diagnostics.reportError("return/type-mismatch", message, tok);
                 return error.TypeMismatch;
@@ -635,6 +643,88 @@ pub const Sema = struct {
         }
 
         try self.type_checker.registerUnionVariants(name, try variant_names.toOwnedSlice(self.allocator));
+    }
+
+    /// Analyses a `trait` declaration, registering the trait as a type kind and
+    /// storing its method signatures for later impl validation.
+    fn analyzeTrait(self: *Sema, node: *Node, scope: *Scope) !void {
+        const trait_data = node.data.trait_decl;
+        const trait_name = try self.internString(trait_data.name.getText(self.source));
+
+        try self.type_checker.registerTypeKind(trait_name, .trait_type);
+        try scope.define(trait_name, "type", false);
+
+        // Register generic parameter names in the trait's scope
+        var methods = std.ArrayListUnmanaged(TraitMethod).empty;
+        for (trait_data.methods) |method_node| {
+            const fn_data = method_node.data.fn_decl;
+            const method_name = try self.internString(fn_data.name.getText(self.source));
+            const ret_type = if (fn_data.return_type) |rt|
+                try self.internString(rt.getText(self.source))
+            else
+                "void";
+
+            var param_types = std.ArrayListUnmanaged([]const u8).empty;
+            for (fn_data.params) |p| {
+                const pt = if (p.data.param.type_name) |tn|
+                    try self.internString(tn.getText(self.source))
+                else
+                    "unknown";
+                try param_types.append(self.allocator, pt);
+            }
+
+            try methods.append(self.allocator, .{
+                .name = method_name,
+                .param_count = fn_data.params.len,
+                .param_types = try param_types.toOwnedSlice(self.allocator),
+                .return_type = ret_type,
+            });
+        }
+
+        try self.type_checker.registerTraitMethods(trait_name, try methods.toOwnedSlice(self.allocator));
+    }
+
+    /// Analyses an `impl` declaration, validating that all trait methods are
+    /// implemented with matching signatures, and registering each method in scope.
+    fn analyzeImpl(self: *Sema, node: *Node, scope: *Scope) !void {
+        const impl_data = node.data.impl_decl;
+        const trait_name = try self.internString(impl_data.trait_name.getText(self.source));
+        const type_name = try self.internString(impl_data.type_name.getText(self.source));
+
+        var impl_methods = std.ArrayListUnmanaged(TraitMethod).empty;
+        for (impl_data.methods) |method_node| {
+            const fn_data = method_node.data.fn_decl;
+            const method_name = try self.internString(fn_data.name.getText(self.source));
+            const ret_type = if (fn_data.return_type) |rt|
+                try self.internString(rt.getText(self.source))
+            else
+                "void";
+
+            var param_types = std.ArrayListUnmanaged([]const u8).empty;
+            for (fn_data.params) |p| {
+                const pt = if (p.data.param.type_name) |tn|
+                    try self.internString(tn.getText(self.source))
+                else
+                    "unknown";
+                try param_types.append(self.allocator, pt);
+            }
+
+            try impl_methods.append(self.allocator, .{
+                .name = method_name,
+                .param_count = fn_data.params.len,
+                .param_types = try param_types.toOwnedSlice(self.allocator),
+                .return_type = ret_type,
+            });
+        }
+
+        const is_valid = self.type_checker.validateImpl(trait_name, try impl_methods.toOwnedSlice(self.allocator));
+        if (!is_valid) return error.TypeMismatch;
+
+        // Define a combined type "impl{TraitName}For{TypeName}" in scope
+        // so the codegen can look it up later
+        const impl_name = try std.fmt.allocPrint(self.allocator, "impl_{s}_for_{s}", .{ trait_name, type_name });
+        defer self.allocator.free(impl_name);
+        try scope.define(try self.internString(impl_name), "impl", false);
     }
 
     /// Analyses a `union` declaration, registering the type kind and all variant

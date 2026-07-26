@@ -54,6 +54,7 @@ pub const IROpcode = enum {
     // ── Phase 2: Collection opcodes ───────────────────────────────
     list_create, // dest = list_create(elem_size, initial_cap)
     list_push, // list_push(list_reg, value_reg)
+    list_pop, // dest = list_pop(list_reg)
     list_get, // dest = list_get(list_reg, index)
     list_set, // list_set(list_reg, index, value_reg)
     list_len, // dest = list_len(list_reg)
@@ -301,11 +302,19 @@ pub const IRTypeDecl = struct {
     }
 };
 
+/// Phase 2 (Generics): Describes an `impl Trait for Type` vtable instance.
+pub const IRImplVTable = struct {
+    trait_name: []const u8,
+    type_name: []const u8,
+    method_names: []const []const u8, // function names implementing each method
+};
+
 pub const IRModule = struct {
     functions: std.ArrayListUnmanaged(IRFunction),
     globals: std.StringHashMapUnmanaged(IRValue),
     models: std.ArrayListUnmanaged(IRModel),
     types: std.ArrayListUnmanaged(IRTypeDecl),
+    impl_vtables: std.ArrayListUnmanaged(IRImplVTable),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) IRModule {
@@ -314,6 +323,7 @@ pub const IRModule = struct {
             .globals = .empty,
             .models = .empty,
             .types = .empty,
+            .impl_vtables = .empty,
             .allocator = allocator,
         };
     }
@@ -334,11 +344,28 @@ pub const IRModule = struct {
         }
         self.types.deinit(self.allocator);
 
+        for (self.impl_vtables.items) |*vt| {
+            self.allocator.free(vt.trait_name);
+            self.allocator.free(vt.type_name);
+            for (vt.method_names) |mn| self.allocator.free(mn);
+            self.allocator.free(vt.method_names);
+        }
+        self.impl_vtables.deinit(self.allocator);
+
         self.globals.deinit(self.allocator);
     }
 
     pub fn addFunction(self: *IRModule, func: IRFunction) !void {
         try self.functions.append(self.allocator, func);
+    }
+
+    pub fn findFunction(self: *IRModule, name: []const u8) ?*IRFunction {
+        for (self.functions.items) |*func| {
+            if (std.mem.eql(u8, func.name, name)) {
+                return func;
+            }
+        }
+        return null;
     }
 
     pub fn addGlobal(self: *IRModule, name: []const u8, value: IRValue) !void {

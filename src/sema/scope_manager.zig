@@ -42,7 +42,6 @@ pub const Scope = struct {
     /// the same (non-parent) scope.
     pub fn define(self: *Scope, name: []const u8, type_name: []const u8, is_mut: bool) !void {
         if (self.entries.contains(name)) {
-            std.debug.print("Duplicate definition: {s}\n", .{name});
             return error.DuplicateDefinition;
         }
 

@@ -1,7 +1,13 @@
 //! Type inference and compatibility checking for the Orbit semantic analyser.
 //! Provides `TypeInfo` (a structured representation of a resolved Orbit type)
 //! and `TypeChecker` (the engine that infers expression types, resolves type
-//! aliases, registers user-defined kinds, and checks assignment compatibility).
+//! aliases, registers user-defined kinds, checks assignment compatibility, and
+//! validates trait implementations).
+//!
+//! Phase 2 additions — trait registration and impl validation:
+//!   `TraitMethod` describes a single method in a trait declaration.
+//!   `registerTraitMethods` stores the method list for a given trait name.
+//!   `getTraitMethods` retrieves it for impl validation.
 
 const std = @import("std");
 const ast = @import("../ast.zig");
@@ -82,6 +88,17 @@ pub const TypeInfo = struct {
     }
 };
 
+// ─── TraitMethod ─────────────────────────────────────────────────────────────
+
+/// Describes a single method declared in a `trait` block.
+/// Used to validate `impl` blocks and to generate vtable structs.
+pub const TraitMethod = struct {
+    name: []const u8,
+    param_count: usize,
+    param_types: []const []const u8,
+    return_type: []const u8,
+};
+
 // ─── TypeChecker ─────────────────────────────────────────────────────────────
 
 /// Analyses AST nodes to infer and record their types, resolve aliases, and
@@ -100,6 +117,9 @@ pub const TypeChecker = struct {
     module_registry: ?*ModuleRegistry = null,
     diagnostics: ?*@import("diagnostic.zig").DiagnosticReporter = null,
     source: []const u8,
+
+    // Phase 2: Trait method registry — trait_name → list of TraitMethod
+    trait_methods: std.StringHashMapUnmanaged([]const TraitMethod),
 
     /// Classifies the "shape" of a user-defined type for Phase 2 exhaustiveness
     /// and constructor-call inference.
@@ -125,6 +145,7 @@ pub const TypeChecker = struct {
             .type_aliases = .empty,
             .type_kinds = .empty,
             .union_registry = .empty,
+            .trait_methods = .empty,
             .source = source,
         };
     }
@@ -134,6 +155,7 @@ pub const TypeChecker = struct {
         self.type_aliases.deinit(self.allocator);
         self.type_kinds.deinit(self.allocator);
         self.union_registry.deinit(self.allocator);
+        self.trait_methods.deinit(self.allocator);
     }
 
     // ─── Type registration ────────────────────────────────────────────────
@@ -160,6 +182,96 @@ pub const TypeChecker = struct {
     /// `name` is not a known user-defined type.
     pub fn getTypeKind(self: *TypeChecker, name: []const u8) ?TypeKind {
         return self.type_kinds.get(name);
+    }
+
+    /// Phase 2 (Generics): Records the method signatures of a trait so that
+    /// `impl` blocks can be validated against the trait's contract.
+    pub fn registerTraitMethods(self: *TypeChecker, name: []const u8, methods: []const TraitMethod) !void {
+        try self.trait_methods.put(self.allocator, name, methods);
+    }
+
+    /// Phase 2 (Generics): Returns the method signatures of a trait, or
+    /// `null` if `name` is not a known trait.
+    pub fn getTraitMethods(self: *TypeChecker, name: []const u8) ?[]const TraitMethod {
+        return self.trait_methods.get(name);
+    }
+
+    /// Phase 2 (Generics): Validates that an `impl` block's methods match
+    /// the trait's declared method signatures exactly (name, param_count,
+    /// return_type).  Returns `true` if all methods are compatible; appends
+    /// diagnostics for each mismatch found.
+    pub fn validateImpl(self: *TypeChecker, trait_name: []const u8, impl_methods: []const TraitMethod) bool {
+        const trait_methods = self.getTraitMethods(trait_name) orelse {
+            if (self.diagnostics) |d| {
+                d.reportWarning("impl/unknown-trait", "Trait not found", .{
+                    .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                    .text = "", .file_path = "", .file_source = "",
+                }) catch {};
+            }
+            return false;
+        };
+
+        var valid = true;
+        // Check that each trait method has a matching impl method
+        for (trait_methods) |tm| {
+            var found = false;
+            for (impl_methods) |im| {
+                if (std.mem.eql(u8, tm.name, im.name)) {
+                    found = true;
+                    if (tm.param_count != im.param_count) {
+                        valid = false;
+                        if (self.diagnostics) |d| {
+                            const msg = std.fmt.allocPrint(
+                                self.allocator,
+                                "Impl method '{s}' has {d} params but trait expects {d}",
+                                .{ tm.name, im.param_count, tm.param_count },
+                            ) catch "";
+                            defer if (msg.len > 0) self.allocator.free(msg);
+                            d.reportError("impl/param-count", msg, .{
+                                .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                                .text = "", .file_path = "", .file_source = "",
+                            }) catch {};
+                        }
+                    }
+                    if (!std.mem.eql(u8, tm.return_type, im.return_type)) {
+                        // Allow unknown in either direction
+                        if (!std.mem.eql(u8, tm.return_type, "unknown") and
+                            !std.mem.eql(u8, im.return_type, "unknown"))
+                        {
+                            valid = false;
+                            if (self.diagnostics) |d| {
+                                const msg = std.fmt.allocPrint(
+                                    self.allocator,
+                                    "Impl method '{s}' returns '{s}' but trait expects '{s}'",
+                                    .{ tm.name, im.return_type, tm.return_type },
+                                ) catch "";
+                                defer if (msg.len > 0) self.allocator.free(msg);
+                                d.reportError("impl/return-type", msg, .{
+                                    .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                                    .text = "", .file_path = "", .file_source = "",
+                                }) catch {};
+                            }
+                        }
+                    }
+                }
+            }
+            if (!found) {
+                valid = false;
+                if (self.diagnostics) |d| {
+                    const msg = std.fmt.allocPrint(
+                        self.allocator,
+                        "Impl is missing required trait method '{s}'",
+                        .{tm.name},
+                    ) catch "";
+                    defer if (msg.len > 0) self.allocator.free(msg);
+                    d.reportError("impl/missing-method", msg, .{
+                        .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                        .text = "", .file_path = "", .file_source = "",
+                    }) catch {};
+                }
+            }
+        }
+        return valid;
     }
 
     // ─── Type resolution ──────────────────────────────────────────────────
@@ -227,7 +339,7 @@ pub const TypeChecker = struct {
                 const ia = node.data.index_access;
                 _ = self.inferType(ia.object, scope);
                 _ = self.inferType(ia.index, scope);
-                break :blk "unknown"; // Default to unknown instead of int to allow strings
+                break :blk "unknown"; // TODO: Phase 2 — infer element type from collection generic parameter
             },
             .unary_op => blk: {
                 const u = node.data.unary_op;
@@ -236,6 +348,22 @@ pub const TypeChecker = struct {
                     break :blk "bool";
                 }
                 break :blk operand_type;
+            },
+            .match_expr => blk: {
+                const me = node.data.match_expr;
+                _ = self.inferType(me.expr, scope);
+                if (me.cases.len > 0) {
+                    break :blk self.inferType(me.cases[0].data.match_case.body, scope);
+                }
+                break :blk "void";
+            },
+            .try_expr => blk: {
+                const te = node.data.try_expr;
+                const inner = self.inferType(te.expr, scope);
+                if (std.mem.eql(u8, inner, "result")) {
+                    break :blk "unknown";
+                }
+                break :blk inner;
             },
             else => "unknown",
         };
@@ -335,9 +463,22 @@ pub const TypeChecker = struct {
                 if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "read")) return "string";
                 if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "write")) return "bool";
                 if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "list_dir")) return "list";
+                if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "exists")) return "bool";
+                if (std.mem.eql(u8, obj, "file") and std.mem.eql(u8, mem, "delete")) return "bool";
+                if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "cwd")) return "string";
+                if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "chdir")) return "bool";
                 if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "exec")) return "string";
                 if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "env")) return "string";
                 if (std.mem.eql(u8, obj, "os") and std.mem.eql(u8, mem, "exit")) return "void";
+                if (std.mem.eql(u8, obj, "memory")) {
+                    if (std.mem.eql(u8, mem, "create_arena")) return "ptr";
+                    if (std.mem.eql(u8, mem, "destroy")) return "void";
+                    if (std.mem.eql(u8, mem, "alloc")) return "ptr";
+                    if (std.mem.eql(u8, mem, "strdup")) return "string";
+                    if (std.mem.eql(u8, mem, "reset")) return "void";
+                    if (std.mem.eql(u8, mem, "checkpoint")) return "int";
+                    if (std.mem.eql(u8, mem, "rewind")) return "bool";
+                }
                 if (std.mem.eql(u8, obj, "req")) {
                     if (std.mem.eql(u8, mem, "query")) return "string";
                     if (std.mem.eql(u8, mem, "bearer_token")) return "string";
@@ -369,8 +510,19 @@ pub const TypeChecker = struct {
                     if (std.mem.eql(u8, mem, "count")) return "int";
                 }
                 if (std.mem.eql(u8, obj_type, "string")) {
+                    if (std.mem.eql(u8, mem, "len")) return "int";
                     if (std.mem.eql(u8, mem, "at")) return "int";
                     if (std.mem.eql(u8, mem, "slice")) return "string";
+                    if (std.mem.eql(u8, mem, "split")) return "list";
+                    if (std.mem.eql(u8, mem, "replace")) return "string";
+                    if (std.mem.eql(u8, mem, "starts_with")) return "bool";
+                    if (std.mem.eql(u8, mem, "ends_with")) return "bool";
+                    if (std.mem.eql(u8, mem, "contains")) return "bool";
+                    if (std.mem.eql(u8, mem, "to_int")) return "int";
+                    if (std.mem.eql(u8, mem, "to_float")) return "float";
+                    if (std.mem.eql(u8, mem, "to_upper")) return "string";
+                    if (std.mem.eql(u8, mem, "to_lower")) return "string";
+                    if (std.mem.eql(u8, mem, "trim")) return "string";
                 }
             }
             return self.inferMemberAccessType(call_data.func, scope);

@@ -59,31 +59,41 @@ pub const DiagnosticReporter = struct {
         };
     }
 
-    /// Releases the internal diagnostic list.
+    /// Releases all stored diagnostic messages and the internal list.
     pub fn deinit(self: *DiagnosticReporter) void {
+        for (self.diagnostics.items) |diag| {
+            self.allocator.free(diag.message);
+        }
         self.diagnostics.deinit(self.allocator);
     }
 
     /// Appends an error-level diagnostic for `token`'s source location and
-    /// increments the error counter.
+    /// increments the error counter.  The message is duplicated so the
+    /// reporter owns it; the caller may free their copy immediately.
     pub fn reportError(self: *DiagnosticReporter, code: []const u8, message: []const u8, token: @import("../token.zig").Token) !void {
-        const diag = Diagnostic.init(.error_level, code, message, token.loc.line, token.loc.col, token.file_path, token.file_source);
+        const owned_message = try self.allocator.dupe(u8, message);
+        const diag = Diagnostic.init(.error_level, code, owned_message, token.loc.line, token.loc.col, token.file_path, token.file_source);
         try self.diagnostics.append(self.allocator, diag);
         self.error_count += 1;
     }
 
     /// Appends a warning-level diagnostic for `token`'s source location and
-    /// increments the warning counter.
+    /// increments the warning counter.  The message is duplicated so the
+    /// reporter owns it; the caller may free their copy immediately.
     pub fn reportWarning(self: *DiagnosticReporter, code: []const u8, message: []const u8, token: @import("../token.zig").Token) !void {
-        const diag = Diagnostic.init(.warning, code, message, token.loc.line, token.loc.col, token.file_path, token.file_source);
+        const owned_message = try self.allocator.dupe(u8, message);
+        const diag = Diagnostic.init(.warning, code, owned_message, token.loc.line, token.loc.col, token.file_path, token.file_source);
         try self.diagnostics.append(self.allocator, diag);
         self.warning_count += 1;
     }
 
     /// Appends an informational diagnostic for `token`'s source location.
-    /// Info messages do not affect the error or warning counters.
+    /// Info messages do not affect the error or warning counters.  The
+    /// message is duplicated so the reporter owns it; the caller may free
+    /// their copy immediately.
     pub fn reportInfo(self: *DiagnosticReporter, code: []const u8, message: []const u8, token: @import("../token.zig").Token) !void {
-        const diag = Diagnostic.init(.info, code, message, token.loc.line, token.loc.col, token.file_path, token.file_source);
+        const owned_message = try self.allocator.dupe(u8, message);
+        const diag = Diagnostic.init(.info, code, owned_message, token.loc.line, token.loc.col, token.file_path, token.file_source);
         try self.diagnostics.append(self.allocator, diag);
     }
 

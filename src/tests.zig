@@ -616,13 +616,68 @@ test "codegen.c_backend_golden_snapshot" {
         \\#ifdef _WIN32
         \\void __main(void) {}
         \\#endif
+        \\#define CHAR_SPACE ' '
+        \\#define CHAR_TAB '\t'
+        \\#define CHAR_CR '\r'
+        \\#define CHAR_LF '\n'
+        \\#define CHAR_ZERO '0'
+        \\#define CHAR_NINE '9'
+        \\#define CHAR_A_UPPER 'A'
+        \\#define CHAR_Z_UPPER 'Z'
+        \\#define CHAR_A_LOWER 'a'
+        \\#define CHAR_Z_LOWER 'z'
+        \\#define CHAR_UNDERSCORE '_'
+        \\#define CHAR_SLASH '/'
+        \\#define CHAR_DOT '.'
+        \\#define CHAR_PLUS '+'
+        \\#define CHAR_MINUS '-'
+        \\#define CHAR_STAR '*'
+        \\#define CHAR_PERCENT '%'
+        \\#define CHAR_EQUAL '='
+        \\#define CHAR_BANG '!'
+        \\#define CHAR_COLON ':'
+        \\#define CHAR_SEMICOLON ';'
+        \\#define CHAR_COMMA ','
+        \\#define CHAR_QUOTE '"'
+        \\#define CHAR_DQUOTE '"'
+        \\#define CHAR_SINGLE_QUOTE '\''
+        \\#define CHAR_BACKSLASH '\\'
+        \\#define CHAR_LPAREN '('
+        \\#define CHAR_RPAREN ')'
+        \\#define CHAR_LBRACE '{'
+        \\#define CHAR_RBRACE '}'
+        \\#define CHAR_LBRACKET '['
+        \\#define CHAR_RBRACKET ']'
+        \\#define CHAR_HASH '#'
+        \\#define CHAR_AT '@'
+        \\#define CHAR_DOLLAR '$'
+        \\#define CHAR_AMP '&'
+        \\#define CHAR_PIPE '|'
+        \\#define CHAR_CARET '^'
+        \\#define CHAR_TILDE '~'
+        \\#define CHAR_BACKTICK '`'
+        \\#define CHAR_QUESTION '?'
+        \\#define CHAR_LESS '<'
+        \\#define CHAR_GREATER '>'
+        \\#ifndef genericParams
+        \\#define genericParams(...) (void*)0
+        \\#endif
+        \\#ifndef _pop
+        \\#define _pop() (void*)0
+        \\#endif
+        \\#ifndef _push
+        \\#define _push(...) (void)0
+        \\#endif
+        \\#ifndef valStr_indexOf
+        \\#define valStr_indexOf(...) 0
+        \\#endif
         \\
         \\int orbit_main(OrbitArena* _init_arena);
         \\
         \\__attribute__((always_inline))
         \\    int orbit_main(OrbitArena* _init_arena) {
         \\    arena = _init_arena;
-        \\    return 42;
+        \\    return (orbit_int)(uintptr_t)(42);
         \\    return 0;
         \\}
         \\

@@ -106,7 +106,7 @@ fn tryFoldConstant(const_map: *ConstMap, instr: IRInstruction) ?i64 {
 
 fn hasSideEffects(opcode: IROpcode) bool {
     return switch (opcode) {
-        .store_var, .store_field, .call, .db_set, .list_push, .list_set, .map_set, .map_delete => true,
+        .store_var, .store_field, .call, .db_set, .list_push, .list_pop, .list_set, .map_set, .map_delete => true,
         else => false,
     };
 }

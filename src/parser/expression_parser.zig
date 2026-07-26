@@ -27,7 +27,6 @@ pub const ExpressionParser = struct {
     previous_token: *Token,
     allocator: std.mem.Allocator,
     source: []const u8,
-    node_pool: std.ArrayListUnmanaged(*Node),
 
     /// Initialises an `ExpressionParser` with borrowed lexer/token pointers.
     /// The caller keeps ownership of the pointed-to values.
@@ -38,30 +37,17 @@ pub const ExpressionParser = struct {
             .previous_token = previous_token,
             .allocator = allocator,
             .source = source,
-            .node_pool = .empty,
         };
     }
 
-    /// Allocates a new `Node` with `tag` and `data`, appending it to the
-    /// internal pool so that `deinit` can destroy it later.
+    /// Allocates a new `Node` with `tag` and `data`.
     fn createNode(self: *ExpressionParser, tag: ast.Node.Tag, data: ast.Node.Data) !*Node {
         const node = try self.allocator.create(Node);
-        try self.node_pool.append(self.allocator, node);
         node.* = .{
             .tag = tag,
             .data = data,
         };
         return node;
-    }
-
-    /// Releases all nodes that were created through this parser and frees the
-    /// internal pool list.  Must be called when the parser is no longer needed
-    /// and the AST nodes it produced are not referenced elsewhere.
-    pub fn deinit(self: *ExpressionParser) void {
-        for (self.node_pool.items) |node| {
-            self.allocator.destroy(node);
-        }
-        self.node_pool.deinit(self.allocator);
     }
 
     // ─── Token navigation helpers ─────────────────────────────────────────
@@ -280,32 +266,40 @@ pub const ExpressionParser = struct {
                 };
                 expr = node;
             } else if (self.match(.Question)) {
-                var error_kind = self.previous_token.*;
-                var err_handler: *Node = undefined;
+                if (self.check(.KeywordErr) or isErrorShortcutToken(self.current_token.tag)) {
+                    var error_kind = self.previous_token.*;
+                    var err_handler: *Node = undefined;
 
-                // Accept bootstrap-friendly syntax: value ? err 404 "message"
-                if (self.match(.KeywordErr)) {
-                    error_kind = self.previous_token.*;
-                    if (self.check(.IntegerLiteral)) {
-                        _ = try self.consume(.IntegerLiteral);
-                    }
-                    err_handler = try self.parseExpression();
-                } else {
-                    if (isErrorShortcutToken(self.current_token.tag)) {
-                        error_kind = self.current_token.*;
-                    }
-                    err_handler = try self.parseExpression();
-                    if (error_kind.tag == .Question) {
+                    if (self.match(.KeywordErr)) {
                         error_kind = self.previous_token.*;
+                        if (self.check(.IntegerLiteral)) {
+                            _ = try self.consume(.IntegerLiteral);
+                        }
+                        err_handler = try self.parseExpression();
+                    } else {
+                        if (isErrorShortcutToken(self.current_token.tag)) {
+                            error_kind = self.current_token.*;
+                        }
+                        err_handler = try self.parseExpression();
+                        if (error_kind.tag == .Question) {
+                            error_kind = self.previous_token.*;
+                        }
                     }
-                }
 
-                const node = try self.allocator.create(Node);
-                node.* = .{
-                    .tag = .rescue_expr,
-                    .data = .{ .rescue_expr = .{ .expr = expr, .error_kind = error_kind, .message = err_handler } },
-                };
-                expr = node;
+                    const node = try self.allocator.create(Node);
+                    node.* = .{
+                        .tag = .rescue_expr,
+                        .data = .{ .rescue_expr = .{ .expr = expr, .error_kind = error_kind, .message = err_handler } },
+                    };
+                    expr = node;
+                } else {
+                    const node = try self.allocator.create(Node);
+                    node.* = .{
+                        .tag = .try_expr,
+                        .data = .{ .try_expr = .{ .expr = expr } },
+                    };
+                    expr = node;
+                }
             } else {
                 break;
             }
@@ -482,6 +476,10 @@ pub const ExpressionParser = struct {
             return node;
         }
 
+        if (self.match(.KeywordMatch)) {
+            return try self.parseMatchExpr();
+        }
+
         if (self.match(.Identifier) or self.match(.KeywordOk) or self.match(.KeywordErr) or self.match(.KeywordReq)) {
             const node = try self.createNode(.identifier, .{ .identifier = self.previous_token.* });
             return node;
@@ -510,6 +508,24 @@ pub const ExpressionParser = struct {
         }
 
         return error.UnexpectedToken;
+    }
+
+    /// Parses a match expression: `match <expr> { <pattern> => <body>, ... }`
+    /// where each body is an expression (not a statement block).
+    fn parseMatchExpr(self: *ExpressionParser) !*Node {
+        const expr = try self.parseExpression();
+        _ = try self.consume(.OpenBrace);
+        var cases = std.ArrayListUnmanaged(*Node).empty;
+        while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+            const pattern = try self.parseExpression();
+            _ = try self.consume(.FatArrow);
+            const body = try self.parseExpression();
+            _ = self.match(.Comma);
+            const case_node = try self.createNode(.match_case, .{ .match_case = .{ .pattern = pattern, .body = body } });
+            try cases.append(self.allocator, case_node);
+        }
+        _ = try self.consume(.CloseBrace);
+        return try self.createNode(.match_expr, .{ .match_expr = .{ .expr = expr, .cases = try cases.toOwnedSlice(self.allocator) } });
     }
 
     /// Parses an array literal `[elem, ...]` after the opening `[` has been
@@ -564,12 +580,16 @@ pub const ExpressionParser = struct {
     // ─── Token classification helpers ─────────────────────────────────────
 
     /// Returns `true` if the current token is a valid member-access target
-    /// (identifier or certain keyword tokens that appear as property names).
+    /// (identifier, literal, or certain keyword tokens that appear as property names).
     fn isMemberToken(self: *ExpressionParser) bool {
         const t = self.current_token.tag;
-        if (t == .Identifier) return true;
-        if (t == .EOF or t == .Invalid or t == .Newline or t == .OpenParen or t == .CloseParen or t == .OpenBrace or t == .CloseBrace or t == .OpenBracket or t == .CloseBracket or t == .Comma or t == .SemiColon or t == .Colon or t == .Dot) return false;
-        return true;
+        return t == .Identifier or
+            t == .IntegerLiteral or
+            t == .StringLiteral or
+            t == .FloatLiteral or
+            t == .KeywordTrue or
+            t == .KeywordFalse or
+            t == .KeywordNull;
     }
 
     /// Returns `true` if `tag` represents a named HTTP-error shortcut keyword

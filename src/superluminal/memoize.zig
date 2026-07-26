@@ -149,7 +149,7 @@ fn hasSideEffects(func: *const IRFunction) bool {
                     return true;
                 }
             },
-            .db_get, .db_set, .db_all, .db_where, .http_response, .list_push, .map_set, .map_delete, .alloc, .free => return true,
+            .db_get, .db_set, .db_all, .db_where, .http_response, .list_push, .list_pop, .map_set, .map_delete, .alloc, .free => return true,
             else => {},
         }
     }

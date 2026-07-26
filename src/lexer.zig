@@ -156,6 +156,10 @@ pub const Lexer = struct {
                     _ = self.advance();
                     break :blk self.makeToken(.SlashEqual, start);
                 }
+                if (self.peek() == '/' or self.peek() == '*') {
+                    self.skipWhitespace();
+                    return self.next();
+                }
                 break :blk self.makeToken(.Slash, start);
             },
 
@@ -305,6 +309,8 @@ pub const Lexer = struct {
             .{ "role", .KeywordRole },
             .{ "req", .KeywordReq },
             .{ "every", .KeywordEvery },
+            .{ "trait", .KeywordTrait },
+            .{ "impl", .KeywordImpl },
 
             .{ "use", .KeywordUse },
             .{ "import", .KeywordImport },
@@ -394,7 +400,20 @@ pub const Lexer = struct {
         // The opening quote was already consumed by `next`.
         if (self.peek() == '\\') {
             _ = self.advance(); // backslash
-            _ = self.advance(); // escaped char
+            const escape = self.peek();
+            if (escape == 'x') {
+                _ = self.advance();
+                if (std.ascii.isHex(self.peek())) _ = self.advance();
+                if (std.ascii.isHex(self.peek())) _ = self.advance();
+            } else if (escape == 'u') {
+                _ = self.advance();
+                if (std.ascii.isHex(self.peek())) _ = self.advance();
+                if (std.ascii.isHex(self.peek())) _ = self.advance();
+                if (std.ascii.isHex(self.peek())) _ = self.advance();
+                if (std.ascii.isHex(self.peek())) _ = self.advance();
+            } else if (self.peek() != 0) {
+                _ = self.advance();
+            }
         } else if (self.peek() != '\'' and self.peek() != 0) {
             _ = self.advance();
         }

@@ -8,6 +8,7 @@ const ExpressionGenerator = @import("codegen/expression_gen.zig").ExpressionGene
 const StatementGenerator = @import("codegen/statement_gen.zig").StatementGenerator;
 const RouteGenerator = @import("codegen/route_gen.zig").RouteGenerator;
 const ModelGenerator = @import("codegen/model_gen.zig").ModelGenerator;
+const mapOrbitTypeToC = @import("codegen/type_map.zig").mapOrbitTypeToC;
 
 pub const CodegenC = struct {
     allocator: std.mem.Allocator,
@@ -18,6 +19,8 @@ pub const CodegenC = struct {
     has_server_init: bool,
     no_kynx: bool,
     config: AtlasConfig,
+    has_db: bool,
+    boost_pct: f64,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, node_types: *std.AutoHashMapUnmanaged(*Node, []const u8), no_kynx: bool, config: AtlasConfig) CodegenC {
         return .{
@@ -29,6 +32,8 @@ pub const CodegenC = struct {
             .has_server_init = false,
             .no_kynx = no_kynx,
             .config = config,
+            .has_db = false,
+            .boost_pct = 0.0,
         };
     }
 
@@ -43,7 +48,7 @@ pub const CodegenC = struct {
 
         try self.generateDeclarations(root);
 
-        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, false, self.config, 0.0);
+        const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, self.has_db, self.config, self.boost_pct);
         try self.output.appendSlice(self.allocator, main_func);
 
         return try self.output.toOwnedSlice(self.allocator);
@@ -95,7 +100,7 @@ pub const CodegenC = struct {
 
         if (fn_data.return_type) |ret_type| {
             const ret_type_text = ret_type.getText(self.source);
-            try self.output.appendSlice(self.allocator, self.mapOrbitTypeToC(ret_type_text));
+            try self.output.appendSlice(self.allocator, mapOrbitTypeToC(ret_type_text));
         } else {
             try self.output.appendSlice(self.allocator, "void");
         }
@@ -110,7 +115,7 @@ pub const CodegenC = struct {
             const param_data = param.data.param;
             if (param_data.type_name) |type_name| {
                 const type_text = type_name.getText(self.source);
-                try self.output.appendSlice(self.allocator, self.mapOrbitTypeToC(type_text));
+                try self.output.appendSlice(self.allocator, mapOrbitTypeToC(type_text));
             } else {
                 try self.output.appendSlice(self.allocator, "orbit_string");
             }
@@ -153,7 +158,7 @@ pub const CodegenC = struct {
 
         if (val_data.type_annotation) |type_ann| {
             const type_text = type_ann.data.type_annotation.base.getText(self.source);
-            try self.output.appendSlice(self.allocator, self.mapOrbitTypeToC(type_text));
+            try self.output.appendSlice(self.allocator, mapOrbitTypeToC(type_text));
         } else {
             try self.output.appendSlice(self.allocator, "orbit_string");
         }
@@ -185,13 +190,4 @@ pub const CodegenC = struct {
         try self.output.appendSlice(self.allocator, "    return 0;\n}\n\n");
     }
 
-    fn mapOrbitTypeToC(self: *CodegenC, orbit_type: []const u8) []const u8 {
-        _ = self;
-        if (std.mem.eql(u8, orbit_type, "int")) return "orbit_int";
-        if (std.mem.eql(u8, orbit_type, "float")) return "orbit_float";
-        if (std.mem.eql(u8, orbit_type, "string")) return "orbit_string";
-        if (std.mem.eql(u8, orbit_type, "bool")) return "orbit_bool";
-        if (std.mem.eql(u8, orbit_type, "void")) return "void";
-        return "orbit_string";
-    }
 };

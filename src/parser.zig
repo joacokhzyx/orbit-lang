@@ -231,6 +231,16 @@ pub const Parser = struct {
             return try decl_parser.parseTypeDecl(is_private);
         }
 
+        if (self.check(.KeywordTrait)) {
+            var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
+            return try decl_parser.parseTraitDecl(is_private);
+        }
+
+        if (self.check(.KeywordImpl)) {
+            var decl_parser = DeclarationParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
+            return try decl_parser.parseImplDecl();
+        }
+
         var expr_parser = ExpressionParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
         const expr = try expr_parser.parseExpression();
 
@@ -247,7 +257,7 @@ pub const Parser = struct {
         self.advance();
         const name = self.current_token;
         self.advance();
-        self.advance();
+        if (!self.match(.Equal)) return error.UnexpectedToken;
 
         var expr_parser = ExpressionParser.init(&self.lexer, &self.current_token, &self.previous_token, self.allocator, self.source);
         const value = try expr_parser.parseExpression();

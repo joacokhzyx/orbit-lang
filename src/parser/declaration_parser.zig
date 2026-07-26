@@ -80,6 +80,7 @@ pub const DeclarationParser = struct {
     pub fn parseModel(self: *DeclarationParser, is_private: bool) !*Node {
         _ = try self.consume(.KeywordModel);
         const name = try self.consume(.Identifier);
+        const model_generics = try self.parseGenericParams();
         _ = try self.consume(.OpenBrace);
 
         var fields = std.ArrayListUnmanaged(*Node).empty;
@@ -97,6 +98,7 @@ pub const DeclarationParser = struct {
             .tag = .model_decl,
             .data = .{ .model_decl = .{
                 .name = name,
+                .generic_params = model_generics,
                 .fields = try fields.toOwnedSlice(self.allocator),
                 .is_private = is_private,
             } },
@@ -140,6 +142,144 @@ pub const DeclarationParser = struct {
         return error.ExpectedType;
     }
 
+    // ─── Generic parameter parsing ────────────────────────────────────────
+
+    /// Parses an optional generic parameter list `[T, U, V: Constraint]`
+    /// after a function or model name.  Returns an empty slice if no
+    /// opening bracket is found.
+    fn parseGenericParams(self: *DeclarationParser) ![]const *Node {
+        if (!self.match(.OpenBracket)) return &[_]*Node{};
+
+        var params = std.ArrayListUnmanaged(*Node).empty;
+        while (!self.check(.CloseBracket) and !self.check(.EOF)) {
+            const name = try self.consume(.Identifier);
+            var constraint: ?Token = null;
+            if (self.match(.Colon)) {
+                constraint = try self.consumeType();
+            }
+            const node = try self.allocator.create(Node);
+            node.* = .{
+                .tag = .generic_param,
+                .data = .{ .generic_param = .{
+                    .name = name,
+                    .constraint = constraint,
+                } },
+            };
+            try params.append(self.allocator, node);
+            _ = self.match(.Comma);
+        }
+        _ = try self.consume(.CloseBracket);
+        return try params.toOwnedSlice(self.allocator);
+    }
+
+    // ─── Trait declarations ────────────────────────────────────────────────
+
+    /// Parses a `trait <Name>[<T>] { <methods> }` declaration.
+    pub fn parseTraitDecl(self: *DeclarationParser, is_private: bool) !*Node {
+        _ = try self.consume(.KeywordTrait);
+        const name = try self.consume(.Identifier);
+        const generic_params = try self.parseGenericParams();
+
+        _ = try self.consume(.OpenBrace);
+
+        var methods = std.ArrayListUnmanaged(*Node).empty;
+        while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+            const method = try self.parseTraitMethod();
+            try methods.append(self.allocator, method);
+        }
+
+        _ = try self.consume(.CloseBrace);
+
+        const node = try self.allocator.create(Node);
+        node.* = .{
+            .tag = .trait_decl,
+            .data = .{ .trait_decl = .{
+                .name = name,
+                .generic_params = generic_params,
+                .methods = try methods.toOwnedSlice(self.allocator),
+                .is_private = is_private,
+            } },
+        };
+        return node;
+    }
+
+    /// Parses a single trait method: `fn name(self, ...) -> RetType;`
+    /// (body is empty).
+    fn parseTraitMethod(self: *DeclarationParser) !*Node {
+        _ = try self.consume(.KeywordFn);
+        const name = try self.consume(.Identifier);
+        _ = try self.consume(.OpenParen);
+
+        var params = std.ArrayListUnmanaged(*Node).empty;
+        if (!self.check(.CloseParen)) {
+            while (true) {
+                const param = try self.parseParam();
+                try params.append(self.allocator, param);
+                if (!self.match(.Comma)) break;
+            }
+        }
+        _ = try self.consume(.CloseParen);
+
+        var return_type: ?Token = null;
+        if (self.match(.Arrow)) {
+            return_type = try self.consumeType();
+        }
+
+        // Trait methods don't have bodies - skip optional semicolon
+        _ = self.match(.SemiColon);
+
+        const empty_body = try self.allocator.create(Node);
+        empty_body.* = .{ .tag = .block, .data = .{ .block = .{ .stmts = &.{} } } };
+
+        const node = try self.allocator.create(Node);
+        node.* = .{
+            .tag = .fn_decl,
+            .data = .{ .fn_decl = .{
+                .name = name,
+                .generic_params = &.{},
+                .params = try params.toOwnedSlice(self.allocator),
+                .return_type = return_type,
+                .body = empty_body,
+                .is_async = false,
+                .is_private = false,
+                .is_extern = false,
+            } },
+        };
+        return node;
+    }
+
+    // ─── Impl declarations ─────────────────────────────────────────────────
+
+    /// Parses an `impl <Trait> for <Type> { <methods> }` block.
+    pub fn parseImplDecl(self: *DeclarationParser) !*Node {
+        _ = try self.consume(.KeywordImpl);
+        const trait_name = try self.consume(.Identifier);
+        _ = try self.consume(.KeywordFor);
+        const type_name = try self.consume(.Identifier);
+
+        _ = try self.consume(.OpenBrace);
+
+        var methods = std.ArrayListUnmanaged(*Node).empty;
+        while (!self.check(.CloseBrace) and !self.check(.EOF)) {
+            var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
+            const fn_node = try stmt_parser.parseStatement();
+            try methods.append(self.allocator, fn_node);
+        }
+
+        _ = try self.consume(.CloseBrace);
+
+        const node = try self.allocator.create(Node);
+        node.* = .{
+            .tag = .impl_decl,
+            .data = .{ .impl_decl = .{
+                .type_name = type_name,
+                .trait_name = trait_name,
+                .methods = try methods.toOwnedSlice(self.allocator),
+            } },
+        };
+        return node;
+    }
+
     // ─── Field declarations ───────────────────────────────────────────────
 
     /// Parses a single model field declaration, including any leading
@@ -159,7 +299,7 @@ pub const DeclarationParser = struct {
 
         while (self.check(.Identifier) and !self.check(.CloseBrace) and !self.check(.Equal)) {
             const tok_text = self.current_token.text;
-            if (std.mem.eql(u8, tok_text, "primary") or std.mem.eql(u8, tok_text, "unique") or std.mem.eql(u8, tok_text, "auto") or std.mem.eql(u8, tok_text, "index")) {
+            if (std.mem.eql(u8, tok_text, "primary") or std.mem.eql(u8, tok_text, "unique") or std.mem.eql(u8, tok_text, "auto")) {
                 const mod_dec = try self.allocator.create(Node);
                 mod_dec.* = .{
                     .tag = .decorator,
@@ -319,6 +459,9 @@ pub const DeclarationParser = struct {
         const is_async = self.match(.KeywordAsync);
         _ = try self.consume(.KeywordFn);
         const name = try self.consume(.Identifier);
+
+        const generic_params = try self.parseGenericParams();
+
         _ = try self.consume(.OpenParen);
 
         var params = std.ArrayListUnmanaged(*Node).empty;
@@ -371,6 +514,7 @@ pub const DeclarationParser = struct {
             .tag = .fn_decl,
             .data = .{ .fn_decl = .{
                 .name = name,
+                .generic_params = generic_params,
                 .params = try params.toOwnedSlice(self.allocator),
                 .return_type = return_type,
                 .body = body_node,
@@ -449,6 +593,7 @@ pub const DeclarationParser = struct {
                 .tag = .model_decl,
                 .data = .{ .model_decl = .{
                     .name = name,
+                    .generic_params = &.{},
                     .fields = try fields.toOwnedSlice(self.allocator),
                     .is_private = is_private,
                 } },
@@ -523,18 +668,16 @@ pub const DeclarationParser = struct {
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
             const v_name = try self.consume(.Identifier);
 
-            var payload: ?*Node = null;
+            var payloads = std.ArrayListUnmanaged(*Node).empty;
             if (self.match(.OpenParen)) {
-                // Supports both Variant(Type) and Variant(name: Type).
-                // For Variant(a: A, b: B), we keep first payload for now and parse the rest for syntax compatibility.
                 if (!self.check(.CloseParen)) {
-                    const first_payload = try self.consumeUnionVariantPayloadType();
-                    const p_node = try self.allocator.create(Node);
-                    p_node.* = .{ .tag = .identifier, .data = .{ .identifier = first_payload } };
-                    payload = p_node;
+                    while (true) {
+                        const p_tok = try self.consumeUnionVariantPayloadType();
+                        const p_node = try self.allocator.create(Node);
+                        p_node.* = .{ .tag = .identifier, .data = .{ .identifier = p_tok } };
+                        try payloads.append(self.allocator, p_node);
 
-                    while (self.match(.Comma)) {
-                        _ = try self.consumeUnionVariantPayloadType();
+                        if (!self.match(.Comma)) break;
                     }
                 }
 
@@ -542,7 +685,7 @@ pub const DeclarationParser = struct {
             }
 
             const v_node = try self.allocator.create(Node);
-            v_node.* = .{ .tag = .union_variant, .data = .{ .union_variant = .{ .name = v_name, .payload = payload } } };
+            v_node.* = .{ .tag = .union_variant, .data = .{ .union_variant = .{ .name = v_name, .payloads = try payloads.toOwnedSlice(self.allocator) } } };
 
             try variants.append(self.allocator, v_node);
             _ = self.match(.Comma); // optional comma

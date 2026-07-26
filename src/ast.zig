@@ -46,6 +46,8 @@ pub const Node = struct {
         union_decl, // type Name = union { ... }
         config_decl, // port 3000, cors "*", db "app.db", env "production"
         schedule_decl, // every 1 hour => Note.cleanup()
+        trait_decl, // trait Eq { fn eq(self, other: Self) -> bool }
+        impl_decl, // impl T: Eq { fn eq ... }
 
         // ============================================
         // STATEMENTS
@@ -58,6 +60,7 @@ pub const Node = struct {
         err_shortcut, // not_found "message"
         if_stmt,
         match_stmt, // match expr { variant => ... }
+        match_expr, // match expr { ... } as expression
         for_stmt, // for item in collection
         while_stmt,
         loop_stmt,
@@ -75,6 +78,7 @@ pub const Node = struct {
         member_access,
         index_access,
         rescue_expr, // value ? error "msg"
+        try_expr, // expr? — error propagation
         null_coalesce, // value ?? default
         await_expr, // await expr
         arrow_fn, // (x) => expr
@@ -102,6 +106,7 @@ pub const Node = struct {
         type_annotation,
         match_case, // variant(params) => block
         union_variant, // variant(Type)
+        generic_param, // T: Constraint in [T: Constraint]
     };
 
     // ─── Data payloads ────────────────────────────────────────────────────────
@@ -128,6 +133,7 @@ pub const Node = struct {
 
         model_decl: struct {
             name: Token,
+            generic_params: []const *Node,
             fields: []const *Node,
             is_private: bool,
         },
@@ -142,6 +148,7 @@ pub const Node = struct {
 
         fn_decl: struct {
             name: Token,
+            generic_params: []const *Node,
             params: []const *Node,
             return_type: ?Token,
             body: *Node,
@@ -200,6 +207,19 @@ pub const Node = struct {
             handler: *Node,
         },
 
+        trait_decl: struct {
+            name: Token,
+            generic_params: []const *Node,
+            methods: []const *Node, // fn-like nodes without bodies
+            is_private: bool,
+        },
+
+        impl_decl: struct {
+            type_name: Token,
+            trait_name: Token,
+            methods: []const *Node, // fn-like nodes with bodies
+        },
+
         // ============================================
         // STATEMENTS
         // ============================================
@@ -234,6 +254,11 @@ pub const Node = struct {
         },
 
         match_stmt: struct {
+            expr: *Node,
+            cases: []const *Node, // Each case is a branch
+        },
+
+        match_expr: struct {
             expr: *Node,
             cases: []const *Node, // Each case is a branch
         },
@@ -299,6 +324,10 @@ pub const Node = struct {
             expr: *Node,
             error_kind: Token, // not_found, etc.
             message: *Node,
+        },
+
+        try_expr: struct {
+            expr: *Node,
         },
 
         null_coalesce: struct {
@@ -378,7 +407,12 @@ pub const Node = struct {
 
         union_variant: struct {
             name: Token,
-            payload: ?*Node,
+            payloads: []const *Node,
+        },
+
+        generic_param: struct {
+            name: Token,
+            constraint: ?Token, // Eq in `T: Eq`
         },
     };
 

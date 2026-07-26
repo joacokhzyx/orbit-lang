@@ -11,6 +11,7 @@ const IRFunction = ir_mod.IRFunction;
 const IRInstruction = ir_mod.IRInstruction;
 const IROpcode = ir_mod.IROpcode;
 const IRValue = ir_mod.IRValue;
+const IRType = ir_mod.IRType;
 
 pub const ConstantFolder = struct {
     allocator: std.mem.Allocator,
@@ -364,6 +365,11 @@ pub const InlineOptimizer = struct {
 
         for (module.functions.items) |*func| {
             if (func.instructions.items.len <= self.max_inline_size) {
+                // Safety: never inline a function that has declared parameters.
+                // After inlining, CopyPropagator folds copies back to parameter
+                // names (e.g. "argc") that do not exist in the caller's scope,
+                // producing undeclared-identifier errors in the generated C.
+                if (func.params.len > 0) continue;
                 var is_recursive = false;
                 for (func.instructions.items) |instr| {
                     if (instr.opcode == .call) {
@@ -414,19 +420,50 @@ pub const InlineOptimizer = struct {
 
                         var arg_regs = std.ArrayListUnmanaged(u32).empty;
                         defer arg_regs.deinit(self.allocator);
+                        var arg_load_instrs = std.ArrayListUnmanaged(IRInstruction).empty;
+                        defer arg_load_instrs.deinit(self.allocator);
 
                         var k = arg_start;
                         while (k < i) : (k += 1) {
-                            const arg_instr = func.instructions.items[k];
-                            if (arg_instr.operand1 == .register) {
-                                try arg_regs.append(self.allocator, arg_instr.operand1.register);
+                            const arg_val = func.instructions.items[k].operand1;
+                            if (arg_val == .register) {
+                                try arg_regs.append(self.allocator, arg_val.register);
+                            } else {
+                                // Non-register arg (e.g. string literal): create
+                                // a temporary register with a load_const instruction
+                                // so the param-to-arg mapping stays in sync.
+                                const tmp_reg = func.register_count;
+                                func.register_count += 1;
+                                try func.register_types.append(self.allocator, switch (arg_val) {
+                                    .string => IRType.string,
+                                    .int => IRType.int,
+                                    .float => IRType.float,
+                                    .bool => IRType.bool,
+                                    else => IRType.unknown,
+                                });
+                                const load_instr = IRInstruction{
+                                    .opcode = .load_const,
+                                    .dest = tmp_reg,
+                                    .operand1 = arg_val,
+                                    .operand2 = .none,
+                                    .operand3 = .none,
+                                };
+                                try arg_load_instrs.append(self.allocator, load_instr);
+                                try arg_regs.append(self.allocator, tmp_reg);
                             }
                         }
 
                         const base_reg = func.register_count;
                         const callee_reg_count = callee.register_count;
                         func.register_count += callee_reg_count;
-                        try func.register_types.appendNTimes(self.allocator, .unknown, callee_reg_count);
+                        // Copy the callee's register types so the C backend can
+                        // infer types for remapped registers in the caller.
+                        try func.register_types.appendSlice(self.allocator, callee.register_types.items);
+
+                        // Track register-to-param-register replacements for .load_var
+                        // instructions that reference callee parameters.
+                        var param_load_repl = std.AutoHashMapUnmanaged(u32, u32){};
+                        defer param_load_repl.deinit(self.allocator);
 
                         var callee_instrs = std.ArrayListUnmanaged(IRInstruction).empty;
                         defer callee_instrs.deinit(self.allocator);
@@ -445,6 +482,91 @@ pub const InlineOptimizer = struct {
                             }
                             if (new_instr.operand3 == .register) {
                                 new_instr.operand3 = IRValue{ .register = new_instr.operand3.register + base_reg };
+                            }
+
+                            // Apply any pending .load_var → param_reg replacements to operands.
+                            // This redirects uses of the load_var's dest register to the actual
+                            // param register, eliminating the need for a separate .copy.
+                            if (new_instr.operand1 == .register) {
+                                if (param_load_repl.get(new_instr.operand1.register)) |repl| {
+                                    new_instr.operand1 = IRValue{ .register = repl };
+                                }
+                            }
+                            if (new_instr.operand2 == .register) {
+                                if (param_load_repl.get(new_instr.operand2.register)) |repl| {
+                                    new_instr.operand2 = IRValue{ .register = repl };
+                                }
+                            }
+                            if (new_instr.operand3 == .register) {
+                                if (param_load_repl.get(new_instr.operand3.register)) |repl| {
+                                    new_instr.operand3 = IRValue{ .register = repl };
+                                }
+                            }
+
+                            // Remap .symbol references that refer to callee parameters
+                            // to their remapped register numbers. After inlining, param
+                            // names like "code" or "message" become register references
+                            // so the C backend can resolve their types correctly.
+                            for (callee.params, 0..) |param_name, param_idx| {
+                                const param_reg: u32 = base_reg + @as(u32, @intCast(param_idx));
+                                if (new_instr.operand1 == .symbol and std.mem.eql(u8, new_instr.operand1.symbol, param_name)) {
+                                    new_instr.operand1 = IRValue{ .register = param_reg };
+                                }
+                                if (new_instr.operand2 == .symbol and std.mem.eql(u8, new_instr.operand2.symbol, param_name)) {
+                                    new_instr.operand2 = IRValue{ .register = param_reg };
+                                }
+                                if (new_instr.operand3 == .symbol and std.mem.eql(u8, new_instr.operand3.symbol, param_name)) {
+                                    new_instr.operand3 = IRValue{ .register = param_reg };
+                                }
+                            }
+
+                            // Remap .load_var instructions that reference callee parameters:
+                            // elide the instruction and register the dest → param_reg
+                            // replacement so subsequent operands referencing that register
+                            // go directly to the param register (via the map applied above).
+                            if (new_instr.opcode == .load_var) {
+                                const var_name = switch (new_instr.operand1) {
+                                    .string => |s| s,
+                                    .symbol => |s| s,
+                                    else => "",
+                                };
+                                if (var_name.len > 0) {
+                                    var matched = false;
+                                    for (callee.params, 0..) |param_name, param_idx| {
+                                        if (std.mem.eql(u8, var_name, param_name)) {
+                                            const param_reg: u32 = base_reg + @as(u32, @intCast(param_idx));
+                                            if (new_instr.dest) |d| {
+                                                try param_load_repl.put(self.allocator, d, param_reg);
+                                            }
+                                            matched = true;
+                                            break;
+                                        }
+                                    }
+                                    if (matched) continue;
+                                }
+                            }
+
+                            // Remap .store_var instructions that reference callee parameters:
+                            // replace `"param_name" = store_var register(X)` with a direct
+                            // `param_reg = copy register(X)` to write to the param register.
+                            if (new_instr.opcode == .store_var) {
+                                const var_name = switch (new_instr.operand1) {
+                                    .string => |s| s,
+                                    .symbol => |s| s,
+                                    else => "",
+                                };
+                                if (var_name.len > 0) {
+                                    for (callee.params, 0..) |param_name, param_idx| {
+                                        if (std.mem.eql(u8, var_name, param_name)) {
+                                            const param_reg: u32 = base_reg + @as(u32, @intCast(param_idx));
+                                            new_instr.opcode = .copy;
+                                            new_instr.dest = param_reg;
+                                            new_instr.operand2 = .none;
+                                            new_instr.operand3 = .none;
+                                            break;
+                                        }
+                                    }
+                                }
                             }
 
                             if (new_instr.opcode == .ret) {
@@ -491,6 +613,11 @@ pub const InlineOptimizer = struct {
                         }
 
                         var insert_pos = arg_start;
+                        for (arg_load_instrs.items) |li| {
+                            try func.instructions.insert(self.allocator, insert_pos, li);
+                            insert_pos += 1;
+                            i += 1;
+                        }
                         for (param_copies.items) |pc| {
                             try func.instructions.insert(self.allocator, insert_pos, pc);
                             insert_pos += 1;
@@ -616,45 +743,10 @@ pub const CopyPropagator = struct {
     }
 
     fn optimizeFunction(self: *CopyPropagator, func: *IRFunction) !void {
-        var replacements = std.AutoHashMapUnmanaged(u32, IRValue){};
-        defer replacements.deinit(self.allocator);
-
-        var i: usize = 0;
-        while (i < func.instructions.items.len) {
-            const instr = &func.instructions.items[i];
-
-            if (instr.operand1 == .register) {
-                if (replacements.get(instr.operand1.register)) |rep| {
-                    instr.operand1 = rep;
-                    self.propagated_count += 1;
-                }
-            }
-            if (instr.operand2 == .register) {
-                if (replacements.get(instr.operand2.register)) |rep| {
-                    instr.operand2 = rep;
-                    self.propagated_count += 1;
-                }
-            }
-            if (instr.operand3 == .register) {
-                if (replacements.get(instr.operand3.register)) |rep| {
-                    instr.operand3 = rep;
-                    self.propagated_count += 1;
-                }
-            }
-
-            if (instr.opcode == .copy) {
-                if (instr.dest) |dest| {
-                    try replacements.put(self.allocator, dest, instr.operand1);
-                }
-            } else if (instr.opcode == .load_var) {
-                if (instr.dest) |dest| {
-                    try replacements.put(self.allocator, dest, IRValue{ .symbol = instr.operand1.string });
-                }
-            } else if (instr.opcode == .store_var) {
-                replacements.clearRetainingCapacity();
-            }
-
-            i += 1;
-        }
+        _ = self;
+        _ = func;
+        // Copy propagation is disabled on non-SSA Orbit IR to prevent register corruption
+        // and symbol swapping (e.g. re-using parameter registers like r_0 for call destinations).
+        return;
     }
 };

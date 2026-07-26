@@ -93,8 +93,13 @@ pub fn encodeRegMem(w: bool, reg: RegisterId, base: RegisterId, disp: i32) struc
 
     // Resolve RBP or R13 addressing.
     if (base == .rbp or base == .r13) {
-        modrm.mod = 1; // [RBP + disp8]
-        disp_bytes = 1;
+        if (disp >= -128 and disp <= 127) {
+            modrm.mod = 1; // [RBP + disp8]
+            disp_bytes = 1;
+        } else {
+            modrm.mod = 2; // [RBP + disp32]
+            disp_bytes = 4;
+        }
     } else if (base == .rsp or base == .r12) {
         // RSP requires SIB byte.
         modrm.rm = 4; // SIB indicator

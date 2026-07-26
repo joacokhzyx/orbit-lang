@@ -89,7 +89,7 @@ pub fn doesRegisterEscape(instructions: []const IRInstruction, target_reg: u32) 
         }
 
         // Check if stored into a list or map that might escape
-        if (instr.opcode == .list_push or instr.opcode == .list_set or instr.opcode == .map_set) {
+        if (instr.opcode == .list_push or instr.opcode == .list_pop or instr.opcode == .list_set or instr.opcode == .map_set) {
             if (instr.operand2 == .register and instr.operand2.register == target_reg) {
                 return true;
             }

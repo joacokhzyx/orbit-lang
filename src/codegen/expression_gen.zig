@@ -36,8 +36,10 @@ pub const ExpressionGenerator = struct {
             },
             .float_literal => try self.output.appendSlice(self.allocator, node.data.float_literal.getText(self.source)),
             .string_literal => {
+                const raw = node.data.string_literal.getText(self.source);
+                const inner = if (raw.len >= 2 and raw[0] == '"' and raw[raw.len - 1] == '"') raw[1 .. raw.len - 1] else raw;
                 try self.output.append(self.allocator, '"');
-                try self.output.appendSlice(self.allocator, node.data.string_literal.getText(self.source));
+                try self.output.appendSlice(self.allocator, inner);
                 try self.output.append(self.allocator, '"');
             },
             .boolean_literal => {

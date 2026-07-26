@@ -313,7 +313,7 @@ fn findInitValue(instrs: []const IRInstruction, before: usize, reg: u32) ?i64 {
 fn isBodySafe(body: []const IRInstruction) bool {
     for (body) |instr| {
         switch (instr.opcode) {
-            .call, .db_get, .db_set, .db_all, .db_where, .http_response, .alloc, .free, .list_push, .map_set, .map_delete => return false,
+            .call, .db_get, .db_set, .db_all, .db_where, .http_response, .alloc, .free, .list_push, .list_pop, .map_set, .map_delete => return false,
             .label => return false, // nested loop/branch — too complex
             else => {},
         }

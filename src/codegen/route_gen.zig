@@ -9,6 +9,12 @@ const ast = @import("../ast.zig");
 const Node = ast.Node;
 const StatementGenerator = @import("statement_gen.zig").StatementGenerator;
 
+const RouteEntry = struct {
+    method: []const u8,
+    path: []const u8,
+    func_name: []const u8,
+};
+
 /// Generates one C handler function per route declaration and the central
 /// HTTP request dispatcher.
 pub const RouteGenerator = struct {
@@ -16,6 +22,7 @@ pub const RouteGenerator = struct {
     output: *std.ArrayListUnmanaged(u8),
     source: []const u8,
     route_count: u32,
+    routes: std.ArrayListUnmanaged(RouteEntry),
 
     /// Initialise a `RouteGenerator` with a zero-based route counter.
     pub fn init(allocator: std.mem.Allocator, output: *std.ArrayListUnmanaged(u8), source: []const u8) RouteGenerator {
@@ -24,6 +31,7 @@ pub const RouteGenerator = struct {
             .output = output,
             .source = source,
             .route_count = 0,
+            .routes = .empty,
         };
     }
 
@@ -58,10 +66,12 @@ pub const RouteGenerator = struct {
     }
 
     fn registerRoute(self: *RouteGenerator, method: []const u8, path: []const u8, func_name: []const u8) !void {
-        _ = self;
-        _ = method;
-        _ = path;
-        _ = func_name;
+        const inner_path = if (path.len >= 2 and path[0] == '"' and path[path.len - 1] == '"') path[1 .. path.len - 1] else path;
+        try self.routes.append(self.allocator, .{
+            .method = method,
+            .path = try self.allocator.dupe(u8, inner_path),
+            .func_name = try self.allocator.dupe(u8, func_name),
+        });
     }
 
     /// Emit the `orbit_handle_request` C function that dispatches incoming
@@ -94,12 +104,22 @@ pub const RouteGenerator = struct {
             \\    memcpy(req.path, path_start, path_len);
             \\    req.path[path_len] = 0;
             \\    
-            \\    OrbitResponse resp = orbit_response_text(404, "Not Found");
-            \\    orbit_send_response(client, &resp);
-            \\    return keep_alive;
-            \\}
-            \\
-            \\
         );
+
+        for (self.routes.items, 0..) |route, i| {
+            if (i == 0) {
+                try self.output.print(self.allocator, "    if (strcmp(req.method, \"{s}\") == 0 && strcmp(req.path, \"{s}\") == 0) {{\n", .{ route.method, route.path });
+            } else {
+                try self.output.print(self.allocator, "    }} else if (strcmp(req.method, \"{s}\") == 0 && strcmp(req.path, \"{s}\") == 0) {{\n", .{ route.method, route.path });
+            }
+            try self.output.print(self.allocator, "        {s}(client, &req, arena);\n", .{route.func_name});
+            try self.output.appendSlice(self.allocator, "        return keep_alive;\n");
+        }
+        try self.output.appendSlice(self.allocator, "    } else {\n");
+        try self.output.appendSlice(self.allocator, "        OrbitResponse resp = orbit_response_text(404, \"Not Found\");\n");
+        try self.output.appendSlice(self.allocator, "        orbit_send_response(client, &resp);\n");
+        try self.output.appendSlice(self.allocator, "        return keep_alive;\n");
+        try self.output.appendSlice(self.allocator, "    }\n");
+        try self.output.appendSlice(self.allocator, "}\n\n");
     }
 };

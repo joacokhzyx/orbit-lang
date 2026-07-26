@@ -598,11 +598,11 @@ pub const CTEvaluator = struct {
 ///   - All its callees are themselves pure
 ///
 /// We use a conservative approximation: any store_var, db_*, http_*,
-/// list_push, map_set, or external call disqualifies.
+/// list_push, list_pop, map_set, or external call disqualifies.
 fn isPure(func: *const IRFunction) bool {
     for (func.instructions.items) |instr| {
         switch (instr.opcode) {
-            .store_var, .store_field, .db_get, .db_set, .db_all, .db_where, .http_response, .list_push, .list_set, .map_set, .map_delete, .alloc, .free => return false,
+            .store_var, .store_field, .db_get, .db_set, .db_all, .db_where, .http_response, .list_push, .list_pop, .list_set, .map_set, .map_delete, .alloc, .free => return false,
             .call => {
                 const callee = switch (instr.operand1) {
                     .string => |s| s,

@@ -9,6 +9,7 @@ const std = @import("std");
 const ast = @import("../ast.zig");
 const Node = ast.Node;
 const ExpressionGenerator = @import("expression_gen.zig").ExpressionGenerator;
+const mapOrbitTypeToC = @import("type_map.zig").mapOrbitTypeToC;
 
 pub const StatementGenerator = struct {
     allocator: std.mem.Allocator,
@@ -83,7 +84,7 @@ pub const StatementGenerator = struct {
         if (val_data.type_annotation) |type_ann| {
             // Fix: access token from type_annotation node
             const type_name = type_ann.data.type_annotation.base.getText(self.source);
-            try self.output.appendSlice(self.allocator, self.mapOrbitTypeToC(type_name));
+            try self.output.appendSlice(self.allocator, mapOrbitTypeToC(type_name));
         } else {
             try self.output.appendSlice(self.allocator, "orbit_string");
         }
@@ -155,12 +156,4 @@ pub const StatementGenerator = struct {
         try self.generate(while_data.body);
     }
 
-    fn mapOrbitTypeToC(self: *StatementGenerator, orbit_type: []const u8) []const u8 {
-        _ = self;
-        if (std.mem.eql(u8, orbit_type, "int")) return "orbit_int";
-        if (std.mem.eql(u8, orbit_type, "float")) return "orbit_float";
-        if (std.mem.eql(u8, orbit_type, "string")) return "orbit_string";
-        if (std.mem.eql(u8, orbit_type, "bool")) return "orbit_bool";
-        return "orbit_string";
-    }
 };

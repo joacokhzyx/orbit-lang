@@ -137,6 +137,53 @@ pub const ModuleRegistry = struct {
             },
         });
 
+        try self.register("memory", &[_]ModuleFunction{
+            .{
+                .name = "create_arena",
+                .params = &[_]ModuleParam{.{ .name = "initial_capacity", .type_name = "int" }},
+                .return_type = "ptr",
+            },
+            .{
+                .name = "destroy",
+                .params = &[_]ModuleParam{.{ .name = "arena", .type_name = "ptr" }},
+                .return_type = "void",
+            },
+            .{
+                .name = "alloc",
+                .params = &[_]ModuleParam{
+                    .{ .name = "arena", .type_name = "ptr" },
+                    .{ .name = "bytes", .type_name = "int" },
+                },
+                .return_type = "ptr",
+            },
+            .{
+                .name = "strdup",
+                .params = &[_]ModuleParam{
+                    .{ .name = "arena", .type_name = "ptr" },
+                    .{ .name = "str", .type_name = "string" },
+                },
+                .return_type = "string",
+            },
+            .{
+                .name = "reset",
+                .params = &[_]ModuleParam{.{ .name = "arena", .type_name = "ptr" }},
+                .return_type = "void",
+            },
+            .{
+                .name = "checkpoint",
+                .params = &[_]ModuleParam{.{ .name = "arena", .type_name = "ptr" }},
+                .return_type = "int",
+            },
+            .{
+                .name = "rewind",
+                .params = &[_]ModuleParam{
+                    .{ .name = "arena", .type_name = "ptr" },
+                    .{ .name = "checkpoint", .type_name = "int" },
+                },
+                .return_type = "bool",
+            },
+        });
+
         try self.register("server", &[_]ModuleFunction{
             .{
                 .name = "listen",

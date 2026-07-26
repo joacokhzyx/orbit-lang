@@ -27,11 +27,10 @@ fn getValString(val: IRValue) ?[]const u8 {
 }
 
 fn emitCompoundAssign(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = m;
-    const load_field = instructions[0];
-    const binop = instructions[1];
-    const rhs = instructions[2];
-    const store_field = instructions[3];
+    const load_field = instructions[m.start + 0];
+    const binop = instructions[m.start + 1];
+    const rhs = instructions[m.start + 2];
+    const store_field = instructions[m.start + 3];
     _ = store_field;
 
     const f_str = getValString(load_field.operand2) orelse return error.InvalidPattern;
@@ -67,10 +66,9 @@ fn emitCompoundAssign(backend: *CBackend, instructions: []const IRInstruction, m
 }
 
 fn emitTernaryRescue(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = m;
-    const is_ok = instructions[0];
-    const unwrap = instructions[3];
-    const fallback = instructions[8];
+    const is_ok = instructions[m.start + 0];
+    const unwrap = instructions[m.start + 3];
+    const fallback = instructions[m.start + 8];
     const val_reg = unwrap.dest.?;
     const result_val = is_ok.operand1;
 
@@ -89,15 +87,25 @@ fn emitTernaryRescue(backend: *CBackend, instructions: []const IRInstruction, m:
     try backend.output.appendSlice(backend.allocator, ";\n");
 }
 
+fn isValidCIdent(str: []const u8) bool {
+    if (str.len == 0) return false;
+    for (str) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
+    }
+    return true;
+}
+
 fn emitChainedField(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = m;
-    const first = instructions[0];
-    const second = instructions[1];
+    const first = instructions[m.start + 0];
+    const second = instructions[m.start + 1];
 
     const f1_str = getValString(first.operand2) orelse return error.InvalidPattern;
     const f2_str = getValString(second.operand2) orelse return error.InvalidPattern;
 
-    try backend.output.print(backend.allocator, "    r_{d} = ", .{second.dest.?});
+    if (!isValidCIdent(f1_str) or !isValidCIdent(f2_str)) return error.InvalidPattern;
+
+    const second_dest = second.dest orelse return error.InvalidPattern;
+    try backend.output.print(backend.allocator, "    r_{d} = ", .{second_dest});
     try backend.generateValue(first.operand1);
     try backend.output.appendSlice(backend.allocator, "->");
     try backend.output.appendSlice(backend.allocator, f1_str);
@@ -107,19 +115,33 @@ fn emitChainedField(backend: *CBackend, instructions: []const IRInstruction, m: 
 }
 
 fn emitReturnLocal(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = m;
-    const load_var = instructions[0];
+    const load_var = instructions[m.start + 0];
     const var_str = getValString(load_var.operand1) orelse return error.InvalidPattern;
 
+    const ret_type = if (backend.current_func) |f| f.return_type else .unknown;
     try backend.output.appendSlice(backend.allocator, "    return ");
-    try backend.output.appendSlice(backend.allocator, var_str);
+    if (ret_type == .int or ret_type == .enumeration or ret_type == .bool) {
+        try backend.output.appendSlice(backend.allocator, "(orbit_int)(uintptr_t)(");
+        try backend.output.appendSlice(backend.allocator, var_str);
+        try backend.output.appendSlice(backend.allocator, ")");
+    } else if (ret_type == .float) {
+        try backend.output.appendSlice(backend.allocator, "(orbit_float)(");
+        try backend.output.appendSlice(backend.allocator, var_str);
+        try backend.output.appendSlice(backend.allocator, ")");
+    } else if (ret_type == .void) {
+        try backend.output.appendSlice(backend.allocator, var_str);
+    } else {
+        try backend.output.appendSlice(backend.allocator, "(void*)(");
+        try backend.output.appendSlice(backend.allocator, var_str);
+        try backend.output.appendSlice(backend.allocator, ")");
+    }
     try backend.output.appendSlice(backend.allocator, ";\n");
 }
 
 fn emitArgInline(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
     const len = m.length;
-    if (len == 0 or len > instructions.len) return error.InvalidPattern;
-    const call_instr = instructions[len - 1];
+    if (len == 0 or m.start + len > instructions.len) return error.InvalidPattern;
+    const call_instr = instructions[m.start + len - 1];
     const func_name = getValString(call_instr.operand1) orelse return error.InvalidPattern;
 
     if (call_instr.dest) |d| {
@@ -151,8 +173,8 @@ fn emitArgInline(backend: *CBackend, instructions: []const IRInstruction, m: mat
     backend.call_args.clearRetainingCapacity();
 
     // Now emit the pattern's arg values inline
-    var i: usize = 0;
-    while (i < len - 1) : (i += 1) {
+    var i: usize = m.start;
+    while (i < m.start + len - 1) : (i += 1) {
         if (instructions[i].opcode != .arg) continue;
         if (!first) try backend.output.appendSlice(backend.allocator, ", ");
         try backend.generateValue(instructions[i].operand1);
@@ -163,15 +185,21 @@ fn emitArgInline(backend: *CBackend, instructions: []const IRInstruction, m: mat
 }
 
 fn emitMatchSwitch(backend: *CBackend, instructions: []const IRInstruction, m: match.Match) !void {
-    _ = m;
-    const get_tag = instructions[0];
+    const get_tag = instructions[m.start + 0];
     const obj_val = get_tag.operand1;
 
     try backend.output.appendSlice(backend.allocator, "    switch (");
-    try backend.generateValue(obj_val);
+    const struct_name = if (get_tag.operand2 == .symbol) get_tag.operand2.symbol else null;
+    if (struct_name) |name| {
+        try backend.output.print(backend.allocator, "((struct {s}*)", .{name});
+        try backend.generateValue(obj_val);
+        try backend.output.appendSlice(backend.allocator, ")");
+    } else {
+        try backend.generateValue(obj_val);
+    }
     try backend.output.appendSlice(backend.allocator, "->tag) {\n");
 
-    var pos: usize = 1;
+    var pos: usize = m.start + 1;
     while (pos < instructions.len) {
         const eq = instructions[pos];
         if (eq.opcode != .eq) break;
@@ -210,7 +238,7 @@ fn emitMatchSwitch(backend: *CBackend, instructions: []const IRInstruction, m: m
         pos = scan;
         if (pos < instructions.len and instructions[pos].opcode == .label) {
             const is_end_label = instructions[pos].operand1 == .label and
-                (instructions.len > 5 and instructions[5].operand1 == .label and instructions[pos].operand1.label == instructions[5].operand1.label);
+                (instructions.len > m.start + 5 and instructions[m.start + 5].operand1 == .label and instructions[pos].operand1.label == instructions[m.start + 5].operand1.label);
             if (is_end_label) break;
             pos += 1;
         }
