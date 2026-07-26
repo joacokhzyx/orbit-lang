@@ -21,6 +21,7 @@ const RuntimeLoader = @import("codegen/runtime_loader.zig");
 const AtlasConfig = @import("atlas.zig").AtlasConfig;
 const term = @import("terminal/terminal.zig");
 const fmt_mod = @import("fmt/mod.zig");
+const doctor_mod = @import("doctor/mod.zig");
 
 const ORBIT_ICO_BYTES = @embedFile("orbit.ico");
 
@@ -258,6 +259,10 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const command = args[1];
+    if (std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h") or std.mem.eql(u8, command, "help")) {
+        printHelp();
+        return;
+    }
     if (std.mem.eql(u8, command, "bootstrap")) {
         try runBootstrapMode(init, args);
         return;
@@ -279,6 +284,7 @@ pub fn main(init: std.process.Init) !void {
 
     var debug = false;
     var no_kynx = config.no_kynx;
+    var auto_fix = false;
     var verbose = false;
     var timings = false;
     var timings_json = false;
@@ -322,6 +328,7 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, arg, "--emit=exe")) emit_mode = .exe;
         if (std.mem.eql(u8, arg, "--emit=obj")) emit_mode = .obj;
         if (std.mem.eql(u8, arg, "--emit=mir")) emit_mode = .mir;
+        if (std.mem.eql(u8, arg, "--fix")) auto_fix = true;
         // Output path override
         if (std.mem.eql(u8, arg, "-o") and i + 1 < args.len) {
             output_override = args[i + 1];
@@ -352,53 +359,74 @@ pub fn main(init: std.process.Init) !void {
                 std.process.exit(1);
             }
         };
+    } else if (std.mem.eql(u8, command, "doctor")) {
+        const options = doctor_mod.checker.DoctorOptions{
+            .auto_fix = auto_fix,
+            .verbose = verbose,
+        };
+        const target_dir = if (file_path.len > 0) file_path else ".";
+        doctor_mod.runDoctor(init.io, arena, target_dir, ORBIT_VERSION, options) catch {
+            std.process.exit(1);
+        };
     } else {
-        std.debug.print("Unknown command: {s}\n", .{command});
+        if (!std.mem.eql(u8, command, "--help") and !std.mem.eql(u8, command, "-h") and !std.mem.eql(u8, command, "help")) {
+            std.debug.print("Unknown command: {s}\n", .{command});
+        }
         printHelp();
     }
 }
 
 fn printHelp() void {
+    const bold = "\x1b[1m";
     const yellow = term.style.getEsc(.bold_warning);
     const reset = term.style.getReset();
-
-    var title_buf: [64]u8 = undefined;
-    const title = std.fmt.bufPrint(&title_buf, "Orbit Compiler v{s}", .{ORBIT_VERSION}) catch "Orbit Compiler";
-
-    var opt1: [128]u8 = undefined;
-    const opt1_s = std.fmt.bufPrint(&opt1, "  {s}--backend=MODE{s}   c (C target), native (x86_64 direct)", .{ yellow, reset }) catch "";
-    var opt2: [128]u8 = undefined;
-    const opt2_s = std.fmt.bufPrint(&opt2, "  {s}--emit=MODE{s}      exe (default), obj, mir", .{ yellow, reset }) catch "";
-    var opt3: [128]u8 = undefined;
-    const opt3_s = std.fmt.bufPrint(&opt3, "  {s}--timings{s}        Show phase-by-phase compilation profiler", .{ yellow, reset }) catch "";
-    var opt4: [128]u8 = undefined;
-    const opt4_s = std.fmt.bufPrint(&opt4, "  {s}--no-kynx{s}        Disable Kynx safety verification", .{ yellow, reset }) catch "";
 
     var kynx_buf: [512]u8 = undefined;
     const kynx_line = term.layout.renderGradientTextBuf(&kynx_buf, "Secured by Kynx", .{ 96, 165, 250 }, .{ 30, 58, 138 });
 
-    const lines = [_][]const u8{
-        "USAGE",
-        "  orbit <command> <file.orb> [options]",
-        "",
-        "COMMANDS",
-        "  dev        Compile + instant execution with diagnostics",
-        "  run        Compile + run and propagate process exit code",
-        "  build      Compile to standalone native optimized binary",
-        "  test       Execute isolated runtime unit tests",
-        "  lsp        Launch JSON-RPC 2.0 Language Server Protocol",
-        "  bootstrap  Run multi-stage self-hosting compiler build",
-        "",
-        "FLAGS & OPTIONS",
-        opt1_s,
-        opt2_s,
-        opt3_s,
-        opt4_s,
-        "",
+    std.debug.print(
+        \\
+        \\  {s}Orbit Compiler v{s}{s}
+        \\
+        \\  {s}USAGE{s}
+        \\    orbit <command> <file.orb> [options]
+        \\
+        \\  {s}COMMANDS{s}
+        \\    dev        Compile + instant execution with diagnostics
+        \\    run        Compile + run and propagate process exit code
+        \\    build      Compile to standalone native C target binary
+        \\    fmt        Auto-format Orbit source code (--check, --diff)
+        \\    doctor     Run toolchain & project diagnostics (--fix)
+        \\    test       Execute isolated runtime unit tests
+        \\    lsp        Launch JSON-RPC 2.0 Language Server Protocol
+        \\    bootstrap  Run multi-stage self-hosting compiler build
+        \\
+        \\  {s}FLAGS & OPTIONS{s}
+        \\    {s}--backend=MODE{s}   c (C target), native (x86_64 direct)
+        \\    {s}--emit=MODE{s}      exe (default), obj, mir
+        \\    {s}--check{s}          Check formatting without writing files
+        \\    {s}--diff{s}           Show formatted code diffs
+        \\    {s}--fix{s}            Auto-repair issues found by orbit doctor
+        \\    {s}--timings{s}        Show phase-by-phase compilation profiler
+        \\    {s}--no-kynx{s}        Disable Kynx safety verification
+        \\
+        \\  {s}
+        \\
+        \\
+    , .{
+        bold, ORBIT_VERSION, reset,
+        bold, reset,
+        bold, reset,
+        bold, reset,
+        yellow, reset,
+        yellow, reset,
+        yellow, reset,
+        yellow, reset,
+        yellow, reset,
+        yellow, reset,
+        yellow, reset,
         kynx_line,
-    };
-
-    term.layout.renderBoxCardStderr(title, &lines, 68);
+    });
 }
 
 fn getOrCompileSqliteCache(init: std.process.Init, arena: std.mem.Allocator, sqlite_c: []const u8, sqlite_inc_dir: []const u8, verbose: bool, profiler: *CompilationProfiler) ![]const u8 {
