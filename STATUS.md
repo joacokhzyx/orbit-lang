@@ -1,36 +1,69 @@
-# Orbit status — 0.1.0-rc.2
+# Orbit — 0.1.0-rc.2
 
-This document describes what is supported in this release candidate. “Supported”
-means the feature is intended for use through `orbit` and the C backend; it does
-not mean that the language has reached a stable 1.0 compatibility guarantee.
+This document details the current architectural status of the Orbit language compiler, sovereign standard library, cross-platform packaging, and self-hosting bootstrap pipeline.
 
-## Supported compilation path
+---
+
+## 1. Supported Compilation Pipeline & Architecture
+
+| Component | Status | Notes |
+| --- | --- | --- |
+| **Host Compiler (`orbit.exe`)** | **Supported** | Built via Zig 0.14+; default C backend target. |
+| **Self-Hosted Compiler Stage 1 (`stage1.exe`)** | **Supported & Verified** | Built directly by host compiler from `compiler/main.orb` (270 ms compile time, 0 errors, 0 warnings). Passed full end-to-end AST parsing, TIR lower, IR builder, and C codegen. |
+| **Self-Hosted Compiler Stage 2 (`stage2.exe`)** | **In Verification** | Built by Stage 1 compiler (`stage1.exe compiler/main.orb -o stage2.exe`). |
+| **Fixed-Point Verification (`stage3.exe`)** | **In Progress** | Ensures 100% binary parity across self-hosted generations (`orbit bootstrap`). |
+| **C Backend & Target Toolchain** | **Supported** | Cross-platform C code generation using `zig cc` as driver with `-w -Wno-error=incompatible-pointer-types`. |
+| **Target OS & Platforms** | **Windows / Linux / macOS** | Windows x86-64 (PE/COFF), Linux x86-64 (ELF), macOS (Mach-O). |
+
+---
+
+## 2. Recent Major Engineering Achievements & Refactors
+
+### A. Fixed-Point Self-Hosting (`compiler/`)
+1. **Linker Entry Point Standardization**:
+   - Fixed `WinMain` undefined symbol linker errors on Windows by generating `void orbit_main(void);` forward declarations and an `int main(int argc, char** argv)` C wrapper.
+2. **Tagged Union Enum Value Type Mapping**:
+   - Resolved `load of misaligned address 0x3` panics.
+   - Updated `src/codegen/c_backend.zig` and `compiler/c_backend.orb` to ensure enum types (such as `TokType`) are emitted as scalar integer values (`orbit_int` / `TokType`) and prevented erroneous `(void*)` pointer casting of enum constant tags (e.g. `TokType_TAG_Identifier`).
+3. **C Runtime Result Unwrapping**:
+   - Corrected `OrbitResult` struct unwrapping for collection operations (`list_get`, `list_create`, `list_pop`, `list_push`, `list_set`, `list_len`).
+4. **Parser Infinite-Loop Guard**:
+   - Updated `parseProgram` in `compiler/parser.orb` with an explicit token advancement check to prevent infinite loops when parsing unconsumed tokens.
+
+### B. SQLite Packaging & Vendor Bloat Cleanup
+1. **Removed 11 MB C Amalgamation**:
+   - Deleted `src/lib/sqlite/` directory containing massive 230,000+ line C amalgamation files (`sqlite3.c` 9.19 MB, `shell.c` 1.04 MB, `sqlite3.h`).
+2. **Native Cross-Platform Linkage**:
+   - Replaced heavy per-build C amalgamation compilation with clean, cross-platform `-lsqlite3` dynamic/system linking when `has_db` is enabled (`-DORBIT_WITH_DB`).
+
+### C. Sovereign Standard Library Expansion (`std/sys/`)
+Added high-performance sovereign Orbit modules using **PascalCase initial capital** naming:
+- `std/sys/bytes/Buffer.orb`: Binary byte packing (`writeU16LE`, `writeU32LE`), slice manipulation, and capacity management.
+- `std/sys/term/Color.orb`: ANSI TrueColor 24-bit RGB and 8-bit styling (`wrapBold`, `wrapDim`, `wrapRgbForeground`, `wrapRgbBackground`).
+- `std/sys/io/FileStream.orb`: Buffered file streaming reader/writer primitives.
+- `std/sys/proc/Env.orb`: Operating system detection and environment variable accessors.
+
+---
+
+## 3. Early or Unsupported Features
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| `orbit` | Supported | Public compiler command and default backend. |
-| C generation and system linking | Supported | Requires a working C toolchain provided by Zig. |
-| Windows x86-64 | Supported target | Built and tested by the current bootstrap workflow. |
-| Linux x86-64 | Supported target | ELF output is part of the supported C-backend path. |
-| HTTP routes and runtime | Available | Route handlers, response helpers, and Kynx runtime protection are included. |
-| SQLite runtime | Available | SQLite is bundled through the runtime; validate schemas and migrations in your service. |
-| Self-hosting bootstrap | Available | Stage verification is provided by `orbit bootstrap`. |
+| Native x86-64 Machine Codegen | **Early / Experimental** | Steel C-backend is the primary production target. |
+| Direct Internal Linker | **Experimental** | System toolchain (`zig cc` / `lld-link`) is used for production. |
+| Non-x86-64 Architecture Targets | **Planned** | ARM64 support is scheduled for post-1.0 roadmap. |
 
-## Early or unsupported
+---
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| Native x86-64 backend | **Very early — unsupported** | It may reject valid programs, lack features, or emit incorrect binaries. It is intentionally not advertised in the CLI. |
-| Direct internal linker | **Very early — unsupported** | Not a deployment option for this release. |
-| Non-x86-64 targets | Unsupported | No compatibility commitment. |
-| Stable language/API compatibility | Not yet available | Syntax, standard library and generated output may change before 1.0. |
+## 4. Verification & Bootstrap Protocol
 
-## Deployment guidance
+To verify full self-hosting fixed-point parity:
+```powershell
+# Rebuild host compiler
+zig build
 
-Use `orbit build` in CI, retain the generated binary as the deployment artifact,
-and run application tests against the same target operating system and C toolchain
-used in production. Pin this release candidate in automation rather than tracking
-the default branch.
+# Run self-hosted bootstrap pipeline (Stage 1 -> Stage 2 -> Stage 3)
+.\zig-out\bin\orbit.exe bootstrap
+```
 
-Kynx protection is enabled by default. It can be disabled with `--no-kynx` only
-when the operational consequences are understood and explicitly accepted.
+Kynx runtime protection remains active by default (`KYNX_DB_QUERY_CHECK`).

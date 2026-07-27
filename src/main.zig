@@ -453,57 +453,7 @@ fn printHelp() void {
     });
 }
 
-fn getOrCompileSqliteCache(init: std.process.Init, arena: std.mem.Allocator, sqlite_c: []const u8, sqlite_inc_dir: []const u8, verbose: bool, profiler: *CompilationProfiler) ![]const u8 {
-    const cache_dir = try getOrbitCacheDir(init, arena);
-    const builtin = @import("builtin");
-    const obj_ext = if (builtin.os.tag == .windows) ".obj" else ".o";
-    const cache_obj_name = try std.fmt.allocPrint(arena, "sqlite3_{s}_{s}{s}", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), obj_ext });
-    const cache_obj_path = try std.fs.path.join(arena, &.{ cache_dir, cache_obj_name });
 
-    var exists = false;
-    var cwd = std.Io.Dir.cwd();
-    if (cwd.openFile(init.io, cache_obj_path, .{})) |f| {
-        f.close(init.io);
-        exists = true;
-    } else |_| {}
-
-    if (!exists) {
-        if (verbose) {
-            std.debug.print("Photon: compiling SQLite to cache: {s}\n", .{cache_obj_path});
-        }
-        var sqlite_timer = OrbitTimer.start();
-
-        var sqlite_args = std.ArrayListUnmanaged([]const u8).empty;
-        try sqlite_args.append(arena, "zig");
-        try sqlite_args.append(arena, "cc");
-        try sqlite_args.append(arena, "-c");
-        try sqlite_args.append(arena, sqlite_c);
-        try sqlite_args.append(arena, "-o");
-        try sqlite_args.append(arena, cache_obj_path);
-        try sqlite_args.append(arena, "-O3");
-        try sqlite_args.append(arena, sqlite_inc_dir);
-
-        if (verbose) {
-            std.debug.print("Executing: zig cc -c {s} -o {s} -O3 {s}\n", .{ sqlite_c, cache_obj_path, sqlite_inc_dir });
-        }
-        var child = try std.process.spawn(init.io, .{
-            .argv = sqlite_args.items,
-            .stdout = .ignore,
-            .stderr = .ignore,
-        });
-        const term_status = try child.wait(init.io);
-        if (term_status != .exited or term_status.exited != 0) {
-            return error.SqliteCompilationFailed;
-        }
-
-        profiler.compile_sqlite_ns = @intFromFloat(sqlite_timer.readSeconds() * 1_000_000_000.0);
-    } else {
-        if (verbose) {
-            std.debug.print("Photon: SQLite cache HIT: {s}\n", .{cache_obj_path});
-        }
-    }
-    return cache_obj_path;
-}
 
 fn compileToBinary(
     init: std.process.Init,
@@ -969,63 +919,21 @@ fn compileToBinary(
     }
 
     const self_exe_dir = std.process.executableDirPathAlloc(init.io, arena) catch ".";
-
-    const sqlite_c_cand_dev = try std.fs.path.join(arena, &.{ self_exe_dir, "../../src/lib/sqlite/sqlite3.c" });
-    const sqlite_inc_cand_dev = try std.fs.path.join(arena, &.{ self_exe_dir, "../../src/lib/sqlite" });
     const runtime_inc_cand_dev = try std.fs.path.join(arena, &.{ self_exe_dir, "../../src/runtime" });
-
-    const sqlite_c_cand1 = try std.fs.path.join(arena, &.{ self_exe_dir, "../src/lib/sqlite/sqlite3.c" });
-    const sqlite_inc_cand1 = try std.fs.path.join(arena, &.{ self_exe_dir, "../src/lib/sqlite" });
     const runtime_inc_cand1 = try std.fs.path.join(arena, &.{ self_exe_dir, "../src/runtime" });
+    const runtime_inc_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/runtime" });
 
-    var sqlite_c: []const u8 = "src/lib/sqlite/sqlite3.c";
-    var sqlite_inc: []const u8 = "-Isrc/lib/sqlite";
     var runtime_inc: []const u8 = "-Isrc/runtime";
-
-    var cand_dev_exists = false;
     var cand_cwd = std.Io.Dir.cwd();
-    if (cand_cwd.openFile(init.io, sqlite_c_cand_dev, .{})) |f| {
+    if (cand_cwd.openFile(init.io, runtime_inc_cand_dev, .{}) catch null) |f| {
         f.close(init.io);
-        cand_dev_exists = true;
-    } else |_| {}
-
-    if (cand_dev_exists) {
-        sqlite_c = sqlite_c_cand_dev;
-        sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand_dev});
         runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand_dev});
-    } else {
-        var cand1_exists = false;
-        if (cand_cwd.openFile(init.io, sqlite_c_cand1, .{})) |f| {
-            f.close(init.io);
-            cand1_exists = true;
-        } else |_| {}
-
-        if (cand1_exists) {
-            sqlite_c = sqlite_c_cand1;
-            sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand1});
-            runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand1});
-        } else {
-            const sqlite_c_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/lib/sqlite/sqlite3.c" });
-            const sqlite_inc_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/lib/sqlite" });
-            const runtime_inc_cand2 = try std.fs.path.join(arena, &.{ self_exe_dir, "src/runtime" });
-
-            var cand2_exists = false;
-            if (cand_cwd.openFile(init.io, sqlite_c_cand2, .{})) |f| {
-                f.close(init.io);
-                cand2_exists = true;
-            } else |_| {}
-
-            if (cand2_exists) {
-                sqlite_c = sqlite_c_cand2;
-                sqlite_inc = try std.fmt.allocPrint(arena, "-I{s}", .{sqlite_inc_cand2});
-                runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand2});
-            }
-        }
-    }
-
-    var sqlite_obj_path: ?[]const u8 = null;
-    if (has_db) {
-        sqlite_obj_path = try getOrCompileSqliteCache(init, arena, sqlite_c, sqlite_inc, session.verbose, profiler);
+    } else if (cand_cwd.openFile(init.io, runtime_inc_cand1, .{}) catch null) |f1| {
+        f1.close(init.io);
+        runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand1});
+    } else if (cand_cwd.openFile(init.io, runtime_inc_cand2, .{}) catch null) |f2| {
+        f2.close(init.io);
+        runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand2});
     }
 
     const builtin_target = @import("builtin");
@@ -1097,7 +1005,7 @@ fn compileToBinary(
             try compile_args.append(arena, "-Wno-error=int-conversion");
             try compile_args.append(arena, "-Wno-error=incompatible-pointer-types");
             if (has_db) {
-                try compile_args.append(arena, sqlite_inc);
+                try compile_args.append(arena, "-DORBIT_WITH_DB");
             }
             if (sema.has_server_init) {
                 try compile_args.append(arena, "-DORBIT_WITH_NET");
@@ -1120,9 +1028,6 @@ fn compileToBinary(
             try obj_paths.append(arena, main_o_path);
         }
 
-        if (has_db) {
-            try obj_paths.append(arena, sqlite_obj_path.?);
-        }
         if (windows_res_obj) |res_obj| {
             try obj_paths.append(arena, res_obj);
         }
@@ -1207,15 +1112,10 @@ fn compileToBinary(
         try args_list.append(arena, src);
     }
     if (has_db) {
-        try args_list.append(arena, sqlite_obj_path.?);
         try args_list.append(arena, "-DORBIT_WITH_DB");
+        try args_list.append(arena, "-lsqlite3");
     }
-    if (windows_res_obj) |res_obj| {
-        if (cand_cwd.openFile(init.io, res_obj, .{})) |f| {
-            f.close(init.io);
-            try args_list.append(arena, res_obj);
-        } else |_| {}
-    }
+    try args_list.append(arena, runtime_inc);
     try args_list.append(arena, "-o");
     try args_list.append(arena, out_bin_path);
     try args_list.append(arena, "-O0");
@@ -1225,10 +1125,6 @@ fn compileToBinary(
     try args_list.append(arena, "-Wno-int-conversion");
     try args_list.append(arena, "-w");
     try args_list.append(arena, "-s");
-    if (has_db) {
-        try args_list.append(arena, sqlite_inc);
-    }
-    try args_list.append(arena, runtime_inc);
     if (sema.has_server_init) {
         try args_list.append(arena, "-DORBIT_WITH_NET");
         const builtin = @import("builtin");
