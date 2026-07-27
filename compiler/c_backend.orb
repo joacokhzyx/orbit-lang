@@ -58,7 +58,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) {
     backend.callArgs = []
     var retType = mapTypeToC(func.returnType)
     var fName = func.name
-    if fName == "main" {
+    if fName == "main" || fName == "orbit_main" {
         fName = "orbit_main"
         retType = "void"
     }

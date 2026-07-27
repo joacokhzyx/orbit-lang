@@ -1,0 +1,110 @@
+// Recursive Module Resolver for Orbit Self-Hosted Compiler
+// compiler/resolver.orb
+
+import "./ast.orb"
+import "./parser.orb"
+
+model ModuleResolver {
+    visited: list
+}
+
+fn initModuleResolver() -> ModuleResolver {
+    return ModuleResolver([])
+}
+
+fn isVisited(resolver: ModuleResolver, path: string) -> bool {
+    var i = 0
+    while i < resolver.visited.len() {
+        val p: string = resolver.visited.get(i)
+        if p == path { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn stripQuotes(s: string) -> string {
+    if s.len() >= 2 {
+        val first = s.slice(0, 1)
+        val last = s.slice(s.len() - 1, s.len())
+        if first == "\"" && last == "\"" {
+            return s.slice(1, s.len() - 1)
+        }
+    }
+    return s
+}
+
+fn getDir(filePath: string) -> string {
+    var lastSlash = -1
+    var i = 0
+    while i < filePath.len() {
+        val c = filePath.slice(i, i + 1)
+        if c == "/" || c == "\\" {
+            lastSlash = i
+        }
+        i = i + 1
+    }
+    if lastSlash == -1 { return "" }
+    return filePath.slice(0, lastSlash)
+}
+
+fn resolveFilePath(baseDir: string, relPath: string) -> string {
+    var cleanRel = stripQuotes(relPath)
+    if cleanRel.len() >= 2 {
+        if cleanRel.slice(0, 2) == "./" {
+            cleanRel = cleanRel.slice(2, cleanRel.len())
+        }
+    }
+    if baseDir != "" {
+        val candidate = baseDir + "/" + cleanRel
+        val content = orbit_file_read(candidate)
+        if content != "" { return candidate }
+    }
+    val contentDirect = orbit_file_read(cleanRel)
+    if contentDirect != "" { return cleanRel }
+    return cleanRel
+}
+
+fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) -> ASTNode {
+    match ast {
+        ASTNode.Program(p) => {
+            val mut resolvedDecls = []
+            val baseDir = getDir(basePath)
+            var i = 0
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                match decl {
+                    ASTNode.ImportStmt(imp) => {
+                        val relPath = stripQuotes(imp.path)
+                        val fullPath = resolveFilePath(baseDir, relPath)
+                        if isVisited(resolver, fullPath) == false {
+                            resolver.visited.push(fullPath)
+                            print("[resolver] Loading import: " + fullPath)
+                            val subSource = orbit_file_read(fullPath)
+                            if subSource != "" {
+                                val subParser = initParser(subSource)
+                                val subAST = parseProgram(subParser)
+                                val subResolved = resolveModuleAST(resolver, subAST, fullPath)
+                                match subResolved {
+                                    ASTNode.Program(subProg) => {
+                                        var sj = 0
+                                        while sj < subProg.decls.len() {
+                                            resolvedDecls.push(subProg.decls.get(sj))
+                                            sj = sj + 1
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        resolvedDecls.push(decl)
+                    }
+                }
+                i = i + 1
+            }
+            return ASTNode.Program(ProgramNode(resolvedDecls))
+        }
+        _ => { return ast }
+    }
+}

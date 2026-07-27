@@ -1,14 +1,19 @@
 import "./lexer.orb"
 import "./parser.orb"
+import "./resolver.orb"
 import "./sema.orb"
 import "./builder.orb"
 import "./ir.orb"
 import "./c_backend.orb"
 
 fn compileSource(source: string, outputPath: string) -> bool {
+    return compileSourceWithFile(source, "", outputPath)
+}
+
+fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
     print("[pipeline] Parsing program...")
     val parser = initParser(source)
-    val ast = parseProgram(parser)
+    val rawAST = parseProgram(parser)
     var i = 0
     while i < parser.diagnostics.len() {
         val diag: ParserDiagnostic = parser.diagnostics.get(i)
@@ -18,6 +23,10 @@ fn compileSource(source: string, outputPath: string) -> bool {
     if parser.diagnostics.len() > 0 {
         return false
     }
+
+    print("[pipeline] Resolving module imports...")
+    val resolver = initModuleResolver()
+    val ast = resolveModuleAST(resolver, rawAST, inputPath)
 
     print("[pipeline] Semantic analysis...")
     val sema = initSema()
@@ -52,4 +61,3 @@ fn compileSource(source: string, outputPath: string) -> bool {
     orbit_os_exec(compCmd)
     return true
 }
-
