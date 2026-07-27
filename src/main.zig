@@ -407,16 +407,19 @@ fn printHelp() void {
 
     std.debug.print(
         \\
-        \\  {s}Orbit Compiler v{s}{s}
+        \\  {s}Orbit {s}{s}
         \\
         \\  {s}USAGE{s}
-        \\    orbit <command> <file.orb> [options]
+        \\    orbit <command> [file.orb] [options]
         \\
         \\  {s}COMMANDS{s}
         \\    dev        Compile + instant execution with diagnostics
         \\    run        Compile + run and propagate process exit code
-        \\    build      Compile to standalone native C target binary
-        \\    init       Scaffold Orbit project (--preset=api|db|secured|lib, --ci)
+        \\    build      Compile to standalone native target binary
+        \\    live       Hot-reload atomic development mode
+        \\    pack       Synthesize polyglot client SDKs (TypeScript, Python, Rust)
+        \\    cluster    Display multi-node cluster topology & status
+        \\    init       Scaffold Orbit project (--preset=microservice|database_app|secured_api|library, --ci)
         \\    fmt        Auto-format Orbit source code (--check, --diff)
         \\    doctor     Run toolchain & project diagnostics (--fix)
         \\    test       Execute isolated runtime unit tests
