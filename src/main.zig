@@ -398,8 +398,9 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn printHelp() void {
+    const builtin = @import("builtin");
     const bold = "\x1b[1m";
-    const yellow = term.style.getEsc(.bold_warning);
+    const dim = "\x1b[2m";
     const reset = term.style.getReset();
 
     var kynx_buf: [512]u8 = undefined;
@@ -407,52 +408,38 @@ fn printHelp() void {
 
     std.debug.print(
         \\
-        \\  {s}Orbit {s}{s}
+        \\  {s}Orbit {s}{s} {s}({s}-{s}){s}
         \\
-        \\  {s}USAGE{s}
-        \\    orbit <command> [file.orb] [options]
+        \\  {s}Usage:{s} orbit <command> [file.orb] [flags]
         \\
-        \\  {s}COMMANDS{s}
-        \\    dev        Compile + instant execution with diagnostics
-        \\    run        Compile + run and propagate process exit code
-        \\    build      Compile to standalone native target binary
-        \\    live       Hot-reload atomic development mode
-        \\    pack       Synthesize polyglot client SDKs (TypeScript, Python, Rust)
-        \\    cluster    Display multi-node cluster topology & status
-        \\    init       Scaffold Orbit project (--preset=microservice|database_app|secured_api|library, --ci)
-        \\    fmt        Auto-format Orbit source code (--check, --diff)
-        \\    doctor     Run toolchain & project diagnostics (--fix)
-        \\    test       Execute isolated runtime unit tests
-        \\    bootstrap  Run multi-stage self-hosting compiler build
+        \\  {s}Build & Run:{s}
+        \\    dev        Run with diagnostics       build      Compile to binary
+        \\    run        Execute binary             live       Hot-reload dev server
         \\
-        \\  {s}FLAGS & OPTIONS{s}
-        \\    {s}--preset=TYPE{s}   microservice, database_app, secured_api, library
-        \\    {s}--ci{s}            Generate GitHub Actions CI workflow
-        \\    {s}--backend=MODE{s}   c (C target), native (x86_64 direct)
-        \\    {s}--emit=MODE{s}      exe (default), obj, mir
-        \\    {s}--check{s}          Check formatting without writing files
-        \\    {s}--diff{s}           Show formatted code diffs
-        \\    {s}--fix{s}            Auto-repair issues found by orbit doctor
-        \\    {s}--timings{s}        Show phase-by-phase compilation profiler
-        \\    {s}--no-kynx{s}        Disable Kynx safety verification
+        \\  {s}Toolchain & Ecosystem:{s}
+        \\    pack       Synthesize SDKs            cluster    Cluster topology
+        \\    init       Scaffold project           fmt        Auto-format code
+        \\    doctor     System diagnostics         test       Execute unit tests
+        \\    bootstrap  Build self-hosted compiler
+        \\
+        \\  {s}Common Options:{s}
+        \\    -h, --help             Show help information
+        \\    --backend=<c|native>   Set compiler backend (default: c)
+        \\    --preset=<type>        Template preset for orbit init
+        \\    --ci                   Generate GitHub Actions workflow
+        \\    --timings              Display compilation profiler
+        \\    --no-kynx              Disable Kynx protection
         \\
         \\  {s}
         \\
         \\
     , .{
         bold, ORBIT_VERSION, reset,
+        dim, @tagName(builtin.target.cpu.arch), @tagName(builtin.target.os.tag), reset,
         bold, reset,
         bold, reset,
         bold, reset,
-        yellow, reset,
-        yellow, reset,
-        yellow, reset,
-        yellow, reset,
-        yellow, reset,
-        yellow, reset,
-        yellow, reset,
-        yellow, reset,
-        yellow, reset,
+        bold, reset,
         kynx_line,
     });
 }
