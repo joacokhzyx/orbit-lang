@@ -1216,6 +1216,7 @@ fn compileToBinary(
     try args_list.append(arena, "-o");
     try args_list.append(arena, out_bin_path);
     try args_list.append(arena, "-O0");
+    try args_list.append(arena, "-mconsole");
     try args_list.append(arena, "-Wno-error=int-conversion");
     try args_list.append(arena, "-Wno-error=incompatible-pointer-types");
     try args_list.append(arena, "-s");

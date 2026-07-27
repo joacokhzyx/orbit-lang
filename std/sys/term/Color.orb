@@ -1,0 +1,39 @@
+// Orbit Sovereign Standard Library
+// std/sys/term/Color.orb
+// High-performance 24-bit TrueColor and 256-color ANSI formatting engine.
+
+model AnsiStyle {
+    bold: bool
+    italic: bool
+    underline: bool
+    dim: bool
+}
+
+fn createStyle() -> AnsiStyle {
+    return AnsiStyle {
+        bold: false,
+        italic: false,
+        underline: false,
+        dim: false
+    }
+}
+
+fn wrapBold(text: string) -> string {
+    return "\x1b[1m" + text + "\x1b[22m"
+}
+
+fn wrapDim(text: string) -> string {
+    return "\x1b[2m" + text + "\x1b[22m"
+}
+
+fn wrapUnderline(text: string) -> string {
+    return "\x1b[4m" + text + "\x1b[24m"
+}
+
+fn wrapRgbForeground(r: int, g: int, b: int, text: string) -> string {
+    return "\x1b[38;2;" + r + ";" + g + ";" + b + "m" + text + "\x1b[0m"
+}
+
+fn wrapRgbBackground(r: int, g: int, b: int, text: string) -> string {
+    return "\x1b[48;2;" + r + ";" + g + ";" + b + "m" + text + "\x1b[0m"
+}

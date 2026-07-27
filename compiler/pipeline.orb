@@ -48,7 +48,7 @@ fn compileSource(source: string, outputPath: string) -> bool {
     }
 
     print("[pipeline] Compiling executable binary...")
-    val compCmd = "zig cc -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types \"" + cPath + "\" -o \"" + outputPath + "\" -I src/runtime -lws2_32"
+    val compCmd = "zig cc -O0 -mconsole -Wno-error=int-conversion -Wno-error=incompatible-pointer-types \"" + cPath + "\" -o \"" + outputPath + "\" -I src/runtime -lws2_32"
     orbit_os_exec(compCmd)
     return true
 }

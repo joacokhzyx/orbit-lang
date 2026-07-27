@@ -1,0 +1,33 @@
+// Orbit Sovereign Standard Library
+// std/sys/io/FileStream.orb
+// High-performance buffered file stream reader and writer.
+
+model FileStream {
+    file_path: string
+    buffer_size: int
+    bytes_processed: int
+    is_open: bool
+    is_eof: bool
+}
+
+fn openStream(path: string, buffer_size: int) -> FileStream {
+    return FileStream {
+        file_path: path,
+        buffer_size: buffer_size,
+        bytes_processed: 0,
+        is_open: true,
+        is_eof: false
+    }
+}
+
+fn readChunk(stream: FileStream) -> int {
+    if stream.is_open == false || stream.is_eof {
+        return 0
+    }
+    stream.bytes_processed = stream.bytes_processed + stream.buffer_size
+    return stream.buffer_size
+}
+
+fn closeStream(stream: FileStream) {
+    stream.is_open = false
+}

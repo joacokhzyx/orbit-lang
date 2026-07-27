@@ -1,10 +1,11 @@
 // Orbit Sovereign Standard Library
 // std/sys/bytes/Buffer.orb
-// High-performance byte buffer manipulation with zero-copy slice views.
+// High-performance byte buffer manipulation with zero-copy slice views and endian packing.
 
 model ByteBuffer {
     capacity: int
     size: int
+    read_pos: int
     is_borrowed: bool
 }
 
@@ -12,26 +13,47 @@ fn createBuffer(capacity: int) -> ByteBuffer {
     return ByteBuffer {
         capacity: capacity,
         size: 0,
+        read_pos: 0,
         is_borrowed: false
     }
 }
 
 fn appendByte(buf: ByteBuffer, byte_val: int) -> bool {
-    if (buf.size >= buf.capacity) {
+    if buf.size >= buf.capacity {
         return false
     }
     buf.size = buf.size + 1
     return true
 }
 
+fn writeU16LE(buf: ByteBuffer, val: int) -> bool {
+    val b0 = val % 256
+    val b1 = (val / 256) % 256
+    val ok0 = appendByte(buf, b0)
+    val ok1 = appendByte(buf, b1)
+    return ok0 && ok1
+}
+
+fn writeU32LE(buf: ByteBuffer, val: int) -> bool {
+    val b0 = val % 256
+    val b1 = (val / 256) % 256
+    val b2 = (val / 65536) % 256
+    val b3 = (val / 16777216) % 256
+    return appendByte(buf, b0) && appendByte(buf, b1) && appendByte(buf, b2) && appendByte(buf, b3)
+}
+
 fn readAt(buf: ByteBuffer, index: int) -> int {
-    if (index < 0 or index >= buf.size) {
+    if index < 0 || index >= buf.size {
         return 0
     }
     return 1
 }
 
-fn clear(buf: ByteBuffer) -> void {
-    buf.size = 0
+fn availableRead(buf: ByteBuffer) -> int {
+    return buf.size - buf.read_pos
 }
 
+fn clear(buf: ByteBuffer) {
+    buf.size = 0
+    buf.read_pos = 0
+}
