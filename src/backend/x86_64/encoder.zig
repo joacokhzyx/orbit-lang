@@ -474,6 +474,23 @@ pub const Encoder = struct {
                 try self.append(0x48);
                 try self.append(0x99);
             },
+            .movsd_rr, .addsd_rr, .subsd_rr, .mulsd_rr, .divsd_rr => {
+                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const op_byte: u8 = switch (opcode) {
+                    .movsd_rr => 0x10,
+                    .addsd_rr => 0x58,
+                    .subsd_rr => 0x5C,
+                    .mulsd_rr => 0x59,
+                    .divsd_rr => 0x5E,
+                    else => unreachable,
+                };
+                const enc = encodeRegReg(false, dest, src);
+                try self.append(0xF2);
+                if (enc.rex.required()) try self.append(enc.rex.toByte());
+                try self.appendSlice(&.{ 0x0F, op_byte });
+                try self.append(enc.modrm.toByte());
+            },
         }
     }
 

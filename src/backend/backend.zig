@@ -96,6 +96,9 @@ pub const Backend = struct {
         var builder = MirBuilder.init(self.allocator);
         var mir = try builder.build(ir_module);
 
+        var optimizer = @import("mir/optimizer.zig").Optimizer.init(self.allocator);
+        try optimizer.optimizeModule(&mir);
+
         var verifier = MirVerifier.init(self.allocator);
         try verifier.verify(&mir);
 

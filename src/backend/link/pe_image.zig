@@ -148,7 +148,9 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
                 }
                 if (blocked) continue;
 
-                if (std.mem.eql(u8, name_clean, "WSAStartup") or
+                if (std.mem.startsWith(u8, name_clean, "sqlite3_")) {
+                    dll_name_opt = "sqlite3.dll";
+                } else if (std.mem.eql(u8, name_clean, "WSAStartup") or
                     std.mem.eql(u8, name_clean, "WSACleanup") or
                     std.mem.eql(u8, name_clean, "socket") or
                     std.mem.eql(u8, name_clean, "connect") or

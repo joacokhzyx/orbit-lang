@@ -60,4 +60,11 @@ pub const X86Opcode = enum(u32) {
     neg_r, // Two's-complement negation (F7 /3)
     not_r, // One's-complement negation (F7 /2)
     cqo, // Sign-extend RAX into RDX:RAX before idiv (REX.W 99)
+
+    // SSE2 Floating Point
+    movsd_rr, // Move scalar double-precision (F2 0F 10 /r)
+    addsd_rr, // Add scalar double-precision (F2 0F 58 /r)
+    subsd_rr, // Subtract scalar double-precision (F2 0F 5C /r)
+    mulsd_rr, // Multiply scalar double-precision (F2 0F 59 /r)
+    divsd_rr, // Divide scalar double-precision (F2 0F 5E /r)
 };
