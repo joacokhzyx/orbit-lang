@@ -140,7 +140,7 @@ pub fn runDiagnostics(io: std.Io, allocator: std.mem.Allocator, target_dir: []co
 
     try recordAndRender(writer, summary, .{
         .category = "Security",
-        .label = "Kynx Memory Leases",
+        .label = "Kynx",
         .details = "Active (Zero arena leaks detected)",
         .severity = .ok,
     });
