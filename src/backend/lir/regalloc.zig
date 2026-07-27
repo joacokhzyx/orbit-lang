@@ -396,21 +396,49 @@ pub const RegisterAllocator = struct {
         };
         errdefer res_func.deinit(self.allocator);
 
+        // Determine which callee-saved pool registers were actually assigned.
+        var used_callee_saved = std.ArrayListUnmanaged(RegisterId).empty;
+        defer used_callee_saved.deinit(self.allocator);
+        for (pool) |reg| {
+            const reg_id_val = @intFromEnum(reg);
+            var is_used = false;
+            for (reg_map) |m| {
+                if (m != null and m.? == reg_id_val) {
+                    is_used = true;
+                    break;
+                }
+            }
+            if (is_used) {
+                try used_callee_saved.append(self.allocator, reg);
+            }
+        }
+
         for (func.blocks.items, 0..) |*block, block_idx| {
             var res_block = LirBasicBlock{ .id = block.id };
             errdefer res_block.deinit(self.allocator);
 
             if (block_idx == 0) {
-                // Prologue
+                // Prologue: save rbp and callee-saved registers, then establish frame pointer
                 try res_block.instructions.append(self.allocator, .{
                     .opcode = @intFromEnum(X86Opcode.push_r),
                     .op1 = .{ .reg = rbp_phys },
                 });
+
+                // Preserve callee-saved registers used in this function
+                for (used_callee_saved.items) |reg| {
+                    const reg_phys = LirRegister{ .id = @intFromEnum(reg), .is_physical = true };
+                    try res_block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.push_r),
+                        .op1 = .{ .reg = reg_phys },
+                    });
+                }
+
                 try res_block.instructions.append(self.allocator, .{
                     .opcode = @intFromEnum(X86Opcode.mov_rr),
                     .dest = rbp_phys,
                     .op1 = .{ .reg = rsp_phys },
                 });
+
                 if (stack_size > 0) {
                     try res_block.instructions.append(self.allocator, .{
                         .opcode = @intFromEnum(X86Opcode.sub_ri),
@@ -424,12 +452,24 @@ pub const RegisterAllocator = struct {
                 const opcode: X86Opcode = @enumFromInt(instr.opcode);
 
                 if (opcode == .ret) {
-                    // Epilogue
+                    // Epilogue: restore rsp to rbp, pop callee-saved registers, pop rbp, then ret
                     try res_block.instructions.append(self.allocator, .{
                         .opcode = @intFromEnum(X86Opcode.mov_rr),
                         .dest = rsp_phys,
                         .op1 = .{ .reg = rbp_phys },
                     });
+
+                    var idx = used_callee_saved.items.len;
+                    while (idx > 0) {
+                        idx -= 1;
+                        const reg = used_callee_saved.items[idx];
+                        const reg_phys = LirRegister{ .id = @intFromEnum(reg), .is_physical = true };
+                        try res_block.instructions.append(self.allocator, .{
+                            .opcode = @intFromEnum(X86Opcode.pop_r),
+                            .op1 = .{ .reg = reg_phys },
+                        });
+                    }
+
                     try res_block.instructions.append(self.allocator, .{
                         .opcode = @intFromEnum(X86Opcode.pop_r),
                         .op1 = .{ .reg = rbp_phys },
