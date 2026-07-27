@@ -268,10 +268,6 @@ pub fn main(init: std.process.Init) !void {
         try runBootstrapMode(init, args);
         return;
     }
-    if (std.mem.eql(u8, command, "lsp")) {
-        runLspMode(init) catch |err| std.debug.print("LSP Error: {any}\n", .{err});
-        return;
-    }
 
     var target_file_path: []const u8 = "";
     for (args[2..]) |arg| {
@@ -418,7 +414,6 @@ fn printHelp() void {
         \\    fmt        Auto-format Orbit source code (--check, --diff)
         \\    doctor     Run toolchain & project diagnostics (--fix)
         \\    test       Execute isolated runtime unit tests
-        \\    lsp        Launch JSON-RPC 2.0 Language Server Protocol
         \\    bootstrap  Run multi-stage self-hosting compiler build
         \\
         \\  {s}FLAGS & OPTIONS{s}

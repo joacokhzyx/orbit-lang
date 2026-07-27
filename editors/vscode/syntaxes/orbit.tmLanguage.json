@@ -42,7 +42,7 @@
       "patterns": [
         {
           "name": "keyword.other.directive.orbit",
-          "match": "\\b(port|cors|database|kynx|rate_limit|per_minute|per_second)\\b"
+          "match": "\\b(port|cors|db|env|database|kynx|rate_limit|per_minute|per_second)\\b"
         }
       ]
     },
@@ -58,7 +58,7 @@
       "patterns": [
         {
           "name": "keyword.control.orbit",
-          "match": "\\b(if|else|match|rescue|return|try|catch|import|export|as)\\b"
+          "match": "\\b(if|else|match|while|for|in|return|try|break|continue|import|use|export|as|rescue|catch)\\b"
         }
       ]
     },
@@ -66,7 +66,7 @@
       "patterns": [
         {
           "name": "keyword.declaration.orbit",
-          "match": "\\b(model|route|val|fn|pub|type|struct|enum)\\b"
+          "match": "\\b(model|route|val|var|fn|async|private|extern|pub|type|enum|union|trait|impl|schedule|every|const|struct)\\b"
         }
       ]
     },
@@ -74,7 +74,7 @@
       "patterns": [
         {
           "name": "storage.type.orbit",
-          "match": "\\b(Int|Float|String|Boolean|List|Map|Void|Any|DateTime)\\b"
+          "match": "\\b(int|float|string|bool|list|map|void|Int|Float|String|Boolean|List|Map|Void|Any|DateTime)\\b"
         }
       ]
     },
