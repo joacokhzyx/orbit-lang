@@ -13,12 +13,18 @@ fn initCBackend(module: IRModule) -> CBackend {
 
 fn generateC(backend: CBackend) -> string {
     backend.output = backend.output + "#include \"runtime.h\"\n\n"
+    backend.output = backend.output + "void orbit_main(void);\n\n"
     var i = 0
     while i < backend.module.functions.len() {
         val func = backend.module.functions.get(i)
         generateFunction(backend, func)
         i = i + 1
     }
+    backend.output = backend.output + "\nint main(int argc, char** argv) {\n"
+    backend.output = backend.output + "    OrbitArena* arena = orbit_arena_create(64 * 1024 * 1024);\n"
+    backend.output = backend.output + "    orbit_main();\n"
+    backend.output = backend.output + "    return 0;\n"
+    backend.output = backend.output + "}\n"
     return backend.output
 }
 
@@ -30,6 +36,7 @@ fn mapTypeToC(orbitType: string) -> string {
     if orbitType == "void" { return "void" }
     if orbitType == "list" || orbitType == "List" { return "OrbitList*" }
     if orbitType == "map" || orbitType == "Map" { return "OrbitMap*" }
+    if orbitType == "TokType" { return orbitType }
     return "void*"
 }
 
@@ -49,8 +56,13 @@ fn orbit_itoa(n: int) -> string {
 fn generateFunction(backend: CBackend, func: IRFunction) {
     backend.currentFunction = func
     backend.callArgs = []
-    val retType = mapTypeToC(func.returnType)
-    backend.output = backend.output + retType + " " + func.name + "("
+    var retType = mapTypeToC(func.returnType)
+    var fName = func.name
+    if fName == "main" {
+        fName = "orbit_main"
+        retType = "void"
+    }
+    backend.output = backend.output + retType + " " + fName + "("
     var i = 0
     if func.params.len() == 0 {
         backend.output = backend.output + "void"
@@ -273,22 +285,22 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
             backend.output = backend.output + "    " + generateValue(backend, instr.operand1) + "->" + generateValue(backend, instr.operand2) + " = " + generateValue(backend, instr.operand3) + ";\n"
         }
         IROpcode.list_create => {
-            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_list_create(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+            backend.output = backend.output + "    { OrbitResult _lr = orbit_list_create(arena, sizeof(void*), " + generateValue(backend, instr.operand2) + "); r_" + orbit_itoa(instr.dest) + " = _lr.ok ? (OrbitList*)_lr.value : NULL; }\n"
         }
         IROpcode.list_push => {
-            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_list_push(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+            backend.output = backend.output + "    orbit_list_push(" + generateValue(backend, instr.operand1) + ", &" + generateValue(backend, instr.operand2) + ");\n"
         }
         IROpcode.list_get => {
-            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_list_get(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+            backend.output = backend.output + "    { OrbitResult _lr = orbit_list_get(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + "); r_" + orbit_itoa(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n"
         }
         IROpcode.list_set => {
-            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_list_set(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n"
+            backend.output = backend.output + "    orbit_list_set(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n"
         }
         IROpcode.list_len => {
-            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_list_len(" + generateValue(backend, instr.operand1) + ");\n"
+            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (orbit_int)orbit_list_len(" + generateValue(backend, instr.operand1) + ");\n"
         }
         IROpcode.list_pop => {
-            backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_list_pop(" + generateValue(backend, instr.operand1) + ");\n"
+            backend.output = backend.output + "    { OrbitResult _pr = orbit_list_pop(" + generateValue(backend, instr.operand1) + "); r_" + orbit_itoa(instr.dest) + " = _pr.ok ? *(void**)_pr.value : NULL; }\n"
         }
         IROpcode.map_create => {
             backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = orbit_map_create(" + generateValue(backend, instr.operand1) + ");\n"

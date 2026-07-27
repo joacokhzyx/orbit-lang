@@ -1211,14 +1211,19 @@ fn compileToBinary(
         try args_list.append(arena, "-DORBIT_WITH_DB");
     }
     if (windows_res_obj) |res_obj| {
-        try args_list.append(arena, res_obj);
+        if (cand_cwd.openFile(init.io, res_obj, .{})) |f| {
+            f.close(init.io);
+            try args_list.append(arena, res_obj);
+        } else |_| {}
     }
     try args_list.append(arena, "-o");
     try args_list.append(arena, out_bin_path);
     try args_list.append(arena, "-O0");
-    try args_list.append(arena, "-mconsole");
-    try args_list.append(arena, "-Wno-error=int-conversion");
     try args_list.append(arena, "-Wno-error=incompatible-pointer-types");
+    try args_list.append(arena, "-Wno-incompatible-pointer-types");
+    try args_list.append(arena, "-Wno-error=int-conversion");
+    try args_list.append(arena, "-Wno-int-conversion");
+    try args_list.append(arena, "-w");
     try args_list.append(arena, "-s");
     if (has_db) {
         try args_list.append(arena, sqlite_inc);

@@ -629,8 +629,13 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
 fn parseProgram(parser: Parser) -> ASTNode {
     var decls = []
     while check(parser, TokType.EOF) == false {
+        val pLine = parser.currentToken.line
+        val pCol = parser.currentToken.col
         val decl = parseDeclaration(parser)
         decls.push(decl)
+        if parser.currentToken.line == pLine && parser.currentToken.col == pCol && check(parser, TokType.EOF) == false {
+            advanceParser(parser)
+        }
     }
     return ASTNode.Program(ProgramNode(decls))
 }

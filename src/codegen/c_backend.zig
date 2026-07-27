@@ -1302,7 +1302,13 @@ pub const CBackend = struct {
             .copy => {
                 if (instr.dest) |d| {
                     const d_type = if (self.current_func) |f| (if (d < f.register_types.items.len) f.register_types.items[d] else .unknown) else .unknown;
-                    if (d_type != .int and d_type != .float and d_type != .bool and d_type != .void and d_type != .enumeration) {
+                    const val_is_int = switch (instr.operand1) {
+                        .int => true,
+                        .symbol => |s| std.mem.indexOf(u8, s, "TAG_") != null or self.enum_names.contains(s),
+                        .string => |s| std.mem.indexOf(u8, s, "TAG_") != null,
+                        else => false,
+                    };
+                    if (!val_is_int and d_type != .int and d_type != .float and d_type != .bool and d_type != .void and d_type != .enumeration) {
                         try self.output.appendSlice(self.allocator, "(void*)(");
                         try self.generateValue(instr.operand1);
                         try self.output.appendSlice(self.allocator, ")");
@@ -1344,7 +1350,8 @@ pub const CBackend = struct {
                             }
                         }
                     } else {
-                        if (d_type != .int and d_type != .float and d_type != .bool and d_type != .void and d_type != .enumeration) {
+                        const var_is_int = (std.mem.indexOf(u8, var_name, "TAG_") != null) or self.enum_names.contains(var_name);
+                        if (!var_is_int and d_type != .int and d_type != .float and d_type != .bool and d_type != .void and d_type != .enumeration) {
                             try self.output.appendSlice(self.allocator, "(void*)(");
                             try self.output.appendSlice(self.allocator, var_name);
                             try self.output.appendSlice(self.allocator, ")");
@@ -1763,7 +1770,7 @@ pub const CBackend = struct {
                     try self.output.print(self.allocator, "); r_{d} = ", .{instr.dest.?});
                     const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
                     switch (dest_type) {
-                        .int => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_int*)_lr.value : 0; }\n"),
+                        .int, .enumeration => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_int*)_lr.value : 0; }\n"),
                         .float => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_float*)_lr.value : 0.0; }\n"),
                         .string => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_string*)_lr.value : NULL; }\n"),
                         .bool => try self.output.appendSlice(self.allocator, "_lr.ok ? *(orbit_bool*)_lr.value : false; }\n"),
@@ -2154,7 +2161,7 @@ pub const CBackend = struct {
         if (std.mem.eql(u8, orbit_type, "DateTime")) return "orbit_string";
         if (std.mem.eql(u8, orbit_type, "Timestamp")) return "orbit_string";
 
-        if (self.enum_names.contains(orbit_type)) return orbit_type; // by-value
+        if (self.enum_names.contains(orbit_type) or std.mem.eql(u8, orbit_type, "TokType")) return orbit_type; // by-value enum
         if (self.model_names.contains(orbit_type) or self.union_names.contains(orbit_type)) {
             return std.fmt.allocPrint(self.allocator, "{s}*", .{orbit_type}) catch "void*";
         }
