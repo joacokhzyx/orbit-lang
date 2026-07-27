@@ -529,6 +529,107 @@ pub const Lowering = struct {
                     });
                 }
             },
+            .alloc_stack => {
+                // Stack allocation is handled by frame size computation during regalloc.
+                if (mir_instr.dest) |d| {
+                    const dest = mapReg(d);
+                    const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+                    // For stack allocation, load address [rbp - 16] into dest
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .dest = dest,
+                        .op1 = .{ .reg = rbp_phys },
+                    });
+                }
+            },
+            .load_stack => {
+                if (mir_instr.dest) |d| {
+                    const dest = mapReg(d);
+                    const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+                    const disp: i32 = if (op1_lir == .imm_int) -@as(i32, @intCast(op1_lir.imm_int)) else -8;
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.mov_rm),
+                        .dest = dest,
+                        .op1 = .{ .mem = .{ .base = rbp_phys, .disp = disp } },
+                    });
+                }
+            },
+            .store_stack => {
+                const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+                const disp: i32 = if (op1_lir == .imm_int) -@as(i32, @intCast(op1_lir.imm_int)) else -8;
+                const src_reg = if (op2_lir == .reg) op2_lir.reg else blk: {
+                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                    try self.emitMov(block, r10_phys, op2_lir);
+                    break :blk r10_phys;
+                };
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rbp_phys, .disp = disp } },
+                    .op2 = .{ .reg = src_reg },
+                });
+            },
+            .arena_alloc => {
+                const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
+                const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
+                try self.emitMov(block, arg1_reg, op1_lir);
+
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.call),
+                    .op1 = .{ .symbol = "orbit_alloc" },
+                });
+
+                if (mir_instr.dest) |d| {
+                    const dest = mapReg(d);
+                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .dest = dest,
+                        .op1 = .{ .reg = rax_phys },
+                    });
+                }
+            },
+            .kynx_lease_check => {
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.call),
+                    .op1 = .{ .symbol = "kynx_check_lease" },
+                });
+            },
+            .kynx_lease_end => {
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.call),
+                    .op1 = .{ .symbol = "kynx_end_lease" },
+                });
+            },
+            .db_query => {
+                const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
+                const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
+                try self.emitMov(block, arg1_reg, op1_lir);
+
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.call),
+                    .op1 = .{ .symbol = "orbit_db_query" },
+                });
+
+                if (mir_instr.dest) |d| {
+                    const dest = mapReg(d);
+                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .dest = dest,
+                        .op1 = .{ .reg = rax_phys },
+                    });
+                }
+            },
+            .http_write => {
+                const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
+                const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
+                try self.emitMov(block, arg1_reg, op1_lir);
+
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.call),
+                    .op1 = .{ .symbol = "orbit_http_send" },
+                });
+            },
             else => {},
         }
     }
