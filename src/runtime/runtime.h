@@ -51,6 +51,8 @@
 
 /* ── Built-in functions (conversions, clock) ───────────────────────── */
 #include "builtins.c"
+#include "crypto.c"
+#include "hyperdrive.c"
 
 /* ── Data ───────────────────────────────────────────────────────────── */
 #ifndef ORBIT_CUSTOM_ROUTER

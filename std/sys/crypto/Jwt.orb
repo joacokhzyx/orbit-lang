@@ -1,0 +1,42 @@
+// Orbit Sovereign Cryptography - JWT Engine
+// std/sys/crypto/Jwt.orb
+
+extern fn orbit_base64url_encode(data: string) -> string
+extern fn orbit_sha256_hex(str: string) -> string
+extern fn orbit_hmac_sha256_base64url(key: string, data: string) -> string
+
+model JwtHeader {
+    alg: string
+    typ: string
+}
+
+model JwtToken {
+    header: string
+    payload: string
+    signature: string
+    raw: string
+}
+
+fn signToken(payloadJson: string, secret: string) -> string {
+    val headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
+    val headerB64 = orbit_base64url_encode(headerJson)
+    val payloadB64 = orbit_base64url_encode(payloadJson)
+    val unsignedToken = headerB64 + "." + payloadB64
+    val signatureB64 = orbit_hmac_sha256_base64url(secret, unsignedToken)
+    return unsignedToken + "." + signatureB64
+}
+
+fn verifyToken(tokenStr: string, secret: string) -> bool {
+    val dot1 = tokenStr.indexOf(".")
+    if dot1 == -1 { return false }
+    val sub = tokenStr.slice(dot1 + 1, tokenStr.len())
+    val dot2 = sub.indexOf(".")
+    if dot2 == -1 { return false }
+
+    val actualDot2 = dot1 + 1 + dot2
+    val unsignedToken = tokenStr.slice(0, actualDot2)
+    val signature = tokenStr.slice(actualDot2 + 1, tokenStr.len())
+    val expectedSig = orbit_hmac_sha256_base64url(secret, unsignedToken)
+
+    return signature == expectedSig
+}
