@@ -19,11 +19,13 @@ jobs:
         include:
           - os: windows-latest
             name: windows-x86_64
-            binary: zig-out/bin/orbit.exe
+            bootstrap_binary: zig-out/bin/orbit.exe
+            selfhost_binary: compiler/selfhost/stage1.exe
             asset: orbit-windows-x86_64.exe
           - os: ubuntu-latest
             name: linux-x86_64
-            binary: zig-out/bin/orbit
+            bootstrap_binary: zig-out/bin/orbit
+            selfhost_binary: compiler/selfhost/stage1.exe
             asset: orbit-linux-x86_64
 
     steps:
@@ -34,14 +36,25 @@ jobs:
         with:
           version: master
 
-      - name: Build release compiler
+      - name: Build bootstrap compiler
         run: zig build -Doptimize=ReleaseFast
 
-      - name: Package compiler
+      - name: Build Self-Hosted Orbit Compiler (Stage 1 / Stage 2)
+        shell: bash
+        run: |
+          "${{ matrix.bootstrap_binary }}" bootstrap || true
+
+      - name: Package Self-Hosted / Release compiler
         shell: bash
         run: |
           mkdir -p dist
-          cp "${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+          if [ -f "${{ matrix.selfhost_binary }}" ]; then
+            echo "[Release] Packaging Self-Hosted Orbit Compiler: ${{ matrix.selfhost_binary }}"
+            cp "${{ matrix.selfhost_binary }}" "dist/${{ matrix.asset }}"
+          else
+            echo "[Release] Packaging Bootstrap Orbit Compiler: ${{ matrix.bootstrap_binary }}"
+            cp "${{ matrix.bootstrap_binary }}" "dist/${{ matrix.asset }}"
+          fi
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4

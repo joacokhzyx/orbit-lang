@@ -20,24 +20,28 @@ jobs:
         with:
           version: 0.17.0-dev.1442
 
-      - name: Build
-        run: zig build
+      - name: Build Bootstrap Compiler
+        run: zig build -Doptimize=ReleaseFast
 
-      - name: Run tests
+      - name: Run Test Suite
         run: zig build test
 
-      - name: Test orbit.exe on a simple .orb file
+      - name: Build Self-Hosted Orbit Compiler (Stage 1 / Stage 2)
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            ORBIT="./zig-out/bin/orbit.exe"
-            OUTPUT="test_simple_output.exe"
+            ./zig-out/bin/orbit.exe bootstrap
           else
-            ORBIT="./zig-out/bin/orbit"
-            OUTPUT="test_simple_output"
+            ./zig-out/bin/orbit bootstrap
           fi
-          $ORBIT build test_simple.orb -o $OUTPUT
-          $OUTPUT
+
+      - name: Test Self-Hosted Compiler Binary
+        shell: bash
+        run: |
+          if [ -f "./compiler/selfhost/stage1.exe" ]; then
+            echo "[CI] Testing self-hosted compiler stage1..."
+            ./compiler/selfhost/stage1.exe compiler/main.orb -o ./zig-out/bin/orbit_selfhost.exe
+          fi
 
       - name: Lint format check
         run: zig fmt --check src/

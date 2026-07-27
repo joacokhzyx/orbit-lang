@@ -1,5 +1,10 @@
 # Orbit Programming Language Automated Windows Installer
-# Installs Orbit compiler binary, configures PATH, and registers VS Code Extension.
+# Installs Orbit self-hosted or bootstrap compiler binary, configures PATH, and registers VS Code Extension.
+
+param (
+    [switch]$SelfHost = $true,
+    [switch]$Bootstrap = $false
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -16,21 +21,33 @@ if (-not (Test-Path $InstallDir)) {
 
 # 2. Locate / Build Binary
 $RootDir = Split-Path -Parent $PSScriptRoot
-$SourceExe = "$RootDir\orbit.exe"
-if (-not (Test-Path $SourceExe)) {
-    $SourceExe = "$RootDir\zig-out\bin\orbit.exe"
+Set-Location $RootDir
+
+$BootstrapExe = "$RootDir\zig-out\bin\orbit.exe"
+if (-not (Test-Path $BootstrapExe)) {
+    Write-Host "[*] Compiling Orbit bootstrap compiler with ReleaseFast optimization..." -ForegroundColor Yellow
+    zig build -Doptimize=ReleaseFast
 }
 
-if (-not (Test-Path $SourceExe)) {
-    Write-Host "[*] Compiling Orbit binary with ReleaseFast optimization..." -ForegroundColor Yellow
-    Set-Location $RootDir
-    zig build -Doptimize=ReleaseFast
-    $SourceExe = "$RootDir\zig-out\bin\orbit.exe"
+$SourceExe = $BootstrapExe
+
+if ($SelfHost -and (-not $Bootstrap)) {
+    Write-Host "[*] Building Self-Hosted Orbit Compiler (Stage 1 / Stage 2)..." -ForegroundColor Yellow
+    try {
+        & $BootstrapExe bootstrap
+        $SelfHostStage1 = "$RootDir\compiler\selfhost\stage1.exe"
+        if (Test-Path $SelfHostStage1) {
+            $SourceExe = $SelfHostStage1
+            Write-Host "[+] Selected Self-Hosted Orbit Compiler: $SourceExe" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "[!] Self-hosted build fallback to bootstrap compiler." -ForegroundColor Yellow
+    }
 }
 
 $DestExe = "$InstallDir\orbit.exe"
 Copy-Item -Path $SourceExe -Destination $DestExe -Force
-Write-Host "[+] Installed Orbit binary to: $DestExe" -ForegroundColor Green
+Write-Host "[+] Installed Orbit binary ($SourceExe) to: $DestExe" -ForegroundColor Green
 
 # 3. Add to Environment PATH
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
@@ -56,6 +73,6 @@ if (Test-Path $ExtensionSrc) {
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Cyan
-Write-Host " [SUCCESS] Orbit v0.1.0-rc.2 setup completed successfully!" -ForegroundColor Green
+Write-Host " [SUCCESS] Orbit setup completed successfully!" -ForegroundColor Green
 Write-Host " Restart your terminal and run 'orbit --help' or open VS Code." -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Cyan
