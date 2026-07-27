@@ -117,7 +117,7 @@ fn allocLabel(builder: IRBuilder) -> int {
 fn registerModel(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.ModelDecl(m) => {
-            builder.modelNames.push(m.name.text)
+            builder.modelNames.push(m.name)
         }
         _ => {}
     }
@@ -126,7 +126,7 @@ fn registerModel(builder: IRBuilder, node: ASTNode) {
 fn builderRegisterType(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.TypeDecl(t) => {
-            val irType = IRTypeDecl(t.name.text, "alias", [], [], [])
+            val irType = IRTypeDecl(t.name, "alias", [], [], [])
             builder.module.types.push(irType)
         }
         _ => {}
@@ -149,7 +149,7 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
             builder.module.functions.push(func)
         }
         ASTNode.RouteDecl(r) => {
-            val routeName = "route_" + r.method.text + "_" + r.path.text
+            val routeName = "route_" + r.http_method + "_" + r.path
             val func = initIRFunction(routeName)
             func.returnType = "response"
             builder.module.functions.push(func)
@@ -242,7 +242,7 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
         }
         ASTNode.ConstDecl(c) => {
             val valueReg = buildExpr(builder, c.value)
-            val irGlobal = IRGlobal(c.name.text, ir_register(valueReg))
+            val irGlobal = IRGlobal(c.name, ir_register(valueReg))
             builder.module.globals.push(irGlobal)
         }
         _ => {}
@@ -289,7 +289,7 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
 }
 
 fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
-    val routeName = "route_" + r.method.text + "_" + r.path.text
+    val routeName = "route_" + r.http_method + "_" + r.path
     val func = getOrCreateFunction(builder, routeName)
     val prevFunc = builder.currentFunction
     builder.currentFunction = func
@@ -378,7 +378,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             idxInit.dest = idxReg
             idxInit.operand1 = ir_int(0)
             ir_emit(builder.currentFunction, idxInit)
-            defineVariable(builder, stmt.item.text, "unknown")
+            defineVariable(builder, stmt.item, "unknown")
             val startLabel = allocLabel(builder)
             val endLabel = allocLabel(builder)
             builder.loopStartLabels.push(startLabel)
@@ -390,7 +390,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             val idxLoadReg = ir_alloc_register(builder.currentFunction, "int")
             val idxLoad = ir_init_instr(IROpcode.load_var)
             idxLoad.dest = idxLoadReg
-            idxLoad.operand1 = ir_symbol(stmt.item.text + "_idx")
+            idxLoad.operand1 = ir_symbol(stmt.item + "_idx")
             ir_emit(builder.currentFunction, idxLoad)
             val condReg = ir_alloc_register(builder.currentFunction, "bool")
             val condInstr = ir_init_instr(IROpcode.lt)
@@ -409,7 +409,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             getInstr.operand2 = ir_register(idxLoadReg)
             ir_emit(builder.currentFunction, getInstr)
             val declItem = ir_init_instr(IROpcode.decl_var)
-            declItem.operand1 = ir_symbol(stmt.item.text)
+            declItem.operand1 = ir_symbol(stmt.item)
             declItem.operand2 = ir_register(itemReg)
             ir_emit(builder.currentFunction, declItem)
             buildNode(builder, stmt.body)
@@ -421,7 +421,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             incInstr.operand2 = ir_int(1)
             ir_emit(builder.currentFunction, incInstr)
             val storeIdx = ir_init_instr(IROpcode.store_var)
-            storeIdx.operand1 = ir_symbol(stmt.item.text + "_idx")
+            storeIdx.operand1 = ir_symbol(stmt.item + "_idx")
             storeIdx.operand2 = ir_register(incReg)
             ir_emit(builder.currentFunction, storeIdx)
             val jmpStart = ir_init_instr(IROpcode.jump)
@@ -634,7 +634,7 @@ fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
 fn extractMemberAccessName(node: ASTNode) -> string {
     match node {
         ASTNode.MemberAccess(ma) => {
-            return ma.member.text
+            return ma.field
         }
         _ => { return "" }
     }
@@ -642,10 +642,10 @@ fn extractMemberAccessName(node: ASTNode) -> string {
 
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     // Check if it's a method call (member access)
-    match c.func {
+    match c.callee {
         ASTNode.MemberAccess(ma) => {
             val objReg = buildExpr(builder, ma.object)
-            val memberName = ma.member.text
+            val memberName = ma.field
             // Collection methods
             if memberName == "push" && c.args.len() >= 1 {
                 val valReg = buildExpr(builder, c.args.get(0))
@@ -779,7 +779,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
         }
         _ => {
             val litText = ""
-            match c.func {
+            match c.callee {
                 ASTNode.Literal(lit) => {
                     // Direct function call by name
                     if lit.text == "ok" && c.args.len() == 1 {
@@ -898,7 +898,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                         val objReg = buildExpr(builder, ma.object)
                         val storeField = ir_init_instr(IROpcode.store_field)
                         storeField.operand1 = ir_register(objReg)
-                        storeField.operand2 = ir_symbol(ma.member.text)
+                        storeField.operand2 = ir_symbol(ma.field)
                         storeField.operand3 = ir_register(rhsReg)
                         ir_emit(builder.currentFunction, storeField)
                         return rhsReg
@@ -957,7 +957,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         }
         ASTNode.MemberAccess(ma) => {
             val objReg = buildExpr(builder, ma.object)
-            val memberText = ma.member.text
+            val memberText = ma.field
             // Check if object is uppercase (type/enum constant reference like Type.Variant)
             var isUpper = false
             match ma.object {
@@ -1042,7 +1042,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     val objReg = buildExpr(builder, ma.object)
                     val storeField = ir_init_instr(IROpcode.store_field)
                     storeField.operand1 = ir_register(objReg)
-                    storeField.operand2 = ir_symbol(ma.member.text)
+                    storeField.operand2 = ir_symbol(ma.field)
                     storeField.operand3 = ir_register(rhsReg)
                     ir_emit(builder.currentFunction, storeField)
                     return rhsReg

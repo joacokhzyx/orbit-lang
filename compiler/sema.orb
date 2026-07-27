@@ -138,7 +138,7 @@ fn popScope(sema: Sema) {
 fn checkModelDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.ModelDecl(m) => {
-            declareSymbol(sema, m.name.text, "model", false, false)
+            declareSymbol(sema, m.name, "model", false, false)
             var i = 0
             while i < m.fields.len() {
                 checkNode(sema, m.fields.get(i))
@@ -163,7 +163,7 @@ fn checkConstDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.ConstDecl(c) => {
             val valueType = inferType(sema, c.value)
-            declareSymbol(sema, c.name.text, valueType, false, false)
+            declareSymbol(sema, c.name, valueType, false, false)
         }
         _ => {}
     }
@@ -269,7 +269,7 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
         ASTNode.For(f) => {
             inferType(sema, f.iterable)
             pushScope(sema)
-            declareSymbol(sema, f.item.text, "unknown", false, false)
+            declareSymbol(sema, f.item, "unknown", false, false)
             checkNode(sema, f.body)
             popScope(sema)
         }
@@ -327,12 +327,12 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                                 ASTNode.MatchCase(c) => {
                                     match c.pattern {
                                         ASTNode.MemberAccess(ma) => {
-                                            coveredVariants.push(ma.member.text)
+                                            coveredVariants.push(ma.field)
                                         }
-                                        ASTNode.Call(call) => {
-                                            match call.func {
+                                        ASTNode.Call(innerCall) => {
+                                            match innerCall.callee {
                                                 ASTNode.MemberAccess(ma2) => {
-                                                    coveredVariants.push(ma2.member.text)
+                                                    coveredVariants.push(ma2.field)
                                                 }
                                                 _ => {}
                                             }
@@ -426,14 +426,14 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             return operandType
         }
         ASTNode.Call(c) => {
-            inferType(sema, c.func)
+            inferType(sema, c.callee)
             var i = 0
             while i < c.args.len() {
                 inferType(sema, c.args.get(i))
                 i = i + 1
             }
             // Check for builtins
-            match c.func {
+            match c.callee {
                 ASTNode.Literal(l) => {
                     if l.valType == "identifier" {
                         if l.text == "ok" { return "result" }
@@ -445,7 +445,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                 }
                 ASTNode.MemberAccess(ma) => {
                     val objType = inferType(sema, ma.object)
-                    val member = ma.member.text
+                    val member = ma.field
                     if objType == "string" {
                         if member == "len" { return "int" }
                         if member == "contains" { return "bool" }
@@ -455,7 +455,6 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                     if objType == "list" || objType == "List" {
                         if member == "len" { return "int" }
                         if member == "push" { return "void" }
-                        if member == "get" { return "unknown" }
                     }
                     if objType == "map" || objType == "Map" {
                         if member == "has" { return "bool" }
@@ -469,7 +468,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
         }
         ASTNode.MemberAccess(ma) => {
             val objType = inferType(sema, ma.object)
-            val member = ma.member.text
+            val member = ma.field
             if objType == "string" && member == "length" { return "int" }
             val objName = ""
             match ma.object {
@@ -516,8 +515,8 @@ fn checkNode(sema: Sema, node: ASTNode) {
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
                 match decl {
-                    ASTNode.ModelDecl(m) => { declareSymbol(sema, m.name.text, "model", false, false) }
-                    ASTNode.TypeDecl(t) => { registerType(sema, t.name.text, t.kind, t.variants) }
+                    ASTNode.ModelDecl(m) => { declareSymbol(sema, m.name, "model", false, false) }
+                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
                     _ => {}
                 }
                 i = i + 1
@@ -528,7 +527,7 @@ fn checkNode(sema: Sema, node: ASTNode) {
                 val decl = prog.decls.get(i)
                 match decl {
                     ASTNode.FunctionDecl(f) => { checkFunctionSignature(sema, decl) }
-                    ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name.text, "type", false, false) }
+                    ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name, "type", false, false) }
                     _ => {}
                 }
                 i = i + 1
@@ -580,12 +579,12 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.If(stmt) => { checkIfStatement(sema, node) }
         ASTNode.While(w) => { checkWhileLoop(sema, node) }
         ASTNode.For(f) => { checkForLoop(sema, node) }
-        ASTNode.TypeDecl(t) => { registerType(sema, t.name.text, t.kind, t.variants) }
+        ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
         ASTNode.RouteDecl(r) => { checkRouteBody(sema, node) }
         ASTNode.Try(t) => { inferType(sema, t.expr) }
         ASTNode.MatchCase(mc) => {}
         ASTNode.GenericParam(gp) => {}
-        ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name.text, "type", false, false) }
+        ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name, "type", false, false) }
         ASTNode.ImplDecl(impl) => {
             var j = 0
             while j < impl.methods.len() {

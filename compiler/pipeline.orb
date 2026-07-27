@@ -6,6 +6,7 @@ import "./ir.orb"
 import "./c_backend.orb"
 
 fn compileSource(source: string, outputPath: string) -> bool {
+    print("[pipeline] Parsing program...")
     val parser = initParser(source)
     val ast = parseProgram(parser)
     var i = 0
@@ -18,6 +19,7 @@ fn compileSource(source: string, outputPath: string) -> bool {
         return false
     }
 
+    print("[pipeline] Semantic analysis...")
     val sema = initSema()
     analyze(sema, ast)
     if hasErrors(sema) {
@@ -29,12 +31,25 @@ fn compileSource(source: string, outputPath: string) -> bool {
         return false
     }
 
+    print("[pipeline] Building IR...")
     val builder = initIRBuilder()
     val irModule = buildAST(builder, ast)
 
+    print("[pipeline] Code generation...")
     val backend = initCBackend(irModule)
     val cCode = generateC(backend)
 
-    return orbit_file_write(outputPath, cCode)
+    print("[pipeline] Writing C source...")
+    val cPath = outputPath + ".c"
+
+    if orbit_file_write(cPath, cCode) == false {
+        print("Error writing C file: " + cPath)
+        return false
+    }
+
+    print("[pipeline] Compiling executable binary...")
+    val compCmd = "zig cc -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types \"" + cPath + "\" -o \"" + outputPath + "\" -I src/runtime -lws2_32"
+    orbit_os_exec(compCmd)
+    return true
 }
 

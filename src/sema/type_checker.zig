@@ -630,6 +630,9 @@ pub const TypeChecker = struct {
         // Route responses: any return value is auto-wrapped into HTTP response
         if (std.mem.eql(u8, resolved_expected, "response")) return true;
 
+        // Model compatibility: generic "model" type is compatible with specific model return types
+        if (std.mem.eql(u8, resolved_expected, "model") or std.mem.eql(u8, resolved_actual, "model")) return true;
+
         // Phase 2: int is promotable to float
         if (std.mem.eql(u8, resolved_expected, "float") and std.mem.eql(u8, resolved_actual, "int")) return true;
 

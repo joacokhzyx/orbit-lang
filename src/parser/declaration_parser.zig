@@ -611,6 +611,68 @@ pub const DeclarationParser = struct {
             return try self.parseUnionDecl(name, is_private);
         }
 
+        // Support sum types: type Name = Variant1(...) | Variant2(...)
+        if (self.check(.Identifier)) {
+            const save_curr = self.current_token;
+            const save_prev = self.previous_token;
+            const save_lexer = self.lexer.*;
+
+            var variants = std.ArrayListUnmanaged(*Node).empty;
+            var is_union = false;
+
+            while (self.check(.Identifier)) {
+                const v_name = self.consume(.Identifier) catch break;
+                var payloads = std.ArrayListUnmanaged(*Node).empty;
+                if (self.match(.OpenParen)) {
+                    if (!self.check(.CloseParen)) {
+                        while (true) {
+                            const p_tok = try self.consumeUnionVariantPayloadType();
+                            const p_node = try self.allocator.create(Node);
+                            p_node.* = .{ .tag = .identifier, .data = .{ .identifier = p_tok } };
+                            try payloads.append(self.allocator, p_node);
+                            if (!self.match(.Comma)) break;
+                        }
+                    }
+                    _ = try self.consume(.CloseParen);
+                }
+
+                const v_node = try self.allocator.create(Node);
+                v_node.* = .{
+                    .tag = .union_variant,
+                    .data = .{ .union_variant = .{
+                        .name = v_name,
+                        .payloads = try payloads.toOwnedSlice(self.allocator),
+                    } },
+                };
+                try variants.append(self.allocator, v_node);
+
+                if (self.match(.Pipe)) {
+                    is_union = true;
+                } else {
+                    if (payloads.items.len > 0) is_union = true;
+                    break;
+                }
+            }
+
+            if (is_union and variants.items.len > 0) {
+                const node = try self.allocator.create(Node);
+                node.* = .{
+                    .tag = .union_decl,
+                    .data = .{ .union_decl = .{
+                        .name = name,
+                        .variants = try variants.toOwnedSlice(self.allocator),
+                        .is_private = is_private,
+                    } },
+                };
+                return node;
+            }
+
+            // Restore state if not a union
+            self.current_token = save_curr;
+            self.previous_token = save_prev;
+            self.lexer.* = save_lexer;
+        }
+
         var expr_parser = ExpressionParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
         const target = try expr_parser.parseExpression();
 

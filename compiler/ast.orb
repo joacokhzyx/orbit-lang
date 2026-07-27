@@ -6,52 +6,205 @@ model Loc {
     column: int
 }
 
-model IdentifierNode {
-    name: string
-    loc: Loc
-}
-
 model ParamNode {
     name: string
     type_name: string
 }
 
-model FunctionNode {
+model FieldInitNode {
     name: string
-    params: list
-    return_type: string
-    is_async: bool
+    value: list
 }
 
-model RouteNode {
-    http_method: string
-    path: string
-    body_statements: list
+model TypeAnnotationNode {
+    token: string
+    is_nullable: bool
 }
 
-model ModelFieldNode {
-    field_name: string
-    type_name: string
+model GenericParamNode {
+    name: string
+    constraint: string
 }
 
-model ModelNode {
+model DecoratorNode {
+    name: string
+    args: list
+}
+
+model FieldDeclNode {
+    name: string
+    field_type: string
+    decorators: list
+}
+
+model ModelDeclNode {
     name: string
     fields: list
+    generic_params: list
+}
+
+model TypeDeclNode {
+    name: string
+    kind: string
+    variants: list
+    base_type: string
+}
+
+model FunctionDeclNode {
+    name: string
+    params: list
+    param_types: list
+    return_type: string
+    body: list
+    is_async: bool
+    is_private: bool
+    is_extern: bool
+    generic_params: list
+}
+
+model RouteDeclNode {
+    http_method: string
+    path: string
+    decorators: list
+    body: list
+}
+
+model TraitDeclNode {
+    name: string
+    generic_params: list
+    methods: list
+    is_private: bool
+}
+
+model ImplDeclNode {
+    trait_name: string
+    type_name: string
+    methods: list
+}
+
+model VarDeclNode {
+    name: string
+    is_mutable: bool
+    value: list
+}
+
+model ConstDeclNode {
+    name: string
+    value: list
+    is_private: bool
+}
+
+model ScheduleDeclNode {
+    amount: string
+    unit: string
+    at_time: string
+    handler: list
+}
+
+model ConfigDeclNode {
+    key: string
+    value: string
+}
+
+model ImportStmtNode {
+    path: string
+}
+
+model UseStmtNode {
+    module: string
+}
+
+model ExpressionStmtNode {
+    expr: list
 }
 
 model ProgramNode {
-    file_path: string
-    functions: list
-    routes: list
-    models: list
+    decls: list
 }
 
-fn createProgram(path: string) -> ProgramNode {
-    return ProgramNode {
-        file_path: path,
-        functions: [],
-        routes: [],
-        models: []
-    }
+model LiteralNode {
+    valType: string
+    text: string
 }
 
+model BlockNode {
+    statements: list
+}
+
+model IfNode {
+    condition: list
+    thenBody: list
+    elseBody: list
+}
+
+model WhileNode {
+    condition: list
+    body: list
+}
+
+model ForNode {
+    item: string
+    iterable: list
+    body: list
+}
+
+model ReturnNode {
+    expr: list
+}
+
+model MatchNode {
+    expr: list
+    cases: list
+}
+
+model MatchCaseNode {
+    pattern: list
+    body: list
+}
+
+model TryNode {
+    expr: list
+}
+
+model BinaryOpNode {
+    op: string
+    lhs: list
+    rhs: list
+}
+
+model UnaryOpNode {
+    op: string
+    operand: list
+}
+
+model CallNode {
+    callee: list
+    arguments: list
+}
+
+model MemberAccessNode {
+    object: list
+    field: string
+}
+
+model IndexAccessNode {
+    target: list
+    index: list
+}
+
+model ListLiteralNode {
+    elements: list
+}
+
+model AssignmentNode {
+    target: list
+    value: list
+}
+
+model BreakNode {
+}
+
+model ContinueNode {
+}
+
+type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | Empty

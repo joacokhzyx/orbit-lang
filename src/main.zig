@@ -1094,6 +1094,8 @@ fn compileToBinary(
             // Suppress GCC intrinsics for native linker path.
             try compile_args.append(arena, "-fno-stack-protector");
             try compile_args.append(arena, "-fno-sanitize=all");
+            try compile_args.append(arena, "-Wno-error=int-conversion");
+            try compile_args.append(arena, "-Wno-error=incompatible-pointer-types");
             if (has_db) {
                 try compile_args.append(arena, sqlite_inc);
             }
@@ -1107,8 +1109,8 @@ fn compileToBinary(
 
             var comp_child = try std.process.spawn(init.io, .{
                 .argv = compile_args.items,
-                .stdout = .ignore,
-                .stderr = .ignore,
+                .stdout = .inherit,
+                .stderr = .inherit,
             });
             const comp_status = try comp_child.wait(init.io);
             if (comp_status != .exited or comp_status.exited != 0) {
@@ -1213,8 +1215,7 @@ fn compileToBinary(
     }
     try args_list.append(arena, "-o");
     try args_list.append(arena, out_bin_path);
-    try args_list.append(arena, "-O1");
-    try args_list.append(arena, "-march=native");
+    try args_list.append(arena, "-O0");
     try args_list.append(arena, "-Wno-error=int-conversion");
     try args_list.append(arena, "-Wno-error=incompatible-pointer-types");
     try args_list.append(arena, "-s");

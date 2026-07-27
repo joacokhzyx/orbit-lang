@@ -338,10 +338,10 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
             val exprVal = generateValue(backend, instr.operand1)
             if exprVal != "" {
                 backend.output = backend.output + "    switch (" + exprVal + ") {\n"
-                } else {
-                    backend.output = backend.output + "    /* switch_op */\n"
-                }
+            } else {
+                backend.output = backend.output + "    /* switch_op */\n"
             }
+        }
             IROpcode.type_info => {
                 backend.output = backend.output + "    /* type_info */\n"
             }

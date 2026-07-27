@@ -411,13 +411,17 @@ pub const CBackend = struct {
             "#ifndef _push\n#define _push(...) (void)0\n#endif\n" ++
             "#ifndef valStr_indexOf\n#define valStr_indexOf(...) 0\n#endif\n");
 
-        // Forward declare Models and prepopulate names
         for (module.models.items) |model| {
             try self.model_names.put(self.allocator, model.name, {});
             for (model.fields.items) |field| {
                 try self.model_field_owners.put(self.allocator, field.name, model.name);
             }
             try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ model.name, model.name });
+        }
+        for (module.types.items) |t| {
+            if (t.kind == .union_type) {
+                try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ t.name, t.name });
+            }
         }
         try self.model_field_owners.put(self.allocator, "mainFunction", "IRBuilder");
         try self.output.appendSlice(self.allocator, "\n");
@@ -636,8 +640,10 @@ pub const CBackend = struct {
             try self.generateSignatureWithSuffix(func, "_slow");
             try self.emitFunctionBody(func, .normal);
 
-            // 3. Wrapper: try golden, fall back to slow on SIGSEGV
-            try self.output.appendSlice(self.allocator, "static ");
+            const is_entry_or_route = std.mem.eql(u8, func.name, "main") or std.mem.startsWith(u8, func.name, "route_");
+            if (!is_entry_or_route) {
+                try self.output.appendSlice(self.allocator, "static ");
+            }
             try self.output.appendSlice(self.allocator, return_type_c);
             try self.output.append(self.allocator, ' ');
             try self.output.appendSlice(self.allocator, func.name);
@@ -1327,15 +1333,9 @@ pub const CBackend = struct {
                     if (!is_declared and !std.mem.eql(u8, var_name, "true") and !std.mem.eql(u8, var_name, "false")) {
                         // Enum constants are named like Foo_TAG_Bar — emit them directly
                         if (std.mem.indexOf(u8, var_name, "_TAG_") != null) {
-                            if (d_type != .int and d_type != .float and d_type != .bool and d_type != .void and d_type != .enumeration) {
-                                try self.output.appendSlice(self.allocator, "(void*)(");
-                                try self.output.appendSlice(self.allocator, var_name);
-                                try self.output.appendSlice(self.allocator, ")");
-                            } else {
-                                try self.output.appendSlice(self.allocator, "(orbit_int)(uintptr_t)(");
-                                try self.output.appendSlice(self.allocator, var_name);
-                                try self.output.appendSlice(self.allocator, ")");
-                            }
+                            try self.output.appendSlice(self.allocator, "(orbit_int)(uintptr_t)(");
+                            try self.output.appendSlice(self.allocator, var_name);
+                            try self.output.appendSlice(self.allocator, ")");
                         } else {
                             if (d_type != .int and d_type != .float and d_type != .bool and d_type != .void and d_type != .enumeration) {
                                 try self.output.appendSlice(self.allocator, "(void*)0");
@@ -2159,8 +2159,10 @@ pub const CBackend = struct {
             return std.fmt.allocPrint(self.allocator, "{s}*", .{orbit_type}) catch "void*";
         }
 
-        // If it starts with uppercase, it's probably a model/enum type — use as-is
-        if (orbit_type.len > 0 and std.ascii.isUpper(orbit_type[0])) return orbit_type;
+        // If it starts with uppercase, it's a model/union type — return as pointer
+        if (orbit_type.len > 0 and std.ascii.isUpper(orbit_type[0])) {
+            return std.fmt.allocPrint(self.allocator, "{s}*", .{orbit_type}) catch "void*";
+        }
         return "void*";
     }
 

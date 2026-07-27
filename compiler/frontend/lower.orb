@@ -108,7 +108,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             return tirEmit(function, blockId, "unary." + unary.op, resultType, tirValue(operand))
         }
         ASTNode.Call(call) => {
-            val callee = lowerExpression(module, function, blockId, bindings, call.func)
+            val callee = lowerExpression(module, function, blockId, bindings, call.callee)
             var operands = tirValue(callee)
             var i = 0
             while i < call.args.len() {

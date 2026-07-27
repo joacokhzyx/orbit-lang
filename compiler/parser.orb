@@ -96,7 +96,7 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
             result = ASTNode.Call(CallNode(result, args))
         } else {
             if matchToken(parser, TokType.Dot) {
-                val member = parser.previousToken
+                val member = parser.previousToken.text
                 result = ASTNode.MemberAccess(MemberAccessNode(result, member))
             } else {
                 if matchToken(parser, TokType.OpenBracket) {
@@ -220,7 +220,7 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
     var typeAnnotation = ASTNode.Empty
     if matchToken(parser, TokType.Colon) {
         consume(parser, TokType.Identifier, "Expected type name.")
-        typeAnnotation = ASTNode.TypeAnnotation(TypeAnnotationNode(parser.previousToken, false))
+        typeAnnotation = ASTNode.TypeAnnotation(TypeAnnotationNode(parser.previousToken.text, false))
     }
 
     consume(parser, TokType.Equal, "Expected '=' after variable name.")
@@ -251,7 +251,7 @@ fn parseWhileStatement(parser: Parser) -> ASTNode {
 
 fn parseForStatement(parser: Parser) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected loop variable name.")
-    val item = parser.previousToken
+    val item = parser.previousToken.text
     consume(parser, TokType.KeywordIn, "Expected 'in' after loop variable.")
     val iterable = parseExpression(parser)
     val body = parseBlock(parser)
@@ -299,11 +299,11 @@ fn parseGenericParams(parser: Parser) -> list {
     var params = []
     while check(parser, TokType.CloseBracket) == false && isAtEnd(parser) == false {
         consume(parser, TokType.Identifier, "Expected generic parameter name.")
-        val name = parser.previousToken
-        var constraint = Token(TokType.Identifier, "", 0, 0)
+        val name = parser.previousToken.text
+        var constraint = ""
         if matchToken(parser, TokType.Colon) {
             consume(parser, TokType.Identifier, "Expected constraint type.")
-            constraint = parser.previousToken
+            constraint = parser.previousToken.text
         }
         params.push(ASTNode.GenericParam(GenericParamNode(name, constraint)))
         matchToken(parser, TokType.Comma)
@@ -356,7 +356,7 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
 
 fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected model name.")
-    val name = parser.previousToken
+    val name = parser.previousToken.text
     val genericParams = parseGenericParams(parser)
     consume(parser, TokType.OpenBrace, "Expected '{' after model name.")
         var fields = []
@@ -365,13 +365,13 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
             var decorators = []
             while matchToken(parser, TokType.At) {
                 consume(parser, TokType.Identifier, "Expected decorator name.")
-                decorators.push(ASTNode.Decorator(DecoratorNode(parser.previousToken, [])))
+                decorators.push(ASTNode.Decorator(DecoratorNode(parser.previousToken.text, [])))
             }
             consume(parser, TokType.Identifier, "Expected field name.")
-            val fieldName = parser.previousToken
+            val fieldName = parser.previousToken.text
             consume(parser, TokType.Colon, "Expected ':' after field name.")
             consume(parser, TokType.Identifier, "Expected field type.")
-            val fieldType = parser.previousToken
+            val fieldType = parser.previousToken.text
             fields.push(ASTNode.FieldDecl(FieldDeclNode(fieldName, fieldType, decorators)))
             matchToken(parser, TokType.Comma)
         }
@@ -381,26 +381,26 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
 
 fn parseTypeDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected type name.")
-    val name = parser.previousToken
+    val name = parser.previousToken.text
     consume(parser, TokType.Equal, "Expected '=' after type name.")
 
     var kind = "alias"
     var variants = []
-    var baseType = Token(TokType.Identifier, "", 0, 0)
+    var baseType = ""
 
     if matchToken(parser, TokType.KeywordEnum) {
         kind = "enum"
         consume(parser, TokType.OpenBrace, "Expected '{' after 'enum'.")
             while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
                 consume(parser, TokType.Identifier, "Expected variant name.")
-                val varName = parser.previousToken
-                var payloadType = Token(TokType.Identifier, "", 0, 0)
+                val varName = parser.previousToken.text
+                var payloadType = ""
                 if matchToken(parser, TokType.OpenParen) {
                     consume(parser, TokType.Identifier, "Expected payload type.")
-                    payloadType = parser.previousToken
+                    payloadType = parser.previousToken.text
                     consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
                 }
-                variants.push(ASTNode.Literal(LiteralNode("variant", "")))
+                variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
                 matchToken(parser, TokType.Comma)
             }
             consume(parser, TokType.CloseBrace, "Expected '}' after enum variants.")
@@ -410,20 +410,20 @@ fn parseTypeDecl(parser: Parser, isPrivate: bool) -> ASTNode {
             consume(parser, TokType.OpenBrace, "Expected '{' after 'union'.")
                 while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
                     consume(parser, TokType.Identifier, "Expected variant name.")
-                    val varName = parser.previousToken
-                    var payloadType = Token(TokType.Identifier, "", 0, 0)
+                    val varName = parser.previousToken.text
+                    var payloadType = ""
                     if matchToken(parser, TokType.OpenParen) {
                         consume(parser, TokType.Identifier, "Expected payload type.")
-                        payloadType = parser.previousToken
+                        payloadType = parser.previousToken.text
                         consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
                     }
-                    variants.push(ASTNode.Literal(LiteralNode("variant", "")))
+                    variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
                     matchToken(parser, TokType.Comma)
                 }
                 consume(parser, TokType.CloseBrace, "Expected '}' after union variants.")
         } else {
             consume(parser, TokType.Identifier, "Expected base type.")
-            baseType = parser.previousToken
+            baseType = parser.previousToken.text
         }
     }
 
@@ -432,16 +432,16 @@ fn parseTypeDecl(parser: Parser, isPrivate: bool) -> ASTNode {
 
 fn parseRouteDecl(parser: Parser, decorators: list) -> ASTNode {
     consume(parser, TokType.StringLiteral, "Expected HTTP method string.")
-    val method = parser.previousToken
+    val method = parser.previousToken.text
     consume(parser, TokType.StringLiteral, "Expected path string.")
-    val path = parser.previousToken
+    val path = parser.previousToken.text
     val body = parseBlock(parser)
     return ASTNode.RouteDecl(RouteDeclNode(method, path, decorators, body))
 }
 
 fn parseTraitDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected trait name.")
-    val name = parser.previousToken
+    val name = parser.previousToken.text
     val genericParams = parseGenericParams(parser)
     consume(parser, TokType.OpenBrace, "Expected '{' after trait name.")
         var methods = []
@@ -472,10 +472,10 @@ fn parseTraitDecl(parser: Parser, isPrivate: bool) -> ASTNode {
 
 fn parseImplDecl(parser: Parser) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected trait name.")
-    val traitName = parser.previousToken
+    val traitName = parser.previousToken.text
     consume(parser, TokType.KeywordFor, "Expected 'for' after trait name in impl.")
     consume(parser, TokType.Identifier, "Expected type name.")
-    val typeName = parser.previousToken
+    val typeName = parser.previousToken.text
     consume(parser, TokType.OpenBrace, "Expected '{' before impl body.")
         var methods = []
         while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
@@ -487,7 +487,7 @@ fn parseImplDecl(parser: Parser) -> ASTNode {
 
 fn parseConstDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected constant name.")
-    val name = parser.previousToken
+    val name = parser.previousToken.text
     consume(parser, TokType.Equal, "Expected '=' after constant name.")
     val value = parseExpression(parser)
     return ASTNode.ConstDecl(ConstDeclNode(name, value, isPrivate))
@@ -495,13 +495,13 @@ fn parseConstDecl(parser: Parser, isPrivate: bool) -> ASTNode {
 
 fn parseScheduleDecl(parser: Parser) -> ASTNode {
     consume(parser, TokType.IntegerLiteral, "Expected amount (number).")
-    val amount = parser.previousToken
+    val amount = parser.previousToken.text
     consume(parser, TokType.Identifier, "Expected time unit.")
-    val unit = parser.previousToken
-    var atTime = Token(TokType.Identifier, "", 0, 0)
+    val unit = parser.previousToken.text
+    var atTime = ""
     if matchToken(parser, TokType.Identifier) && parser.previousToken.text == "at" {
         consume(parser, TokType.IntegerLiteral, "Expected time value.")
-        atTime = parser.previousToken
+        atTime = parser.previousToken.text
     }
     consume(parser, TokType.FatArrow, "Expected '=>' after schedule.")
     val handler = parseExpression(parser)
@@ -509,7 +509,7 @@ fn parseScheduleDecl(parser: Parser) -> ASTNode {
 }
 
 fn parseConfigDecl(parser: Parser) -> ASTNode {
-    val key = parser.currentToken
+    val key = parser.currentToken.text
     advanceParser(parser)
     val value = parseExpression(parser)
     return ASTNode.ConfigDecl(ConfigDeclNode(key, value))
@@ -564,7 +564,7 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
     while check(parser, TokType.At) {
         matchToken(parser, TokType.At)
         consume(parser, TokType.Identifier, "Expected decorator name.")
-        decorators.push(ASTNode.Decorator(DecoratorNode(parser.previousToken, [])))
+        decorators.push(ASTNode.Decorator(DecoratorNode(parser.previousToken.text, [])))
     }
 
     val isPrivate = matchToken(parser, TokType.KeywordPrivate)
@@ -583,13 +583,13 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
 
     if matchToken(parser, TokType.KeywordImport) {
         consume(parser, TokType.StringLiteral, "Expected import path.")
-        val path = parser.previousToken
+        val path = parser.previousToken.text
         return ASTNode.ImportStmt(ImportStmtNode(path))
     }
 
     if matchToken(parser, TokType.KeywordUse) {
         consume(parser, TokType.Identifier, "Expected module name.")
-        val module = parser.previousToken
+        val module = parser.previousToken.text
         return ASTNode.UseStmt(UseStmtNode(module))
     }
 
