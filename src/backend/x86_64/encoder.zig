@@ -133,6 +133,7 @@ pub const Encoder = struct {
             .mov_rr => {
                 const dest: RegisterId = @enumFromInt(instr.dest.?.id);
                 const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                if (dest == src) return; // Peephole: skip redundant self-moves
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x89);
@@ -140,6 +141,16 @@ pub const Encoder = struct {
             },
             .mov_ri => {
                 const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+
+                // Peephole optimization: mov reg, 0 -> xor reg, reg (2-3 bytes instead of 10 bytes)
+                if (instr.op1 == .imm_int and instr.op1.imm_int == 0) {
+                    const enc = encodeRegReg(true, dest, dest);
+                    if (enc.rex.required()) try self.append(enc.rex.toByte());
+                    try self.append(0x31);
+                    try self.append(enc.modrm.toByte());
+                    return;
+                }
+
                 const dest_val = @intFromEnum(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
