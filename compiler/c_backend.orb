@@ -190,8 +190,10 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) {
         IROpcode.copy => {
             val valStr = generateValue(backend, instr.operand1)
             val rType = mapTypeToC(backend.currentFunction.registerTypes.get(instr.dest))
-            if (rType == "void*" && (valStr == "true" || valStr == "false")) || (valStr.indexOf("TAG_") != -1 && rType.indexOf("*") != -1) {
+            if rType == "void*" && (valStr == "true" || valStr == "false") {
                 backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (void*)(uintptr_t)(" + valStr + ");\n"
+            } else if valStr.indexOf("TAG_") != -1 {
+                backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = (orbit_int)(" + valStr + ");\n"
             } else {
                 backend.output = backend.output + "    r_" + orbit_itoa(instr.dest) + " = " + valStr + ";\n"
             }
