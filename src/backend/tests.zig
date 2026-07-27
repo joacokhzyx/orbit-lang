@@ -844,3 +844,60 @@ test "native end-to-end: return 42" {
         try std.testing.expectEqual(@as(u32, 42), run_result.term.exited);
     }
 }
+
+test "native in-memory end-to-end: IR to relocatable object" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var ir_func = ir_mod.IRFunction.init(alloc, "main");
+    ir_func.return_type = .int;
+
+    // dest = load_const 42
+    const reg_id = try ir_func.allocRegister(alloc, .int);
+    var load_instr = ir_mod.IRInstruction.init(.load_const);
+    load_instr.dest = reg_id;
+    load_instr.operand1 = .{ .int = 42 };
+    try ir_func.emit(alloc, load_instr);
+
+    // ret reg_id
+    var ret_instr = ir_mod.IRInstruction.init(.ret);
+    ret_instr.operand1 = .{ .register = reg_id };
+    try ir_func.emit(alloc, ret_instr);
+
+    try ir_module.functions.append(alloc, ir_func);
+
+    const atlas_mod = @import("../atlas.zig");
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    // Verify generated relocatable object byte slice is non-empty
+    try std.testing.expect(obj_bytes.len > 0);
+
+    const link_mod = @import("link/mod.zig");
+    const builtin_mod = @import("builtin");
+
+    var parsed_obj = try switch (builtin_mod.os.tag) {
+        .windows => link_mod.coff_reader.readObject(alloc, obj_bytes),
+        else => link_mod.elf_reader.readObject(alloc, obj_bytes),
+    };
+    defer parsed_obj.deinit(alloc);
+
+    try std.testing.expect(parsed_obj.sections.items.len > 0);
+    var found_main = false;
+    for (parsed_obj.symbols.items) |sym| {
+        if (std.mem.eql(u8, sym.name, "orbit_main") or std.mem.eql(u8, sym.name, "main")) {
+            found_main = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_main);
+}

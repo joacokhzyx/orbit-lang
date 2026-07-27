@@ -234,11 +234,32 @@ pub const Sema = struct {
         };
     }
 
+    /// Injects generic type parameter names (e.g. `T`, `U`) into `scope` so
+    /// that type annotations referencing them resolve to `"type"` rather than
+    /// `"unknown"`.  Called at the start of every generic function/model body.
+    fn injectGenericParams(self: *Sema, generic_params: []const *Node, scope: *Scope) !void {
+        for (generic_params) |gp| {
+            if (gp.tag != .generic_param) continue;
+            const param_name = try self.internString(gp.data.generic_param.name.getText(self.source));
+            // A generic type param is visible as a `"type"` binding in the body scope.
+            scope.define(param_name, "type", false) catch |err| {
+                // DuplicateDefinition is fine — already injected (e.g. shadowed outer param).
+                if (err != error.DuplicateDefinition) return err;
+            };
+        }
+    }
+
     /// Validates a `model` declaration, registers its fields in `ModelRegistry`,
     /// and defines the model name in `scope` as a `"model"` type.
     fn analyzeModel(self: *Sema, node: *Node, scope: *Scope) !void {
         const model_data = node.data.model_decl;
         const model_name = try self.internString(model_data.name.getText(self.source));
+
+        // Inject generic type parameters into a temporary child scope so that
+        // field type annotations referencing `T` resolve correctly.
+        const model_scope = try self.scope_manager.pushScope();
+        try self.injectGenericParams(model_data.generic_params, model_scope);
+        defer self.scope_manager.popScope();
 
         var fields = std.ArrayListUnmanaged(ModelField).empty;
 
@@ -321,6 +342,10 @@ pub const Sema = struct {
         // Function signature was already registered in Pass 2.
 
         const fn_scope = try self.scope_manager.pushScope();
+
+        // Inject generic type parameters first so param/return annotations
+        // that reference them (e.g. `x: T`) resolve correctly.
+        try self.injectGenericParams(fn_data.generic_params, fn_scope);
 
         for (fn_data.params) |param| {
             const param_data = param.data.param;
@@ -657,7 +682,9 @@ pub const Sema = struct {
         // Register generic parameter names in the trait's scope
         var methods = std.ArrayListUnmanaged(TraitMethod).empty;
         for (trait_data.methods) |method_node| {
-            const fn_data = method_node.data.fn_decl;
+            const fn_node = if (method_node.tag == .expression_stmt) method_node.data.expression_stmt.expr else method_node;
+            if (fn_node.tag != .fn_decl) continue;
+            const fn_data = fn_node.data.fn_decl;
             const method_name = try self.internString(fn_data.name.getText(self.source));
             const ret_type = if (fn_data.return_type) |rt|
                 try self.internString(rt.getText(self.source))
@@ -693,7 +720,9 @@ pub const Sema = struct {
 
         var impl_methods = std.ArrayListUnmanaged(TraitMethod).empty;
         for (impl_data.methods) |method_node| {
-            const fn_data = method_node.data.fn_decl;
+            const fn_node = if (method_node.tag == .expression_stmt) method_node.data.expression_stmt.expr else method_node;
+            if (fn_node.tag != .fn_decl) continue;
+            const fn_data = fn_node.data.fn_decl;
             const method_name = try self.internString(fn_data.name.getText(self.source));
             const ret_type = if (fn_data.return_type) |rt|
                 try self.internString(rt.getText(self.source))

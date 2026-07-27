@@ -302,6 +302,77 @@ test "sema.match_non_exhaustive_is_diagnosed" {
     try std.testing.expect(sema.diagnostics.hasErrors());
 }
 
+test "sema.trait_declaration_and_impl_passes" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\trait Printable {
+        \\    fn print(msg: string) -> void
+        \\}
+        \\
+        \\model Console {
+        \\    id: int
+        \\}
+        \\
+        \\impl Printable for Console {
+        \\    fn print(msg: string) -> void {
+        \\    }
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+    try std.testing.expect(sema.diagnostics.error_count == 0);
+}
+
+test "sema.impl_missing_trait_method_diagnosed" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\trait Renderable {
+        \\    fn render() -> void
+        \\}
+        \\
+        \\model Widget {
+        \\    width: int
+        \\}
+        \\
+        \\impl Renderable for Widget {
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    const sema = try Sema.create(allocator, source);
+    _ = sema.analyze(root) catch {};
+    try std.testing.expect(sema.diagnostics.hasErrors());
+}
+
+test "sema.generic_function_param_scope" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn identity[T](value: T) -> T {
+        \\    val copy: T = value
+        \\    return copy
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+    try std.testing.expect(sema.diagnostics.error_count == 0);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Workstream D: IR instruction structure tests (P0)
 // Pure unit tests — no parser/sema/allocator dependency

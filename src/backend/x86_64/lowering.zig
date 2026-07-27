@@ -402,7 +402,30 @@ pub const Lowering = struct {
                     };
                     try self.emitMov(block, phys_reg, op1_lir);
                 } else {
-                    @panic("Stack-passed arguments (>4/6) not yet implemented in native backend");
+                    // Stack-passed argument: sub rsp, 8  then  mov [rsp], src.
+                    // We use R10 as a scratch to materialise non-register sources.
+                    const rsp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rsp), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+
+                    // sub rsp, 8
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.sub_ri),
+                        .dest = rsp_phys,
+                        .op1 = .{ .imm_int = 8 },
+                    });
+
+                    // Materialize the value into R10 if it is not already a register.
+                    const src_reg: LirRegister = if (op1_lir == .reg) op1_lir.reg else blk: {
+                        try self.emitMov(block, r10_phys, op1_lir);
+                        break :blk r10_phys;
+                    };
+
+                    // mov [rsp], src_reg
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.mov_mr),
+                        .op1 = .{ .mem = .{ .base = rsp_phys, .disp = 0 } },
+                        .op2 = .{ .reg = src_reg },
+                    });
                 }
                 self.arg_count += 1;
             },

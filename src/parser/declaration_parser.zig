@@ -261,8 +261,7 @@ pub const DeclarationParser = struct {
 
         var methods = std.ArrayListUnmanaged(*Node).empty;
         while (!self.check(.CloseBrace) and !self.check(.EOF)) {
-            var stmt_parser = StatementParser.init(self.lexer, self.current_token, self.previous_token, self.allocator, self.source);
-            const fn_node = try stmt_parser.parseStatement();
+            const fn_node = try self.parseFunction(false, false);
             try methods.append(self.allocator, fn_node);
         }
 

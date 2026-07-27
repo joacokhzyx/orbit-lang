@@ -203,9 +203,321 @@ pub const RegisterAllocator = struct {
         return res_func;
     }
 
-    /// Linear-scan register allocator. Live intervals analysis and registers mapping.
+    /// Linear-scan register allocator (Poletto & Sarkar 1999).
+    ///
+    /// 1. Flatten all LIR instructions into a linear sequence and assign each
+    ///    one a unique program-point index.
+    /// 2. Compute live intervals [start, end) for every virtual register.
+    /// 3. Walk the intervals in start order, maintaining an "active" set of
+    ///    intervals that currently hold a physical register.
+    /// 4. Expire (free) intervals whose end precedes the current start.
+    /// 5. If a physical register is available, assign it.  Otherwise spill the
+    ///    interval with the furthest end (or the current interval if it ends later).
+    /// 6. Emit the final instructions replacing every virtual register reference
+    ///    with its assigned physical register, inserting loads/stores for spills.
     fn allocateLinear(self: *RegisterAllocator, func: *const LirFunction) !LirFunction {
-        // Fallback to stack allocator for correctness, registering it.
-        return try self.allocateStack(func);
+        // Caller-saved (volatile) registers we may freely use as scratch.
+        // We exclude RAX (used for return values), RCX/RDX/R8/R9 (ABI arg regs),
+        // RBP/RSP (frame pointers), and R10/R11 (reserved as scratch by lowering).
+        const pool = [_]RegisterId{ .rbx, .rsi, .rdi, .r12, .r13, .r14, .r15 };
+
+        // ── 1. Flatten instructions ──────────────────────────────────────────
+        // For each program point, record its block index and instruction index.
+        const Point = struct { block_idx: usize, instr_idx: usize };
+        var points = std.ArrayListUnmanaged(Point).empty;
+        defer points.deinit(self.allocator);
+
+        for (func.blocks.items, 0..) |*blk, bi| {
+            for (0..blk.instructions.items.len) |ii| {
+                try points.append(self.allocator, .{ .block_idx = bi, .instr_idx = ii });
+            }
+        }
+
+        // ── 2. Compute live intervals ────────────────────────────────────────
+        // Determine the maximum virtual register id.
+        var max_virt: u32 = 0;
+        for (func.blocks.items) |*blk| {
+            for (blk.instructions.items) |instr| {
+                if (instr.dest) |d| if (!d.is_physical and d.id > max_virt) { max_virt = d.id; };
+                inline for (.{ instr.op1, instr.op2, instr.op3 }) |op| {
+                    if (op == .reg and !op.reg.is_physical and op.reg.id > max_virt) {
+                        max_virt = op.reg.id;
+                    }
+                }
+            }
+        }
+
+        const Interval = struct { start: usize = 0, end: usize = 0, live: bool = false };
+        var intervals = try self.allocator.alloc(Interval, max_virt + 1);
+        defer self.allocator.free(intervals);
+        for (intervals) |*iv| iv.* = .{};
+
+        // Walk all points and update live ranges.
+        for (points.items, 0..) |pt, pp| {
+            const instr = func.blocks.items[pt.block_idx].instructions.items[pt.instr_idx];
+
+            if (instr.dest) |d| {
+                if (!d.is_physical) {
+                    const iv = &intervals[d.id];
+                    if (!iv.live) { iv.start = pp; iv.live = true; }
+                    if (pp > iv.end) iv.end = pp;
+                }
+            }
+            inline for (.{ instr.op1, instr.op2, instr.op3 }) |op| {
+                if (op == .reg and !op.reg.is_physical) {
+                    const iv = &intervals[op.reg.id];
+                    if (!iv.live) { iv.start = pp; iv.live = true; }
+                    if (pp > iv.end) iv.end = pp;
+                }
+            }
+        }
+
+        // ── 3. Linear scan ──────────────────────────────────────────────────
+        // reg_map[virt_id] = physical reg id, or null if spilled.
+        var reg_map = try self.allocator.alloc(?u32, max_virt + 1);
+        defer self.allocator.free(reg_map);
+        for (reg_map) |*r| r.* = null;
+
+        // spill_slot[virt_id] = stack slot index (1-based offset from base), or 0 = not spilled.
+        var spill_slot = try self.allocator.alloc(u32, max_virt + 1);
+        defer self.allocator.free(spill_slot);
+        for (spill_slot) |*s| s.* = 0;
+
+        var next_spill_slot: u32 = 1;
+        var phys_free: [pool.len]bool = undefined;
+        for (&phys_free) |*f| f.* = true; // all registers start free
+        // active[pool_idx] = (virt_id, end) of the interval currently using pool[pool_idx]
+        const ActiveEntry = struct { virt_id: u32, end: usize };
+        var active: [pool.len]?ActiveEntry = undefined;
+        for (&active) |*a| a.* = null;
+
+        // Build a sorted order (by interval start).
+        const sorted_ids = try self.allocator.alloc(u32, max_virt + 1);
+        defer self.allocator.free(sorted_ids);
+        for (sorted_ids, 0..) |*id, i| id.* = @intCast(i);
+        std.sort.pdq(u32, sorted_ids, intervals, struct {
+            fn lessThan(ivs: []Interval, a: u32, b: u32) bool {
+                return ivs[a].start < ivs[b].start;
+            }
+        }.lessThan);
+
+        for (sorted_ids) |vid| {
+            if (!intervals[vid].live) continue;
+            const cur_start = intervals[vid].start;
+            const cur_end   = intervals[vid].end;
+
+            // Expire intervals that ended before cur_start.
+            for (&active, 0..) |*ae, pi| {
+                if (ae.* == null) continue;
+                if (ae.*.?.end < cur_start) {
+                    phys_free[pi] = true;
+                    ae.* = null;
+                }
+            }
+
+            // Find a free physical register.
+            var assigned: ?usize = null;
+            for (phys_free, 0..) |free, pi| {
+                if (free) { assigned = pi; break; }
+            }
+
+            if (assigned) |pi| {
+                reg_map[vid] = @intFromEnum(pool[pi]);
+                phys_free[pi] = false;
+                active[pi] = .{ .virt_id = vid, .end = cur_end };
+            } else {
+                // Spill: find the active interval with the furthest end.
+                var spill_pi: usize = 0;
+                var spill_end: usize = 0;
+                for (active, 0..) |ae, pi| {
+                    if (ae) |a| {
+                        if (a.end > spill_end) { spill_end = a.end; spill_pi = pi; }
+                    }
+                }
+                if (spill_end > cur_end) {
+                    // Spill the active occupant; give its physical register to current.
+                    const victim = active[spill_pi].?;
+                    reg_map[vid] = @intFromEnum(pool[spill_pi]);
+                    reg_map[victim.virt_id] = null;
+                    spill_slot[victim.virt_id] = next_spill_slot;
+                    next_spill_slot += 1;
+                    active[spill_pi] = .{ .virt_id = vid, .end = cur_end };
+                } else {
+                    // Spill current interval.
+                    spill_slot[vid] = next_spill_slot;
+                    next_spill_slot += 1;
+                }
+            }
+        }
+
+        // If no intervals were live at all, fall back to stack allocator.
+        if (max_virt == 0 and !intervals[0].live) {
+            return self.allocateStack(func);
+        }
+
+        // ── 4. Rewrite instructions ──────────────────────────────────────────
+        // We keep the same stack-based prologue/epilogue structure but replace
+        // virtual register references with physical registers or memory loads/stores.
+
+        // Total stack size: base slots for spilled regs + shadow space.
+        const spill_count = next_spill_slot - 1;
+        var stack_size: u32 = func.stack_size;
+        if (spill_count * 8 > stack_size) stack_size = spill_count * 8;
+        // Align to 16 bytes.
+        stack_size = (stack_size + 15) & ~@as(u32, 15);
+
+        const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+        const r11_phys = LirRegister{ .id = @intFromEnum(RegisterId.r11), .is_physical = true };
+        const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+        const rsp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rsp), .is_physical = true };
+
+        // Helper: translate a virtual LirRegister into its physical assignment or
+        // return a scratch register (R11 for sources, RAX for destinations).
+        // If a virtual reg is spilled, the caller must emit a load/store explicitly.
+        const physReg = struct {
+            fn get(map: []const ?u32, r: LirRegister, scratch: LirRegister) LirRegister {
+                if (r.is_physical) return r;
+                if (map[r.id]) |phys| return .{ .id = phys, .is_physical = true };
+                return scratch;
+            }
+        }.get;
+
+        const slotOffset = struct {
+            fn get(sl: []const u32, r: LirRegister) ?i32 {
+                if (r.is_physical) return null;
+                if (sl[r.id] == 0) return null;
+                return -@as(i32, @intCast(sl[r.id] * 8));
+            }
+        }.get;
+
+        var res_func = LirFunction{
+            .name = try self.allocator.dupe(u8, func.name),
+            .stack_size = stack_size,
+        };
+        errdefer res_func.deinit(self.allocator);
+
+        for (func.blocks.items, 0..) |*block, block_idx| {
+            var res_block = LirBasicBlock{ .id = block.id };
+            errdefer res_block.deinit(self.allocator);
+
+            if (block_idx == 0) {
+                // Prologue
+                try res_block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.push_r),
+                    .op1 = .{ .reg = rbp_phys },
+                });
+                try res_block.instructions.append(self.allocator, .{
+                    .opcode = @intFromEnum(X86Opcode.mov_rr),
+                    .dest = rbp_phys,
+                    .op1 = .{ .reg = rsp_phys },
+                });
+                if (stack_size > 0) {
+                    try res_block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.sub_ri),
+                        .dest = rsp_phys,
+                        .op1 = .{ .imm_int = stack_size },
+                    });
+                }
+            }
+
+            for (block.instructions.items) |instr| {
+                const opcode: X86Opcode = @enumFromInt(instr.opcode);
+
+                if (opcode == .ret) {
+                    // Epilogue
+                    try res_block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .dest = rsp_phys,
+                        .op1 = .{ .reg = rbp_phys },
+                    });
+                    try res_block.instructions.append(self.allocator, .{
+                        .opcode = @intFromEnum(X86Opcode.pop_r),
+                        .op1 = .{ .reg = rbp_phys },
+                    });
+                    try res_block.instructions.append(self.allocator, instr);
+                    continue;
+                }
+
+                if (opcode == .jmp or opcode == .nop or opcode == .ud2) {
+                    try res_block.instructions.append(self.allocator, instr);
+                    continue;
+                }
+
+                var new_instr = instr;
+
+                // Resolve op1 (source register).
+                if (instr.op1 == .reg and !instr.op1.reg.is_physical) {
+                    const vr = instr.op1.reg;
+                    if (slotOffset(spill_slot, vr)) |off| {
+                        try res_block.instructions.append(self.allocator, .{
+                            .opcode = @intFromEnum(X86Opcode.mov_rm),
+                            .dest = r11_phys,
+                            .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
+                        });
+                        new_instr.op1 = .{ .reg = r11_phys };
+                    } else {
+                        new_instr.op1 = .{ .reg = physReg(reg_map, vr, r11_phys) };
+                    }
+                }
+
+                // Resolve op2 (source register, e.g. mov_mr).
+                if (instr.op2 == .reg and !instr.op2.reg.is_physical) {
+                    const vr = instr.op2.reg;
+                    if (slotOffset(spill_slot, vr)) |off| {
+                        try res_block.instructions.append(self.allocator, .{
+                            .opcode = @intFromEnum(X86Opcode.mov_rm),
+                            .dest = r11_phys,
+                            .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
+                        });
+                        new_instr.op2 = .{ .reg = r11_phys };
+                    } else {
+                        new_instr.op2 = .{ .reg = physReg(reg_map, vr, r11_phys) };
+                    }
+                }
+
+                // Resolve dest register.
+                var dest_spill_off: ?i32 = null;
+                if (instr.dest) |d| {
+                    if (!d.is_physical) {
+                        if (slotOffset(spill_slot, d)) |off| {
+                            dest_spill_off = off;
+                            // Load old value first for read-modify-write opcodes.
+                            if (destIsRead(opcode)) {
+                                try res_block.instructions.append(self.allocator, .{
+                                    .opcode = @intFromEnum(X86Opcode.mov_rm),
+                                    .dest = rax_phys,
+                                    .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
+                                });
+                            }
+                            new_instr.dest = rax_phys;
+                        } else {
+                            if (destIsRead(opcode)) {
+                                // Ensure the physical reg holds the current value.
+                                new_instr.dest = .{ .id = reg_map[d.id].?, .is_physical = true };
+                            } else {
+                                new_instr.dest = .{ .id = reg_map[d.id].?, .is_physical = true };
+                            }
+                        }
+                    }
+                }
+
+                try res_block.instructions.append(self.allocator, new_instr);
+
+                // Store spilled destination back to its stack slot.
+                if (dest_spill_off) |off| {
+                    if (destIsWritten(opcode)) {
+                        try res_block.instructions.append(self.allocator, .{
+                            .opcode = @intFromEnum(X86Opcode.mov_mr),
+                            .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
+                            .op2 = .{ .reg = rax_phys },
+                        });
+                    }
+                }
+            }
+
+            try res_func.blocks.append(self.allocator, res_block);
+        }
+
+        return res_func;
     }
 };
