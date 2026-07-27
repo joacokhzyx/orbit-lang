@@ -279,12 +279,12 @@ pub const Lowering = struct {
 
                 var is_string_cmp = false;
                 if (mir_instr.opcode == .eq or mir_instr.opcode == .ne) {
-                    if (mir_instr.op1 == .reg) {
+                    if (mir_instr.op1 == .imm_str or mir_instr.op2 == .imm_str) {
+                        is_string_cmp = true;
+                    } else if (mir_instr.op1 == .reg and mir_instr.op1.reg < mir_func.val_types.items.len) {
                         if (mir_func.val_types.items[mir_instr.op1.reg] == .string) {
                             is_string_cmp = true;
                         }
-                    } else if (mir_instr.op1 == .imm_str) {
-                        is_string_cmp = true;
                     }
                 }
 
@@ -381,7 +381,7 @@ pub const Lowering = struct {
                 });
             },
             .jmp_if => {
-                // MIR jmp_if cond target -> cmp cond, 0 -> je target
+                // MIR jmp_if coming from IR jump_if_false: cmp cond, 0 -> je target (jump if false/zero)
                 try block.instructions.append(self.allocator, .{
                     .opcode = @intFromEnum(X86Opcode.cmp_ri),
                     .dest = op1_lir.reg,

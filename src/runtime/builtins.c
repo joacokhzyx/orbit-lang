@@ -54,8 +54,10 @@ orbit_int orbit_clock_ns(void) {
     }
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
-    /* Scale to nanoseconds; use 128-bit intermediate via __int64 arithmetic */
-    return (orbit_int)((now.QuadPart * (LONGLONG)1000000000) / freq.QuadPart);
+    /* Scale to nanoseconds without 64-bit overflow */
+    LONGLONG sec = now.QuadPart / freq.QuadPart;
+    LONGLONG rem = now.QuadPart % freq.QuadPart;
+    return (orbit_int)(sec * 1000000000LL + (rem * 1000000000LL) / freq.QuadPart);
 #else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
