@@ -1415,7 +1415,25 @@ fn runBuildMode(
             }
         }
 
-        term.layout.renderBoxCardStderr(title, card_lines_buf[0..n_lines], 64);
+        std.debug.print("\n  {s}\n\n", .{title});
+        std.debug.print("  {s}\n", .{line1});
+        std.debug.print("  {s}\n", .{line2});
+        std.debug.print("  {s}\n", .{line3});
+        std.debug.print("  {s}\n", .{line4});
+        std.debug.print("  {s}\n", .{line5});
+
+        if (session.superluminal_boost_pct >= 0.5 or !no_kynx) {
+            std.debug.print("\n  ", .{});
+            if (session.superluminal_boost_pct >= 0.5) {
+                std.debug.print("{s}", .{maybe_boost});
+                if (!no_kynx) std.debug.print("  •  ", .{});
+            }
+            if (!no_kynx) {
+                std.debug.print("{s}", .{maybe_kynx});
+            }
+            std.debug.print("\n", .{});
+        }
+        std.debug.print("\n", .{});
     }
 }
 
