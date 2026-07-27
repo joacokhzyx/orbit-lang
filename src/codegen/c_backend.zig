@@ -341,6 +341,9 @@ pub const CBackend = struct {
         try self.registerArenaFunction("orbit_file_upload_save");
         try self.registerArenaFunction("orbit_http_param_get");
         try self.registerArenaFunction("orbit_http_body_get");
+        try self.registerArenaFunction("orbit_base64url_encode_str");
+        try self.registerArenaFunction("orbit_sha256_hex");
+        try self.registerArenaFunction("orbit_hmac_sha256_base64url");
 
         try self.function_return_types.put(self.allocator, "orbit_http_client_fetch", .string);
         try self.function_return_types.put(self.allocator, "orbit_cache_get", .string);
@@ -350,6 +353,10 @@ pub const CBackend = struct {
         try self.function_return_types.put(self.allocator, "orbit_http_body_get", .string);
         try self.function_return_types.put(self.allocator, "orbit_http_query_get", .string);
         try self.function_return_types.put(self.allocator, "orbit_http_header_get", .string);
+        try self.function_return_types.put(self.allocator, "orbit_base64url_encode_str", .string);
+        try self.function_return_types.put(self.allocator, "orbit_sha256_hex", .string);
+        try self.function_return_types.put(self.allocator, "orbit_hmac_sha256_base64url", .string);
+        try self.function_return_types.put(self.allocator, "orbit_string_slice", .string);
         try self.function_return_types.put(self.allocator, "orbit_auth_bearer_token", .string);
         try self.function_return_types.put(self.allocator, "orbit_auth_role", .string);
         try self.function_return_types.put(self.allocator, "orbit_auth_current_role", .string);

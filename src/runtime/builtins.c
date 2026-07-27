@@ -20,6 +20,12 @@
 #  include <windows.h>
 #endif
 
+void orbit_print(const char* str) {
+    if (str) printf("%s\n", str);
+    else printf("\n");
+    fflush(stdout);
+}
+
 /* ── Numeric ↔ String conversions ─────────────────────────────────────────── */
 
 /**

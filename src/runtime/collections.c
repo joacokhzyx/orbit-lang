@@ -371,14 +371,15 @@ static orbit_int orbit_string_at(orbit_string s, orbit_int index) {
 }
 
 static orbit_string orbit_string_slice(OrbitArena* arena, orbit_string s, orbit_int start, orbit_int end) {
-    if (!s || !arena) return "";
+    if (!s) return "";
+    OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
     orbit_int len = (orbit_int)strlen(s);
     if (start < 0) start = 0;
     if (end > len) end = len;
     if (start >= end) return "";
 
     orbit_int slice_len = end - start;
-    char* buf = (char*)orbit_alloc(arena, slice_len + 1);
+    char* buf = (char*)orbit_alloc(ar, slice_len + 1);
     if (!buf) return "";
     memcpy(buf, s + start, slice_len);
     buf[slice_len] = '\0';
@@ -419,8 +420,7 @@ orbit_string orbit_bool_to_string(OrbitArena* arena, orbit_bool value) {
 }
 
 static orbit_string orbit_string_concat(OrbitArena* arena, orbit_string a, orbit_string b) {
-    if (!arena) return "";
-
+    OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
     if (!a) a = "";
     if (!b) b = "";
 
@@ -428,7 +428,7 @@ static orbit_string orbit_string_concat(OrbitArena* arena, orbit_string a, orbit
     orbit_int b_len = (orbit_int)strlen(b);
     orbit_int total_len = a_len + b_len;
 
-    char* buf = (char*)orbit_alloc(arena, (size_t)total_len + 1);
+    char* buf = (char*)orbit_alloc(ar, (size_t)total_len + 1);
     if (!buf) return "";
 
     if (a_len > 0) memcpy(buf, a, (size_t)a_len);

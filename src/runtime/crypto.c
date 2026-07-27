@@ -9,12 +9,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "types.c"
 #include "arena.c"
 
 /* ── Base64URL Encoding & Decoding ────────────────────────────────────────── */
 
-static const char BASE64_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static const char BASE64URL_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 orbit_string orbit_base64url_encode(OrbitArena* arena, const uint8_t* data, size_t input_len) {
@@ -42,6 +42,12 @@ orbit_string orbit_base64url_encode(OrbitArena* arena, const uint8_t* data, size
 
     encoded[j] = '\0';
     return encoded;
+}
+
+orbit_string orbit_base64url_encode_str(OrbitArena* arena, const char* str) {
+    if (!str) return "";
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
+    return orbit_base64url_encode(a, (const uint8_t*)str, strlen(str));
 }
 
 /* ── SHA-256 Implementation ────────────────────────────────────────────────── */
@@ -120,9 +126,11 @@ void orbit_sha256(const uint8_t* data, size_t len, uint8_t hash[32]) {
 }
 
 orbit_string orbit_sha256_hex(OrbitArena* arena, const char* str) {
+    if (!str) return "";
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
     uint8_t hash[32];
     orbit_sha256((const uint8_t*)str, strlen(str), hash);
-    char* hex = (char*)orbit_alloc(arena, 65);
+    char* hex = (char*)orbit_alloc(a, 65);
     for (int i = 0; i < 32; i++) {
         sprintf(hex + i * 2, "%02x", hash[i]);
     }
@@ -166,9 +174,16 @@ void orbit_hmac_sha256(const uint8_t* key, size_t key_len, const uint8_t* data, 
 }
 
 orbit_string orbit_hmac_sha256_base64url(OrbitArena* arena, const char* key, const char* data) {
+    if (!key || !data) return "";
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
     uint8_t mac[32];
     orbit_hmac_sha256((const uint8_t*)key, strlen(key), (const uint8_t*)data, strlen(data), mac);
-    return orbit_base64url_encode(arena, mac, 32);
+    return orbit_base64url_encode(a, mac, 32);
+}
+
+bool orbit_streq(const char* a, const char* b) {
+    if (!a || !b) return false;
+    return strcmp(a, b) == 0;
 }
 
 #endif

@@ -551,4 +551,13 @@ uint64_t orbit_arena_alloc_count(const OrbitArena* arena) {
     return arena ? arena->alloc_count : 0;
 }
 
+static OrbitArena* g_orbit_global_fallback_arena = NULL;
+
+OrbitArena* orbit_arena_get_global(void) {
+    if (!g_orbit_global_fallback_arena) {
+        g_orbit_global_fallback_arena = orbit_arena_create(64 * 1024 * 1024);
+    }
+    return g_orbit_global_fallback_arena;
+}
+
 #endif
