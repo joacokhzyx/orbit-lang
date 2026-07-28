@@ -112,7 +112,10 @@ pub const RouteGenerator = struct {
             } else {
                 try self.output.print(self.allocator, "    }} else if (strcmp(req.method, \"{s}\") == 0 && strcmp(req.path, \"{s}\") == 0) {{\n", .{ route.method, route.path });
             }
+            try self.output.print(self.allocator, "        uint64_t _rhash = oracle_route_hash(\"{s}\", \"{s}\");\n", .{ route.method, route.path });
+            try self.output.appendSlice(self.allocator, "        oracle_begin_session(arena, _rhash);\n");
             try self.output.print(self.allocator, "        {s}(client, &req, arena);\n", .{route.func_name});
+            try self.output.appendSlice(self.allocator, "        oracle_end_session(arena);\n");
             try self.output.appendSlice(self.allocator, "        return keep_alive;\n");
         }
         try self.output.appendSlice(self.allocator, "    } else {\n");
