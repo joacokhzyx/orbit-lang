@@ -76,7 +76,7 @@ static void send_response(SOCKET fd, int status, const char *status_text, const 
         "HTTP/1.1 " + std::to_string(status) + " " + status_text + "\r\n"
         "Content-Type: text/plain\r\n"
         "Content-Length: " + std::to_string(body.size()) + "\r\n"
-        "Connection: close\r\n"
+        "Connection: keep-alive\r\n"
         "\r\n" + body;
     send_all(fd, response);
 }
@@ -86,14 +86,15 @@ static void handle_connection(SOCKET client) {
     std::string raw;
     raw.reserve(512);
 
-    while (raw.size() < 4096) {
-        int n = recv(client, buf, sizeof(buf), 0);
-        if (n <= 0) goto done;
-        raw.append(buf, n);
-        if (raw.find("\r\n") != std::string::npos) break;
-    }
+    while (running) {
+        raw.clear();
+        while (raw.size() < 4096) {
+            int n = recv(client, buf, sizeof(buf), 0);
+            if (n <= 0) goto done;
+            raw.append(buf, n);
+            if (raw.find("\r\n") != std::string::npos) break;
+        }
 
-    {
         size_t crlf = raw.find("\r\n");
         std::string_view first_line(raw.c_str(), crlf == std::string::npos ? raw.size() : crlf);
 
@@ -134,6 +135,8 @@ done:
     closesocket(client);
 }
 
+#include <thread>
+
 int main(int argc, char *argv[]) {
     if (argc < 2) return 1;
     int port = std::atoi(argv[1]);
@@ -147,6 +150,7 @@ int main(int argc, char *argv[]) {
     sa.sa_handler = handle_sig;
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT,  &sa, nullptr);
+    signal(SIGPIPE, SIG_IGN);
 #endif
 
     SOCKET server = socket(AF_INET, SOCK_STREAM, 0);
@@ -168,7 +172,7 @@ int main(int argc, char *argv[]) {
         socklen_t clen = sizeof(client_addr);
         SOCKET client = accept(server, (struct sockaddr *)&client_addr, &clen);
         if (client == INVALID_SOCKET) break;
-        handle_connection(client);
+        std::thread([client]() { handle_connection(client); }).detach();
     }
 
     closesocket(server);

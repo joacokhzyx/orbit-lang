@@ -1,23 +1,12 @@
-# Orbit Programming Language — VS Code Extension
+# Orbit Programming Language
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/Version-0.1.0-orange.svg)](package.json)
+[![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](STATUS.md)
+![Orbit Banner](banner.png)
 
 The official Visual Studio Code extension for **Orbit** — a high-performance, statically typed systems programming language engineered for high-concurrency web services and APIs.
 
-![Orbit Banner](../../assets/orbit_banner.png)
 
----
-
-## Features
-
-- **Built-in Language Server Protocol (LSP)**: Automatic background connection to `orbit lsp` providing real-time diagnostics, auto-completion, and hover documentation.
-- **Rich Syntax Highlighting**: Comprehensive TextMate grammar highlighting single-line directives (`port`, `cors`, `database`, `kynx`), HTTP methods (`GET`, `POST`), types (`Int`, `String`), annotations (`@auth`), and control flow.
-- **Smart Code Snippets**: Quick templates for routes, ORM models, Kynx Shield rate limiters, and server configurations.
-- **File Icons**: Official `.orb` file icon integration in VS Code file explorer.
-- **Zero Configuration**: Automatically resolves the `orbit` binary from system `PATH` or standard installation paths (`~/.orbit/bin/orbit`).
-
----
 
 ## Quickstart & Installation
 

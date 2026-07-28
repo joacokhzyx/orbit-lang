@@ -27,6 +27,17 @@ fn getUnixTimestamp() i64 {
     }
 }
 
+// ── Separator lines ──────────────────────────────────────────────────────────
+
+fn sepLine(comptime c: u8, comptime n: usize) [n + 1]u8 {
+    var buf: [n + 1]u8 = undefined;
+    @memset(buf[0..n], c);
+    buf[n] = '\n';
+    return buf;
+}
+const sep72 = sepLine('-', 72);
+const sep62 = sepLine('-', 62);
+
 // ── ANSI ─────────────────────────────────────────────────────────────────────
 
 const ansi = struct {
@@ -105,7 +116,7 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
             orbit_bin,                                                            "build",
             try std.fs.path.join(a, &.{ compute_dir, "bench.orb" }),              "-o",
             try std.fs.path.join(a, &.{ bin, "compute_orbit_steel" ++ exe_ext }), "--backend=steel",
-            "--linker=native",
+            "--linker=system",
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_orbit_steel" ++ exe_ext }),
@@ -114,7 +125,7 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
             orbit_bin,                                                           "build",
             try std.fs.path.join(a, &.{ http_dir, "server.orb" }),               "-o",
             try std.fs.path.join(a, &.{ bin, "server_orbit_steel" ++ exe_ext }), "--backend=steel",
-            "--linker=native",
+            "--linker=system",
         }),
         .http_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "server_orbit_steel" ++ exe_ext }),
@@ -129,17 +140,12 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
             orbit_bin,                                                             "build",
             try std.fs.path.join(a, &.{ compute_dir, "bench.orb" }),               "-o",
             try std.fs.path.join(a, &.{ bin, "compute_orbit_native" ++ exe_ext }), "--backend=native",
-            "--linker=native",
+            "--linker=system",
         }),
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_orbit_native" ++ exe_ext }),
         }),
-        .http_compile = try a.dupe([]const u8, &.{
-            orbit_bin,                                                            "build",
-            try std.fs.path.join(a, &.{ http_dir, "server.orb" }),                "-o",
-            try std.fs.path.join(a, &.{ bin, "server_orbit_native" ++ exe_ext }), "--backend=native",
-            "--linker=native",
-        }),
+        .http_compile = null,
         .http_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "server_orbit_native" ++ exe_ext }),
         }),
@@ -197,7 +203,10 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_c" ++ exe_ext }),
         }),
-        .http_compile = try a.dupe([]const u8, &.{
+        .http_compile = try a.dupe([]const u8, if (is_windows) &.{
+            "zig",                                                     "cc",                                                "-O2", "-o",
+            try std.fs.path.join(a, &.{ bin, "server_c" ++ exe_ext }), try std.fs.path.join(a, &.{ http_dir, "server.c" }), "-lws2_32",
+        } else &.{
             "zig",                                                     "cc",                                                "-O2", "-o",
             try std.fs.path.join(a, &.{ bin, "server_c" ++ exe_ext }), try std.fs.path.join(a, &.{ http_dir, "server.c" }),
         }),
@@ -217,7 +226,10 @@ fn allLangs(a: std.mem.Allocator, bench_dir: []const u8) ![]Lang {
         .compute_run = try a.dupe([]const u8, &.{
             try std.fs.path.join(a, &.{ bin, "compute_cpp" ++ exe_ext }),
         }),
-        .http_compile = try a.dupe([]const u8, &.{
+        .http_compile = try a.dupe([]const u8, if (is_windows) &.{
+            "zig",                                                       "c++",                                                 "-std=c++17", "-O2", "-o",
+            try std.fs.path.join(a, &.{ bin, "server_cpp" ++ exe_ext }), try std.fs.path.join(a, &.{ http_dir, "server.cpp" }), "-lws2_32",
+        } else &.{
             "zig",                                                       "c++",                                                 "-std=c++17", "-O2", "-o",
             try std.fs.path.join(a, &.{ bin, "server_cpp" ++ exe_ext }), try std.fs.path.join(a, &.{ http_dir, "server.cpp" }),
         }),
@@ -342,10 +354,11 @@ fn toolExists(alloc: std.mem.Allocator, io: std.Io, tool: []const u8) bool {
 
 // ── Compilation ───────────────────────────────────────────────────────────────
 
-fn compile(alloc: std.mem.Allocator, io: std.Io, argv: []const []const u8) !bool {
+fn compile(alloc: std.mem.Allocator, io: std.Io, environ_map: anytype, argv: []const []const u8) !bool {
     _ = alloc;
     var child = try std.process.spawn(io, .{
         .argv = argv,
+        .environ_map = environ_map,
         .stdin = .ignore,
         .stdout = .ignore,
         .stderr = .ignore,
@@ -426,12 +439,12 @@ fn stddev(values: []u64) u64 {
 
 fn waitForServerReady(io: std.Io, port: u16, timeout_ms: u64) !void {
     const addr = std.Io.net.IpAddress{ .ip4 = std.Io.net.Ip4Address.loopback(port) };
-    const start_time = try std.time.Instant.now();
-    const timeout_ns = timeout_ms * std.time.ns_per_ms;
+    const start = std.Io.Clock.Timestamp.now(io, .awake);
+    const timeout_ns: i96 = @intCast(timeout_ms * std.time.ns_per_ms);
     while (true) {
         const stream = addr.connect(io, .{ .mode = .stream }) catch {
-            const current_time = try std.time.Instant.now();
-            if (current_time.since(start_time) >= timeout_ns) {
+            const elapsed = start.durationTo(std.Io.Clock.Timestamp.now(io, .awake));
+            if (elapsed.raw.nanoseconds >= timeout_ns) {
                 return error.ServerTimeout;
             }
             std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .awake) catch {};
@@ -567,7 +580,7 @@ fn printComputeTable(
     try w.print("{s:<20} {s:<22} {s:>14} {s:>14}{s}\n", .{
         "Language", "Test", "Median", "Stddev", "",
     });
-    try w.writeAll(("─" ** 72) ++ "\n");
+    try w.writeAll(&sep72);
     for (results) |r| {
         if (r.skipped) {
             if (cfg.color) {
@@ -595,7 +608,7 @@ fn printHttpTable(w: anytype, results: []HttpResult, cfg: Config) !void {
     try w.print("{s:<20} {s:>12} {s:>10} {s:>10} {s:>10} {s:>8}\n", .{
         "Language", "RPS", "p50 ms", "p95 ms", "p99 ms", "Errors",
     });
-    try w.writeAll(("─" ** 72) ++ "\n");
+    try w.writeAll(&sep72);
     for (results) |r| {
         if (r.skipped) {
             if (cfg.color) {
@@ -620,7 +633,7 @@ fn printDeathTable(w: anytype, results: []DeathResult, cfg: Config) !void {
     try w.print("{s:<20} {s:>12} {s:>14} {s:>14}\n", .{
         "Language", "Peak RPS", "Time-to-death", "Requests total",
     });
-    try w.writeAll(("─" ** 62) ++ "\n");
+    try w.writeAll(&sep62);
     for (results) |r| {
         if (r.skipped) {
             if (cfg.color) {
@@ -792,6 +805,16 @@ pub fn main(init: std.process.Init) !void {
     // Create bin/ dir
     try ensureBinDir(alloc, init.io, cfg.bench_dir);
 
+    var environ_map = init.environ_map;
+    const bin_abs_path = std.fs.path.join(alloc, &.{ cfg.bench_dir, "bin" }) catch null;
+    if (bin_abs_path) |bp| {
+        if (environ_map.get("PATH")) |old_path| {
+            if (std.fmt.allocPrint(alloc, "{s};{s}", .{ bp, old_path })) |new_path| {
+                environ_map.put("PATH", new_path) catch {};
+            } else |_| {}
+        }
+    }
+
     // Detect + compile
     var available = try alloc.alloc(bool, langs.len);
     defer alloc.free(available);
@@ -809,7 +832,7 @@ pub fn main(init: std.process.Init) !void {
         // compile compute bench
         if (cfg.suite == .all or cfg.suite == .compute) {
             if (lang.compute_compile) |cc| {
-                const ok = compile(alloc, init.io, cc) catch false;
+                const ok = compile(alloc, init.io, environ_map, cc) catch false;
                 if (!ok) {
                     try stderr.print("  WARN  {s:<18}  compute compile failed\n", .{lang.id});
                     available[li] = false;
@@ -819,7 +842,7 @@ pub fn main(init: std.process.Init) !void {
         // compile http server
         if (cfg.suite == .all or cfg.suite == .http or cfg.suite == .death) {
             if (lang.http_compile) |hc| {
-                const ok = compile(alloc, init.io, hc) catch false;
+                const ok = compile(alloc, init.io, environ_map, hc) catch false;
                 if (!ok) {
                     try stderr.print("  WARN  {s:<18}  http compile failed\n", .{lang.id});
                     available[li] = false;
@@ -915,6 +938,16 @@ pub fn main(init: std.process.Init) !void {
             for (langs, 0..) |lang, li| {
                 if (!available[li]) continue;
                 if (!langInFilter(lang.id, cfg.lang_filter)) continue;
+
+                if (lang.http_compile == null and std.mem.eql(u8, lang.id, "orbit-native")) {
+                    try http_results.append(alloc, .{
+                        .lang_id = lang.id,
+                        .hey = .{},
+                        .skipped = true,
+                        .skip_reason = "http_routes unsupported by native backend",
+                    });
+                    continue;
+                }
 
                 defer port += 1;
                 const url_normal = try std.fmt.allocPrint(alloc, "http://127.0.0.1:{d}/", .{port});

@@ -52,3 +52,6 @@ repomix-output*.xml
 
 # Local agent skills/configs
 .agents/
+
+# Research / prototyping (git-ignored until stable)
+research/

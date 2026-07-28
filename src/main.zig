@@ -485,21 +485,17 @@ fn compileToBinary(
     profiler.record(&profiler.build_ir_ns);
 
     var has_db = false;
-    if (sema.has_server_init) {
-        has_db = true;
-    } else {
-        for (ir_module.functions.items) |func| {
-            for (func.instructions.items) |instr| {
-                switch (instr.opcode) {
-                    .db_get, .db_set, .db_all, .db_where => {
-                        has_db = true;
-                        break;
-                    },
-                    else => {},
-                }
+    for (ir_module.functions.items) |func| {
+        for (func.instructions.items) |instr| {
+            switch (instr.opcode) {
+                .db_get, .db_set, .db_all, .db_where => {
+                    has_db = true;
+                    break;
+                },
+                else => {},
             }
-            if (has_db) break;
         }
+        if (has_db) break;
     }
 
     // ── Superluminal multi-pass IR optimization pipeline ──────────────
@@ -1339,7 +1335,7 @@ fn runBuildMode(
 
     if (!use_cache) {
         const actual_out_path = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode, linker_mode);
-        std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
+        // std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
         try copyFile(init.io, arena, actual_out_path, out_bin_name);
     }
 

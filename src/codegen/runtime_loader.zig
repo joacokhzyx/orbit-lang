@@ -243,7 +243,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\
             \\int main(int argc, char* argv[]) {{
             \\    orbit_http_init();
-            \\    orbit_db_init("{s}");
+            \\    {s}
             \\    orbit_arena_pool_init({d}, {d});
             \\    orbit_string_pool_init({d});
             \\
@@ -338,7 +338,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\    orbit_kynx_cleanup();
             \\    orbit_arena_pool_cleanup();
             \\    orbit_string_pool_cleanup();
-            \\    orbit_db_close();
+            \\    {s}
             \\    orbit_http_cleanup();
             \\    orbit_socket_close(server_sock);
             \\    return _orbit_exit_code;
@@ -346,7 +346,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\
         , .{
             config.keepalive_timeout_s,
-            config.db_path,
+            if (has_db) try std.fmt.allocPrint(allocator, "orbit_db_init(\"{s}\");", .{config.db_path}) else "",
             config.arena_pool_size,
             config.arena_default_capacity,
             config.string_pool_capacity,
@@ -358,6 +358,7 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             config.port,
             config.worker_threads,
             superluminal_boost_pct,
+            if (has_db) "orbit_db_close();" else "",
         });
     } else {
         return try std.fmt.allocPrint(allocator,

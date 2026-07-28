@@ -96,20 +96,21 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
             result = ASTNode.Call(CallNode(result, args))
         } else {
             if matchToken(parser, TokType.Dot) {
+                consume(parser, TokType.Identifier, "Expected member name after '.'.")
                 val member = parser.previousToken.text
                 result = ASTNode.MemberAccess(MemberAccessNode(result, member))
             } else {
                 if matchToken(parser, TokType.OpenBracket) {
                     val index = parseExpression(parser)
                     consume(parser, TokType.CloseBracket, "Expected ']' after index.")
-                result = ASTNode.IndexAccess(IndexAccessNode(result, index))
-            } else {
-                parsing = false
+                    result = ASTNode.IndexAccess(IndexAccessNode(result, index))
+                } else {
+                    parsing = false
+                }
             }
         }
     }
-}
-return result
+    return result
 }
 
 fn parsePrimary(parser: Parser) -> ASTNode {
@@ -628,15 +629,20 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
 
 fn parseProgram(parser: Parser) -> ASTNode {
     var decls = []
+    print("[parseProgram] initial token tag=" + orbit_itoa(parser.currentToken.tag) + " eof=" + orbit_itoa(TokType.EOF))
     while check(parser, TokType.EOF) == false {
         val pLine = parser.currentToken.line
         val pCol = parser.currentToken.col
+        print("[parseProgram] parsing decl at line=" + orbit_itoa(pLine) + " col=" + orbit_itoa(pCol))
         val decl = parseDeclaration(parser)
         decls.push(decl)
+        print("[parseProgram] after push, decls.len=" + orbit_itoa(decls.len()) + " new token tag=" + orbit_itoa(parser.currentToken.tag))
         if parser.currentToken.line == pLine && parser.currentToken.col == pCol && check(parser, TokType.EOF) == false {
             advanceParser(parser)
         }
     }
+    print("[parseProgram] done, decls=" + orbit_itoa(decls.len()))
     return ASTNode.Program(ProgramNode(decls))
 }
+
 

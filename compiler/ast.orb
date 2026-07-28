@@ -8,7 +8,7 @@ model Loc {
 
 model ParamNode {
     name: string
-    type_name: string
+    typeName: string
 }
 
 model FieldInitNode {
@@ -18,7 +18,7 @@ model FieldInitNode {
 
 model TypeAnnotationNode {
     token: string
-    is_nullable: bool
+    isNullable: bool
 }
 
 model GenericParamNode {
@@ -28,38 +28,38 @@ model GenericParamNode {
 
 model DecoratorNode {
     name: string
-    args: list
+    arguments: list
 }
 
 model FieldDeclNode {
     name: string
-    field_type: string
+    fieldType: string
     decorators: list
 }
 
 model ModelDeclNode {
     name: string
     fields: list
-    generic_params: list
+    genericParams: list
 }
 
 model TypeDeclNode {
     name: string
     kind: string
     variants: list
-    base_type: string
+    baseType: string
 }
 
 model FunctionDeclNode {
     name: string
     params: list
-    param_types: list
-    return_type: string
+    paramTypes: list
+    returnType: string
     body: list
-    is_async: bool
-    is_private: bool
-    is_extern: bool
-    generic_params: list
+    isAsync: bool
+    isPrivate: bool
+    isExtern: bool
+    genericParams: list
 }
 
 model RouteDeclNode {
@@ -71,33 +71,33 @@ model RouteDeclNode {
 
 model TraitDeclNode {
     name: string
-    generic_params: list
+    genericParams: list
     methods: list
-    is_private: bool
+    isPrivate: bool
 }
 
 model ImplDeclNode {
-    trait_name: string
-    type_name: string
+    traitName: string
+    typeName: string
     methods: list
 }
 
 model VarDeclNode {
     name: string
-    is_mutable: bool
+    isMutable: bool
     value: list
 }
 
 model ConstDeclNode {
     name: string
     value: list
-    is_private: bool
+    isPrivate: bool
 }
 
 model ScheduleDeclNode {
     amount: string
     unit: string
-    at_time: string
+    atTime: string
     handler: list
 }
 
@@ -179,7 +179,7 @@ model UnaryOpNode {
 
 model CallNode {
     callee: list
-    arguments: list
+    args: list
 }
 
 model MemberAccessNode {
@@ -188,7 +188,7 @@ model MemberAccessNode {
 }
 
 model IndexAccessNode {
-    target: list
+    object: list
     index: list
 }
 

@@ -101,29 +101,17 @@ async fn main() {
 
     let listener = TcpListener::bind(addr).await.unwrap_or_else(|_| std::process::exit(1));
 
-    let shutdown = async {
-        signal::ctrl_c().await.ok();
-    };
-    tokio::pin!(shutdown);
-
     loop {
-        tokio::select! {
-            result = listener.accept() => {
-                let (stream, _) = match result {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                let io = TokioIo::new(stream);
-                tokio::spawn(async move {
-                    let _ = http1::Builder::new()
-                        .keep_alive(true)
-                        .serve_connection(io, service_fn(handle))
-                        .await;
-                });
-            }
-            _ = &mut shutdown => {
-                break;
-            }
-        }
+        let (stream, _) = match listener.accept().await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let io = TokioIo::new(stream);
+        tokio::spawn(async move {
+            let _ = http1::Builder::new()
+                .keep_alive(true)
+                .serve_connection(io, service_fn(handle))
+                .await;
+        });
     }
 }

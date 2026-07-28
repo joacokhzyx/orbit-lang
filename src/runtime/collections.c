@@ -36,6 +36,7 @@
 
 static OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity) {
     if (!arena || elem_size == 0) {
+        fprintf(stderr, "[collections] list_create FAILED: arena=%p elem_size=%zu\n", (void*)arena, elem_size);
         return orbit_result_err(ORBIT_ERR_INVALID_ARG, "list: null arena or zero elem_size");
     }
     if (initial_capacity == 0) initial_capacity = 8;

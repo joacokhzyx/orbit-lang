@@ -18,6 +18,7 @@
 #endif
 
 orbit_string orbit_os_cwd(OrbitArena* arena) {
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
 #ifdef _WIN32
     char buf[4096];
     if (!_getcwd(buf, sizeof(buf))) return "";
@@ -26,7 +27,7 @@ orbit_string orbit_os_cwd(OrbitArena* arena) {
     if (!getcwd(buf, sizeof(buf))) return "";
 #endif
     size_t len = strlen(buf);
-    char* result = (char*)orbit_alloc(arena, len + 1);
+    char* result = (char*)orbit_alloc(a, len + 1);
     if (!result) return "";
     memcpy(result, buf, len);
     result[len] = '\0';
@@ -42,13 +43,14 @@ bool orbit_os_chdir(orbit_string path) {
 }
 
 orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name) {
-    if (!var_name || !arena) return "";
+    if (!var_name) return "";
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
     
     char* val = getenv(var_name);
     if (!val) return "";
     
     size_t len = strlen(val);
-    char* buf = (char*)orbit_alloc(arena, len + 1);
+    char* buf = (char*)orbit_alloc(a, len + 1);
     if (!buf) return "";
     
     memcpy(buf, val, len);
@@ -57,7 +59,8 @@ orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name) {
 }
 
 orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command) {
-    if (!command || !arena) return "";
+    if (!command) return "";
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
 
 #ifdef _WIN32
     FILE* fp = _popen(command, "r");
@@ -95,7 +98,7 @@ orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command) {
     pclose(fp);
 #endif
 
-    char* result = (char*)orbit_alloc(arena, size + 1);
+    char* result = (char*)orbit_alloc(a, size + 1);
     if (result) {
         memcpy(result, buf, size);
         result[size] = '\0';
@@ -164,8 +167,9 @@ orbit_int orbit_os_argc(void) {
 
 orbit_string orbit_os_argv(OrbitArena* arena, orbit_int index) {
     if (index < 0 || index >= _orbit_argc) return "";
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
     size_t len = strlen(_orbit_argv[index]);
-    char* buf = (char*)orbit_alloc(arena, len + 1);
+    char* buf = (char*)orbit_alloc(a, len + 1);
     if (!buf) return "";
     memcpy(buf, _orbit_argv[index], len);
     buf[len] = '\0';

@@ -11,9 +11,17 @@ fn compileSource(source: string, outputPath: string) -> bool {
 }
 
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
-    print("[pipeline] Parsing program...")
+    print("[pipeline] Parsing program... source len=" + orbit_itoa(source.len()))
+    // DEBUG: direct list test
+    val testList = []
+    print("[pipeline] DEBUG: testList initial len=" + orbit_itoa(testList.len()))
+    testList.push(1)
+    print("[pipeline] DEBUG: after push1 len=" + orbit_itoa(testList.len()))
+    testList.push(2)
+    print("[pipeline] DEBUG: after push2 len=" + orbit_itoa(testList.len()))
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
+    print("[pipeline] Parser diagnostics: " + orbit_itoa(parser.diagnostics.len()))
     var i = 0
     while i < parser.diagnostics.len() {
         val diag: ParserDiagnostic = parser.diagnostics.get(i)
@@ -43,6 +51,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
     print("[pipeline] Building IR...")
     val builder = initIRBuilder()
     val irModule = buildAST(builder, ast)
+    print("[pipeline] IR module has " + orbit_itoa(irModule.functions.len()) + " functions")
 
     print("[pipeline] Code generation...")
     val backend = initCBackend(irModule)
@@ -58,6 +67,9 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
 
     print("[pipeline] Compiling executable binary...")
     val compCmd = "zig cc -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types \"" + cPath + "\" -o \"" + outputPath + "\" -I src/runtime -lws2_32"
-    orbit_os_exec(compCmd)
+    val compOutput = orbit_os_exec(compCmd)
+    if compOutput != "" {
+        print("[pipeline] Compiler output: " + compOutput)
+    }
     return true
 }

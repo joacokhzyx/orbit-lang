@@ -67,6 +67,7 @@ fn resolveFilePath(baseDir: string, relPath: string) -> string {
 fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) -> ASTNode {
     match ast {
         ASTNode.Program(p) => {
+            print("[resolver] Entered Program match with " + orbit_itoa(p.decls.len()) + " decls, basePath=" + basePath)
             val mut resolvedDecls = []
             val baseDir = getDir(basePath)
             var i = 0
@@ -103,8 +104,12 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
                 }
                 i = i + 1
             }
+            print("[resolver] Resolved " + orbit_itoa(resolvedDecls.len()) + " total decls")
             return ASTNode.Program(ProgramNode(resolvedDecls))
         }
-        _ => { return ast }
+        _ => {
+            print("[resolver] WARNING: ast is not a Program node!")
+            return ast
+        }
     }
 }

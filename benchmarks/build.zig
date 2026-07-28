@@ -13,13 +13,26 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Options forwarded to the harness (replaces the removed b.args API)
+    const suite_opt = b.option([]const u8, "suite", "Suite to run: all, compute, http, death (default: all)");
+    const lang_opt = b.option([]const u8, "lang", "Comma-separated language filter, e.g. go,rust");
+    const no_color = b.option(bool, "no-color", "Disable ANSI colour output") orelse false;
+
     const bench_step = b.step("bench", "Run the full Orbit benchmark suite");
     const run_harness = b.addRunArtifact(harness);
-    // Forward extra args: zig build bench -- --suite compute --lang go
+
     run_harness.addArg("--bench-dir");
     run_harness.addDirectoryArg(b.path("."));
-    if (b.args) |args| {
-        run_harness.addArgs(args);
+
+    if (suite_opt) |suite| {
+        run_harness.addArgs(&.{ "--suite", suite });
     }
+    if (lang_opt) |lang| {
+        run_harness.addArgs(&.{ "--lang", lang });
+    }
+    if (no_color) {
+        run_harness.addArg("--no-color");
+    }
+
     bench_step.dependOn(&run_harness.step);
 }

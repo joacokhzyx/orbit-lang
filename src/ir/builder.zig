@@ -1063,6 +1063,7 @@ pub const IRBuilder = struct {
             // Intercept collection methods
             if (std.mem.eql(u8, member_name, "push")) {
                 const obj = try self.buildExpr(ma.object);
+                std.debug.print("[IR DEBUG] buildCall: push handler, args.len={d}, func={s}\n", .{node.data.call.args.len, self.current_function.?.name});
                 if (node.data.call.args.len == 1) {
                     const val = try self.buildExpr(node.data.call.args[0]);
                     var instr = IRInstruction.init(.list_push);
@@ -1071,6 +1072,7 @@ pub const IRBuilder = struct {
                     const push_res = try self.current_function.?.allocRegister(self.allocator, .void);
                     instr.dest = push_res;
                     try self.current_function.?.emit(self.allocator, instr);
+                    std.debug.print("[IR DEBUG] buildCall: push EMITTED! func={s} instr_count={d}\n", .{self.current_function.?.name, self.current_function.?.instructions.items.len});
                     return IRValue{ .register = push_res };
                 }
             } else if (std.mem.eql(u8, member_name, "pop")) {

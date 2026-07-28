@@ -70,10 +70,10 @@ pub const CBackend = struct {
     boost_metrics: superluminal_boost.BoostMetrics = .{},
 
     pub fn getFunctionParamCount(self: *CBackend, func_name: []const u8) ?usize {
-        if (std.mem.indexOf(u8, func_name, "consume") != null) return 3;
-        if (std.mem.indexOf(u8, func_name, "matchToken") != null) return 2;
-        if (std.mem.indexOf(u8, func_name, "check") != null) return 2;
-        if (std.mem.indexOf(u8, func_name, "isAtEnd") != null) return 1;
+        if (std.mem.eql(u8, func_name, "consume") or std.mem.endsWith(u8, func_name, "_consume")) return 3;
+        if (std.mem.eql(u8, func_name, "matchToken") or std.mem.endsWith(u8, func_name, "_matchToken")) return 2;
+        if (std.mem.eql(u8, func_name, "check") or std.mem.endsWith(u8, func_name, "_check")) return 2;
+        if (std.mem.eql(u8, func_name, "isAtEnd") or std.mem.endsWith(u8, func_name, "_isAtEnd")) return 1;
         if (std.mem.eql(u8, func_name, "orbit_string_indexOf")) return 2;
         if (self.function_param_counts.get(func_name)) |c| return c;
         var it = self.function_param_counts.iterator();
@@ -89,10 +89,10 @@ pub const CBackend = struct {
     }
 
     pub fn getFunctionReturnType(self: *CBackend, func_name: []const u8) IRType {
-        if (std.mem.indexOf(u8, func_name, "consume") != null) return .void;
-        if (std.mem.indexOf(u8, func_name, "matchToken") != null) return .bool;
-        if (std.mem.indexOf(u8, func_name, "check") != null) return .bool;
-        if (std.mem.indexOf(u8, func_name, "isAtEnd") != null) return .bool;
+        if (std.mem.eql(u8, func_name, "consume") or std.mem.endsWith(u8, func_name, "_consume")) return .void;
+        if (std.mem.eql(u8, func_name, "matchToken") or std.mem.endsWith(u8, func_name, "_matchToken")) return .bool;
+        if (std.mem.eql(u8, func_name, "check") or std.mem.endsWith(u8, func_name, "_check")) return .bool;
+        if (std.mem.eql(u8, func_name, "isAtEnd") or std.mem.endsWith(u8, func_name, "_isAtEnd")) return .bool;
         if (std.mem.eql(u8, func_name, "orbit_string_indexOf")) return .int;
         if (self.function_return_types.get(func_name)) |t| return t;
         var it = self.function_return_types.iterator();
@@ -297,12 +297,19 @@ pub const CBackend = struct {
 
     // ─── Top-level generation ────────────────────────────────────────────────
 
+pub fn isMainFunctionName(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "main")) return true;
+    if (std.mem.eql(u8, name, "orbit_main")) return true;
+    if (std.mem.endsWith(u8, name, "_main")) return true;
+    return false;
+}
+
     /// Generate a complete C translation unit from `module` and return the
     /// resulting source text as a newly-allocated slice (caller owns memory).
     pub fn generate(self: *CBackend, module: IRModule) ![]const u8 {
         var has_orbit_entry = false;
         for (module.functions.items) |func| {
-            if (std.mem.eql(u8, func.name, "main") or std.mem.eql(u8, func.name, "orbit_main")) {
+            if (isMainFunctionName(func.name)) {
                 has_orbit_entry = true;
                 break;
             }
@@ -482,21 +489,17 @@ pub const CBackend = struct {
         }
 
         var has_db = false;
-        if (self.has_server_init) {
-            has_db = true;
-        } else {
-            for (module.functions.items) |func| {
-                for (func.instructions.items) |instr| {
-                    switch (instr.opcode) {
-                        .db_get, .db_set, .db_all, .db_where => {
-                            has_db = true;
-                            break;
-                        },
-                        else => {},
-                    }
+        for (module.functions.items) |func| {
+            for (func.instructions.items) |instr| {
+                switch (instr.opcode) {
+                    .db_get, .db_set, .db_all, .db_where => {
+                        has_db = true;
+                        break;
+                    },
+                    else => {},
                 }
-                if (has_db) break;
             }
+            if (has_db) break;
         }
 
         const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, has_db, self.config, self.boost_metrics.boostPercent());
@@ -515,7 +518,7 @@ pub const CBackend = struct {
         var func_name = try self.allocator.dupe(u8, func.name);
         defer self.allocator.free(func_name);
 
-        if (std.mem.eql(u8, func_name, "main")) {
+        if (isMainFunctionName(func_name)) {
             self.allocator.free(func_name);
             func_name = try self.allocator.dupe(u8, "orbit_main");
         }
@@ -531,11 +534,11 @@ pub const CBackend = struct {
         var ret_type: []const u8 = try self.mapTypeToC(func.return_type);
         if (std.mem.startsWith(u8, func_name, "route_")) {
             ret_type = "OrbitResponse*";
-        } else if (std.mem.eql(u8, func_name, "orbit_main")) {
+        } else if (std.mem.eql(u8, func_name, "orbit_main") or isMainFunctionName(func.name)) {
             ret_type = "int";
         }
 
-        const is_entry_or_route = std.mem.eql(u8, func.name, "main") or std.mem.startsWith(u8, func.name, "route_");
+        const is_entry_or_route = isMainFunctionName(func.name) or std.mem.startsWith(u8, func.name, "route_");
         if (!is_entry_or_route) {
             try self.output.appendSlice(self.allocator, "static ");
         }
@@ -544,7 +547,7 @@ pub const CBackend = struct {
         try self.output.appendSlice(self.allocator, func_name);
         try self.output.append(self.allocator, '(');
 
-        if (std.mem.eql(u8, func_name, "orbit_main")) {
+        if (std.mem.eql(u8, func_name, "orbit_main") or isMainFunctionName(func.name)) {
             try self.output.appendSlice(self.allocator, "OrbitArena* _init_arena");
         } else if (std.mem.startsWith(u8, func_name, "route_")) {
             try self.output.appendSlice(self.allocator, "OrbitArena* arena, OrbitRequest* req");
@@ -895,7 +898,7 @@ pub const CBackend = struct {
 
         try self.output.appendSlice(self.allocator, " {\n");
 
-        const is_main = std.mem.eql(u8, func.name, "main");
+        const is_main = isMainFunctionName(func.name);
         const is_route = std.mem.startsWith(u8, func.name, "route_");
 
         if (is_main) {
@@ -1105,67 +1108,33 @@ pub const CBackend = struct {
         }
 
         // Superluminal multi-pass optimization framework
-        var superopt_instructions: ?[]const IRInstruction = null;
-        defer if (superopt_instructions) |s| self.allocator.free(s);
-
         const superluminal_cost = @import("../superluminal/cost_model.zig");
 
-        var emit_slice: []const IRInstruction = func.instructions.items;
+        const emit_slice: []const IRInstruction = func.instructions.items;
 
         const base_cost = superluminal_cost.evaluateSlice(func.instructions.items);
         self.boost_metrics.total_instructions += func.instructions.items.len;
         self.boost_metrics.total_cost_before += base_cost.total();
 
-        if (func.instructions.items.len <= 20) {
-            var superopt = superluminal_superopt.Superoptimizer.init(self.allocator);
-            if (superopt.optimize(func.instructions.items) catch null) |opt| {
-                superopt_instructions = opt;
-                emit_slice = opt;
-                self.boost_metrics.superopt_improvements += 1;
-            }
-        }
-
         // Synthesis-based + pattern-based code emission
         var instr_i: usize = 0;
         var emit_cost = superluminal_cost.Cost{};
-        while (instr_i < emit_slice.len) {
-            if (superluminal_synthesis.findSynthesis(emit_slice, instr_i)) |m| {
-                self.boost_metrics.synthesis_hits += 1;
-                try self.emitSynthesis(emit_slice, m);
-                emit_cost.alu += 1;
-                instr_i += m.length;
-            } else if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
-                if (superluminal_emitter.emitPattern(self, emit_slice, m)) |_| {
-                    self.boost_metrics.pattern_hits += 1;
-                    emit_cost.alu += m.cost_after.alu;
-                    emit_cost.mem_read += m.cost_after.mem_read;
-                    emit_cost.mem_write += m.cost_after.mem_write;
-                    emit_cost.branch += m.cost_after.branch;
-                    emit_cost.reg_assign += m.cost_after.reg_assign;
-                    emit_cost.call += m.cost_after.call;
-                    instr_i += m.length;
-                } else |_| {
-                    try self.generateInstruction(emit_slice[instr_i]);
-                    const c = superluminal_cost.evaluate(emit_slice[instr_i]);
-                    emit_cost.alu += c.alu;
-                    emit_cost.mem_read += c.mem_read;
-                    emit_cost.mem_write += c.mem_write;
-                    emit_cost.branch += c.branch;
-                    emit_cost.reg_assign += c.reg_assign;
-                    emit_cost.call += c.call;
-                    instr_i += 1;
-                }
-            } else {
-                try self.generateInstruction(emit_slice[instr_i]);
-                const c = superluminal_cost.evaluate(emit_slice[instr_i]);
-                emit_cost.alu += c.alu;
-                emit_cost.mem_read += c.mem_read;
-                emit_cost.mem_write += c.mem_write;
-                emit_cost.branch += c.branch;
-                emit_cost.reg_assign += c.reg_assign;
-                emit_cost.call += c.call;
-                instr_i += 1;
+        if (std.mem.startsWith(u8, func.name, "compile")) {
+            std.debug.print("[CG DEBUG] func={s} instructions={d}\n", .{func.name, emit_slice.len});
+            for (emit_slice, 0..) |instr, idx| {
+                if (instr.opcode == .list_push) std.debug.print("[CG DEBUG]   idx={d}: list_push!\n", .{idx});
             }
+        }
+        while (instr_i < emit_slice.len) {
+            try self.generateInstruction(emit_slice[instr_i]);
+            const c = superluminal_cost.evaluate(emit_slice[instr_i]);
+            emit_cost.alu += c.alu;
+            emit_cost.mem_read += c.mem_read;
+            emit_cost.mem_write += c.mem_write;
+            emit_cost.branch += c.branch;
+            emit_cost.reg_assign += c.reg_assign;
+            emit_cost.call += c.call;
+            instr_i += 1;
         }
 
         var ref_labels = std.AutoHashMapUnmanaged(usize, void){};
@@ -1308,6 +1277,7 @@ pub const CBackend = struct {
             .load_const => {},
             .copy => {
                 if (instr.dest) |d| {
+                    try self.output.print(self.allocator, "r_{d} = ", .{d});
                     const d_type = if (self.current_func) |f| (if (d < f.register_types.items.len) f.register_types.items[d] else .unknown) else .unknown;
                     const val_is_int = switch (instr.operand1) {
                         .int => true,
@@ -1396,12 +1366,16 @@ pub const CBackend = struct {
                 } else if (d_type != .void) {
                     try self.output.appendSlice(self.allocator, "(void*)(uintptr_t)(");
                 }
-                if (self.model_field_owners.get(field_name)) |owner_model| {
+                const obj_type = self.getValueType(instr.operand1);
+                const owner_model_opt: ?[]const u8 = switch (obj_type) {
+                    .model => |m_name| m_name,
+                    else => self.model_field_owners.get(field_name),
+                };
+                if (owner_model_opt) |owner_model| {
                     try self.output.print(self.allocator, "(({s}*)", .{owner_model});
                     try self.generateValue(instr.operand1);
                     try self.output.appendSlice(self.allocator, ")");
                 } else {
-                    const obj_type = self.getValueType(instr.operand1);
                     if (obj_type == .unknown or obj_type == .void) {
                         try self.output.appendSlice(self.allocator, "((OrbitModel*)");
                         try self.generateValue(instr.operand1);
@@ -1710,7 +1684,12 @@ pub const CBackend = struct {
                     .symbol => |s| s,
                     else => "_",
                 };
-                if (self.model_field_owners.get(field_name)) |owner_model| {
+                const store_obj_type = self.getValueType(instr.operand1);
+                const store_owner_opt: ?[]const u8 = switch (store_obj_type) {
+                    .model => |m_name| m_name,
+                    else => self.model_field_owners.get(field_name),
+                };
+                if (store_owner_opt) |owner_model| {
                     try self.output.print(self.allocator, "(({s}*)", .{owner_model});
                     try self.generateValue(instr.operand1);
                     try self.output.appendSlice(self.allocator, ")");
@@ -1736,6 +1715,7 @@ pub const CBackend = struct {
                 try self.output.print(self.allocator, "); r_{d} = _lr.ok ? (OrbitList*)_lr.value : NULL; }}\n", .{instr.dest.?});
             },
             .list_push => {
+                std.debug.print("[CG DEBUG] list_push codegen! dest=r_{d}\n", .{if (instr.dest) |d| d else 99999});
                 try self.output.appendSlice(self.allocator, "orbit_list_push(");
                 try self.generateValue(instr.operand1);
                 try self.output.appendSlice(self.allocator, ", ");
@@ -2095,7 +2075,7 @@ pub const CBackend = struct {
             .bool => |v| try self.output.appendSlice(self.allocator, if (v) "true" else "false"),
             .register => |r| try self.output.print(self.allocator, "r_{d}", .{r}),
             .label => |l| try self.output.print(self.allocator, "label_{d}", .{l}),
-            .none => {},
+            .none => try self.output.appendSlice(self.allocator, "NULL"),
         }
     }
 

@@ -88,7 +88,7 @@ static void send_response(SOCKET fd, int status, const char *status_text,
         "HTTP/1.1 %d %s\r\n"
         "Content-Type: text/plain\r\n"
         "Content-Length: %zu\r\n"
-        "Connection: close\r\n"
+        "Connection: keep-alive\r\n"
         "\r\n",
         status, status_text, body_len);
     send(fd, header, hlen, 0);
@@ -97,56 +97,70 @@ static void send_response(SOCKET fd, int status, const char *status_text,
 
 static void handle_connection(SOCKET client) {
     char buf[BUF_SIZE];
-    int total = 0;
-    /* Read until we have the first line or buffer full */
-    while (total < BUF_SIZE - 1) {
-        int n = recv(client, buf + total, BUF_SIZE - 1 - total, 0);
-        if (n <= 0) goto done;
-        total += n;
-        buf[total] = '\0';
-        if (strstr(buf, "\r\n")) break;
-    }
+    while (running) {
+        int total = 0;
+        while (total < BUF_SIZE - 1) {
+            int n = recv(client, buf + total, BUF_SIZE - 1 - total, 0);
+            if (n <= 0) goto done;
+            total += n;
+            buf[total] = '\0';
+            if (strstr(buf, "\r\n")) break;
+        }
 
-    /* Null-terminate at first CRLF for parse_request */
-    char *crlf = strstr(buf, "\r\n");
-    if (crlf) *crlf = '\0';
+        char *crlf = strstr(buf, "\r\n");
+        if (crlf) *crlf = '\0';
 
-    char *method = NULL, *path = NULL, *query = NULL;
-    if (parse_request(buf, &method, &path, &query) < 0) {
-        send_response(client, 400, "Bad Request", "Not Found\n", 10);
-        goto done;
-    }
+        char *method = NULL, *path = NULL, *query = NULL;
+        if (parse_request(buf, &method, &path, &query) < 0) {
+            send_response(client, 400, "Bad Request", "Not Found\n", 10);
+            goto done;
+        }
 
-    if (strcmp(method, "GET") != 0) {
-        send_response(client, 404, "Not Found", "Not Found\n", 10);
-        goto done;
-    }
-
-    if (strcmp(path, "/") == 0) {
-        send_response(client, 200, "OK", "OK\n", 3);
-    } else if (strcmp(path, "/fib") == 0) {
-        const char *nstr = get_query_param(query, "n");
-        if (!nstr) {
+        if (strcmp(method, "GET") != 0) {
             send_response(client, 404, "Not Found", "Not Found\n", 10);
             goto done;
         }
-        char *end;
-        long long n = strtoll(nstr, &end, 10);
-        if (end == nstr) {
+
+        if (strcmp(path, "/") == 0) {
+            send_response(client, 200, "OK", "OK\n", 3);
+        } else if (strcmp(path, "/fib") == 0) {
+            const char *nstr = get_query_param(query, "n");
+            if (!nstr) {
+                send_response(client, 404, "Not Found", "Not Found\n", 10);
+                goto done;
+            }
+            char *end;
+            long long n = strtoll(nstr, &end, 10);
+            if (end == nstr) {
+                send_response(client, 404, "Not Found", "Not Found\n", 10);
+                goto done;
+            }
+            unsigned long long result = fib(n);
+            char body[32];
+            int blen = snprintf(body, sizeof(body), "%llu\n", result);
+            send_response(client, 200, "OK", body, (size_t)blen);
+        } else {
             send_response(client, 404, "Not Found", "Not Found\n", 10);
-            goto done;
         }
-        unsigned long long result = fib(n);
-        char body[32];
-        int blen = snprintf(body, sizeof(body), "%llu\n", result);
-        send_response(client, 200, "OK", body, (size_t)blen);
-    } else {
-        send_response(client, 404, "Not Found", "Not Found\n", 10);
     }
 
 done:
     closesocket(client);
 }
+
+#ifdef _WIN32
+static DWORD WINAPI conn_thread(LPVOID arg) {
+    SOCKET client = (SOCKET)(uintptr_t)arg;
+    handle_connection(client);
+    return 0;
+}
+#else
+static void* conn_thread(void* arg) {
+    SOCKET client = (SOCKET)(uintptr_t)arg;
+    handle_connection(client);
+    return NULL;
+}
+#endif
 
 int main(int argc, char *argv[]) {
     if (argc < 2) return 1;
@@ -158,10 +172,12 @@ int main(int argc, char *argv[]) {
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
 #else
     struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
     sa.sa_handler = handle_sig;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT,  &sa, NULL);
+    signal(SIGPIPE, SIG_IGN);
 #endif
 
     SOCKET server = socket(AF_INET, SOCK_STREAM, 0);
@@ -184,7 +200,17 @@ int main(int argc, char *argv[]) {
         socklen_t clen = sizeof(client_addr);
         SOCKET client = accept(server, (struct sockaddr *)&client_addr, &clen);
         if (client == INVALID_SOCKET) break;
-        handle_connection(client);
+#ifdef _WIN32
+        HANDLE th = CreateThread(NULL, 0, conn_thread, (LPVOID)(uintptr_t)client, 0, NULL);
+        if (th) CloseHandle(th);
+#else
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, conn_thread, (void*)(uintptr_t)client) == 0) {
+            pthread_detach(tid);
+        } else {
+            closesocket(client);
+        }
+#endif
     }
 
     closesocket(server);
