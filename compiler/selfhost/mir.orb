@@ -20,6 +20,12 @@ fn opCondBranch() -> int { return 7 }
 fn opReturn() -> int { return 8 }
 fn opAlloc() -> int { return 9 }
 
+// FSM Opcodes for Colorless Async
+fn opYield() -> int { return 10 }
+fn opResume() -> int { return 11 }
+fn opIoCall() -> int { return 12 }
+
+
 // Like ASTPool, MIR is purely Data-Oriented (SoA)
 model MIRPool {
     opcodes: list       // list of int (opcode)
@@ -63,17 +69,22 @@ fn initMIRFunction(name: string) -> MIRFunction {
     return MIRFunction(name, [], initMIRPool())
 }
 
-// Lowers an AST Function into a MIR SSA Function
+// Helper to detect I/O operations (mock)
+fn isIoCall(name: string) -> bool {
+    // Si la función empieza con 'fetch' o 'read', la consideramos bloqueante
+    // En el futuro, esto se verificará en el SymbolTable (Sema).
+    return name == "fetch" || name == "readFile"
+}
+
+// Lowers an AST Function into a MIR SSA Function (With FSM splitting)
 fn lowerFunction(ctx: QueryContext, funcNode: NodeIndex) -> MIRFunction {
     val name = getFunctionName(ctx, funcNode)
     val mirFn = initMIRFunction(name)
     
-    // Create entry block
-    val entryBlock = BasicBlock(0, -1, -1, [], [])
-    mirFn.blocks.push(entryBlock)
+    // Create entry block (State 0)
+    var currentBlock = BasicBlock(0, -1, -1, [], [])
+    var nextBlockId = 1
     
-    // Traverse the body linearly (naive for now)
-    var currentStmt = queryLhs(ctx, queryRhs(ctx, funcNode)) // func -> rhs (body/type) ... wait
     // Actually, body is extra or rhs depending on how we pushed it.
     // In dorb_parser: rhs = retType, extra = firstStmt
     var stmt = queryExtra(ctx, funcNode)
@@ -81,10 +92,34 @@ fn lowerFunction(ctx: QueryContext, funcNode: NodeIndex) -> MIRFunction {
     while stmt != -1 {
         val kind = queryKind(ctx, stmt)
         
+        // --- Colorless Async Block Splitting (FSM) ---
+        // Si detectamos una llamada a función que es I/O, partimos el bloque.
+        if kind == kindCall() {
+            // Pseudo-codigo: obtenemos nombre de función
+            val callName = queryText(ctx, queryLhs(ctx, stmt))
+            if isIoCall(callName) {
+                // Generamos un IoCall
+                val callOp = pushMirInst(mirFn.pool, opIoCall(), 0, stmt, -1, -1, stmt)
+                
+                // Generamos Yield (Suspender ejecución, retornar estado a epoll)
+                pushMirInst(mirFn.pool, opYield(), 0, nextBlockId, -1, -1, stmt)
+                
+                // Cerramos el bloque actual
+                mirFn.blocks.push(currentBlock)
+                
+                // Abrimos el siguiente bloque (Siguiente estado de la FSM)
+                currentBlock = BasicBlock(nextBlockId, -1, -1, [currentBlock.id], [])
+                nextBlockId = nextBlockId + 1
+                
+                // Generamos Resume (Retomar estado al despertar)
+                pushMirInst(mirFn.pool, opResume(), 0, currentBlock.id, callOp, -1, stmt)
+            }
+        }
+        // ---------------------------------------------
+        
         if kind == kindReturn() {
             // Lower return expression
             val exprNode = queryLhs(ctx, stmt)
-            // Just a mock operand for now
             val retOp = pushMirInst(mirFn.pool, opLoad(), 0, exprNode, -1, -1, exprNode)
             pushMirInst(mirFn.pool, opReturn(), 0, retOp, -1, -1, stmt)
         }
@@ -102,5 +137,6 @@ fn lowerFunction(ctx: QueryContext, funcNode: NodeIndex) -> MIRFunction {
         stmt = getNextSibling(ctx, stmt)
     }
     
+    mirFn.blocks.push(currentBlock)
     return mirFn
 }

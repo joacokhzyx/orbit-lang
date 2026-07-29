@@ -3,12 +3,14 @@ import "dorb_parser.orb"
 import "query.orb"
 import "sema.orb"
 import "mir.orb"
+import "c_backend.orb"
 import "../ast.orb"
 
 model CompilationResult {
     ok: bool
     ast: ASTPool
     mir: list // list of MIRFunction
+    c_code: string // El código C final generado
 }
 
 fn compileDORB(source: string) -> CompilationResult {
@@ -23,7 +25,7 @@ fn compileDORB(source: string) -> CompilationResult {
     
     if semaRes.ok == false {
         // En el futuro, reportSemaError(semaCtx, ...)
-        return CompilationResult(false, pool, [])
+        return CompilationResult(false, pool, [], "")
     }
     
     // Phase 3: Lowering to MIR (SSA Form)
@@ -51,5 +53,8 @@ fn compileDORB(source: string) -> CompilationResult {
         }
     }
     
-    return CompilationResult(true, pool, mirFunctions)
+    // Phase 4: C Backend Generation (FSM + Oracle)
+    val finalCode = generateCCode(mirFunctions)
+    
+    return CompilationResult(true, pool, mirFunctions, finalCode)
 }
