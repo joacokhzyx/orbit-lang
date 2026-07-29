@@ -208,3 +208,38 @@ model ContinueNode {
 }
 
 type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | Empty
+
+// --- DORB Architecture: Struct of Arrays (SoA) AST ---
+// These structures represent the Phase 1 goal: Zero-Allocation Parsing.
+
+type NodeIndex = int
+
+model TokenSpan {
+    start: int
+    len: int
+}
+
+model ASTPool {
+    kinds: list // list of int (NodeKind)
+    tokens: list // list of TokenSpan
+    
+    // Graph Edges (Index-based pointers to other nodes in the pool)
+    // -1 represents null/none
+    lhs: list 
+    rhs: list 
+    extra: list 
+}
+
+fn initASTPool() -> ASTPool {
+    return ASTPool([], [], [], [], [])
+}
+
+// Node Kinds
+fn kindProgram() -> int { return 1 }
+fn kindFunctionDecl() -> int { return 2 }
+fn kindModelDecl() -> int { return 3 }
+fn kindVarDecl() -> int { return 4 }
+fn kindReturn() -> int { return 5 }
+fn kindCall() -> int { return 6 }
+fn kindBinaryOp() -> int { return 7 }
+// To be expanded...
