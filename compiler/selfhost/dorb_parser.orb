@@ -2,9 +2,6 @@ import "../lexer.orb"
 import "../token.orb"
 import "../ast.orb"
 
-// The new DORB Parser implementation
-// Parses tokens and builds a flat SoA AST (ASTPool).
-
 model DorbParseContext {
     lexer: Lexer
     current: Token
@@ -26,18 +23,15 @@ fn advanceDorbCtx(ctx: DorbParseContext) {
     ctx.peek = nextToken(ctx.lexer)
 }
 
-// Push a node into the SoA Pool and return its index
 fn pushNode(ctx: DorbParseContext, kind: int, start: int, len: int, lhs: int, rhs: int, extra: int) -> int {
     ctx.pool.kinds.push(kind)
     ctx.pool.tokens.push(TokenSpan(start, len))
     ctx.pool.lhs.push(lhs)
     ctx.pool.rhs.push(rhs)
     ctx.pool.extra.push(extra)
-    // The index is the length of the array minus 1
     return ctx.pool.kinds.len() - 1
 }
 
-// Helper to push a simple Literal/Identifier token node
 fn pushTokenNode(ctx: DorbParseContext, kind: int) -> int {
     val start = ctx.current.pos
     val len = ctx.current.text.length
@@ -46,22 +40,20 @@ fn pushTokenNode(ctx: DorbParseContext, kind: int) -> int {
 
 fn parseDorbPrimary(ctx: DorbParseContext) -> NodeIndex {
     if ctx.current.tag == TokType.Identifier {
-        val idx = pushTokenNode(ctx, 100) // 100 = Identifier
+        val idx = pushTokenNode(ctx, kindIdentifier())
         advanceDorbCtx(ctx)
         return idx
     }
     if ctx.current.tag == TokType.IntegerLiteral {
-        val idx = pushTokenNode(ctx, 101) // 101 = Integer
+        val idx = pushTokenNode(ctx, kindLiteralInt())
         advanceDorbCtx(ctx)
         return idx
     }
     if ctx.current.tag == TokType.StringLiteral {
-        val idx = pushTokenNode(ctx, 102) // 102 = String
+        val idx = pushTokenNode(ctx, kindLiteralString())
         advanceDorbCtx(ctx)
         return idx
     }
-    
-    // Error fallback (we can introduce ErrorNode later)
     advanceDorbCtx(ctx)
     return -1
 }
@@ -70,19 +62,123 @@ fn parseDorbExpression(ctx: DorbParseContext) -> NodeIndex {
     return parseDorbPrimary(ctx)
 }
 
-fn parseDorbReturn(ctx: DorbParseContext) -> NodeIndex {
+fn parseDorbBlock(ctx: DorbParseContext) -> NodeIndex {
     val start = ctx.current.pos
-    advanceDorbCtx(ctx) // consume 'return'
+    if ctx.current.tag == TokType.OpenBrace { advanceDorbCtx(ctx) }
+    
+    var firstStmt = -1
+    var lastStmt = -1
+    
+    while ctx.current.tag != TokType.CloseBrace {
+        if ctx.current.tag == TokType.EOF { break }
+        val stmt = parseDorbStatement(ctx)
+        if firstStmt == -1 {
+            firstStmt = stmt
+        } else {
+            // Linked list via extra field
+            ctx.pool.extra.set(lastStmt, stmt)
+        }
+        lastStmt = stmt
+    }
+    
+    if ctx.current.tag == TokType.CloseBrace { advanceDorbCtx(ctx) }
+    return pushNode(ctx, kindBlock(), start, 2, firstStmt, -1, -1)
+}
+
+fn parseDorbIf(ctx: DorbParseContext) -> NodeIndex {
+    val start = ctx.current.pos
+    if ctx.current.tag == TokType.KeywordIf { advanceDorbCtx(ctx) }
+    
+    val condIdx = parseDorbExpression(ctx)
+    val bodyIdx = parseDorbBlock(ctx)
+    var elseIdx = -1
+    
+    if ctx.current.tag == TokType.KeywordElse {
+        advanceDorbCtx(ctx)
+        if ctx.current.tag == TokType.KeywordIf {
+            elseIdx = parseDorbIf(ctx)
+        } else {
+            elseIdx = parseDorbBlock(ctx)
+        }
+    }
+    
+    return pushNode(ctx, kindIf(), start, 2, condIdx, bodyIdx, elseIdx)
+}
+
+fn parseDorbWhile(ctx: DorbParseContext) -> NodeIndex {
+    val start = ctx.current.pos
+    if ctx.current.tag == TokType.KeywordWhile { advanceDorbCtx(ctx) }
+    val condIdx = parseDorbExpression(ctx)
+    val bodyIdx = parseDorbBlock(ctx)
+    return pushNode(ctx, kindWhile(), start, 5, condIdx, bodyIdx, -1)
+}
+
+fn parseDorbVarDecl(ctx: DorbParseContext, isMutable: bool) -> NodeIndex {
+    val start = ctx.current.pos
+    advanceDorbCtx(ctx) // val/var
+    
+    val nameIdx = pushTokenNode(ctx, kindIdentifier())
+    if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
+    
+    var valIdx = -1
+    if ctx.current.tag == TokType.Equal {
+        advanceDorbCtx(ctx)
+        valIdx = parseDorbExpression(ctx)
+    }
+    
+    val mutFlag = 0
+    if isMutable { mutFlag = 1 }
+    
+    return pushNode(ctx, kindVarDecl(), start, 3, nameIdx, valIdx, mutFlag)
+}
+
+fn parseDorbMatch(ctx: DorbParseContext) -> NodeIndex {
+    val start = ctx.current.pos
+    if ctx.current.tag == TokType.KeywordMatch { advanceDorbCtx(ctx) }
     val exprIdx = parseDorbExpression(ctx)
-    return pushNode(ctx, kindReturn(), start, 6, exprIdx, -1, -1)
+    
+    if ctx.current.tag == TokType.OpenBrace { advanceDorbCtx(ctx) }
+    
+    var firstCase = -1
+    var lastCase = -1
+    
+    while ctx.current.tag != TokType.CloseBrace {
+        if ctx.current.tag == TokType.EOF { break }
+        val cStart = ctx.current.pos
+        val patIdx = parseDorbExpression(ctx)
+        if ctx.current.tag == TokType.Arrow { advanceDorbCtx(ctx) } // => or ->
+        val bodyIdx = parseDorbBlock(ctx)
+        
+        val caseIdx = pushNode(ctx, kindMatchCase(), cStart, 4, patIdx, bodyIdx, -1)
+        
+        if firstCase == -1 {
+            firstCase = caseIdx
+        } else {
+            ctx.pool.extra.set(lastCase, caseIdx)
+        }
+        lastCase = caseIdx
+        
+        if ctx.current.tag == TokType.Comma { advanceDorbCtx(ctx) }
+    }
+    
+    if ctx.current.tag == TokType.CloseBrace { advanceDorbCtx(ctx) }
+    
+    return pushNode(ctx, kindMatch(), start, 5, exprIdx, firstCase, -1)
 }
 
 fn parseDorbStatement(ctx: DorbParseContext) -> NodeIndex {
     if ctx.current.tag == TokType.KeywordReturn {
-        return parseDorbReturn(ctx)
+        val start = ctx.current.pos
+        advanceDorbCtx(ctx)
+        val exprIdx = parseDorbExpression(ctx)
+        return pushNode(ctx, kindReturn(), start, 6, exprIdx, -1, -1)
     }
+    if ctx.current.tag == TokType.KeywordVal { return parseDorbVarDecl(ctx, false) }
+    if ctx.current.tag == TokType.KeywordVar { return parseDorbVarDecl(ctx, true) }
+    if ctx.current.tag == TokType.KeywordIf { return parseDorbIf(ctx) }
+    if ctx.current.tag == TokType.KeywordWhile { return parseDorbWhile(ctx) }
+    if ctx.current.tag == TokType.KeywordMatch { return parseDorbMatch(ctx) }
     
-    // Expression statement
     return parseDorbExpression(ctx)
 }
 
@@ -90,51 +186,86 @@ fn parseDorbFunction(ctx: DorbParseContext) -> NodeIndex {
     val start = ctx.current.pos
     if ctx.current.tag == TokType.KeywordFn { advanceDorbCtx(ctx) }
     
-    val nameIdx = pushTokenNode(ctx, 100) // Identifier
+    val nameIdx = pushTokenNode(ctx, kindIdentifier())
     if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
     
     if ctx.current.tag == TokType.OpenParen { advanceDorbCtx(ctx) }
-    // Skip params for now
     while ctx.current.tag != TokType.CloseParen { advanceDorbCtx(ctx) }
     if ctx.current.tag == TokType.CloseParen { advanceDorbCtx(ctx) }
     
-    // Skip return type
     var retTypeIdx = -1
     if ctx.current.tag == TokType.Arrow {
         advanceDorbCtx(ctx)
-        retTypeIdx = pushTokenNode(ctx, 100)
+        retTypeIdx = pushTokenNode(ctx, kindIdentifier())
         if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
     }
     
+    val bodyIdx = parseDorbBlock(ctx)
+    return pushNode(ctx, kindFunctionDecl(), start, 2, nameIdx, retTypeIdx, bodyIdx)
+}
+
+fn parseDorbModel(ctx: DorbParseContext) -> NodeIndex {
+    val start = ctx.current.pos
+    if ctx.current.tag == TokType.KeywordModel { advanceDorbCtx(ctx) }
+    
+    val nameIdx = pushTokenNode(ctx, kindIdentifier())
+    if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
+    
     if ctx.current.tag == TokType.OpenBrace { advanceDorbCtx(ctx) }
     
-    // We can link body statements using a linked list structure in SoA,
-    // or allocate a continuous slice in a separate `statements` array.
-    // For now, we will store the first statement as LHS.
-    var firstStmtIdx = -1
+    var firstField = -1
+    var lastField = -1
     
     while ctx.current.tag != TokType.CloseBrace {
         if ctx.current.tag == TokType.EOF { break }
-        val stmtIdx = parseDorbStatement(ctx)
-        if firstStmtIdx == -1 {
-            firstStmtIdx = stmtIdx
+        val fStart = ctx.current.pos
+        val fnameIdx = pushTokenNode(ctx, kindIdentifier())
+        if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
+        
+        if ctx.current.tag == TokType.Colon { advanceDorbCtx(ctx) }
+        
+        val ftypeIdx = pushTokenNode(ctx, kindIdentifier())
+        if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
+        
+        val fIdx = pushNode(ctx, kindFieldDecl(), fStart, 5, fnameIdx, ftypeIdx, -1)
+        
+        if firstField == -1 {
+            firstField = fIdx
+        } else {
+            ctx.pool.extra.set(lastField, fIdx)
         }
+        lastField = fIdx
     }
-    if ctx.current.tag == TokType.CloseBrace { advanceDorbCtx(ctx) }
     
-    return pushNode(ctx, kindFunctionDecl(), start, 2, nameIdx, retTypeIdx, firstStmtIdx)
+    if ctx.current.tag == TokType.CloseBrace { advanceDorbCtx(ctx) }
+    return pushNode(ctx, kindModelDecl(), start, 5, nameIdx, firstField, -1)
 }
 
 fn parseDorbProgram(source: string) -> ASTPool {
     val ctx = initDorbContext(source)
     
     var firstDecl = -1
+    var lastDecl = -1
+    
     while ctx.current.tag != TokType.EOF {
+        var declIdx = -1
         if ctx.current.tag == TokType.KeywordFn {
-            val declIdx = parseDorbFunction(ctx)
-            if firstDecl == -1 { firstDecl = declIdx }
+            declIdx = parseDorbFunction(ctx)
         } else {
-            advanceDorbCtx(ctx)
+            if ctx.current.tag == TokType.KeywordModel {
+                declIdx = parseDorbModel(ctx)
+            } else {
+                advanceDorbCtx(ctx)
+            }
+        }
+        
+        if declIdx != -1 {
+            if firstDecl == -1 {
+                firstDecl = declIdx
+            } else {
+                ctx.pool.extra.set(lastDecl, declIdx)
+            }
+            lastDecl = declIdx
         }
     }
     

@@ -1,0 +1,76 @@
+// compiler/selfhost/query.orb
+// Orbit DORB Architecture: Semantic Query System (Lazy)
+
+import "../ast.orb"
+
+model QueryContext {
+    source: string
+    pool: ASTPool
+}
+
+fn initQueryContext(source: string, pool: ASTPool) -> QueryContext {
+    return QueryContext(source, pool)
+}
+
+// Low-level structural queries (O(1) lookups into the SoA arrays)
+
+fn queryKind(ctx: QueryContext, node: NodeIndex) -> int {
+    if node < 0 { return 0 }
+    if node >= ctx.pool.kinds.len() { return 0 }
+    return ctx.pool.kinds.get(node)
+}
+
+fn queryText(ctx: QueryContext, node: NodeIndex) -> string {
+    if node < 0 { return "" }
+    if node >= ctx.pool.tokens.len() { return "" }
+    val span = ctx.pool.tokens.get(node)
+    return ctx.source.slice(span.start, span.start + span.len)
+}
+
+fn queryLhs(ctx: QueryContext, node: NodeIndex) -> NodeIndex {
+    if node < 0 { return -1 }
+    return ctx.pool.lhs.get(node)
+}
+
+fn queryRhs(ctx: QueryContext, node: NodeIndex) -> NodeIndex {
+    if node < 0 { return -1 }
+    return ctx.pool.rhs.get(node)
+}
+
+fn queryExtra(ctx: QueryContext, node: NodeIndex) -> NodeIndex {
+    if node < 0 { return -1 }
+    return ctx.pool.extra.get(node)
+}
+
+// Semantic Lazy Queries
+
+fn getFunctionName(ctx: QueryContext, funcNode: NodeIndex) -> string {
+    if queryKind(ctx, funcNode) != kindFunctionDecl() { return "" }
+    val nameIdx = queryLhs(ctx, funcNode)
+    return queryText(ctx, nameIdx)
+}
+
+fn getFunctionReturnType(ctx: QueryContext, funcNode: NodeIndex) -> string {
+    if queryKind(ctx, funcNode) != kindFunctionDecl() { return "" }
+    val typeIdx = queryRhs(ctx, funcNode)
+    if typeIdx == -1 { return "void" }
+    return queryText(ctx, typeIdx)
+}
+
+fn getModelName(ctx: QueryContext, modelNode: NodeIndex) -> string {
+    if queryKind(ctx, modelNode) != kindModelDecl() { return "" }
+    val nameIdx = queryLhs(ctx, modelNode)
+    return queryText(ctx, nameIdx)
+}
+
+fn resolveIdentifierType(ctx: QueryContext, identNode: NodeIndex) -> string {
+    if queryKind(ctx, identNode) != kindIdentifier() { return "unknown" }
+    // En el futuro, esta query buscará en el scope de forma lazy
+    // retornando el tipo inferido sin haber precalculado todo el archivo.
+    return "unknown"
+}
+
+// Iteration Helpers (since we use linked lists via 'extra' field)
+fn getNextSibling(ctx: QueryContext, node: NodeIndex) -> NodeIndex {
+    return queryExtra(ctx, node)
+}

@@ -242,4 +242,13 @@ fn kindVarDecl() -> int { return 4 }
 fn kindReturn() -> int { return 5 }
 fn kindCall() -> int { return 6 }
 fn kindBinaryOp() -> int { return 7 }
-// To be expanded...
+fn kindIf() -> int { return 8 }
+fn kindWhile() -> int { return 9 }
+fn kindMatch() -> int { return 10 }
+fn kindMatchCase() -> int { return 11 }
+fn kindFieldDecl() -> int { return 12 }
+fn kindTypeDecl() -> int { return 13 }
+fn kindBlock() -> int { return 14 }
+fn kindLiteralInt() -> int { return 101 }
+fn kindLiteralString() -> int { return 102 }
+fn kindIdentifier() -> int { return 100 }
