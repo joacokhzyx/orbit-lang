@@ -1,0 +1,20 @@
+// Orbit Self-Hosted Frontend Entry Point
+import "parser.orb"
+import "sema.orb"
+import "../ast.orb"
+
+fn compile(source: string) -> SemaContext {
+    val parseRes = parseProgram(initContext(source))
+    val ctx = initSemaContext()
+    
+    if parseRes.ok {
+        val semaRes = analyzeProgram(ctx, parseRes.value)
+        if semaRes.ok == false {
+            reportSemaError(ctx, semaRes.error.code, semaRes.error.message)
+        }
+    } else {
+        reportSemaError(ctx, parseRes.error.code, "Parse error: " + parseRes.error.message)
+    }
+    
+    return ctx
+}

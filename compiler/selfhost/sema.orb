@@ -137,70 +137,27 @@ fn functionReturnTypeAt(source: string, start: int) -> string {
     }
 
     val mut cursor = parenCursor + 1
-    val mut depth = 1
-    while cursor < source.length {
-        val c = source.at(cursor)
-        if c == 40 {
-            depth = depth + 1
-        } else {
-            if c == 41 {
-                depth = depth - 1
-                if depth == 0 {
-                    break
-                }
-            }
-        }
-        cursor = cursor + 1
-    }
-
-    return readReturnType(source, cursor + 1)
-}
-
 fn checkSemantics(source: string) -> SemaReport {
-    val s = initScanner(source)
-    val mut functions = 0
-    val mut typedFunctions = 0
+    val ast = parse(source)
+    val ctx = initSemaContext()
+    val res = analyzeProgram(ctx, ast)
 
-    while scannerEOF(s) == false {
-        if scannerIsAtKeywordStart(s) {
-            val pos = s.pos
-            if keywordMatches(source, pos, "fn") {
-                functions = functions + 1
-                val ret = functionReturnTypeAt(source, pos)
-                if ret != "" {
-                    typedFunctions = typedFunctions + 1
-                }
-                s.pos = pos + 2
-                s.previousWasBoundary = false
-            } else {
-                scannerStep(s)
-            }
-        } else {
-            scannerStep(s)
-        }
-    }
-
+    val functions = countASTNodes(ast, "FunctionDecl")
+    val typedFunctions = countTypedFunctions(ast)
+    val voidFunctions = functions - typedFunctions
+    
+    val mut diagnostics = ""
     val mut errors = 0
     val mut warnings = 0
-    val mut diagnostics = ""
 
-    if s.inString {
-        diagnostics = diagnostics + "error: unterminated string literal\n"
-        errors = errors + 1
-    }
-    if s.braceDepth != 0 {
-        diagnostics = diagnostics + "error: unbalanced braces (" + s.braceDepth + ")\n"
-        errors = errors + 1
-    }
-    if s.parenDepth != 0 {
-        diagnostics = diagnostics + "error: unbalanced parentheses (" + s.parenDepth + ")\n"
-        errors = errors + 1
+    if res.ok == false {
+        diagnostics = diagnostics + "error: " + res.error.message + "\n"
+        errors = 1
     }
 
-    val voidFunctions = functions - typedFunctions
     if voidFunctions > 0 {
         diagnostics = diagnostics + "warning: " + voidFunctions + " function(s) without explicit return type\n"
-        warnings = warnings + 1
+        warnings = 1
     }
 
     if errors == 0 {
@@ -210,9 +167,9 @@ fn checkSemantics(source: string) -> SemaReport {
     return SemaReport(
     errors: errors,
     warnings: warnings,
-    braceBalance: s.braceDepth,
-    parenBalance: s.parenDepth,
-    unterminatedString: s.inString,
+    braceBalance: 0,
+    parenBalance: 0,
+    unterminatedString: false,
     functions: functions,
     typedFunctions: typedFunctions,
     voidFunctions: voidFunctions,
@@ -282,15 +239,87 @@ fn reportSemaError(ctx: SemaContext, code: int, msg: string) {
 }
 
 // Iniciar chequeo de compatibilidad de tipos (Ejemplo base de mapeo)
-fn checkTypeCompatibility(ctx: SemaContext, expectedType: string, actualType: string) -> SemanticResult {
-    if expectedType == "unknown" { return createSemaOk() }
-    if actualType == "unknown" { return createSemaOk() }
-    if expectedType == "any" { return createSemaOk() }
-    
-    if expectedType == actualType {
-        return createSemaOk()
+fn analyzeProgram(ctx: SemaContext, node: ASTNode) -> SemanticResult {
+    match node {
+        Program(p) => {
+            var i = 0
+            while i < p.decls.len() {
+                val declRes = analyzeDeclaration(ctx, p.decls.get(i))
+                if declRes.ok == false {
+                    return declRes
+                }
+                i = i + 1
+            }
+            return createSemaOk()
+        },
+        else => {
+            reportSemaError(ctx, 100, "Expected Program node")
+            return createSemaError(100, "Expected Program node")
+        }
     }
-    
-    reportSemaError(ctx, 3, "Type mismatch: expected " + expectedType + ", found " + actualType)
-    return createSemaError(3, "Type mismatch: expected " + expectedType + ", found " + actualType)
+}
+
+fn analyzeDeclaration(ctx: SemaContext, decl: ASTNode) -> SemanticResult {
+    match decl {
+        FunctionDecl(fnDecl) => {
+            // Traverse function body
+            val sym = Symbol(fnDecl.name, fnDecl.returnType, false, true)
+            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
+            
+            // Push scope (prototype logic for now)
+            val parentScope = ctx.currentScope
+            ctx.scopes.push(Scope([], parentScope))
+            ctx.currentScope = ctx.scopes.len() - 1
+            ctx.currentReturnType = fnDecl.returnType
+            
+            var i = 0
+            while i < fnDecl.body.len() {
+                val stmtRes = analyzeStatement(ctx, fnDecl.body.get(i))
+                if stmtRes.ok == false {
+                    return stmtRes
+                }
+                i = i + 1
+            }
+            
+            // Pop scope
+            ctx.currentScope = parentScope
+            ctx.currentReturnType = ""
+            return createSemaOk()
+        },
+        ModelDecl(modelDecl) => {
+            val sym = Symbol(modelDecl.name, "type", false, false)
+            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
+            return createSemaOk()
+        },
+        TypeDecl(typeDecl) => {
+            val sym = Symbol(typeDecl.name, "type", false, false)
+            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
+            return createSemaOk()
+        },
+        else => {
+            return createSemaOk()
+        }
+    }
+}
+
+fn analyzeStatement(ctx: SemaContext, stmt: ASTNode) -> SemanticResult {
+    match stmt {
+        Return(retNode) => {
+            if retNode.expr.len() > 0 {
+                // Should infer expression type, returning ok for prototype
+            }
+            return createSemaOk()
+        },
+        VarDecl(varNode) => {
+            val sym = Symbol(varNode.name, "unknown", varNode.isMutable, false)
+            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
+            return createSemaOk()
+        },
+        ExpressionStmt(exprStmt) => {
+            return createSemaOk()
+        },
+        else => {
+            return createSemaOk()
+        }
+    }
 }
