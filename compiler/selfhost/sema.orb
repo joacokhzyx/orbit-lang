@@ -1,186 +1,10 @@
-import "./scanner.orb"
-import "./parser.orb"
+import "../ast.orb"
+import "query.orb"
 
-model SemaReport {
-    errors: int
-    warnings: int
-    braceBalance: int
-    parenBalance: int
-    unterminatedString: bool
-    functions: int
-    typedFunctions: int
-    voidFunctions: int
-    diagnostics: string
-}
-
-model DupResult {
-    errors: int
-    diagnostics: string
-}
-
-fn declNameAt(source: string, i: int) -> string {
-    if keywordMatches(source, i, "fn") {
-        return nameAfterKeyword(source, i, 2)
-    }
-    if keywordMatches(source, i, "model") {
-        return nameAfterKeyword(source, i, 5)
-    }
-    if keywordMatches(source, i, "type") {
-        return nameAfterKeyword(source, i, 4)
-    }
-    if keywordMatches(source, i, "enum") {
-        return nameAfterKeyword(source, i, 4)
-    }
-    if keywordMatches(source, i, "union") {
-        return nameAfterKeyword(source, i, 5)
-    }
-    return ""
-}
-
-fn declKeywordLength(source: string, i: int) -> int {
-    if keywordMatches(source, i, "fn") {
-        return 2
-    }
-    if keywordMatches(source, i, "model") {
-        return 5
-    }
-    if keywordMatches(source, i, "type") {
-        return 4
-    }
-    if keywordMatches(source, i, "enum") {
-        return 4
-    }
-    if keywordMatches(source, i, "union") {
-        return 5
-    }
-    return 0
-}
-
-fn skipDeclKeyword(s: ScannerState, pos: int, kwLen: int) {
-    s.pos = pos + kwLen
-    s.previousWasBoundary = false
-}
-
-fn countDeclNameUpTo(source: string, target: string, limit: int) -> int {
-    val s = initScanner(source)
-    val mut count = 0
-
-    while scannerEOF(s) == false {
-        if scannerIsAtKeywordStart(s) {
-            val pos = s.pos
-            val declLen = declKeywordLength(source, pos)
-            if declLen > 0 {
-                val declName = declNameAt(source, pos)
-                if pos <= limit {
-                    if declName == target {
-                        if declName != "" {
-                            count = count + 1
-                        }
-                    }
-                }
-                skipDeclKeyword(s, pos, declLen)
-            } else {
-                scannerStep(s)
-            }
-        } else {
-            scannerStep(s)
-        }
-    }
-
-    return count
-}
-
-fn findDuplicates(source: string) -> DupResult {
-    val s = initScanner(source)
-    val mut errors = 0
-    val mut diagnostics = ""
-
-    while scannerEOF(s) == false {
-        if scannerIsAtKeywordStart(s) {
-            val pos = s.pos
-            val declLen = declKeywordLength(source, pos)
-            if declLen > 0 {
-                val declName = declNameAt(source, pos)
-                if declName != "" {
-                    val occ = countDeclNameUpTo(source, declName, pos)
-                    if occ == 2 {
-                        diagnostics = diagnostics + "error: duplicate declaration '" + declName + "'\n"
-                        errors = errors + 1
-                    }
-                }
-                skipDeclKeyword(s, pos, declLen)
-            } else {
-                scannerStep(s)
-            }
-        } else {
-            scannerStep(s)
-        }
-    }
-
-    return DupResult(errors: errors, diagnostics: diagnostics)
-}
-
-fn functionReturnTypeAt(source: string, start: int) -> string {
-    val nameCursor = skipWhitespaceFrom(source, start + 2)
-    val fnName = readIdentifierFrom(source, nameCursor)
-    if fnName == "" {
-        return ""
-    }
-
-    val afterName = nameCursor + fnName.length
-    val parenCursor = skipWhitespaceFrom(source, afterName)
-    if parenCursor >= source.length {
-        return ""
-    }
-    if source.at(parenCursor) != 40 {
-        return ""
-    }
-
-    val mut cursor = parenCursor + 1
-fn checkSemantics(source: string) -> SemaReport {
-    val ast = parse(source)
-    val ctx = initSemaContext()
-    val res = analyzeProgram(ctx, ast)
-
-    val functions = countASTNodes(ast, "FunctionDecl")
-    val typedFunctions = countTypedFunctions(ast)
-    val voidFunctions = functions - typedFunctions
-    
-    val mut diagnostics = ""
-    val mut errors = 0
-    val mut warnings = 0
-
-    if res.ok == false {
-        diagnostics = diagnostics + "error: " + res.error.message + "\n"
-        errors = 1
-    }
-
-    if voidFunctions > 0 {
-        diagnostics = diagnostics + "warning: " + voidFunctions + " function(s) without explicit return type\n"
-        warnings = 1
-    }
-
-    if errors == 0 {
-        diagnostics = diagnostics + "ok: no structural errors\n"
-    }
-
-    return SemaReport(
-    errors: errors,
-    warnings: warnings,
-    braceBalance: 0,
-    parenBalance: 0,
-    unterminatedString: false,
-    functions: functions,
-    typedFunctions: typedFunctions,
-    voidFunctions: voidFunctions,
-    diagnostics: diagnostics
-    )
-}
-
-// --- AST Based Semantic Analysis Mapping (Work in Progress) ---
+// Orbit DORB Architecture: Semantic Analyzer (Type Checker)
 
 model SemanticError {
-    code: int
+    node: NodeIndex
     message: string
 }
 
@@ -189,137 +13,163 @@ model SemanticResult {
     error: SemanticError
 }
 
+fn createSemaOk() -> SemanticResult {
+    return SemanticResult(true, SemanticError(-1, ""))
+}
+
+fn createSemaError(node: NodeIndex, msg: string) -> SemanticResult {
+    return SemanticResult(false, SemanticError(node, msg))
+}
+
+// Flat Symbol Table (To be optimized into a Robin Hood HashMap in Phase 3)
 model Symbol {
     name: string
     typeName: string
     isMutable: bool
     isFunction: bool
+    node: NodeIndex
 }
 
 model Scope {
-    // HashMap representation for self-hosted
-    symbols: list // Will be replaced by HashMap<string, &Symbol>
+    symbols: list // list of Symbol
     parentId: int
 }
 
-model DiagnosticError {
-    code: int
-    message: string
-}
-
-model Diagnostics {
-    errors: list
-}
-
 model SemaContext {
-    scopes: list
+    query: QueryContext
+    scopes: list // list of Scope
     currentScope: int
-    diagnostics: Diagnostics // Using the structured diagnostics
-    typeRegistry: list
     currentReturnType: string
+    errors: list // list of SemanticError
 }
 
-fn initSemaContext() -> SemaContext {
-    var initialScopes = []
-    initialScopes.push(Scope([], -1))
-    val diag = Diagnostics([])
-    return SemaContext(initialScopes, 0, diag, [], "")
+fn initSemaContext(query: QueryContext) -> SemaContext {
+    val globalScope = Scope([], -1)
+    return SemaContext(query, [globalScope], 0, "", [])
 }
 
-fn createSemaError(code: int, msg: string) -> SemanticResult {
-    return SemanticResult(false, SemanticError(code, msg))
+fn pushScope(ctx: SemaContext) {
+    val newScope = Scope([], ctx.currentScope)
+    ctx.scopes.push(newScope)
+    ctx.currentScope = ctx.scopes.len() - 1
 }
 
-fn createSemaOk() -> SemanticResult {
-    return SemanticResult(true, SemanticError(0, ""))
+fn popScope(ctx: SemaContext) {
+    val scope = ctx.scopes.get(ctx.currentScope)
+    ctx.currentScope = scope.parentId
 }
 
-fn reportSemaError(ctx: SemaContext, code: int, msg: string) {
-    ctx.diagnostics.errors.push(DiagnosticError(code, msg))
-}
-
-// Iniciar chequeo de compatibilidad de tipos (Ejemplo base de mapeo)
-fn analyzeProgram(ctx: SemaContext, node: ASTNode) -> SemanticResult {
-    match node {
-        Program(p) => {
-            var i = 0
-            while i < p.decls.len() {
-                val declRes = analyzeDeclaration(ctx, p.decls.get(i))
-                if declRes.ok == false {
-                    return declRes
-                }
-                i = i + 1
-            }
-            return createSemaOk()
-        },
-        else => {
-            reportSemaError(ctx, 100, "Expected Program node")
-            return createSemaError(100, "Expected Program node")
+fn registerSymbol(ctx: SemaContext, sym: Symbol) -> bool {
+    val scope = ctx.scopes.get(ctx.currentScope)
+    
+    // Check for shadowing/re-declaration
+    var i = 0
+    while i < scope.symbols.len() {
+        val existing = scope.symbols.get(i)
+        if existing.name == sym.name {
+            ctx.errors.push(SemanticError(sym.node, "Symbol '" + sym.name + "' is already defined in this scope."))
+            return false
         }
+        i = i + 1
     }
+    
+    scope.symbols.push(sym)
+    return true
 }
 
-fn analyzeDeclaration(ctx: SemaContext, decl: ASTNode) -> SemanticResult {
-    match decl {
-        FunctionDecl(fnDecl) => {
-            // Traverse function body
-            val sym = Symbol(fnDecl.name, fnDecl.returnType, false, true)
-            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
-            
-            // Push scope (prototype logic for now)
-            val parentScope = ctx.currentScope
-            ctx.scopes.push(Scope([], parentScope))
-            ctx.currentScope = ctx.scopes.len() - 1
-            ctx.currentReturnType = fnDecl.returnType
-            
-            var i = 0
-            while i < fnDecl.body.len() {
-                val stmtRes = analyzeStatement(ctx, fnDecl.body.get(i))
-                if stmtRes.ok == false {
-                    return stmtRes
-                }
-                i = i + 1
+fn lookupSymbol(ctx: SemaContext, name: string) -> Symbol {
+    var curr = ctx.currentScope
+    while curr != -1 {
+        val scope = ctx.scopes.get(curr)
+        var i = 0
+        while i < scope.symbols.len() {
+            val sym = scope.symbols.get(i)
+            if sym.name == name {
+                return sym
             }
-            
-            // Pop scope
-            ctx.currentScope = parentScope
-            ctx.currentReturnType = ""
-            return createSemaOk()
-        },
-        ModelDecl(modelDecl) => {
-            val sym = Symbol(modelDecl.name, "type", false, false)
-            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
-            return createSemaOk()
-        },
-        TypeDecl(typeDecl) => {
-            val sym = Symbol(typeDecl.name, "type", false, false)
-            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
-            return createSemaOk()
-        },
-        else => {
-            return createSemaOk()
+            i = i + 1
         }
+        curr = scope.parentId
     }
+    // Return empty symbol if not found
+    return Symbol("", "", false, false, -1)
 }
 
-fn analyzeStatement(ctx: SemaContext, stmt: ASTNode) -> SemanticResult {
-    match stmt {
-        Return(retNode) => {
-            if retNode.expr.len() > 0 {
-                // Should infer expression type, returning ok for prototype
-            }
-            return createSemaOk()
-        },
-        VarDecl(varNode) => {
-            val sym = Symbol(varNode.name, "unknown", varNode.isMutable, false)
-            ctx.scopes.get(ctx.currentScope).symbols.push(sym)
-            return createSemaOk()
-        },
-        ExpressionStmt(exprStmt) => {
-            return createSemaOk()
-        },
-        else => {
-            return createSemaOk()
+fn analyzeProgram(ctx: SemaContext) -> SemanticResult {
+    var i = 0
+    var programNode = -1
+    while i < ctx.query.pool.kinds.len() {
+        if queryKind(ctx.query, i) == kindProgram() {
+            programNode = i
+            break
         }
+        i = i + 1
     }
+    
+    if programNode == -1 {
+        return createSemaError(-1, "No Program node found in ASTPool.")
+    }
+    
+    var decl = queryLhs(ctx.query, programNode)
+    while decl != -1 {
+        val res = analyzeDeclaration(ctx, decl)
+        if res.ok == false { return res }
+        decl = getNextSibling(ctx.query, decl)
+    }
+    
+    return createSemaOk()
+}
+
+fn analyzeDeclaration(ctx: SemaContext, decl: NodeIndex) -> SemanticResult {
+    val kind = queryKind(ctx.query, decl)
+    
+    if kind == kindFunctionDecl() {
+        val name = getFunctionName(ctx.query, decl)
+        val retType = getFunctionReturnType(ctx.query, decl)
+        
+        val sym = Symbol(name, retType, false, true, decl)
+        registerSymbol(ctx, sym)
+        
+        pushScope(ctx)
+        ctx.currentReturnType = retType
+        
+        var stmt = queryExtra(ctx.query, decl)
+        while stmt != -1 {
+            val res = analyzeStatement(ctx, stmt)
+            if res.ok == false { return res }
+            stmt = getNextSibling(ctx.query, stmt)
+        }
+        
+        ctx.currentReturnType = ""
+        popScope(ctx)
+    }
+    
+    if kind == kindModelDecl() {
+        val name = getModelName(ctx.query, decl)
+        val sym = Symbol(name, "type", false, false, decl)
+        registerSymbol(ctx, sym)
+    }
+    
+    return createSemaOk()
+}
+
+fn analyzeStatement(ctx: SemaContext, stmt: NodeIndex) -> SemanticResult {
+    val kind = queryKind(ctx.query, stmt)
+    
+    if kind == kindVarDecl() {
+        val nameIdx = queryLhs(ctx.query, stmt)
+        val name = queryText(ctx.query, nameIdx)
+        val isMut = queryExtra(ctx.query, stmt) == 1
+        
+        val sym = Symbol(name, "unknown", isMut, false, stmt)
+        registerSymbol(ctx, sym)
+        return createSemaOk()
+    }
+    
+    if kind == kindReturn() {
+        val expr = queryLhs(ctx.query, stmt)
+        return createSemaOk()
+    }
+    
+    return createSemaOk()
 }
