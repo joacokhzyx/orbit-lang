@@ -1,0 +1,144 @@
+import "../lexer.orb"
+import "../token.orb"
+import "../ast.orb"
+
+// The new DORB Parser implementation
+// Parses tokens and builds a flat SoA AST (ASTPool).
+
+model DorbParseContext {
+    lexer: Lexer
+    current: Token
+    peek: Token
+    pool: ASTPool
+}
+
+fn initDorbContext(source: string) -> DorbParseContext {
+    val lexer = initLexer(source)
+    val pool = initASTPool()
+    val ctx = DorbParseContext(lexer, Token(TokType.EOF, "", 0, 0), Token(TokType.EOF, "", 0, 0), pool)
+    advanceDorbCtx(ctx)
+    advanceDorbCtx(ctx)
+    return ctx
+}
+
+fn advanceDorbCtx(ctx: DorbParseContext) {
+    ctx.current = ctx.peek
+    ctx.peek = nextToken(ctx.lexer)
+}
+
+// Push a node into the SoA Pool and return its index
+fn pushNode(ctx: DorbParseContext, kind: int, start: int, len: int, lhs: int, rhs: int, extra: int) -> int {
+    ctx.pool.kinds.push(kind)
+    ctx.pool.tokens.push(TokenSpan(start, len))
+    ctx.pool.lhs.push(lhs)
+    ctx.pool.rhs.push(rhs)
+    ctx.pool.extra.push(extra)
+    // The index is the length of the array minus 1
+    return ctx.pool.kinds.len() - 1
+}
+
+// Helper to push a simple Literal/Identifier token node
+fn pushTokenNode(ctx: DorbParseContext, kind: int) -> int {
+    val start = ctx.current.pos
+    val len = ctx.current.text.length
+    return pushNode(ctx, kind, start, len, -1, -1, -1)
+}
+
+fn parseDorbPrimary(ctx: DorbParseContext) -> NodeIndex {
+    if ctx.current.tag == TokType.Identifier {
+        val idx = pushTokenNode(ctx, 100) // 100 = Identifier
+        advanceDorbCtx(ctx)
+        return idx
+    }
+    if ctx.current.tag == TokType.IntegerLiteral {
+        val idx = pushTokenNode(ctx, 101) // 101 = Integer
+        advanceDorbCtx(ctx)
+        return idx
+    }
+    if ctx.current.tag == TokType.StringLiteral {
+        val idx = pushTokenNode(ctx, 102) // 102 = String
+        advanceDorbCtx(ctx)
+        return idx
+    }
+    
+    // Error fallback (we can introduce ErrorNode later)
+    advanceDorbCtx(ctx)
+    return -1
+}
+
+fn parseDorbExpression(ctx: DorbParseContext) -> NodeIndex {
+    return parseDorbPrimary(ctx)
+}
+
+fn parseDorbReturn(ctx: DorbParseContext) -> NodeIndex {
+    val start = ctx.current.pos
+    advanceDorbCtx(ctx) // consume 'return'
+    val exprIdx = parseDorbExpression(ctx)
+    return pushNode(ctx, kindReturn(), start, 6, exprIdx, -1, -1)
+}
+
+fn parseDorbStatement(ctx: DorbParseContext) -> NodeIndex {
+    if ctx.current.tag == TokType.KeywordReturn {
+        return parseDorbReturn(ctx)
+    }
+    
+    // Expression statement
+    return parseDorbExpression(ctx)
+}
+
+fn parseDorbFunction(ctx: DorbParseContext) -> NodeIndex {
+    val start = ctx.current.pos
+    if ctx.current.tag == TokType.KeywordFn { advanceDorbCtx(ctx) }
+    
+    val nameIdx = pushTokenNode(ctx, 100) // Identifier
+    if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
+    
+    if ctx.current.tag == TokType.OpenParen { advanceDorbCtx(ctx) }
+    // Skip params for now
+    while ctx.current.tag != TokType.CloseParen { advanceDorbCtx(ctx) }
+    if ctx.current.tag == TokType.CloseParen { advanceDorbCtx(ctx) }
+    
+    // Skip return type
+    var retTypeIdx = -1
+    if ctx.current.tag == TokType.Arrow {
+        advanceDorbCtx(ctx)
+        retTypeIdx = pushTokenNode(ctx, 100)
+        if ctx.current.tag == TokType.Identifier { advanceDorbCtx(ctx) }
+    }
+    
+    if ctx.current.tag == TokType.OpenBrace { advanceDorbCtx(ctx) }
+    
+    // We can link body statements using a linked list structure in SoA,
+    // or allocate a continuous slice in a separate `statements` array.
+    // For now, we will store the first statement as LHS.
+    var firstStmtIdx = -1
+    
+    while ctx.current.tag != TokType.CloseBrace {
+        if ctx.current.tag == TokType.EOF { break }
+        val stmtIdx = parseDorbStatement(ctx)
+        if firstStmtIdx == -1 {
+            firstStmtIdx = stmtIdx
+        }
+    }
+    if ctx.current.tag == TokType.CloseBrace { advanceDorbCtx(ctx) }
+    
+    return pushNode(ctx, kindFunctionDecl(), start, 2, nameIdx, retTypeIdx, firstStmtIdx)
+}
+
+fn parseDorbProgram(source: string) -> ASTPool {
+    val ctx = initDorbContext(source)
+    
+    var firstDecl = -1
+    while ctx.current.tag != TokType.EOF {
+        if ctx.current.tag == TokType.KeywordFn {
+            val declIdx = parseDorbFunction(ctx)
+            if firstDecl == -1 { firstDecl = declIdx }
+        } else {
+            advanceDorbCtx(ctx)
+        }
+    }
+    
+    pushNode(ctx, kindProgram(), 0, 0, firstDecl, -1, -1)
+    
+    return ctx.pool
+}
