@@ -107,6 +107,15 @@ pub const TokenType = enum {
     TypeFloat,
     TypeBool,
     TypeDecimal,
+    TypeU8,
+    TypeU16,
+    TypeU32,
+    TypeU64,
+    TypeI8,
+    TypeI16,
+    TypeI32,
+    TypeI64,
+    TypeVoid,
 
     // ============================================
     // TYPES - Validated
@@ -157,6 +166,15 @@ pub const TokenType = enum {
     LessEqual, // <=
     Greater, // >
     GreaterEqual, // >=
+
+    // ============================================
+    // OPERATORS - Bitwise / Pointers
+    // ============================================
+    Ampersand, // & (bitwise AND / address-of)
+    Caret, // ^ (bitwise XOR)
+    Tilde, // ~ (bitwise NOT)
+    ShiftLeft, // <<
+    ShiftRight, // >>
 
     // ============================================
     // OPERATORS - Logical

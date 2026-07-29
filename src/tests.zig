@@ -185,10 +185,10 @@ test "parser.negative.invalid_token" {
     defer ta.arena.deinit();
     const allocator = ta.arena.allocator();
 
-    // The ^ character is invalid in Orbit outside strings
+    // The $ character is invalid in Orbit outside strings
     const source =
         \\fn test() {
-        \\    val x = ^
+        \\    val x = $
         \\}
     ;
     var p = Parser.init(source, "test.orb", allocator);

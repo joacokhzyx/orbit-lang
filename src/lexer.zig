@@ -112,6 +112,9 @@ pub const Lexer = struct {
                 if (self.peek() == '=') {
                     _ = self.advance();
                     break :blk self.makeToken(.LessEqual, start);
+                } else if (self.peek() == '<') {
+                    _ = self.advance();
+                    break :blk self.makeToken(.ShiftLeft, start);
                 }
                 break :blk self.makeToken(.Less, start);
             },
@@ -120,6 +123,9 @@ pub const Lexer = struct {
                 if (self.peek() == '=') {
                     _ = self.advance();
                     break :blk self.makeToken(.GreaterEqual, start);
+                } else if (self.peek() == '>') {
+                    _ = self.advance();
+                    break :blk self.makeToken(.ShiftRight, start);
                 }
                 break :blk self.makeToken(.Greater, start);
             },
@@ -176,8 +182,11 @@ pub const Lexer = struct {
                     _ = self.advance();
                     break :blk self.makeToken(.DoubleAmpersand, start);
                 }
-                break :blk self.makeToken(.Invalid, start);
+                break :blk self.makeToken(.Ampersand, start);
             },
+
+            '^' => self.makeToken(.Caret, start),
+            '~' => self.makeToken(.Tilde, start),
 
             '?' => blk: {
                 if (self.peek() == '?') {
@@ -345,6 +354,15 @@ pub const Lexer = struct {
             .{ "float", .TypeFloat },
             .{ "bool", .TypeBool },
             .{ "decimal", .TypeDecimal },
+            .{ "u8", .TypeU8 },
+            .{ "u16", .TypeU16 },
+            .{ "u32", .TypeU32 },
+            .{ "u64", .TypeU64 },
+            .{ "i8", .TypeI8 },
+            .{ "i16", .TypeI16 },
+            .{ "i32", .TypeI32 },
+            .{ "i64", .TypeI64 },
+            .{ "void", .TypeVoid },
 
             .{ "Email", .TypeEmail },
             .{ "URL", .TypeURL },

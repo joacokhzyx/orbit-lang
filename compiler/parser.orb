@@ -220,8 +220,16 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
 
     var typeAnnotation = ASTNode.Empty
     if matchToken(parser, TokType.Colon) {
+        var isPointer = false
+        if matchToken(parser, TokType.Ampersand) {
+            isPointer = true
+        }
         consume(parser, TokType.Identifier, "Expected type name.")
-        typeAnnotation = ASTNode.TypeAnnotation(TypeAnnotationNode(parser.previousToken.text, false))
+        var typeName = parser.previousToken.text
+        if isPointer {
+            typeName = "&" + typeName
+        }
+        typeAnnotation = ASTNode.TypeAnnotation(TypeAnnotationNode(typeName, false))
     }
 
     consume(parser, TokType.Equal, "Expected '=' after variable name.")
@@ -329,13 +337,24 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
         var parsingParams = true
         while parsingParams {
             consume(parser, TokType.Identifier, "Expected parameter name.")
-            params.push(parser.previousToken.text)
+            val paramName = parser.previousToken.text
+            params.push(paramName)
+            
             var paramType = "unknown"
             if matchToken(parser, TokType.Colon) {
+                var isPointer = false
+                if matchToken(parser, TokType.Ampersand) {
+                    isPointer = true
+                }
                 consume(parser, TokType.Identifier, "Expected parameter type.")
                 paramType = parser.previousToken.text
+                if isPointer {
+                    paramType = "&" + paramType
+                }
             }
+            
             paramTypes.push(paramType)
+            
             if matchToken(parser, TokType.Comma) {
             } else {
                 parsingParams = false
@@ -346,8 +365,15 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
 
     var returnType = ""
     if matchToken(parser, TokType.Arrow) {
+        var isPointerReturn = false
+        if matchToken(parser, TokType.Ampersand) {
+            isPointerReturn = true
+        }
         consume(parser, TokType.Identifier, "Expected return type.")
         returnType = parser.previousToken.text
+        if isPointerReturn {
+            returnType = "&" + returnType
+        }
     }
 
     val body = parseBlock(parser)
@@ -371,8 +397,15 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
             consume(parser, TokType.Identifier, "Expected field name.")
             val fieldName = parser.previousToken.text
             consume(parser, TokType.Colon, "Expected ':' after field name.")
+            var isPointer = false
+            if matchToken(parser, TokType.Ampersand) {
+                isPointer = true
+            }
             consume(parser, TokType.Identifier, "Expected field type.")
-            val fieldType = parser.previousToken.text
+            var fieldType = parser.previousToken.text
+            if isPointer {
+                fieldType = "&" + fieldType
+            }
             fields.push(ASTNode.FieldDecl(FieldDeclNode(fieldName, fieldType, decorators)))
             matchToken(parser, TokType.Comma)
         }
@@ -455,14 +488,21 @@ fn parseTraitDecl(parser: Parser, isPrivate: bool) -> ASTNode {
                     advanceParser(parser)
                 }
                 consume(parser, TokType.CloseParen, "Expected ')' after parameters.")
-                var returnType = Token(TokType.Identifier, "", 0, 0)
+                var returnType = ""
                 if matchToken(parser, TokType.Arrow) {
+                    var isPointerReturn = false
+                    if matchToken(parser, TokType.Ampersand) {
+                        isPointerReturn = true
+                    }
                     consume(parser, TokType.Identifier, "Expected return type.")
-                    returnType = parser.previousToken
+                    returnType = parser.previousToken.text
+                    if isPointerReturn {
+                        returnType = "&" + returnType
+                    }
                 }
                 matchToken(parser, TokType.SemiColon)
                 val emptyBody = ASTNode.Block(BlockNode([]))
-                methods.push(ASTNode.FunctionDecl(FunctionDeclNode(methodName.text, [], [], returnType.text, emptyBody, false, false, false, [])))
+                methods.push(ASTNode.FunctionDecl(FunctionDeclNode(methodName.text, [], [], returnType, emptyBody, false, false, false, [])))
             } else {
                 advanceParser(parser)
             }

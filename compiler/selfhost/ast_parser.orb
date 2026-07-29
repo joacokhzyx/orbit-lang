@@ -2,17 +2,32 @@
 import "../lexer.orb"
 import "../token.orb"
 
+model ParserError {
+    code: int
+    message: string
+}
+
+model ParseResult {
+    ok: bool
+    value: string
+    error: ParserError
+}
+
+model Diagnostics {
+    errors: list
+}
+
 model ParseContext {
     lexer: Lexer
     current: Token
     peek: Token
-    hasError: bool
-    errorMessage: string
+    diagnostics: Diagnostics
 }
 
 fn initContext(source: string) -> ParseContext {
     val lexer = initLexer(source)
-    val ctx = ParseContext(lexer, Token(TokType.EOF, "", 0, 0), Token(TokType.EOF, "", 0, 0), false, "")
+    val diag = Diagnostics([])
+    val ctx = ParseContext(lexer, Token(TokType.EOF, "", 0, 0), Token(TokType.EOF, "", 0, 0), diag)
     advanceCtx(ctx)
     advanceCtx(ctx)
     return ctx
@@ -23,47 +38,67 @@ fn advanceCtx(ctx: ParseContext) {
     ctx.peek = nextToken(ctx.lexer)
 }
 
-// Simple Expression Parser returning S-Expression string
-fn parseExpression(ctx: ParseContext) -> string {
+fn createError(code: int, msg: string) -> ParseResult {
+    return ParseResult(false, "", ParserError(code, msg))
+}
+
+fn createOk(val: string) -> ParseResult {
+    return ParseResult(true, val, ParserError(0, ""))
+}
+
+// Simple Expression Parser returning ParseResult
+fn parseExpression(ctx: ParseContext) -> ParseResult {
     return parsePrimary(ctx)
 }
 
-fn parsePrimary(ctx: ParseContext) -> string {
+fn parsePrimary(ctx: ParseContext) -> ParseResult {
     if ctx.current.tag == TokType.IntegerLiteral {
+        val valStr = ctx.current.text
         advanceCtx(ctx)
-        return "(Int " + ctx.current.text + ")"
+        return createOk("(Int " + valStr + ")")
     }
     if ctx.current.tag == TokType.StringLiteral {
+        val valStr = ctx.current.text
         advanceCtx(ctx)
-        return "(String " + ctx.current.text + ")"
+        return createOk("(String " + valStr + ")")
     }
     if ctx.current.tag == TokType.Identifier {
         val name = ctx.current.text
         advanceCtx(ctx)
         if ctx.current.tag == TokType.OpenParen {
             advanceCtx(ctx)
-            val mut args = ""
+            var args = ""
             if ctx.current.tag != TokType.CloseParen {
-                args = parseExpression(ctx)
+                val argRes = parseExpression(ctx)
+                if argRes.ok {
+                    args = argRes.value
+                } else {
+                    return argRes
+                }
             }
             if ctx.current.tag == TokType.CloseParen {
                 advanceCtx(ctx)
+            } else {
+                ctx.diagnostics.errors.push(ParserError(1, "Expected closing parenthesis"))
+                return createError(1, "Expected closing parenthesis")
             }
-            return "(Call " + name + " " + args + ")"
+            return createOk("(Call " + name + " " + args + ")")
         }
-        return "(Id " + name + ")"
+        return createOk("(Id " + name + ")")
     }
 
     val text = ctx.current.text
     advanceCtx(ctx)
-    return "(Unknown " + text + ")"
+    ctx.diagnostics.errors.push(ParserError(2, "Unexpected token: " + text))
+    return createError(2, "Unexpected token: " + text)
 }
 
-fn parseStatement(ctx: ParseContext) -> string {
+fn parseStatement(ctx: ParseContext) -> ParseResult {
     if ctx.current.tag == TokType.KeywordReturn {
         advanceCtx(ctx)
         val retExpr = parseExpression(ctx)
-        return "(Return " + retExpr + ")"
+        if retExpr.ok == false { return retExpr }
+        return createOk("(Return " + retExpr.value + ")")
     }
     if ctx.current.tag == TokType.KeywordVal {
         advanceCtx(ctx)
@@ -71,14 +106,16 @@ fn parseStatement(ctx: ParseContext) -> string {
         if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
         if ctx.current.tag == TokType.Equal { advanceCtx(ctx) }
         val valExpr = parseExpression(ctx)
-        return "(Val " + name + " " + valExpr + ")"
+        if valExpr.ok == false { return valExpr }
+        return createOk("(Val " + name + " " + valExpr.value + ")")
     }
 
     val stmtExpr = parseExpression(ctx)
-    return "(Expr " + stmtExpr + ")"
+    if stmtExpr.ok == false { return stmtExpr }
+    return createOk("(Expr " + stmtExpr.value + ")")
 }
 
-fn parseFunction(ctx: ParseContext) -> string {
+fn parseFunction(ctx: ParseContext) -> ParseResult {
     if ctx.current.tag == TokType.KeywordFn { advanceCtx(ctx) }
     val name = ctx.current.text
     if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
@@ -94,33 +131,41 @@ fn parseFunction(ctx: ParseContext) -> string {
     }
 
     if ctx.current.tag == TokType.OpenBrace { advanceCtx(ctx) }
-    val mut body = ""
+    var body = ""
     while ctx.current.tag != TokType.CloseBrace {
         if ctx.current.tag == TokType.EOF {
             break
         }
-        body = body + parseStatement(ctx) + " "
+        val stmt = parseStatement(ctx)
+        if stmt.ok == false { return stmt }
+        body = body + stmt.value + " "
     }
     if ctx.current.tag == TokType.CloseBrace { advanceCtx(ctx) }
 
-    return "(Fn " + name + " (Block " + body + "))"
+    return createOk("(Fn " + name + " (Block " + body + "))")
 }
 
-fn parseProgram(ctx: ParseContext) -> string {
-    val mut ast = "(Program "
+fn parseProgram(ctx: ParseContext) -> ParseResult {
+    var ast = "(Program "
     while ctx.current.tag != TokType.EOF {
         if ctx.current.tag == TokType.KeywordFn {
-            ast = ast + parseFunction(ctx) + " "
+            val fnRes = parseFunction(ctx)
+            if fnRes.ok == false { return fnRes }
+            ast = ast + fnRes.value + " "
         } else {
             advanceCtx(ctx)
         }
     }
     ast = ast + ")"
-    return ast
+    return createOk(ast)
 }
 
 fn generateAST(source: string) -> string {
     val ctx = initContext(source)
-    return parseProgram(ctx)
+    val res = parseProgram(ctx)
+    if res.ok {
+        return res.value
+    }
+    return "Error: " + res.error.message
 }
 

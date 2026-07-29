@@ -598,7 +598,7 @@ pub const IRBuilder = struct {
             .return_ok => {
                 const expr_val = try self.buildExpr(node.data.return_ok.expr);
                 const status_code = if (node.data.return_ok.status) |s|
-                    std.fmt.parseInt(i32, s.getText(self.source), 10) catch 200
+                    try std.fmt.parseInt(i32, s.getText(self.source), 10)
                 else
                     200;
 
@@ -625,7 +625,7 @@ pub const IRBuilder = struct {
             },
             .err_stmt => {
                 const expr_val = try self.buildExpr(node.data.err_stmt.message);
-                const status_code = std.fmt.parseInt(i32, node.data.err_stmt.code.getText(self.source), 10) catch 500;
+                const status_code = try std.fmt.parseInt(i32, node.data.err_stmt.code.getText(self.source), 10);
 
                 var instr = IRInstruction.init(.call);
                 instr.operand1 = IRValue{ .string = "orbit_response_error" };
@@ -680,8 +680,8 @@ pub const IRBuilder = struct {
     fn buildExpr(self: *IRBuilder, node: *Node) anyerror!IRValue {
         return switch (node.tag) {
             .assignment => try self.buildAssignment(node),
-            .integer_literal => IRValue{ .int = std.fmt.parseInt(i64, node.data.integer_literal.getText(self.source), 10) catch 0 },
-            .float_literal => IRValue{ .float = std.fmt.parseFloat(f64, node.data.float_literal.getText(self.source)) catch 0.0 },
+            .integer_literal => IRValue{ .int = try std.fmt.parseInt(i64, node.data.integer_literal.getText(self.source), 10) },
+            .float_literal => IRValue{ .float = try std.fmt.parseFloat(f64, node.data.float_literal.getText(self.source)) },
             .string_literal => blk: {
                 const full = node.data.string_literal.getText(self.source);
                 if (full.len >= 2) {

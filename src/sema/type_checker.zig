@@ -26,10 +26,11 @@ pub const TypeInfo = struct {
     is_nullable: bool,
     is_array: bool,
     is_collection: bool,
+    is_pointer: bool,
     is_result: bool, // Phase 2: Result<T, E>
     inner_type: ?[]const u8, // Phase 2: generic inner type
 
-    /// Creates a plain (non-nullable, non-collection) `TypeInfo` whose name
+    /// Creates a plain (non-nullable, non-collection, non-pointer) `TypeInfo` whose name
     /// and base type are both set to `name`.
     pub fn init(name: []const u8) TypeInfo {
         return .{
@@ -38,6 +39,7 @@ pub const TypeInfo = struct {
             .is_nullable = false,
             .is_array = false,
             .is_collection = false,
+            .is_pointer = false,
             .is_result = false,
             .inner_type = null,
         };
@@ -55,6 +57,13 @@ pub const TypeInfo = struct {
         var result = self;
         result.is_array = true;
         result.is_collection = true;
+        return result;
+    }
+
+    /// Returns a copy of this `TypeInfo` marked as a pointer.
+    pub fn makePointer(self: TypeInfo) TypeInfo {
+        var result = self;
+        result.is_pointer = true;
         return result;
     }
 
@@ -620,9 +629,20 @@ pub const TypeChecker = struct {
         }
 
         // Pointer compatibility: ptr/pointer/mut_ptr/mut_pointer are compatible with void* ("pointer")
-        const is_expected_ptr = std.mem.eql(u8, resolved_expected, "pointer") or std.mem.eql(u8, resolved_expected, "ptr") or std.mem.eql(u8, resolved_expected, "mut_pointer") or std.mem.eql(u8, resolved_expected, "mut_ptr");
-        const is_actual_ptr = std.mem.eql(u8, resolved_actual, "pointer") or std.mem.eql(u8, resolved_actual, "ptr") or std.mem.eql(u8, resolved_actual, "mut_pointer") or std.mem.eql(u8, resolved_actual, "mut_ptr");
-        if (is_expected_ptr and is_actual_ptr) return true;
+        const is_expected_opaque_ptr = std.mem.eql(u8, resolved_expected, "pointer") or std.mem.eql(u8, resolved_expected, "ptr") or std.mem.eql(u8, resolved_expected, "mut_pointer") or std.mem.eql(u8, resolved_expected, "mut_ptr");
+        const is_actual_opaque_ptr = std.mem.eql(u8, resolved_actual, "pointer") or std.mem.eql(u8, resolved_actual, "ptr") or std.mem.eql(u8, resolved_actual, "mut_pointer") or std.mem.eql(u8, resolved_actual, "mut_ptr");
+        
+        const is_expected_exact_ptr = resolved_expected.len > 0 and resolved_expected[0] == '&';
+        const is_actual_exact_ptr = resolved_actual.len > 0 and resolved_actual[0] == '&';
+
+        const is_expected_ptr = is_expected_opaque_ptr or is_expected_exact_ptr;
+        const is_actual_ptr = is_actual_opaque_ptr or is_actual_exact_ptr;
+
+        if (is_expected_ptr and is_actual_ptr) {
+            if (is_expected_opaque_ptr or is_actual_opaque_ptr) return true; // Opaque pointers match any pointer
+            // Exact pointers must match exactly (already checked at the top of the function)
+            // But we can fall through since exact pointer match failed at the top.
+        }
 
         // Phase 2: Result<T> is compatible with T (auto-wrap)
         if (std.mem.eql(u8, resolved_expected, "result")) return true;

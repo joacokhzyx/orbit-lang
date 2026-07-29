@@ -220,7 +220,7 @@ pub const ExpressionParser = struct {
 
     /// Parses a unary prefix expression (`!`, unary `-`), right-associative.
     fn parseUnary(self: *ExpressionParser) !*Node {
-        if (self.match(.Bang) or self.match(.Minus)) {
+        if (self.match(.Bang) or self.match(.Minus) or self.match(.Tilde) or self.match(.Ampersand)) {
             const op = self.previous_token.*;
             const right = try self.parseUnary();
 

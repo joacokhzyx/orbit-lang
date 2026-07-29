@@ -2117,6 +2117,12 @@ pub fn isMainFunctionName(name: []const u8) bool {
 
     /// Map an Orbit field type name to its C equivalent.
     fn mapFieldTypeToC(self: *CBackend, orbit_type: []const u8) []const u8 {
+        if (orbit_type.len > 0 and orbit_type[0] == '&') {
+            const inner = orbit_type[1..];
+            const mapped_inner = self.mapFieldTypeToC(inner);
+            return std.fmt.allocPrint(self.allocator, "{s}*", .{mapped_inner}) catch "void*";
+        }
+        
         if (std.mem.eql(u8, orbit_type, "i8")) return "int8_t";
         if (std.mem.eql(u8, orbit_type, "i16")) return "int16_t";
         if (std.mem.eql(u8, orbit_type, "i32")) return "int32_t";

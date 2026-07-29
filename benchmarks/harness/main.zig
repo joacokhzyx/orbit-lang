@@ -16,15 +16,7 @@ const SEP = std.fs.path.sep_str;
 pub extern "kernel32" fn GetSystemTimeAsFileTime(lpSystemTimeAsFileTime: *std.os.windows.FILETIME) callconv(.winapi) void;
 
 fn getUnixTimestamp() i64 {
-    if (is_windows) {
-        var ft: std.os.windows.FILETIME = undefined;
-        GetSystemTimeAsFileTime(&ft);
-        const ft_val = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-        return @intCast((ft_val - 116444736000000000) / 10_000_000);
-    } else {
-        const ts = std.posix.clock_gettime(std.posix.CLOCK.REALTIME) catch return 0;
-        return ts.sec;
-    }
+    return std.time.timestamp();
 }
 
 // ── Separator lines ──────────────────────────────────────────────────────────

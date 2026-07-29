@@ -151,6 +151,7 @@ pub const Node = struct {
             generic_params: []const *Node,
             params: []const *Node,
             return_type: ?Token,
+            is_pointer_return: bool,
             body: *Node,
             is_async: bool,
             is_private: bool,
@@ -369,6 +370,7 @@ pub const Node = struct {
         field_decl: struct {
             name: Token,
             type_name: Token,
+            is_pointer: bool,
             decorators: []const *Node,
             default_value: ?*Node,
         },
@@ -376,6 +378,7 @@ pub const Node = struct {
         param: struct {
             name: Token,
             type_name: ?Token,
+            is_pointer: bool,
             is_optional: bool,
         },
 
@@ -393,6 +396,7 @@ pub const Node = struct {
             base: Token,
             generics: []const Token,
             is_optional: bool,
+            is_pointer: bool,
         },
 
         // Expression statement (wraps expr)

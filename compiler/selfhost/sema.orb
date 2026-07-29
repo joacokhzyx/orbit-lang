@@ -220,3 +220,77 @@ fn checkSemantics(source: string) -> SemaReport {
     )
 }
 
+// --- AST Based Semantic Analysis Mapping (Work in Progress) ---
+
+model SemanticError {
+    code: int
+    message: string
+}
+
+model SemanticResult {
+    ok: bool
+    error: SemanticError
+}
+
+model Symbol {
+    name: string
+    typeName: string
+    isMutable: bool
+    isFunction: bool
+}
+
+model Scope {
+    // HashMap representation for self-hosted
+    symbols: list // Will be replaced by HashMap<string, &Symbol>
+    parentId: int
+}
+
+model DiagnosticError {
+    code: int
+    message: string
+}
+
+model Diagnostics {
+    errors: list
+}
+
+model SemaContext {
+    scopes: list
+    currentScope: int
+    diagnostics: Diagnostics // Using the structured diagnostics
+    typeRegistry: list
+    currentReturnType: string
+}
+
+fn initSemaContext() -> SemaContext {
+    var initialScopes = []
+    initialScopes.push(Scope([], -1))
+    val diag = Diagnostics([])
+    return SemaContext(initialScopes, 0, diag, [], "")
+}
+
+fn createSemaError(code: int, msg: string) -> SemanticResult {
+    return SemanticResult(false, SemanticError(code, msg))
+}
+
+fn createSemaOk() -> SemanticResult {
+    return SemanticResult(true, SemanticError(0, ""))
+}
+
+fn reportSemaError(ctx: SemaContext, code: int, msg: string) {
+    ctx.diagnostics.errors.push(DiagnosticError(code, msg))
+}
+
+// Iniciar chequeo de compatibilidad de tipos (Ejemplo base de mapeo)
+fn checkTypeCompatibility(ctx: SemaContext, expectedType: string, actualType: string) -> SemanticResult {
+    if expectedType == "unknown" { return createSemaOk() }
+    if actualType == "unknown" { return createSemaOk() }
+    if expectedType == "any" { return createSemaOk() }
+    
+    if expectedType == actualType {
+        return createSemaOk()
+    }
+    
+    reportSemaError(ctx, 3, "Type mismatch: expected " + expectedType + ", found " + actualType)
+    return createSemaError(3, "Type mismatch: expected " + expectedType + ", found " + actualType)
+}

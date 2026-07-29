@@ -11,6 +11,7 @@ const Token = @import("../token.zig").Token;
 pub const ModelField = struct {
     name: []const u8,
     type_name: []const u8,
+    is_pointer: bool,
     is_primary: bool,
     is_unique: bool,
     is_auto: bool,

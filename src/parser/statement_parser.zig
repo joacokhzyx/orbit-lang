@@ -321,6 +321,9 @@ pub const StatementParser = struct {
 
         var type_ann_node: ?*Node = null;
         if (self.match(.Colon)) {
+            var is_pointer = false;
+            if (self.match(.Ampersand)) is_pointer = true;
+
             const type_tok = self.current_token.*;
             self.advance(); // consume identifier or type keyword
 
@@ -344,6 +347,7 @@ pub const StatementParser = struct {
                 .base = type_tok,
                 .generics = &.{},
                 .is_optional = false,
+                .is_pointer = is_pointer,
             } });
         }
 

@@ -221,7 +221,9 @@ pub const DeclarationParser = struct {
         _ = try self.consume(.CloseParen);
 
         var return_type: ?Token = null;
+        var is_pointer_return = false;
         if (self.match(.Arrow)) {
+            if (self.match(.Ampersand)) is_pointer_return = true;
             return_type = try self.consumeType();
         }
 
@@ -239,6 +241,7 @@ pub const DeclarationParser = struct {
                 .generic_params = &.{},
                 .params = try params.toOwnedSlice(self.allocator),
                 .return_type = return_type,
+                .is_pointer_return = is_pointer_return,
                 .body = empty_body,
                 .is_async = false,
                 .is_private = false,
@@ -294,6 +297,7 @@ pub const DeclarationParser = struct {
 
         const name = try self.consume(.Identifier);
         _ = try self.consume(.Colon);
+        const is_pointer = self.match(.Ampersand);
         const type_name = try self.consumeType();
 
         while (self.check(.Identifier) and !self.check(.CloseBrace) and !self.check(.Equal)) {
@@ -323,6 +327,7 @@ pub const DeclarationParser = struct {
             .data = .{ .field_decl = .{
                 .name = name,
                 .type_name = type_name,
+                .is_pointer = is_pointer,
                 .decorators = try decorators.toOwnedSlice(self.allocator),
                 .default_value = default_val,
             } },
@@ -338,7 +343,9 @@ pub const DeclarationParser = struct {
         const name = try self.consume(.Identifier);
 
         var type_name: ?Token = null;
+        var is_pointer = false;
         if (self.match(.Colon)) {
+            is_pointer = self.match(.Ampersand);
             type_name = try self.consumeType();
         }
 
@@ -348,6 +355,7 @@ pub const DeclarationParser = struct {
             .data = .{ .param = .{
                 .name = name,
                 .type_name = type_name,
+                .is_pointer = is_pointer,
                 .is_optional = false,
             } },
         };
@@ -477,7 +485,9 @@ pub const DeclarationParser = struct {
         _ = try self.consume(.CloseParen);
 
         var return_type: ?Token = null;
+        var is_pointer_return = false;
         if (self.match(.Arrow)) {
+            if (self.match(.Ampersand)) is_pointer_return = true;
             return_type = try self.consumeType();
         }
 
@@ -516,6 +526,7 @@ pub const DeclarationParser = struct {
                 .generic_params = generic_params,
                 .params = try params.toOwnedSlice(self.allocator),
                 .return_type = return_type,
+                .is_pointer_return = is_pointer_return,
                 .body = body_node,
                 .is_async = is_async,
                 .is_private = is_private,
@@ -799,7 +810,9 @@ pub const DeclarationParser = struct {
             tag == .TypeURL or tag == .TypeUUID or tag == .TypePhone or
             tag == .TypeIP or tag == .TypeDate or tag == .TypeTime or
             tag == .TypeDateTime or tag == .TypeTimestamp or tag == .TypeList or
-            tag == .TypeMap or tag == .TypeSet;
+            tag == .TypeMap or tag == .TypeSet or tag == .TypeVoid or
+            tag == .TypeU8 or tag == .TypeU16 or tag == .TypeU32 or tag == .TypeU64 or
+            tag == .TypeI8 or tag == .TypeI16 or tag == .TypeI32 or tag == .TypeI64;
     }
 
     /// Returns `true` if the current token is an HTTP method keyword
