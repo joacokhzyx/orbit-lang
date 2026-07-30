@@ -1,0 +1,24 @@
+// lib/sys/windows.orb
+// Windows Native Syscalls (Nt/Zw API layer directly to the kernel)
+
+// Windows doesn't guarantee stable syscall numbers across updates,
+// so we use the ntdll.dll stubs or direct WOW64 transitions if fully sovereign.
+
+fn SYS_NT_READ_FILE() -> int { return 0x01 } // Mock number
+fn SYS_NT_WRITE_FILE() -> int { return 0x02 } // Mock number
+fn SYS_NT_CREATE_IO_COMPLETION() -> int { return 0x03 } // IOCP
+fn SYS_NT_REMOVE_IO_COMPLETION() -> int { return 0x04 } // IOCP
+
+fn syscall(n: int, a1: int, a2: int, a3: int) -> int {
+    // __asm("syscall") in x64 or __asm("sysenter") in x86
+    return 0
+}
+
+// Wrapper para IOCP
+fn createIoCompletionPort() -> int {
+    return syscall(SYS_NT_CREATE_IO_COMPLETION(), 0, 0, 0)
+}
+
+fn getQueuedCompletionStatus(port: int) -> int {
+    return syscall(SYS_NT_REMOVE_IO_COMPLETION(), port, 0, 0)
+}

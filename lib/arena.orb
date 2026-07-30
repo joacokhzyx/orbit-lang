@@ -1,0 +1,30 @@
+// lib/arena.orb
+// Request-Bound Arena Allocator
+// Zero-GC memory management bound to the lifecycle of a Request.
+
+model Arena {
+    buffer: string // Representación temporal de la memoria bruta
+    offset: int
+    capacity: int
+}
+
+fn initArena(cap: int) -> Arena {
+    // Syscall to OS allocator (mmap / VirtualAlloc)
+    return Arena("", 0, cap)
+}
+
+// O(1) Allocation
+fn alloc(arena: Arena, size: int) -> int {
+    if arena.offset + size > arena.capacity {
+        // En un caso real: pedir más memoria al OS o hacer crash si es hard-limit
+        return -1
+    }
+    val ptr = arena.offset
+    arena.offset = arena.offset + size
+    return ptr
+}
+
+// O(1) Bulk deallocation (Done at the end of every request)
+fn reset(arena: Arena) {
+    arena.offset = 0
+}

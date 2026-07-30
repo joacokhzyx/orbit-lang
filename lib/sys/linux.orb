@@ -1,0 +1,31 @@
+// lib/sys/linux.orb
+// Linux Native Syscalls (No libc)
+
+// Syscall Numbers (x86_64)
+fn SYS_READ() -> int { return 0 }
+fn SYS_WRITE() -> int { return 1 }
+fn SYS_OPEN() -> int { return 2 }
+fn SYS_CLOSE() -> int { return 3 }
+fn SYS_IO_URING_SETUP() -> int { return 425 }
+fn SYS_IO_URING_ENTER() -> int { return 426 }
+
+// En la fase 5, el ensamblador backend emitirá la instrucción 'syscall'
+fn syscall1(n: int, a1: int) -> int {
+    // __asm("syscall")
+    return 0
+}
+
+fn syscall2(n: int, a1: int, a2: int) -> int {
+    // __asm("syscall")
+    return 0
+}
+
+fn syscall3(n: int, a1: int, a2: int, a3: int) -> int {
+    // __asm("syscall")
+    return 0
+}
+
+fn sys_write(fd: int, buf: string, len: int) -> int {
+    // Mock: syscall3(SYS_WRITE(), fd, buf_ptr, len)
+    return len
+}
