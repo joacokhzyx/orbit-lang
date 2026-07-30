@@ -3,6 +3,7 @@
 
 import "../ast.orb"
 import "query.orb"
+import "../memory.orb"
 
 // MIR is represented in Static Single Assignment (SSA) format.
 // This allows for O3 optimizations like DCE, GVN, and Register Allocation.
@@ -25,29 +26,28 @@ fn opYield() -> int { return 10 }
 fn opResume() -> int { return 11 }
 fn opIoCall() -> int { return 12 }
 
-
 // Like ASTPool, MIR is purely Data-Oriented (SoA)
 model MIRPool {
-    opcodes: list       // list of int (opcode)
-    types: list         // list of int (type index)
-    operands1: list     // list of int (MIR index or literal index)
-    operands2: list     // list of int
-    operands3: list     // list of int
-    sourceMap: list     // list of NodeIndex (to map back to AST for errors)
+    opcodes: ArrayPool       // list of int (opcode)
+    types: ArrayPool         // list of int (type index)
+    operands1: ArrayPool     // list of int (MIR index or literal index)
+    operands2: ArrayPool     // list of int
+    operands3: ArrayPool     // list of int
+    sourceMap: ArrayPool     // list of NodeIndex (to map back to AST for errors)
 }
 
 fn initMIRPool() -> MIRPool {
-    return MIRPool([], [], [], [], [], [])
+    return MIRPool(initArrayPool(), initArrayPool(), initArrayPool(), initArrayPool(), initArrayPool(), initArrayPool())
 }
 
 fn pushMirInst(pool: MIRPool, op: int, typ: int, op1: int, op2: int, op3: int, src: NodeIndex) -> MirInstIndex {
-    pool.opcodes.push(op)
-    pool.types.push(typ)
-    pool.operands1.push(op1)
-    pool.operands2.push(op2)
-    pool.operands3.push(op3)
-    pool.sourceMap.push(src)
-    return pool.opcodes.len() - 1
+    pushArrayPool(pool.opcodes, op)
+    pushArrayPool(pool.types, typ)
+    pushArrayPool(pool.operands1, op1)
+    pushArrayPool(pool.operands2, op2)
+    pushArrayPool(pool.operands3, op3)
+    pushArrayPool(pool.sourceMap, src)
+    return pool.opcodes.len - 1
 }
 
 // Basic Block representation
@@ -85,9 +85,9 @@ fn lowerFunction(ctx: QueryContext, funcNode: NodeIndex) -> MIRFunction {
     var currentBlock = BasicBlock(0, -1, -1, [], [])
     var nextBlockId = 1
     
-    // Actually, body is extra or rhs depending on how we pushed it.
-    // In dorb_parser: rhs = retType, extra = firstStmt
-    var stmt = queryExtra(ctx, funcNode)
+    // In dorb_parser: rhs = retType, extra = body block node
+    val blockNode = queryExtra(ctx, funcNode)
+    var stmt = queryLhs(ctx, blockNode)
     
     while stmt != -1 {
         val kind = queryKind(ctx, stmt)
@@ -95,8 +95,8 @@ fn lowerFunction(ctx: QueryContext, funcNode: NodeIndex) -> MIRFunction {
         // --- Colorless Async Block Splitting (FSM) ---
         // Si detectamos una llamada a función que es I/O, partimos el bloque.
         if kind == kindCall() {
-            // Pseudo-codigo: obtenemos nombre de función
-            val callName = queryText(ctx, queryLhs(ctx, stmt))
+            val callNameNode = queryLhs(ctx, stmt)
+            val callName = queryText(ctx, callNameNode)
             if isIoCall(callName) {
                 // Generamos un IoCall
                 val callOp = pushMirInst(mirFn.pool, opIoCall(), 0, stmt, -1, -1, stmt)

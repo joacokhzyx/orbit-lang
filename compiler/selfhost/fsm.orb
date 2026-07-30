@@ -1,0 +1,61 @@
+import "mir.orb"
+import "../memory.orb"
+
+// Orbit DORB Architecture: Colorless Async FSM Generator
+
+model FSMGenerator {
+    mir: MIRFunction
+    output: string
+}
+
+fn initFSMGenerator(mir: MIRFunction) -> FSMGenerator {
+    return FSMGenerator(mir, "")
+}
+
+// Basic int to string mock until runtime implements format
+fn intToString(n: int) -> string {
+    if n == 0 { return "0" }
+    if n == 1 { return "1" }
+    if n == 2 { return "2" }
+    if n == 3 { return "3" }
+    if n == 4 { return "4" }
+    return "X"
+}
+
+fn generateFSM(gen: FSMGenerator) -> string {
+    gen.output = gen.output + "struct " + gen.mir.name + "_FSM {\n"
+    gen.output = gen.output + "    int state;\n"
+    // In a real compiler, we analyze variable liveness across blocks to store them here.
+    gen.output = gen.output + "    // Local variables persisting across yields\n"
+    gen.output = gen.output + "};\n\n"
+
+    gen.output = gen.output + "void " + gen.mir.name + "_step(struct " + gen.mir.name + "_FSM* ctx) {\n"
+    gen.output = gen.output + "    switch(ctx->state) {\n"
+    
+    var i = 0
+    while i < gen.mir.blocks.length {
+        val block = gen.mir.blocks[i]
+        gen.output = gen.output + "        case " + intToString(block.id) + ":\n"
+        gen.output = gen.output + "            // Executing Block " + intToString(block.id) + "\n"
+        
+        // Scan ops to find yield
+        // In the future, iterate instructions from firstInst -> lastInst
+        
+        if i < gen.mir.blocks.length - 1 {
+            gen.output = gen.output + "            // Found I/O operation. Yielding...\n"
+            gen.output = gen.output + "            ctx->state = " + intToString(block.id + 1) + ";\n"
+            gen.output = gen.output + "            return;\n"
+        } else {
+            gen.output = gen.output + "            // Final state, function ends.\n"
+            gen.output = gen.output + "            ctx->state = -1;\n"
+            gen.output = gen.output + "            return;\n"
+        }
+        
+        i = i + 1
+    }
+    
+    gen.output = gen.output + "    }\n"
+    gen.output = gen.output + "}\n"
+    
+    return gen.output
+}
