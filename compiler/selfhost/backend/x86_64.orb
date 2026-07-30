@@ -1,0 +1,56 @@
+// compiler/selfhost/backend/x86_64.orb
+// x86-64 Instruction Selection & Machine Code Emission
+
+import "../mir.orb"
+import "regalloc.orb"
+import "../../memory.orb" // Para Arena/Pool
+
+model MachineCode {
+    bytes: ArrayPool // bytes of emitted machine code
+}
+
+fn initMachineCode() -> MachineCode {
+    return MachineCode(initArrayPool())
+}
+
+fn emitByte(mc: MachineCode, b: int) {
+    pushArrayPool(mc.bytes, b)
+}
+
+// REX Prefixes
+fn REX_W() -> int { return 0x48 } // 64-bit operand size
+
+// Instruction Selection
+fn selectInstructions(func: MIRFunction, regMapping: list) -> MachineCode {
+    val mc = initMachineCode()
+    
+    // Prologue
+    // push rbp
+    emitByte(mc, 0x55)
+    // mov rbp, rsp
+    emitByte(mc, REX_W())
+    emitByte(mc, 0x89)
+    emitByte(mc, 0xE5)
+    
+    // Iterar sobre los bloques y emitir Opcodes de x86-64 basados en MIR
+    var i = 0
+    while i < func.blocks.length {
+        val block = func.blocks[i]
+        
+        // Mock translation
+        // Si hay una suma (ADD), emitiríamos:
+        // emitByte(mc, REX_W())
+        // emitByte(mc, 0x01) // ADD r/m64, r64
+        // ... (ModR/M byte computation) ...
+        
+        i = i + 1
+    }
+    
+    // Epilogue
+    // pop rbp
+    emitByte(mc, 0x5D)
+    // ret
+    emitByte(mc, 0xC3)
+    
+    return mc
+}

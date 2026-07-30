@@ -1,0 +1,31 @@
+// compiler/selfhost/backend/linker.orb
+// Tiny Linker: PE (Windows) / ELF (Linux) Executable Builder
+
+import "x86_64.orb"
+
+// Constants for PE Header
+fn PE_MAGIC() -> int { return 0x5A4D } // MZ
+fn PE_MACHINE_X64() -> int { return 0x8664 }
+
+// Constants for ELF Header
+fn ELF_MAGIC() -> int { return 0x464C457F } // \x7F ELF
+
+// Construye un binario ejecutable directamente. Cero LLVM, Cero Zig.
+fn buildExecutable(osType: string, mc: MachineCode, outputPath: string) {
+    // var bin = File.open(outputPath, "wb")
+    
+    if osType == "windows" {
+        // 1. Emitir DOS Header & PE Signature
+        // 2. Emitir File Header & Optional Header (PE32+)
+        // 3. Emitir Section Headers (.text, .data, .rdata)
+        // 4. Alinear y escribir código máquina (.text = mc.bytes)
+    } else {
+        if osType == "linux" {
+            // 1. Emitir ELF64 Header
+            // 2. Emitir Program Headers (PT_LOAD)
+            // 3. Escribir mc.bytes al segmento ejecutable
+        }
+    }
+    
+    // bin.close()
+}
