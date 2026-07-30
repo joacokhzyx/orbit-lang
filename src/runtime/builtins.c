@@ -26,6 +26,33 @@ void orbit_print(const char* str) {
     fflush(stdout);
 }
 
+/**
+ * Read a line from stdin, optionally printing a prompt.
+ * The returned string is arena-allocated and NUL-terminated.
+ */
+orbit_string orbit_input(OrbitArena* arena, const char* prompt) {
+    if (prompt) {
+        printf("%s", prompt);
+        fflush(stdout);
+    }
+    char buf[1024];
+    if (!fgets(buf, sizeof(buf), stdin)) {
+        char* empty = orbit_alloc(arena, 1);
+        if (empty) empty[0] = '\0';
+        return empty;
+    }
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        buf[len - 1] = '\0';
+        len--;
+    }
+    char* result = orbit_alloc(arena, len + 1);
+    if (result) {
+        memcpy(result, buf, len + 1);
+    }
+    return result;
+}
+
 /* ── Numeric ↔ String conversions ─────────────────────────────────────────── */
 
 /**

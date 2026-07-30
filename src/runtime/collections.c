@@ -119,7 +119,7 @@ static OrbitResult orbit_list_pop(OrbitList* list) {
     return orbit_result_ok((char*)list->data + list->len * list->elem_size);
 }
 
-static OrbitResult orbit_list_set(OrbitList* list, size_t index, const void* elem) {
+OrbitResult orbit_list_set(OrbitList* list, size_t index, const void* elem) {
     if (!list || !elem) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_set: null argument");
     }

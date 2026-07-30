@@ -1483,7 +1483,20 @@ pub fn isMainFunctionName(name: []const u8) bool {
             .call => {
                 const func_name = instr.operand1.string;
 
-                if (std.mem.eql(u8, func_name, "print") and self.call_args.items.len == 1) {
+                if (std.mem.eql(u8, func_name, "input")) {
+                    if (instr.dest) |d| {
+                        try self.output.print(self.allocator, "r_{d} = ", .{d});
+                    }
+                    try self.output.appendSlice(self.allocator, "orbit_input(arena, ");
+                    if (self.call_args.items.len == 1) {
+                        try self.generateValue(self.call_args.items[0]);
+                    } else {
+                        try self.output.appendSlice(self.allocator, "NULL");
+                    }
+                    try self.output.appendSlice(self.allocator, ");\n");
+                    self.call_args.clearRetainingCapacity();
+                    return;
+                } else if (std.mem.eql(u8, func_name, "print") and self.call_args.items.len == 1) {
                     const arg = self.call_args.items[0];
                     const arg_type = self.getValueType(arg);
 
@@ -1766,6 +1779,28 @@ pub fn isMainFunctionName(name: []const u8) bool {
                     }
                 }
             },
+            .list_set => {
+                try self.output.appendSlice(self.allocator, "orbit_list_set(");
+                try self.generateValue(instr.operand1);
+                try self.output.appendSlice(self.allocator, ", ");
+                try self.generateValue(instr.operand2);
+                try self.output.appendSlice(self.allocator, ", ");
+                switch (instr.operand3) {
+                    .int => |v| try self.output.print(self.allocator, "&(orbit_int){{{d}}}", .{v}),
+                    .float => |v| try self.output.print(self.allocator, "&(orbit_float){{{d}}}", .{v}),
+                    .string => |v| try self.output.print(self.allocator, "&(orbit_string){{\"{s}\"}}", .{v}),
+                    .bool => |v| try self.output.print(self.allocator, "&(orbit_bool){{{s}}}", .{if (v) "true" else "false"}),
+                    else => {
+                        if (instr.operand3 == .register) {
+                            try self.output.appendSlice(self.allocator, "&");
+                            try self.generateValue(instr.operand3);
+                        } else {
+                            try self.generateValue(instr.operand3);
+                        }
+                    },
+                }
+                try self.output.appendSlice(self.allocator, ");\n");
+            },
             .list_len => {
                 try self.output.print(self.allocator, "r_{d} = (orbit_int)orbit_list_len(", .{instr.dest.?});
                 try self.generateValue(instr.operand1);
@@ -1996,9 +2031,19 @@ pub fn isMainFunctionName(name: []const u8) bool {
         }
 
         try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
+        
+        const is_math = (instr.opcode == .add or instr.opcode == .sub or instr.opcode == .mul or instr.opcode == .div or instr.opcode == .mod);
+        
+        if (type1 == .unknown and is_math) try self.output.appendSlice(self.allocator, "(orbit_int)(uintptr_t)(");
         try self.generateValue(instr.operand1);
+        if (type1 == .unknown and is_math) try self.output.appendSlice(self.allocator, ")");
+        
         try self.output.appendSlice(self.allocator, op);
+        
+        if (type2 == .unknown and is_math) try self.output.appendSlice(self.allocator, "(orbit_int)(uintptr_t)(");
         try self.generateValue(instr.operand2);
+        if (type2 == .unknown and is_math) try self.output.appendSlice(self.allocator, ")");
+        
         try self.output.appendSlice(self.allocator, ";\n");
     }
 
@@ -2054,7 +2099,25 @@ pub fn isMainFunctionName(name: []const u8) bool {
         switch (val) {
             .int => |v| try self.output.print(self.allocator, "{d}", .{v}),
             .float => |v| try self.output.print(self.allocator, "{d}", .{v}),
-            .string => |v| try self.output.print(self.allocator, "\"{s}\"", .{v}),
+            .string => |v| {
+                try self.output.appendSlice(self.allocator, "\"");
+                for (v) |c| {
+                    if (c == '\n') {
+                        try self.output.appendSlice(self.allocator, "\\n");
+                    } else if (c == '"') {
+                        try self.output.appendSlice(self.allocator, "\\\"");
+                    } else if (c == '\\') {
+                        try self.output.appendSlice(self.allocator, "\\\\");
+                    } else if (c == '\r') {
+                        try self.output.appendSlice(self.allocator, "\\r");
+                    } else if (c == '\t') {
+                        try self.output.appendSlice(self.allocator, "\\t");
+                    } else {
+                        try self.output.print(self.allocator, "{c}", .{c});
+                    }
+                }
+                try self.output.appendSlice(self.allocator, "\"");
+            },
             .symbol => |v| {
                 if (self.current_func) |f| {
                     var found_param = false;

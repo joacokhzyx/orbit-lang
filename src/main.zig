@@ -347,9 +347,11 @@ pub fn main(init: std.process.Init) !void {
     _ = term.init(color_pref, unicode_pref, init.io, init.environ_map);
 
     if (std.mem.eql(u8, command, "dev") or std.mem.eql(u8, command, "run")) {
-        runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch std.process.exit(1);
+        runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch |err| { std.debug.print("ERROR: {any}\n", .{err}); std.process.exit(1); };
+    } else if (std.mem.eql(u8, command, "repl")) {
+        runReplMode(init, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch |err| { std.debug.print("ERROR: {any}\n", .{err}); std.process.exit(1); };
     } else if (std.mem.eql(u8, command, "build")) {
-        runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode) catch std.process.exit(1);
+        runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode) catch |err| { std.debug.print("ERROR: {any}\n", .{err}); std.process.exit(1); };
     } else if (std.mem.eql(u8, command, "test")) {
         runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch std.process.exit(1);
     } else if (std.mem.eql(u8, command, "fmt")) {
@@ -1479,14 +1481,16 @@ fn runExecuteMode(
     var forward_args = std.ArrayListUnmanaged([]const u8).empty;
     try forward_args.append(arena, bin_path_to_run);
 
-    for (raw_args[3..]) |arg| {
-        if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "--no-kynx") or std.mem.eql(u8, arg, "--verbose") or std.mem.eql(u8, arg, "--timings") or std.mem.eql(u8, arg, "--timings=json")) {
-            continue;
+    if (raw_args.len >= 3) {
+        for (raw_args[3..]) |arg| {
+            if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "--no-kynx") or std.mem.eql(u8, arg, "--verbose") or std.mem.eql(u8, arg, "--timings") or std.mem.eql(u8, arg, "--timings=json")) {
+                continue;
+            }
+            if (std.mem.startsWith(u8, arg, "--color=") or std.mem.startsWith(u8, arg, "--unicode=")) {
+                continue;
+            }
+            try forward_args.append(arena, arg);
         }
-        if (std.mem.startsWith(u8, arg, "--color=") or std.mem.startsWith(u8, arg, "--unicode=")) {
-            continue;
-        }
-        try forward_args.append(arena, arg);
     }
 
     var child = try std.process.spawn(init.io, .{ .argv = forward_args.items });
@@ -2026,4 +2030,65 @@ fn runClusterMode(init: std.process.Init) !void {
     std.debug.print("  + Gossip State    Active (0.2 ms heartbeat)\n", .{});
     std.debug.print("  + Cluster Nodes   1 local node, 0 peers\n", .{});
     std.debug.print("  + Kynx            Synchronized across cluster\n\n", .{});
+}
+
+fn runReplMode(init: std.process.Init, debug: bool, no_kynx: bool, verbose: bool, timings: bool, timings_json: bool, config: AtlasConfig, backend_mode: BackendMode, emit_mode: EmitMode, linker_mode: LinkerMode) !void {
+    const arena = init.arena.allocator();
+    const builtin = @import("builtin");
+
+    const win32_k32 = struct {
+        extern "kernel32" fn GetStdHandle(nStdHandle: u32) callconv(.c) ?std.os.windows.HANDLE;
+    };
+    const STD_INPUT_HANDLE: u32 = @bitCast(@as(i32, -10));
+
+    const stdin_handle: std.Io.File.Handle = if (builtin.os.tag == .windows)
+        win32_k32.GetStdHandle(STD_INPUT_HANDLE) orelse @as(std.os.windows.HANDLE, @ptrFromInt(1))
+    else
+        0;
+
+    const stdin_file = std.Io.File{ .handle = stdin_handle, .flags = .{ .nonblocking = false } };
+    var read_buf: [8192]u8 = undefined;
+    var reader = std.Io.File.Reader.init(stdin_file, init.io, &read_buf);
+
+    std.debug.print("Orbit REPL (v{s})\n", .{ORBIT_VERSION});
+    std.debug.print("Type 'exit' to quit.\n\n", .{});
+
+    var history = std.ArrayListUnmanaged(u8).empty;
+
+    while (true) {
+        std.debug.print("orbit> ", .{});
+        const line = readLspLine(&reader, arena) catch |err| {
+            if (err == error.EndOfStream) break;
+            return err;
+        };
+        const trimmed = std.mem.trim(u8, line, " \r\n\t");
+        if (std.mem.eql(u8, trimmed, "exit")) {
+            break;
+        }
+        if (trimmed.len == 0) continue;
+
+        // Append to history
+        try history.appendSlice(arena, trimmed);
+        try history.appendSlice(arena, "\n");
+
+        var temp_code = std.ArrayListUnmanaged(u8).empty;
+        try temp_code.appendSlice(arena, "fn main() -> int {\n");
+        try temp_code.appendSlice(arena, history.items);
+        try temp_code.appendSlice(arena, "\nreturn 0;\n}\n");
+
+        const temp_file_path = "repl_temp.orb";
+        var cwd = std.Io.Dir.cwd();
+        if (cwd.createFile(init.io, temp_file_path, .{})) |file| {
+            var write_buf: [4096]u8 = undefined;
+            var w = std.Io.File.Writer.init(file, init.io, &write_buf);
+            w.interface.writeAll(temp_code.items) catch {};
+            w.flush() catch {};
+            file.close(init.io);
+        } else |_| {}
+
+        // Run
+        runExecuteMode(init, temp_file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch |err| {
+            std.debug.print("REPL Error: {any}\n", .{err});
+        };
+    }
 }

@@ -1061,7 +1061,7 @@ pub const IRBuilder = struct {
             }
 
             // Intercept collection methods
-            if (std.mem.eql(u8, member_name, "push")) {
+            if (std.mem.eql(u8, member_name, "push") or std.mem.eql(u8, member_name, "append")) {
                 const obj = try self.buildExpr(ma.object);
                 std.debug.print("[IR DEBUG] buildCall: push handler, args.len={d}, func={s}\n", .{node.data.call.args.len, self.current_function.?.name});
                 if (node.data.call.args.len == 1) {
@@ -1697,6 +1697,18 @@ pub const IRBuilder = struct {
             var instr = IRInstruction.init(.store_field);
             instr.operand1 = obj;
             instr.operand2 = IRValue{ .string = member_name };
+            instr.operand3 = val;
+            try self.current_function.?.emit(self.allocator, instr);
+            return val;
+        } else if (data.target.tag == .index_access) {
+            const ia = data.target.data.index_access;
+            const obj = try self.buildExpr(ia.object);
+            const idx = try self.buildExpr(ia.index);
+            // We assume it's a list for now, ideally check type if we had type info, but in dynamically typed context or if we only have list_set it works.
+            // Orbit C-backend uses list_set for lists. We'll emit list_set.
+            var instr = IRInstruction.init(.list_set);
+            instr.operand1 = obj;
+            instr.operand2 = idx;
             instr.operand3 = val;
             try self.current_function.?.emit(self.allocator, instr);
             return val;
