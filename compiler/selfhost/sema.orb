@@ -1,4 +1,5 @@
 import "../ast.orb"
+import "../memory.orb"
 import "query.orb"
 
 // Orbit DORB Architecture: Semantic Analyzer (Type Checker)
@@ -9,7 +10,7 @@ model SemanticError {
 }
 
 model SemanticResult {
-    ok: bool
+    success: bool
     error: SemanticError
 }
 
@@ -51,21 +52,21 @@ fn initSemaContext(query: QueryContext) -> SemaContext {
 fn pushScope(ctx: SemaContext) {
     val newScope = Scope([], ctx.currentScope)
     ctx.scopes.push(newScope)
-    ctx.currentScope = ctx.scopes.len() - 1
+    ctx.currentScope = ctx.scopes.length - 1
 }
 
 fn popScope(ctx: SemaContext) {
-    val scope = ctx.scopes.get(ctx.currentScope)
+    val scope = ctx.scopes[ctx.currentScope]
     ctx.currentScope = scope.parentId
 }
 
 fn registerSymbol(ctx: SemaContext, sym: Symbol) -> bool {
-    val scope = ctx.scopes.get(ctx.currentScope)
+    val scope = ctx.scopes[ctx.currentScope]
     
     // Check for shadowing/re-declaration
     var i = 0
-    while i < scope.symbols.len() {
-        val existing = scope.symbols.get(i)
+    while i < scope.symbols.length {
+        val existing = scope.symbols[i]
         if existing.name == sym.name {
             ctx.errors.push(SemanticError(sym.node, "Symbol '" + sym.name + "' is already defined in this scope."))
             return false
@@ -80,10 +81,10 @@ fn registerSymbol(ctx: SemaContext, sym: Symbol) -> bool {
 fn lookupSymbol(ctx: SemaContext, name: string) -> Symbol {
     var curr = ctx.currentScope
     while curr != -1 {
-        val scope = ctx.scopes.get(curr)
+        val scope = ctx.scopes[curr]
         var i = 0
-        while i < scope.symbols.len() {
-            val sym = scope.symbols.get(i)
+        while i < scope.symbols.length {
+            val sym = scope.symbols[i]
             if sym.name == name {
                 return sym
             }
@@ -98,7 +99,7 @@ fn lookupSymbol(ctx: SemaContext, name: string) -> Symbol {
 fn analyzeProgram(ctx: SemaContext) -> SemanticResult {
     var i = 0
     var programNode = -1
-    while i < ctx.query.pool.kinds.len() {
+    while i < ctx.query.pool.kinds.len {
         if queryKind(ctx.query, i) == kindProgram() {
             programNode = i
             break
@@ -113,7 +114,7 @@ fn analyzeProgram(ctx: SemaContext) -> SemanticResult {
     var decl = queryLhs(ctx.query, programNode)
     while decl != -1 {
         val res = analyzeDeclaration(ctx, decl)
-        if res.ok == false { return res }
+        if res.success == false { return res }
         decl = getNextSibling(ctx.query, decl)
     }
     
@@ -136,7 +137,7 @@ fn analyzeDeclaration(ctx: SemaContext, decl: NodeIndex) -> SemanticResult {
         var stmt = queryExtra(ctx.query, decl)
         while stmt != -1 {
             val res = analyzeStatement(ctx, stmt)
-            if res.ok == false { return res }
+            if res.success == false { return res }
             stmt = getNextSibling(ctx.query, stmt)
         }
         
@@ -153,6 +154,25 @@ fn analyzeDeclaration(ctx: SemaContext, decl: NodeIndex) -> SemanticResult {
     return createSemaOk()
 }
 
+fn checkExhaustiveness(ctx: SemaContext, matchNode: NodeIndex) -> SemanticResult {
+    // Phase 2: Basic Pattern Matching Exhaustiveness Check (Mock implementation)
+    val expr = queryLhs(ctx.query, matchNode)
+    val exprType = getTypeOfNode(ctx.query, expr)
+    
+    var caseNode = queryRhs(ctx.query, matchNode)
+    var numCases = 0
+    while caseNode != -1 {
+        numCases = numCases + 1
+        caseNode = getNextSibling(ctx.query, caseNode)
+    }
+    
+    if numCases == 0 {
+        return createSemaError(matchNode, "Match expression must have at least one case")
+    }
+    
+    return createSemaOk()
+}
+
 fn analyzeStatement(ctx: SemaContext, stmt: NodeIndex) -> SemanticResult {
     val kind = queryKind(ctx.query, stmt)
     
@@ -161,14 +181,31 @@ fn analyzeStatement(ctx: SemaContext, stmt: NodeIndex) -> SemanticResult {
         val name = queryText(ctx.query, nameIdx)
         val isMut = queryExtra(ctx.query, stmt) == 1
         
-        val sym = Symbol(name, "unknown", isMut, false, stmt)
+        // Type Inference
+        val valIdx = queryRhs(ctx.query, stmt)
+        var inferredType = "unknown"
+        if valIdx != -1 {
+            inferredType = getTypeOfNode(ctx.query, valIdx)
+        }
+        
+        val sym = Symbol(name, inferredType, isMut, false, stmt)
         registerSymbol(ctx, sym)
         return createSemaOk()
     }
     
     if kind == kindReturn() {
         val expr = queryLhs(ctx.query, stmt)
+        if expr != -1 {
+            val exprType = getTypeOfNode(ctx.query, expr)
+            if exprType != ctx.currentReturnType && ctx.currentReturnType != "unknown" {
+                // Return type mismatch (ignored for basic types for now)
+            }
+        }
         return createSemaOk()
+    }
+    
+    if kind == kindMatch() {
+        return checkExhaustiveness(ctx, stmt)
     }
     
     return createSemaOk()

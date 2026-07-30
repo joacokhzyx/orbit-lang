@@ -2,44 +2,56 @@
 // Orbit DORB Architecture: Semantic Query System (Lazy)
 
 import "../ast.orb"
+import "../memory.orb"
+
+// Cache for Monomorphization (Lazy Instantiation)
+model MonoCache {
+    types: list      // Cached generic types
+    functions: list  // Cached generic functions
+}
+
+fn initMonoCache() -> MonoCache {
+    return MonoCache([], [])
+}
 
 model QueryContext {
     source: string
     pool: ASTPool
+    monoCache: MonoCache
 }
 
 fn initQueryContext(source: string, pool: ASTPool) -> QueryContext {
-    return QueryContext(source, pool)
+    return QueryContext(source, pool, initMonoCache())
 }
 
 // Low-level structural queries (O(1) lookups into the SoA arrays)
 
 fn queryKind(ctx: QueryContext, node: NodeIndex) -> int {
     if node < 0 { return 0 }
-    if node >= ctx.pool.kinds.len() { return 0 }
-    return ctx.pool.kinds.get(node)
+    if node >= ctx.pool.kinds.len { return 0 }
+    return getArrayPool(ctx.pool.kinds, node)
 }
 
 fn queryText(ctx: QueryContext, node: NodeIndex) -> string {
     if node < 0 { return "" }
-    if node >= ctx.pool.tokens.len() { return "" }
-    val span = ctx.pool.tokens.get(node)
+    if node >= ctx.pool.tokens.length { return "" }
+    val span = ctx.pool.tokens[node]
     return ctx.source.slice(span.start, span.start + span.len)
 }
 
 fn queryLhs(ctx: QueryContext, node: NodeIndex) -> NodeIndex {
     if node < 0 { return -1 }
-    return ctx.pool.lhs.get(node)
+    return getArrayPool(ctx.pool.lhs, node)
 }
 
 fn queryRhs(ctx: QueryContext, node: NodeIndex) -> NodeIndex {
     if node < 0 { return -1 }
-    return ctx.pool.rhs.get(node)
+    return getArrayPool(ctx.pool.rhs, node)
 }
 
 fn queryExtra(ctx: QueryContext, node: NodeIndex) -> NodeIndex {
     if node < 0 { return -1 }
-    return ctx.pool.extra.get(node)
+    return getArrayPool(ctx.pool.extra, node)
 }
 
 // Semantic Lazy Queries
@@ -68,6 +80,22 @@ fn resolveIdentifierType(ctx: QueryContext, identNode: NodeIndex) -> string {
     // En el futuro, esta query buscará en el scope de forma lazy
     // retornando el tipo inferido sin haber precalculado todo el archivo.
     return "unknown"
+}
+
+fn getTypeOfNode(ctx: QueryContext, node: NodeIndex) -> string {
+    val kind = queryKind(ctx, node)
+    if kind == kindLiteralInt() { return "int" }
+    if kind == kindLiteralString() { return "string" }
+    if kind == kindIdentifier() { return resolveIdentifierType(ctx, node) }
+    return "unknown"
+}
+
+// Monomorphization: Lazy instantiation
+fn instantiateGenericType(ctx: QueryContext, baseType: string, typeArgs: list) -> string {
+    var monoName = baseType + "<...>"
+    // Register in cache if not exists
+    ctx.monoCache.types.push(monoName)
+    return monoName
 }
 
 // Iteration Helpers (since we use linked lists via 'extra' field)
