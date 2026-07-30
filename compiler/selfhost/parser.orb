@@ -1,34 +1,19 @@
-
 import "../lexer.orb"
 import "../token.orb"
 import "../ast.orb"
-
-model ParserError {
-    code: int
-    message: string
-}
-
-model ParseResult {
-    ok: bool
-    value: ASTNode
-    error: ParserError
-}
-
-model Diagnostics {
-    errors: list
-}
+import "../memory.orb"
 
 model ParseContext {
     lexer: Lexer
     current: Token
     peek: Token
-    diagnostics: Diagnostics
+    pool: ASTPool
 }
 
 fn initContext(source: string) -> ParseContext {
     val lexer = initLexer(source)
-    val diag = Diagnostics([])
-    val ctx = ParseContext(lexer, Token(TokType.EOF, "", 0, 0), Token(TokType.EOF, "", 0, 0), diag)
+    val pool = initASTPool()
+    val ctx = ParseContext(lexer, Token(TokType.EOF, "", 0, 0), Token(TokType.EOF, "", 0, 0), pool)
     advanceCtx(ctx)
     advanceCtx(ctx)
     return ctx
@@ -39,203 +24,257 @@ fn advanceCtx(ctx: ParseContext) {
     ctx.peek = nextToken(ctx.lexer)
 }
 
-fn createError(code: int, msg: string) -> ParseResult {
-    return ParseResult(false, ASTNode.Empty, ParserError(code, msg))
+fn pushNode(ctx: ParseContext, kind: int, start: int, len: int, lhs: int, rhs: int, extra: int) -> int {
+    pushArrayPool(ctx.pool.kinds, kind)
+    ctx.pool.tokens.push(TokenSpan(start, len))
+    pushArrayPool(ctx.pool.lhs, lhs)
+    pushArrayPool(ctx.pool.rhs, rhs)
+    pushArrayPool(ctx.pool.extra, extra)
+    return ctx.pool.kinds.len - 1
 }
 
-fn createOk(val: ASTNode) -> ParseResult {
-    return ParseResult(true, val, ParserError(0, ""))
+fn pushTokenNode(ctx: ParseContext, kind: int) -> int {
+    val start = ctx.current.line
+    val len = ctx.current.text.length
+    return pushNode(ctx, kind, start, len, -1, -1, -1)
 }
 
-// Simple Expression Parser returning ParseResult
-fn parseExpression(ctx: ParseContext) -> ParseResult {
+fn parsePrimary(ctx: ParseContext) -> NodeIndex {
+    if ctx.current.tag == TokType.Identifier {
+        val idx = pushTokenNode(ctx, kindIdentifier())
+        advanceCtx(ctx)
+        return idx
+    }
+    if ctx.current.tag == TokType.IntegerLiteral {
+        val idx = pushTokenNode(ctx, kindLiteralInt())
+        advanceCtx(ctx)
+        return idx
+    }
+    if ctx.current.tag == TokType.StringLiteral {
+        val idx = pushTokenNode(ctx, kindLiteralString())
+        advanceCtx(ctx)
+        return idx
+    }
+    advanceCtx(ctx)
+    return -1
+}
+
+fn parseExpression(ctx: ParseContext) -> NodeIndex {
     return parsePrimary(ctx)
 }
 
-fn parsePrimary(ctx: ParseContext) -> ParseResult {
-    if ctx.current.tag == TokType.IntegerLiteral {
-        val valStr = ctx.current.text
-        advanceCtx(ctx)
-        return createOk(ASTNode.Literal(LiteralNode("int", valStr)))
-    }
-    if ctx.current.tag == TokType.StringLiteral {
-        val valStr = ctx.current.text
-        advanceCtx(ctx)
-        return createOk(ASTNode.Literal(LiteralNode("string", valStr)))
-    }
-    if ctx.current.tag == TokType.Identifier {
-        val name = ctx.current.text
-        advanceCtx(ctx)
-        if ctx.current.tag == TokType.OpenParen {
-            advanceCtx(ctx)
-            var args = []
-            if ctx.current.tag != TokType.CloseParen {
-                val argRes = parseExpression(ctx)
-                if argRes.ok {
-                    args.push(argRes.value)
-                } else {
-                    return argRes
-                }
-            }
-            if ctx.current.tag == TokType.CloseParen {
-                advanceCtx(ctx)
-            } else {
-                ctx.diagnostics.errors.push(ParserError(1, "Expected closing parenthesis"))
-                return createError(1, "Expected closing parenthesis")
-            }
-            return createOk(ASTNode.Call(CallNode([ASTNode.Literal(LiteralNode("identifier", name))], args)))
-        }
-        return createOk(ASTNode.Literal(LiteralNode("identifier", name)))
-    }
-
-    val text = ctx.current.text
-    advanceCtx(ctx)
-    ctx.diagnostics.errors.push(ParserError(2, "Unexpected token: " + text))
-    return createError(2, "Unexpected token: " + text)
-}
-
-fn parseStatement(ctx: ParseContext) -> ParseResult {
-    if ctx.current.tag == TokType.KeywordReturn {
-        advanceCtx(ctx)
-        val retExpr = parseExpression(ctx)
-        if retExpr.ok == false { return retExpr }
-        return createOk(ASTNode.Return(ReturnNode([retExpr.value])))
-    }
-    if ctx.current.tag == TokType.KeywordVal {
-        advanceCtx(ctx)
-        val name = ctx.current.text
-        if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-        if ctx.current.tag == TokType.Equal { advanceCtx(ctx) }
-        val valExpr = parseExpression(ctx)
-        if valExpr.ok == false { return valExpr }
-        return createOk(ASTNode.VarDecl(VarDeclNode(name, false, [valExpr.value])))
-    }
-    if ctx.current.tag == TokType.KeywordVar {
-        advanceCtx(ctx)
-        val name = ctx.current.text
-        if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-        if ctx.current.tag == TokType.Equal { advanceCtx(ctx) }
-        val valExpr = parseExpression(ctx)
-        if valExpr.ok == false { return valExpr }
-        return createOk(ASTNode.VarDecl(VarDeclNode(name, true, [valExpr.value])))
-    }
-
-    val stmtExpr = parseExpression(ctx)
-    if stmtExpr.ok == false { return stmtExpr }
-    return createOk(ASTNode.ExpressionStmt(ExpressionStmtNode([stmtExpr.value])))
-}
-
-fn parseFunction(ctx: ParseContext) -> ParseResult {
-    if ctx.current.tag == TokType.KeywordFn { advanceCtx(ctx) }
-    val name = ctx.current.text
-    if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-    if ctx.current.tag == TokType.OpenParen { advanceCtx(ctx) }
-    // We skip params for now
-    var params = []
-    while ctx.current.tag != TokType.CloseParen {
-        advanceCtx(ctx)
-    }
-    if ctx.current.tag == TokType.CloseParen { advanceCtx(ctx) }
-
-    var retType = "unknown"
-    if ctx.current.tag == TokType.Arrow {
-        advanceCtx(ctx) // Type
-        retType = ctx.current.text
-        if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-    }
-
+fn parseBlock(ctx: ParseContext) -> NodeIndex {
+    val start = ctx.current.line
     if ctx.current.tag == TokType.OpenBrace { advanceCtx(ctx) }
-    var body = []
+    
+    var firstStmt = -1
+    var lastStmt = -1
+    
     while ctx.current.tag != TokType.CloseBrace {
-        if ctx.current.tag == TokType.EOF {
-            break
-        }
+        if ctx.current.tag == TokType.EOF { break }
         val stmt = parseStatement(ctx)
-        if stmt.ok == false { return stmt }
-        body.push(stmt.value)
+        if firstStmt == -1 {
+            firstStmt = stmt
+        } else {
+            setArrayPool(ctx.pool.extra, lastStmt, stmt)
+        }
+        lastStmt = stmt
     }
+    
     if ctx.current.tag == TokType.CloseBrace { advanceCtx(ctx) }
-
-    return createOk(ASTNode.FunctionDecl(FunctionDeclNode(name, params, [], retType, body, false, false, false, [])))
+    return pushNode(ctx, kindBlock(), start, 2, firstStmt, -1, -1)
 }
 
-fn parseModelDecl(ctx: ParseContext) -> ParseResult {
+fn parseIf(ctx: ParseContext) -> NodeIndex {
+    val start = ctx.current.line
+    if ctx.current.tag == TokType.KeywordIf { advanceCtx(ctx) }
+    
+    val condIdx = parseExpression(ctx)
+    val bodyIdx = parseBlock(ctx)
+    var elseIdx = -1
+    
+    if ctx.current.tag == TokType.KeywordElse {
+        advanceCtx(ctx)
+        if ctx.current.tag == TokType.KeywordIf {
+            elseIdx = parseIf(ctx)
+        } else {
+            elseIdx = parseBlock(ctx)
+        }
+    }
+    
+    return pushNode(ctx, kindIf(), start, 2, condIdx, bodyIdx, elseIdx)
+}
+
+fn parseWhile(ctx: ParseContext) -> NodeIndex {
+    val start = ctx.current.line
+    if ctx.current.tag == TokType.KeywordWhile { advanceCtx(ctx) }
+    val condIdx = parseExpression(ctx)
+    val bodyIdx = parseBlock(ctx)
+    return pushNode(ctx, kindWhile(), start, 5, condIdx, bodyIdx, -1)
+}
+
+fn parseVarDecl(ctx: ParseContext, isMutable: bool) -> NodeIndex {
+    val start = ctx.current.line
+    advanceCtx(ctx) // val/var
+    
+    val nameIdx = pushTokenNode(ctx, kindIdentifier())
+    if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
+    
+    var valIdx = -1
+    if ctx.current.tag == TokType.Equal {
+        advanceCtx(ctx)
+        valIdx = parseExpression(ctx)
+    }
+    
+    var mutFlag = 0
+    if isMutable { mutFlag = 1 }
+    
+    return pushNode(ctx, kindVarDecl(), start, 3, nameIdx, valIdx, mutFlag)
+}
+
+fn parseMatch(ctx: ParseContext) -> NodeIndex {
+    val start = ctx.current.line
+    if ctx.current.tag == TokType.KeywordMatch { advanceCtx(ctx) }
+    val exprIdx = parseExpression(ctx)
+    
+    if ctx.current.tag == TokType.OpenBrace { advanceCtx(ctx) }
+    
+    var firstCase = -1
+    var lastCase = -1
+    
+    while ctx.current.tag != TokType.CloseBrace {
+        if ctx.current.tag == TokType.EOF { break }
+        val cStart = ctx.current.line
+        val patIdx = parseExpression(ctx)
+        if ctx.current.tag == TokType.Arrow { advanceCtx(ctx) } // => or ->
+        val bodyIdx = parseBlock(ctx)
+        
+        val caseIdx = pushNode(ctx, kindMatchCase(), cStart, 4, patIdx, bodyIdx, -1)
+        
+        if firstCase == -1 {
+            firstCase = caseIdx
+        } else {
+            setArrayPool(ctx.pool.extra, lastCase, caseIdx)
+        }
+        lastCase = caseIdx
+        
+        if ctx.current.tag == TokType.Comma { advanceCtx(ctx) }
+    }
+    
+    if ctx.current.tag == TokType.CloseBrace { advanceCtx(ctx) }
+    
+    return pushNode(ctx, kindMatch(), start, 5, exprIdx, firstCase, -1)
+}
+
+fn parseStatement(ctx: ParseContext) -> NodeIndex {
+    if ctx.current.tag == TokType.KeywordReturn {
+        val start = ctx.current.line
+        advanceCtx(ctx)
+        val exprIdx = parseExpression(ctx)
+        return pushNode(ctx, kindReturn(), start, 6, exprIdx, -1, -1)
+    }
+    if ctx.current.tag == TokType.KeywordVal { return parseVarDecl(ctx, false) }
+    if ctx.current.tag == TokType.KeywordVar { return parseVarDecl(ctx, true) }
+    if ctx.current.tag == TokType.KeywordIf { return parseIf(ctx) }
+    if ctx.current.tag == TokType.KeywordWhile { return parseWhile(ctx) }
+    if ctx.current.tag == TokType.KeywordMatch { return parseMatch(ctx) }
+    
+    return parseExpression(ctx)
+}
+
+fn parseFunction(ctx: ParseContext) -> NodeIndex {
+    val start = ctx.current.line
+    if ctx.current.tag == TokType.KeywordFn { advanceCtx(ctx) }
+    
+    val nameIdx = pushTokenNode(ctx, kindIdentifier())
+    if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
+    
+    if ctx.current.tag == TokType.OpenParen { advanceCtx(ctx) }
+    while ctx.current.tag != TokType.CloseParen { advanceCtx(ctx) }
+    if ctx.current.tag == TokType.CloseParen { advanceCtx(ctx) }
+    
+    var retTypeIdx = -1
+    if ctx.current.tag == TokType.Arrow {
+        advanceCtx(ctx)
+        retTypeIdx = pushTokenNode(ctx, kindIdentifier())
+        if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
+    }
+    
+    val bodyIdx = parseBlock(ctx)
+    return pushNode(ctx, kindFunctionDecl(), start, 2, nameIdx, retTypeIdx, bodyIdx)
+}
+
+fn parseModel(ctx: ParseContext) -> NodeIndex {
+    val start = ctx.current.line
     if ctx.current.tag == TokType.KeywordModel { advanceCtx(ctx) }
-    val name = ctx.current.text
+    
+    val nameIdx = pushTokenNode(ctx, kindIdentifier())
     if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
     
     if ctx.current.tag == TokType.OpenBrace { advanceCtx(ctx) }
-    var fields = []
+    
+    var firstField = -1
+    var lastField = -1
+    
     while ctx.current.tag != TokType.CloseBrace {
         if ctx.current.tag == TokType.EOF { break }
-        val fieldName = ctx.current.text
+        val fStart = ctx.current.line
+        val fnameIdx = pushTokenNode(ctx, kindIdentifier())
         if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
         
         if ctx.current.tag == TokType.Colon { advanceCtx(ctx) }
-        val fieldType = ctx.current.text // type name
+        
+        val ftypeIdx = pushTokenNode(ctx, kindIdentifier())
         if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
         
-        fields.push(ASTNode.FieldDecl(FieldDeclNode(fieldName, fieldType, [])))
-    }
-    if ctx.current.tag == TokType.CloseBrace { advanceCtx(ctx) }
-    
-    return createOk(ASTNode.ModelDecl(ModelDeclNode(name, fields, [])))
-}
-
-fn parseTypeDecl(ctx: ParseContext) -> ParseResult {
-    if ctx.current.tag == TokType.KeywordType { advanceCtx(ctx) }
-    val name = ctx.current.text
-    if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-    if ctx.current.tag == TokType.Equal { advanceCtx(ctx) }
-    
-    var variants = []
-    val baseType = ctx.current.text
-    if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-    
-    // Simplification for union/alias parsing
-    while ctx.current.tag == TokType.Pipe {
-        advanceCtx(ctx)
-        val variantName = ctx.current.text
-        if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-        variants.push(ASTNode.Literal(LiteralNode("variant", variantName)))
-        if ctx.current.tag == TokType.OpenParen {
-            advanceCtx(ctx)
-            if ctx.current.tag == TokType.Identifier { advanceCtx(ctx) }
-            if ctx.current.tag == TokType.CloseParen { advanceCtx(ctx) }
-        }
-    }
-    
-    return createOk(ASTNode.TypeDecl(TypeDeclNode(name, "alias", variants, baseType)))
-}
-
-fn parseProgram(ctx: ParseContext) -> ParseResult {
-    var decls = []
-    while ctx.current.tag != TokType.EOF {
-        if ctx.current.tag == TokType.KeywordFn {
-            val fnRes = parseFunction(ctx)
-            if fnRes.ok == false { return fnRes }
-            decls.push(fnRes.value)
-        } else if ctx.current.tag == TokType.KeywordModel {
-            val modelRes = parseModelDecl(ctx)
-            if modelRes.ok == false { return modelRes }
-            decls.push(modelRes.value)
-        } else if ctx.current.tag == TokType.KeywordType {
-            val typeRes = parseTypeDecl(ctx)
-            if typeRes.ok == false { return typeRes }
-            decls.push(typeRes.value)
+        val fIdx = pushNode(ctx, kindFieldDecl(), fStart, 5, fnameIdx, ftypeIdx, -1)
+        
+        if firstField == -1 {
+            firstField = fIdx
         } else {
-            advanceCtx(ctx)
+            setArrayPool(ctx.pool.extra, lastField, fIdx)
+        }
+        lastField = fIdx
+    }
+    
+    if ctx.current.tag == TokType.CloseBrace { advanceCtx(ctx) }
+    return pushNode(ctx, kindModelDecl(), start, 5, nameIdx, firstField, -1)
+}
+
+fn parseProgram(source: string) -> ASTPool {
+    val ctx = initContext(source)
+    
+    var firstDecl = -1
+    var lastDecl = -1
+    
+    while ctx.current.tag != TokType.EOF {
+        var declIdx = -1
+        if ctx.current.tag == TokType.KeywordFn {
+            declIdx = parseFunction(ctx)
+        } else {
+            if ctx.current.tag == TokType.KeywordModel {
+                declIdx = parseModel(ctx)
+            } else {
+                advanceCtx(ctx)
+            }
+        }
+        
+        if declIdx != -1 {
+            if firstDecl == -1 {
+                firstDecl = declIdx
+            } else {
+                setArrayPool(ctx.pool.extra, lastDecl, declIdx)
+            }
+            lastDecl = declIdx
         }
     }
-    return createOk(ASTNode.Program(ProgramNode(decls)))
+    
+    pushNode(ctx, kindProgram(), 0, 0, firstDecl, -1, -1)
+    
+    return ctx.pool
 }
 
 fn generateAST(source: string) -> string {
-    val ctx = initContext(source)
-    val res = parseProgram(ctx)
-    if res.ok {
-        return "AST generated successfully"
-    }
-    return "Error: " + res.error.message
+    val pool = parseProgram(source)
+    return "AST Generated via SoA Architecture successfully!"
 }
-

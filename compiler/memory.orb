@@ -1,0 +1,49 @@
+// Orbit Self-Hosted Compiler - Memory Management
+// compiler/memory.orb
+
+// Arena allocator for fast allocations with mass-free capabilities
+model Arena {
+    offset: int
+    capacity: int
+    data: list
+}
+
+fn initArena(capacity: int) -> Arena {
+    return Arena(0, capacity, [])
+}
+
+fn allocArena(arena: Arena, size: int) -> int {
+    // Basic bump allocator logic placeholder
+    arena.offset = arena.offset + size
+    return arena.offset
+}
+
+fn freeArena(arena: Arena) {
+    // Mass free
+    arena.offset = 0
+    arena.data = []
+}
+
+// ArrayPool: A strongly typed flat array for SoA architectures
+model ArrayPool {
+    data: list
+    len: int
+}
+
+fn initArrayPool() -> ArrayPool {
+    return ArrayPool([], 0)
+}
+
+fn pushArrayPool(pool: ArrayPool, item: int) -> int {
+    pool.data.push(item)
+    pool.len = pool.len + 1
+    return pool.len - 1
+}
+
+fn getArrayPool(pool: ArrayPool, index: int) -> int {
+    return pool.data[index]
+}
+
+fn setArrayPool(pool: ArrayPool, index: int, val: int) {
+    pool.data[index] = val
+}
