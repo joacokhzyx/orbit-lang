@@ -28,10 +28,16 @@ pub const Superoptimizer = struct {
 
         const variants = [_]type{ ConstPropagate, StrengthReduce, DeadCodeElim };
 
+        const z3 = @import("z3_integration.zig");
+
         inline for (variants) |V| {
             const result = V.apply(self.allocator, instructions) catch null;
             if (result) |new_instrs| {
                 defer self.allocator.free(new_instrs);
+                if (z3.isAvailable()) {
+                    const verified = z3.verifyEquivalence(self.allocator, instructions, new_instrs) catch true;
+                    if (!verified) continue;
+                }
                 const c = cost_model.evaluateSlice(new_instrs);
                 if (c.total() < best_cost.total() or (c.total() == best_cost.total() and new_instrs.len < (if (best_instrs) |b| b.len else instructions.len))) {
                     if (best_instrs) |b| self.allocator.free(b);
@@ -89,7 +95,6 @@ const StrengthReduce = struct {
                     if (instr.operand1.int == 2) {
                         instr.opcode = .add;
                         instr.operand1 = instr.operand2;
-                        instr.operand2 = instr.operand1;
                     }
                 }
             }

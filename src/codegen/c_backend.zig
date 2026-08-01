@@ -19,7 +19,6 @@ const AtlasConfig = @import("../atlas.zig").AtlasConfig;
 const superluminal_matcher = @import("../superluminal/pattern_matcher.zig");
 const superluminal_emitter = @import("../superluminal/emitter.zig");
 const superluminal_semantic = @import("../superluminal/semantic_enhancer.zig");
-const superluminal_superopt = @import("../superluminal/superoptimizer.zig");
 const superluminal_dualpath = @import("../superluminal/dual_path.zig");
 const superluminal_synthesis = @import("../superluminal/synthesis.zig");
 const superluminal_boost = @import("../superluminal/boost_display.zig");
@@ -30,6 +29,8 @@ const superluminal_const = @import("../superluminal/const_prop.zig");
 const superluminal_licm = @import("../superluminal/licm.zig");
 const superluminal_cleanup = @import("../superluminal/cleanup.zig");
 const superluminal_memo = @import("../superluminal/memoize.zig");
+const superluminal_silicon = @import("../superluminal/silicon_fastpath.zig");
+const superluminal_freestanding = @import("../superluminal/freestanding.zig");
 
 pub const CBackend = struct {
     allocator: std.mem.Allocator,
@@ -422,21 +423,50 @@ pub fn isMainFunctionName(name: []const u8) bool {
             "#define CHAR_GREATER '>'\n" ++
             "#ifndef genericParams\n#define genericParams(...) (void*)0\n#endif\n" ++
             "#ifndef _pop\n#define _pop() (void*)0\n#endif\n" ++
-            "#ifndef _push\n#define _push(...) (void)0\n#endif\n" ++
             "#ifndef valStr_indexOf\n#define valStr_indexOf(...) 0\n#endif\n");
+
+        var declared_structs = std.StringHashMap(void).init(self.allocator);
+        defer declared_structs.deinit();
 
         for (module.models.items) |model| {
             try self.model_names.put(self.allocator, model.name, {});
             for (model.fields.items) |field| {
                 try self.model_field_owners.put(self.allocator, field.name, model.name);
             }
+            try declared_structs.put(model.name, {});
             try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ model.name, model.name });
         }
         for (module.types.items) |t| {
             if (t.kind == .union_type) {
+                try declared_structs.put(t.name, {});
                 try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ t.name, t.name });
             }
         }
+        
+        // Forward declare external models/unions used in functions
+        for (module.functions.items) |func| {
+            var check_types = std.ArrayListUnmanaged(IRType).empty;
+            defer check_types.deinit(self.allocator);
+            try check_types.append(self.allocator, func.return_type);
+            for (func.param_types) |pt| {
+                try check_types.append(self.allocator, pt);
+            }
+            for (func.register_types.items) |rt| {
+                try check_types.append(self.allocator, rt);
+            }
+            for (check_types.items) |t| {
+                const name = switch (t) {
+                    .model => |m| m,
+                    .tagged_union => |u| u,
+                    else => continue,
+                };
+                if (!declared_structs.contains(name)) {
+                    try declared_structs.put(name, {});
+                    try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ name, name });
+                }
+            }
+        }
+
         try self.model_field_owners.put(self.allocator, "mainFunction", "IRBuilder");
         try self.output.appendSlice(self.allocator, "\n");
 
@@ -506,10 +536,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
         try self.output.appendSlice(self.allocator, main_func);
 
         const pct = self.boost_metrics.boostPercent();
-
-        if (pct >= 0.5) {
-            superluminal_boost.printBoost(self.boost_metrics);
-        }
+        _ = pct;
 
         return try self.output.toOwnedSlice(self.allocator);
     }
@@ -539,6 +566,13 @@ pub fn isMainFunctionName(name: []const u8) bool {
         }
 
         const is_entry_or_route = isMainFunctionName(func.name) or std.mem.startsWith(u8, func.name, "route_");
+        if (superluminal_silicon.isSiliconFastPath(func)) {
+            try self.output.appendSlice(self.allocator, "__attribute__((hot, flatten)) ");
+        } else if (superluminal_freestanding.isFreestanding(func)) {
+            try self.output.appendSlice(self.allocator, "__attribute__((nothrow)) ");
+        } else if (superluminal_dualpath.isDualPath(func)) {
+            try self.output.appendSlice(self.allocator, "__attribute__((hot)) ");
+        }
         if (!is_entry_or_route) {
             try self.output.appendSlice(self.allocator, "static ");
         }
@@ -1119,22 +1153,35 @@ pub fn isMainFunctionName(name: []const u8) bool {
         // Synthesis-based + pattern-based code emission
         var instr_i: usize = 0;
         var emit_cost = superluminal_cost.Cost{};
-        if (std.mem.startsWith(u8, func.name, "compile")) {
-            std.debug.print("[CG DEBUG] func={s} instructions={d}\n", .{func.name, emit_slice.len});
-            for (emit_slice, 0..) |instr, idx| {
-                if (instr.opcode == .list_push) std.debug.print("[CG DEBUG]   idx={d}: list_push!\n", .{idx});
-            }
-        }
         while (instr_i < emit_slice.len) {
-            try self.generateInstruction(emit_slice[instr_i]);
-            const c = superluminal_cost.evaluate(emit_slice[instr_i]);
-            emit_cost.alu += c.alu;
-            emit_cost.mem_read += c.mem_read;
-            emit_cost.mem_write += c.mem_write;
-            emit_cost.branch += c.branch;
-            emit_cost.reg_assign += c.reg_assign;
-            emit_cost.call += c.call;
-            instr_i += 1;
+            if (superluminal_synthesis.findSynthesis(emit_slice, instr_i)) |m| {
+                try self.emitSynthesis(emit_slice, m);
+                self.boost_metrics.synthesis_hits += 1;
+                const cost_before = superluminal_cost.evaluateSlice(emit_slice[instr_i .. instr_i + m.length]);
+                const rule = superluminal_synthesis.getRuleInfo(m.rule_index);
+                emit_cost.alu += @intFromFloat(@as(f64, @floatFromInt(cost_before.alu)) / rule.cost_reduction);
+                instr_i += m.length;
+            } else if (superluminal_matcher.findBest(emit_slice, instr_i)) |m| {
+                try superluminal_emitter.emitPattern(self, emit_slice, m);
+                self.boost_metrics.pattern_hits += 1;
+                emit_cost.alu += m.cost_after.alu;
+                emit_cost.mem_read += m.cost_after.mem_read;
+                emit_cost.mem_write += m.cost_after.mem_write;
+                emit_cost.branch += m.cost_after.branch;
+                emit_cost.reg_assign += m.cost_after.reg_assign;
+                emit_cost.call += m.cost_after.call;
+                instr_i += m.length;
+            } else {
+                try self.generateInstruction(emit_slice[instr_i]);
+                const c = superluminal_cost.evaluate(emit_slice[instr_i]);
+                emit_cost.alu += c.alu;
+                emit_cost.mem_read += c.mem_read;
+                emit_cost.mem_write += c.mem_write;
+                emit_cost.branch += c.branch;
+                emit_cost.reg_assign += c.reg_assign;
+                emit_cost.call += c.call;
+                instr_i += 1;
+            }
         }
 
         var ref_labels = std.AutoHashMapUnmanaged(usize, void){};

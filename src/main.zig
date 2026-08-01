@@ -575,32 +575,42 @@ fn compileToBinary(
 
     // 2. Tail-call optimization — convert self-recursive tail calls to loops.
     //    This eliminates stack growth for recursive functions like fibonacci.
-    // var tco = @import("superluminal/tco.zig").TailCallOptimizer.init(arena);
-    // try tco.optimize(&ir_module);
-    // var loop_unroll = @import("superluminal/loop_unroll.zig").LoopUnrollOptimizer.init(arena);
-    // try loop_unroll.optimize(&ir_module);
-    // var cf2 = @import("ir/optimizer.zig").ConstantFolder.init(arena);
-    // try cf2.optimize(&ir_module);
-    // var cp2 = @import("ir/optimizer.zig").CopyPropagator.init(arena);
-    // try cp2.optimize(&ir_module);
-    // var memo_pass = @import("superluminal/memoize.zig").MemoizationPass.init(arena);
-    // try memo_pass.optimize(&ir_module);
-    // var zero_alloc = @import("superluminal/zero_alloc.zig").ZeroAllocPass.init(arena);
-    // try zero_alloc.optimize(&ir_module);
-    // var simd_string = @import("superluminal/simd_string.zig").SIMDStringPass.init(arena);
-    // try simd_string.optimize(&ir_module);
-    // var silicon_fp = @import("superluminal/silicon_fastpath.zig").SiliconFastPathPass.init(arena);
-    // try silicon_fp.optimize(&ir_module);
-    // var freestanding = @import("superluminal/freestanding.zig").FreestandingPass.init(arena, false);
-    // try freestanding.optimize(&ir_module);
-    // var constant_folder = @import("ir/optimizer.zig").ConstantFolder.init(arena);
-    // try constant_folder.optimize(&ir_module);
-    // var cse = @import("ir/optimizer.zig").CommonSubexpressionEliminator.init(arena);
-    // try cse.optimize(&ir_module);
-    // var copy_prop = @import("ir/optimizer.zig").CopyPropagator.init(arena);
-    // try copy_prop.optimize(&ir_module);
-    // var dce = @import("ir/optimizer.zig").DeadCodeEliminator.init(arena);
-    // try dce.optimize(&ir_module);
+    // 2. Superluminal IR passes
+    var tco = @import("superluminal/tco.zig").TailCallOptimizer.init(arena);
+    try tco.optimize(&ir_module);
+
+    var loop_unroll = @import("superluminal/loop_unroll.zig").LoopUnrollOptimizer.init(arena);
+    try loop_unroll.optimize(&ir_module);
+
+    var memo_pass = @import("superluminal/memoize.zig").MemoizationPass.init(arena);
+    try memo_pass.optimize(&ir_module);
+
+    var zero_alloc = @import("superluminal/zero_alloc.zig").ZeroAllocPass.init(arena);
+    try zero_alloc.optimize(&ir_module);
+
+    var simd_string = @import("superluminal/simd_string.zig").SIMDStringPass.init(arena);
+    try simd_string.optimize(&ir_module);
+
+    var silicon_fp = @import("superluminal/silicon_fastpath.zig").SiliconFastPathPass.init(arena);
+    try silicon_fp.optimize(&ir_module);
+
+    var dual_path_pass = @import("superluminal/dual_path.zig").DualPathPass.init(arena);
+    try dual_path_pass.optimize(&ir_module);
+
+    var freestanding = @import("superluminal/freestanding.zig").FreestandingPass.init(arena, false);
+    try freestanding.optimize(&ir_module);
+
+    var constant_folder = @import("ir/optimizer.zig").ConstantFolder.init(arena);
+    try constant_folder.optimize(&ir_module);
+
+    var cse = @import("ir/optimizer.zig").CommonSubexpressionEliminator.init(arena);
+    try cse.optimize(&ir_module);
+
+    var copy_prop = @import("ir/optimizer.zig").CopyPropagator.init(arena);
+    try copy_prop.optimize(&ir_module);
+
+    var dce = @import("ir/optimizer.zig").DeadCodeEliminator.init(arena);
+    try dce.optimize(&ir_module);
     profiler.record(&profiler.optimize_ns);
 
     // ── Backend routing ──────────────────────────────────────────────────────
