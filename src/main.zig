@@ -327,6 +327,7 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, arg, "--emit=exe")) emit_mode = .exe;
         if (std.mem.eql(u8, arg, "--emit=obj")) emit_mode = .obj;
         if (std.mem.eql(u8, arg, "--emit=mir")) emit_mode = .mir;
+        if (std.mem.eql(u8, arg, "--emit=lir")) emit_mode = .lir;
         if (std.mem.eql(u8, arg, "--fix")) auto_fix = true;
         if (std.mem.startsWith(u8, arg, "--preset=")) {
             const val = arg["--preset=".len..];
@@ -633,6 +634,11 @@ fn compileToBinary(
         var native_be = NativeBackend.init(arena, session.config, sema.has_server_init);
         try native_be.lower(arena, &ir_module);
         profiler.record(&profiler.gen_c_ns);
+
+        if (emit_mode == .lir) {
+            std.debug.print("ERROR: --emit=lir is not supported by the native backend yet.\n", .{});
+            return error.LirEmitNotSupported;
+        }
 
         // --emit=mir: dump MIR and exit early.
         if (emit_mode == .mir) {
@@ -1947,89 +1953,24 @@ fn runLspMode(init: std.process.Init) !void {
 }
 
 fn runPackMode(init: std.process.Init, file_path: []const u8) !void {
+    _ = init;
     std.debug.print("\n  Orbit {s} (pack)\n\n", .{ORBIT_VERSION});
-
     const target_file = if (file_path.len > 0) file_path else "main.orb";
-    std.debug.print("  + Resolving AST & Models from {s}...\n", .{target_file});
-
-    var cwd = std.Io.Dir.cwd();
-    cwd.createDirPath(init.io, "dist/sdk") catch {};
-
-    const ts_sdk =
-        \\// Orbit Auto-Generated TypeScript Client SDK
-        \\export interface OrbitClientConfig { baseUrl: string; apiKey?: string; }
-        \\export class OrbitClient {
-        \\  constructor(private config: OrbitClientConfig) {}
-        \\  async get(path: string) { return fetch(this.config.baseUrl + path).then(r => r.json()); }
-        \\  async post(path: string, body: any) {
-        \\    return fetch(this.config.baseUrl + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
-        \\  }
-        \\}
-    ;
-
-    const py_sdk =
-        \\# Orbit Auto-Generated Python Client SDK
-        \\import urllib.request, json
-        \\class OrbitClient:
-        \\    def __init__(self, base_url: str): self.base_url = base_url
-        \\    def get(self, path: str): return json.loads(urllib.request.urlopen(f"{self.base_url}{path}").read().decode())
-    ;
-
-    const rs_sdk =
-        \\// Orbit Auto-Generated Rust Client SDK
-        \\pub struct OrbitClient { pub base_url: String }
-        \\impl OrbitClient { pub fn new(base_url: &str) -> Self { Self { base_url: base_url.to_string() } } }
-    ;
-
-    var write_buf: [4096]u8 = undefined;
-
-    if (cwd.createFile(init.io, "dist/sdk/index.ts", .{})) |f| {
-        defer f.close(init.io);
-        var w = std.Io.File.Writer.init(f, init.io, &write_buf);
-        w.interface.writeAll(ts_sdk) catch {};
-        w.flush() catch {};
-    } else |_| {}
-
-    if (cwd.createFile(init.io, "dist/sdk/client.py", .{})) |f| {
-        defer f.close(init.io);
-        var w = std.Io.File.Writer.init(f, init.io, &write_buf);
-        w.interface.writeAll(py_sdk) catch {};
-        w.flush() catch {};
-    } else |_| {}
-
-    if (cwd.createFile(init.io, "dist/sdk/client.rs", .{})) |f| {
-        defer f.close(init.io);
-        var w = std.Io.File.Writer.init(f, init.io, &write_buf);
-        w.interface.writeAll(rs_sdk) catch {};
-        w.flush() catch {};
-    } else |_| {}
-
-    std.debug.print("  + TypeScript SDK  -> dist/sdk/index.ts\n", .{});
-    std.debug.print("  + Python SDK      -> dist/sdk/client.py\n", .{});
-    std.debug.print("  + Rust SDK        -> dist/sdk/client.rs\n", .{});
-    std.debug.print("\n  ✓ Polyglot SDK bundle synthesized successfully.\n\n", .{});
+    std.debug.print("  [Notice] Polyglot SDK generator for {s} is scheduled for 0.2.0 release.\n\n", .{target_file});
 }
 
 fn runLiveMode(init: std.process.Init, file_path: []const u8) !void {
     _ = init;
     const target_file = if (file_path.len > 0) file_path else "main.orb";
-
-    var live_buf: [256]u8 = undefined;
-    const live_text = term.layout.renderGradientTextBuf(&live_buf, "live", .{ 0, 229, 255 }, .{ 168, 85, 247 });
-
-    std.debug.print("\n  Orbit {s} {s}\n\n", .{ ORBIT_VERSION, live_text });
-    std.debug.print("  + Watching {s} for atomic machine-code patches...\n", .{target_file});
-    std.debug.print("  + Hot-patching jump table indirection active (0 dropped TCP connections).\n", .{});
-    std.debug.print("  + Listening on http://127.0.0.1:4000\n\n", .{});
+    std.debug.print("\n  Orbit {s} (live)\n\n", .{ORBIT_VERSION});
+    std.debug.print("  [Notice] Live hot-reload server for {s} is scheduled for 0.2.0 release.\n", .{target_file});
+    std.debug.print("           Use 'orbit dev {s}' to execute in dev diagnostic mode.\n\n", .{target_file});
 }
 
 fn runClusterMode(init: std.process.Init) !void {
     _ = init;
     std.debug.print("\n  Orbit {s} (cluster)\n\n", .{ORBIT_VERSION});
-    std.debug.print("  + Node ID         orbit-node-01 (Master Raft Leader)\n", .{});
-    std.debug.print("  + Gossip State    Active (0.2 ms heartbeat)\n", .{});
-    std.debug.print("  + Cluster Nodes   1 local node, 0 peers\n", .{});
-    std.debug.print("  + Kynx            Synchronized across cluster\n\n", .{});
+    std.debug.print("  [Notice] Multi-node cluster orchestration is scheduled for 0.2.0 release.\n\n", .{});
 }
 
 fn runReplMode(init: std.process.Init, debug: bool, no_kynx: bool, verbose: bool, timings: bool, timings_json: bool, config: AtlasConfig, backend_mode: BackendMode, emit_mode: EmitMode, linker_mode: LinkerMode) !void {
