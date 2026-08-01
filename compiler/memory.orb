@@ -13,9 +13,12 @@ fn initArena(capacity: int) -> Arena {
 }
 
 fn allocArena(arena: Arena, size: int) -> int {
-    // Basic bump allocator logic placeholder
+    val start_offset = arena.offset
+    if arena.offset + size > arena.capacity {
+        arena.capacity = arena.offset + size + 4096
+    }
     arena.offset = arena.offset + size
-    return arena.offset
+    return start_offset
 }
 
 fn freeArena(arena: Arena) {
@@ -44,6 +47,6 @@ fn getArrayPool(pool: ArrayPool, index: int) -> int {
     return pool.data[index]
 }
 
-fn setArrayPool(pool: ArrayPool, index: int, val: int) {
-    pool.data[index] = val
+fn setArrayPool(pool: ArrayPool, index: int, value: int) {
+    pool.data[index] = value
 }

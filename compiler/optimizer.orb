@@ -7,9 +7,21 @@ model OptStats {
 }
 
 fn optimizeExpressions(ast_repr: string) -> OptStats {
-    return OptStats {
-        patterns_applied: 2,
-        constant_folds: 1
+    var patterns = 0
+    var folds = 0
+    var i = 0
+    while i < ast_repr.len() - 2 {
+        val c = ast_repr.slice(i, i + 1)
+        val next = ast_repr.slice(i + 1, i + 2)
+        if (c == "+" || c == "-") && next == "0" {
+            patterns = patterns + 1
+        } else if (c == "*" || c == "/") && next == "1" {
+            patterns = patterns + 1
+        } else if c == "+" || c == "-" || c == "*" {
+            folds = folds + 1
+        }
+        i = i + 1
     }
+    return OptStats(patterns, folds)
 }
 
