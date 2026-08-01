@@ -54,6 +54,7 @@
 #include "builtins.c"
 #include "crypto.c"
 #include "hyperdrive.c"
+#include "selfhost.c"
 
 /* ── Data ───────────────────────────────────────────────────────────── */
 #ifndef ORBIT_CUSTOM_ROUTER

@@ -77,15 +77,15 @@ pub const IRBuilder = struct {
             // Check in module types
             for (self.module.types.items) |t| {
                 if (std.mem.eql(u8, t.name, name)) {
-                    if (t.kind == .enumeration) return .{ .enumeration = name };
-                    if (t.kind == .union_type) return .{ .tagged_union = name };
+                    if (t.kind == .enumeration) return .{ .enumeration = self.allocator.dupe(u8, name) catch name };
+                    if (t.kind == .union_type) return .{ .tagged_union = self.allocator.dupe(u8, name) catch name };
                 }
             }
 
             // Check if it's a known model name (Type name)
-            if (name.len > 0 and std.ascii.isUpper(name[0])) return .{ .model = name };
+            if (name.len > 0 and std.ascii.isUpper(name[0])) return .{ .model = self.allocator.dupe(u8, name) catch name };
             if (self.model_registry) |reg| {
-                if (reg.hasModel(name)) return .{ .model = name };
+                if (reg.hasModel(name)) return .{ .model = self.allocator.dupe(u8, name) catch name };
             }
         }
 
@@ -152,14 +152,25 @@ pub const IRBuilder = struct {
         return .unknown;
     }
 
-    fn resolveType(self: *IRBuilder, type_name: []const u8) IRType {
+    fn resolveType(self: *IRBuilder, type_name: []const u8) !IRType {
         for (self.module.types.items) |t| {
             if (std.mem.eql(u8, t.name, type_name)) {
-                if (t.kind == .enumeration) return .{ .enumeration = type_name };
-                if (t.kind == .union_type) return .{ .tagged_union = type_name };
+                if (t.kind == .enumeration) return .{ .enumeration = t.name };
+                if (t.kind == .union_type) return .{ .tagged_union = t.name };
             }
         }
-        return IRType.fromString(type_name);
+        for (self.module.models.items) |m| {
+            if (std.mem.eql(u8, m.name, type_name)) {
+                return .{ .model = m.name };
+            }
+        }
+        const parsed = IRType.fromString(type_name);
+        return switch (parsed) {
+            .model => |s| .{ .model = try self.allocator.dupe(u8, s) },
+            .enumeration => |s| .{ .enumeration = try self.allocator.dupe(u8, s) },
+            .tagged_union => |s| .{ .tagged_union = try self.allocator.dupe(u8, s) },
+            else => parsed,
+        };
     }
 
     pub fn build(self: *IRBuilder, root: *Node) !IRModule {
@@ -186,8 +197,10 @@ pub const IRBuilder = struct {
                     var func = IRFunction.init(self.allocator, fn_data.name.getText(self.source));
                     func.is_extern = fn_data.is_extern;
         // Phase 2: Set return type from annotation
-        if (fn_data.return_type) |rt| {
-            func.return_type = IRType.fromString(rt.getText(self.source));
+        if (fn_data.return_type != null) {
+            const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
+            func.return_type = try self.resolveType(ret_str);
+            self.allocator.free(ret_str);
         } else if (std.mem.eql(u8, fn_data.name.getText(self.source), "main")) {
             func.return_type = .int;
         }
@@ -196,7 +209,9 @@ pub const IRBuilder = struct {
                     var param_names = std.ArrayListUnmanaged([]const u8).empty;
                     for (fn_data.params) |p| {
                         try param_names.append(self.allocator, p.data.param.name.getText(self.source));
-                        const pt = if (p.data.param.type_name) |tn| self.resolveType(tn.getText(self.source)) else .int;
+                        const pt_str = try ast.formatTypeExpr(self.allocator, p.data.param.type_expr, self.source);
+                        defer self.allocator.free(pt_str);
+                        const pt = try self.resolveType(pt_str);
                         try param_types.append(self.allocator, pt);
                     }
                     func.params = try param_names.toOwnedSlice(self.allocator);
@@ -366,13 +381,18 @@ pub const IRBuilder = struct {
 
     fn buildModel(self: *IRBuilder, node: *Node) !void {
         const model_data = node.data.model_decl;
-        var model = IRModel.init(self.allocator, model_data.name.getText(self.source));
+        const model_name = try self.allocator.dupe(u8, model_data.name.getText(self.source));
+        var model = IRModel.init(self.allocator, model_name);
 
         for (model_data.fields) |field| {
             const field_data = field.data.field_decl;
+            const fn_str = try ast.formatTypeExpr(self.allocator, field_data.type_expr, self.source);
+            const fn_type = try self.allocator.dupe(u8, fn_str);
+            self.allocator.free(fn_str);
+            
             try model.fields.append(self.allocator, .{
-                .name = field_data.name.getText(self.source),
-                .type_name = field_data.type_name.getText(self.source),
+                .name = try self.allocator.dupe(u8, field_data.name.getText(self.source)),
+                .type_name = fn_type,
             });
         }
 
@@ -425,11 +445,21 @@ pub const IRBuilder = struct {
             if (v.tag == .union_variant) {
                 const uv = v.data.union_variant;
                 vname = try self.allocator.dupe(u8, uv.name.getText(self.source));
-                if (uv.payloads.len > 0) { const p = uv.payloads[0];
-                    payload_type = IRType.fromString(p.data.identifier.getText(self.source));
+                if (uv.payloads.len > 0) {
+                    const p = uv.payloads[0];
+                    const p_tk = switch (p.tag) {
+                        .identifier => p.data.identifier,
+                        .type_expr => p.data.type_expr.base,
+                        else => uv.name,
+                    };
+                    payload_type = IRType.fromString(p_tk.getText(self.source));
                 }
-            } else {
+            } else if (v.tag == .identifier) {
                 vname = try self.allocator.dupe(u8, v.data.identifier.getText(self.source));
+            } else if (v.tag == .type_expr) {
+                vname = try self.allocator.dupe(u8, v.data.type_expr.base.getText(self.source));
+            } else {
+                continue;
             }
 
             try variants.append(self.allocator, vname);
@@ -456,8 +486,10 @@ pub const IRBuilder = struct {
         func.is_extern = fn_data.is_extern;
 
         // Phase 2: Set return type from annotation
-        if (fn_data.return_type) |rt| {
-            func.return_type = IRType.fromString(rt.getText(self.source));
+        if (fn_data.return_type != null) {
+            const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
+            func.return_type = IRType.fromString(ret_str);
+            self.allocator.free(ret_str);
         } else if (std.mem.eql(u8, fn_data.name.getText(self.source), "main")) {
             func.return_type = .int;
         }
@@ -560,8 +592,9 @@ pub const IRBuilder = struct {
 
             // Prefer explicit type annotation if present
             if (val_data.type_annotation) |ann| {
-                const ann_type_name = ann.data.type_annotation.base.getText(self.source);
-                var_type = self.resolveType(ann_type_name);
+                const ann_type_name = try ast.formatTypeExpr(self.allocator, ann, self.source);
+                var_type = try self.resolveType(ann_type_name);
+                self.allocator.free(ann_type_name);
             }
 
             try self.variable_types.put(name, var_type);
@@ -574,8 +607,9 @@ pub const IRBuilder = struct {
             instr.operand1 = IRValue{ .string = name };
             instr.operand2 = value;
             if (val_data.type_annotation) |ann| {
-                const ann_type_name = ann.data.type_annotation.base.getText(self.source);
-                instr.operand3 = IRValue{ .string = ann_type_name };
+                const ann_type_name = try ast.formatTypeExpr(self.allocator, ann, self.source);
+                instr.operand3 = IRValue{ .string = self.allocator.dupe(u8, ann_type_name) catch "unknown" };
+                self.allocator.free(ann_type_name);
             }
             if (self.current_function) |func| {
                 try func.emit(self.allocator, instr);
@@ -597,6 +631,10 @@ pub const IRBuilder = struct {
             },
             .return_ok => {
                 const expr_val = try self.buildExpr(node.data.return_ok.expr);
+                    const ret_str = try ast.formatTypeExpr(self.allocator, node.data.return_ok.expr, self.source);
+                    self.current_function.?.return_type = try self.resolveType(ret_str);
+                    self.allocator.free(ret_str);
+
                 const status_code = if (node.data.return_ok.status) |s|
                     try std.fmt.parseInt(i32, s.getText(self.source), 10)
                 else
@@ -684,10 +722,9 @@ pub const IRBuilder = struct {
             .float_literal => IRValue{ .float = try std.fmt.parseFloat(f64, node.data.float_literal.getText(self.source)) },
             .string_literal => blk: {
                 const full = node.data.string_literal.getText(self.source);
-                if (full.len >= 2) {
-                    break :blk IRValue{ .string = full[1 .. full.len - 1] };
-                }
-                break :blk IRValue{ .string = full };
+                const inner = if (full.len >= 2) full[1 .. full.len - 1] else full;
+                const unescaped = try unescapeString(self.allocator, inner);
+                break :blk IRValue{ .string = unescaped };
             },
             .boolean_literal => IRValue{ .bool = std.mem.eql(u8, node.data.boolean_literal.getText(self.source), "true") },
             .identifier => blk: {
@@ -1375,11 +1412,13 @@ pub const IRBuilder = struct {
                 } else {
                     func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ obj_name, member_name });
                 }
-            } else {
+            } else if (node.data.call.func.tag == .identifier) {
                 func_name = node.data.call.func.data.identifier.getText(self.source);
                 if (std.mem.eql(u8, func_name, "fetch")) {
                     func_name = "orbit_http_client_fetch";
                 }
+            } else if (node.data.call.func.tag == .type_expr) {
+                func_name = node.data.call.func.data.type_expr.base.getText(self.source);
             }
         }
         if (std.mem.eql(u8, func_name, "ok") and node.data.call.args.len == 1) {
@@ -1717,3 +1756,29 @@ pub const IRBuilder = struct {
         return error.InvalidAssignmentTarget;
     }
 };
+
+/// Unescape Orbit string literal content: converts \\n→'\n', \\"→'"',
+/// \\\\→'\\', \\t→'\t', \\r→'\r'. Returns a newly allocated slice.
+fn unescapeString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out = std.ArrayListUnmanaged(u8).empty;
+    var i: usize = 0;
+    while (i < s.len) {
+        if (s[i] == '\\' and i + 1 < s.len) {
+            const next = s[i + 1];
+            switch (next) {
+                'n'  => { try out.append(allocator, '\n'); i += 2; },
+                't'  => { try out.append(allocator, '\t'); i += 2; },
+                'r'  => { try out.append(allocator, '\r'); i += 2; },
+                '"'  => { try out.append(allocator, '"');  i += 2; },
+                '\'' => { try out.append(allocator, '\''); i += 2; },
+                '\\' => { try out.append(allocator, '\\'); i += 2; },
+                '0'  => { try out.append(allocator, 0);   i += 2; },
+                else => { try out.append(allocator, '\\'); try out.append(allocator, next); i += 2; },
+            }
+        } else {
+            try out.append(allocator, s[i]);
+            i += 1;
+        }
+    }
+    return out.toOwnedSlice(allocator);
+}

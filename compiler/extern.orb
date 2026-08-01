@@ -1,0 +1,9 @@
+// External functions provided by the runtime for self-hosted compiler
+extern fn orbit_int_to_string_selfhost(value: int) -> string
+extern fn orbit_os_argc_selfhost() -> int
+extern fn orbit_os_argv_selfhost(index: int) -> string
+extern fn orbit_os_exec_selfhost(command: string) -> string
+extern fn orbit_os_env_selfhost(var_name: string) -> string
+extern fn orbit_file_write_selfhost(path: string, content: string) -> bool
+extern fn orbit_file_read_selfhost(path: string) -> string
+extern fn orbit_os_exit_selfhost(code: int)

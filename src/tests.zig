@@ -736,9 +736,6 @@ test "codegen.c_backend_golden_snapshot" {
         \\#ifndef _pop
         \\#define _pop() (void*)0
         \\#endif
-        \\#ifndef _push
-        \\#define _push(...) (void)0
-        \\#endif
         \\#ifndef valStr_indexOf
         \\#define valStr_indexOf(...) 0
         \\#endif

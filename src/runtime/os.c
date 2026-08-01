@@ -15,6 +15,8 @@
 #include <stdio.h>
 #ifdef _WIN32
 #include <direct.h>
+#else
+#include <sys/wait.h>
 #endif
 
 orbit_string orbit_os_cwd(OrbitArena* arena) {
@@ -92,11 +94,37 @@ orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command) {
         }
     }
 
+    int exit_code = 0;
 #ifdef _WIN32
-    _pclose(fp);
+    int status = _pclose(fp);
+    exit_code = status;
 #else
-    pclose(fp);
+    int status = pclose(fp);
+    if (status == -1) {
+        exit_code = -1;
+    } else if (WIFEXITED(status)) {
+        exit_code = WEXITSTATUS(status);
+    } else {
+        exit_code = status;
+    }
 #endif
+
+    if (exit_code != 0) {
+        char err_prefix[64];
+        int err_len = snprintf(err_prefix, sizeof(err_prefix), "[ERROR: process exited with code %d]\n", exit_code);
+        if (err_len < 0) err_len = 0;
+
+        char* result = (char*)orbit_alloc(a, err_len + size + 1);
+        if (result) {
+            memcpy(result, err_prefix, err_len);
+            if (size > 0) {
+                memcpy(result + err_len, buf, size);
+            }
+            result[err_len + size] = '\0';
+        }
+        free(buf);
+        return result ? result : "[ERROR: process execution failed]";
+    }
 
     char* result = (char*)orbit_alloc(a, size + 1);
     if (result) {

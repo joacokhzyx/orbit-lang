@@ -95,17 +95,36 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
             consume(parser, TokType.CloseParen, "Expected ')' after arguments.")
             result = ASTNode.Call(CallNode(result, args))
         } else {
-            if matchToken(parser, TokType.Dot) {
-                consume(parser, TokType.Identifier, "Expected member name after '.'.")
-                val member = parser.previousToken.text
-                result = ASTNode.MemberAccess(MemberAccessNode(result, member))
+            if matchToken(parser, TokType.OpenBrace) {
+                var fieldInits = []
+                if check(parser, TokType.CloseBrace) == false {
+                    var parsingFields = true
+                    while parsingFields {
+                        consume(parser, TokType.Identifier, "Expected field name.")
+                        val fieldName = parser.previousToken.text
+                        consume(parser, TokType.Colon, "Expected ':' after field name.")
+                        val fieldValue = parseExpression(parser)
+                        fieldInits.push(ASTNode.FieldInit(FieldInitNode(fieldName, fieldValue)))
+                        if matchToken(parser, TokType.Comma) == false {
+                            parsingFields = false
+                        }
+                    }
+                }
+                consume(parser, TokType.CloseBrace, "Expected '}' after struct fields.")
+                result = ASTNode.Call(CallNode(result, fieldInits))
             } else {
-                if matchToken(parser, TokType.OpenBracket) {
-                    val index = parseExpression(parser)
-                    consume(parser, TokType.CloseBracket, "Expected ']' after index.")
-                    result = ASTNode.IndexAccess(IndexAccessNode(result, index))
+                if matchToken(parser, TokType.Dot) {
+                    consume(parser, TokType.Identifier, "Expected member name after '.'.")
+                    val member = parser.previousToken.text
+                    result = ASTNode.MemberAccess(MemberAccessNode(result, member))
                 } else {
-                    parsing = false
+                    if matchToken(parser, TokType.OpenBracket) {
+                        val index = parseExpression(parser)
+                        consume(parser, TokType.CloseBracket, "Expected ']' after index.")
+                        result = ASTNode.IndexAccess(IndexAccessNode(result, index))
+                    } else {
+                        parsing = false
+                    }
                 }
             }
         }
@@ -376,7 +395,14 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
         }
     }
 
-    val body = parseBlock(parser)
+    var body = ASTNode.Block(BlockNode([]))
+    if check(parser, TokType.OpenBrace) {
+        body = parseBlock(parser)
+    } else {
+        if isExtern == false {
+            parserError(parser, "Expected '{' before block.")
+        }
+    }
 
     return ASTNode.FunctionDecl(FunctionDeclNode(name, params, paramTypes, returnType, body, isAsync, isPrivate, isExtern, genericParams))
 }
@@ -413,51 +439,82 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     return ASTNode.ModelDecl(ModelDeclNode(name, fields, genericParams))
 }
 
-fn parseTypeDecl(parser: Parser, isPrivate: bool) -> ASTNode {
+fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected type name.")
     val name = parser.previousToken.text
-    consume(parser, TokType.Equal, "Expected '=' after type name.")
 
     var kind = "alias"
     var variants = []
     var baseType = ""
 
-    if matchToken(parser, TokType.KeywordEnum) {
+    matchToken(parser, TokType.Equal)
+
+    if kw == TokType.KeywordEnum || matchToken(parser, TokType.KeywordEnum) {
         kind = "enum"
         consume(parser, TokType.OpenBrace, "Expected '{' after 'enum'.")
-            while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
-                consume(parser, TokType.Identifier, "Expected variant name.")
-                val varName = parser.previousToken.text
-                var payloadType = ""
-                if matchToken(parser, TokType.OpenParen) {
-                    consume(parser, TokType.Identifier, "Expected payload type.")
-                    payloadType = parser.previousToken.text
-                    consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
-                }
-                variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
-                matchToken(parser, TokType.Comma)
+        while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
+            consume(parser, TokType.Identifier, "Expected variant name.")
+            val varName = parser.previousToken.text
+            var payloadType = ""
+            if matchToken(parser, TokType.OpenParen) {
+                consume(parser, TokType.Identifier, "Expected payload type.")
+                payloadType = parser.previousToken.text
+                consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
             }
-            consume(parser, TokType.CloseBrace, "Expected '}' after enum variants.")
-    } else {
-        if matchToken(parser, TokType.KeywordUnion) {
-            kind = "union"
-            consume(parser, TokType.OpenBrace, "Expected '{' after 'union'.")
-                while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
-                    consume(parser, TokType.Identifier, "Expected variant name.")
-                    val varName = parser.previousToken.text
-                    var payloadType = ""
-                    if matchToken(parser, TokType.OpenParen) {
-                        consume(parser, TokType.Identifier, "Expected payload type.")
-                        payloadType = parser.previousToken.text
-                        consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
-                    }
-                    variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
-                    matchToken(parser, TokType.Comma)
+            variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
+            matchToken(parser, TokType.Comma)
+        }
+        consume(parser, TokType.CloseBrace, "Expected '}' after enum variants.")
+        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType))
+    }
+
+    if kw == TokType.KeywordUnion || matchToken(parser, TokType.KeywordUnion) {
+        kind = "union"
+        consume(parser, TokType.OpenBrace, "Expected '{' after 'union'.")
+        while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
+            consume(parser, TokType.Identifier, "Expected variant name.")
+            val varName = parser.previousToken.text
+            var payloadType = ""
+            if matchToken(parser, TokType.OpenParen) {
+                consume(parser, TokType.Identifier, "Expected payload type.")
+                payloadType = parser.previousToken.text
+                consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
+            }
+            variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
+            matchToken(parser, TokType.Comma)
+        }
+        consume(parser, TokType.CloseBrace, "Expected '}' after union variants.")
+        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType))
+    }
+
+    matchToken(parser, TokType.Pipe)
+    if check(parser, TokType.Identifier) {
+        var isSumType = false
+        while check(parser, TokType.Identifier) {
+            consume(parser, TokType.Identifier, "Expected variant or type name.")
+            val varName = parser.previousToken.text
+            var payloadType = ""
+            if matchToken(parser, TokType.OpenParen) {
+                isSumType = true
+                consume(parser, TokType.Identifier, "Expected payload type.")
+                payloadType = parser.previousToken.text
+                consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
+            }
+            variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
+            if matchToken(parser, TokType.Pipe) {
+                isSumType = true
+            } else {
+                if isSumType == false && variants.len() == 1 {
+                    baseType = varName
                 }
-                consume(parser, TokType.CloseBrace, "Expected '}' after union variants.")
+                break
+            }
+        }
+        if isSumType {
+            kind = "union"
+            return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, ""))
         } else {
-            consume(parser, TokType.Identifier, "Expected base type.")
-            baseType = parser.previousToken.text
+            return ASTNode.TypeDecl(TypeDeclNode(name, "alias", [], baseType))
         }
     }
 
@@ -646,13 +703,22 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
         return parseFunctionDecl(parser, isPrivate, isExtern)
     }
 
+    if matchToken(parser, TokType.KeywordVal) {
+        return parseVarDecl(parser, false)
+    }
+
+    if matchToken(parser, TokType.KeywordVar) {
+        return parseVarDecl(parser, true)
+    }
+
     if matchToken(parser, TokType.KeywordConst) {
         return parseConstDecl(parser, isPrivate)
     }
 
+    val declTag = parser.currentToken.tag
     if check(parser, TokType.KeywordType) || check(parser, TokType.KeywordEnum) || check(parser, TokType.KeywordUnion) {
         advanceParser(parser)
-        return parseTypeDecl(parser, isPrivate)
+        return parseTypeDecl(parser, declTag, isPrivate)
     }
 
     if matchToken(parser, TokType.KeywordTrait) {
@@ -669,20 +735,21 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
 
 fn parseProgram(parser: Parser) -> ASTNode {
     var decls = []
-    print("[parseProgram] initial token tag=" + orbit_itoa(parser.currentToken.tag) + " eof=" + orbit_itoa(TokType.EOF))
+    print("[parseProgram] initial token tag=" + orbit_int_to_string_selfhost(parser.currentToken.tag) + " eof=" + orbit_int_to_string_selfhost(TokType.EOF))
     while check(parser, TokType.EOF) == false {
         val pLine = parser.currentToken.line
         val pCol = parser.currentToken.col
-        print("[parseProgram] parsing decl at line=" + orbit_itoa(pLine) + " col=" + orbit_itoa(pCol))
+        print("[parseProgram] parsing decl at line=" + orbit_int_to_string_selfhost(pLine) + " col=" + orbit_int_to_string_selfhost(pCol))
         val decl = parseDeclaration(parser)
         decls.push(decl)
-        print("[parseProgram] after push, decls.len=" + orbit_itoa(decls.len()) + " new token tag=" + orbit_itoa(parser.currentToken.tag))
+        print("[parseProgram] after push, decls.len=" + orbit_int_to_string_selfhost(decls.len()) + " new token tag=" + orbit_int_to_string_selfhost(parser.currentToken.tag))
         if parser.currentToken.line == pLine && parser.currentToken.col == pCol && check(parser, TokType.EOF) == false {
             advanceParser(parser)
         }
     }
-    print("[parseProgram] done, decls=" + orbit_itoa(decls.len()))
+    print("[parseProgram] done, decls=" + orbit_int_to_string_selfhost(decls.len()))
     return ASTNode.Program(ProgramNode(decls))
 }
+
 
 

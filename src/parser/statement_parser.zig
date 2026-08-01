@@ -343,9 +343,9 @@ pub const StatementParser = struct {
             // Skip optional
             _ = self.match(.Question);
 
-            type_ann_node = try self.createNode(.type_annotation, .{ .type_annotation = .{
+            type_ann_node = try self.createNode(.type_expr, .{ .type_expr = .{
                 .base = type_tok,
-                .generics = &.{},
+                .generics = &[_]*Node{},
                 .is_optional = false,
                 .is_pointer = is_pointer,
             } });

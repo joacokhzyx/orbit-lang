@@ -1,9 +1,66 @@
 // Orbit Self-Hosted Compiler - Superluminal Optimizer Pass
 // compiler/optimizer.orb
 
+import "./ir.orb"
+
 model OptStats {
     patterns_applied: int
     constant_folds: int
+}
+
+fn isZero(val: IRValue) -> bool {
+    match val {
+        IRValue.Int(m) => return m.value == 0
+        _ => return false
+    }
+}
+
+fn isOne(val: IRValue) -> bool {
+    match val {
+        IRValue.Int(m) => return m.value == 1
+        _ => return false
+    }
+}
+
+fn optimizeFunction(func: IRFunction) -> OptStats {
+    var patterns = 0
+    var folds = 0
+    var i = 0
+    while i < func.instructions.len() {
+        val instr: IRInstruction = func.instructions.get(i)
+        if instr.opcode == IROpcode.add {
+            if isZero(instr.operand2) {
+                instr.opcode = IROpcode.copy
+                patterns = patterns + 1
+            }
+        } else if instr.opcode == IROpcode.sub {
+            if isZero(instr.operand2) {
+                instr.opcode = IROpcode.copy
+                patterns = patterns + 1
+            }
+        } else if instr.opcode == IROpcode.mul {
+            if isOne(instr.operand2) {
+                instr.opcode = IROpcode.copy
+                patterns = patterns + 1
+            }
+        }
+        i = i + 1
+    }
+    return OptStats(patterns, folds)
+}
+
+fn optimizeIRModule(module: IRModule) -> OptStats {
+    var totalPatterns = 0
+    var totalFolds = 0
+    var fi = 0
+    while fi < module.functions.len() {
+        val func: IRFunction = module.functions.get(fi)
+        val stats = optimizeFunction(func)
+        totalPatterns = totalPatterns + stats.patterns_applied
+        totalFolds = totalFolds + stats.constant_folds
+        fi = fi + 1
+    }
+    return OptStats(totalPatterns, totalFolds)
 }
 
 fn optimizeExpressions(ast_repr: string) -> OptStats {
@@ -24,4 +81,3 @@ fn optimizeExpressions(ast_repr: string) -> OptStats {
     }
     return OptStats(patterns, folds)
 }
-

@@ -218,10 +218,9 @@ pub const Sema = struct {
     fn registerFunctionSignature(self: *Sema, node: *Node, scope: *Scope) !void {
         const fn_data = node.data.fn_decl;
         const fn_name = try self.internString(fn_data.name.getText(self.source));
-        var return_type = if (fn_data.return_type) |rt|
-            try self.internString(rt.getText(self.source))
-        else
-            "void";
+        const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
+        defer self.allocator.free(ret_str);
+        var return_type = try self.internString(ret_str);
         if (fn_data.is_pointer_return) {
             const ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}", .{return_type});
             defer self.allocator.free(ptr_str);
@@ -271,7 +270,9 @@ pub const Sema = struct {
         for (model_data.fields) |field_node| {
             const field_data = field_node.data.field_decl;
             const field_name = try self.internString(field_data.name.getText(self.source));
-            var field_type = try self.internString(field_data.type_name.getText(self.source));
+            const ft_str = try ast.formatTypeExpr(self.allocator, field_data.type_expr, self.source);
+            defer self.allocator.free(ft_str);
+            var field_type = try self.internString(ft_str);
             if (field_data.is_pointer) {
                 const ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}", .{field_type});
                 defer self.allocator.free(ptr_str);
@@ -345,10 +346,9 @@ pub const Sema = struct {
         _ = scope;
 
         const fn_data = node.data.fn_decl;
-        var return_type = if (fn_data.return_type) |rt|
-            try self.internString(rt.getText(self.source))
-        else
-            "void";
+        const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
+        defer self.allocator.free(ret_str);
+        var return_type = try self.internString(ret_str);
         if (fn_data.is_pointer_return) {
             const ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}", .{return_type});
             defer self.allocator.free(ptr_str);
@@ -366,10 +366,9 @@ pub const Sema = struct {
         for (fn_data.params) |param| {
             const param_data = param.data.param;
             const param_name = try self.internString(param_data.name.getText(self.source));
-            var param_type = if (param_data.type_name) |tn|
-                try self.internString(tn.getText(self.source))
-            else
-                "unknown";
+            const param_type_str = try ast.formatTypeExpr(self.allocator, param_data.type_expr, self.source);
+            defer self.allocator.free(param_type_str);
+            var param_type = try self.internString(param_type_str);
 
             if (param_data.is_pointer) {
                 const ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}", .{param_type});
@@ -418,12 +417,9 @@ pub const Sema = struct {
         }
 
         if (val_data.type_annotation) |type_ann| {
-            var ann_type = try self.internString(type_ann.data.type_annotation.base.getText(self.source));
-            if (type_ann.data.type_annotation.is_pointer) {
-                const ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}", .{ann_type});
-                defer self.allocator.free(ptr_str);
-                ann_type = try self.internString(ptr_str);
-            }
+            const ann_str = try ast.formatTypeExpr(self.allocator, type_ann, self.source);
+            defer self.allocator.free(ann_str);
+            const ann_type = try self.internString(ann_str);
             
             if (!std.mem.eql(u8, final_type, "unknown")) {
                 if (!self.type_checker.checkCompatibility(ann_type, final_type)) {
@@ -714,10 +710,9 @@ pub const Sema = struct {
             if (fn_node.tag != .fn_decl) continue;
             const fn_data = fn_node.data.fn_decl;
             const method_name = try self.internString(fn_data.name.getText(self.source));
-            var ret_type = if (fn_data.return_type) |rt|
-                try self.internString(rt.getText(self.source))
-            else
-                "void";
+            const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
+            defer self.allocator.free(ret_str);
+            var ret_type = try self.internString(ret_str);
             if (fn_data.is_pointer_return) {
                 const ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}", .{ret_type});
                 defer self.allocator.free(ptr_str);
@@ -726,10 +721,9 @@ pub const Sema = struct {
 
             var param_types = std.ArrayListUnmanaged([]const u8).empty;
             for (fn_data.params) |p| {
-                const pt = if (p.data.param.type_name) |tn|
-                    try self.internString(tn.getText(self.source))
-                else
-                    "unknown";
+                const pt_str = try ast.formatTypeExpr(self.allocator, p.data.param.type_expr, self.source);
+                defer self.allocator.free(pt_str);
+                const pt = try self.internString(pt_str);
                 try param_types.append(self.allocator, pt);
             }
 
@@ -749,7 +743,9 @@ pub const Sema = struct {
     fn analyzeImpl(self: *Sema, node: *Node, scope: *Scope) !void {
         const impl_data = node.data.impl_decl;
         const trait_name = try self.internString(impl_data.trait_name.getText(self.source));
-        const type_name = try self.internString(impl_data.type_name.getText(self.source));
+        const tn_str = try ast.formatTypeExpr(self.allocator, impl_data.type_expr, self.source);
+        defer self.allocator.free(tn_str);
+        const type_name = try self.internString(tn_str);
 
         var impl_methods = std.ArrayListUnmanaged(TraitMethod).empty;
         for (impl_data.methods) |method_node| {
@@ -757,10 +753,9 @@ pub const Sema = struct {
             if (fn_node.tag != .fn_decl) continue;
             const fn_data = fn_node.data.fn_decl;
             const method_name = try self.internString(fn_data.name.getText(self.source));
-            var ret_type = if (fn_data.return_type) |rt|
-                try self.internString(rt.getText(self.source))
-            else
-                "void";
+            const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
+            defer self.allocator.free(ret_str);
+            var ret_type = try self.internString(ret_str);
             if (fn_data.is_pointer_return) {
                 const ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}", .{ret_type});
                 defer self.allocator.free(ptr_str);
@@ -769,10 +764,9 @@ pub const Sema = struct {
 
             var param_types = std.ArrayListUnmanaged([]const u8).empty;
             for (fn_data.params) |p| {
-                const pt = if (p.data.param.type_name) |tn|
-                    try self.internString(tn.getText(self.source))
-                else
-                    "unknown";
+                const pt_str = try ast.formatTypeExpr(self.allocator, p.data.param.type_expr, self.source);
+                defer self.allocator.free(pt_str);
+                const pt = try self.internString(pt_str);
                 try param_types.append(self.allocator, pt);
             }
 
@@ -806,7 +800,12 @@ pub const Sema = struct {
 
         var variant_names = std.ArrayListUnmanaged([]const u8).empty;
         for (union_data.variants) |v| {
-            const v_tk = if (v.tag == .union_variant) v.data.union_variant.name else v.data.identifier;
+            const v_tk = switch (v.tag) {
+                .union_variant => v.data.union_variant.name,
+                .identifier => v.data.identifier,
+                .type_expr => v.data.type_expr.base,
+                else => continue,
+            };
             const v_name = try self.internString(v_tk.getText(self.source));
             try scope.define(v_name, name, false);
             try variant_names.append(self.allocator, v_name);

@@ -72,6 +72,26 @@ fn typeOfExpression(bindings: list, node: ASTNode) -> string {
             }
             return "unknown"
         }
+        ASTNode.MemberAccess(member) => {
+            if member.field == "len" || member.field == "length" { return "int" }
+            return "unknown"
+        }
+        ASTNode.Call(call) => {
+            match call.callee {
+                ASTNode.Literal(l) => {
+                    if l.text == "len" || l.text == "indexOf" || l.text == "orbit_os_argc_selfhost" { return "int" }
+                    if l.text == "orbit_int_to_string_selfhost" || l.text == "orbit_os_argv_selfhost" || l.text == "orbit_os_exec_selfhost" || l.text == "orbit_os_env_selfhost" || l.text == "orbit_file_read_selfhost" || l.text == "slice" || l.text == "at" || l.text == "tirEscape" || l.text == "tirIntText" { return "string" }
+                    if l.text == "orbit_file_write_selfhost" || l.text == "hasErrors" || l.text == "tirHasErrors" || l.text == "isVisited" { return "bool" }
+                    return bindingType(bindings, l.text)
+                }
+                ASTNode.MemberAccess(ma) => {
+                    if ma.field == "len" || ma.field == "length" || ma.field == "indexOf" { return "int" }
+                    if ma.field == "slice" || ma.field == "at" { return "string" }
+                }
+                _ => {}
+            }
+            return "unknown"
+        }
         _ => return "unknown"
     }
 }
@@ -107,6 +127,11 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             }
             return tirEmit(function, blockId, "unary." + unary.op, resultType, tirValue(operand))
         }
+        ASTNode.MemberAccess(member) => {
+            val objVal = lowerExpression(module, function, blockId, bindings, member.object)
+            val resType = typeOfExpression(bindings, node)
+            return tirEmit(function, blockId, "member", resType, tirValue(objVal) + " " + member.field)
+        }
         ASTNode.Call(call) => {
             val callee = lowerExpression(module, function, blockId, bindings, call.callee)
             var operands = tirValue(callee)
@@ -117,7 +142,8 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 operands = operands + " " + tirValue(value)
                 i = i + 1
             }
-            return tirEmit(function, blockId, "call", "unknown", operands)
+            val returnType = typeOfExpression(bindings, node)
+            return tirEmit(function, blockId, "call", returnType, operands)
         }
         _ => {
             tirError(module, "E3001", "expression cannot be lowered to TIR", 0, 0)
@@ -234,6 +260,16 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
                 val declaration: ASTNode = program.decls.get(i)
                 match declaration {
                     ASTNode.FunctionDecl(function) => lowerFunction(module, function)
+                    ASTNode.TypeDecl(typeDecl) => {}
+                    ASTNode.ModelDecl(modelDecl) => {}
+                    ASTNode.ConstDecl(constDecl) => {}
+                    ASTNode.VarDecl(varDecl) => {}
+                    ASTNode.ImportStmt(imp) => {}
+                    ASTNode.UseStmt(useStmt) => {}
+                    ASTNode.RouteDecl(route) => {}
+                    ASTNode.TraitDecl(traitDecl) => {}
+                    ASTNode.ImplDecl(implDecl) => {}
+                    ASTNode.Empty => {}
                     _ => tirError(module, "E3000", "top-level declaration cannot be lowered to TIR", 0, 0)
                 }
                 i = i + 1

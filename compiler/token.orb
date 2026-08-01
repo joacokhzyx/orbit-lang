@@ -50,7 +50,9 @@ enum TokType {
     Greater,
     GreaterEqual,
     DoublePipe,
+    Pipe,
     DoubleAmpersand,
+    Ampersand,
     Bang,
     Arrow,
     FatArrow,
@@ -125,7 +127,9 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.Greater => return ">"
         TokType.GreaterEqual => return ">="
         TokType.DoublePipe => return "||"
+        TokType.Pipe => return "|"
         TokType.DoubleAmpersand => return "&&"
+        TokType.Ampersand => return "&"
         TokType.Bang => return "!"
         TokType.Arrow => return "->"
         TokType.FatArrow => return "=>"

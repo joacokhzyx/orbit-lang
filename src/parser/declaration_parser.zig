@@ -108,36 +108,39 @@ pub const DeclarationParser = struct {
 
     // ─── Type helpers ─────────────────────────────────────────────────────
 
-    /// Consumes an optional generic parameter list `<T, U>` and a trailing
-    /// `?` optionality marker after the base type token has already been
-    /// consumed.
-    fn consumeTypeTail(self: *DeclarationParser) anyerror!void {
-        // Skip generics: <T, U>
-        if (self.match(.Less)) {
-            while (!self.check(.Greater) and !self.check(.EOF)) {
-                _ = try self.consumeType(); // Recurse for nested generics
-                _ = self.match(.Comma);
-            }
-            _ = try self.consume(.Greater);
+    fn parseTypeExpr(self: *DeclarationParser) anyerror!*Node {
+        var is_pointer = false;
+        if (self.match(.Asterisk)) {
+            is_pointer = true;
         }
 
-        // Skip optional: ?
-        _ = self.match(.Question);
-    }
-
-    /// Consumes a complete type expression (identifier or built-in type
-    /// keyword) including any generic tail and optional marker.
-    ///
-    /// Returns the leading type token.  Errors with `error.ExpectedType` if
-    /// no type token is found at the current position.
-    fn consumeType(self: *DeclarationParser) anyerror!Token {
-        if (self.check(.Identifier) or
-            self.isTypeToken())
-        {
-            const tok = self.current_token.*;
+        if (self.check(.Identifier) or self.isTypeToken()) {
+            const base_tok = self.current_token.*;
             self.advance();
-            try self.consumeTypeTail();
-            return tok;
+
+            var generics = std.ArrayListUnmanaged(*Node).empty;
+            if (self.match(.Less)) {
+                while (!self.check(.Greater) and !self.check(.EOF)) {
+                    const gen_type = try self.parseTypeExpr();
+                    try generics.append(self.allocator, gen_type);
+                    _ = self.match(.Comma);
+                }
+                _ = try self.consume(.Greater);
+            }
+
+            const is_optional = self.match(.Question);
+
+            const node = try self.allocator.create(Node);
+            node.* = .{
+                .tag = .type_expr,
+                .data = .{ .type_expr = .{
+                    .base = base_tok,
+                    .generics = try generics.toOwnedSlice(self.allocator),
+                    .is_pointer = is_pointer,
+                    .is_optional = is_optional,
+                } },
+            };
+            return node;
         }
         return error.ExpectedType;
     }
@@ -154,9 +157,11 @@ pub const DeclarationParser = struct {
         while (!self.check(.CloseBracket) and !self.check(.EOF)) {
             const name = try self.consume(.Identifier);
             var constraint: ?Token = null;
-            if (self.match(.Colon)) {
-                constraint = try self.consumeType();
-            }
+                if (self.match(.Colon)) {
+                    const type_expr = try self.parseTypeExpr();
+                    // We extract the base token text or just keep the token if needed
+                    constraint = type_expr.data.type_expr.base;
+                }
             const node = try self.allocator.create(Node);
             node.* = .{
                 .tag = .generic_param,
@@ -220,11 +225,9 @@ pub const DeclarationParser = struct {
         }
         _ = try self.consume(.CloseParen);
 
-        var return_type: ?Token = null;
-        var is_pointer_return = false;
+        var return_type: ?*Node = null;
         if (self.match(.Arrow)) {
-            if (self.match(.Ampersand)) is_pointer_return = true;
-            return_type = try self.consumeType();
+            return_type = try self.parseTypeExpr();
         }
 
         // Trait methods don't have bodies - skip optional semicolon
@@ -241,7 +244,7 @@ pub const DeclarationParser = struct {
                 .generic_params = &.{},
                 .params = try params.toOwnedSlice(self.allocator),
                 .return_type = return_type,
-                .is_pointer_return = is_pointer_return,
+                .is_pointer_return = false,
                 .body = empty_body,
                 .is_async = false,
                 .is_private = false,
@@ -258,7 +261,7 @@ pub const DeclarationParser = struct {
         _ = try self.consume(.KeywordImpl);
         const trait_name = try self.consume(.Identifier);
         _ = try self.consume(.KeywordFor);
-        const type_name = try self.consume(.Identifier);
+        const type_expr = try self.parseTypeExpr();
 
         _ = try self.consume(.OpenBrace);
 
@@ -274,7 +277,7 @@ pub const DeclarationParser = struct {
         node.* = .{
             .tag = .impl_decl,
             .data = .{ .impl_decl = .{
-                .type_name = type_name,
+                .type_expr = type_expr,
                 .trait_name = trait_name,
                 .methods = try methods.toOwnedSlice(self.allocator),
             } },
@@ -297,8 +300,7 @@ pub const DeclarationParser = struct {
 
         const name = try self.consume(.Identifier);
         _ = try self.consume(.Colon);
-        const is_pointer = self.match(.Ampersand);
-        const type_name = try self.consumeType();
+        const type_expr: ?*Node = try self.parseTypeExpr();
 
         while (self.check(.Identifier) and !self.check(.CloseBrace) and !self.check(.Equal)) {
             const tok_text = self.current_token.text;
@@ -326,8 +328,8 @@ pub const DeclarationParser = struct {
             .tag = .field_decl,
             .data = .{ .field_decl = .{
                 .name = name,
-                .type_name = type_name,
-                .is_pointer = is_pointer,
+                .type_expr = type_expr,
+                .is_pointer = false,
                 .decorators = try decorators.toOwnedSlice(self.allocator),
                 .default_value = default_val,
             } },
@@ -342,11 +344,9 @@ pub const DeclarationParser = struct {
     fn parseParam(self: *DeclarationParser) !*Node {
         const name = try self.consume(.Identifier);
 
-        var type_name: ?Token = null;
-        var is_pointer = false;
+        var type_expr: ?*Node = null;
         if (self.match(.Colon)) {
-            is_pointer = self.match(.Ampersand);
-            type_name = try self.consumeType();
+            type_expr = try self.parseTypeExpr();
         }
 
         const node = try self.allocator.create(Node);
@@ -354,8 +354,8 @@ pub const DeclarationParser = struct {
             .tag = .param,
             .data = .{ .param = .{
                 .name = name,
-                .type_name = type_name,
-                .is_pointer = is_pointer,
+                .type_expr = type_expr,
+                .is_pointer = false,
                 .is_optional = false,
             } },
         };
@@ -484,11 +484,9 @@ pub const DeclarationParser = struct {
 
         _ = try self.consume(.CloseParen);
 
-        var return_type: ?Token = null;
-        var is_pointer_return = false;
+        var return_type: ?*Node = null;
         if (self.match(.Arrow)) {
-            if (self.match(.Ampersand)) is_pointer_return = true;
-            return_type = try self.consumeType();
+            return_type = try self.parseTypeExpr();
         }
 
         var body_node: *Node = undefined;
@@ -526,7 +524,7 @@ pub const DeclarationParser = struct {
                 .generic_params = generic_params,
                 .params = try params.toOwnedSlice(self.allocator),
                 .return_type = return_type,
-                .is_pointer_return = is_pointer_return,
+                .is_pointer_return = false,
                 .body = body_node,
                 .is_async = is_async,
                 .is_private = is_private,
@@ -636,10 +634,11 @@ pub const DeclarationParser = struct {
                 if (self.match(.OpenParen)) {
                     if (!self.check(.CloseParen)) {
                         while (true) {
-                            const p_tok = try self.consumeUnionVariantPayloadType();
-                            const p_node = try self.allocator.create(Node);
-                            p_node.* = .{ .tag = .identifier, .data = .{ .identifier = p_tok } };
-                            try payloads.append(self.allocator, p_node);
+                            var payload_type = try self.parseTypeExpr();
+                            if (self.match(.Colon)) {
+                                payload_type = try self.parseTypeExpr();
+                            }
+                            try payloads.append(self.allocator, payload_type);
                             if (!self.match(.Comma)) break;
                         }
                     }
@@ -744,10 +743,13 @@ pub const DeclarationParser = struct {
             if (self.match(.OpenParen)) {
                 if (!self.check(.CloseParen)) {
                     while (true) {
-                        const p_tok = try self.consumeUnionVariantPayloadType();
-                        const p_node = try self.allocator.create(Node);
-                        p_node.* = .{ .tag = .identifier, .data = .{ .identifier = p_tok } };
-                        try payloads.append(self.allocator, p_node);
+                        var payload_type = try self.parseTypeExpr();
+                        if (self.match(.Colon)) {
+                            // What we parsed was the name. The real type is next.
+                            payload_type = try self.parseTypeExpr();
+                        }
+                        
+                        try payloads.append(self.allocator, payload_type);
 
                         if (!self.match(.Comma)) break;
                     }
@@ -777,27 +779,7 @@ pub const DeclarationParser = struct {
         return node;
     }
 
-    /// Consumes a single union variant payload type, handling both the
-    /// `name: Type` (named field) and bare `Type` forms.
-    fn consumeUnionVariantPayloadType(self: *DeclarationParser) anyerror!Token {
-        if (self.check(.Identifier)) {
-            const first = self.current_token.*;
-            self.advance();
 
-            if (self.match(.Colon)) {
-                return try self.consumeType();
-            }
-
-            try self.consumeTypeTail();
-            return first;
-        }
-
-        if (self.isTypeToken()) {
-            return try self.consumeType();
-        }
-
-        return error.ExpectedType;
-    }
 
     // ─── Token classification helpers ─────────────────────────────────────
 

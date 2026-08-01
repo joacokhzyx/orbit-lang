@@ -34,7 +34,8 @@
 
 // ─── List<T> ────────────────────────────────────────────────────────────────
 
-static OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity) {
+OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity) {
+    if (!arena) arena = orbit_arena_get_global();
     if (!arena || elem_size == 0) {
         fprintf(stderr, "[collections] list_create FAILED: arena=%p elem_size=%zu\n", (void*)arena, elem_size);
         return orbit_result_err(ORBIT_ERR_INVALID_ARG, "list: null arena or zero elem_size");
@@ -62,7 +63,7 @@ static OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t
 
 /* Grow the backing array, copying existing data forward in the arena.
  * Old memory is abandoned (reclaimed on arena reset). */
-static OrbitResult orbit_list_grow(OrbitList* list) {
+OrbitResult orbit_list_grow(OrbitList* list) {
     if (!list || !list->arena) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_grow: null list");
     }
@@ -81,7 +82,7 @@ static OrbitResult orbit_list_grow(OrbitList* list) {
     return orbit_result_ok(list);
 }
 
-static OrbitResult orbit_list_push(OrbitList* list, const void* elem) {
+OrbitResult orbit_list_push(OrbitList* list, const void* elem) {
     if (!list || !elem) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_push: null argument");
     }
@@ -111,7 +112,7 @@ ORBIT_INLINE size_t orbit_list_len(const OrbitList* list) {
     return list ? list->len : 0;
 }
 
-static OrbitResult orbit_list_pop(OrbitList* list) {
+OrbitResult orbit_list_pop(OrbitList* list) {
     if (!list || list->len == 0) {
         return orbit_result_err(ORBIT_ERR_OUT_OF_BOUNDS, "list_pop: empty list");
     }
@@ -131,7 +132,7 @@ OrbitResult orbit_list_set(OrbitList* list, size_t index, const void* elem) {
 }
 
 /* Return a zero-copy slice view of the list */
-static OrbitSlice orbit_list_as_slice(const OrbitList* list) {
+OrbitSlice orbit_list_as_slice(const OrbitList* list) {
     OrbitSlice s;
     if (!list) {
         s.data      = NULL;
@@ -146,7 +147,7 @@ static OrbitSlice orbit_list_as_slice(const OrbitList* list) {
 }
 
 /* Clear without deallocation — O(1) reset */
-static void orbit_list_clear(OrbitList* list) {
+void orbit_list_clear(OrbitList* list) {
     if (list) list->len = 0;
 }
 
@@ -162,7 +163,8 @@ static uint32_t orbit_map_hash(const char* key) {
     return hash;
 }
 
-static OrbitResult orbit_map_create(OrbitArena* arena, size_t value_size) {
+OrbitResult orbit_map_create(OrbitArena* arena, size_t value_size) {
+    if (!arena) arena = orbit_arena_get_global();
     if (!arena || value_size == 0) {
         return orbit_result_err(ORBIT_ERR_INVALID_ARG, "map: null arena or zero value_size");
     }
@@ -189,7 +191,7 @@ static OrbitResult orbit_map_create(OrbitArena* arena, size_t value_size) {
     return orbit_result_ok(map);
 }
 
-static OrbitResult orbit_map_resize(OrbitMap* map) {
+OrbitResult orbit_map_resize(OrbitMap* map) {
     if (!map || !map->arena) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "map_resize: null map");
     }
@@ -224,7 +226,7 @@ static OrbitResult orbit_map_resize(OrbitMap* map) {
     return orbit_result_ok(map);
 }
 
-static OrbitResult orbit_map_set(OrbitMap* map, const char* key, const void* value) {
+OrbitResult orbit_map_set(OrbitMap* map, const char* key, const void* value) {
     if (!map || !key || !value) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "map_set: null argument");
     }

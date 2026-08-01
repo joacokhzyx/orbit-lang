@@ -9,12 +9,20 @@ model DoctorReport {
 }
 
 fn analyzeProgram(program_ast: string) -> DoctorReport {
-    return DoctorReport {
-        route_collisions: 0,
-        superluminal_opts: 3,
-        memory_leak_risk: 0,
-        status_clean: true
+    var opt_count = 0
+    var leak_count = 0
+    var route_collisions = 0
+    var i = 0
+    while i < program_ast.len() {
+        if i + 5 <= program_ast.len() {
+            if program_ast.slice(i, i + 5) == "route" {
+                opt_count = opt_count + 1
+            }
+        }
+        i = i + 1
     }
+    val clean = (leak_count == 0) && (route_collisions == 0)
+    return DoctorReport(route_collisions, opt_count, leak_count, clean)
 }
 
 fn printDoctorSummary(report: DoctorReport) -> void {

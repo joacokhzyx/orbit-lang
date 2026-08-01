@@ -1,48 +1,211 @@
 // Orbit Self-Hosted Compiler - Abstract Syntax Tree Definitions
 // compiler/ast.orb
 
-import "memory.orb"
-
-// --- DORB Architecture: Struct of Arrays (SoA) AST ---
-// These structures represent the Phase 1 goal: Zero-Allocation Parsing.
-
-type NodeIndex = int
-
-model TokenSpan {
-    start: int
-    len: int
+model Loc {
+    line: int
+    column: int
 }
 
-model ASTPool {
-    kinds: ArrayPool // NodeKind (int)
-    tokens: list     // TokenSpan
-    
-    // Graph Edges (Index-based pointers to other nodes in the pool)
-    // -1 represents null/none
-    lhs: ArrayPool 
-    rhs: ArrayPool 
-    extra: ArrayPool 
+model ParamNode {
+    name: string
+    typeName: string
 }
 
-fn initASTPool() -> ASTPool {
-    return ASTPool(initArrayPool(), [], initArrayPool(), initArrayPool(), initArrayPool())
+model FieldInitNode {
+    name: string
+    value: list
 }
 
-// Node Kinds
-fn kindProgram() -> int { return 1 }
-fn kindFunctionDecl() -> int { return 2 }
-fn kindModelDecl() -> int { return 3 }
-fn kindVarDecl() -> int { return 4 }
-fn kindReturn() -> int { return 5 }
-fn kindCall() -> int { return 6 }
-fn kindBinaryOp() -> int { return 7 }
-fn kindIf() -> int { return 8 }
-fn kindWhile() -> int { return 9 }
-fn kindMatch() -> int { return 10 }
-fn kindMatchCase() -> int { return 11 }
-fn kindFieldDecl() -> int { return 12 }
-fn kindTypeDecl() -> int { return 13 }
-fn kindBlock() -> int { return 14 }
-fn kindLiteralInt() -> int { return 101 }
-fn kindLiteralString() -> int { return 102 }
-fn kindIdentifier() -> int { return 100 }
+model TypeAnnotationNode {
+    token: string
+    isNullable: bool
+}
+
+model GenericParamNode {
+    name: string
+    constraint: string
+}
+
+model DecoratorNode {
+    name: string
+    arguments: list
+}
+
+model FieldDeclNode {
+    name: string
+    fieldType: string
+    decorators: list
+}
+
+model ModelDeclNode {
+    name: string
+    fields: list
+    genericParams: list
+}
+
+model TypeDeclNode {
+    name: string
+    kind: string
+    variants: list
+    baseType: string
+}
+
+model FunctionDeclNode {
+    name: string
+    params: list
+    paramTypes: list
+    returnType: string
+    body: list
+    isAsync: bool
+    isPrivate: bool
+    isExtern: bool
+    genericParams: list
+}
+
+model RouteDeclNode {
+    http_method: string
+    path: string
+    decorators: list
+    body: list
+}
+
+model TraitDeclNode {
+    name: string
+    genericParams: list
+    methods: list
+    isPrivate: bool
+}
+
+model ImplDeclNode {
+    traitName: string
+    typeName: string
+    methods: list
+}
+
+model VarDeclNode {
+    name: string
+    isMutable: bool
+    value: list
+}
+
+model ConstDeclNode {
+    name: string
+    value: list
+    isPrivate: bool
+}
+
+model ScheduleDeclNode {
+    amount: string
+    unit: string
+    atTime: string
+    handler: list
+}
+
+model ConfigDeclNode {
+    key: string
+    value: string
+}
+
+model ImportStmtNode {
+    path: string
+}
+
+model UseStmtNode {
+    module: string
+}
+
+model ExpressionStmtNode {
+    expr: list
+}
+
+model ProgramNode {
+    decls: list
+}
+
+model LiteralNode {
+    valType: string
+    text: string
+}
+
+model BlockNode {
+    statements: list
+}
+
+model IfNode {
+    condition: list
+    thenBody: list
+    elseBody: list
+}
+
+model WhileNode {
+    condition: list
+    body: list
+}
+
+model ForNode {
+    item: string
+    iterable: list
+    body: list
+}
+
+model ReturnNode {
+    expr: list
+}
+
+model MatchNode {
+    expr: list
+    cases: list
+}
+
+model MatchCaseNode {
+    pattern: list
+    body: list
+}
+
+model TryNode {
+    expr: list
+}
+
+model BinaryOpNode {
+    op: string
+    lhs: list
+    rhs: list
+}
+
+model UnaryOpNode {
+    op: string
+    operand: list
+}
+
+model CallNode {
+    callee: list
+    args: list
+}
+
+model MemberAccessNode {
+    object: list
+    field: string
+}
+
+model IndexAccessNode {
+    object: list
+    index: list
+}
+
+model ListLiteralNode {
+    elements: list
+}
+
+model AssignmentNode {
+    target: list
+    value: list
+}
+
+model BreakNode {
+}
+
+model ContinueNode {
+}
+
+type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | Empty
+

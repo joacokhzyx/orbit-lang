@@ -7,16 +7,34 @@ model FormatterOptions {
     show_diff: bool
 }
 
-fn createDefaultOptions() -> FormatterOptions {
-    return FormatterOptions {
-        indent_size: 4,
-        check_only: false,
-        show_diff: false
+fn trimString(s: string) -> string {
+    var start = 0
+    var end = s.len()
+    while start < end {
+        val c = s.slice(start, start + 1)
+        if c == " " || c == "\t" || c == "\r" || c == "\n" {
+            start = start + 1
+        } else {
+            break
+        }
     }
+    while end > start {
+        val c = s.slice(end - 1, end)
+        if c == " " || c == "\t" || c == "\r" || c == "\n" {
+            end = end - 1
+        } else {
+            break
+        }
+    }
+    return s.slice(start, end)
+}
+
+fn createDefaultOptions() -> FormatterOptions {
+    return FormatterOptions(4, false, false)
 }
 
 fn formatLine(line_content: string, indent_level: int, indent_size: int) -> string {
-    val trimmed = line_content
+    val trimmed = trimString(line_content)
     if (trimmed == "") {
         return ""
     }

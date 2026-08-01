@@ -56,10 +56,10 @@ fn resolveFilePath(baseDir: string, relPath: string) -> string {
     }
     if baseDir != "" {
         val candidate = baseDir + "/" + cleanRel
-        val content = orbit_file_read(candidate)
+        val content = orbit_file_read_selfhost(candidate)
         if content != "" { return candidate }
     }
-    val contentDirect = orbit_file_read(cleanRel)
+    val contentDirect = orbit_file_read_selfhost(cleanRel)
     if contentDirect != "" { return cleanRel }
     return cleanRel
 }
@@ -67,7 +67,7 @@ fn resolveFilePath(baseDir: string, relPath: string) -> string {
 fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) -> ASTNode {
     match ast {
         ASTNode.Program(p) => {
-            print("[resolver] Entered Program match with " + orbit_itoa(p.decls.len()) + " decls, basePath=" + basePath)
+            print("[resolver] Entered Program match with " + orbit_int_to_string_selfhost(p.decls.len()) + " decls, basePath=" + basePath)
             val mut resolvedDecls = []
             val baseDir = getDir(basePath)
             var i = 0
@@ -80,7 +80,7 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
                         if isVisited(resolver, fullPath) == false {
                             resolver.visited.push(fullPath)
                             print("[resolver] Loading import: " + fullPath)
-                            val subSource = orbit_file_read(fullPath)
+                            val subSource = orbit_file_read_selfhost(fullPath)
                             if subSource != "" {
                                 val subParser = initParser(subSource)
                                 val subAST = parseProgram(subParser)
@@ -104,7 +104,7 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
                 }
                 i = i + 1
             }
-            print("[resolver] Resolved " + orbit_itoa(resolvedDecls.len()) + " total decls")
+            print("[resolver] Resolved " + orbit_int_to_string_selfhost(resolvedDecls.len()) + " total decls")
             return ASTNode.Program(ProgramNode(resolvedDecls))
         }
         _ => {
@@ -113,3 +113,4 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
         }
     }
 }
+

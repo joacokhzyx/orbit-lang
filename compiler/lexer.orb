@@ -6,6 +6,7 @@ val CHAR_CR = 13
 val CHAR_LF = 10
 val CHAR_DQUOTE = 34
 val CHAR_SLASH = 47
+val CHAR_ASTERISK = 42
 val CHAR_BACKSLASH = 92
 val CHAR_DOT = 46
 val CHAR_ZERO = 48
@@ -85,6 +86,23 @@ fn skipWhitespaceAndComments(lexer: Lexer) {
                     advance(lexer)
                     while lexer.pos < lexer.source.len() && peek(lexer) != 10 {
                         advance(lexer)
+                    }
+                } else if next == CHAR_ASTERISK {
+                    advance(lexer)
+                    advance(lexer)
+                    var depth = 1
+                    while lexer.pos < lexer.source.len() && depth > 0 {
+                        if peek(lexer) == CHAR_SLASH && peekNext(lexer) == CHAR_ASTERISK {
+                            advance(lexer)
+                            advance(lexer)
+                            depth = depth + 1
+                        } else if peek(lexer) == CHAR_ASTERISK && peekNext(lexer) == CHAR_SLASH {
+                            advance(lexer)
+                            advance(lexer)
+                            depth = depth - 1
+                        } else {
+                            advance(lexer)
+                        }
                     }
                 } else {
                     break
@@ -253,16 +271,20 @@ fn nextToken(lexer: Lexer) -> Token {
             advance(lexer)
             return Token(TokType.DoublePipe, "||", line, col)
         }
+        return Token(TokType.Pipe, "|", line, col)
     }
     if c == 38 { // '&'
         if peek(lexer) == 38 { // '&&'
             advance(lexer)
             return Token(TokType.DoubleAmpersand, "&&", line, col)
         }
+        return Token(TokType.Ampersand, "&", line, col)
     }
 
     // Default fallback
     val textFallback = lexer.source.slice(start, lexer.pos)
+    print("Invalid token fallback reached. char code: " + orbit_int_to_string_selfhost(c))
     return Token(TokType.Invalid, textFallback, line, col)
 }
+
 

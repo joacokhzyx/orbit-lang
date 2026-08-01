@@ -103,7 +103,7 @@ pub const Node = struct {
         param, // Function parameter
         field_init, // In objects: name: value
         decorator, // @admin
-        type_annotation,
+        type_expr,
         match_case, // variant(params) => block
         union_variant, // variant(Type)
         generic_param, // T: Constraint in [T: Constraint]
@@ -150,7 +150,7 @@ pub const Node = struct {
             name: Token,
             generic_params: []const *Node,
             params: []const *Node,
-            return_type: ?Token,
+            return_type: ?*Node,
             is_pointer_return: bool,
             body: *Node,
             is_async: bool,
@@ -216,7 +216,7 @@ pub const Node = struct {
         },
 
         impl_decl: struct {
-            type_name: Token,
+            type_expr: *Node,
             trait_name: Token,
             methods: []const *Node, // fn-like nodes with bodies
         },
@@ -369,7 +369,7 @@ pub const Node = struct {
         // ============================================
         field_decl: struct {
             name: Token,
-            type_name: Token,
+            type_expr: ?*Node,
             is_pointer: bool,
             decorators: []const *Node,
             default_value: ?*Node,
@@ -377,7 +377,7 @@ pub const Node = struct {
 
         param: struct {
             name: Token,
-            type_name: ?Token,
+            type_expr: ?*Node,
             is_pointer: bool,
             is_optional: bool,
         },
@@ -392,9 +392,9 @@ pub const Node = struct {
             args: []const *Node,
         },
 
-        type_annotation: struct {
+        type_expr: struct {
             base: Token,
-            generics: []const Token,
+            generics: []const *Node,
             is_optional: bool,
             is_pointer: bool,
         },
@@ -447,3 +447,21 @@ pub const Program = struct {
         };
     }
 };
+
+pub fn formatTypeExpr(allocator: std.mem.Allocator, type_expr_node: ?*Node, source: []const u8) ![]const u8 {
+    if (type_expr_node == null) return try allocator.dupe(u8, "void");
+    const t = type_expr_node.?.data.type_expr;
+    var result = std.ArrayListUnmanaged(u8).empty;
+    
+    if (t.is_pointer) {
+        try result.append(allocator, '*');
+    }
+    
+    try result.appendSlice(allocator, t.base.getText(source));
+    
+    if (t.is_optional) {
+        try result.append(allocator, '?');
+    }
+    
+    return try result.toOwnedSlice(allocator);
+}

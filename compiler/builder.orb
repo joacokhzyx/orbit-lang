@@ -118,6 +118,19 @@ fn registerModel(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.ModelDecl(m) => {
             builder.modelNames.push(m.name)
+            var irFields = []
+            var fi = 0
+            while fi < m.fields.len() {
+                val fNode: ASTNode = m.fields.get(fi)
+                match fNode {
+                    ASTNode.FieldDecl(f) => {
+                        irFields.push(IRModelField(f.name, f.fieldType))
+                    }
+                    _ => {}
+                }
+                fi = fi + 1
+            }
+            builder.module.models.push(IRModelDecl(m.name, irFields))
         }
         _ => {}
     }
@@ -173,7 +186,7 @@ fn findFunction(module: IRModule, name: string) -> int {
 fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
     match rootNode {
         ASTNode.Program(p) => {
-            print("[buildAST] Program has " + orbit_itoa(p.decls.len()) + " decls")
+            print("[buildAST] Program has " + orbit_int_to_string_selfhost(p.decls.len()) + " decls")
             // Pass 1: Register models and types
             var i = 0
             while i < p.decls.len() {
@@ -196,7 +209,7 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
                 buildDecl(builder, decl)
                 i = i + 1
             }
-            print("[buildAST] After Pass 3: " + orbit_itoa(builder.module.functions.len()) + " functions in module")
+            print("[buildAST] After Pass 3: " + orbit_int_to_string_selfhost(builder.module.functions.len()) + " functions in module")
         }
         _ => {}
     }
@@ -212,7 +225,7 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
             builder.module.functions.push(builder.currentFunction)
         }
     }
-    print("[buildAST] Returning module with " + orbit_itoa(builder.module.functions.len()) + " functions")
+    print("[buildAST] Returning module with " + orbit_int_to_string_selfhost(builder.module.functions.len()) + " functions")
     return builder.module
 }
 
@@ -261,9 +274,9 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     var i = 0
     while i < f.params.len() {
         val p = f.params.get(i)
-        val pType = "unknown"
+        var pType = "unknown"
         if i < f.paramTypes.len() {
-            // pType already set from signature
+            pType = f.paramTypes.get(i)
         }
         defineVariable(builder, p, pType)
         val instr = ir_init_instr(IROpcode.arg)
@@ -376,11 +389,17 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             lenInstr.dest = lenReg
             lenInstr.operand1 = ir_register(iterReg)
             ir_emit(builder.currentFunction, lenInstr)
-            val idxReg = ir_alloc_register(builder.currentFunction, "int")
+            val zeroReg = ir_alloc_register(builder.currentFunction, "int")
+            val zeroConst = ir_init_instr(IROpcode.load_const)
+            zeroConst.dest = zeroReg
+            zeroConst.operand1 = ir_int(0)
+            ir_emit(builder.currentFunction, zeroConst)
+
             val idxInit = ir_init_instr(IROpcode.decl_var)
-            idxInit.dest = idxReg
-            idxInit.operand1 = ir_int(0)
+            idxInit.operand1 = ir_symbol(stmt.item + "_idx")
+            idxInit.operand2 = ir_register(zeroReg)
             ir_emit(builder.currentFunction, idxInit)
+            defineVariable(builder, stmt.item + "_idx", "int")
             defineVariable(builder, stmt.item, "unknown")
             val startLabel = allocLabel(builder)
             val endLabel = allocLabel(builder)
@@ -881,7 +900,11 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val litReg = ir_alloc_register(builder.currentFunction, lit.valType)
             val litInstr = ir_init_instr(IROpcode.load_const)
             litInstr.dest = litReg
-            litInstr.operand1 = ir_string(lit.text)
+            if lit.valType == "string" {
+                litInstr.operand1 = ir_string(unescapeString(lit.text))
+            } else {
+                litInstr.operand1 = ir_symbol(lit.text)
+            }
             ir_emit(builder.currentFunction, litInstr)
             return litReg
         }
@@ -904,6 +927,18 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                         storeField.operand2 = ir_symbol(ma.field)
                         storeField.operand3 = ir_register(rhsReg)
                         ir_emit(builder.currentFunction, storeField)
+                        return rhsReg
+                    }
+                    ASTNode.IndexAccess(ia) => {
+                        val objReg = buildExpr(builder, ia.object)
+                        val idxReg = buildExpr(builder, ia.index)
+                        val setInstr = ir_init_instr(IROpcode.list_set)
+                        setInstr.operand1 = ir_register(objReg)
+                        setInstr.operand2 = ir_register(idxReg)
+                        setInstr.operand3 = ir_register(rhsReg)
+                        val resReg = ir_alloc_register(builder.currentFunction, "void")
+                        setInstr.dest = resReg
+                        ir_emit(builder.currentFunction, setInstr)
                         return rhsReg
                     }
                     _ => {
@@ -1050,8 +1085,23 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     ir_emit(builder.currentFunction, storeField)
                     return rhsReg
                 }
+                ASTNode.IndexAccess(ia) => {
+                    val objReg = buildExpr(builder, ia.object)
+                    val idxReg = buildExpr(builder, ia.index)
+                    val setInstr = ir_init_instr(IROpcode.list_set)
+                    setInstr.operand1 = ir_register(objReg)
+                    setInstr.operand2 = ir_register(idxReg)
+                    setInstr.operand3 = ir_register(rhsReg)
+                    val resReg = ir_alloc_register(builder.currentFunction, "void")
+                    setInstr.dest = resReg
+                    ir_emit(builder.currentFunction, setInstr)
+                    return rhsReg
+                }
                 _ => { return rhsReg }
             }
+        }
+        ASTNode.FieldInit(fi) => {
+            return buildExpr(builder, fi.value)
         }
         ASTNode.Break(b) => {
             val endLabels = builder.loopEndLabels
@@ -1112,5 +1162,34 @@ fn buildTryExpr(builder: IRBuilder, t: TryNode) -> int {
     lblEnd.operand1 = ir_label(endLabel)
     ir_emit(func, lblEnd)
     return unwrapReg
+}
+
+fn unescapeString(s: string) -> string {
+    if s.len() < 2 { return s }
+    var inner = s.slice(1, s.len() - 1)
+    var out = ""
+    var i = 0
+    while i < inner.len() {
+        val c = inner.slice(i, i + 1)
+        if c == "\\" {
+            if i + 1 < inner.len() {
+                val next = inner.slice(i + 1, i + 2)
+                if next == "n" { out = out + "\n" }
+                else if next == "t" { out = out + "\t" }
+                else if next == "r" { out = out + "\r" }
+                else if next == "\"" { out = out + "\"" }
+                else if next == "\\" { out = out + "\\" }
+                else { out = out + "\\" + next }
+                i = i + 2
+            } else {
+                out = out + c
+                i = i + 1
+            }
+        } else {
+            out = out + c
+            i = i + 1
+        }
+    }
+    return out
 }
 

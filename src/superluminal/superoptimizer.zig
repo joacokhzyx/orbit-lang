@@ -34,15 +34,17 @@ pub const Superoptimizer = struct {
             const result = V.apply(self.allocator, instructions) catch null;
             if (result) |new_instrs| {
                 defer self.allocator.free(new_instrs);
+                var valid = true;
                 if (z3.isAvailable()) {
-                    const verified = z3.verifyEquivalence(self.allocator, instructions, new_instrs) catch true;
-                    if (!verified) continue;
+                    valid = z3.verifyEquivalence(self.allocator, instructions, new_instrs) catch true;
                 }
-                const c = cost_model.evaluateSlice(new_instrs);
-                if (c.total() < best_cost.total() or (c.total() == best_cost.total() and new_instrs.len < (if (best_instrs) |b| b.len else instructions.len))) {
-                    if (best_instrs) |b| self.allocator.free(b);
-                    best_instrs = try self.allocator.dupe(IRInstruction, new_instrs);
-                    best_cost = c;
+                if (valid) {
+                    const c = cost_model.evaluateSlice(new_instrs);
+                    if (c.total() < best_cost.total() or (c.total() == best_cost.total() and new_instrs.len < (if (best_instrs) |b| b.len else instructions.len))) {
+                        if (best_instrs) |b| self.allocator.free(b);
+                        best_instrs = try self.allocator.dupe(IRInstruction, new_instrs);
+                        best_cost = c;
+                    }
                 }
             }
         }
