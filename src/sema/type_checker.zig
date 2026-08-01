@@ -346,9 +346,20 @@ pub const TypeChecker = struct {
             .assignment => self.inferType(node.data.assignment.value, scope),
             .index_access => blk: {
                 const ia = node.data.index_access;
-                _ = self.inferType(ia.object, scope);
+                const obj_type = self.inferType(ia.object, scope);
                 _ = self.inferType(ia.index, scope);
-                break :blk "unknown"; // TODO: Phase 2 — infer element type from collection generic parameter
+                if (std.mem.startsWith(u8, obj_type, "list<") and std.mem.endsWith(u8, obj_type, ">")) {
+                    break :blk obj_type["list<".len .. obj_type.len - 1];
+                }
+                if (std.mem.startsWith(u8, obj_type, "map<") and std.mem.endsWith(u8, obj_type, ">")) {
+                    if (std.mem.indexOf(u8, obj_type, ",")) |comma_idx| {
+                        break :blk std.mem.trim(u8, obj_type[comma_idx + 1 .. obj_type.len - 1], " ");
+                    }
+                }
+                if (std.mem.eql(u8, obj_type, "string")) {
+                    break :blk "string";
+                }
+                break :blk "unknown";
             },
             .unary_op => blk: {
                 const u = node.data.unary_op;
