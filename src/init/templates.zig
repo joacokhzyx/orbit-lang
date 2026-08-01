@@ -19,96 +19,95 @@ pub const PresetKind = enum {
 };
 
 pub fn getTemplateCode(preset: PresetKind, project_name: []const u8, allocator: std.mem.Allocator) ![]u8 {
-    _ = project_name;
     switch (preset) {
-        .microservice => return try allocator.dupe(u8,
-            \\// Orbit Microservice API Template
+        .microservice => return try std.fmt.allocPrint(allocator,
+            \\// Orbit Microservice API Template — {s}
             \\// Provides health probes, readiness probes, and metrics endpoints.
             \\
-            \\route GET "/health" {
+            \\route GET "/health" {{
             \\    val uptime = system.uptime()
-            \\    return ok 200 "{\"status\":\"UP\",\"uptime_seconds\":" + uptime + "}"
-            \\}
+            \\    return ok 200 "{{\"status\":\"UP\",\"project\":\"{s}\",\"uptime_seconds\":" + uptime + "}}"
+            \\}}
             \\
-            \\route GET "/ready" {
-            \\    return ok 200 "{\"ready\":true,\"accepting_traffic\":true}"
-            \\}
+            \\route GET "/ready" {{
+            \\    return ok 200 "{{\"ready\":true,\"project\":\"{s}\",\"accepting_traffic\":true}}"
+            \\}}
             \\
-            \\route GET "/metrics" {
+            \\route GET "/metrics" {{
             \\    val total = system.http_requests_total()
             \\    val success = system.http_requests_success()
             \\    val error = system.http_requests_error()
-            \\    return ok 200 "{\"metrics\":{\"total\":" + total + ",\"success\":" + success + ",\"error\":" + error + "}}"
-            \\}
+            \\    return ok 200 "{{\"metrics\":{{\"total\":" + total + ",\"success\":" + success + ",\"error\":" + error + "}}}}"
+            \\}}
             \\
-        ),
-        .database_app => return try allocator.dupe(u8,
-            \\// Orbit Database ORM App Template
+        , .{ project_name, project_name, project_name }),
+        .database_app => return try std.fmt.allocPrint(allocator,
+            \\// Orbit Database ORM App Template — {s}
             \\// Uses native Model ORM methods and SQLite persistence.
             \\
-            \\model Product {
+            \\model Product {{
             \\    id: string
             \\    name: string
             \\    price: float
             \\    category: string
             \\    in_stock: bool
-            \\}
+            \\}}
             \\
-            \\route GET "/v1/products" {
+            \\route GET "/v1/products" {{
             \\    val category = req.query("category")
-            \\    if (category != "") {
+            \\    if (category != "") {{
             \\        val filtered = Product.where("category = ?", category)
             \\        return ok 200 filtered
-            \\    }
+            \\    }}
             \\    val all_products = Product.all()
             \\    return ok 200 all_products
-            \\}
+            \\}}
             \\
-            \\route POST "/v1/products" {
+            \\route POST "/v1/products" {{
             \\    val body = req.body()
             \\    val created = Product.create(body)
-            \\    if (created) {
-            \\        return ok 201 "{\"status\":\"created\",\"message\":\"Product saved to SQLite database\"}"
-            \\    }
+            \\    if (created) {{
+            \\        return ok 201 "{{\"status\":\"created\",\"project\":\"{s}\",\"message\":\"Product saved to SQLite database\"}}"
+            \\    }}
             \\    err 400 "Failed to insert product"
-            \\}
+            \\}}
             \\
-        ),
-        .secured_api => return try allocator.dupe(u8,
-            \\// Orbit Kynx Secured Enterprise API Template
+        , .{ project_name, project_name }),
+        .secured_api => return try std.fmt.allocPrint(allocator,
+            \\// Orbit Kynx Secured Enterprise API Template — {s}
             \\// Pre-configured with zero-trust audit headers, rate limiting, and status guards.
             \\
-            \\route GET "/v1/secure/resource" {
+            \\route GET "/v1/secure/resource" {{
             \\    val auth_header = req.header("Authorization")
-            \\    if (auth_header == "") {
+            \\    if (auth_header == "") {{
             \\        err 401 "Unauthorized: missing access token"
-            \\    }
-            \\    return ok 200 "{\"status\":\"access_granted\",\"shield\":\"Kynx Active\"}"
-            \\}
+            \\    }}
+            \\    return ok 200 "{{\"status\":\"access_granted\",\"project\":\"{s}\",\"shield\":\"Kynx Active\"}}"
+            \\}}
             \\
-            \\route GET "/v1/secure/audit" {
+            \\route GET "/v1/secure/audit" {{
             \\    val uptime = system.uptime()
-            \\    return ok 200 "{\"audit\":{\"engine\":\"Kynx Zero-Trust\",\"uptime\":" + uptime + "}}"
-            \\}
+            \\    return ok 200 "{{\"audit\":{{\"engine\":\"Kynx Zero-Trust\",\"project\":\"{s}\",\"uptime\":" + uptime + "}}}}"
+            \\}}
             \\
-        ),
-        .library => return try allocator.dupe(u8,
-            \\// Orbit Modular Library Template
+        , .{ project_name, project_name, project_name }),
+        .library => return try std.fmt.allocPrint(allocator,
+            \\// Orbit Modular Library Template — {s}
             \\// Exports domain helpers and mathematical utility functions.
             \\
-            \\fn add(a: int, b: int) -> int {
+            \\fn add(a: int, b: int) -> int {{
             \\    return a + b
-            \\}
+            \\}}
             \\
-            \\fn multiply(a: int, b: int) -> int {
+            \\fn multiply(a: int, b: int) -> int {{
             \\    return a * b
-            \\}
+            \\}}
             \\
-            \\fn is_even(n: int) -> bool {
+            \\fn is_even(n: int) -> bool {{
             \\    return n % 2 == 0
-            \\}
+            \\}}
             \\
-        ),
+        , .{project_name}),
     }
 }
 
@@ -143,9 +142,8 @@ pub fn getGitIgnoreContent(allocator: std.mem.Allocator) ![]u8 {
 }
 
 pub fn getCiWorkflowContent(project_name: []const u8, allocator: std.mem.Allocator) ![]u8 {
-    _ = project_name;
-    return try allocator.dupe(u8,
-        \\name: Orbit CI Workflow
+    return try std.fmt.allocPrint(allocator,
+        \\name: Orbit CI Workflow - {s}
         \\
         \\on:
         \\  push:
@@ -169,5 +167,5 @@ pub fn getCiWorkflowContent(project_name: []const u8, allocator: std.mem.Allocat
         \\      - name: Build C Target
         \\        run: orbit build main.orb --backend=c
         \\
-    );
+    , .{project_name});
 }
