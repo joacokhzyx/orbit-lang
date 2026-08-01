@@ -2,7 +2,7 @@
  * @file  selfhost.c
  * @brief Wrappers for Orbit self-hosted compiler built-in functions
  *
- * The self-hosted compiler (compiler/*.orb) declares extern functions without
+ * The self-hosted compiler (compiler orb files) declares extern functions without
  * explicit arena parameters. These wrappers automatically use the global arena.
  */
 #ifndef ORBIT_SELFHOST_C
@@ -19,28 +19,28 @@
 
 // OS functions - wrappers that use global arena
 orbit_int orbit_os_argc_selfhost(void) {
-    return orbit_os_argc();
+    return (orbit_os_argc)();
 }
 
 orbit_string orbit_os_argv_selfhost(orbit_int index) {
-    return orbit_os_argv(orbit_arena_get_global(), index);
+    return (orbit_os_argv)(orbit_arena_get_global(), index);
 }
 
 orbit_string orbit_os_exec_selfhost(orbit_string command) {
-    return orbit_os_exec(orbit_arena_get_global(), command);
+    return (orbit_os_exec)(orbit_arena_get_global(), command);
 }
 
 orbit_string orbit_os_env_selfhost(orbit_string var_name) {
-    return orbit_os_env(orbit_arena_get_global(), var_name);
+    return (orbit_os_env)(orbit_arena_get_global(), var_name);
 }
 
 void orbit_os_exit_selfhost(orbit_int code) {
-    orbit_os_exit(code);
+    (orbit_os_exit)(code);
 }
 
 // File I/O functions
 orbit_string orbit_file_read_selfhost(orbit_string path) {
-    OrbitResult res = orbit_file_read(orbit_arena_get_global(), path);
+    OrbitResult res = (orbit_file_read)(orbit_arena_get_global(), path);
     if (!res.ok) {
         return "";
     }
@@ -48,12 +48,12 @@ orbit_string orbit_file_read_selfhost(orbit_string path) {
 }
 
 bool orbit_file_write_selfhost(orbit_string path, orbit_string content) {
-    return orbit_file_write(path, content);
+    return (orbit_file_write)(path, content);
 }
 
 // String/Int conversion helper
 orbit_string orbit_int_to_string_selfhost(orbit_int value) {
-    return orbit_int_to_string(orbit_arena_get_global(), value);
+    return (orbit_int_to_string)(orbit_arena_get_global(), value);
 }
 
 // Define macros to redirect the simple names to the selfhost versions

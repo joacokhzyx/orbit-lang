@@ -95,6 +95,11 @@ pub const CBackend = struct {
         if (std.mem.eql(u8, func_name, "check") or std.mem.endsWith(u8, func_name, "_check")) return .bool;
         if (std.mem.eql(u8, func_name, "isAtEnd") or std.mem.endsWith(u8, func_name, "_isAtEnd")) return .bool;
         if (std.mem.eql(u8, func_name, "orbit_string_indexOf")) return .int;
+        if (std.mem.eql(u8, func_name, "orbit_list_set")) return .void;
+        if (std.mem.eql(u8, func_name, "orbit_string_at")) return .int;
+        if (std.mem.eql(u8, func_name, "orbit_string_len")) return .int;
+        if (std.mem.eql(u8, func_name, "orbit_string_contains")) return .bool;
+        if (std.mem.eql(u8, func_name, "orbit_string_slice")) return .string;
         if (self.function_return_types.get(func_name)) |t| return t;
         var it = self.function_return_types.iterator();
         while (it.next()) |entry| {
@@ -298,6 +303,31 @@ pub const CBackend = struct {
 
     // ─── Top-level generation ────────────────────────────────────────────────
 
+fn isPointerishType(t: IRType) bool {
+    return switch (t) {
+        .string,
+        .void,
+        .response,
+        .model,
+        .enumeration,
+        .list,
+        .map,
+        .result,
+        .option,
+        .tagged_union,
+        .trait_obj,
+        .slice,
+        .pointer,
+        .mut_pointer,
+        .i64,
+        .u64,
+        .usize,
+        .isize,
+        => true,
+        else => false,
+    };
+}
+
 pub fn isMainFunctionName(name: []const u8) bool {
     if (std.mem.eql(u8, name, "main")) return true;
     if (std.mem.eql(u8, name, "orbit_main")) return true;
@@ -429,6 +459,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
         defer declared_structs.deinit();
 
         for (module.models.items) |model| {
+            if (std.mem.eql(u8, model.name, "NULL") or std.mem.eql(u8, model.name, "null")) continue;
             try self.model_names.put(self.allocator, model.name, {});
             for (model.fields.items) |field| {
                 try self.model_field_owners.put(self.allocator, field.name, model.name);
@@ -437,6 +468,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
             try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ model.name, model.name });
         }
         for (module.types.items) |t| {
+            if (std.mem.eql(u8, t.name, "NULL") or std.mem.eql(u8, t.name, "null")) continue;
             if (t.kind == .union_type) {
                 try declared_structs.put(t.name, {});
                 try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ t.name, t.name });
@@ -460,6 +492,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
                     .tagged_union => |u| u,
                     else => continue,
                 };
+                if (std.mem.eql(u8, name, "NULL") or std.mem.eql(u8, name, "null")) continue;
                 if (!declared_structs.contains(name)) {
                     try declared_structs.put(name, {});
                     try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ name, name });
@@ -1028,7 +1061,20 @@ pub fn isMainFunctionName(name: []const u8) bool {
                         if (var_type == .unknown) {
                             var_type = self.getValueType(instr.operand1);
                         }
-                        if (var_type != .unknown or !self.local_variable_types.contains(var_name)) {
+                        const existing_type = self.local_variable_types.get(var_name);
+                        if (existing_type) |existing| {
+                            if (existing == .unknown) {
+                                if (var_type != .unknown) {
+                                    _ = try self.local_variable_types.put(self.allocator, var_name, var_type);
+                                }
+                            } else if (var_type != .unknown) {
+                                if (isPointerishType(existing) != isPointerishType(var_type)) {
+                                    // Scalar <-> pointer conflict: widen to 64-bit so
+                                    // pointer values are never truncated through orbit_int.
+                                    _ = try self.local_variable_types.put(self.allocator, var_name, .usize);
+                                }
+                            }
+                        } else {
                             _ = try self.local_variable_types.put(self.allocator, var_name, var_type);
                         }
                     }
@@ -1208,7 +1254,8 @@ pub fn isMainFunctionName(name: []const u8) bool {
         var it_lbl = ref_labels.iterator();
         while (it_lbl.next()) |entry| {
             if (!def_labels.contains(entry.key_ptr.*)) {
-                try self.output.print(self.allocator, "label_{d}:;\n", .{entry.key_ptr.*});
+                std.debug.print("[CG ERROR] branch to undefined label_{d} in function {s}\n", .{ entry.key_ptr.*, func.name });
+                return error.UndefinedLabel;
             }
         }
 
@@ -1457,7 +1504,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else if (v_type != .float and v_type != .void) {
-                        try self.output.appendSlice(self.allocator, "(void*)(");
+                        try self.output.appendSlice(self.allocator, "(uintptr_t)(");
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else {
@@ -1482,7 +1529,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else if (v_type != .float and v_type != .void) {
-                        try self.output.appendSlice(self.allocator, "(void*)(");
+                        try self.output.appendSlice(self.allocator, "(uintptr_t)(");
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else {
@@ -2197,14 +2244,14 @@ pub fn isMainFunctionName(name: []const u8) bool {
             .bool => "orbit_bool",
             .void => "void",
             .response => "OrbitResponse*",
-            .model => |m| try std.fmt.allocPrint(self.allocator, "{s}*", .{m}),
+            .model => |m| if (std.mem.eql(u8, m, "NULL") or std.mem.eql(u8, m, "null")) "void*" else try std.fmt.allocPrint(self.allocator, "{s}*", .{m}),
             .enumeration => |e| e,
             // Phase 2 types
             .list => "OrbitList*",
             .map => "OrbitMap*",
             .result => "OrbitResult",
             .option => "OrbitOption",
-            .tagged_union => |name| try std.fmt.allocPrint(self.allocator, "{s}*", .{name}),
+            .tagged_union => |name| if (std.mem.eql(u8, name, "NULL") or std.mem.eql(u8, name, "null")) "void*" else try std.fmt.allocPrint(self.allocator, "{s}*", .{name}),
             .trait_obj => "OrbitInterface",
             .slice => "OrbitSlice",
             .unknown => "void*",

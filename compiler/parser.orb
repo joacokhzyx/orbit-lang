@@ -29,7 +29,9 @@ fn advanceParser(parser: Parser) {
 }
 
 fn check(parser: Parser, tag: TokType) -> bool {
-    return parser.currentToken.tag == tag
+    val curTag = parser.currentToken.tag
+    val matchRes = curTag == tag
+    return matchRes
 }
 
 fn matchToken(parser: Parser, tag: TokType) -> bool {
@@ -46,6 +48,15 @@ fn isAtEnd(parser: Parser) -> bool {
 
 fn parserError(parser: Parser, message: string) {
     parser.diagnostics.push(ParserDiagnostic(message, parser.currentToken.line, parser.currentToken.col))
+}
+
+fn parseTypeName(parser: Parser) -> string {
+    if check(parser, TokType.Identifier) {
+        advanceParser(parser)
+        return parser.previousToken.text
+    }
+    parserError(parser, "Expected type name.")
+    return "unknown"
 }
 
 fn consume(parser: Parser, expected: TokType, message: string) {
@@ -95,36 +106,17 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
             consume(parser, TokType.CloseParen, "Expected ')' after arguments.")
             result = ASTNode.Call(CallNode(result, args))
         } else {
-            if matchToken(parser, TokType.OpenBrace) {
-                var fieldInits = []
-                if check(parser, TokType.CloseBrace) == false {
-                    var parsingFields = true
-                    while parsingFields {
-                        consume(parser, TokType.Identifier, "Expected field name.")
-                        val fieldName = parser.previousToken.text
-                        consume(parser, TokType.Colon, "Expected ':' after field name.")
-                        val fieldValue = parseExpression(parser)
-                        fieldInits.push(ASTNode.FieldInit(FieldInitNode(fieldName, fieldValue)))
-                        if matchToken(parser, TokType.Comma) == false {
-                            parsingFields = false
-                        }
-                    }
-                }
-                consume(parser, TokType.CloseBrace, "Expected '}' after struct fields.")
-                result = ASTNode.Call(CallNode(result, fieldInits))
+            if matchToken(parser, TokType.Dot) {
+                consume(parser, TokType.Identifier, "Expected member name after '.'.")
+                val member = parser.previousToken.text
+                result = ASTNode.MemberAccess(MemberAccessNode(result, member))
             } else {
-                if matchToken(parser, TokType.Dot) {
-                    consume(parser, TokType.Identifier, "Expected member name after '.'.")
-                    val member = parser.previousToken.text
-                    result = ASTNode.MemberAccess(MemberAccessNode(result, member))
+                if matchToken(parser, TokType.OpenBracket) {
+                    val index = parseExpression(parser)
+                    consume(parser, TokType.CloseBracket, "Expected ']' after index.")
+                    result = ASTNode.IndexAccess(IndexAccessNode(result, index))
                 } else {
-                    if matchToken(parser, TokType.OpenBracket) {
-                        val index = parseExpression(parser)
-                        consume(parser, TokType.CloseBracket, "Expected ']' after index.")
-                        result = ASTNode.IndexAccess(IndexAccessNode(result, index))
-                    } else {
-                        parsing = false
-                    }
+                    parsing = false
                 }
             }
         }
@@ -234,6 +226,10 @@ fn parseExpression(parser: Parser) -> ASTNode {
 }
 
 fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
+    var isMut = isMutable
+    if matchToken(parser, TokType.KeywordMut) {
+        isMut = true
+    }
     consume(parser, TokType.Identifier, "Expected variable name.")
     val name = parser.previousToken.text
 
@@ -254,7 +250,7 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
     consume(parser, TokType.Equal, "Expected '=' after variable name.")
     val value = parseExpression(parser)
 
-    return ASTNode.VarDecl(VarDeclNode(name, isMutable, value))
+    return ASTNode.VarDecl(VarDeclNode(name, isMut, value))
 }
 
 fn parseIfStatement(parser: Parser) -> ASTNode {
@@ -293,7 +289,26 @@ fn parseMatchStatement(parser: Parser) -> ASTNode {
         while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
             val pattern = parseExpression(parser)
             consume(parser, TokType.FatArrow, "Expected '=>' in match case.")
-            val body = parseBlock(parser)
+            var body = ASTNode.Empty
+            if matchToken(parser, TokType.OpenBrace) {
+                var stmts = []
+                var parsingBody = true
+                while parsingBody {
+                    if check(parser, TokType.CloseBrace) {
+                        parsingBody = false
+                    } else {
+                        if isAtEnd(parser) {
+                            parsingBody = false
+                        } else {
+                            stmts.push(parseStatement(parser))
+                        }
+                    }
+                }
+                consume(parser, TokType.CloseBrace, "Expected '}' after block.")
+                body = ASTNode.Block(BlockNode(stmts))
+            } else {
+                body = parseStatement(parser)
+            }
             matchToken(parser, TokType.Comma)
             cases.push(ASTNode.MatchCase(MatchCaseNode(pattern, body)))
         }
@@ -365,8 +380,7 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
                 if matchToken(parser, TokType.Ampersand) {
                     isPointer = true
                 }
-                consume(parser, TokType.Identifier, "Expected parameter type.")
-                paramType = parser.previousToken.text
+                paramType = parseTypeName(parser)
                 if isPointer {
                     paramType = "&" + paramType
                 }
@@ -382,14 +396,13 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
     }
     consume(parser, TokType.CloseParen, "Expected ')' after parameters.")
 
-    var returnType = ""
+    var returnType = "void"
     if matchToken(parser, TokType.Arrow) {
         var isPointerReturn = false
         if matchToken(parser, TokType.Ampersand) {
             isPointerReturn = true
         }
-        consume(parser, TokType.Identifier, "Expected return type.")
-        returnType = parser.previousToken.text
+        returnType = parseTypeName(parser)
         if isPointerReturn {
             returnType = "&" + returnType
         }
@@ -624,7 +637,10 @@ fn parseStatement(parser: Parser) -> ASTNode {
         return parseConstDecl(parser, false)
     }
     if matchToken(parser, TokType.KeywordReturn) {
-        val expr = parseExpression(parser)
+        var expr = ASTNode.Empty
+        if check(parser, TokType.SemiColon) == false && check(parser, TokType.CloseBrace) == false {
+            expr = parseExpression(parser)
+        }
         return ASTNode.Return(ReturnNode(expr))
     }
     if matchToken(parser, TokType.KeywordIf) {

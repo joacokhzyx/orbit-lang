@@ -13,6 +13,39 @@ fn getRegUses(instr: IRInstruction) [3]?u32 {
     };
 }
 
+/// Opcodes whose execution is observable even when their destination register
+/// is never read afterwards. Removing any of these silently changes program
+/// behavior (e.g. `list.push(x)` used as a statement).
+fn hasSideEffects(opcode: IROpcode) bool {
+    return switch (opcode) {
+        .store_var,
+        .store_field,
+        .decl_var,
+        .call,
+        .ret,
+        .jump,
+        .jump_if_false,
+        .label,
+        .alloc,
+        .free,
+        .db_get,
+        .db_set,
+        .db_all,
+        .db_where,
+        .http_response,
+        .list_create,
+        .list_push,
+        .list_pop,
+        .list_set,
+        .map_create,
+        .map_set,
+        .map_delete,
+        .result_unwrap,
+        => true,
+        else => false,
+    };
+}
+
 pub fn deadCodeElimination(allocator: std.mem.Allocator, instructions: []const IRInstruction) anyerror!?[]IRInstruction {
     var live = std.AutoHashMap(u32, void).init(allocator);
     defer live.deinit();
@@ -30,11 +63,7 @@ pub fn deadCodeElimination(allocator: std.mem.Allocator, instructions: []const I
     var removed = false;
     for (instructions) |instr| {
         const is_alive = if (instr.dest) |dest| blk: {
-            if (instr.opcode == .store_var or instr.opcode == .store_field or
-                instr.opcode == .call or instr.opcode == .ret or
-                instr.opcode == .jump or instr.opcode == .jump_if_false or
-                instr.opcode == .label)
-                break :blk true;
+            if (hasSideEffects(instr.opcode)) break :blk true;
             break :blk live.contains(dest);
         } else true;
 
@@ -51,6 +80,27 @@ pub fn deadCodeElimination(allocator: std.mem.Allocator, instructions: []const I
     }
     const _slice = try result.toOwnedSlice(allocator);
     return @as(?[]IRInstruction, _slice);
+}
+
+/// Opcodes after which previously recorded copies can no longer be trusted.
+fn invalidatesCopies(opcode: IROpcode) bool {
+    return switch (opcode) {
+        .store_var,
+        .store_field,
+        .decl_var,
+        .call,
+        .label,
+        .jump,
+        .jump_if_false,
+        .ret,
+        .list_push,
+        .list_pop,
+        .list_set,
+        .map_set,
+        .map_delete,
+        => true,
+        else => false,
+    };
 }
 
 pub fn copyPropagation(allocator: std.mem.Allocator, instructions: []const IRInstruction) anyerror!?[]IRInstruction {
@@ -86,7 +136,11 @@ pub fn copyPropagation(allocator: std.mem.Allocator, instructions: []const IRIns
 
         if (new_instr.opcode == .copy and new_instr.dest != null) {
             try replacements.put(new_instr.dest.?, new_instr.operand1);
-        } else if (new_instr.opcode == .store_var) {
+        } else if (invalidatesCopies(new_instr.opcode)) {
+            // Any write to memory, any call, and every control-flow boundary
+            // can change the value a copied register was standing in for.
+            // This pass has no CFG, so it must be conservative or it will
+            // propagate stale values across loop back-edges.
             replacements.clearRetainingCapacity();
         }
 

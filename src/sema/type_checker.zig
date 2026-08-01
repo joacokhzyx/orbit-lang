@@ -450,6 +450,7 @@ pub const TypeChecker = struct {
             if (std.mem.eql(u8, func_name, "ok")) return "result";
             if (std.mem.eql(u8, func_name, "err")) return "result";
             if (std.mem.eql(u8, func_name, "print")) return "void";
+            if (std.mem.eql(u8, func_name, "orbit_os_exit_selfhost")) return "void";
             if (std.mem.eql(u8, func_name, "bit_op")) return "int";
             if (std.mem.eql(u8, func_name, "orbit_os_argv")) return "string";
             if (std.mem.eql(u8, func_name, "orbit_string_to_int")) return "int";

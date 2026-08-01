@@ -1479,12 +1479,11 @@ pub const IRBuilder = struct {
         branch_instr.operand2 = IRValue{ .label = else_label };
         try self.current_function.?.emit(self.allocator, branch_instr);
 
+        const then_start = self.current_function.?.instructions.items.len;
         try self.buildStmt(if_data.then_branch);
+        const then_added = self.current_function.?.instructions.items.len - then_start;
 
-        const last_then = if (self.current_function.?.instructions.items.len > 0)
-            self.current_function.?.instructions.getLast()
-        else
-            null;
+        const last_then = if (then_added > 0) self.current_function.?.instructions.getLast() else null;
         const then_terminates = if (last_then) |lt| isTerminator(lt) else false;
 
         if (!then_terminates) {
@@ -1506,7 +1505,7 @@ pub const IRBuilder = struct {
         else
             then_terminates;
 
-        if (!else_terminates) {
+        if (!then_terminates or !else_terminates) {
             var l_end = IRInstruction.init(.label);
             l_end.operand1 = IRValue{ .label = end_label };
             try self.current_function.?.emit(self.allocator, l_end);

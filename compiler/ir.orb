@@ -147,10 +147,11 @@ model IRFunction {
     registerCount: int
     registerTypes: list
     returnType: string
+    isExtern: bool
 }
 
 fn initIRFunction(name: string) -> IRFunction {
-    return IRFunction(name, [], [], [], 0, [], "void")
+    return IRFunction(name, [], [], [], 0, [], "void", false)
 }
 
 fn ir_alloc_register(func: IRFunction, typeName: string) -> int {

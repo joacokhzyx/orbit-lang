@@ -24,16 +24,17 @@ model Sema {
     errors: list
     typeRegistry: list
     currentReturnType: string
+    currentFunction: string
 }
 
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], "")
+    return Sema(initialScopes, 0, [], [], "", "")
 }
 
 fn reportError(sema: Sema, message: string) {
-    sema.errors.push(message)
+    sema.errors.push(message + " [in " + sema.currentFunction + "]")
 }
 
 fn hasErrors(sema: Sema) -> bool {
@@ -65,6 +66,7 @@ fn findType(sema: Sema, name: string) -> int {
 }
 
 fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool) {
+    print("[sema] declareSymbol " + name)
     val scope = sema.scopes.get(sema.currentScope)
     var i = 0
     while i < scope.symbols.len() {
@@ -172,6 +174,7 @@ fn checkConstDecl(sema: Sema, node: ASTNode) {
 fn checkFunctionSignature(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
+            print("[sema sig] " + f.name)
             var returnType = f.returnType
             if returnType == "" {
                 returnType = "void"
@@ -185,12 +188,14 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
 fn checkFunctionBody(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
+            print("[sema body] " + f.name)
             var returnType = f.returnType
             if returnType == "" {
                 returnType = "void"
             }
             val prevReturn = sema.currentReturnType
             sema.currentReturnType = returnType
+            sema.currentFunction = f.name
 
             pushScope(sema)
             var i = 0
@@ -281,6 +286,7 @@ fn checkMatch(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Match(m) => {
             val matchType = inferType(sema, m.expr)
+            print("[sema] checkMatch type=" + matchType + " cases=" + orbit_int_to_string_selfhost(m.cases.len()))
             var i = 0
             while i < m.cases.len() {
                 val caseNode = m.cases.get(i)
@@ -325,20 +331,22 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                             val cn = m.cases.get(k)
                             match cn {
                                 ASTNode.MatchCase(c) => {
-                                    match c.pattern {
-                                        ASTNode.MemberAccess(ma) => {
-                                            coveredVariants.push(ma.field)
+                            match c.pattern {
+                                ASTNode.MemberAccess(ma) => {
+                                    print("[sema] covered MA=" + ma.field)
+                                    coveredVariants.push(ma.field)
+                                }
+                                ASTNode.Call(innerCall) => {
+                                    match innerCall.callee {
+                                        ASTNode.MemberAccess(ma2) => {
+                                            print("[sema] covered CALLMA=" + ma2.field)
+                                            coveredVariants.push(ma2.field)
                                         }
-                                        ASTNode.Call(innerCall) => {
-                                            match innerCall.callee {
-                                                ASTNode.MemberAccess(ma2) => {
-                                                    coveredVariants.push(ma2.field)
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                        _ => {}
+                                        _ => { print("[sema] covered CALLOTHER") }
                                     }
+                                }
+                                _ => { print("[sema] covered OTHER") }
+                            }
                                 }
                                 _ => {}
                             }
@@ -347,7 +355,12 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                         // Check for missing variants
                         var v = 0
                         while v < t.variants.len() {
-                            val variant = t.variants.get(v)
+                            val variantNode = t.variants.get(v)
+                            var variant = ""
+                            match variantNode {
+                                ASTNode.Literal(l) => { variant = l.text }
+                                _ => {}
+                            }
                             var found = false
                             var ck = 0
                             while ck < coveredVariants.len() {
@@ -503,6 +516,14 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             }
             return "void"
         }
+        ASTNode.ListLiteral(ll) => {
+            var ei = 0
+            while ei < ll.elements.len() {
+                inferType(sema, ll.elements.get(ei))
+                ei = ei + 1
+            }
+            return "list"
+        }
         _ => { return "void" }
     }
 }
@@ -511,17 +532,20 @@ fn checkNode(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Program(prog) => {
             // Pass 1: Register types and models
+            print("[sema] Pass 1: register types/models")
             var i = 0
             while i < prog.decls.len() {
+                print("[sema] p1 i=" + orbit_int_to_string_selfhost(i))
                 val decl = prog.decls.get(i)
                 match decl {
-                    ASTNode.ModelDecl(m) => { declareSymbol(sema, m.name, "model", false, false) }
-                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
-                    _ => {}
+                    ASTNode.ModelDecl(m) => { print("[sema] p1 model " + m.name); declareSymbol(sema, m.name, "model", false, false) }
+                    ASTNode.TypeDecl(t) => { print("[sema] p1 type " + t.name); registerType(sema, t.name, t.kind, t.variants) }
+                    _ => { print("[sema] p1 other") }
                 }
                 i = i + 1
             }
             // Pass 2: Register function signatures
+            print("[sema] Pass 2: function signatures")
             i = 0
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
@@ -533,6 +557,7 @@ fn checkNode(sema: Sema, node: ASTNode) {
                 i = i + 1
             }
             // Pass 3: Constants and top-level vals
+            print("[sema] Pass 3: consts/vals")
             i = 0
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
@@ -544,6 +569,7 @@ fn checkNode(sema: Sema, node: ASTNode) {
                 i = i + 1
             }
             // Pass 4: Function bodies, routes, impls
+            print("[sema] Pass 4: function bodies")
             i = 0
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)

@@ -64,19 +64,56 @@ fn resolveFilePath(baseDir: string, relPath: string) -> string {
     return cleanRel
 }
 
+fn normalizePath(p: string) -> string {
+    val mut parts = []
+    var seg = ""
+    var i = 0
+    while i < p.len() + 1 {
+        var c = ""
+        if i < p.len() { c = p.slice(i, i + 1) }
+        else { c = "/" }
+        if c == "/" || c == "\\" {
+            if seg == ".." {
+                if parts.len() > 0 { parts.pop() }
+            } else if seg != "." && seg != "" {
+                parts.push(seg)
+            }
+            seg = ""
+        } else {
+            seg = seg + c
+        }
+        i = i + 1
+    }
+    var out = ""
+    var j = 0
+    while j < parts.len() {
+        out = out + parts.get(j)
+        if j < parts.len() - 1 { out = out + "/" }
+        j = j + 1
+    }
+    return out
+}
+
 fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) -> ASTNode {
     match ast {
         ASTNode.Program(p) => {
             print("[resolver] Entered Program match with " + orbit_int_to_string_selfhost(p.decls.len()) + " decls, basePath=" + basePath)
+            print("[resolver] step1: init resolvedDecls")
             val mut resolvedDecls = []
+            print("[resolver] step2: getDir")
             val baseDir = getDir(basePath)
             var i = 0
             while i < p.decls.len() {
+                print("[resolver] loop i=" + orbit_int_to_string_selfhost(i))
                 val decl = p.decls.get(i)
+                print("[resolver] got decl")
                 match decl {
                     ASTNode.ImportStmt(imp) => {
+                        print("[resolver] is import, path=" + imp.path)
                         val relPath = stripQuotes(imp.path)
-                        val fullPath = resolveFilePath(baseDir, relPath)
+                        print("[resolver] relPath=" + relPath)
+                        val fullPath = normalizePath(resolveFilePath(baseDir, relPath))
+                        print("[resolver] fullPath=" + fullPath)
                         if isVisited(resolver, fullPath) == false {
                             resolver.visited.push(fullPath)
                             print("[resolver] Loading import: " + fullPath)

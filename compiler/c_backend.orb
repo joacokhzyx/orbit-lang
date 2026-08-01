@@ -5,56 +5,138 @@ model CBackend {
     output: string
     currentFunction: IRFunction
     callArgs: list
+    strRegs: list
+    strVars: list
+    fieldNames: list
+    fieldOwners: list
+    declVars: list
 }
 
 fn initCBackend(module: IRModule) -> CBackend {
-    return CBackend(module, "", initIRFunction(""), [])
+    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [])
 }
 
 fn generateC(backend: CBackend) -> string {
+    var i = 0
     var out = "#include \"runtime.h\"\n\n"
     out = out + "OrbitArena* arena = NULL;\n\n"
     out = out + "#ifndef AST_VARIANTS_DEFINED\n"
     out = out + "#define AST_VARIANTS_DEFINED\n"
-    out = out + "#define Program(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define FunctionDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define RouteDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ModelDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define TypeDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define FieldDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define TraitDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ImplDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define VarDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ConstDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ScheduleDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ConfigDecl(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ImportStmt(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define UseStmt(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ExpressionStmt(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define If(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define While(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define For(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Return(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Match(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define MatchCase(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Try(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Literal(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define BinaryOp(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define UnaryOp(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Call(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define MemberAccess(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define IndexAccess(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define ListLiteral(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Assignment(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define TypeAnnotation(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define GenericParam(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Decorator(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define Block(x) ((void*)(uintptr_t)(x))\n"
+    out = out + "typedef struct OrbitASTVariantNode { int tag; void* data; } OrbitASTVariantNode;\n"
+    out = out + "static inline OrbitASTVariantNode* orbit_create_variant(OrbitArena* a, int tag, void* data) {\n"
+    out = out + "    OrbitASTVariantNode* n = (OrbitASTVariantNode*)orbit_alloc(a, sizeof(OrbitASTVariantNode));\n"
+    out = out + "    n->tag = tag; n->data = data; return n;\n"
+    out = out + "}\n"
+    out = out + "#define Program(x) orbit_create_variant(arena, 1, (void*)(uintptr_t)(x))\n"
+    out = out + "#define FunctionDecl(x) orbit_create_variant(arena, 2, (void*)(uintptr_t)(x))\n"
+    out = out + "#define RouteDecl(x) orbit_create_variant(arena, 3, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ModelDecl(x) orbit_create_variant(arena, 4, (void*)(uintptr_t)(x))\n"
+    out = out + "#define TypeDecl(x) orbit_create_variant(arena, 5, (void*)(uintptr_t)(x))\n"
+    out = out + "#define FieldDecl(x) orbit_create_variant(arena, 6, (void*)(uintptr_t)(x))\n"
+    out = out + "#define TraitDecl(x) orbit_create_variant(arena, 7, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ImplDecl(x) orbit_create_variant(arena, 8, (void*)(uintptr_t)(x))\n"
+    out = out + "#define VarDecl(x) orbit_create_variant(arena, 9, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ConstDecl(x) orbit_create_variant(arena, 10, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ScheduleDecl(x) orbit_create_variant(arena, 11, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ConfigDecl(x) orbit_create_variant(arena, 12, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ImportStmt(x) orbit_create_variant(arena, 13, (void*)(uintptr_t)(x))\n"
+    out = out + "#define UseStmt(x) orbit_create_variant(arena, 14, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ExpressionStmt(x) orbit_create_variant(arena, 15, (void*)(uintptr_t)(x))\n"
+    out = out + "#define If(x) orbit_create_variant(arena, 16, (void*)(uintptr_t)(x))\n"
+    out = out + "#define While(x) orbit_create_variant(arena, 17, (void*)(uintptr_t)(x))\n"
+    out = out + "#define For(x) orbit_create_variant(arena, 18, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Return(x) orbit_create_variant(arena, 19, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Match(x) orbit_create_variant(arena, 20, (void*)(uintptr_t)(x))\n"
+    out = out + "#define MatchCase(x) orbit_create_variant(arena, 21, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Try(x) orbit_create_variant(arena, 22, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Literal(x) orbit_create_variant(arena, 23, (void*)(uintptr_t)(x))\n"
+    out = out + "#define BinaryOp(x) orbit_create_variant(arena, 24, (void*)(uintptr_t)(x))\n"
+    out = out + "#define UnaryOp(x) orbit_create_variant(arena, 25, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Call(x) orbit_create_variant(arena, 26, (void*)(uintptr_t)(x))\n"
+    out = out + "#define MemberAccess(x) orbit_create_variant(arena, 27, (void*)(uintptr_t)(x))\n"
+    out = out + "#define IndexAccess(x) orbit_create_variant(arena, 28, (void*)(uintptr_t)(x))\n"
+    out = out + "#define ListLiteral(x) orbit_create_variant(arena, 29, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Assignment(x) orbit_create_variant(arena, 30, (void*)(uintptr_t)(x))\n"
+    out = out + "#define TypeAnnotation(x) orbit_create_variant(arena, 31, (void*)(uintptr_t)(x))\n"
+    out = out + "#define GenericParam(x) orbit_create_variant(arena, 32, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Decorator(x) orbit_create_variant(arena, 33, (void*)(uintptr_t)(x))\n"
+    out = out + "#define Block(x) orbit_create_variant(arena, 34, (void*)(uintptr_t)(x))\n"
     out = out + "#define Break(...) ((void*)0)\n"
     out = out + "#define Continue(...) ((void*)0)\n"
-    out = out + "#define Param(x) ((void*)(uintptr_t)(x))\n"
-    out = out + "#define FieldInit(x) ((void*)(uintptr_t)(x))\n"
+    out = out + "#define Param(x) orbit_create_variant(arena, 35, (void*)(uintptr_t)(x))\n"
+    out = out + "#define FieldInit(x) orbit_create_variant(arena, 36, (void*)(uintptr_t)(x))\n"
     out = out + "#endif\n\n"
+    out = out + "static inline orbit_bool orbit_val_eq(void* a, void* b) {\n"
+    out = out + "    if (a == b) return true;\n"
+    out = out + "    if (!a || !b) return false;\n"
+    out = out + "    if ((uintptr_t)a < 65536 || (uintptr_t)b < 65536) return false;\n"
+    out = out + "    return strcmp((const char*)a, (const char*)b) == 0;\n"
+    out = out + "}\n\n"
+
+    // Emit custom enum definitions
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(ti)
+        if tDecl.kind == "enumeration" {
+            out = out + "typedef enum " + tDecl.name + " {\n"
+            var vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                out = out + "    " + tDecl.name + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
+                if vi + 1 < tDecl.variants.len() {
+                    out = out + ",\n"
+                } else {
+                    out = out + "\n"
+                }
+                vi = vi + 1
+            }
+            out = out + "} " + tDecl.name + ";\n\n"
+            vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                out = out + "#ifndef " + vName + "\n"
+                out = out + "#define " + vName + " " + tDecl.name + "_TAG_" + vName + "\n"
+                out = out + "#endif\n"
+                vi = vi + 1
+            }
+            out = out + "\n"
+        }
+        ti = ti + 1
+    }
+
+    // Emit custom union type definitions (tag enum + struct)
+    ti = 0
+    while ti < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(ti)
+        if tDecl.kind == "union_type" {
+            out = out + "typedef enum {\n"
+            var vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                out = out + "    " + tDecl.name + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
+                if vi + 1 < tDecl.variants.len() {
+                    out = out + ",\n"
+                } else {
+                    out = out + "\n"
+                }
+                vi = vi + 1
+            }
+            out = out + "} " + tDecl.name + "_Tag;\n\n"
+            out = out + "typedef struct " + tDecl.name + " {\n"
+            out = out + "    " + tDecl.name + "_Tag tag;\n"
+            out = out + "    union {\n"
+            out = out + "        void* data;\n"
+            vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                out = out + "        int " + vName + "; /* unit variant */\n"
+                vi = vi + 1
+            }
+            out = out + "    } data;\n"
+            out = out + "} " + tDecl.name + ";\n\n"
+        }
+        ti = ti + 1
+    }
 
     // Forward declare model typedefs
     var mi = 0
@@ -75,7 +157,7 @@ fn generateC(backend: CBackend) -> string {
         var fi = 0
         while fi < modelDecl.fields.len() {
             val field: IRModelField = modelDecl.fields.get(fi)
-            val cType = mapTypeToC(field.typeName)
+            val cType = mapTypeToC(backend, field.typeName)
             out = out + "    " + cType + " " + field.name + ";\n"
             fi = fi + 1
         }
@@ -94,7 +176,7 @@ fn generateC(backend: CBackend) -> string {
             fi = 0
             while fi < modelDecl.fields.len() {
                 val field: IRModelField = modelDecl.fields.get(fi)
-                val cType = mapTypeToC(field.typeName)
+                val cType = mapTypeToC(backend, field.typeName)
                 out = out + ", " + cType + " " + field.name
                 fi = fi + 1
             }
@@ -112,11 +194,94 @@ fn generateC(backend: CBackend) -> string {
         mi = mi + 1
     }
 
-    out = out + "void orbit_main(void);\n\n"
-    var i = 0
+    out = out + "// Forward declare function signatures\n"
+    var fo = 0
+    while fo < backend.module.models.len() {
+        val mDecl: IRModelDecl = backend.module.models.get(fo)
+        var ffi = 0
+        while ffi < mDecl.fields.len() {
+            val fld: IRModelField = mDecl.fields.get(ffi)
+            backend.fieldNames.push(fld.name)
+            backend.fieldOwners.push(mDecl.name)
+            ffi = ffi + 1
+        }
+        fo = fo + 1
+    }
+    // Forward declare function signatures
+    i = 0
     while i < backend.module.functions.len() {
-        val func = backend.module.functions.get(i)
-        out = out + generateFunction(backend, func)
+        val func: IRFunction = backend.module.functions.get(i)
+        if func.isExtern == false {
+            var fName2 = func.name
+            var isMain2 = false
+            if fName2 == "main" || fName2 == "orbit_main" || fName2 == "main_main" {
+                isMain2 = true
+            } else {
+                val fLen2 = orbit_string_len(fName2)
+                if fLen2 > 5 {
+                    val tail2 = orbit_string_slice(fName2, fLen2 - 5, fLen2)
+                    if tail2 == "_main" { isMain2 = true }
+                }
+            }
+            if isMain2 {
+                fName2 = "orbit_main"
+            }
+            var isSkipped2 = false
+            if fName2 == "orbit_main" && func.name != "main" && moduleHasFunction(backend, "main") {
+                isSkipped2 = true
+            }
+            if isSkipped2 == false {
+                var retType2 = mapTypeToC(backend, func.returnType)
+                if isMain2 {
+                    retType2 = "void"
+                }
+                var proto = "static " + retType2 + " " + fName2 + "("
+                if func.params.len() == 0 {
+                    proto = proto + "void"
+                } else {
+                    var pi2 = 0
+                    while pi2 < func.params.len() {
+                        proto = proto + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
+                        if pi2 < func.params.len() - 1 {
+                            proto = proto + ", "
+                        }
+                        pi2 = pi2 + 1
+                    }
+                }
+                out = out + proto + ");\n"
+            }
+        }
+        i = i + 1
+    }
+    if backend.module.functions.len() > 0 {
+        out = out + "\n"
+    }
+    i = 0
+    while i < backend.module.functions.len() {
+        val func: IRFunction = backend.module.functions.get(i)
+        if func.isExtern == false {
+            var fName3 = func.name
+            var isMain3 = false
+            if fName3 == "main" || fName3 == "orbit_main" || fName3 == "main_main" {
+                isMain3 = true
+            } else {
+                val fLen3 = orbit_string_len(fName3)
+                if fLen3 > 5 {
+                    val tail3 = orbit_string_slice(fName3, fLen3 - 5, fLen3)
+                    if tail3 == "_main" { isMain3 = true }
+                }
+            }
+            if isMain3 {
+                fName3 = "orbit_main"
+            }
+            var isSkipped3 = false
+            if fName3 == "orbit_main" && func.name != "main" && moduleHasFunction(backend, "main") {
+                isSkipped3 = true
+            }
+            if isSkipped3 == false {
+                out = out + generateFunction(backend, func)
+            }
+        }
         i = i + 1
     }
     out = out + "extern char** _orbit_argv;\n"
@@ -131,28 +296,260 @@ fn generateC(backend: CBackend) -> string {
     return out
 }
 
-fn mapTypeToC(orbitType: string) -> string {
-    if orbitType == "int" { return "orbit_int" }
-    if orbitType == "float" { return "orbit_float" }
-    if orbitType == "string" { return "orbit_string" }
-    if orbitType == "bool" { return "orbit_bool" }
+fn isEnumType(backend: CBackend, typeName: string) -> bool {
+    if typeName == "TokType" { return true }
+    if backend == NULL { return false }
+    if backend.module == NULL { return false }
+    if backend.module.types == NULL { return false }
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(ti)
+        if tDecl.name == typeName && tDecl.kind == "enumeration" {
+            return true
+        }
+        ti = ti + 1
+    }
+    return false
+}
+
+fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
+    if orbitType == "NULL" || orbitType == "null" { return "void*" }
+    if orbitType == "int" || orbitType == "orbit_int" { return "orbit_int" }
+    if orbitType == "float" || orbitType == "orbit_float" { return "orbit_float" }
+    if orbitType == "string" || orbitType == "orbit_string" { return "orbit_string" }
+    if orbitType == "bool" || orbitType == "orbit_bool" { return "orbit_bool" }
     if orbitType == "void" { return "void" }
-    if orbitType == "list" || orbitType == "List" { return "OrbitList*" }
-    if orbitType == "map" || orbitType == "Map" { return "OrbitMap*" }
-    if orbitType == "TokType" { return orbitType }
-    if orbitType.len() > 0 {
-        val first = orbitType.slice(0, 1)
-        if first >= "A" && first <= "Z" {
+    if orbitType == "list" || orbitType == "List" || orbitType == "OrbitList*" { return "OrbitList*" }
+    if orbitType == "map" || orbitType == "Map" || orbitType == "OrbitMap*" { return "OrbitMap*" }
+    if orbitType == "result" || orbitType == "Result" || orbitType == "OrbitResult" { return "OrbitResult" }
+    if isEnumType(backend, orbitType) { return orbitType }
+    if orbitType.indexOf("_TAG_") != -1 || orbitType.indexOf("TAG_") != -1 {
+        if orbitType.indexOf("TokType") != -1 { return "TokType" }
+        return "orbit_int"
+    }
+    val otLen = orbit_string_len(orbitType)
+    if otLen > 0 && orbit_string_slice(orbitType, otLen - 1, otLen) == "*" { return orbitType }
+    if otLen > 0 {
+        val fc = orbitType.at(0)
+        if fc >= "A".at(0) && fc <= "Z".at(0) {
             return orbitType + "*"
         }
     }
     return "void*"
 }
 
+fn setStrAt(items: list, idx: int, value: string) -> list {
+    var out = []
+    var si = 0
+    while si < items.len() {
+        if si == idx {
+            out.push(value)
+        } else {
+            out.push(items.get(si))
+        }
+        si = si + 1
+    }
+    return out
+}
+
+fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
+    if backend == NULL || func == NULL { return }
+    var maxReg = func.registerCount
+    var rpi = 0
+    while rpi < func.instructions.len() {
+        val rinst = func.instructions.get(rpi)
+        if rinst.dest >= maxReg {
+            maxReg = rinst.dest + 1
+        }
+        rpi = rpi + 1
+    }
+    while func.registerTypes.len() < maxReg {
+        func.registerTypes.push("unknown")
+    }
+    var pass = 0
+    while pass < 3 {
+        var pi = 0
+        while pi < func.instructions.len() {
+            val inst = func.instructions.get(pi)
+            if inst.dest >= 0 && inst.dest < func.registerTypes.len() {
+                val cur = func.registerTypes.get(inst.dest)
+                if cur == "unknown" || cur == "void" || cur == "" || cur == "void*" {
+                    var inf = ""
+                    match inst.opcode {
+                        IROpcode.load_const => {
+                            match inst.operand1 {
+                                IRValue.Int(v) => { inf = "int" }
+                                IRValue.Float(v) => { inf = "float" }
+                                IRValue.String(v) => { inf = "string" }
+                                IRValue.Bool(v) => { inf = "bool" }
+                                IRValue.Sym(s) => {
+                                    if s.value.indexOf("TAG_") != -1 { inf = "TokType" }
+                                    else if s.value == "true" || s.value == "false" { inf = "bool" }
+                                }
+                                _ => {}
+                            }
+                        }
+                        IROpcode.load_var => {
+                            match inst.operand1 {
+                                IRValue.Sym(s) => {
+                                    val vn = s.value
+                                    if vn.indexOf("TAG_") != -1 {
+                                        inf = "TokType"
+                                    } else {
+                                        var p = 0
+                                        while p < func.params.len() {
+                                            if func.params.get(p) == vn {
+                                                inf = func.paramTypes.get(p)
+                                            }
+                                            p = p + 1
+                                        }
+                                        if inf == "" && isStringVar(backend, vn) {
+                                            inf = "string"
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        IROpcode.add => {
+                            if isStringOperand(backend, inst.operand1) || isStringOperand(backend, inst.operand2) {
+                                inf = "string"
+                            } else {
+                                inf = "int"
+                            }
+                        }
+                        IROpcode.sub => { inf = "int" }
+                        IROpcode.mul => { inf = "int" }
+                        IROpcode.div => { inf = "int" }
+                        IROpcode.mod => { inf = "int" }
+                        IROpcode.neg => { inf = "int" }
+                        IROpcode.eq => { inf = "bool" }
+                        IROpcode.ne => { inf = "bool" }
+                        IROpcode.lt => { inf = "bool" }
+                        IROpcode.le => { inf = "bool" }
+                        IROpcode.gt => { inf = "bool" }
+                        IROpcode.ge => { inf = "bool" }
+                        IROpcode.and_op => { inf = "bool" }
+                        IROpcode.or_op => { inf = "bool" }
+                        IROpcode.not_op => { inf = "bool" }
+                        IROpcode.result_is_ok => { inf = "bool" }
+                        IROpcode.map_has => { inf = "bool" }
+                        IROpcode.copy => {
+                            match inst.operand1 {
+                                IRValue.Register(v) => {
+                                    if v.value >= 0 && v.value < func.registerTypes.len() {
+                                        val srcT = func.registerTypes.get(v.value)
+                                        if srcT != "unknown" && srcT != "void" && srcT != "" {
+                                            inf = srcT
+                                        }
+                                    }
+                                }
+                                IRValue.Sym(s) => {
+                                    if s.value.indexOf("TAG_") != -1 { inf = "TokType" }
+                                    else if s.value == "true" || s.value == "false" { inf = "bool" }
+                                    else {
+                                        var p = 0
+                                        while p < func.params.len() {
+                                            if func.params.get(p) == s.value {
+                                                inf = func.paramTypes.get(p)
+                                            }
+                                            p = p + 1
+                                        }
+                                    }
+                                }
+                                IRValue.Int(v) => { inf = "int" }
+                                IRValue.String(v) => { inf = "string" }
+                                IRValue.Bool(v) => { inf = "bool" }
+                                _ => {}
+                            }
+                        }
+                        IROpcode.arg => {
+                            match inst.operand1 {
+                                IRValue.Int(m) => {
+                                    if m.value < func.params.len() {
+                                        inf = func.paramTypes.get(m.value)
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        IROpcode.call => {
+                            var cn = ""
+                            match inst.operand1 {
+                                IRValue.String(s) => { cn = s.value }
+                                IRValue.Sym(s) => { cn = s.value }
+                                _ => {}
+                            }
+                            if isStringReturningFunction(cn) {
+                                inf = "string"
+                            } else if cn == "orbit_string_at" || cn == "orbit_string_len" || cn == "orbit_list_len" {
+                                inf = "int"
+                            } else if cn == "orbit_val_eq" {
+                                inf = "bool"
+                            } else if cn == "orbit_list_create" || cn == "orbit_string_split" || cn == "orbit_map_keys" {
+                                inf = "list"
+                            } else if cn == "orbit_map_create" {
+                                inf = "map"
+                            } else {
+                                if backend != NULL && backend.module != NULL && backend.module.functions != NULL {
+                                    var fi = 0
+                                    while fi < backend.module.functions.len() {
+                                        val f: IRFunction = backend.module.functions.get(fi)
+                                        if f.name == cn {
+                                            inf = f.returnType
+                                        }
+                                        fi = fi + 1
+                                    }
+                                }
+                            }
+                        }
+                        IROpcode.load_field => {
+                            var fnm = ""
+                            match inst.operand2 {
+                                IRValue.String(s) => { fnm = s.value }
+                                IRValue.Sym(s) => { fnm = s.value }
+                                _ => {}
+                            }
+                            fnm = fieldRefName(fnm)
+                            if backend != NULL && backend.module != NULL && backend.module.models != NULL {
+                                var mi = 0
+                                while mi < backend.module.models.len() {
+                                    val m: IRModelDecl = backend.module.models.get(mi)
+                                    var fi = 0
+                                    while fi < m.fields.len() {
+                                        val fld: IRModelField = m.fields.get(fi)
+                                        if fld.name == fnm {
+                                            inf = fld.typeName
+                                        }
+                                        fi = fi + 1
+                                    }
+                                    mi = mi + 1
+                                }
+                            }
+                        }
+                        IROpcode.list_create => { inf = "list" }
+                        IROpcode.list_len => { inf = "int" }
+                        IROpcode.map_create => { inf = "map" }
+                        IROpcode.map_keys => { inf = "list" }
+                        IROpcode.union_get_tag => { inf = "TokType" }
+                        _ => {}
+                    }
+                    if inf != "" && inf != "unknown" && inf != "void" {
+                        func.registerTypes = setStrAt(func.registerTypes, inst.dest, inf)
+                    }
+                }
+            }
+            pi = pi + 1
+        }
+        pass = pass + 1
+    }
+}
+
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     backend.currentFunction = func
     backend.callArgs = []
-    var retType = mapTypeToC(func.returnType)
+    inferRegisterTypes(backend, func)
+    var retType = mapTypeToC(backend, func.returnType)
     var fName = func.name
     var isMain = false
     if fName == "main" || fName == "orbit_main" || fName == "main_main" {
@@ -168,14 +565,18 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         fName = "orbit_main"
         retType = "void"
     }
-    var out = retType + " " + fName + "("
+    var out = "static " + retType + " " + fName + "("
     var i = 0
     if func.params.len() == 0 {
         out = out + "void"
     } else {
         while i < func.params.len() {
             val pName = func.params.get(i)
-            val pType = mapTypeToC(func.paramTypes.get(i))
+            var pTypeName = "void*"
+            if i < func.paramTypes.len() {
+                pTypeName = func.paramTypes.get(i)
+            }
+            val pType = mapTypeToC(backend, pTypeName)
             out = out + pType + " " + pName
             if i < func.params.len() - 1 {
                 out = out + ", "
@@ -186,11 +587,145 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     out = out + ") {\n"
     i = 0
     while i < func.registerCount {
-        val rType = mapTypeToC(func.registerTypes.get(i))
+        var rTypeName = "void*"
+        if i < func.registerTypes.len() {
+            rTypeName = func.registerTypes.get(i)
+        }
+        val rType = mapTypeToC(backend, rTypeName)
         if rType != "void" {
             out = out + "    " + rType + " r_" + orbit_int_to_string_selfhost(i) + ";\n"
         }
         i = i + 1
+    }
+    backend.strRegs = []
+    backend.strVars = []
+    backend.declVars = []
+    var pi = 0
+    while pi < func.params.len() {
+        if pi < func.paramTypes.len() {
+            if func.paramTypes.get(pi) == "string" {
+                backend.strVars.push(func.params.get(pi))
+            }
+        }
+        pi = pi + 1
+    }
+    pi = 0
+    while pi < func.instructions.len() {
+        val inst = func.instructions.get(pi)
+        match inst.opcode {
+            IROpcode.load_const => {
+                match inst.operand1 {
+                    IRValue.String(s) => { backend.strRegs.push(inst.dest) }
+                    _ => {}
+                }
+            }
+            IROpcode.load_var => {
+                var vn = ""
+                match inst.operand1 {
+                    IRValue.Sym(s) => { vn = s.value }
+                    IRValue.String(s) => { vn = s.value }
+                    _ => {}
+                }
+                if vn != "" && isStringVar(backend, vn) {
+                    backend.strRegs.push(inst.dest)
+                }
+            }
+            IROpcode.decl_var => {
+                match inst.operand1 {
+                    IRValue.Sym(s) => {
+                        if isStringOperand(backend, inst.operand2) {
+                            backend.strVars.push(s.value)
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            IROpcode.store_var => {
+                match inst.operand1 {
+                    IRValue.Sym(s) => {
+                        if isStringOperand(backend, inst.operand2) {
+                            backend.strVars.push(s.value)
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            IROpcode.call => {
+                var cn = ""
+                match inst.operand1 {
+                    IRValue.String(s) => { cn = s.value }
+                    IRValue.Sym(s) => { cn = s.value }
+                    _ => {}
+                }
+                if isStringReturningFunction(cn) {
+                    backend.strRegs.push(inst.dest)
+                }
+            }
+            IROpcode.load_field => {
+                var fname3 = ""
+                match inst.operand2 {
+                    IRValue.String(s) => { fname3 = s.value }
+                    IRValue.Sym(s) => { fname3 = s.value }
+                    _ => {}
+                }
+                fname3 = fieldRefName(fname3)
+                if isStringFieldName(backend, fname3) {
+                    backend.strRegs.push(inst.dest)
+                }
+            }
+            IROpcode.add => {
+                if isStringOperand(backend, inst.operand1) || isStringOperand(backend, inst.operand2) {
+                    backend.strRegs.push(inst.dest)
+                }
+            }
+            _ => {}
+        }
+        pi = pi + 1
+    }
+    // Hoist every declared variable into the function scope. Orbit blocks emit
+    // real C braces, so declaring at the point of use would (a) redefine names
+    // reused across sibling blocks and (b) leave a name out of scope for later
+    // blocks. Declaring once up front avoids both.
+    var hi = 0
+    while hi < func.instructions.len() {
+        val hinst = func.instructions.get(hi)
+        match hinst.opcode {
+            IROpcode.decl_var => {
+                var hname = ""
+                match hinst.operand1 {
+                    IRValue.Sym(s) => { hname = s.value }
+                    IRValue.String(s) => { hname = s.value }
+                    _ => {}
+                }
+                if hname != "" {
+                    var hseen = false
+                    var hj = 0
+                    while hj < backend.declVars.len() {
+                        if backend.declVars.get(hj) == hname {
+                            hseen = true
+                        }
+                        hj = hj + 1
+                    }
+                    hj = 0
+                    while hj < func.params.len() {
+                        if func.params.get(hj) == hname {
+                            hseen = true
+                        }
+                        hj = hj + 1
+                    }
+                    if hseen == false {
+                        backend.declVars.push(hname)
+                        if isStringVar(backend, hname) {
+                            out = out + "    orbit_string " + hname + " = \"\";\n"
+                        } else {
+                            out = out + "    uintptr_t " + hname + " = 0;\n"
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        hi = hi + 1
     }
     i = 0
     while i < func.instructions.len() {
@@ -203,6 +738,12 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
             out = out + "    return 0;\n"
         } else if retType == "orbit_bool" {
             out = out + "    return false;\n"
+        } else if retType == "orbit_float" {
+            out = out + "    return 0.0;\n"
+        } else if retType == "orbit_string" {
+            out = out + "    return \"\";\n"
+        } else if isEnumType(backend, func.returnType) {
+            out = out + "    return (" + retType + ")0;\n"
         } else {
             out = out + "    return NULL;\n"
         }
@@ -259,15 +800,33 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + ";\n"
         }
         IROpcode.load_var => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + ";\n"
+            var valStr = ""
+            match instr.operand1 {
+                IRValue.String(s) => { valStr = s.value }
+                IRValue.Sym(s) => { valStr = s.value }
+                _ => { valStr = generateValue(backend, instr.operand1) }
+            }
+            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + valStr + ";\n"
         }
         IROpcode.store_var => {
-            return "    " + generateValue(backend, instr.operand1) + " = " + generateValue(backend, instr.operand2) + ";\n"
+            if isStringOperand(backend, instr.operand2) {
+                return "    " + generateValue(backend, instr.operand1) + " = " + generateValue(backend, instr.operand2) + ";\n"
+            }
+            return "    " + generateValue(backend, instr.operand1) + " = (uintptr_t)(" + generateValue(backend, instr.operand2) + ");\n"
         }
         IROpcode.decl_var => {
-            return "    void* " + generateValue(backend, instr.operand1) + " = " + generateValue(backend, instr.operand2) + ";\n"
+            // The declaration is hoisted to the top of the function, so only an
+            // assignment is emitted here.
+            val dvName = generateValue(backend, instr.operand1)
+            if isStringOperand(backend, instr.operand2) {
+                return "    " + dvName + " = " + generateValue(backend, instr.operand2) + ";\n"
+            }
+            return "    " + dvName + " = (uintptr_t)(" + generateValue(backend, instr.operand2) + ");\n"
         }
         IROpcode.add => {
+            if isStringOperand(backend, instr.operand1) || isStringOperand(backend, instr.operand2) {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_string_concat(arena, " + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+            }
             return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + " + " + generateValue(backend, instr.operand2) + ";\n"
         }
         IROpcode.sub => {
@@ -283,10 +842,16 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + " % " + generateValue(backend, instr.operand2) + ";\n"
         }
         IROpcode.eq => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " == " + generateValue(backend, instr.operand2) + ");\n"
+            if isStringOperand(backend, instr.operand1) || isStringOperand(backend, instr.operand2) {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (strcmp(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ") == 0);\n"
+            }
+            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = ((uintptr_t)(" + generateValue(backend, instr.operand1) + ") == (uintptr_t)(" + generateValue(backend, instr.operand2) + "));\n"
         }
         IROpcode.ne => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " != " + generateValue(backend, instr.operand2) + ");\n"
+            if isStringOperand(backend, instr.operand1) || isStringOperand(backend, instr.operand2) {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (strcmp(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ") != 0);\n"
+            }
+            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = ((uintptr_t)(" + generateValue(backend, instr.operand1) + ") != (uintptr_t)(" + generateValue(backend, instr.operand2) + "));\n"
         }
         IROpcode.lt => {
             return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " < " + generateValue(backend, instr.operand2) + ");\n"
@@ -329,69 +894,113 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
         }
         IROpcode.copy => {
             val valStr = generateValue(backend, instr.operand1)
-            val rType = mapTypeToC(backend.currentFunction.registerTypes.get(instr.dest))
-            if rType == "void*" && (valStr == "true" || valStr == "false") {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (void*)(uintptr_t)(" + valStr + ");\n"
-            } else if valStr.indexOf("TAG_") != -1 {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(" + valStr + ");\n"
-            } else {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + valStr + ";\n"
-            }
+            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + valStr + ";\n"
         }
         IROpcode.arg => {
+            if instr.dest != -1 {
+                var pIdx = 0
+                match instr.operand1 {
+                    IRValue.Int(m) => { pIdx = m.value }
+                    _ => {}
+                }
+                if pIdx < backend.currentFunction.params.len() {
+                    val pName = backend.currentFunction.params.get(pIdx)
+                    return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + pName + ";\n"
+                }
+                return ""
+            }
             backend.callArgs.push(generateValue(backend, instr.operand1))
             return ""
         }
         IROpcode.call => {
             var line = ""
-            if instr.dest != -1 {
+            var calleeName = ""
+            match instr.operand1 {
+                IRValue.String(s) => { calleeName = s.value }
+                IRValue.Sym(s) => { calleeName = s.value }
+                _ => {}
+            }
+            var destNeeded = instr.dest != -1
+            if destNeeded && (functionReturnsVoid(backend, calleeName) || calleeName == "orbit_list_set") {
+                destNeeded = false
+            }
+            if destNeeded {
                 line = "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = "
             } else {
                 line = "    "
             }
-            line = line + generateValue(backend, instr.operand1) + "("
-            var i = 0
+            if calleeName == "print" {
+                if backend.callArgs.len() == 1 {
+                    val argStr = backend.callArgs.get(0)
+                    backend.callArgs.pop()
+                    if isStringArg(backend, argStr) {
+                        return "    print(" + argStr + ");\n"
+                    } else {
+                        return "    printf(\"%lld\\n\", (long long)(" + argStr + "));\n"
+                    }
+                } else {
+                    while backend.callArgs.len() > 0 {
+                        backend.callArgs.pop()
+                    }
+                    return "    /* print */\n"
+                }
+            }
+            line = line + calleeName + "("
+            var numArgs = 0
+            match instr.operand2 {
+                IRValue.Int(m) => { numArgs = m.value }
+                _ => {}
+            }
+            if numArgs == 0 {
+                numArgs = backend.callArgs.len()
+            }
+            var arenaFirst = false
+            if calleeName == "orbit_string_slice" || calleeName == "orbit_string_concat" || calleeName == "orbit_string_split" || calleeName == "orbit_string_replace" {
+                arenaFirst = true
+            }
+            var startIdx = backend.callArgs.len() - numArgs
+            if startIdx < 0 { startIdx = 0 }
+            var i = startIdx
+            var anyArg = false
+            if arenaFirst {
+                line = line + "arena"
+                anyArg = true
+            }
             while i < backend.callArgs.len() {
-                line = line + backend.callArgs.get(i)
-                if i < backend.callArgs.len() - 1 {
+                if anyArg {
                     line = line + ", "
                 }
+                anyArg = true
+                line = line + backend.callArgs.get(i)
                 i = i + 1
             }
             line = line + ");\n"
-            backend.callArgs = []
+            var popI = 0
+            while popI < numArgs && backend.callArgs.len() > 0 {
+                backend.callArgs.pop()
+                popI = popI + 1
+            }
             return line
         }
         IROpcode.ret => {
             match instr.operand1 {
                 IRValue.None => {
-                    return "    return;\n"
+                    val rtype = backend.currentFunction.returnType
+                    if rtype == "int" || rtype == "bool" {
+                        return "    return 0;\n"
+                    } else if rtype == "float" {
+                        return "    return 0.0;\n"
+                    } else if rtype == "void" {
+                        return "    return;\n"
+                    } else {
+                        return "    return NULL;\n"
+                    }
                 }
                 IRValue.Register(v) => {
-                    val rType = mapTypeToC(backend.currentFunction.registerTypes.get(v.value))
-                    val retType = mapTypeToC(backend.currentFunction.returnType)
-                    if retType != "orbit_int" && retType != "orbit_float" && retType != "orbit_bool" && retType != "void" {
-                        if rType == "orbit_int" || rType == "orbit_bool" || (rType != "" && rType != "void" && rType.indexOf("*") == -1 && rType != "orbit_float") {
-                            return "    return NULL;\n"
-                        } else {
-                            return "    return r_" + orbit_int_to_string_selfhost(v.value) + ";\n"
-                        }
-                    } else {
-                        return "    return r_" + orbit_int_to_string_selfhost(v.value) + ";\n"
-                    }
+                    return "    return r_" + orbit_int_to_string_selfhost(v.value) + ";\n"
                 }
                 _ => {
-                    val valStr = generateValue(backend, instr.operand1)
-                    val retType = mapTypeToC(backend.currentFunction.returnType)
-                    if retType != "orbit_int" && retType != "orbit_float" && retType != "orbit_bool" && retType != "void" {
-                        if valStr.indexOf("TAG_") != -1 || valStr == "true" || valStr == "false" {
-                            return "    return NULL;\n"
-                        } else {
-                            return "    return " + valStr + ";\n"
-                        }
-                    } else {
-                        return "    return " + valStr + ";\n"
-                    }
+                    return "    return " + generateValue(backend, instr.operand1) + ";\n"
                 }
             }
         }
@@ -410,16 +1019,54 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    /* free - arena managed */\n"
         }
         IROpcode.load_field => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + "->" + generateValue(backend, instr.operand2) + ";\n"
+            var fname = ""
+            match instr.operand2 {
+                IRValue.String(s) => { fname = s.value }
+                IRValue.Sym(s) => { fname = s.value }
+                _ => {}
+            }
+            var owner = fieldRefOwner(fname)
+            fname = fieldRefName(fname)
+            if owner == "" {
+                owner = findFieldOwner(backend, fname)
+            }
+            if owner != "" {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = ((" + owner + "*)" + generateValue(backend, instr.operand1) + ")->" + fname + ";\n"
+            }
+            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + "->" + fname + ";\n"
         }
         IROpcode.store_field => {
-            return "    " + generateValue(backend, instr.operand1) + "->" + generateValue(backend, instr.operand2) + " = " + generateValue(backend, instr.operand3) + ";\n"
+            var fname2 = ""
+            match instr.operand2 {
+                IRValue.String(s) => { fname2 = s.value }
+                IRValue.Sym(s) => { fname2 = s.value }
+                _ => {}
+            }
+            var owner2 = fieldRefOwner(fname2)
+            fname2 = fieldRefName(fname2)
+            if owner2 == "" {
+                owner2 = findFieldOwner(backend, fname2)
+            }
+            if owner2 != "" {
+                return "    ((" + owner2 + "*)" + generateValue(backend, instr.operand1) + ")->" + fname2 + " = " + generateValue(backend, instr.operand3) + ";\n"
+            }
+            return "    " + generateValue(backend, instr.operand1) + "->" + fname2 + " = " + generateValue(backend, instr.operand3) + ";\n"
         }
         IROpcode.list_create => {
             return "    { OrbitResult _lr = orbit_list_create(arena, sizeof(void*), " + generateValue(backend, instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? (OrbitList*)_lr.value : NULL; }\n"
         }
         IROpcode.list_push => {
-            return "    orbit_list_push(" + generateValue(backend, instr.operand1) + ", &" + generateValue(backend, instr.operand2) + ");\n"
+            match instr.operand2 {
+                IRValue.Register(r) => {
+                    return "    { const void* _e = &" + generateValue(backend, instr.operand2) + "; orbit_list_push(" + generateValue(backend, instr.operand1) + ", _e); }\n"
+                }
+                IRValue.Int(m) => {
+                    return "    { orbit_int _tmp = " + orbit_int_to_string_selfhost(m.value) + "; orbit_list_push(" + generateValue(backend, instr.operand1) + ", &_tmp); }\n"
+                }
+                _ => {
+                    return "    { void* _tmp = (void*)(uintptr_t)(" + generateValue(backend, instr.operand2) + "); orbit_list_push(" + generateValue(backend, instr.operand1) + ", &_tmp); }\n"
+                }
+            }
         }
         IROpcode.list_get => {
             return "    { OrbitResult _lr = orbit_list_get(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n"
@@ -548,5 +1195,176 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    /* Unknown opcode */\n"
         }
     }
+}
+
+fn isStringVar(backend: CBackend, varName: string) -> bool {
+    var vi = 0
+    while vi < backend.strVars.len() {
+        if backend.strVars.get(vi) == varName {
+            return true
+        }
+        vi = vi + 1
+    }
+    return false
+}
+
+fn isStringReg(backend: CBackend, regId: int) -> bool {
+    var ri = 0
+    while ri < backend.strRegs.len() {
+        if backend.strRegs.get(ri) == regId {
+            return true
+        }
+        ri = ri + 1
+    }
+    return false
+}
+
+fn isStringArg(backend: CBackend, argStr: string) -> bool {
+    if argStr.len() > 0 && argStr.at(0) == "\"".at(0) { return true }
+    if argStr.len() > 2 && argStr.slice(0, 2) == "r_" {
+        var n = 0
+        var i = 2
+        while i < argStr.len() {
+            val c = argStr.at(i)
+            n = n * 10 + (c - "0".at(0))
+            i = i + 1
+        }
+        return isStringReg(backend, n)
+    }
+    return isStringVar(backend, argStr)
+}
+
+fn isStringOperand(backend: CBackend, operand: IRValue) -> bool {
+    match operand {
+        IRValue.String(s) => { return true }
+        IRValue.Register(v) => {
+            var ri = 0
+            while ri < backend.strRegs.len() {
+                if backend.strRegs.get(ri) == v.value {
+                    return true
+                }
+                ri = ri + 1
+            }
+            return false
+        }
+        IRValue.Sym(s) => {
+            return isStringVar(backend, s.value)
+        }
+        _ => { return false }
+    }
+}
+
+fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
+    if name == "orbit_list_set" { return true }
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == name && f.returnType == "void" {
+            return true
+        }
+        fi = fi + 1
+    }
+    if name == "orbit_main" || name == "main_main" {
+        var fi2 = 0
+        while fi2 < backend.module.functions.len() {
+            val f2: IRFunction = backend.module.functions.get(fi2)
+            if f2.name == "main" && f2.returnType == "void" {
+                return true
+            }
+            fi2 = fi2 + 1
+        }
+    }
+    return false
+}
+
+fn isStringReturningFunction(name: string) -> bool {    if name == "generateValue" { return true }
+    if name == "escapeString" { return true }
+    if name == "mapTypeToC" { return true }
+    if name == "tokTypeToString" { return true }
+    if name == "orbit_string_slice" { return true }
+    if name == "orbit_string_concat" { return true }
+    if name == "orbit_string_split" { return true }
+    if name == "orbit_string_replace" { return true }
+    if name == "orbit_int_to_string_selfhost" { return true }
+    if name == "orbit_os_argv_selfhost" { return true }
+    if name == "orbit_os_env_selfhost" { return true }
+    if name == "orbit_file_read_selfhost" { return true }
+    if name == "orbit_int_to_string" { return true }
+    if name == "orbit_float_to_string" { return true }
+    if name == "orbit_bool_to_string" { return true }
+    return false
+}
+
+fn findFieldOwner(backend: CBackend, fieldName: string) -> string {
+    var i = backend.fieldNames.len()
+    while i > 0 {
+        i = i - 1
+        if backend.fieldNames.get(i) == fieldName {
+            return backend.fieldOwners.get(i)
+        }
+    }
+    return ""
+}
+
+fn fieldRefDotPos(fieldRef: string) -> int {
+    var i = 0
+    while i < orbit_string_len(fieldRef) {
+        if fieldRef.at(i) == ".".at(0) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn fieldRefOwner(fieldRef: string) -> string {
+    val dot = fieldRefDotPos(fieldRef)
+    if dot <= 0 {
+        return ""
+    }
+    return orbit_string_slice(fieldRef, 0, dot)
+}
+
+fn fieldRefName(fieldRef: string) -> string {
+    val dot = fieldRefDotPos(fieldRef)
+    if dot <= 0 {
+        return fieldRef
+    }
+    return orbit_string_slice(fieldRef, dot + 1, orbit_string_len(fieldRef))
+}
+
+fn moduleHasFunction(backend: CBackend, name: string) -> bool {
+    var i = 0
+    while i < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(i)
+        if f.name == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn isStringFieldName(backend: CBackend, fieldName: string) -> bool {
+    var allString = true
+    var found = false
+    var mi = 0
+    while mi < backend.module.models.len() {
+        val m: IRModelDecl = backend.module.models.get(mi)
+        var fi = 0
+        while fi < m.fields.len() {
+            val f: IRModelField = m.fields.get(fi)
+            if f.name == fieldName {
+                found = true
+                if f.typeName != "string" {
+                    allString = false
+                }
+            }
+            fi = fi + 1
+        }
+        mi = mi + 1
+    }
+    if found == false { return false }
+    return allString
 }
 

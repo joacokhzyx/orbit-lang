@@ -8,15 +8,15 @@ model OptStats {
     constant_folds: int
 }
 
-fn isZero(val: IRValue) -> bool {
-    match val {
+fn isZero(v: IRValue) -> bool {
+    match v {
         IRValue.Int(m) => return m.value == 0
         _ => return false
     }
 }
 
-fn isOne(val: IRValue) -> bool {
-    match val {
+fn isOne(v: IRValue) -> bool {
+    match v {
         IRValue.Int(m) => return m.value == 1
         _ => return false
     }

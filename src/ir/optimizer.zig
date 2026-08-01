@@ -310,6 +310,24 @@ pub const DeadCodeEliminator = struct {
         }
     }
 
+    fn hasSideEffects(opcode: IROpcode) bool {
+        return switch (opcode) {
+            .ret,
+            .call,
+            .store_var,
+            .store_field,
+            .free,
+            .db_set,
+            .list_push,
+            .list_pop,
+            .list_set,
+            .map_set,
+            .map_delete,
+            => true,
+            else => false,
+        };
+    }
+
     fn optimizeFunction(self: *DeadCodeEliminator, func: *IRFunction) !void {
         var used_registers = std.AutoHashMapUnmanaged(u32, bool){};
         defer used_registers.deinit(self.allocator);
@@ -334,7 +352,7 @@ pub const DeadCodeEliminator = struct {
             const instr = func.instructions.items[i];
 
             if (instr.dest) |dest| {
-                if (!used_registers.contains(dest) and instr.opcode != .ret and instr.opcode != .call) {
+                if (!used_registers.contains(dest) and !hasSideEffects(instr.opcode)) {
                     _ = func.instructions.orderedRemove(i);
                     self.eliminated_count += 1;
                     continue;
