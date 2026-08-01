@@ -71,11 +71,7 @@ pub const MemoizationPass = struct {
 
     pub fn optimize(self: *MemoizationPass, module: *IRModule) !void {
         for (module.functions.items) |*func| {
-            const before_len = func.instructions.items.len;
             try self.analyzeFunction(func, module);
-            if (func.instructions.items.len != before_len) {
-                std.debug.print("[MEMO DEBUG] {s}: instructions changed {d} -> {d}\n", .{func.name, before_len, func.instructions.items.len});
-            }
         }
     }
 

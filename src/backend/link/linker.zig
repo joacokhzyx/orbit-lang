@@ -332,9 +332,6 @@ pub const Linker = struct {
                     const key = try std.fmt.allocPrint(self.allocator, "{d}_{d}", .{ obj_idx, sym_idx });
                     try self.allocated_keys.append(self.allocator, key);
                     try self.symbol_addresses.put(key, addr);
-                    if (addr == 0) {
-                        std.debug.print("[sym-debug] Local symbol {d}_{d} has addr=0! name='{s}' section_index={?} is_abs={}\n", .{ obj_idx, sym_idx, sym.name, sym.section_index, sym.is_abs });
-                    }
                 } else {
                     // Global symbols resolved globally by name
                     // Strong symbols overwrite weak symbols
@@ -385,12 +382,8 @@ pub const Linker = struct {
                     const patch_offset = sec_offset + rel.offset_in_section;
                     const P = ms.virtual_address + patch_offset;
 
-                    const sym = lo.obj.symbols.items[rel.target_symbol_index];
                     const patch_slice = ms.bytes.items[patch_offset..];
-                    reloc_math.applyReloc(rel.kind, patch_slice, S, A, P, image_base) catch |err| {
-                        std.debug.print("[reloc-error] Symbol '{s}' kind={s} S=0x{x} A={d} P=0x{x} image_base=0x{x}\n", .{ sym.name, @tagName(rel.kind), S, A, P, image_base });
-                        return err;
-                    };
+                    try reloc_math.applyReloc(rel.kind, patch_slice, S, A, P, image_base);
 
                     if (rel.kind == .ABS64) {
                         try self.base_relocs.append(self.allocator, .{
