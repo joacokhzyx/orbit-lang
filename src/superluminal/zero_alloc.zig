@@ -57,9 +57,8 @@ pub const ZeroAllocPass = struct {
             if (instr.opcode == .list_create or instr.opcode == .map_create or instr.opcode == .alloc) {
                 if (instr.dest) |dest_reg| {
                     if (!doesRegisterEscape(func.instructions.items, dest_reg)) {
-                        // Object does not escape! Promote to Stack Allocation.
-                        // We replace the heap creation opcode with a stack allocation hint
-                        // or convert it into a local stack-buffered primitive.
+                        // Object does not escape! Promote to Stack Allocation hint.
+                        func.instructions.items[i].operand3 = IRValue{ .symbol = "_stack_promote_" };
                         self.promoted_count += 1;
                     }
                 }

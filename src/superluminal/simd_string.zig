@@ -54,6 +54,7 @@ pub const SIMDStringPass = struct {
 
             // Detect string concatenation, string comparison, or array/list scans
             if (instr.opcode == .list_get or instr.opcode == .list_set) {
+                func.instructions.items[i].operand3 = IRValue{ .symbol = "_simd_opt_" };
                 self.vectorized_count += 1;
             }
 
