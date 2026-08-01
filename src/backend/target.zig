@@ -63,9 +63,20 @@ pub const Target = struct {
         };
     }
 
+    /// Validates if the target architecture and object format are supported by the native backend.
+    pub fn validate(self: Target) !void {
+        if (self.isa == .aarch64) {
+            return error.UnsupportedTargetArchitecture;
+        }
+        if (self.format == .macho) {
+            return error.UnsupportedObjectFormat;
+        }
+    }
+
     /// Returns the target-appropriate name of a thread-local or static runtime helper.
     pub fn getRuntimeSymbolName(self: Target, base_name: []const u8) []const u8 {
-        _ = self;
-        return base_name;
+        switch (self.abi) {
+            .windows_x64, .sysv_amd64 => return base_name,
+        }
     }
 };
