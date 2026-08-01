@@ -524,7 +524,6 @@ fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
                         if lit.text == "_" {
                             // Wildcard: always match
                         } else {
-                            // Simple value comparison
                             val patReg = buildExpr(builder, c.pattern)
                             val eqReg = ir_alloc_register(builder.currentFunction, "bool")
                             val eqInstr = ir_init_instr(IROpcode.eq)
@@ -538,8 +537,50 @@ fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
                             ir_emit(builder.currentFunction, jmp)
                         }
                     }
+                    ASTNode.Call(callPattern) => {
+                        // Tagged union variant destructuring pattern e.g. ASTNode.Program(p)
+                        val tagReg = ir_alloc_register(builder.currentFunction, "int")
+                        val tagInstr = ir_init_instr(IROpcode.union_get_tag)
+                        tagInstr.dest = tagReg
+                        tagInstr.operand1 = ir_register(matchReg)
+                        ir_emit(builder.currentFunction, tagInstr)
+
+                        val dataReg = ir_alloc_register(builder.currentFunction, "unknown")
+                        val dataInstr = ir_init_instr(IROpcode.union_get_data)
+                        dataInstr.dest = dataReg
+                        dataInstr.operand1 = ir_register(matchReg)
+                        ir_emit(builder.currentFunction, dataInstr)
+
+                        if callPattern.args.len() > 0 {
+                            val argNode = callPattern.args.get(0)
+                            match argNode {
+                                ASTNode.Literal(argLit) => {
+                                    if argLit.valType == "identifier" {
+                                        val declVar = ir_init_instr(IROpcode.decl_var)
+                                        declVar.operand1 = ir_symbol(argLit.text)
+                                        declVar.operand2 = ir_register(dataReg)
+                                        ir_emit(builder.currentFunction, declVar)
+                                        defineVariable(builder, argLit.text, "unknown")
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        val varPatReg = buildExpr(builder, callPattern.callee)
+                        val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+                        val eqInstr = ir_init_instr(IROpcode.eq)
+                        eqInstr.dest = eqReg
+                        eqInstr.operand1 = ir_register(tagReg)
+                        eqInstr.operand2 = ir_register(varPatReg)
+                        ir_emit(builder.currentFunction, eqInstr)
+
+                        val jmp = ir_init_instr(IROpcode.jump_if_false)
+                        jmp.operand1 = ir_register(eqReg)
+                        jmp.operand2 = ir_label(nextLabel)
+                        ir_emit(builder.currentFunction, jmp)
+                    }
                     _ => {
-                        // Complex pattern: build and compare
                         val patReg = buildExpr(builder, c.pattern)
                         val eqReg = ir_alloc_register(builder.currentFunction, "bool")
                         val eqInstr = ir_init_instr(IROpcode.eq)
@@ -612,6 +653,49 @@ fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
                             jmp.operand2 = ir_label(nextLabel)
                             ir_emit(builder.currentFunction, jmp)
                         }
+                    }
+                    ASTNode.Call(callPattern) => {
+                        // Tagged union variant destructuring pattern e.g. ASTNode.Program(p)
+                        val tagReg = ir_alloc_register(builder.currentFunction, "int")
+                        val tagInstr = ir_init_instr(IROpcode.union_get_tag)
+                        tagInstr.dest = tagReg
+                        tagInstr.operand1 = ir_register(matchReg)
+                        ir_emit(builder.currentFunction, tagInstr)
+
+                        val dataReg = ir_alloc_register(builder.currentFunction, "unknown")
+                        val dataInstr = ir_init_instr(IROpcode.union_get_data)
+                        dataInstr.dest = dataReg
+                        dataInstr.operand1 = ir_register(matchReg)
+                        ir_emit(builder.currentFunction, dataInstr)
+
+                        if callPattern.args.len() > 0 {
+                            val argNode = callPattern.args.get(0)
+                            match argNode {
+                                ASTNode.Literal(argLit) => {
+                                    if argLit.valType == "identifier" {
+                                        val declVar = ir_init_instr(IROpcode.decl_var)
+                                        declVar.operand1 = ir_symbol(argLit.text)
+                                        declVar.operand2 = ir_register(dataReg)
+                                        ir_emit(builder.currentFunction, declVar)
+                                        defineVariable(builder, argLit.text, "unknown")
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        val varPatReg = buildExpr(builder, callPattern.callee)
+                        val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+                        val eqInstr = ir_init_instr(IROpcode.eq)
+                        eqInstr.dest = eqReg
+                        eqInstr.operand1 = ir_register(tagReg)
+                        eqInstr.operand2 = ir_register(varPatReg)
+                        ir_emit(builder.currentFunction, eqInstr)
+
+                        val jmp = ir_init_instr(IROpcode.jump_if_false)
+                        jmp.operand1 = ir_register(eqReg)
+                        jmp.operand2 = ir_label(nextLabel)
+                        ir_emit(builder.currentFunction, jmp)
                     }
                     _ => {
                         val patReg = buildExpr(builder, c.pattern)
