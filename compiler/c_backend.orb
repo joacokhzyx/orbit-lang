@@ -119,7 +119,11 @@ fn generateC(backend: CBackend) -> string {
         out = out + generateFunction(backend, func)
         i = i + 1
     }
-    out = out + "\nint main(int argc, char** argv) {\n"
+    out = out + "extern char** _orbit_argv;\n"
+    out = out + "extern int _orbit_argc;\n\n"
+    out = out + "int main(int argc, char** argv) {\n"
+    out = out + "    _orbit_argv = argv;\n"
+    out = out + "    _orbit_argc = argc;\n"
     out = out + "    arena = orbit_arena_create(64 * 1024 * 1024);\n"
     out = out + "    orbit_main();\n"
     out = out + "    return 0;\n"

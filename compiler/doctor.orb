@@ -1,11 +1,57 @@
 // Orbit Self-Hosted Compiler - Doctor Diagnostic Engine
 // compiler/doctor.orb
 
+import "./ast.orb"
+
 model DoctorReport {
     route_collisions: int
     superluminal_opts: int
     memory_leak_risk: int
     status_clean: bool
+}
+
+fn analyzeASTNode(root: ASTNode) -> DoctorReport {
+    var route_collisions = 0
+    var opt_count = 0
+    var leak_count = 0
+
+    match root {
+        ASTNode.Program(p) => {
+            var routes = []
+            var i = 0
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                match decl {
+                    ASTNode.RouteDecl(r) => {
+                        val routeKey = r.http_method + ":" + r.path
+                        var j = 0
+                        var dup = false
+                        while j < routes.len() {
+                            if routes.get(j) == routeKey {
+                                dup = true
+                            }
+                            j = j + 1
+                        }
+                        if dup {
+                            route_collisions = route_collisions + 1
+                        } else {
+                            routes.push(routeKey)
+                        }
+                        opt_count = opt_count + 1
+                    }
+                    ASTNode.FunctionDecl(f) => {
+                        opt_count = opt_count + 1
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+
+    val clean = (leak_count == 0) && (route_collisions == 0)
+    return DoctorReport(route_collisions, opt_count, leak_count, clean)
 }
 
 fn analyzeProgram(program_ast: string) -> DoctorReport {
@@ -32,4 +78,3 @@ fn printDoctorSummary(report: DoctorReport) -> void {
         print("  ! Status      Diagnostic warnings identified")
     }
 }
-
