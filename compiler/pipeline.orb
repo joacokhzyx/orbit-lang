@@ -28,6 +28,14 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
     print("[pipeline] Resolving module imports...")
     val resolver = initModuleResolver()
     val ast = resolveModuleAST(resolver, rawAST, inputPath)
+    if resolver.errors.len() > 0 {
+        var ri = 0
+        while ri < resolver.errors.len() {
+            print("Import error: " + resolver.errors.get(ri))
+            ri = ri + 1
+        }
+        return false
+    }
 
     print("[pipeline] Semantic analysis...")
     val sema = initSema()

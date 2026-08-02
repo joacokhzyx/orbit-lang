@@ -6,10 +6,11 @@ import "./parser.orb"
 
 model ModuleResolver {
     visited: list
+    errors: list
 }
 
 fn initModuleResolver() -> ModuleResolver {
-    return ModuleResolver([])
+    return ModuleResolver([], [])
 }
 
 fn isVisited(resolver: ModuleResolver, path: string) -> bool {
@@ -118,7 +119,9 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
                             resolver.visited.push(fullPath)
                             print("[resolver] Loading import: " + fullPath)
                             val subSource = orbit_file_read_selfhost(fullPath)
-                            if subSource != "" {
+                            if subSource == "" {
+                                resolver.errors.push("Could not read imported module: " + relPath)
+                            } else {
                                 val subParser = initParser(subSource)
                                 val subAST = parseProgram(subParser)
                                 val subResolved = resolveModuleAST(resolver, subAST, fullPath)

@@ -32,6 +32,12 @@ fn runFrontend() {
     }
 
     val source = orbit_file_read_selfhost(inputPath)
+    if source == "" {
+        print("Frontend failed: could not read input file: " + inputPath)
+        orbit_os_exit_selfhost(1)
+        return
+    }
+
     val output = compileFrontendSource(inputPath, source)
     if output == "" {
         print("Frontend failed: no TIR emitted because diagnostics contain errors.")
