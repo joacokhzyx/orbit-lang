@@ -393,10 +393,14 @@ pub fn main(init: std.process.Init) !void {
             std.process.exit(1);
         };
     } else {
-        if (!std.mem.eql(u8, command, "--help") and !std.mem.eql(u8, command, "-h") and !std.mem.eql(u8, command, "help")) {
+        const is_help_request = std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h") or std.mem.eql(u8, command, "help");
+        if (!is_help_request) {
             std.debug.print("Unknown command: {s}\n", .{command});
         }
         printHelp();
+        // An unrecognized command is a usage error, so exit non-zero for
+        // callers and CI. An explicit help request remains a success.
+        if (!is_help_request) std.process.exit(1);
     }
 }
 
@@ -874,7 +878,7 @@ fn compileToBinary(
             \\#endif
             \\    orbit_string_pool_init(1024);
             \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
-            \\    orbit_main();
+            \\    int _orbit_exit_code = orbit_main();
             \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
             \\    orbit_string_pool_cleanup();
             \\#ifdef _WIN32
@@ -883,7 +887,7 @@ fn compileToBinary(
             \\    }
             \\    free(parsed_argv);
             \\#endif
-            \\    return 0;
+            \\    return _orbit_exit_code;
             \\}
             \\
             \\#ifdef __cplusplus

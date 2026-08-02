@@ -600,6 +600,11 @@ pub const CTEvaluator = struct {
 /// We use a conservative approximation: any store_var, db_*, http_*,
 /// list_push, list_pop, map_set, or external call disqualifies.
 fn isPure(func: *const IRFunction) bool {
+    // A function declared `extern fn` has no visible body in this module.
+    // Its effects are unknown to the compiler, so it can never be proven
+    // pure. Treating it as pure made the evaluator run its empty body,
+    // return 0, and silently delete the call site.
+    if (func.is_extern or func.instructions.items.len == 0) return false;
     for (func.instructions.items) |instr| {
         switch (instr.opcode) {
             .store_var, .store_field, .db_get, .db_set, .db_all, .db_where, .http_response, .list_push, .list_pop, .list_set, .map_set, .map_delete, .alloc, .free => return false,
