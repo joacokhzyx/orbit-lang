@@ -266,7 +266,18 @@ fn tryArgInline(instructions: []const IRInstruction, start: usize) ?Match {
     if (arg_count == 0) return null;
     if (pos >= instructions.len or instructions[pos].opcode != .call) return null;
     const call_instr = instructions[pos];
-    if (call_instr.operand1 != .string and call_instr.operand1 != .symbol) return null;
+    const func_name = switch (call_instr.operand1) {
+        .string => |s| s,
+        .symbol => |s| s,
+        else => return null,
+    };
+
+    if (std.mem.eql(u8, func_name, "print") or std.mem.eql(u8, func_name, "println") or
+        std.mem.eql(u8, func_name, "input") or std.mem.eql(u8, func_name, "orbit_file_read") or
+        std.mem.eql(u8, func_name, "mainFunc"))
+    {
+        return null;
+    }
 
     const total_len = arg_count + 1;
 

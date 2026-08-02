@@ -790,8 +790,16 @@ pub fn isMainFunctionName(name: []const u8) bool {
         try self.emitSignatureParams(func);
         try self.output.appendSlice(self.allocator, ") {\n");
 
-        // Emit cache lookup using the first parameter as the key.
-        const key_param = if (func.params.len > 0) func.params[0] else "n";
+        // The ABI uses positional `_p_N` names, while the IR body uses source
+        // parameter names in load_var instructions. Bind those names before
+        // emitting the body, and use the ABI parameter directly as cache key.
+        for (func.params, 0..) |param, i| {
+            const param_type = if (func.param_types.len > i) func.param_types[i] else .int;
+            try self.output.print(self.allocator, "    {s} {s} = _p_{d};\n", .{ try self.mapTypeToC(param_type), param, i });
+        }
+
+        // Memoizable functions always have a first parameter.
+        const key_param = "_p_0";
         try self.output.print(self.allocator, "    /* Superluminal auto-memoize: O(2^n) -> O(n) */\n" ++
             "    if ((orbit_int){s} >= 0 && (orbit_int){s} < (orbit_int){d}u) {{\n" ++
             "        if (_memo_{s}_set[(orbit_int){s}]) return _memo_{s}[(orbit_int){s}];\n" ++
@@ -1200,6 +1208,23 @@ pub fn isMainFunctionName(name: []const u8) bool {
         var instr_i: usize = 0;
         var emit_cost = superluminal_cost.Cost{};
         while (instr_i < emit_slice.len) {
+            // Constant materialization is a semantic boundary: a matcher must
+            // never replace it with a no-op. Emit it directly before trying
+            // synthesis/pattern rules so folded calls always define r_dest.
+            const current_instr = emit_slice[instr_i];
+            if (current_instr.opcode == .load_const or current_instr.opcode == .copy) {
+                try self.generateInstruction(current_instr);
+                const c = superluminal_cost.evaluate(current_instr);
+                emit_cost.alu += c.alu;
+                emit_cost.mem_read += c.mem_read;
+                emit_cost.mem_write += c.mem_write;
+                emit_cost.branch += c.branch;
+                emit_cost.reg_assign += c.reg_assign;
+                emit_cost.call += c.call;
+                instr_i += 1;
+                continue;
+            }
+
             if (superluminal_synthesis.findSynthesis(emit_slice, instr_i)) |m| {
                 try self.emitSynthesis(emit_slice, m);
                 self.boost_metrics.synthesis_hits += 1;
@@ -1368,7 +1393,16 @@ pub fn isMainFunctionName(name: []const u8) bool {
         }
 
         switch (instr.opcode) {
-            .load_const => {},
+            .load_const => {
+                // Constants must materialize into their destination register.
+                // CTEVAL rewrites pure calls into this opcode, so omitting it
+                // leaves later consumers of the register uninitialized.
+                if (instr.dest) |d| {
+                    try self.output.print(self.allocator, "r_{d} = ", .{d});
+                    try self.generateValue(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ";\n");
+                }
+            },
             .copy => {
                 if (instr.dest) |d| {
                     try self.output.print(self.allocator, "r_{d} = ", .{d});

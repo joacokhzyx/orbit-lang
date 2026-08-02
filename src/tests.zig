@@ -1203,13 +1203,46 @@ test "superluminal.benchmark_superoptimizer" {
     if (result) |opt| {
         const base_cost = superluminal_cost.evaluateSlice(&small_prog);
         const opt_cost = superluminal_cost.evaluateSlice(opt);
-        const improvement = if (opt_cost.total() < base_cost.total())
-            (1.0 - opt_cost.total() / base_cost.total()) * 100.0
-        else
-            0.0;
-        std.debug.print("\n  Superoptimizer: {d:.1}% cost reduction (base={d:.1} opt={d:.1})", .{
-            improvement, base_cost.total(), opt_cost.total(),
-        });
         try std.testing.expect(opt_cost.total() <= base_cost.total());
     }
 }
+
+test "superluminal.cteval_fib_output_consumption" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn fib(n: int) -> int {
+        \\    if n <= 1 { return n }
+        \\    return fib(n - 1) + fib(n - 2)
+        \\}
+        \\fn main() {
+        \\    print(fib(35))
+        \\    print(fib(40))
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    var sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+
+    var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
+    var module = try builder.build(root);
+
+    const cteval = @import("superluminal/cteval.zig");
+    var evaluator = cteval.CTEvaluator.init(allocator, &module);
+    defer evaluator.deinit();
+    try evaluator.optimize(&module);
+
+    try std.testing.expect(evaluator.folded_count >= 2);
+
+    const config = AtlasConfig{};
+    var backend = CBackend.init(allocator, config, false);
+    const c_code = try backend.generate(module);
+
+    try std.testing.expect(std.mem.indexOf(u8, c_code, "9227465") != null);
+    try std.testing.expect(std.mem.indexOf(u8, c_code, "102334155") != null);
+}
+

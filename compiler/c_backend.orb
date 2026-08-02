@@ -27,44 +27,28 @@ fn generateC(backend: CBackend) -> string {
     out = out + "    OrbitASTVariantNode* n = (OrbitASTVariantNode*)orbit_alloc(a, sizeof(OrbitASTVariantNode));\n"
     out = out + "    n->tag = tag; n->data = data; return n;\n"
     out = out + "}\n"
-    out = out + "#define Program(x) orbit_create_variant(arena, 1, (void*)(uintptr_t)(x))\n"
-    out = out + "#define FunctionDecl(x) orbit_create_variant(arena, 2, (void*)(uintptr_t)(x))\n"
-    out = out + "#define RouteDecl(x) orbit_create_variant(arena, 3, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ModelDecl(x) orbit_create_variant(arena, 4, (void*)(uintptr_t)(x))\n"
-    out = out + "#define TypeDecl(x) orbit_create_variant(arena, 5, (void*)(uintptr_t)(x))\n"
-    out = out + "#define FieldDecl(x) orbit_create_variant(arena, 6, (void*)(uintptr_t)(x))\n"
-    out = out + "#define TraitDecl(x) orbit_create_variant(arena, 7, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ImplDecl(x) orbit_create_variant(arena, 8, (void*)(uintptr_t)(x))\n"
-    out = out + "#define VarDecl(x) orbit_create_variant(arena, 9, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ConstDecl(x) orbit_create_variant(arena, 10, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ScheduleDecl(x) orbit_create_variant(arena, 11, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ConfigDecl(x) orbit_create_variant(arena, 12, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ImportStmt(x) orbit_create_variant(arena, 13, (void*)(uintptr_t)(x))\n"
-    out = out + "#define UseStmt(x) orbit_create_variant(arena, 14, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ExpressionStmt(x) orbit_create_variant(arena, 15, (void*)(uintptr_t)(x))\n"
-    out = out + "#define If(x) orbit_create_variant(arena, 16, (void*)(uintptr_t)(x))\n"
-    out = out + "#define While(x) orbit_create_variant(arena, 17, (void*)(uintptr_t)(x))\n"
-    out = out + "#define For(x) orbit_create_variant(arena, 18, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Return(x) orbit_create_variant(arena, 19, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Match(x) orbit_create_variant(arena, 20, (void*)(uintptr_t)(x))\n"
-    out = out + "#define MatchCase(x) orbit_create_variant(arena, 21, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Try(x) orbit_create_variant(arena, 22, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Literal(x) orbit_create_variant(arena, 23, (void*)(uintptr_t)(x))\n"
-    out = out + "#define BinaryOp(x) orbit_create_variant(arena, 24, (void*)(uintptr_t)(x))\n"
-    out = out + "#define UnaryOp(x) orbit_create_variant(arena, 25, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Call(x) orbit_create_variant(arena, 26, (void*)(uintptr_t)(x))\n"
-    out = out + "#define MemberAccess(x) orbit_create_variant(arena, 27, (void*)(uintptr_t)(x))\n"
-    out = out + "#define IndexAccess(x) orbit_create_variant(arena, 28, (void*)(uintptr_t)(x))\n"
-    out = out + "#define ListLiteral(x) orbit_create_variant(arena, 29, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Assignment(x) orbit_create_variant(arena, 30, (void*)(uintptr_t)(x))\n"
-    out = out + "#define TypeAnnotation(x) orbit_create_variant(arena, 31, (void*)(uintptr_t)(x))\n"
-    out = out + "#define GenericParam(x) orbit_create_variant(arena, 32, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Decorator(x) orbit_create_variant(arena, 33, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Block(x) orbit_create_variant(arena, 34, (void*)(uintptr_t)(x))\n"
-    out = out + "#define Break(...) ((void*)0)\n"
-    out = out + "#define Continue(...) ((void*)0)\n"
-    out = out + "#define Param(x) orbit_create_variant(arena, 35, (void*)(uintptr_t)(x))\n"
-    out = out + "#define FieldInit(x) orbit_create_variant(arena, 36, (void*)(uintptr_t)(x))\n"
+    // Variant constructor macros are generated from the module's union types.
+    // They must use the very same <Type>_TAG_<Variant> constants that pattern
+    // matching compares against (see the tag enum emitted further below and
+    // builder.orb's Type.Variant lowering). These macros used to be hardcoded
+    // for ASTNode only, with a 1-based numbering that skipped the payload-less
+    // variants, so constructors and matches disagreed and no other union type
+    // (IRValue, ...) got a constructor at all.
+    // The `__VA_ARGS__ + 0` form accepts both payload variants, e.g. Literal(n),
+    // and payload-less ones, e.g. Break(), which expands to a null payload.
+    var mvi = 0
+    while mvi < backend.module.types.len() {
+        val mvType: IRTypeDecl = backend.module.types.get(mvi)
+        if mvType.kind == "union_type" {
+            var mvv = 0
+            while mvv < mvType.variants.len() {
+                val mvName: string = mvType.variants.get(mvv)
+                out = out + "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n"
+                mvv = mvv + 1
+            }
+        }
+        mvi = mvi + 1
+    }
     out = out + "#endif\n\n"
     out = out + "static inline orbit_bool orbit_val_eq(void* a, void* b) {\n"
     out = out + "    if (a == b) return true;\n"
