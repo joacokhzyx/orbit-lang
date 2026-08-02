@@ -290,12 +290,32 @@ pub const CTEvaluator = struct {
             _ = func.instructions.orderedRemove(arg_start);
         }
 
-        // Insert a load_const at arg_start if there was a destination.
+        // Materialize the folded value and propagate it through the current
+        // non-SSA register lifetime. Orbit's output calls consume values via
+        // adjacent .arg instructions, so rewriting uses also prevents a later
+        // DCE pass from leaving an observable register uninitialized.
         if (call_dest) |dest| {
-            var load = IRInstruction.init(.load_const);
-            load.dest = dest;
-            load.operand1 = IRValue{ .int = result_val };
-            try func.instructions.insert(self.allocator, arg_start, load);
+            var constant = IRInstruction.init(.copy);
+            constant.dest = dest;
+            constant.operand1 = IRValue{ .int = result_val };
+            try func.instructions.insert(self.allocator, arg_start, constant);
+
+            var use_i: usize = arg_start + 1;
+            while (use_i < func.instructions.items.len) : (use_i += 1) {
+                const use_instr = &func.instructions.items[use_i];
+                if (use_instr.dest) |next_dest| {
+                    if (next_dest == dest) break;
+                }
+                if (use_instr.operand1 == .register and use_instr.operand1.register == dest) {
+                    use_instr.operand1 = IRValue{ .int = result_val };
+                }
+                if (use_instr.operand2 == .register and use_instr.operand2.register == dest) {
+                    use_instr.operand2 = IRValue{ .int = result_val };
+                }
+                if (use_instr.operand3 == .register and use_instr.operand3.register == dest) {
+                    use_instr.operand3 = IRValue{ .int = result_val };
+                }
+            }
         }
 
         self.folded_count += 1;
@@ -346,7 +366,35 @@ pub const CTEvaluator = struct {
             const instr = instrs[ip];
 
             switch (instr.opcode) {
-                .nop, .label => {
+                .nop, .label, .begin_block, .end_block => {
+                    ip += 1;
+                },
+
+                // Function parameters are represented by named loads in IR,
+                // not by the evaluator's temporary register numbering.
+                .load_var => {
+                    const name = switch (instr.operand1) {
+                        .string => |s| s,
+                        .symbol => |s| s,
+                        else => return null,
+                    };
+                    var found = false;
+                    for (func.params, 0..) |param, param_idx| {
+                        if (std.mem.eql(u8, name, param)) {
+                            if (param_idx >= args.len) return null;
+                            if (instr.dest) |dest| regs.set(dest, args[param_idx]);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) return null;
+                    ip += 1;
+                },
+
+                // Declarations only establish a source-level name; a following
+                // load_var resolves parameters and local mutation is already
+                // rejected by purity analysis.
+                .decl_var => {
                     ip += 1;
                 },
 

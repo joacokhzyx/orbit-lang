@@ -204,20 +204,28 @@ fn estimateCacheSize(func: *const IRFunction) usize {
 // The C backend calls `isMemoizable(func)` and `getMemoSize(func)` to decide
 // whether to wrap the function in the memoization harness.
 
+fn memoMarker(instr: IRInstruction) bool {
+    return instr.opcode == .nop and
+        instr.operand1 == .symbol and
+        std.mem.eql(u8, instr.operand1.symbol, MEMO_TAG);
+}
+
 pub fn isMemoizable(func: IRFunction) bool {
-    if (func.instructions.items.len == 0) return false;
-    const first = func.instructions.items[0];
-    if (first.opcode != .nop) return false;
-    if (first.operand1 != .symbol) return false;
-    return std.mem.eql(u8, first.operand1.symbol, MEMO_TAG);
+    // Several Superluminal passes insert their own metadata nops at index 0.
+    // The memo marker therefore cannot rely on position: locate its own tag.
+    for (func.instructions.items) |instr| {
+        if (memoMarker(instr)) return true;
+    }
+    return false;
 }
 
 pub fn getMemoSize(func: IRFunction) usize {
-    if (func.instructions.items.len == 0) return DEFAULT_MEMO_SIZE;
-    const first = func.instructions.items[0];
-    if (first.opcode != .nop) return DEFAULT_MEMO_SIZE;
-    if (first.operand2 != .int) return DEFAULT_MEMO_SIZE;
-    return @intCast(@max(first.operand2.int, 1));
+    for (func.instructions.items) |instr| {
+        if (memoMarker(instr) and instr.operand2 == .int) {
+            return @intCast(@max(instr.operand2.int, 1));
+        }
+    }
+    return DEFAULT_MEMO_SIZE;
 }
 
 /// Get the instructions without the memo marker (skip the first nop).

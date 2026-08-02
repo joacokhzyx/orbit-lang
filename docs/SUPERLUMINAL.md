@@ -1,136 +1,85 @@
 # Superluminal
 
-Superluminal is the compile-time optimization and code synthesis engine of Orbit. Its core subcomponent, CTEVAL (Compile-Time Universal Evaluator), automatically identifies and executes pure computational graphs inside the compiler, replacing complex function calls with integer or memory constants.
+Superluminal is Orbit’s experimental optimization and program-transformation subsystem. Its purpose is not to claim arbitrary speedups: it is to make **semantics-preserving, measurable** reductions in execution work while retaining a safe fallback to ordinary code generation.
 
-Unlike traditional compilers that require manual programmer annotations (`constexpr` in C++, `const fn` in Rust), Superluminal operates transparently on the Intermediate Representation (IR).
+## Status
 
----
+Superluminal has an implemented foundation, but it is not yet a finished architectural optimizer. The recursive memoization wrapper is emitted successfully; the compile-time evaluator can interpret relevant pure IR; however, the end-to-end CTEVAL result-materialization path is currently blocked in the active entry-point emission route. Therefore no aggregate performance claim is attributed to this work yet.
 
-## Pipeline Architecture
+`Superluminal boosted 5.2%` remains unchanged until a reproducible benchmark establishes what it measures.
 
-Superluminal operates between IR construction (`src/ir/builder.zig`) and MIR lowering (`src/backend/mir/builder.zig`).
+## Current pipeline
 
-```
-  ┌───────────────────┐
-  │   IR Module       │
-  └─────────┬─────────┘
-            │
-            ▼
-  ┌───────────────────┐
-  │ Purity Analysis   │  Scans side-effects, I/O, globals, DB, HTTP
-  └─────────┬─────────┘
-            │
-            ▼
-  ┌───────────────────┐
-  │ CTEVAL Evaluator  │  Runs pure IR call graphs in memoized interpreter
-  └─────────┬─────────┘
-            │
-            ▼
-  ┌───────────────────┐
-  │ Constant Folding  │  Replaces call + arg sequence with load_const
-  └─────────┬─────────┘
-            │
-            ▼
-  ┌───────────────────┐
-  │ Optimized MIR     │
-  └───────────────────┘
+```text
+Orbit source
+  → parser / semantic analysis
+  → IR builder
+  → CTEVAL purity + evaluation
+  → constant folding / IR optimization passes
+  → recursive memoization marking
+  → C backend
+  → generated C / executable
 ```
 
----
+### Implemented components
 
-## Purity Analysis Engine
+- **CTEVAL** (`src/superluminal/cteval.zig`)
+  - Evaluates eligible pure integer IR call graphs at compile time.
+  - Supports arithmetic, comparisons, control flow, labels, blocks, copies, constants, named parameter loads, recursive calls, and memoized interpreter results.
+  - Limits evaluation to 10,000,000 steps, 4,096 frames, 32 arguments, and 1,024 registers.
+  - Rejects extern and runtime/I/O calls conservatively.
 
-A function is classified as **pure** if and only if:
-1. It does not perform file, network, or console I/O (`print`, `orbit_file_write`, `http_write`).
-2. It does not query or mutate databases (`db_query`, `db_set`).
-3. It does not mutate global state or read non-deterministic inputs (`orbit_clock_ns`).
-4. All callee functions in its internal call graph are also pure.
+- **Automatic recursive memoization** (`src/superluminal/memoize.zig`)
+  - Identifies pure recursive numeric functions.
+  - Marks candidates with a pass-order-independent IR marker.
+  - Drives static-cache wrapper emission in the C backend.
 
-```zig
-pub fn isPureFunction(func: *const IRFunction, module: *const IRModule) bool {
-    for (func.instructions.items) |instr| {
-        switch (instr.opcode) {
-            .db_get, .db_set, .db_all, .db_where,
-            .http_response, .alloc, .free => return false,
-            .call => {
-                if (instr.operand1 == .symbol) {
-                    const callee_name = instr.operand1.symbol;
-                    if (module.getFunction(callee_name)) |callee| {
-                        if (!isPureFunction(callee, module)) return false;
-                    } else {
-                        return false; // External ABI call
-                    }
-                }
-            },
-            else => {},
-        }
-    }
-    return true;
-}
-```
+- **C backend integration** (`src/codegen/c_backend.zig`)
+  - Emits static value and presence caches for eligible recursive functions.
+  - Binds source-level parameters correctly to ABI parameters in memoized wrappers.
 
----
+## Evidence and current limitation
 
-## Memoized Evaluation Engine
+For Fibonacci, emitted C contains a real static memoization cache and an executable wrapper. However, the entry-point C still prints result registers before their CTEVAL replacements are materialized. This is a compiler correctness issue, not a benchmark success.
 
-Superluminal executes pure IR instructions inside an in-compiler virtual interpreter (`src/superluminal/cteval.zig`).
+Until the following gate passes, Superluminal must be described as **in implementation** rather than complete:
 
-To prevent exponential time complexity during recursive evaluation (such as naive Fibonacci $O(2^N)$), Superluminal memoizes all intermediate call arguments and return values:
+1. Repair result materialization in the active function-body emission path.
+2. Add end-to-end CTEVAL regressions for observable consumers such as `print`.
+3. Verify generated output contains the expected constants for `fib(35)` and `fib(40)`.
+4. Verify 10 runtime executions for exact output, successful exit status, and a recorded median.
 
-$$\text{MemoTable}: (\text{FunctionID}, \text{ArgVector}) \longrightarrow \text{ReturnValue}$$
+## Roadmap
 
-```
-Evaluating fib(35)...
-  -> Check memo table for (fib, [35]) -> Miss
-  -> Check memo table for (fib, [34]) -> Miss
-  ...
-  -> Evaluates in O(N) interpreter steps
-  -> Result: 9227465 cached and returned
-```
+### G1 — correctness and measurement
 
-### Safety Thresholds
+- Finish constant-result materialization.
+- Regression-test extern preservation, constant output, and recursive memoization.
+- Establish reproducible timing methodology and attribution.
 
-To guarantee compilation deterministic completion and prevent infinite loops during build time:
+### G2 — architectural optimizer
 
-- **Max Recursion Depth**: 4,096 call frames
-- **Max Instruction Steps**: 10,000,000 steps
-- **Time Threshold**: 500 ms execution budget per evaluation
+- Add explicit control-flow/effect representation and SSA where beneficial.
+- Introduce safe, proof-oriented rewrites and cost accounting.
 
-If any threshold is exceeded, Superluminal aborts compile-time evaluation and falls back to standard runtime codegen.
+### G3 — optimization search
 
----
+- Use e-graphs for equality saturation over local pure regions.
+- Add deterministic cost models for latency, throughput, memory, and code size.
 
-## Constant Replacement Transformation
+### G4 — algorithmic transformation research
 
-Given an IR call site where all arguments are statically known constants and the target function is pure:
+- Recognize bounded dynamic-programming and recursion patterns.
+- Produce only verified alternatives with fallbacks and differential tests.
 
-### Before Superluminal Optimization
+### G5 — learned guidance
 
-```assembly
-; IR Call Sequence
-arg r_1, 35
-r_2 = call fibonacci
-arg r_2
-call print
-```
+- Explore learned search guidance only after deterministic correctness and cost-model baselines exist.
 
-### After Superluminal Optimization
+## Engineering principles
 
-```assembly
-; Transformed IR Output
-r_2 = load_const 9227465
-arg r_2
-call print
-```
-
-Runtime CPU execution time for the calculation drops from microsecond-level recursion to **0 nanoseconds**.
-
----
-
-## Performance Metrics
-
-| Optimization Pass | Scope | Typical Speedup | Binary Footprint Impact |
-| :--- | :--- | :--- | :--- |
-| **CTEVAL** | Call graph evaluation | 100% reduction for pure functions | Reduces code size (eliminates function bodies) |
-| **Constant Folding** | Arithmetic & logical expressions | $O(1)$ constant propagation | Reduces instruction count |
-| **Strength Reduction** | Power-of-two multiplication / division | 2–3x faster opcode execution | Replaces `imul` with `shl` / `shr` |
+- No mock optimization paths.
+- No performance statement without a benchmark, baseline, environment, and reproducible evidence.
+- No transformation across unresolved side effects.
+- Preserve a semantically equivalent fallback whenever proof is incomplete.
+- Prefer correctness gates and regression tests over broad but unverified claims.
