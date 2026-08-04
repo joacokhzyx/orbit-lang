@@ -1380,7 +1380,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     }
                 } else if calleeName == "isDigit" || calleeName == "isAlpha" || calleeName == "isAlphaNumeric" || calleeName == "orbit_int_to_string_selfhost" || calleeName == "orbit_int_to_string" || calleeName == "orbit_os_argv_selfhost" || calleeName == "orbit_os_exit_selfhost" {
                     callExpr = callExpr + "(orbit_int)(uintptr_t)(" + aStr + ")"
-                } else if calleeName == "orbit_string_at" {
+                } else if calleeName == "orbit_string_at" || calleeName == "orbit_string_char_at_selfhost" {
                     if argIdx == 0 {
                         callExpr = callExpr + "(orbit_string)(" + aStr + ")"
                     } else {

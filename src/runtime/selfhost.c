@@ -56,6 +56,12 @@ orbit_string orbit_int_to_string_selfhost(orbit_int value) {
     return (orbit_int_to_string)(orbit_arena_get_global(), value);
 }
 
+// O(1) character access: single indexed load, NO strlen, NO bounds check.
+// Caller guarantees 0 <= index < len(s). Returns 0 when s is NULL.
+orbit_int orbit_string_char_at_selfhost(orbit_string s, orbit_int index) {
+    return s ? (unsigned char)s[index] : 0;
+}
+
 // Define macros to redirect the simple names to the selfhost versions
 // when compiling selfhost code
 #ifdef ORBIT_SELFHOST_BUILD
