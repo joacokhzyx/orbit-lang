@@ -34,6 +34,7 @@ fn initSema() -> Sema {
 }
 
 fn reportError(sema: Sema, message: string) {
+    print("  [sema error] " + message + " [in " + sema.currentFunction + "]")
     sema.errors.push(message + " [in " + sema.currentFunction + "]")
 }
 
@@ -66,12 +67,12 @@ fn findType(sema: Sema, name: string) -> int {
 }
 
 fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool) {
-    print("[sema] declareSymbol " + name)
     val scope = sema.scopes.get(sema.currentScope)
     var i = 0
     while i < scope.symbols.len() {
         val sym = scope.symbols.get(i)
         if sym.name == name {
+            print("[sema ERROR] Duplicate symbol: name='" + name + "' sym.name='" + sym.name + "' i=" + orbit_int_to_string_selfhost(i))
             reportError(sema, "Duplicate symbol: " + name)
             return
         }
@@ -286,7 +287,6 @@ fn checkMatch(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Match(m) => {
             val matchType = inferType(sema, m.expr)
-            print("[sema] checkMatch type=" + matchType + " cases=" + orbit_int_to_string_selfhost(m.cases.len()))
             var i = 0
             while i < m.cases.len() {
                 val caseNode = m.cases.get(i)
@@ -333,19 +333,17 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                                 ASTNode.MatchCase(c) => {
                             match c.pattern {
                                 ASTNode.MemberAccess(ma) => {
-                                    print("[sema] covered MA=" + ma.field)
                                     coveredVariants.push(ma.field)
                                 }
                                 ASTNode.Call(innerCall) => {
                                     match innerCall.callee {
                                         ASTNode.MemberAccess(ma2) => {
-                                            print("[sema] covered CALLMA=" + ma2.field)
                                             coveredVariants.push(ma2.field)
                                         }
-                                        _ => { print("[sema] covered CALLOTHER") }
+                                        _ => {}
                                     }
                                 }
-                                _ => { print("[sema] covered OTHER") }
+                                _ => {}
                             }
                                 }
                                 _ => {}
@@ -535,12 +533,11 @@ fn checkNode(sema: Sema, node: ASTNode) {
             print("[sema] Pass 1: register types/models")
             var i = 0
             while i < prog.decls.len() {
-                print("[sema] p1 i=" + orbit_int_to_string_selfhost(i))
                 val decl = prog.decls.get(i)
                 match decl {
-                    ASTNode.ModelDecl(m) => { print("[sema] p1 model " + m.name); declareSymbol(sema, m.name, "model", false, false) }
-                    ASTNode.TypeDecl(t) => { print("[sema] p1 type " + t.name); registerType(sema, t.name, t.kind, t.variants) }
-                    _ => { print("[sema] p1 other") }
+                    ASTNode.ModelDecl(m) => { declareSymbol(sema, m.name, "model", false, false) }
+                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
+                    _ => {}
                 }
                 i = i + 1
             }

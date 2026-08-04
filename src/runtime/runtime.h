@@ -83,4 +83,18 @@ static inline int bit_op(int i) {
     return ((i * 17) ^ (i >> 2)) & 0xFFFF;
 }
 
+#ifdef _WIN32
+#include <windows.h>
+static LONG WINAPI orbit_crash_handler(EXCEPTION_POINTERS* ep) {
+    fprintf(stderr, "\n[ORBIT RUNTIME CRASH] ExceptionCode 0x%08X at address %p\n",
+            (unsigned int)ep->ExceptionRecord->ExceptionCode,
+            ep->ExceptionRecord->ExceptionAddress);
+    fflush(stderr);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+static void __attribute__((constructor)) orbit_init_crash_handler(void) {
+    SetUnhandledExceptionFilter(orbit_crash_handler);
+}
+#endif
+
 #endif

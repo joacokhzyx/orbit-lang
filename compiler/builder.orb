@@ -125,7 +125,7 @@ fn fieldTypeOfModel(builder: IRBuilder, typeName: string, fieldName: string) -> 
 fn dotPosOf(s: string) -> int {
     var i = 0
     while i < orbit_string_len(s) {
-        if s.at(i) == ".".at(0) {
+        if s.at(i) == 46 {
             return i
         }
         i = i + 1
@@ -429,6 +429,7 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
             i = 0
             while i < p.decls.len() {
                 val decl = p.decls.get(i)
+                print("[pass3] decl " + orbit_int_to_string_selfhost(i))
                 buildDecl(builder, decl)
                 i = i + 1
             }
@@ -492,6 +493,7 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
 }
 
 fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
+    print("[buildFn] " + f.name)
     val func = getOrCreateFunction(builder, f.name)
     func.returnType = f.returnType
     val prevFunc = builder.currentFunction
@@ -766,11 +768,56 @@ fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
                             ir_emit(builder.currentFunction, jmp)
                         }
                     }
+                    ASTNode.MemberAccess(mp) => {
+                        // Payload-less variant pattern, e.g. ASTNode.Empty =>
+                        // The scrutinee of a tagged union is a node pointer, so
+                        // compare its tag instead of the pointer itself.
+                        var mpOwner = ""
+                        match mp.object {
+                            ASTNode.Literal(mpl) => { mpOwner = mpl.text }
+                            _ => {}
+                        }
+                        var cmpReg = matchReg
+                        if isUnionTypeName(builder, mpOwner) {
+                            cmpReg = ir_alloc_register(builder.currentFunction, "int")
+                            val mpTag = ir_init_instr(IROpcode.union_get_tag)
+                            mpTag.dest = cmpReg
+                            mpTag.operand1 = ir_register(matchReg)
+                            ir_emit(builder.currentFunction, mpTag)
+                        }
+                        var mpPatReg = -1
+                        if mpOwner != "" {
+                            mpPatReg = ir_alloc_register(builder.currentFunction, "int")
+                            val mpConst = ir_init_instr(IROpcode.load_var)
+                            mpConst.dest = mpPatReg
+                            mpConst.operand1 = ir_symbol(mpOwner + "_TAG_" + mp.field)
+                            ir_emit(builder.currentFunction, mpConst)
+                        } else {
+                            mpPatReg = buildExpr(builder, c.pattern)
+                        }
+                        val mpEqReg = ir_alloc_register(builder.currentFunction, "bool")
+                        val mpEqInstr = ir_init_instr(IROpcode.eq)
+                        mpEqInstr.dest = mpEqReg
+                        mpEqInstr.operand1 = ir_register(cmpReg)
+                        mpEqInstr.operand2 = ir_register(mpPatReg)
+                        ir_emit(builder.currentFunction, mpEqInstr)
+                        val mpJmp = ir_init_instr(IROpcode.jump_if_false)
+                        mpJmp.operand1 = ir_register(mpEqReg)
+                        mpJmp.operand2 = ir_label(nextLabel)
+                        ir_emit(builder.currentFunction, mpJmp)
+                    }
                     ASTNode.Call(callPattern) => {
                         // Tagged union variant destructuring pattern e.g. ASTNode.Program(p)
                         var tagName = ""
+                        var tagOwner = ""
                         match callPattern.callee {
-                            ASTNode.MemberAccess(ma2) => { tagName = ma2.field }
+                            ASTNode.MemberAccess(ma2) => {
+                                tagName = ma2.field
+                                match ma2.object {
+                                    ASTNode.Literal(ol2) => { tagOwner = ol2.text }
+                                    _ => {}
+                                }
+                            }
                             ASTNode.Literal(lit2) => { tagName = lit2.text }
                             _ => {}
                         }
@@ -802,7 +849,21 @@ fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
                             }
                         }
 
-                        val varPatReg = buildExpr(builder, callPattern.callee)
+                        // The tag to compare against must be the bare integer
+                        // constant, NOT buildExpr(callee): buildExpr now builds a
+                        // real variant node for payload-less union variants, and
+                        // comparing the scrutinee's tag against a freshly built
+                        // node pointer can never be true.
+                        var varPatReg = -1
+                        if tagOwner != "" {
+                            varPatReg = ir_alloc_register(builder.currentFunction, "int")
+                            val varPatInstr = ir_init_instr(IROpcode.load_var)
+                            varPatInstr.dest = varPatReg
+                            varPatInstr.operand1 = ir_symbol(tagOwner + "_TAG_" + tagName)
+                            ir_emit(builder.currentFunction, varPatInstr)
+                        } else {
+                            varPatReg = buildExpr(builder, callPattern.callee)
+                        }
                         val eqReg = ir_alloc_register(builder.currentFunction, "bool")
                         val eqInstr = ir_init_instr(IROpcode.eq)
                         eqInstr.dest = eqReg
@@ -886,11 +947,56 @@ fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
                             ir_emit(builder.currentFunction, jmp)
                         }
                     }
+                    ASTNode.MemberAccess(mp) => {
+                        // Payload-less variant pattern, e.g. ASTNode.Empty =>
+                        // The scrutinee of a tagged union is a node pointer, so
+                        // compare its tag instead of the pointer itself.
+                        var mpOwner = ""
+                        match mp.object {
+                            ASTNode.Literal(mpl) => { mpOwner = mpl.text }
+                            _ => {}
+                        }
+                        var cmpReg = matchReg
+                        if isUnionTypeName(builder, mpOwner) {
+                            cmpReg = ir_alloc_register(builder.currentFunction, "int")
+                            val mpTag = ir_init_instr(IROpcode.union_get_tag)
+                            mpTag.dest = cmpReg
+                            mpTag.operand1 = ir_register(matchReg)
+                            ir_emit(builder.currentFunction, mpTag)
+                        }
+                        var mpPatReg = -1
+                        if mpOwner != "" {
+                            mpPatReg = ir_alloc_register(builder.currentFunction, "int")
+                            val mpConst = ir_init_instr(IROpcode.load_var)
+                            mpConst.dest = mpPatReg
+                            mpConst.operand1 = ir_symbol(mpOwner + "_TAG_" + mp.field)
+                            ir_emit(builder.currentFunction, mpConst)
+                        } else {
+                            mpPatReg = buildExpr(builder, c.pattern)
+                        }
+                        val mpEqReg = ir_alloc_register(builder.currentFunction, "bool")
+                        val mpEqInstr = ir_init_instr(IROpcode.eq)
+                        mpEqInstr.dest = mpEqReg
+                        mpEqInstr.operand1 = ir_register(cmpReg)
+                        mpEqInstr.operand2 = ir_register(mpPatReg)
+                        ir_emit(builder.currentFunction, mpEqInstr)
+                        val mpJmp = ir_init_instr(IROpcode.jump_if_false)
+                        mpJmp.operand1 = ir_register(mpEqReg)
+                        mpJmp.operand2 = ir_label(nextLabel)
+                        ir_emit(builder.currentFunction, mpJmp)
+                    }
                     ASTNode.Call(callPattern) => {
                         // Tagged union variant destructuring pattern e.g. ASTNode.Program(p)
                         var tagName = ""
+                        var tagOwner = ""
                         match callPattern.callee {
-                            ASTNode.MemberAccess(ma2) => { tagName = ma2.field }
+                            ASTNode.MemberAccess(ma2) => {
+                                tagName = ma2.field
+                                match ma2.object {
+                                    ASTNode.Literal(ol2) => { tagOwner = ol2.text }
+                                    _ => {}
+                                }
+                            }
                             ASTNode.Literal(lit2) => { tagName = lit2.text }
                             _ => {}
                         }
@@ -922,7 +1028,19 @@ fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
                             }
                         }
 
-                        val varPatReg = buildExpr(builder, callPattern.callee)
+                        // Same fix as in buildMatchStatement: compare the tag
+                        // against the integer constant, never against a node
+                        // built by buildExpr.
+                        var varPatReg = -1
+                        if tagOwner != "" {
+                            varPatReg = ir_alloc_register(builder.currentFunction, "int")
+                            val varPatInstr = ir_init_instr(IROpcode.load_var)
+                            varPatInstr.dest = varPatReg
+                            varPatInstr.operand1 = ir_symbol(tagOwner + "_TAG_" + tagName)
+                            ir_emit(builder.currentFunction, varPatInstr)
+                        } else {
+                            varPatReg = buildExpr(builder, callPattern.callee)
+                        }
                         val eqReg = ir_alloc_register(builder.currentFunction, "bool")
                         val eqInstr = ir_init_instr(IROpcode.eq)
                         eqInstr.dest = eqReg
@@ -1170,6 +1288,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val resReg = ir_alloc_register(builder.currentFunction, "int")
                 callInstr.dest = resReg
                 callInstr.operand1 = ir_string("orbit_string_at")
+                callInstr.operand2 = ir_int(2)
                 ir_emit(builder.currentFunction, callInstr)
                 return resReg
             }
@@ -1185,6 +1304,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val resReg = ir_alloc_register(builder.currentFunction, "int")
                 callInstr.dest = resReg
                 callInstr.operand1 = ir_string("orbit_string_find")
+                callInstr.operand2 = ir_int(2)
                 ir_emit(builder.currentFunction, callInstr)
                 return resReg
             }
@@ -1204,6 +1324,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val resReg = ir_alloc_register(builder.currentFunction, "string")
                 callInstr.dest = resReg
                 callInstr.operand1 = ir_string("orbit_string_slice")
+                callInstr.operand2 = ir_int(3)
                 ir_emit(builder.currentFunction, callInstr)
                 return resReg
             }
@@ -1309,7 +1430,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 }
                 // Check if it's an uppercase (type/enum constant)
                 val fc0 = lit.text.at(0)
-                if fc0 >= "A".at(0) && fc0 <= "Z".at(0) {
+                if fc0 >= 65 && fc0 <= 90 {
                     val typeReg = ir_alloc_register(builder.currentFunction, lit.text)
                     val loadConst = ir_init_instr(IROpcode.load_const)
                     loadConst.dest = typeReg
@@ -1329,7 +1450,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val litInstr = ir_init_instr(IROpcode.load_const)
             litInstr.dest = litReg
             if lit.valType == "string" {
-                litInstr.operand1 = ir_string(unescapeString(lit.text))
+                val unesc = unescapeString(lit.text)
+                litInstr.operand1 = ir_string(unesc)
             } else {
                 litInstr.operand1 = ir_symbol(lit.text)
             }
@@ -1430,11 +1552,13 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val memberText = ma.field
             // Check if object is uppercase (type/enum constant reference like Type.Variant)
             var enumConstName = ""
+            var enumOwnerName = ""
             match ma.object {
                 ASTNode.Literal(lit) => {
                     if lit.valType == "identifier" {
                         val fc = lit.text.at(0)
-                        if fc >= "A".at(0) && fc <= "Z".at(0) {
+                        if fc >= 65 && fc <= 90 {
+                            enumOwnerName = lit.text
                             enumConstName = lit.text + "_TAG_" + memberText
                         }
                     }
@@ -1442,7 +1566,23 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 _ => {}
             }
             if enumConstName != "" {
-                // Enum/Union variant reference: Type.Variant -> Type_TAG_Variant constant
+                // A payload-less variant of a tagged union used as a VALUE must
+                // build a real variant node, exactly like Type.Variant(payload)
+                // does in buildCall. Emitting the bare Type_TAG_Variant integer
+                // here produced values that consumers later dereferenced as node
+                // pointers (checkNode reading ->tag off the raw int 38).
+                // Plain enums (IROpcode, TokType, ...) are genuine C enums and
+                // keep loading the constant.
+                if isUnionTypeName(builder, enumOwnerName) {
+                    val ctorReg = ir_alloc_register(builder.currentFunction, "void*")
+                    val ctorCall = ir_init_instr(IROpcode.call)
+                    ctorCall.dest = ctorReg
+                    ctorCall.operand1 = ir_string(memberText)
+                    ctorCall.operand2 = ir_int(0)
+                    ir_emit(builder.currentFunction, ctorCall)
+                    return ctorReg
+                }
+                // Enum constant reference: Type.Variant -> Type_TAG_Variant
                 val reg = ir_alloc_register(builder.currentFunction, "unknown")
                 val instr = ir_init_instr(IROpcode.load_var)
                 instr.dest = reg
@@ -1463,14 +1603,15 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             }
             fieldInstr.operand2 = ir_symbol(fieldRef)
             ir_emit(builder.currentFunction, fieldInstr)
-            if modelFieldIsUnion(builder, memberText) {
-                val tagReg = ir_alloc_register(builder.currentFunction, "int")
-                val tagInstr = ir_init_instr(IROpcode.union_get_tag)
-                tagInstr.dest = tagReg
-                tagInstr.operand1 = ir_register(fieldReg)
-                ir_emit(builder.currentFunction, tagInstr)
-                return tagReg
-            }
+            // A field access must evaluate to the field's VALUE, never to a union tag.
+            // Extracting the tag here discarded the node pointer and returned a bare
+            // integer (e.g. ASTNode_TAG_Literal == 22), which then got passed to
+            // functions expecting an ASTNode and crashed on the first tag read.
+            // Callers that genuinely need the tag already emit union_get_tag on the
+            // scrutinee themselves: see buildMatchStatement and buildMatchExpr, which
+            // both emit union_get_tag AND union_get_data from the register returned
+            // here. Doing it early also broke `match x.field { ... }`, since that
+            // would have read the tag of a tag.
             return fieldReg
         }
         ASTNode.ListLiteral(ll) => {

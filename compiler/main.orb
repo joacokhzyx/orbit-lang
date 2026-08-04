@@ -138,13 +138,16 @@ fn main() {
 
     print("[selfhost] Compiling " + inputPath + " -> " + outputPath)
 
+    print("[main] Reading file " + inputPath)
     val source = orbit_file_read_selfhost(inputPath)
+    print("[main] Read complete, length=" + orbit_int_to_string_selfhost(source.len()))
     if source == "" {
         print("Error: Could not read input file: " + inputPath)
         orbit_os_exit_selfhost(1)
         return
     }
 
+    print("[main] Calling compileSourceWithFile")
     if compileSourceWithFile(source, inputPath, outputPath) {
         print("[selfhost] Compilation successful: " + outputPath)
     } else {

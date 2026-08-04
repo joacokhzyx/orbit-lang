@@ -133,7 +133,7 @@ fn tirIntText(value: int) -> string {
     var result = ""
     while remaining > 0 {
         val digit = remaining - (remaining / 10) * 10
-        result = "0123456789".slice(digit, digit + 1) + result
+        result = orbit_string_slice("0123456789", digit, digit + 1) + result
         remaining = remaining / 10
     }
     return result

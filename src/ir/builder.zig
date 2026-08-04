@@ -1136,6 +1136,7 @@ pub const IRBuilder = struct {
                     var call_instr = IRInstruction.init(.call);
                     call_instr.dest = reg;
                     call_instr.operand1 = IRValue{ .string = "orbit_string_at" };
+                    call_instr.operand2 = IRValue{ .int = 2 };
                     try self.current_function.?.emit(self.allocator, call_instr);
                     return IRValue{ .register = reg };
                 }
@@ -1161,6 +1162,7 @@ pub const IRBuilder = struct {
                     var call_instr = IRInstruction.init(.call);
                     call_instr.dest = reg;
                     call_instr.operand1 = IRValue{ .string = "orbit_string_slice" };
+                    call_instr.operand2 = IRValue{ .int = 3 };
                     try self.current_function.?.emit(self.allocator, call_instr);
                     return IRValue{ .register = reg };
                 }
@@ -1181,6 +1183,7 @@ pub const IRBuilder = struct {
                     var call_instr = IRInstruction.init(.call);
                     call_instr.dest = reg;
                     call_instr.operand1 = IRValue{ .string = "orbit_string_indexOf" };
+                    call_instr.operand2 = IRValue{ .int = 2 };
                     try self.current_function.?.emit(self.allocator, call_instr);
                     return IRValue{ .register = reg };
                 }
@@ -1260,9 +1263,9 @@ pub const IRBuilder = struct {
                 }
             }
         }
-
         var func_name: []const u8 = "";
         var is_custom_member_call = false;
+        var num_total_args: usize = node.data.call.args.len;
 
         if (node.data.call.func.tag == .member_access) {
             const ma = node.data.call.func.data.member_access;
@@ -1381,6 +1384,14 @@ pub const IRBuilder = struct {
         }
 
         if (!is_custom_member_call) {
+            if (node.data.call.func.tag == .member_access) {
+                const ma = node.data.call.func.data.member_access;
+                const obj_val = try self.buildExpr(ma.object);
+                var obj_arg = IRInstruction.init(.arg);
+                obj_arg.operand1 = obj_val;
+                try self.current_function.?.emit(self.allocator, obj_arg);
+                num_total_args += 1;
+            }
             var param_vals = try self.allocator.alloc(IRValue, node.data.call.args.len);
             defer self.allocator.free(param_vals);
             for (node.data.call.args, 0..) |arg, i| {
@@ -1454,7 +1465,7 @@ pub const IRBuilder = struct {
         var instr = IRInstruction.init(.call);
         instr.dest = reg;
         instr.operand1 = IRValue{ .string = func_name };
-        instr.operand2 = IRValue{ .int = @intCast(node.data.call.args.len) };
+        instr.operand2 = IRValue{ .int = @intCast(num_total_args) };
         try self.current_function.?.emit(self.allocator, instr);
 
         return IRValue{ .register = reg };

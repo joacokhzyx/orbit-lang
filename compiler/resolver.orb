@@ -24,17 +24,16 @@ fn isVisited(resolver: ModuleResolver, path: string) -> bool {
 }
 
 fn stripQuotes(s: string) -> string {
-    if s.len() >= 2 {
-        val first = s.slice(0, 1)
-        val last = s.slice(s.len() - 1, s.len())
-        if first == "\"" && last == "\"" {
-            return s.slice(1, s.len() - 1)
+    val slen = s.len()
+    if slen >= 2 {
+        if s.at(0) == 34 && s.at(slen - 1) == 34 {
+            return s.slice(1, slen - 1)
         }
     }
     return s
 }
 
-fn getDir(filePath: string) -> string {
+fn lastIndexOfSlash(filePath: string) -> int {
     var lastSlash = -1
     var i = 0
     while i < filePath.len() {
@@ -44,6 +43,11 @@ fn getDir(filePath: string) -> string {
         }
         i = i + 1
     }
+    return lastSlash
+}
+
+fn getDir(filePath: string) -> string {
+    val lastSlash = lastIndexOfSlash(filePath)
     if lastSlash == -1 { return "" }
     return filePath.slice(0, lastSlash)
 }
@@ -51,7 +55,7 @@ fn getDir(filePath: string) -> string {
 fn resolveFilePath(baseDir: string, relPath: string) -> string {
     var cleanRel = stripQuotes(relPath)
     if cleanRel.len() >= 2 {
-        if cleanRel.slice(0, 2) == "./" {
+        if cleanRel.at(0) == 46 && cleanRel.at(1) == 47 {
             cleanRel = cleanRel.slice(2, cleanRel.len())
         }
     }
@@ -66,58 +70,36 @@ fn resolveFilePath(baseDir: string, relPath: string) -> string {
 }
 
 fn normalizePath(p: string) -> string {
-    val mut parts = []
-    var seg = ""
-    var i = 0
-    while i < p.len() + 1 {
-        var c = ""
-        if i < p.len() { c = p.slice(i, i + 1) }
-        else { c = "/" }
-        if c == "/" || c == "\\" {
-            if seg == ".." {
-                if parts.len() > 0 { parts.pop() }
-            } else if seg != "." && seg != "" {
-                parts.push(seg)
-            }
-            seg = ""
+    var s = p
+    while true {
+        val pos = orbit_string_indexOf(s, "/../")
+        if pos == -1 { break }
+        val prefix = s.slice(0, pos)
+        val lastSlash = lastIndexOfSlash(prefix)
+        if lastSlash == -1 {
+            s = s.slice(pos + 4, s.len())
         } else {
-            seg = seg + c
+            s = prefix.slice(0, lastSlash + 1) + s.slice(pos + 4, s.len())
         }
-        i = i + 1
     }
-    var out = ""
-    var j = 0
-    while j < parts.len() {
-        out = out + parts.get(j)
-        if j < parts.len() - 1 { out = out + "/" }
-        j = j + 1
-    }
-    return out
+    return s
 }
 
 fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) -> ASTNode {
     match ast {
         ASTNode.Program(p) => {
-            print("[resolver] Entered Program match with " + orbit_int_to_string_selfhost(p.decls.len()) + " decls, basePath=" + basePath)
-            print("[resolver] step1: init resolvedDecls")
             val mut resolvedDecls = []
-            print("[resolver] step2: getDir")
             val baseDir = getDir(basePath)
             var i = 0
             while i < p.decls.len() {
-                print("[resolver] loop i=" + orbit_int_to_string_selfhost(i))
                 val decl = p.decls.get(i)
-                print("[resolver] got decl")
                 match decl {
                     ASTNode.ImportStmt(imp) => {
-                        print("[resolver] is import, path=" + imp.path)
                         val relPath = stripQuotes(imp.path)
-                        print("[resolver] relPath=" + relPath)
-                        val fullPath = normalizePath(resolveFilePath(baseDir, relPath))
-                        print("[resolver] fullPath=" + fullPath)
+                        val rawRes = resolveFilePath(baseDir, relPath)
+                        val fullPath = normalizePath(rawRes)
                         if isVisited(resolver, fullPath) == false {
                             resolver.visited.push(fullPath)
-                            print("[resolver] Loading import: " + fullPath)
                             val subSource = orbit_file_read_selfhost(fullPath)
                             if subSource == "" {
                                 resolver.errors.push("Could not read imported module: " + relPath)
@@ -144,11 +126,9 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
                 }
                 i = i + 1
             }
-            print("[resolver] Resolved " + orbit_int_to_string_selfhost(resolvedDecls.len()) + " total decls")
             return ASTNode.Program(ProgramNode(resolvedDecls))
         }
         _ => {
-            print("[resolver] WARNING: ast is not a Program node!")
             return ast
         }
     }

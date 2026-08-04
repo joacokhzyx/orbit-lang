@@ -12,8 +12,11 @@ fn compileSource(source: string, outputPath: string) -> bool {
 }
 
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
+    print("[pipeline] initParser start")
     val parser = initParser(source)
+    print("[pipeline] parseProgram start")
     val rawAST = parseProgram(parser)
+    print("[pipeline] parseProgram done")
     print("[pipeline] Parser diagnostics: " + orbit_int_to_string_selfhost(parser.diagnostics.len()))
     var i = 0
     while i < parser.diagnostics.len() {
@@ -86,7 +89,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         cCompiler = "zig cc"
     }
 
-    val compCmd = cCompiler + " -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I src/runtime" + linkFlags + " 2>&1"
+    val compCmd = cCompiler + " -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I src/runtime" + linkFlags + " 2>&1"
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
         print("[pipeline] Compiler output: " + compOutput)
