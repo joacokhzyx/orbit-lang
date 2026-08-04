@@ -19,13 +19,14 @@ val CHAR_UNDERSCORE = 95
 
 model Lexer {
     source: string
+    sourceLen: int
     pos: int
     line: int
     col: int
 }
 
 fn initLexer(source: string) -> Lexer {
-    return Lexer(source, 0, 1, 1)
+    return Lexer(source, source.len(), 0, 1, 1)
 }
 
 fn isWhitespace(c: int) -> bool {
@@ -45,24 +46,24 @@ fn isAlphaNumeric(c: int) -> bool {
 }
 
 fn peek(lexer: Lexer) -> int {
-    if lexer.pos >= lexer.source.len() {
+    if lexer.pos >= lexer.sourceLen {
         return 0
     }
-    return lexer.source.at(lexer.pos)
+    return orbit_string_char_at_selfhost(lexer.source, lexer.pos)
 }
 
 fn peekNext(lexer: Lexer) -> int {
-    if lexer.pos + 1 >= lexer.source.len() {
+    if lexer.pos + 1 >= lexer.sourceLen {
         return 0
     }
-    return lexer.source.at(lexer.pos + 1)
+    return orbit_string_char_at_selfhost(lexer.source, lexer.pos + 1)
 }
 
 fn advance(lexer: Lexer) -> int {
-    if lexer.pos >= lexer.source.len() {
+    if lexer.pos >= lexer.sourceLen {
         return 0
     }
-    val c = lexer.source.at(lexer.pos)
+    val c = orbit_string_char_at_selfhost(lexer.source, lexer.pos)
     lexer.pos = lexer.pos + 1
     if c == 10 {
         lexer.line = lexer.line + 1
@@ -74,7 +75,7 @@ fn advance(lexer: Lexer) -> int {
 }
 
 fn skipWhitespaceAndComments(lexer: Lexer) {
-    while lexer.pos < lexer.source.len() {
+    while lexer.pos < lexer.sourceLen {
         val c = peek(lexer)
         if isWhitespace(c) {
             advance(lexer)
@@ -84,14 +85,14 @@ fn skipWhitespaceAndComments(lexer: Lexer) {
                 if next == 47 { // '//'
                     advance(lexer)
                     advance(lexer)
-                    while lexer.pos < lexer.source.len() && peek(lexer) != 10 {
+                    while lexer.pos < lexer.sourceLen && peek(lexer) != 10 {
                         advance(lexer)
                     }
                 } else if next == 42 { // '/*'
                     advance(lexer)
                     advance(lexer)
                     var depth = 1
-                    while lexer.pos < lexer.source.len() && depth > 0 {
+                    while lexer.pos < lexer.sourceLen && depth > 0 {
                         if peek(lexer) == 47 && peekNext(lexer) == 42 {
                             advance(lexer)
                             advance(lexer)
@@ -190,7 +191,7 @@ fn nextToken(lexer: Lexer) -> Token {
     }
 
     if c == 34 { // '"'
-        while lexer.pos < lexer.source.len() && peek(lexer) != 34 {
+        while lexer.pos < lexer.sourceLen && peek(lexer) != 34 {
             if peek(lexer) == 92 { // '\\'
                 advance(lexer)
             }
