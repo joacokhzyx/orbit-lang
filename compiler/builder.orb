@@ -1214,6 +1214,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     val resReg = ir_alloc_register(builder.currentFunction, "int")
                     lenCall.dest = resReg
                     lenCall.operand1 = ir_string("orbit_string_len")
+                    lenCall.operand2 = ir_int(1)
                     ir_emit(builder.currentFunction, lenCall)
                     return resReg
                 }

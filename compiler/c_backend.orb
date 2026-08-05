@@ -1546,7 +1546,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    { OrbitResult _lr = orbit_list_get(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n"
         }
         IROpcode.list_set => {
-            return "    orbit_list_set(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + "), (void*)(uintptr_t)(" + generateValue(backend, instr.operand3) + "));\n"
+            return "    { void* _tmp = (void*)(uintptr_t)(" + generateValue(backend, instr.operand3) + "); orbit_list_set(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + "), &_tmp); }\n"
         }
         IROpcode.list_len => {
             if isStringOperand(backend, instr.operand1) {
