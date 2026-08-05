@@ -4,6 +4,7 @@ zig-out/
 
 # Native build artifacts
 *.exe
+*.exe.c
 *.pdb
 *.o
 *.obj
