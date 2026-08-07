@@ -1530,17 +1530,11 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    { OrbitResult _lr = orbit_list_create(arena, sizeof(void*), " + generateValue(backend, instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? (OrbitList*)_lr.value : NULL; }\n"
         }
         IROpcode.list_push => {
-            match instr.operand2 {
-                IRValue.Register(r) => {
-                    return "    { const void* _e = &" + generateValue(backend, instr.operand2) + "; orbit_list_push(" + generateValue(backend, instr.operand1) + ", _e); }\n"
-                }
-                IRValue.Int(m) => {
-                    return "    { orbit_int _tmp = " + orbit_int_to_string_selfhost(m.value) + "; orbit_list_push(" + generateValue(backend, instr.operand1) + ", &_tmp); }\n"
-                }
-                _ => {
-                    return "    { void* _tmp = (void*)(uintptr_t)(" + generateValue(backend, instr.operand2) + "); orbit_list_push(" + generateValue(backend, instr.operand1) + ", &_tmp); }\n"
-                }
-            }
+            // Orbit lists use pointer-sized slots. Never pass the address of a
+            // 32-bit register directly: orbit_list_push copies one full slot,
+            // which otherwise reads past the stack variable for int/bool values.
+            val stored = generateValue(backend, instr.operand2)
+            return "    { uintptr_t _tmp = (uintptr_t)(" + stored + "); orbit_list_push(" + generateValue(backend, instr.operand1) + ", &_tmp); }\n"
         }
         IROpcode.list_get => {
             return "    { OrbitResult _lr = orbit_list_get(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n"
@@ -1772,6 +1766,7 @@ fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
 }
 
 fn isStringReturningFunction(name: string) -> bool {
+    if name == "slice" { return true }
     if name == "generateValue" { return true }
     if name == "escapeString" { return true }
     if name == "unescapeString" { return true }

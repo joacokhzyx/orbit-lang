@@ -276,16 +276,16 @@ fn variantPayloadType(builder: IRBuilder, tagName: string) -> string {
 }
 
 fn fieldOwnerForObject(builder: IRBuilder, obj: ASTNode, fieldName: string) -> string {
-    match obj {
-        ASTNode.Literal(lit) => {
-            if lit.valType == "identifier" {
-                val objType = lookupVariable(builder, lit.text)
-                if objType != "unknown" && modelHasField(builder, objType, fieldName) {
-                    return objType
-                }
-            }
-        }
-        _ => {}
+    // Resolve the type of the actual receiver expression, not only bare
+    // variables. This preserves the owner in IR for chained accesses such as
+    // `parser.currentToken.line`; otherwise C generation falls back to a
+    // global field-name lookup and can cast a Token as an unrelated model.
+    val objType = resolveExprType(builder, obj)
+    if objType != "unknown" && modelHasField(builder, objType, fieldName) {
+        return objType
+    }
+    if fieldName == "line" || fieldName == "col" {
+        print("[field-owner-miss] " + fieldName + " receiver=" + objType)
     }
     return ""
 }

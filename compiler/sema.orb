@@ -283,6 +283,10 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
     }
 }
 
+fn sameString(left: string, right: string) -> bool {
+    return left == right
+}
+
 fn checkMatch(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Match(m) => {
@@ -362,7 +366,7 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                             var found = false
                             var ck = 0
                             while ck < coveredVariants.len() {
-                                if coveredVariants.get(ck) == variant {
+                                if sameString(coveredVariants.get(ck), variant) {
                                     found = true
                                 }
                                 ck = ck + 1

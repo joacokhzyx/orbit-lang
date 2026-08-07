@@ -1836,7 +1836,8 @@ fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []
         return err;
     };
     defer src_file.close(io);
-    const len = try src_file.length(io);
+    const source_stat = try src_file.stat(io);
+    const len = source_stat.size;
     const buffer = try allocator.alloc(u8, len);
     defer allocator.free(buffer);
 
@@ -1853,6 +1854,7 @@ fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []
             var writer = std.Io.File.Writer.init(dest_file, io, &write_buf);
             try writer.interface.writeAll(buffer);
             try writer.flush();
+            try dest_file.setPermissions(io, source_stat.permissions);
             return;
         } else |err| {
             if (err == error.AccessDenied and attempts < 9) {

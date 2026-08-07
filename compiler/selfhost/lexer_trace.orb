@@ -1,0 +1,16 @@
+import "../extern.orb"
+import "../lexer.orb"
+
+fn main() {
+    val source = orbit_file_read_selfhost("compiler/main.orb")
+    val lexer = initLexer(source)
+    var i = 0
+    while i < 400 {
+        val tok = nextToken(lexer)
+        print(orbit_int_to_string_selfhost(i) + "|" + orbit_int_to_string_selfhost(tok.line) + ":" + orbit_int_to_string_selfhost(tok.col) + "|" + tokTypeToString(tok.tag) + "|" + tok.text)
+        if tok.tag == TokType.EOF {
+            break
+        }
+        i = i + 1
+    }
+}

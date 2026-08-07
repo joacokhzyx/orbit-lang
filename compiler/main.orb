@@ -23,6 +23,24 @@ fn frontendOutputPath() -> string {
     return "orbit.tir"
 }
 
+fn runLexTrace() {
+    val inputPath = orbit_os_argv_selfhost(2)
+    val source = orbit_file_read_selfhost(inputPath)
+    val lexer = initLexer(source)
+    var i = 0
+    while i < 2000 {
+        val tok = nextToken(lexer)
+        print(orbit_int_to_string_selfhost(i))
+        print(orbit_int_to_string_selfhost(tok.line))
+        print(orbit_int_to_string_selfhost(tok.col))
+        print(orbit_int_to_string_selfhost(tok.tag))
+        if tok.tag == TokType.EOF {
+            break
+        }
+        i = i + 1
+    }
+}
+
 fn runFrontend() {
     val inputPath = orbit_os_argv_selfhost(2)
     if inputPath == "" {
@@ -104,6 +122,11 @@ fn main() {
 
         if arg == "frontend" {
             runFrontend()
+            return
+        }
+
+        if arg == "lextrace" {
+            runLexTrace()
             return
         }
 

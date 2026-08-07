@@ -48,17 +48,9 @@ pub const SIMDStringPass = struct {
     }
 
     fn optimizeFunction(self: *SIMDStringPass, func: *IRFunction) !void {
-        var i: usize = 0;
-        while (i < func.instructions.items.len) {
-            const instr = func.instructions.items[i];
-
-            // Detect string concatenation, string comparison, or array/list scans
-            if (instr.opcode == .list_get or instr.opcode == .list_set) {
-                func.instructions.items[i].operand3 = IRValue{ .symbol = "_simd_opt_" };
-                self.vectorized_count += 1;
-            }
-
-            i += 1;
-        }
+        // Disabled: this stub was corrupting list_set/list_get instructions
+        // by replacing operand3 with an uninitialized _simd_opt_ symbol.
+        _ = self;
+        _ = func;
     }
 };
