@@ -420,7 +420,7 @@ pub const Sema = struct {
             const ann_str = try ast.formatTypeExpr(self.allocator, type_ann, self.source);
             defer self.allocator.free(ann_str);
             const ann_type = try self.internString(ann_str);
-            
+
             if (!std.mem.eql(u8, final_type, "unknown")) {
                 if (!self.type_checker.checkCompatibility(ann_type, final_type)) {
                     return error.TypeMismatch;

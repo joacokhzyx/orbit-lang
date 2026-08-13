@@ -74,10 +74,10 @@ pub const RegisterAllocator = struct {
         };
         errdefer res_func.deinit(self.allocator);
 
-        const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
-        const r11_phys = LirRegister{ .id = @intFromEnum(RegisterId.r11), .is_physical = true };
-        const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
-        const rsp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rsp), .is_physical = true };
+        const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+        const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
+        const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
+        const rsp_phys = LirRegister{ .id = @backingInt(RegisterId.rsp), .is_physical = true };
 
         for (func.blocks.items, 0..) |*block, block_idx| {
             var res_block = LirBasicBlock{ .id = block.id };
@@ -87,19 +87,19 @@ pub const RegisterAllocator = struct {
                 // Emit prologue:
                 // push rbp
                 try res_block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.push_r),
+                    .opcode = @backingInt(X86Opcode.push_r),
                     .op1 = .{ .reg = rbp_phys },
                 });
                 // mov rbp, rsp
                 try res_block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.mov_rr),
+                    .opcode = @backingInt(X86Opcode.mov_rr),
                     .dest = rbp_phys,
                     .op1 = .{ .reg = rsp_phys },
                 });
                 // sub rsp, stack_size
                 if (func.stack_size > 0) {
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.sub_ri),
+                        .opcode = @backingInt(X86Opcode.sub_ri),
                         .dest = rsp_phys,
                         .op1 = .{ .imm_int = func.stack_size },
                     });
@@ -108,18 +108,18 @@ pub const RegisterAllocator = struct {
 
             for (block.instructions.items) |instr| {
                 // If it is a return or direct jump/nop, emit as-is
-                const opcode: X86Opcode = @enumFromInt(instr.opcode);
+                const opcode: X86Opcode = @fromBackingInt(@intCast(instr.opcode));
                 if (opcode == .ret) {
                     // Emit epilogue:
                     // mov rsp, rbp
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = rsp_phys,
                         .op1 = .{ .reg = rbp_phys },
                     });
                     // pop rbp
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.pop_r),
+                        .opcode = @backingInt(X86Opcode.pop_r),
                         .op1 = .{ .reg = rbp_phys },
                     });
                     try res_block.instructions.append(self.allocator, instr);
@@ -148,7 +148,7 @@ pub const RegisterAllocator = struct {
 
                     // Emit load: mov R11, [RBP - offset]
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rm),
+                        .opcode = @backingInt(X86Opcode.mov_rm),
                         .dest = r11_phys,
                         .op1 = .{ .mem = .{ .base = rbp_phys, .disp = offset } },
                     });
@@ -167,7 +167,7 @@ pub const RegisterAllocator = struct {
                         if (destIsRead(opcode)) {
                             // Emit load: mov RAX, [RBP - offset]
                             try res_block.instructions.append(self.allocator, .{
-                                .opcode = @intFromEnum(X86Opcode.mov_rm),
+                                .opcode = @backingInt(X86Opcode.mov_rm),
                                 .dest = rax_phys,
                                 .op1 = .{ .mem = .{ .base = rbp_phys, .disp = offset } },
                             });
@@ -189,7 +189,7 @@ pub const RegisterAllocator = struct {
 
                         // Emit store: mov [RBP - offset], RAX
                         try res_block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.mov_mr),
+                            .opcode = @backingInt(X86Opcode.mov_mr),
                             .op1 = .{ .mem = .{ .base = rbp_phys, .disp = offset } },
                             .op2 = .{ .reg = rax_phys },
                         });
@@ -238,7 +238,9 @@ pub const RegisterAllocator = struct {
         var max_virt: u32 = 0;
         for (func.blocks.items) |*blk| {
             for (blk.instructions.items) |instr| {
-                if (instr.dest) |d| if (!d.is_physical and d.id > max_virt) { max_virt = d.id; };
+                if (instr.dest) |d| if (!d.is_physical and d.id > max_virt) {
+                    max_virt = d.id;
+                };
                 inline for (.{ instr.op1, instr.op2, instr.op3 }) |op| {
                     if (op == .reg and !op.reg.is_physical and op.reg.id > max_virt) {
                         max_virt = op.reg.id;
@@ -259,14 +261,20 @@ pub const RegisterAllocator = struct {
             if (instr.dest) |d| {
                 if (!d.is_physical) {
                     const iv = &intervals[d.id];
-                    if (!iv.live) { iv.start = pp; iv.live = true; }
+                    if (!iv.live) {
+                        iv.start = pp;
+                        iv.live = true;
+                    }
                     if (pp > iv.end) iv.end = pp;
                 }
             }
             inline for (.{ instr.op1, instr.op2, instr.op3 }) |op| {
                 if (op == .reg and !op.reg.is_physical) {
                     const iv = &intervals[op.reg.id];
-                    if (!iv.live) { iv.start = pp; iv.live = true; }
+                    if (!iv.live) {
+                        iv.start = pp;
+                        iv.live = true;
+                    }
                     if (pp > iv.end) iv.end = pp;
                 }
             }
@@ -304,7 +312,7 @@ pub const RegisterAllocator = struct {
         for (sorted_ids) |vid| {
             if (!intervals[vid].live) continue;
             const cur_start = intervals[vid].start;
-            const cur_end   = intervals[vid].end;
+            const cur_end = intervals[vid].end;
 
             // Expire intervals that ended before cur_start.
             for (&active, 0..) |*ae, pi| {
@@ -318,11 +326,14 @@ pub const RegisterAllocator = struct {
             // Find a free physical register.
             var assigned: ?usize = null;
             for (phys_free, 0..) |free, pi| {
-                if (free) { assigned = pi; break; }
+                if (free) {
+                    assigned = pi;
+                    break;
+                }
             }
 
             if (assigned) |pi| {
-                reg_map[vid] = @intFromEnum(pool[pi]);
+                reg_map[vid] = @backingInt(pool[pi]);
                 phys_free[pi] = false;
                 active[pi] = .{ .virt_id = vid, .end = cur_end };
             } else {
@@ -331,13 +342,16 @@ pub const RegisterAllocator = struct {
                 var spill_end: usize = 0;
                 for (active, 0..) |ae, pi| {
                     if (ae) |a| {
-                        if (a.end > spill_end) { spill_end = a.end; spill_pi = pi; }
+                        if (a.end > spill_end) {
+                            spill_end = a.end;
+                            spill_pi = pi;
+                        }
                     }
                 }
                 if (spill_end > cur_end) {
                     // Spill the active occupant; give its physical register to current.
                     const victim = active[spill_pi].?;
-                    reg_map[vid] = @intFromEnum(pool[spill_pi]);
+                    reg_map[vid] = @backingInt(pool[spill_pi]);
                     reg_map[victim.virt_id] = null;
                     spill_slot[victim.virt_id] = next_spill_slot;
                     next_spill_slot += 1;
@@ -366,10 +380,10 @@ pub const RegisterAllocator = struct {
         // Align to 16 bytes.
         stack_size = (stack_size + 15) & ~@as(u32, 15);
 
-        const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
-        const r11_phys = LirRegister{ .id = @intFromEnum(RegisterId.r11), .is_physical = true };
-        const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
-        const rsp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rsp), .is_physical = true };
+        const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+        const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
+        const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
+        const rsp_phys = LirRegister{ .id = @backingInt(RegisterId.rsp), .is_physical = true };
 
         // Helper: translate a virtual LirRegister into its physical assignment or
         // return a scratch register (R11 for sources, RAX for destinations).
@@ -400,7 +414,7 @@ pub const RegisterAllocator = struct {
         var used_callee_saved = std.ArrayListUnmanaged(RegisterId).empty;
         defer used_callee_saved.deinit(self.allocator);
         for (pool) |reg| {
-            const reg_id_val = @intFromEnum(reg);
+            const reg_id_val = @backingInt(reg);
             var is_used = false;
             for (reg_map) |m| {
                 if (m != null and m.? == reg_id_val) {
@@ -420,28 +434,28 @@ pub const RegisterAllocator = struct {
             if (block_idx == 0) {
                 // Prologue: save rbp and callee-saved registers, then establish frame pointer
                 try res_block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.push_r),
+                    .opcode = @backingInt(X86Opcode.push_r),
                     .op1 = .{ .reg = rbp_phys },
                 });
 
                 // Preserve callee-saved registers used in this function
                 for (used_callee_saved.items) |reg| {
-                    const reg_phys = LirRegister{ .id = @intFromEnum(reg), .is_physical = true };
+                    const reg_phys = LirRegister{ .id = @backingInt(reg), .is_physical = true };
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.push_r),
+                        .opcode = @backingInt(X86Opcode.push_r),
                         .op1 = .{ .reg = reg_phys },
                     });
                 }
 
                 try res_block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.mov_rr),
+                    .opcode = @backingInt(X86Opcode.mov_rr),
                     .dest = rbp_phys,
                     .op1 = .{ .reg = rsp_phys },
                 });
 
                 if (stack_size > 0) {
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.sub_ri),
+                        .opcode = @backingInt(X86Opcode.sub_ri),
                         .dest = rsp_phys,
                         .op1 = .{ .imm_int = stack_size },
                     });
@@ -449,12 +463,12 @@ pub const RegisterAllocator = struct {
             }
 
             for (block.instructions.items) |instr| {
-                const opcode: X86Opcode = @enumFromInt(instr.opcode);
+                const opcode: X86Opcode = @fromBackingInt(@intCast(instr.opcode));
 
                 if (opcode == .ret) {
                     // Epilogue: restore rsp to rbp, pop callee-saved registers, pop rbp, then ret
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = rsp_phys,
                         .op1 = .{ .reg = rbp_phys },
                     });
@@ -463,15 +477,15 @@ pub const RegisterAllocator = struct {
                     while (idx > 0) {
                         idx -= 1;
                         const reg = used_callee_saved.items[idx];
-                        const reg_phys = LirRegister{ .id = @intFromEnum(reg), .is_physical = true };
+                        const reg_phys = LirRegister{ .id = @backingInt(reg), .is_physical = true };
                         try res_block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.pop_r),
+                            .opcode = @backingInt(X86Opcode.pop_r),
                             .op1 = .{ .reg = reg_phys },
                         });
                     }
 
                     try res_block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.pop_r),
+                        .opcode = @backingInt(X86Opcode.pop_r),
                         .op1 = .{ .reg = rbp_phys },
                     });
                     try res_block.instructions.append(self.allocator, instr);
@@ -490,7 +504,7 @@ pub const RegisterAllocator = struct {
                     const vr = instr.op1.reg;
                     if (slotOffset(spill_slot, vr)) |off| {
                         try res_block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.mov_rm),
+                            .opcode = @backingInt(X86Opcode.mov_rm),
                             .dest = r11_phys,
                             .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
                         });
@@ -505,7 +519,7 @@ pub const RegisterAllocator = struct {
                     const vr = instr.op2.reg;
                     if (slotOffset(spill_slot, vr)) |off| {
                         try res_block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.mov_rm),
+                            .opcode = @backingInt(X86Opcode.mov_rm),
                             .dest = r11_phys,
                             .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
                         });
@@ -524,7 +538,7 @@ pub const RegisterAllocator = struct {
                             // Load old value first for read-modify-write opcodes.
                             if (destIsRead(opcode)) {
                                 try res_block.instructions.append(self.allocator, .{
-                                    .opcode = @intFromEnum(X86Opcode.mov_rm),
+                                    .opcode = @backingInt(X86Opcode.mov_rm),
                                     .dest = rax_phys,
                                     .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
                                 });
@@ -547,7 +561,7 @@ pub const RegisterAllocator = struct {
                 if (dest_spill_off) |off| {
                     if (destIsWritten(opcode)) {
                         try res_block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.mov_mr),
+                            .opcode = @backingInt(X86Opcode.mov_mr),
                             .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
                             .op2 = .{ .reg = rax_phys },
                         });

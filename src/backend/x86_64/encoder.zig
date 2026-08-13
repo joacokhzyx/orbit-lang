@@ -100,7 +100,7 @@ pub const Encoder = struct {
     }
 
     fn encodeInstruction(self: *Encoder, instr: LirInstruction, relocs: *std.ArrayListUnmanaged(Relocation)) !void {
-        const opcode: X86Opcode = @enumFromInt(instr.opcode);
+        const opcode: X86Opcode = @fromBackingInt(@intCast(instr.opcode));
 
         switch (opcode) {
             .nop => {
@@ -113,8 +113,8 @@ pub const Encoder = struct {
                 try self.appendSlice(&.{ 0x0F, 0x0B });
             },
             .push_r => {
-                const reg: RegisterId = @enumFromInt(instr.op1.reg.id);
-                const reg_val = @intFromEnum(reg);
+                const reg: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
+                const reg_val = @backingInt(reg);
                 if (reg_val >= 8) {
                     const rex = Rex{ .b = true };
                     try self.append(rex.toByte());
@@ -122,8 +122,8 @@ pub const Encoder = struct {
                 try self.append(0x50 + @as(u8, @intCast(reg_val & 7)));
             },
             .pop_r => {
-                const reg: RegisterId = @enumFromInt(instr.op1.reg.id);
-                const reg_val = @intFromEnum(reg);
+                const reg: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
+                const reg_val = @backingInt(reg);
                 if (reg_val >= 8) {
                     const rex = Rex{ .b = true };
                     try self.append(rex.toByte());
@@ -131,8 +131,8 @@ pub const Encoder = struct {
                 try self.append(0x58 + @as(u8, @intCast(reg_val & 7)));
             },
             .mov_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 if (dest == src) return; // Peephole: skip redundant self-moves
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
@@ -140,7 +140,7 @@ pub const Encoder = struct {
                 try self.append(enc.modrm.toByte());
             },
             .mov_ri => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
 
                 // Peephole optimization: mov reg, 0 -> xor reg, reg (2-3 bytes instead of 10 bytes)
                 if (instr.op1 == .imm_int and instr.op1.imm_int == 0) {
@@ -151,7 +151,7 @@ pub const Encoder = struct {
                     return;
                 }
 
-                const dest_val = @intFromEnum(dest);
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
                 try self.append(0xB8 + @as(u8, @intCast(dest_val & 7)));
@@ -175,8 +175,8 @@ pub const Encoder = struct {
             },
             .mov_rm => {
                 // mov reg, [base + disp] -> 0x8B
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const base: RegisterId = @enumFromInt(instr.op1.mem.base.?.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
                 const disp = instr.op1.mem.disp;
 
                 const enc = encodeRegMem(true, dest, base, disp);
@@ -188,9 +188,9 @@ pub const Encoder = struct {
             },
             .mov_mr => {
                 // mov [base + disp], reg -> 0x89
-                const base: RegisterId = @enumFromInt(instr.op1.mem.base.?.id);
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
                 const disp = instr.op1.mem.disp;
-                const src: RegisterId = @enumFromInt(instr.op2.reg.id);
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op2.reg.id));
 
                 const enc = encodeRegMem(true, src, base, disp);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
@@ -201,16 +201,16 @@ pub const Encoder = struct {
             },
             .movzx_rr => {
                 // movzx reg64, reg8 -> 0x0F 0xB6 /r
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, dest, src);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.appendSlice(&.{ 0x0F, 0xB6 });
                 try self.append(enc.modrm.toByte());
             },
             .lea => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const base: RegisterId = @enumFromInt(instr.op1.mem.base.?.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
                 const disp = instr.op1.mem.disp;
 
                 const enc = encodeRegMem(true, dest, base, disp);
@@ -221,17 +221,17 @@ pub const Encoder = struct {
                 try self.writeDisp(disp, enc.disp_bytes);
             },
             .add_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x01);
                 try self.append(enc.modrm.toByte());
             },
             .add_ri => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
                 const val = instr.op1.imm_int;
-                const dest_val = @intFromEnum(dest);
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
 
@@ -250,17 +250,17 @@ pub const Encoder = struct {
                 }
             },
             .sub_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x29);
                 try self.append(enc.modrm.toByte());
             },
             .sub_ri => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
                 const val = instr.op1.imm_int;
-                const dest_val = @intFromEnum(dest);
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
 
@@ -279,16 +279,16 @@ pub const Encoder = struct {
                 }
             },
             .imul_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, dest, src);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.appendSlice(&.{ 0x0F, 0xAF });
                 try self.append(enc.modrm.toByte());
             },
             .idiv_r => {
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
-                const src_val = @intFromEnum(src);
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
+                const src_val = @backingInt(src);
                 const rex = Rex{ .w = true, .b = src_val >= 8 };
                 try self.append(rex.toByte());
                 try self.append(0xF7);
@@ -296,41 +296,41 @@ pub const Encoder = struct {
                 try self.append(modrm.toByte());
             },
             .xor_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x31);
                 try self.append(enc.modrm.toByte());
             },
             .and_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x21);
                 try self.append(enc.modrm.toByte());
             },
             .or_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x09);
                 try self.append(enc.modrm.toByte());
             },
             .cmp_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x39);
                 try self.append(enc.modrm.toByte());
             },
             .cmp_ri => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
                 const val = instr.op1.imm_int;
-                const dest_val = @intFromEnum(dest);
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
 
@@ -349,16 +349,16 @@ pub const Encoder = struct {
                 }
             },
             .test_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const enc = encodeRegReg(true, src, dest);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.append(0x85);
                 try self.append(enc.modrm.toByte());
             },
             .sete_r, .setne_r, .setl_r, .setle_r, .setg_r, .setge_r => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const dest_val = @intFromEnum(dest);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const dest_val = @backingInt(dest);
                 if (dest_val >= 4) {
                     const rex = Rex{ .b = dest_val >= 8 };
                     try self.append(rex.toByte());
@@ -420,8 +420,8 @@ pub const Encoder = struct {
                         .addend = -4,
                     });
                 } else {
-                    const reg: RegisterId = @enumFromInt(instr.op1.reg.id);
-                    const reg_val = @intFromEnum(reg);
+                    const reg: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
+                    const reg_val = @backingInt(reg);
                     const rex = Rex{ .b = reg_val >= 8 };
                     if (rex.required()) try self.append(rex.toByte());
                     try self.append(0xFF);
@@ -431,8 +431,8 @@ pub const Encoder = struct {
             },
             .shl_r => {
                 // shl reg, cl -> REX.W 0xD3 /4
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const dest_val = @intFromEnum(dest);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
                 try self.append(0xD3);
@@ -441,8 +441,8 @@ pub const Encoder = struct {
             },
             .shr_r => {
                 // shr reg, cl -> REX.W 0xD3 /5
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const dest_val = @intFromEnum(dest);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
                 try self.append(0xD3);
@@ -451,8 +451,8 @@ pub const Encoder = struct {
             },
             .neg_r => {
                 // neg reg -> REX.W 0xF7 /3
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const dest_val = @intFromEnum(dest);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
                 try self.append(0xF7);
@@ -461,8 +461,8 @@ pub const Encoder = struct {
             },
             .not_r => {
                 // not reg -> REX.W 0xF7 /2
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const dest_val = @intFromEnum(dest);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const dest_val = @backingInt(dest);
                 const rex = Rex{ .w = true, .b = dest_val >= 8 };
                 try self.append(rex.toByte());
                 try self.append(0xF7);
@@ -475,8 +475,8 @@ pub const Encoder = struct {
                 try self.append(0x99);
             },
             .movsd_rr, .addsd_rr, .subsd_rr, .mulsd_rr, .divsd_rr => {
-                const dest: RegisterId = @enumFromInt(instr.dest.?.id);
-                const src: RegisterId = @enumFromInt(instr.op1.reg.id);
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
                 const op_byte: u8 = switch (opcode) {
                     .movsd_rr => 0x10,
                     .addsd_rr => 0x58,

@@ -157,11 +157,11 @@ pub const DeclarationParser = struct {
         while (!self.check(.CloseBracket) and !self.check(.EOF)) {
             const name = try self.consume(.Identifier);
             var constraint: ?Token = null;
-                if (self.match(.Colon)) {
-                    const type_expr = try self.parseTypeExpr();
-                    // We extract the base token text or just keep the token if needed
-                    constraint = type_expr.data.type_expr.base;
-                }
+            if (self.match(.Colon)) {
+                const type_expr = try self.parseTypeExpr();
+                // We extract the base token text or just keep the token if needed
+                constraint = type_expr.data.type_expr.base;
+            }
             const node = try self.allocator.create(Node);
             node.* = .{
                 .tag = .generic_param,
@@ -748,7 +748,7 @@ pub const DeclarationParser = struct {
                             // What we parsed was the name. The real type is next.
                             payload_type = try self.parseTypeExpr();
                         }
-                        
+
                         try payloads.append(self.allocator, payload_type);
 
                         if (!self.match(.Comma)) break;
@@ -778,8 +778,6 @@ pub const DeclarationParser = struct {
         };
         return node;
     }
-
-
 
     // ─── Token classification helpers ─────────────────────────────────────
 

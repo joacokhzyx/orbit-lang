@@ -1246,3 +1246,357 @@ test "superluminal.cteval_fib_output_consumption" {
     try std.testing.expect(std.mem.indexOf(u8, c_code, "102334155") != null);
 }
 
+// -----------------------------------------------------------------------------
+// ir/optimizer.zig unit tests
+// -----------------------------------------------------------------------------
+
+const optimizer_mod = @import("ir/optimizer.zig");
+
+fn allocInstr(opcode: IROpcode, dest: ?u32, o1: IRValue, o2: IRValue) IRInstruction {
+    return IRInstruction{ .opcode = opcode, .dest = dest, .operand1 = o1, .operand2 = o2, .operand3 = .none };
+}
+
+test "ir.optimizer.constant_folding_add_consts" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    var module = ir.IRModule.init(allocator);
+    var func = ir.IRFunction.init(allocator, "f");
+    try func.emit(allocator, allocInstr(.add, 0, IRValue{ .int = 2 }, IRValue{ .int = 3 }));
+    try module.addFunction(func);
+
+    var folder = optimizer_mod.ConstantFolder.init(allocator);
+    try folder.optimize(&module);
+
+    const out = module.functions.items[0].instructions.items[0];
+    try std.testing.expect(out.opcode == .load_const);
+    try std.testing.expect(out.operand1 == .int and out.operand1.int == 5);
+    try std.testing.expect(folder.folded_count == 1);
+    module.deinit();
+}
+
+test "ir.optimizer.constant_folding_identity" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    var module = ir.IRModule.init(allocator);
+    var func = ir.IRFunction.init(allocator, "f");
+    // x + 0 -> copy x ; x - x -> 0 ; x * 2 -> x + x
+    try func.emit(allocator, allocInstr(.add, 0, IRValue{ .register = 5 }, IRValue{ .int = 0 }));
+    try func.emit(allocator, allocInstr(.sub, 1, IRValue{ .int = 9 }, IRValue{ .int = 9 }));
+    try func.emit(allocator, allocInstr(.mul, 2, IRValue{ .register = 6 }, IRValue{ .int = 2 }));
+    try module.addFunction(func);
+
+    var folder = optimizer_mod.ConstantFolder.init(allocator);
+    try folder.optimize(&module);
+
+    const insts = module.functions.items[0].instructions.items;
+    try std.testing.expect(insts[0].opcode == .copy and insts[0].operand1 == .register and insts[0].operand1.register == 5);
+    try std.testing.expect(insts[1].opcode == .load_const and insts[1].operand1 == .int and insts[1].operand1.int == 0);
+    try std.testing.expect(insts[2].opcode == .add and insts[2].operand2 == .register and insts[2].operand2.register == 6);
+    try std.testing.expect(folder.folded_count == 3);
+    module.deinit();
+}
+
+test "ir.optimizer.dead_code_elimination" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    var module = ir.IRModule.init(allocator);
+    var func = ir.IRFunction.init(allocator, "f");
+    try func.emit(allocator, allocInstr(.load_const, 0, IRValue{ .int = 5 }, .none));
+    try func.emit(allocator, allocInstr(.load_const, 1, IRValue{ .int = 99 }, .none));
+    try func.emit(allocator, allocInstr(.add, 2, IRValue{ .register = 0 }, IRValue{ .register = 0 }));
+    try func.emit(allocator, allocInstr(.ret, 0, IRValue{ .register = 2 }, .none));
+    try module.addFunction(func);
+
+    var dce = optimizer_mod.DeadCodeEliminator.init(allocator);
+    try dce.optimize(&module);
+
+    const insts = module.functions.items[0].instructions.items;
+    try std.testing.expect(insts.len == 3);
+    for (insts) |instr| {
+        if (instr.opcode == .load_const) try std.testing.expect(instr.dest.? != 1);
+    }
+    try std.testing.expect(dce.eliminated_count == 1);
+    module.deinit();
+}
+
+test "ir.optimizer.common_subexpression_elimination" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    var module = ir.IRModule.init(allocator);
+    var func = ir.IRFunction.init(allocator, "f");
+    try func.emit(allocator, allocInstr(.load_const, 0, IRValue{ .int = 2 }, .none));
+    try func.emit(allocator, allocInstr(.load_const, 1, IRValue{ .int = 3 }, .none));
+    try func.emit(allocator, allocInstr(.add, 2, IRValue{ .register = 0 }, IRValue{ .register = 1 }));
+    try func.emit(allocator, allocInstr(.add, 3, IRValue{ .register = 0 }, IRValue{ .register = 1 }));
+    try func.emit(allocator, allocInstr(.ret, 0, IRValue{ .register = 3 }, .none));
+    try module.addFunction(func);
+
+    var cse = optimizer_mod.CommonSubexpressionEliminator.init(allocator);
+    try cse.optimize(&module);
+
+    const insts = module.functions.items[0].instructions.items;
+    try std.testing.expect(insts[3].opcode == .copy);
+    try std.testing.expect(insts[3].operand1 == .register and insts[3].operand1.register == 2);
+    try std.testing.expect(cse.eliminated_count == 1);
+    module.deinit();
+}
+
+// -----------------------------------------------------------------------------
+// Superluminal production pass unit tests
+// -----------------------------------------------------------------------------
+
+test "superluminal.const_prop_folds_registers" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const const_prop = @import("superluminal/const_prop.zig");
+    const prog = [_]IRInstruction{
+        allocInstr(.load_const, 0, IRValue{ .int = 2 }, .none),
+        allocInstr(.load_const, 1, IRValue{ .int = 3 }, .none),
+        allocInstr(.add, 2, IRValue{ .register = 0 }, IRValue{ .register = 1 }),
+        allocInstr(.ret, 0, IRValue{ .register = 2 }, .none),
+    };
+
+    const result = try const_prop.constantPropagation(allocator, &prog);
+    try std.testing.expect(result != null);
+    if (result) |out| {
+        var found = false;
+        for (out) |instr| {
+            if (instr.opcode == .load_const and instr.dest.? == 2) {
+                try std.testing.expect(instr.operand1 == .int and instr.operand1.int == 5);
+                found = true;
+            }
+        }
+        try std.testing.expect(found);
+    }
+}
+
+test "superluminal.cleanup_dce_removes_dead_reg" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const cleanup = @import("superluminal/cleanup.zig");
+    const prog = [_]IRInstruction{
+        allocInstr(.load_const, 0, IRValue{ .int = 5 }, .none),
+        allocInstr(.load_const, 1, IRValue{ .int = 99 }, .none),
+        allocInstr(.add, 2, IRValue{ .register = 0 }, IRValue{ .register = 0 }),
+        allocInstr(.ret, 0, IRValue{ .register = 2 }, .none),
+    };
+
+    const result = try cleanup.deadCodeElimination(allocator, &prog);
+    try std.testing.expect(result != null);
+    if (result) |out| {
+        try std.testing.expect(out.len == 3);
+        for (out) |instr| {
+            if (instr.opcode == .load_const) try std.testing.expect(instr.dest.? != 1);
+        }
+    }
+}
+
+test "superluminal.cleanup_copy_propagation" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const cleanup = @import("superluminal/cleanup.zig");
+    const prog = [_]IRInstruction{
+        allocInstr(.load_const, 0, IRValue{ .int = 7 }, .none),
+        allocInstr(.copy, 1, IRValue{ .register = 0 }, .none),
+        allocInstr(.ret, 0, IRValue{ .register = 1 }, .none),
+    };
+
+    const result = try cleanup.copyPropagation(allocator, &prog);
+    try std.testing.expect(result != null);
+    if (result) |out| {
+        try std.testing.expect(out.len == 3);
+        try std.testing.expect(out[2].operand1 == .register and out[2].operand1.register == 0);
+    }
+}
+
+test "superluminal.branch_opt_dead_jumps" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const branch = @import("superluminal/branch_opt.zig");
+    const prog = [_]IRInstruction{
+        allocInstr(.jump, 0, IRValue{ .int = 10 }, .none),
+        allocInstr(.label, null, IRValue{ .int = 10 }, .none),
+        allocInstr(.ret, 0, IRValue{ .register = 0 }, .none),
+    };
+
+    const result = try branch.eliminateDeadJumps(allocator, &prog);
+    try std.testing.expect(result != null);
+    if (result) |out| {
+        try std.testing.expect(out.len == 2);
+        try std.testing.expect(out[0].opcode == .label);
+    }
+}
+
+test "superluminal.branch_opt_dead_labels" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const branch = @import("superluminal/branch_opt.zig");
+    const prog = [_]IRInstruction{
+        allocInstr(.label, null, IRValue{ .int = 99 }, .none),
+        allocInstr(.ret, 0, IRValue{ .register = 0 }, .none),
+    };
+
+    const result = try branch.eliminateDeadLabels(allocator, &prog);
+    try std.testing.expect(result != null);
+    if (result) |out| {
+        try std.testing.expect(out.len == 1);
+        try std.testing.expect(out[0].opcode == .ret);
+    }
+}
+
+test "superluminal.branch_opt_unreachable_blocks" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const branch = @import("superluminal/branch_opt.zig");
+    const prog = [_]IRInstruction{
+        allocInstr(.ret, 0, IRValue{ .register = 0 }, .none),
+        allocInstr(.label, null, IRValue{ .int = 5 }, .none),
+        allocInstr(.load_const, 0, IRValue{ .int = 1 }, .none),
+    };
+
+    const result = try branch.eliminateUnreachableBlocks(allocator, &prog);
+    try std.testing.expect(result != null);
+    if (result) |out| try std.testing.expect(out.len == 1);
+}
+
+test "superluminal.licm_hoists_invariant" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const licm = @import("superluminal/licm.zig");
+    const prog = [_]IRInstruction{
+        allocInstr(.label, null, IRValue{ .int = 10 }, .none),
+        allocInstr(.load_const, 0, IRValue{ .int = 3 }, .none),
+        allocInstr(.add, 2, IRValue{ .register = 0 }, IRValue{ .register = 0 }),
+        allocInstr(.jump, 0, IRValue{ .int = 10 }, .none),
+    };
+
+    const result = try licm.loopInvariantCodeMotion(allocator, &prog);
+    try std.testing.expect(result != null);
+    if (result) |out| {
+        try std.testing.expect(out.len == 4);
+        try std.testing.expect(out[0].opcode == .label);
+        try std.testing.expect(out[1].opcode == .load_const);
+        try std.testing.expect(out[3].opcode == .jump);
+        try std.testing.expect(out[2].dest.? == 2);
+    }
+}
+
+test "superluminal.tco_rewrite_self_tail_call" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const tco = @import("superluminal/tco.zig");
+    var module = ir.IRModule.init(allocator);
+    var func = ir.IRFunction.init(allocator, "fact");
+    func.params = &.{"n"};
+    func.param_types = &.{.int};
+    func.return_type = .int;
+    func.register_count = 4;
+    try func.emit(allocator, allocInstr(.load_var, 0, IRValue{ .string = "n" }, .none));
+    try func.emit(allocator, allocInstr(.arg, null, IRValue{ .register = 1 }, .none));
+    try func.emit(allocator, allocInstr(.call, 2, IRValue{ .string = "fact" }, .none));
+    try func.emit(allocator, allocInstr(.ret, 0, IRValue{ .register = 2 }, .none));
+    try module.addFunction(func);
+
+    var tco_pass = tco.TailCallOptimizer.init(allocator);
+    try tco_pass.optimize(&module);
+
+    try std.testing.expect(tco_pass.tco_count == 1);
+    const insts = module.functions.items[0].instructions.items;
+    // header label + original load_var + param copy + backward jump
+    try std.testing.expect(insts.len == 4);
+    try std.testing.expect(insts[0].opcode == .label);
+    try std.testing.expect(insts[2].opcode == .copy and insts[2].dest.? == 0);
+    try std.testing.expect(insts[3].opcode == .jump);
+    module.deinit();
+}
+
+test "superluminal.memoize_marks_recursive_pure" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const memoize = @import("superluminal/memoize.zig");
+    var module = ir.IRModule.init(allocator);
+    var func = ir.IRFunction.init(allocator, "fib");
+    func.params = &.{"n"};
+    func.param_types = &.{.int};
+    func.return_type = .int;
+    func.register_count = 4;
+    try func.emit(allocator, allocInstr(.load_var, 0, IRValue{ .string = "n" }, .none));
+    try func.emit(allocator, allocInstr(.lt, 1, IRValue{ .register = 0 }, IRValue{ .int = 2 }));
+    try func.emit(allocator, allocInstr(.jump_if_false, null, IRValue{ .register = 1 }, IRValue{ .int = 20 }));
+    try func.emit(allocator, allocInstr(.load_const, 2, IRValue{ .int = 1 }, .none));
+    try func.emit(allocator, allocInstr(.ret, 0, IRValue{ .register = 2 }, .none));
+    try func.emit(allocator, allocInstr(.call, 3, IRValue{ .string = "fib" }, .none));
+    try func.emit(allocator, allocInstr(.ret, 0, IRValue{ .register = 3 }, .none));
+    try module.addFunction(func);
+
+    var memo_pass = memoize.MemoizationPass.init(allocator);
+    try memo_pass.optimize(&module);
+
+    try std.testing.expect(memo_pass.memoized_count == 1);
+    const insts = module.functions.items[0].instructions.items;
+    try std.testing.expect(insts[0].opcode == .nop);
+    try std.testing.expect(memoize.isMemoizable(module.functions.items[0]));
+    try std.testing.expect(memoize.getMemoSize(module.functions.items[0]) == 1024);
+    module.deinit();
+}
+
+test "superluminal.pass_runner_fixed_point_cleanup" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const cleanup = @import("superluminal/cleanup.zig");
+    const branch = @import("superluminal/branch_opt.zig");
+    const runner = @import("superluminal/pass_runner.zig");
+
+    const passes = [_]runner.OptimizationPass{
+        cleanup.passes[0],
+        branch.passes[3],
+        branch.passes[1],
+    };
+
+    const prog = [_]IRInstruction{
+        allocInstr(.load_const, 0, IRValue{ .int = 5 }, .none),
+        allocInstr(.load_const, 1, IRValue{ .int = 99 }, .none),
+        allocInstr(.add, 2, IRValue{ .register = 0 }, IRValue{ .register = 0 }),
+        allocInstr(.jump, 0, IRValue{ .int = 10 }, .none),
+        allocInstr(.label, null, IRValue{ .int = 10 }, .none),
+        allocInstr(.ret, 0, IRValue{ .register = 2 }, .none),
+    };
+
+    const fp = try runner.runFixedPoint(allocator, &prog, &passes, 10);
+    defer allocator.free(fp.instructions);
+    try std.testing.expect(fp.instructions.len == 3);
+    try std.testing.expect(fp.iterations >= 1);
+    try std.testing.expect(fp.passes_run >= 1);
+    for (fp.instructions) |instr| {
+        try std.testing.expect(instr.opcode != .label and instr.opcode != .jump);
+        if (instr.opcode == .load_const) try std.testing.expect(instr.dest.? != 1);
+    }
+}

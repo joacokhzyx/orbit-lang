@@ -164,7 +164,7 @@ fn checkCCompiler(allocator: std.mem.Allocator) CompilerInfo {
     const builtin = @import("builtin");
     const arch_str = @tagName(builtin.cpu.arch);
     const os_str = @tagName(builtin.os.tag);
-    
+
     const details = std.fmt.allocPrint(allocator, "Active C toolchain: Zig CC / {s}-{s}", .{ arch_str, os_str }) catch {
         return .{
             .details = "Zig CC toolchain active",

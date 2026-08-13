@@ -29,7 +29,7 @@ test "encoder: RET encodes to 0xC3" {
         .instructions = std.ArrayListUnmanaged(lir_mod.LirInstruction).empty,
     };
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.ret),
+        .opcode = @backingInt(inst_mod.X86Opcode.ret),
     });
 
     var func = lir_mod.LirFunction{
@@ -62,11 +62,11 @@ test "encoder: PUSH RBP encodes to 0x55" {
         .instructions = std.ArrayListUnmanaged(lir_mod.LirInstruction).empty,
     };
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.push_r),
-        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rbp), .is_physical = true } },
+        .opcode = @backingInt(inst_mod.X86Opcode.push_r),
+        .op1 = .{ .reg = .{ .id = @backingInt(reg_mod.RegisterId.rbp), .is_physical = true } },
     });
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.ret),
+        .opcode = @backingInt(inst_mod.X86Opcode.ret),
     });
 
     var func = lir_mod.LirFunction{
@@ -108,55 +108,55 @@ test "encoder: comprehensive instruction byte-exact verification" {
 
     // 1. mov_ri RAX, 42
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.mov_ri),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .opcode = @backingInt(inst_mod.X86Opcode.mov_ri),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true },
         .op1 = .{ .imm_int = 42 },
     });
 
     // 2. mov_rr RBX, RAX
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.mov_rr),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rbx), .is_physical = true },
-        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true } },
+        .opcode = @backingInt(inst_mod.X86Opcode.mov_rr),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rbx), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true } },
     });
 
     // 3. add_rr RAX, RBX
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.add_rr),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
-        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rbx), .is_physical = true } },
+        .opcode = @backingInt(inst_mod.X86Opcode.add_rr),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @backingInt(reg_mod.RegisterId.rbx), .is_physical = true } },
     });
 
     // 4. sub_rr RAX, RBX
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.sub_rr),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
-        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rbx), .is_physical = true } },
+        .opcode = @backingInt(inst_mod.X86Opcode.sub_rr),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @backingInt(reg_mod.RegisterId.rbx), .is_physical = true } },
     });
 
     // 5. cmp_ri RAX, 0
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.cmp_ri),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .opcode = @backingInt(inst_mod.X86Opcode.cmp_ri),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true },
         .op1 = .{ .imm_int = 0 },
     });
 
     // 6. jne to label/block 0 (self jump)
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.jne),
+        .opcode = @backingInt(inst_mod.X86Opcode.jne),
         .op1 = .{ .label = 0 },
     });
 
     // 7. jmp to label/block 0 (self jump)
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.jmp),
+        .opcode = @backingInt(inst_mod.X86Opcode.jmp),
         .op1 = .{ .label = 0 },
     });
 
     // 8. call RAX
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.call),
-        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true } },
+        .opcode = @backingInt(inst_mod.X86Opcode.call),
+        .op1 = .{ .reg = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true } },
     });
 
     var func = lir_mod.LirFunction{
@@ -189,21 +189,21 @@ test "encoder: setcc and movzx encoding" {
 
     // 1. sete_r RAX (low byte AL, RAX=0)
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.sete_r),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
+        .opcode = @backingInt(inst_mod.X86Opcode.sete_r),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true },
     });
 
     // 2. sete_r R8 (low byte R8B, R8=8 -> requires REX.B)
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.sete_r),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.r8), .is_physical = true },
+        .opcode = @backingInt(inst_mod.X86Opcode.sete_r),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.r8), .is_physical = true },
     });
 
     // 3. movzx_rr RAX, RAX
     try block.instructions.append(alloc, .{
-        .opcode = @intFromEnum(inst_mod.X86Opcode.movzx_rr),
-        .dest = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true },
-        .op1 = .{ .reg = .{ .id = @intFromEnum(reg_mod.RegisterId.rax), .is_physical = true } },
+        .opcode = @backingInt(inst_mod.X86Opcode.movzx_rr),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true } },
     });
 
     var func = lir_mod.LirFunction{

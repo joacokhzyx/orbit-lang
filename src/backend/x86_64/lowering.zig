@@ -45,25 +45,25 @@ pub const Lowering = struct {
     fn emitMov(self: *Lowering, block: *LirBasicBlock, dest: LirRegister, src: LirOperand) !void {
         if (src == .reg) {
             try block.instructions.append(self.allocator, .{
-                .opcode = @intFromEnum(X86Opcode.mov_rr),
+                .opcode = @backingInt(X86Opcode.mov_rr),
                 .dest = dest,
                 .op1 = src,
             });
         } else if (src == .imm_int or src == .symbol) {
             try block.instructions.append(self.allocator, .{
-                .opcode = @intFromEnum(X86Opcode.mov_ri),
+                .opcode = @backingInt(X86Opcode.mov_ri),
                 .dest = dest,
                 .op1 = src,
             });
         } else if (src == .mem) {
             try block.instructions.append(self.allocator, .{
-                .opcode = @intFromEnum(X86Opcode.mov_rm),
+                .opcode = @backingInt(X86Opcode.mov_rm),
                 .dest = dest,
                 .op1 = src,
             });
         } else {
             try block.instructions.append(self.allocator, .{
-                .opcode = @intFromEnum(X86Opcode.mov_ri),
+                .opcode = @backingInt(X86Opcode.mov_ri),
                 .dest = dest,
                 .op1 = src,
             });
@@ -122,10 +122,10 @@ pub const Lowering = struct {
                 const dest_reg = LirRegister{ .id = @intCast(param_reg_id), .is_physical = false };
 
                 if (param_idx < abi_regs.len) {
-                    const src_phys_reg = LirRegister{ .id = @intFromEnum(abi_regs[param_idx]), .is_physical = true };
+                    const src_phys_reg = LirRegister{ .id = @backingInt(abi_regs[param_idx]), .is_physical = true };
                     // Prepend mov dest_reg, src_phys_reg
                     try entry_block.instructions.insert(self.allocator, param_idx, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = dest_reg,
                         .op1 = .{ .reg = src_phys_reg },
                     });
@@ -134,10 +134,10 @@ pub const Lowering = struct {
                     // The stack parameters are located at [RBP + 16 + (param_idx - abi_regs.len)*8]
                     const disp: i32 = @intCast(16 + (param_idx - abi_regs.len) * 8);
 
-                    const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+                    const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
                     // Prepend mov dest_reg, [RBP + disp]
                     try entry_block.instructions.insert(self.allocator, param_idx, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rm),
+                        .opcode = @backingInt(X86Opcode.mov_rm),
                         .dest = dest_reg,
                         .op1 = .{ .mem = .{ .base = rbp_phys, .disp = disp } },
                     });
@@ -186,10 +186,10 @@ pub const Lowering = struct {
                 const dest_type = mir_func.val_types.items[mir_instr.dest.?];
                 if (dest_type == .string) {
                     const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
-                    const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
-                    const arg2_reg = LirRegister{ .id = @intFromEnum(arg_regs[1]), .is_physical = true };
+                    const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
+                    const arg2_reg = LirRegister{ .id = @backingInt(arg_regs[1]), .is_physical = true };
                     if (op1_lir == .reg and op2_lir == .reg and op1_lir.reg.id == arg2_reg.id and op2_lir.reg.id == arg1_reg.id) {
-                        const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                        const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                         try self.emitMov(block, r10_phys, op2_lir);
                         try self.emitMov(block, arg2_reg, op1_lir);
                         try self.emitMov(block, arg1_reg, .{ .reg = r10_phys });
@@ -204,21 +204,21 @@ pub const Lowering = struct {
                         try self.emitMov(block, arg2_reg, op2_lir);
                     }
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.call),
+                        .opcode = @backingInt(X86Opcode.call),
                         .op1 = .{ .symbol = "orbit_string_concat" },
                     });
-                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = dest,
                         .op1 = .{ .reg = rax_phys },
                     });
                 } else {
                     if (op2_lir == .reg and op2_lir.reg.id == dest.id) {
-                        const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                        const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                         try self.emitMov(block, r10_phys, op1_lir);
                         try block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.add_rr),
+                            .opcode = @backingInt(X86Opcode.add_rr),
                             .dest = dest,
                             .op1 = .{ .reg = r10_phys },
                         });
@@ -226,15 +226,15 @@ pub const Lowering = struct {
                         try self.emitMov(block, dest, op1_lir);
                         if (op2_lir == .reg) {
                             try block.instructions.append(self.allocator, .{
-                                .opcode = @intFromEnum(X86Opcode.add_rr),
+                                .opcode = @backingInt(X86Opcode.add_rr),
                                 .dest = dest,
                                 .op1 = op2_lir,
                             });
                         } else {
-                            const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                            const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                             try self.emitMov(block, r10_phys, op2_lir);
                             try block.instructions.append(self.allocator, .{
-                                .opcode = @intFromEnum(X86Opcode.add_rr),
+                                .opcode = @backingInt(X86Opcode.add_rr),
                                 .dest = dest,
                                 .op1 = .{ .reg = r10_phys },
                             });
@@ -245,10 +245,10 @@ pub const Lowering = struct {
             .sub => {
                 const dest = mapReg(mir_instr.dest.?);
                 if (op2_lir == .reg and op2_lir.reg.id == dest.id) {
-                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                     try self.emitMov(block, r10_phys, op1_lir);
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.sub_rr),
+                        .opcode = @backingInt(X86Opcode.sub_rr),
                         .dest = r10_phys,
                         .op1 = op2_lir,
                     });
@@ -257,15 +257,15 @@ pub const Lowering = struct {
                     try self.emitMov(block, dest, op1_lir);
                     if (op2_lir == .reg) {
                         try block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.sub_rr),
+                            .opcode = @backingInt(X86Opcode.sub_rr),
                             .dest = dest,
                             .op1 = op2_lir,
                         });
                     } else {
-                        const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                        const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                         try self.emitMov(block, r10_phys, op2_lir);
                         try block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.sub_rr),
+                            .opcode = @backingInt(X86Opcode.sub_rr),
                             .dest = dest,
                             .op1 = .{ .reg = r10_phys },
                         });
@@ -275,10 +275,10 @@ pub const Lowering = struct {
             .mul => {
                 const dest = mapReg(mir_instr.dest.?);
                 if (op2_lir == .reg and op2_lir.reg.id == dest.id) {
-                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                     try self.emitMov(block, r10_phys, op1_lir);
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.imul_rr),
+                        .opcode = @backingInt(X86Opcode.imul_rr),
                         .dest = dest,
                         .op1 = .{ .reg = r10_phys },
                     });
@@ -286,15 +286,15 @@ pub const Lowering = struct {
                     try self.emitMov(block, dest, op1_lir);
                     if (op2_lir == .reg) {
                         try block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.imul_rr),
+                            .opcode = @backingInt(X86Opcode.imul_rr),
                             .dest = dest,
                             .op1 = op2_lir,
                         });
                     } else {
-                        const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                        const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                         try self.emitMov(block, r10_phys, op2_lir);
                         try block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.imul_rr),
+                            .opcode = @backingInt(X86Opcode.imul_rr),
                             .dest = dest,
                             .op1 = .{ .reg = r10_phys },
                         });
@@ -306,7 +306,7 @@ pub const Lowering = struct {
 
                 var rhs_val = op2_lir;
                 if (op2_lir == .symbol) {
-                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                     try self.emitMov(block, r10_phys, op2_lir);
                     rhs_val = .{ .reg = r10_phys };
                 }
@@ -324,10 +324,10 @@ pub const Lowering = struct {
 
                 if (is_string_cmp) {
                     const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
-                    const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
-                    const arg2_reg = LirRegister{ .id = @intFromEnum(arg_regs[1]), .is_physical = true };
+                    const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
+                    const arg2_reg = LirRegister{ .id = @backingInt(arg_regs[1]), .is_physical = true };
                     if (op1_lir == .reg and rhs_val == .reg and op1_lir.reg.id == arg2_reg.id and rhs_val.reg.id == arg1_reg.id) {
-                        const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                        const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                         try self.emitMov(block, r10_phys, rhs_val);
                         try self.emitMov(block, arg2_reg, op1_lir);
                         try self.emitMov(block, arg1_reg, .{ .reg = r10_phys });
@@ -342,12 +342,12 @@ pub const Lowering = struct {
                         try self.emitMov(block, arg2_reg, rhs_val);
                     }
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.call),
+                        .opcode = @backingInt(X86Opcode.call),
                         .op1 = .{ .symbol = "strcmp" },
                     });
-                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.cmp_ri),
+                        .opcode = @backingInt(X86Opcode.cmp_ri),
                         .dest = rax_phys,
                         .op1 = .{ .imm_int = 0 },
                     });
@@ -357,11 +357,11 @@ pub const Lowering = struct {
                         else => unreachable,
                     };
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(set_opcode),
+                        .opcode = @backingInt(set_opcode),
                         .dest = dest,
                     });
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.movzx_rr),
+                        .opcode = @backingInt(X86Opcode.movzx_rr),
                         .dest = dest,
                         .op1 = .{ .reg = dest },
                     });
@@ -375,13 +375,13 @@ pub const Lowering = struct {
 
                     if (rhs_val == .imm_int) {
                         try block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.cmp_ri),
+                            .opcode = @backingInt(X86Opcode.cmp_ri),
                             .dest = lhs_reg,
                             .op1 = rhs_val,
                         });
                     } else {
                         try block.instructions.append(self.allocator, .{
-                            .opcode = @intFromEnum(X86Opcode.cmp_rr),
+                            .opcode = @backingInt(X86Opcode.cmp_rr),
                             .dest = lhs_reg,
                             .op1 = rhs_val,
                         });
@@ -401,11 +401,11 @@ pub const Lowering = struct {
                     try self.emitMov(block, dest, .{ .imm_int = 0 });
 
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(set_opcode),
+                        .opcode = @backingInt(set_opcode),
                         .dest = dest,
                     });
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.movzx_rr),
+                        .opcode = @backingInt(X86Opcode.movzx_rr),
                         .dest = dest,
                         .op1 = .{ .reg = dest },
                     });
@@ -413,19 +413,19 @@ pub const Lowering = struct {
             },
             .jmp => {
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.jmp),
+                    .opcode = @backingInt(X86Opcode.jmp),
                     .op1 = op1_lir,
                 });
             },
             .jmp_if => {
                 // MIR jmp_if coming from IR jump_if_false: cmp cond, 0 -> je target (jump if false/zero)
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.cmp_ri),
+                    .opcode = @backingInt(X86Opcode.cmp_ri),
                     .dest = op1_lir.reg,
                     .op1 = .{ .imm_int = 0 },
                 });
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.je),
+                    .opcode = @backingInt(X86Opcode.je),
                     .op1 = op2_lir,
                 });
             },
@@ -434,19 +434,19 @@ pub const Lowering = struct {
                 if (self.arg_count < arg_regs.len) {
                     const arg_reg_id = arg_regs[self.arg_count];
                     const phys_reg = LirRegister{
-                        .id = @intFromEnum(arg_reg_id),
+                        .id = @backingInt(arg_reg_id),
                         .is_physical = true,
                     };
                     try self.emitMov(block, phys_reg, op1_lir);
                 } else {
                     // Stack-passed argument: sub rsp, 8  then  mov [rsp], src.
                     // We use R10 as a scratch to materialise non-register sources.
-                    const rsp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rsp), .is_physical = true };
-                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                    const rsp_phys = LirRegister{ .id = @backingInt(RegisterId.rsp), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
 
                     // sub rsp, 8
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.sub_ri),
+                        .opcode = @backingInt(X86Opcode.sub_ri),
                         .dest = rsp_phys,
                         .op1 = .{ .imm_int = 8 },
                     });
@@ -459,7 +459,7 @@ pub const Lowering = struct {
 
                     // mov [rsp], src_reg
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_mr),
+                        .opcode = @backingInt(X86Opcode.mov_mr),
                         .op1 = .{ .mem = .{ .base = rsp_phys, .disp = 0 } },
                         .op2 = .{ .reg = src_reg },
                     });
@@ -469,11 +469,11 @@ pub const Lowering = struct {
             .ret => {
                 if (mir_instr.op1 != .none) {
                     // RAX is the standard return register on both Windows and SysV ABI.
-                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                     try self.emitMov(block, rax_phys, op1_lir);
                 }
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.ret),
+                    .opcode = @backingInt(X86Opcode.ret),
                 });
             },
             .call => {
@@ -481,15 +481,15 @@ pub const Lowering = struct {
                 self.arg_count = 0;
 
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.call),
+                    .opcode = @backingInt(X86Opcode.call),
                     .op1 = op1_lir,
                 });
 
                 if (mir_instr.dest) |d| {
                     const dest = mapReg(d);
-                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = dest,
                         .op1 = .{ .reg = rax_phys },
                     });
@@ -497,9 +497,9 @@ pub const Lowering = struct {
             },
             .div, .mod => {
                 const dest = mapReg(mir_instr.dest.?);
-                const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
-                const rdx_phys = LirRegister{ .id = @intFromEnum(RegisterId.rdx), .is_physical = true };
-                const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                const rdx_phys = LirRegister{ .id = @backingInt(RegisterId.rdx), .is_physical = true };
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
 
                 // Dividend -> RAX.
                 try self.emitMov(block, rax_phys, op1_lir);
@@ -507,11 +507,11 @@ pub const Lowering = struct {
                 try self.emitMov(block, r10_phys, op2_lir);
                 // Sign-extend RAX into RDX:RAX.
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.cqo),
+                    .opcode = @backingInt(X86Opcode.cqo),
                 });
                 // idiv r10 -> quotient in RAX, remainder in RDX.
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.idiv_r),
+                    .opcode = @backingInt(X86Opcode.idiv_r),
                     .op1 = .{ .reg = r10_phys },
                 });
                 const result_reg = if (mir_instr.opcode == .div) rax_phys else rdx_phys;
@@ -519,23 +519,23 @@ pub const Lowering = struct {
             },
             .neg, .not_op => {
                 const dest = mapReg(mir_instr.dest.?);
-                const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                 try self.emitMov(block, rax_phys, op1_lir);
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(if (mir_instr.opcode == .neg) X86Opcode.neg_r else X86Opcode.not_r),
+                    .opcode = @backingInt(if (mir_instr.opcode == .neg) X86Opcode.neg_r else X86Opcode.not_r),
                     .dest = rax_phys,
                 });
                 try self.emitMov(block, dest, .{ .reg = rax_phys });
             },
             .shl, .shr => {
                 const dest = mapReg(mir_instr.dest.?);
-                const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
-                const rcx_phys = LirRegister{ .id = @intFromEnum(RegisterId.rcx), .is_physical = true };
+                const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                const rcx_phys = LirRegister{ .id = @backingInt(RegisterId.rcx), .is_physical = true };
                 // Value -> RAX, shift count -> CL (RCX).
                 try self.emitMov(block, rax_phys, op1_lir);
                 try self.emitMov(block, rcx_phys, op2_lir);
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(if (mir_instr.opcode == .shl) X86Opcode.shl_r else X86Opcode.shr_r),
+                    .opcode = @backingInt(if (mir_instr.opcode == .shl) X86Opcode.shl_r else X86Opcode.shr_r),
                     .dest = rax_phys,
                 });
                 try self.emitMov(block, dest, .{ .reg = rax_phys });
@@ -551,16 +551,16 @@ pub const Lowering = struct {
                 };
                 if (op2_lir == .reg) {
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(rr_op),
+                        .opcode = @backingInt(rr_op),
                         .dest = dest,
                         .op1 = op2_lir,
                     });
                 } else {
                     // No reg,imm form for these; materialize the immediate in R10.
-                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                     try self.emitMov(block, r10_phys, op2_lir);
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(rr_op),
+                        .opcode = @backingInt(rr_op),
                         .dest = dest,
                         .op1 = .{ .reg = r10_phys },
                     });
@@ -570,10 +570,10 @@ pub const Lowering = struct {
                 // Stack allocation is handled by frame size computation during regalloc.
                 if (mir_instr.dest) |d| {
                     const dest = mapReg(d);
-                    const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+                    const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
                     // For stack allocation, load address [rbp - 16] into dest
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = dest,
                         .op1 = .{ .reg = rbp_phys },
                     });
@@ -582,44 +582,44 @@ pub const Lowering = struct {
             .load_stack => {
                 if (mir_instr.dest) |d| {
                     const dest = mapReg(d);
-                    const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+                    const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
                     const disp: i32 = if (op1_lir == .imm_int) -@as(i32, @intCast(op1_lir.imm_int)) else -8;
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rm),
+                        .opcode = @backingInt(X86Opcode.mov_rm),
                         .dest = dest,
                         .op1 = .{ .mem = .{ .base = rbp_phys, .disp = disp } },
                     });
                 }
             },
             .store_stack => {
-                const rbp_phys = LirRegister{ .id = @intFromEnum(RegisterId.rbp), .is_physical = true };
+                const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
                 const disp: i32 = if (op1_lir == .imm_int) -@as(i32, @intCast(op1_lir.imm_int)) else -8;
                 const src_reg = if (op2_lir == .reg) op2_lir.reg else blk: {
-                    const r10_phys = LirRegister{ .id = @intFromEnum(RegisterId.r10), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
                     try self.emitMov(block, r10_phys, op2_lir);
                     break :blk r10_phys;
                 };
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.mov_mr),
+                    .opcode = @backingInt(X86Opcode.mov_mr),
                     .op1 = .{ .mem = .{ .base = rbp_phys, .disp = disp } },
                     .op2 = .{ .reg = src_reg },
                 });
             },
             .arena_alloc => {
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
-                const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
+                const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
                 try self.emitMov(block, arg1_reg, op1_lir);
 
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.call),
+                    .opcode = @backingInt(X86Opcode.call),
                     .op1 = .{ .symbol = "orbit_alloc" },
                 });
 
                 if (mir_instr.dest) |d| {
                     const dest = mapReg(d);
-                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = dest,
                         .op1 = .{ .reg = rax_phys },
                     });
@@ -627,31 +627,31 @@ pub const Lowering = struct {
             },
             .kynx_lease_check => {
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.call),
+                    .opcode = @backingInt(X86Opcode.call),
                     .op1 = .{ .symbol = "kynx_check_lease" },
                 });
             },
             .kynx_lease_end => {
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.call),
+                    .opcode = @backingInt(X86Opcode.call),
                     .op1 = .{ .symbol = "kynx_end_lease" },
                 });
             },
             .db_query => {
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
-                const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
+                const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
                 try self.emitMov(block, arg1_reg, op1_lir);
 
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.call),
+                    .opcode = @backingInt(X86Opcode.call),
                     .op1 = .{ .symbol = "orbit_db_query" },
                 });
 
                 if (mir_instr.dest) |d| {
                     const dest = mapReg(d);
-                    const rax_phys = LirRegister{ .id = @intFromEnum(RegisterId.rax), .is_physical = true };
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                     try block.instructions.append(self.allocator, .{
-                        .opcode = @intFromEnum(X86Opcode.mov_rr),
+                        .opcode = @backingInt(X86Opcode.mov_rr),
                         .dest = dest,
                         .op1 = .{ .reg = rax_phys },
                     });
@@ -659,11 +659,11 @@ pub const Lowering = struct {
             },
             .http_write => {
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
-                const arg1_reg = LirRegister{ .id = @intFromEnum(arg_regs[0]), .is_physical = true };
+                const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
                 try self.emitMov(block, arg1_reg, op1_lir);
 
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @intFromEnum(X86Opcode.call),
+                    .opcode = @backingInt(X86Opcode.call),
                     .op1 = .{ .symbol = "orbit_http_send" },
                 });
             },

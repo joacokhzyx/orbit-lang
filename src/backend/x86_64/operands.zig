@@ -54,8 +54,8 @@ pub const Sib = struct {
 
 /// Encode register-register or register-op extension into Rex, ModRM.
 pub fn encodeRegReg(w: bool, reg: RegisterId, rm: RegisterId) struct { rex: Rex, modrm: ModRm } {
-    const reg_val = @intFromEnum(reg);
-    const rm_val = @intFromEnum(rm);
+    const reg_val = @backingInt(reg);
+    const rm_val = @backingInt(rm);
 
     return .{
         .rex = .{
@@ -73,8 +73,8 @@ pub fn encodeRegReg(w: bool, reg: RegisterId, rm: RegisterId) struct { rex: Rex,
 
 /// Encode register-memory displacement into Rex, ModRM, and optional Sib.
 pub fn encodeRegMem(w: bool, reg: RegisterId, base: RegisterId, disp: i32) struct { rex: Rex, modrm: ModRm, sib: ?Sib, disp_bytes: u8 } {
-    const reg_val = @intFromEnum(reg);
-    const base_val = @intFromEnum(base);
+    const reg_val = @backingInt(reg);
+    const base_val = @backingInt(base);
 
     const rex = Rex{
         .w = w,

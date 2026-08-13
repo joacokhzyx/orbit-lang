@@ -36,7 +36,7 @@ pub const Superoptimizer = struct {
                 defer self.allocator.free(new_instrs);
                 var valid = true;
                 if (z3.isAvailable()) {
-                    valid = z3.verifyEquivalence(self.allocator, instructions, new_instrs) catch true;
+                    valid = try z3.verifyEquivalence(self.allocator, instructions, new_instrs);
                 }
                 if (valid) {
                     const c = cost_model.evaluateSlice(new_instrs);

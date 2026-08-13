@@ -593,42 +593,42 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
     }
 
     const entry_addr = linker.symbol_addresses.get(entry_name) orelse blk: {
-            if (linker.symbol_addresses.get("main")) |addr| break :blk addr;
-            if (linker.symbol_addresses.get("_start")) |addr| break :blk addr;
-            return error.EntrySymbolNotFound;
-        };
+        if (linker.symbol_addresses.get("main")) |addr| break :blk addr;
+        if (linker.symbol_addresses.get("_start")) |addr| break :blk addr;
+        return error.EntrySymbolNotFound;
+    };
 
-        // Map direct import symbols to jump stubs, and `__imp_` symbols to IAT slots!
-        if (idata_sec_opt) |idata_sec| {
-            const idata_va = idata_sec.virtual_address;
+    // Map direct import symbols to jump stubs, and `__imp_` symbols to IAT slots!
+    if (idata_sec_opt) |idata_sec| {
+        const idata_va = idata_sec.virtual_address;
 
-            var git = iat_slot_offsets.iterator();
-            while (git.next()) |entry| {
-                const imp_name = entry.key_ptr.*;
-                const slot_offset = entry.value_ptr.*;
+        var git = iat_slot_offsets.iterator();
+        while (git.next()) |entry| {
+            const imp_name = entry.key_ptr.*;
+            const slot_offset = entry.value_ptr.*;
 
-                // Patch the __imp_ symbol address to point to its IAT slot RVA/VA
-                const iat_slot_va = idata_va + slot_offset;
-                try linker.symbol_addresses.put(imp_name, iat_slot_va);
-            }
+            // Patch the __imp_ symbol address to point to its IAT slot RVA/VA
+            const iat_slot_va = idata_va + slot_offset;
+            try linker.symbol_addresses.put(imp_name, iat_slot_va);
+        }
 
-            // Patch direct import symbols to point to their jump stubs
-            for (jump_stubs.items) |stub| {
-                const stub_va = text_sec.?.virtual_address + stub.stub_offset;
-                try linker.symbol_addresses.put(stub.sym_name, stub_va);
+        // Patch direct import symbols to point to their jump stubs
+        for (jump_stubs.items) |stub| {
+            const stub_va = text_sec.?.virtual_address + stub.stub_offset;
+            try linker.symbol_addresses.put(stub.sym_name, stub_va);
 
-                // Now, fill in the jump stub RIP-relative displacement!
-                // Instruction: FF 25 <disp32>
-                // We jump to the IAT slot.
-                const imp_name = try std.fmt.allocPrint(allocator, "__imp_{s}", .{stub.sym_name});
-                defer allocator.free(imp_name);
+            // Now, fill in the jump stub RIP-relative displacement!
+            // Instruction: FF 25 <disp32>
+            // We jump to the IAT slot.
+            const imp_name = try std.fmt.allocPrint(allocator, "__imp_{s}", .{stub.sym_name});
+            defer allocator.free(imp_name);
 
-                const iat_slot_va = linker.symbol_addresses.get(imp_name) orelse {
-                    // No IAT slot: this is an intrinsic stub, not an import. Nothing to patch.
-                    continue;
-                };
-                const next_inst_va = stub_va + 6;
-                const displacement = @as(i64, @intCast(iat_slot_va)) - @as(i64, @intCast(next_inst_va));
+            const iat_slot_va = linker.symbol_addresses.get(imp_name) orelse {
+                // No IAT slot: this is an intrinsic stub, not an import. Nothing to patch.
+                continue;
+            };
+            const next_inst_va = stub_va + 6;
+            const displacement = @as(i64, @intCast(iat_slot_va)) - @as(i64, @intCast(next_inst_va));
 
             std.mem.writeInt(i32, text_sec.?.bytes.items[stub.stub_offset + 2 ..][0..4], @intCast(displacement), .little);
         }

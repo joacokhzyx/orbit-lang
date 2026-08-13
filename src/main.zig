@@ -348,11 +348,20 @@ pub fn main(init: std.process.Init) !void {
     _ = term.init(color_pref, unicode_pref, init.io, init.environ_map);
 
     if (std.mem.eql(u8, command, "dev") or std.mem.eql(u8, command, "run")) {
-        runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch |err| { std.debug.print("ERROR: {any}\n", .{err}); std.process.exit(1); };
+        runExecuteMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch |err| {
+            std.debug.print("ERROR: {any}\n", .{err});
+            std.process.exit(1);
+        };
     } else if (std.mem.eql(u8, command, "repl")) {
-        runReplMode(init, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch |err| { std.debug.print("ERROR: {any}\n", .{err}); std.process.exit(1); };
+        runReplMode(init, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch |err| {
+            std.debug.print("ERROR: {any}\n", .{err});
+            std.process.exit(1);
+        };
     } else if (std.mem.eql(u8, command, "build")) {
-        runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode) catch |err| { std.debug.print("ERROR: {any}\n", .{err}); std.process.exit(1); };
+        runBuildMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, output_override, linker_mode) catch |err| {
+            std.debug.print("ERROR: {any}\n", .{err});
+            std.process.exit(1);
+        };
     } else if (std.mem.eql(u8, command, "test")) {
         runTestMode(init, file_path, debug, no_kynx, verbose, timings, timings_json, config, backend_mode, emit_mode, linker_mode) catch std.process.exit(1);
     } else if (std.mem.eql(u8, command, "fmt")) {
@@ -441,17 +450,14 @@ fn printHelp() void {
         \\
         \\
     , .{
-        bold, ORBIT_VERSION, reset,
-        dim, @tagName(builtin.target.cpu.arch), @tagName(builtin.target.os.tag), reset,
-        bold, reset,
-        bold, reset,
-        bold, reset,
-        bold, reset,
+        bold,      ORBIT_VERSION,                     reset,
+        dim,       @tagName(builtin.target.cpu.arch), @tagName(builtin.target.os.tag),
+        reset,     bold,                              reset,
+        bold,      reset,                             bold,
+        reset,     bold,                              reset,
         kynx_line,
     });
 }
-
-
 
 fn compileToBinary(
     init: std.process.Init,

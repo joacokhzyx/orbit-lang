@@ -452,16 +452,16 @@ pub fn formatTypeExpr(allocator: std.mem.Allocator, type_expr_node: ?*Node, sour
     if (type_expr_node == null) return try allocator.dupe(u8, "void");
     const t = type_expr_node.?.data.type_expr;
     var result = std.ArrayListUnmanaged(u8).empty;
-    
+
     if (t.is_pointer) {
         try result.append(allocator, '*');
     }
-    
+
     try result.appendSlice(allocator, t.base.getText(source));
-    
+
     if (t.is_optional) {
         try result.append(allocator, '?');
     }
-    
+
     return try result.toOwnedSlice(allocator);
 }

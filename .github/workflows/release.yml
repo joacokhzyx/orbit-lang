@@ -34,7 +34,18 @@ jobs:
       - name: Set up Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: master
+          version: 0.17.0-dev.1737+de207594e
+
+      - name: Verify toolchain version
+        shell: bash
+        run: |
+          expected="0.17.0-dev.1737+de207594e"
+          actual="$(zig version)"
+          echo "zig version: $actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Expected Zig $expected, got $actual"
+            exit 1
+          fi
 
       - name: Build bootstrap compiler
         run: zig build -Doptimize=ReleaseFast

@@ -303,37 +303,37 @@ pub const CBackend = struct {
 
     // ─── Top-level generation ────────────────────────────────────────────────
 
-fn isPointerishType(t: IRType) bool {
-    return switch (t) {
-        .string,
-        .void,
-        .response,
-        .model,
-        .enumeration,
-        .list,
-        .map,
-        .result,
-        .option,
-        .tagged_union,
-        .trait_obj,
-        .slice,
-        .pointer,
-        .mut_pointer,
-        .i64,
-        .u64,
-        .usize,
-        .isize,
-        => true,
-        else => false,
-    };
-}
+    fn isPointerishType(t: IRType) bool {
+        return switch (t) {
+            .string,
+            .void,
+            .response,
+            .model,
+            .enumeration,
+            .list,
+            .map,
+            .result,
+            .option,
+            .tagged_union,
+            .trait_obj,
+            .slice,
+            .pointer,
+            .mut_pointer,
+            .i64,
+            .u64,
+            .usize,
+            .isize,
+            => true,
+            else => false,
+        };
+    }
 
-pub fn isMainFunctionName(name: []const u8) bool {
-    if (std.mem.eql(u8, name, "main")) return true;
-    if (std.mem.eql(u8, name, "orbit_main")) return true;
-    if (std.mem.endsWith(u8, name, "_main")) return true;
-    return false;
-}
+    pub fn isMainFunctionName(name: []const u8) bool {
+        if (std.mem.eql(u8, name, "main")) return true;
+        if (std.mem.eql(u8, name, "orbit_main")) return true;
+        if (std.mem.endsWith(u8, name, "_main")) return true;
+        return false;
+    }
 
     /// Generate a complete C translation unit from `module` and return the
     /// resulting source text as a newly-allocated slice (caller owns memory).
@@ -474,7 +474,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
                 try self.output.print(self.allocator, "typedef struct {s} {s};\n", .{ t.name, t.name });
             }
         }
-        
+
         // Forward declare external models/unions used in functions
         for (module.functions.items) |func| {
             var check_types = std.ArrayListUnmanaged(IRType).empty;
@@ -1032,7 +1032,6 @@ pub fn isMainFunctionName(name: []const u8) bool {
             try self.output.print(self.allocator, " r_{d};\n", .{i});
         }
 
-
         // Declare parameter aliases for named parameters
         for (func.params, 0..) |pname, pi| {
             if (pi < func.param_types.len) {
@@ -1040,7 +1039,6 @@ pub fn isMainFunctionName(name: []const u8) bool {
                 try self.output.print(self.allocator, "    {s} {s} = _p_{d};\n", .{ param_type_str, pname, pi });
             }
         }
-
 
         // Pre-scan local variables and symbols from all instructions
         for (func.instructions.items) |instr| {
@@ -1157,10 +1155,22 @@ pub fn isMainFunctionName(name: []const u8) bool {
                             }
                         }
                         // Infer directly from literal value
-                        if (instr2.operand2 == .string) { var_type = .string; break; }
-                        if (instr2.operand2 == .int)    { var_type = .int;    break; }
-                        if (instr2.operand2 == .float)  { var_type = .float;  break; }
-                        if (instr2.operand2 == .bool)   { var_type = .bool;   break; }
+                        if (instr2.operand2 == .string) {
+                            var_type = .string;
+                            break;
+                        }
+                        if (instr2.operand2 == .int) {
+                            var_type = .int;
+                            break;
+                        }
+                        if (instr2.operand2 == .float) {
+                            var_type = .float;
+                            break;
+                        }
+                        if (instr2.operand2 == .bool) {
+                            var_type = .bool;
+                            break;
+                        }
                     }
                 }
             }
@@ -2159,19 +2169,19 @@ pub fn isMainFunctionName(name: []const u8) bool {
         }
 
         try self.output.print(self.allocator, "r_{d} = ", .{instr.dest.?});
-        
+
         const is_math = (instr.opcode == .add or instr.opcode == .sub or instr.opcode == .mul or instr.opcode == .div or instr.opcode == .mod);
-        
+
         if (type1 == .unknown and is_math) try self.output.appendSlice(self.allocator, "(orbit_int)(uintptr_t)(");
         try self.generateValue(instr.operand1);
         if (type1 == .unknown and is_math) try self.output.appendSlice(self.allocator, ")");
-        
+
         try self.output.appendSlice(self.allocator, op);
-        
+
         if (type2 == .unknown and is_math) try self.output.appendSlice(self.allocator, "(orbit_int)(uintptr_t)(");
         try self.generateValue(instr.operand2);
         if (type2 == .unknown and is_math) try self.output.appendSlice(self.allocator, ")");
-        
+
         try self.output.appendSlice(self.allocator, ";\n");
     }
 
@@ -2313,7 +2323,7 @@ pub fn isMainFunctionName(name: []const u8) bool {
             const mapped_inner = self.mapFieldTypeToC(inner);
             return std.fmt.allocPrint(self.allocator, "{s}*", .{mapped_inner}) catch "void*";
         }
-        
+
         if (std.mem.eql(u8, orbit_type, "i8")) return "int8_t";
         if (std.mem.eql(u8, orbit_type, "i16")) return "int16_t";
         if (std.mem.eql(u8, orbit_type, "i32")) return "int32_t";

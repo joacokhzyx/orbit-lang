@@ -3,11 +3,12 @@
 Objetivo: que el compilador de Orbit se compile a si mismo hasta alcanzar un punto
 fijo (stage2.exe.c identico a stage3.exe.c).
 
-Estado real al 2026-08-07 (HEAD `6bce0c4`). Leelo entero antes de tocar nada.
-Los fixes posteriores al snapshot original (`ae2f3d7` cache de longitud del lexer,
-`6a3b495` acceso O(1) a chars, `6bce0c4` fix de `orbit_list_push` en `c_backend.orb`)
-modificaron el estado que describe la seccion 2; hay que re-correr los pasos para
-establecer el estado actual.
+Estado real al 2026-08-13 (HEAD `92b9f17`). Leelo entero antes de tocar nada.
+Corrida fresca del 2026-08-13 con `zig-out/bin/orbit.exe` (Debug, Zig local
+`0.17.0-dev.1503+1f1bee62e`; el pin de CI es `0.17.0-dev.1737+de207594e`).
+Los fixes previos (`ae2f3d7` cache de longitud del lexer, `6a3b495` acceso O(1) a
+chars, `6bce0c4` fix de `orbit_list_push` en `c_backend.orb`) ya estan dentro del
+snapshot descrito en la seccion 2, que reemplaza el estado viejo del 2026-08-07.
 
 ---
 
@@ -34,33 +35,38 @@ con `CC` por defecto `zig cc`. Cada stage deja su C al lado: `stageN.exe.c`.
 
 ---
 
-## 2. Estado actual (snapshot 2026-08-02)
+## 2. Estado actual (corrida fresca 2026-08-13, HEAD `92b9f17`)
 
-**Paso 1:** ok.
+**Paso 1 (seed -> stage1):** ok. `stage1.exe` generado por `zig-out/bin/orbit.exe`.
 
-**Paso 2 (stage1 -> stage2):** historicamente ok. En la ultima corrida del snapshot murio con
-`0xC0000005` DESPUES de completar todo el trabajo del compilador:
+**Paso 2 (stage1 -> stage2):** ok. `stage2.exe.c` (1.8 MB) y `stage2.exe` producidos.
+El fallo de la corrida vieja que moria al lanzar `zig cc` NO se reprodujo: la
+invocacion del subproceso funciona hoy.
+
+**Paso 3 (stage2 -> stage3):** sigue muriendo, ahora dentro del Pass 3, al construir
+la funcion `tokTypeToString`:
 
 ```
-[buildAST] After Pass 3: 210 functions in module
-[buildAST] Returning module with 211 functions
-[pipeline] IR module has 211 functions
-[pipeline] Optimizing IR...
-[pipeline] Code generation...
-[pipeline] Writing C source...
-[pipeline] Compiling executable binary...      <-- muere aca
+[pass3] decl 51
+[buildFn] tokTypeToString
+
+[ORBIT RUNTIME CRASH] ExceptionCode 0xC0000005 at address 00007FF660FB2ED0
+[bootstrap] Failed to build Stage 3 compiler.
+error: BootstrapStage3Failed        (src/main.zig:1279 runBootstrapMode)
 ```
 
-Esto es un fallo NUEVO y distinto al que se venia persiguiendo. Ocurre al lanzar
-`zig cc` como subproceso, no en el frontend ni en el backend.
+Puntos a diagnosticar:
 
-**Paso 3 (stage2 -> stage3):** en la corrida previa llego a
-`[buildAST] Program has 306 decls` y murio con `0xC0000005` dentro del Pass 3,
-sin llegar a `After Pass 3`. Nunca escribio `stage3.exe.c`.
-
-> **Nota de actualizacion (2026-08-07):** tras `ae2f3d7`, `6a3b495` y `6bce0c4` el
-> estado descrito arriba puede haber cambiado. Re-corre los pasos 2 y 3 antes de
-> diagnosticar en base a este snapshot.
+- Muere en `[buildFn] tokTypeToString`, inmediatamente despues de `[pass3] decl 51`.
+  `tokTypeToString` vive en `compiler/token.orb`; es el siguiente candidato a leer.
+- El crash es `0xC0000005` sin traza de Zig: el fallo esta en `src/runtime` (C
+  compilado aparte) o en una llamada a un subproceso/sistema. Candidatos habituales
+  segun seccion 4: `orbit_string_concat`/`strcmp` con NULL, o un NULL que viajo desde
+  un `orbit_list_get` fuera de rango.
+- Nunca se escribio `stage3.exe.c` (verificar con timestamps antes de diagnosticar).
+- No confundir con la corrida vieja: ahi el paso 2 fallaba al lanzar `zig cc` y el
+  paso 3 moria a los "306 decls". Ahora el paso 2 pasa y el paso 3 avanza hasta la
+  funcion 52 del Pass 3. Es progreso: hay un solo bloqueador localizable.
 
 ---
 

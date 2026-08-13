@@ -213,8 +213,11 @@ pub const TypeChecker = struct {
         const trait_methods = self.getTraitMethods(trait_name) orelse {
             if (self.diagnostics) |d| {
                 d.reportWarning("impl/unknown-trait", "Trait not found", .{
-                    .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
-                    .text = "", .file_path = "", .file_source = "",
+                    .tag = .Invalid,
+                    .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                    .text = "",
+                    .file_path = "",
+                    .file_source = "",
                 }) catch {};
             }
             return false;
@@ -237,8 +240,11 @@ pub const TypeChecker = struct {
                             ) catch "";
                             defer if (msg.len > 0) self.allocator.free(msg);
                             d.reportError("impl/param-count", msg, .{
-                                .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
-                                .text = "", .file_path = "", .file_source = "",
+                                .tag = .Invalid,
+                                .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                                .text = "",
+                                .file_path = "",
+                                .file_source = "",
                             }) catch {};
                         }
                     }
@@ -256,8 +262,11 @@ pub const TypeChecker = struct {
                                 ) catch "";
                                 defer if (msg.len > 0) self.allocator.free(msg);
                                 d.reportError("impl/return-type", msg, .{
-                                    .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
-                                    .text = "", .file_path = "", .file_source = "",
+                                    .tag = .Invalid,
+                                    .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                                    .text = "",
+                                    .file_path = "",
+                                    .file_source = "",
                                 }) catch {};
                             }
                         }
@@ -274,8 +283,11 @@ pub const TypeChecker = struct {
                     ) catch "";
                     defer if (msg.len > 0) self.allocator.free(msg);
                     d.reportError("impl/missing-method", msg, .{
-                        .tag = .Invalid, .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
-                        .text = "", .file_path = "", .file_source = "",
+                        .tag = .Invalid,
+                        .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                        .text = "",
+                        .file_path = "",
+                        .file_source = "",
                     }) catch {};
                 }
             }
@@ -643,7 +655,7 @@ pub const TypeChecker = struct {
         // Pointer compatibility: ptr/pointer/mut_ptr/mut_pointer are compatible with void* ("pointer")
         const is_expected_opaque_ptr = std.mem.eql(u8, resolved_expected, "pointer") or std.mem.eql(u8, resolved_expected, "ptr") or std.mem.eql(u8, resolved_expected, "mut_pointer") or std.mem.eql(u8, resolved_expected, "mut_ptr");
         const is_actual_opaque_ptr = std.mem.eql(u8, resolved_actual, "pointer") or std.mem.eql(u8, resolved_actual, "ptr") or std.mem.eql(u8, resolved_actual, "mut_pointer") or std.mem.eql(u8, resolved_actual, "mut_ptr");
-        
+
         const is_expected_exact_ptr = resolved_expected.len > 0 and resolved_expected[0] == '&';
         const is_actual_exact_ptr = resolved_actual.len > 0 and resolved_actual[0] == '&';
 

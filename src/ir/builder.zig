@@ -196,14 +196,14 @@ pub const IRBuilder = struct {
                     const fn_data = decl.data.fn_decl;
                     var func = IRFunction.init(self.allocator, fn_data.name.getText(self.source));
                     func.is_extern = fn_data.is_extern;
-        // Phase 2: Set return type from annotation
-        if (fn_data.return_type != null) {
-            const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
-            func.return_type = try self.resolveType(ret_str);
-            self.allocator.free(ret_str);
-        } else if (std.mem.eql(u8, fn_data.name.getText(self.source), "main")) {
-            func.return_type = .int;
-        }
+                    // Phase 2: Set return type from annotation
+                    if (fn_data.return_type != null) {
+                        const ret_str = try ast.formatTypeExpr(self.allocator, fn_data.return_type, self.source);
+                        func.return_type = try self.resolveType(ret_str);
+                        self.allocator.free(ret_str);
+                    } else if (std.mem.eql(u8, fn_data.name.getText(self.source), "main")) {
+                        func.return_type = .int;
+                    }
                     // Track param types
                     var param_types = std.ArrayListUnmanaged(IRType).empty;
                     var param_names = std.ArrayListUnmanaged([]const u8).empty;
@@ -389,7 +389,7 @@ pub const IRBuilder = struct {
             const fn_str = try ast.formatTypeExpr(self.allocator, field_data.type_expr, self.source);
             const fn_type = try self.allocator.dupe(u8, fn_str);
             self.allocator.free(fn_str);
-            
+
             try model.fields.append(self.allocator, .{
                 .name = try self.allocator.dupe(u8, field_data.name.getText(self.source)),
                 .type_name = fn_type,
@@ -631,9 +631,9 @@ pub const IRBuilder = struct {
             },
             .return_ok => {
                 const expr_val = try self.buildExpr(node.data.return_ok.expr);
-                    const ret_str = try ast.formatTypeExpr(self.allocator, node.data.return_ok.expr, self.source);
-                    self.current_function.?.return_type = try self.resolveType(ret_str);
-                    self.allocator.free(ret_str);
+                const ret_str = try ast.formatTypeExpr(self.allocator, node.data.return_ok.expr, self.source);
+                self.current_function.?.return_type = try self.resolveType(ret_str);
+                self.allocator.free(ret_str);
 
                 const status_code = if (node.data.return_ok.status) |s|
                     try std.fmt.parseInt(i32, s.getText(self.source), 10)
@@ -1100,7 +1100,7 @@ pub const IRBuilder = struct {
             // Intercept collection methods
             if (std.mem.eql(u8, member_name, "push") or std.mem.eql(u8, member_name, "append")) {
                 const obj = try self.buildExpr(ma.object);
-                std.debug.print("[IR DEBUG] buildCall: push handler, args.len={d}, func={s}\n", .{node.data.call.args.len, self.current_function.?.name});
+                std.debug.print("[IR DEBUG] buildCall: push handler, args.len={d}, func={s}\n", .{ node.data.call.args.len, self.current_function.?.name });
                 if (node.data.call.args.len == 1) {
                     const val = try self.buildExpr(node.data.call.args[0]);
                     var instr = IRInstruction.init(.list_push);
@@ -1109,7 +1109,7 @@ pub const IRBuilder = struct {
                     const push_res = try self.current_function.?.allocRegister(self.allocator, .void);
                     instr.dest = push_res;
                     try self.current_function.?.emit(self.allocator, instr);
-                    std.debug.print("[IR DEBUG] buildCall: push EMITTED! func={s} instr_count={d}\n", .{self.current_function.?.name, self.current_function.?.instructions.items.len});
+                    std.debug.print("[IR DEBUG] buildCall: push EMITTED! func={s} instr_count={d}\n", .{ self.current_function.?.name, self.current_function.?.instructions.items.len });
                     return IRValue{ .register = push_res };
                 }
             } else if (std.mem.eql(u8, member_name, "pop")) {
@@ -1494,7 +1494,8 @@ pub const IRBuilder = struct {
         try self.buildStmt(if_data.then_branch);
         const then_added = self.current_function.?.instructions.items.len - then_start;
 
-        const last_then = if (then_added > 0) self.current_function.?.instructions.getLast() else null;
+        const fn_ref = self.current_function.?;
+        const last_then = if (then_added > 0) fn_ref.instructions.items[fn_ref.instructions.items.len - 1] else null;
         const then_terminates = if (last_then) |lt| isTerminator(lt) else false;
 
         if (!then_terminates) {
@@ -1512,7 +1513,7 @@ pub const IRBuilder = struct {
         }
 
         const else_terminates = if (if_data.else_branch != null and self.current_function.?.instructions.items.len > 0)
-            isTerminator(self.current_function.?.instructions.getLast().?)
+            isTerminator(self.current_function.?.instructions.items[self.current_function.?.instructions.items.len - 1])
         else
             then_terminates;
 
@@ -1776,14 +1777,39 @@ fn unescapeString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
         if (s[i] == '\\' and i + 1 < s.len) {
             const next = s[i + 1];
             switch (next) {
-                'n'  => { try out.append(allocator, '\n'); i += 2; },
-                't'  => { try out.append(allocator, '\t'); i += 2; },
-                'r'  => { try out.append(allocator, '\r'); i += 2; },
-                '"'  => { try out.append(allocator, '"');  i += 2; },
-                '\'' => { try out.append(allocator, '\''); i += 2; },
-                '\\' => { try out.append(allocator, '\\'); i += 2; },
-                '0'  => { try out.append(allocator, 0);   i += 2; },
-                else => { try out.append(allocator, '\\'); try out.append(allocator, next); i += 2; },
+                'n' => {
+                    try out.append(allocator, '\n');
+                    i += 2;
+                },
+                't' => {
+                    try out.append(allocator, '\t');
+                    i += 2;
+                },
+                'r' => {
+                    try out.append(allocator, '\r');
+                    i += 2;
+                },
+                '"' => {
+                    try out.append(allocator, '"');
+                    i += 2;
+                },
+                '\'' => {
+                    try out.append(allocator, '\'');
+                    i += 2;
+                },
+                '\\' => {
+                    try out.append(allocator, '\\');
+                    i += 2;
+                },
+                '0' => {
+                    try out.append(allocator, 0);
+                    i += 2;
+                },
+                else => {
+                    try out.append(allocator, '\\');
+                    try out.append(allocator, next);
+                    i += 2;
+                },
             }
         } else {
             try out.append(allocator, s[i]);

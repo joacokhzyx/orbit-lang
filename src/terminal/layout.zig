@@ -340,14 +340,14 @@ pub const Spinner = struct {
                 writeStderr(line);
             }
             if (@import("builtin").os.tag == .windows) {
-            const win = struct {
-                pub extern "kernel32" fn Sleep(dwMilliseconds: std.os.windows.DWORD) callconv(.winapi) void;
-            };
-            win.Sleep(80);
-        } else {
-            const req = std.posix.system.timespec{ .sec = 0, .nsec = 80 * 1_000_000 };
-            _ = std.posix.system.nanosleep(&req, null);
-        }
+                const win = struct {
+                    pub extern "kernel32" fn Sleep(dwMilliseconds: std.os.windows.DWORD) callconv(.winapi) void;
+                };
+                win.Sleep(80);
+            } else {
+                const req = std.posix.system.timespec{ .sec = 0, .nsec = 80 * 1_000_000 };
+                _ = std.posix.system.nanosleep(&req, null);
+            }
             i += 1;
         }
         {
