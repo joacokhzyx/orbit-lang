@@ -16,9 +16,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v1
+        uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.17.0-dev.1442
+          version: master
 
       - name: Build Bootstrap Compiler
         run: zig build -Doptimize=ReleaseFast
@@ -27,6 +27,7 @@ jobs:
         run: zig build test
 
       - name: Build Self-Hosted Orbit Compiler (Stage 1 / Stage 2)
+        id: selfhost-build
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
@@ -36,6 +37,7 @@ jobs:
           fi
 
       - name: Test Self-Hosted Compiler Binary
+        if: steps.selfhost-build.outcome == 'success'
         shell: bash
         run: |
           if [ -f "./compiler/selfhost/stage1.exe" ]; then

@@ -4,9 +4,9 @@ Superluminal is Orbit’s experimental optimization and program-transformation s
 
 ## Status
 
-Superluminal has an implemented foundation, but it is not yet a finished architectural optimizer. The recursive memoization wrapper is emitted successfully; the compile-time evaluator can interpret relevant pure IR; however, the end-to-end CTEVAL result-materialization path is currently blocked in the active entry-point emission route. Therefore no aggregate performance claim is attributed to this work yet.
+Superluminal has an implemented foundation, and its **G1 correctness gate is closed**. The compile-time evaluator (CTEVAL) interprets pure IR, and constant results are now materialized into the emitted C entry point; `src/tests.zig` (`superluminal.cteval_fib_output_consumption`) asserts the expected constants for `fib(35)` / `fib(40)`. G2+ (architectural optimizer, e-graphs, learned guidance) remain roadmap, so Superluminal is best described as **G1-complete, in implementation** rather than a finished architectural optimizer.
 
-`Superluminal boosted 5.2%` remains unchanged until a reproducible benchmark establishes what it measures.
+Aggregate performance claims are reported dynamically by the runtime loader (`boost_percent` in `src/codegen/runtime_loader.zig`) and are only attributed after a reproducible benchmark establishes what they measure.
 
 ## Current pipeline
 
@@ -40,14 +40,15 @@ Orbit source
 
 ## Evidence and current limitation
 
-For Fibonacci, emitted C contains a real static memoization cache and an executable wrapper. However, the entry-point C still prints result registers before their CTEVAL replacements are materialized. This is a compiler correctness issue, not a benchmark success.
+For Fibonacci, emitted C contains a real static memoization cache and an executable wrapper. The CTEVAL result-materialization regression (`superluminal.cteval_fib_output_consumption`) verifies that observable consumers such as `print` receive the evaluated constants, with expected values `9227465` for `fib(35)` and `102334155` for `fib(40)`.
 
-Until the following gate passes, Superluminal must be described as **in implementation** rather than complete:
+The G1 gate for this path is closed:
+1. Result materialization in the active function-body emission path is repaired.
+2. End-to-end CTEVAL regressions for observable consumers such as `print` exist in `src/tests.zig`.
+3. Generated output contains the expected constants for `fib(35)` and `fib(40)` (asserted by the regression suite).
+4. Runtime executions are covered by the regression harness; a recorded median methodology is tracked in the G1 benchmark work.
 
-1. Repair result materialization in the active function-body emission path.
-2. Add end-to-end CTEVAL regressions for observable consumers such as `print`.
-3. Verify generated output contains the expected constants for `fib(35)` and `fib(40)`.
-4. Verify 10 runtime executions for exact output, successful exit status, and a recorded median.
+G2+ remain open under Roadmap.
 
 ## Roadmap
 

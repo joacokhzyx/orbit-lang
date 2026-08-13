@@ -11,6 +11,9 @@ zig-out/
 output_orbit.c
 last_generated.c
 
+# Prebuilt release binaries (regenerate via zig build)
+bin/
+
 # Local runtime data
 orbit.db
 
@@ -39,6 +42,11 @@ benchmarks/clients/rust/target/
 bootstrap_server.exe
 bootstrap_server.pdb
 compiler/selfhost/*.exe
+compiler/selfhost/*.exit
+compiler/selfhost/*.pid
+compiler/selfhost/*.out
+compiler/selfhost/*-asan
+compiler/selfhost/snippet-*.c
 
 # Package and installer outputs
 node_modules/

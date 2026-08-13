@@ -1512,7 +1512,7 @@ pub const IRBuilder = struct {
         }
 
         const else_terminates = if (if_data.else_branch != null and self.current_function.?.instructions.items.len > 0)
-            isTerminator(self.current_function.?.instructions.getLast())
+            isTerminator(self.current_function.?.instructions.getLast().?)
         else
             then_terminates;
 

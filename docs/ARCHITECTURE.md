@@ -32,10 +32,6 @@ flowchart TD
 
     subgraph Codegen
         CBK["C Backend\nsrc/codegen/c_backend.zig"]
-        EXP["Expression Gen\nsrc/codegen/expression_gen.zig"]
-        STM["Statement Gen\nsrc/codegen/statement_gen.zig"]
-        RTE["Route Gen\nsrc/codegen/route_gen.zig"]
-        MDL["Model Gen\nsrc/codegen/model_gen.zig"]
         RLD["Runtime Loader\nsrc/codegen/runtime_loader.zig"]
     end
 
@@ -56,7 +52,7 @@ flowchart TD
     subgraph Driver
         MAIN["main.zig\nCompilation driver"]
         ATL["atlas.zig\norbit.atlas config"]
-        PHO["Photon cache\njit.zig"]
+        PHO["Photon cache\nmain.zig"]
         TRM["Terminal UI\nterminal/"]
     end
 
@@ -64,7 +60,7 @@ flowchart TD
     MAIN --> LEX
     LEX --> TOK --> PAR --> AST --> SEM
     SEM --> IR --> OPT --> CBK
-    CBK --> EXP & STM & RTE & MDL & RLD
+    CBK --> RLD
     RLD --> Runtime
     CBK --> CC["System C Compiler\n(cc / clang / gcc)"]
     CC --> BIN["Native binary"]
@@ -80,16 +76,17 @@ flowchart TD
 ### Orbit Arena (virtual-memory epoch allocator)
 File: `src/runtime/arena.c`
 
-The arena reserves a large virtual address window (default: 256 MiB per thread) at startup and commits pages on demand.  
-Every HTTP request runs inside an **epoch**:
+The arena reserves a large virtual address window (default: 64 MiB per arena) at startup and commits pages on demand.  
+Every HTTP request runs inside an **epoch**, bracketed by checkpoint/rewind:
 
 ```
-orbit_arena_epoch_begin(arena)   // mark start
+OrbitArenaCheckpoint mark = orbit_arena_checkpoint(arena);  // mark start
   … allocate request-scoped objects …
-orbit_arena_epoch_end(arena)     // bulk-free everything in O(1)
+orbit_arena_rewind(arena, mark);                            // bulk-free everything in O(1)
 ```
 
-Internally: a monotonically growing bump pointer; epoch-end resets the pointer to the epoch-start mark.  
+Internally: a monotonically growing bump pointer; rewind resets the pointer to the checkpoint mark.  
+`orbit_arena_reset(arena)` returns the arena to a pristine state.  
 See `docs/architecture/ORBIT_ARENA.md` for detailed design.
 
 ---
@@ -101,12 +98,16 @@ Each route handler gets a **lease** — a budget of CPU cycles and I/O operation
 If the handler exceeds its budget, Kynx rejects the request with HTTP 429 before writing the response.  
 In **siege mode** (burst of requests detected), all new leases are rejected until the server drains.
 
-API surface:
+API surface (`src/runtime/kynx.c`):
 ```c
-OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* route, uint64_t cpu_budget);
-bool            orbit_kynx_lease_check_limits(OrbitKynxLease*, size_t response_bytes);
-void            orbit_kynx_lease_release(OrbitKynxLease*);
-bool            orbit_kynx_is_siege_mode(void);
+void             orbit_kynx_init(OrbitKynxConfig config);
+bool             orbit_kynx_check(const char* ip_str);
+OrbitKynxLease*  orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
+bool             orbit_kynx_lease_check_limits(size_t additional_response_bytes);
+void             orbit_kynx_lease_destroy(OrbitKynxLease* lease);
+bool             orbit_kynx_is_siege_mode(void);
+uint64_t         orbit_kynx_get_total_checks(void);
+uint64_t         orbit_kynx_get_total_blocked(void);
 ```
 
 ---
@@ -120,11 +121,11 @@ Records per-request latency into lock-free histogram buckets and computes P50 / 
 ---
 
 ### Orbit Photon (build cache)
-File: `src/jit.zig`, `src/main.zig`
+File: `src/main.zig`
 
-Caches compiled binaries keyed by `xxHash64(source)`.  
+Caches compiled binaries keyed by an **FNV-1a** hash of the source units, headers, and session flags.  
 On a cache hit the compiler skips lexing → codegen and reuses the last binary.  
-The cache database is stored in `~/.orbit/cache/orbit.db` (SQLite).
+The cache stores the compiled `orbit.exe` binary under `~/.orbit/cache/<file>_<hash>/orbit.exe` (plain file, no SQLite database).
 
 ---
 
@@ -185,15 +186,10 @@ HTTP server (generated code)
 | `src/sema/diagnostic.zig` | Error / warning reporting |
 | `src/compiler.zig` | Orchestrates frontend → codegen |
 | `src/atlas.zig` | Project configuration loader |
-| `src/jit.zig` | Build cache / Photon |
 | `src/ir/ir.zig` | IR instruction definitions |
 | `src/ir/builder.zig` | IR construction from AST |
 | `src/ir/optimizer.zig` | Constant folding, DCE |
-| `src/codegen/c_backend.zig` | C code emitter (main) |
-| `src/codegen/expression_gen.zig` | Expression code generation |
-| `src/codegen/statement_gen.zig` | Statement code generation |
-| `src/codegen/route_gen.zig` | HTTP route generation |
-| `src/codegen/model_gen.zig` | ORM model generation |
+| `src/codegen/c_backend.zig` | IR-based C code emitter (main) |
 | `src/codegen/runtime_loader.zig` | Embeds C runtime into output |
 | `src/runtime/arena.c` | Epoch virtual-memory allocator |
 | `src/runtime/arena_pool.c` | Thread-local arena pool |
@@ -228,7 +224,7 @@ flowchart TD
         LIR["LIR Lowering\nsrc/backend/x86_64/lowering.zig"]
         RA["RegAlloc (stack-based)\nsrc/backend/lir/regalloc.zig"]
         ENC["x86-64 Encoder\nsrc/backend/x86_64/encoder.zig"]
-        OBJ["Object Writer\nsrc/backend/coff/ or elf/"]
+        OBJ["Object Writer\nsrc/backend/link/"]
     end
     
     IR --> MIR --> VER --> LIR --> RA --> ENC --> OBJ
@@ -241,5 +237,5 @@ flowchart TD
 2. **MIR (Medium Intermediate Representation)**: Target-independent CFG representation. Basic blocks trace explicit predecessor/successor links.
 3. **LIR (Low Intermediate Representation)**: Target-specific register/memory representation, supporting virtual registers, stack slots, and physical register parameters.
 4. **Register Allocation**: Employs a stack-based allocation strategy for absolute correctness. Virtual registers are mapped directly to stack slots. Scratch registers (RAX, RCX, RDX) are used for instruction execution.
-5. **COFF/ELF object formats**: Direct implementations of the PE/COFF and ELF64 specifications, writing headers, section tables, symbol tables, and code directly into relocatable objects.
+5. **Object formats**: Direct implementations of the PE/COFF and ELF64 specifications under `src/backend/link/` (`coff_writer.zig`, `elf_writer.zig`, `pe_image.zig`, `elf_image.zig`), writing headers, section tables, symbol tables, and code directly into relocatable objects.
 

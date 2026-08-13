@@ -95,17 +95,23 @@ When `orbit_arena_reset` is called, the interning table hash buckets are cleared
 
 ## Arena Pooling & Thread Caching
 
-To eliminate the cost of repeated OS allocation calls for short-lived tasks (such as HTTP request handlers), Orbit implements thread-local Arena pooling (`src/runtime/arena_pool.c`).
+To eliminate the cost of repeated OS allocation calls for short-lived tasks (such as HTTP request handlers), Orbit implements a global, concurrency-safe arena pool (`src/runtime/arena_pool.c`).
 
 ```c
 typedef struct {
-    OrbitArena* pool[16];
-    int count;
-} OrbitArenaThreadCache;
+    OrbitArena** arenas;
+    volatile int* in_use;
+    int          pool_size;
+    size_t       arena_capacity;
+    volatile int active_count;     /* atomic */
+    uint64_t     total_acquires;   /* atomic */
+    uint64_t     overflow_creates; /* atomic */
+} OrbitArenaPool;
 ```
 
-1. **Acquire**: `orbit_arena_acquire()` retrieves a pre-reserved arena from the thread-local pool in $O(1)$.
-2. **Release**: `orbit_arena_release(arena)` resets the cursor, retains up to 256 KB of committed physical memory, and returns the arena to the pool.
+1. **Init**: `orbit_arena_pool_init(pool_size, arena_capacity)` pre-creates `pool_size` arenas.
+2. **Acquire**: `orbit_arena_pool_acquire()` returns a free arena (reset before use) in $O(1)$; if the pool is exhausted it returns a temporary overflow arena.
+3. **Release**: `orbit_arena_pool_release(arena)` resets the arena (retaining up to 256 KB of hot committed memory) and returns it to the pool.
 
 ---
 

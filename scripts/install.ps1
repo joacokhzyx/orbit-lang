@@ -27,6 +27,9 @@ $BootstrapExe = "$RootDir\zig-out\bin\orbit.exe"
 if (-not (Test-Path $BootstrapExe)) {
     Write-Host "[*] Compiling Orbit bootstrap compiler with ReleaseFast optimization..." -ForegroundColor Yellow
     zig build -Doptimize=ReleaseFast
+    if (-not (Test-Path $BootstrapExe)) {
+        Write-Error "[ERROR] Bootstrap compiler not found at $BootstrapExe. Did 'zig build' succeed?"
+    }
 }
 
 $SourceExe = $BootstrapExe

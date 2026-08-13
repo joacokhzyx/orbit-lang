@@ -42,7 +42,13 @@ jobs:
       - name: Build Self-Hosted Orbit Compiler (Stage 1 / Stage 2)
         shell: bash
         run: |
-          "${{ matrix.bootstrap_binary }}" bootstrap || true
+          set +e
+          "${{ matrix.bootstrap_binary }}" bootstrap
+          bootstrap_exit=$?
+          set -e
+          if [ "$bootstrap_exit" -ne 0 ]; then
+            echo "[Release] Self-host bootstrap failed (exit $bootstrap_exit); the release will fall back to the bootstrap compiler."
+          fi
 
       - name: Package Self-Hosted / Release compiler
         shell: bash

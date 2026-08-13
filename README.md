@@ -56,7 +56,7 @@ route GET "/health" {
 
 ### Prerequisites
 
-- **Zig Compiler**: `0.15.2` or higher
+- **Zig Compiler**: `0.16.0` or higher (0.17.0-dev toolchains are also used by the CI)
 - **C Toolchain**: MSVC (Windows), GCC, Clang, or `zig cc`
 
 ### Build Compiler

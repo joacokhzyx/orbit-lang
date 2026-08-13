@@ -3,7 +3,11 @@
 Objetivo: que el compilador de Orbit se compile a si mismo hasta alcanzar un punto
 fijo (stage2.exe.c identico a stage3.exe.c).
 
-Este documento es el estado real al 2026-08-02 21:35. Leelo entero antes de tocar nada.
+Estado real al 2026-08-07 (HEAD `6bce0c4`). Leelo entero antes de tocar nada.
+Los fixes posteriores al snapshot original (`ae2f3d7` cache de longitud del lexer,
+`6a3b495` acceso O(1) a chars, `6bce0c4` fix de `orbit_list_push` en `c_backend.orb`)
+modificaron el estado que describe la seccion 2; hay que re-correr los pasos para
+establecer el estado actual.
 
 ---
 
@@ -21,6 +25,8 @@ estas probando binarios viejos.
 ```
 
 Hay un script que hace los tres y resume el resultado: `.\scratch\runall.ps1`.
+(`scratch/` es local y esta git-ignored: si no lo tenes, los tres comandos de arriba
+son el flujo completo.)
 
 El pipeline genera C y lo compila con:
 `<CC> -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types <cPath> -o <out> -I src/runtime [-lws2_32]`
@@ -28,11 +34,11 @@ con `CC` por defecto `zig cc`. Cada stage deja su C al lado: `stageN.exe.c`.
 
 ---
 
-## 2. Estado actual
+## 2. Estado actual (snapshot 2026-08-02)
 
 **Paso 1:** ok.
 
-**Paso 2 (stage1 -> stage2):** historicamente ok. En la ultima corrida murio con
+**Paso 2 (stage1 -> stage2):** historicamente ok. En la ultima corrida del snapshot murio con
 `0xC0000005` DESPUES de completar todo el trabajo del compilador:
 
 ```
@@ -51,6 +57,10 @@ Esto es un fallo NUEVO y distinto al que se venia persiguiendo. Ocurre al lanzar
 **Paso 3 (stage2 -> stage3):** en la corrida previa llego a
 `[buildAST] Program has 306 decls` y murio con `0xC0000005` dentro del Pass 3,
 sin llegar a `After Pass 3`. Nunca escribio `stage3.exe.c`.
+
+> **Nota de actualizacion (2026-08-07):** tras `ae2f3d7`, `6a3b495` y `6bce0c4` el
+> estado descrito arriba puede haber cambiado. Re-corre los pasos 2 y 3 antes de
+> diagnosticar en base a este snapshot.
 
 ---
 
@@ -215,11 +225,11 @@ funciones y el C generado salio vacio (30 lineas en vez de 45000). Declarar
 
 ## 8. Mapa de archivos
 
-`compiler/builder.orb` (~1780 lineas, LF) - AST a IR. Aca vivieron los bugs #3 y #5.
+`compiler/builder.orb` (~1774 lineas, LF) - AST a IR. Aca vivieron los bugs #3 y #5.
 Orden: helpers de scope y tipos, `buildAST` (3 pases), `buildDecl`, `buildFunction`,
 `buildNode`, `buildMatchStatement`, `buildMatchExpr`, `buildCall`, `buildExpr`.
 
-`compiler/c_backend.orb` (1701 lineas, LF) - IR a C. Aca vivieron los bugs #1 y #4.
+`compiler/c_backend.orb` (~1844 lineas, LF) - IR a C. Aca vivieron los bugs #1 y #4.
 `generateC` emite macros de variantes, enums, typedefs, forward decls y `main`.
 Despues `inferRegisterTypes`, `generateFunction`, `generateInstruction`.
 

@@ -35,7 +35,8 @@ zig build -Doptimize=ReleaseFast
 
 SOURCE_EXE="$ROOT_DIR/zig-out/bin/orbit"
 if [ ! -f "$SOURCE_EXE" ]; then
-    SOURCE_EXE="$ROOT_DIR/orbit"
+    echo "[ERROR] Bootstrap compiler not found at $SOURCE_EXE. Did 'zig build' succeed?" >&2
+    exit 1
 fi
 
 if [ "$USE_SELFHOST" -eq 1 ]; then
