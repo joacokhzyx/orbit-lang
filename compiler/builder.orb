@@ -54,13 +54,13 @@ fn getVariableType(v: Variable) -> string {
 }
 
 fn scopeGet(scope: VarScope, name: string) -> string {
-    var i = 0
-    while i < scope.variables.len() {
+    var i = scope.variables.len()
+    while i > 0 {
+        i = i - 1
         val v = scope.variables.get(i)
         if checkVariableName(v, name) {
             return getVariableType(v)
         }
-        i = i + 1
     }
     return "unknown"
 }
@@ -268,7 +268,7 @@ fn variantPayloadType(builder: IRBuilder, tagName: string) -> string {
     if tagName == "Int" { return "IRValueInt" }
     if tagName == "Float" { return "IRValueFloat" }
     if tagName == "String" { return "IRValueString" }
-    if tagName == "Symbol" { return "IRValueSymbol" }
+    if tagName == "Sym" { return "IRValueSymbol" }
     if tagName == "Bool" { return "IRValueBool" }
     if tagName == "Register" { return "IRValueRegister" }
     if tagName == "Label" { return "IRValueLabel" }
@@ -1330,16 +1330,21 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 return resReg
             }
             // Default method call: emit obj as first arg, then call memberName as function
+            val argList = []
+            var ai0 = 0
+            while ai0 < c.args.len() {
+                argList.push(buildExpr(builder, c.args.get(ai0)))
+                ai0 = ai0 + 1
+            }
             val arg1 = ir_init_instr(IROpcode.arg)
             arg1.operand1 = ir_register(objReg)
             ir_emit(builder.currentFunction, arg1)
-            var ai = 0
-            while ai < c.args.len() {
-                val argReg = buildExpr(builder, c.args.get(ai))
+            var ei0 = 0
+            while ei0 < argList.len() {
                 val argInstr = ir_init_instr(IROpcode.arg)
-                argInstr.operand1 = ir_register(argReg)
+                argInstr.operand1 = ir_register(argList.get(ei0))
                 ir_emit(builder.currentFunction, argInstr)
-                ai = ai + 1
+                ei0 = ei0 + 1
             }
             val resReg = ir_alloc_register(builder.currentFunction, "unknown")
             val callInstr = ir_init_instr(IROpcode.call)
@@ -1377,14 +1382,21 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                         ir_emit(builder.currentFunction, instr)
                         return resReg
                     }
-                    // Regular function call
+                    // Regular function call. Evaluate every argument first so a
+                    // nested call (arg[i] is itself a call) cannot steal the
+                    // pending .arg instructions of this call.
+                    val argRegs = []
                     var ai = 0
                     while ai < c.args.len() {
-                        val argReg = buildExpr(builder, c.args.get(ai))
-                        val argInstr = ir_init_instr(IROpcode.arg)
-                        argInstr.operand1 = ir_register(argReg)
-                        ir_emit(builder.currentFunction, argInstr)
+                        argRegs.push(buildExpr(builder, c.args.get(ai)))
                         ai = ai + 1
+                    }
+                    var ei = 0
+                    while ei < argRegs.len() {
+                        val argInstr = ir_init_instr(IROpcode.arg)
+                        argInstr.operand1 = ir_register(argRegs.get(ei))
+                        ir_emit(builder.currentFunction, argInstr)
+                        ei = ei + 1
                     }
                     val resReg = ir_alloc_register(builder.currentFunction, "unknown")
                     val callInstr = ir_init_instr(IROpcode.call)
@@ -1395,20 +1407,26 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     return resReg
                 }
                 _ => {
-                    var ai = 0
-                    while ai < c.args.len() {
-                        val argReg = buildExpr(builder, c.args.get(ai))
-                        val argInstr = ir_init_instr(IROpcode.arg)
-                        argInstr.operand1 = ir_register(argReg)
-                        ir_emit(builder.currentFunction, argInstr)
-                        ai = ai + 1
+                    val argRegs2 = []
+                    var ai2 = 0
+                    while ai2 < c.args.len() {
+                        argRegs2.push(buildExpr(builder, c.args.get(ai2)))
+                        ai2 = ai2 + 1
                     }
+                    var ei2 = 0
+                    while ei2 < argRegs2.len() {
+                        val argInstr = ir_init_instr(IROpcode.arg)
+                        argInstr.operand1 = ir_register(argRegs2.get(ei2))
+                        ir_emit(builder.currentFunction, argInstr)
+                        ei2 = ei2 + 1
+                    }
+                    val resReg2 = ir_alloc_register(builder.currentFunction, "unknown")
                     val callInstr = ir_init_instr(IROpcode.call)
-                    callInstr.dest = resReg
+                    callInstr.dest = resReg2
                     callInstr.operand1 = buildExpr(builder, c.callee)
                     callInstr.operand2 = ir_int(c.args.len())
                     ir_emit(builder.currentFunction, callInstr)
-                    return resReg
+                    return resReg2
                 }
             }
         }
@@ -1447,12 +1465,18 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 ir_emit(builder.currentFunction, loadInstr)
                 return unknownReg
             }
-            val litReg = ir_alloc_register(builder.currentFunction, lit.valType)
+            var litAllocType = lit.valType
+            if litAllocType == "char" {
+                litAllocType = "int"
+            }
+            val litReg = ir_alloc_register(builder.currentFunction, litAllocType)
             val litInstr = ir_init_instr(IROpcode.load_const)
             litInstr.dest = litReg
             if lit.valType == "string" {
                 val unesc = unescapeString(lit.text)
                 litInstr.operand1 = ir_string(unesc)
+            } else if lit.valType == "char" {
+                litInstr.operand1 = ir_int(charCodeOf(lit.text))
             } else {
                 litInstr.operand1 = ir_symbol(lit.text)
             }
@@ -1783,6 +1807,23 @@ fn unescapeString(s: string) -> string {
         }
     }
     return out
+}
+
+fn charCodeOf(s: string) -> int {
+    if s.len() < 3 { return 0 }
+    val inner = s.slice(1, s.len() - 1)
+    val c0 = inner.at(0)
+    if c0 != 92 { return c0 }
+    if inner.len() < 2 { return 0 }
+    val c1 = inner.at(1)
+    if c1 == 110 { return 10 }   // \n
+    if c1 == 116 { return 9 }    // \t
+    if c1 == 114 { return 13 }   // \r
+    if c1 == 48 { return 0 }     // \0
+    if c1 == 92 { return 92 }    // \\
+    if c1 == 39 { return 39 }    // \'
+    if c1 == 34 { return 34 }    // \"
+    return c1
 }
 
 fn modelFieldIsString(builder: IRBuilder, fieldName: string) -> bool {

@@ -238,7 +238,11 @@ fn generateC(backend: CBackend) -> string {
             if isSkipped2 == false {
                 var retType2 = mapTypeToC(backend, func.returnType)
                 if isMain2 {
-                    retType2 = "void"
+                    if func.returnType != "void" && func.returnType != "" {
+                        retType2 = mapTypeToC(backend, func.returnType)
+                    } else {
+                        retType2 = "void"
+                    }
                 }
                 var proto = "static " + retType2 + " " + fName2 + "("
                 if func.params.len() == 0 {
@@ -296,10 +300,30 @@ fn generateC(backend: CBackend) -> string {
     out = out + "    _orbit_argv = argv;\n"
     out = out + "    _orbit_argc = argc;\n"
     out = out + "    arena = orbit_arena_create(512 * 1024 * 1024);\n"
-    out = out + "    orbit_main();\n"
-    out = out + "    return 0;\n"
+    if mainReturnsInt(backend) {
+        out = out + "    int _orbit_exit_code = (int)(orbit_main());\n"
+        out = out + "    return _orbit_exit_code;\n"
+    } else {
+        out = out + "    orbit_main();\n"
+        out = out + "    return 0;\n"
+    }
     out = out + "}\n"
     return out
+}
+
+fn mainReturnsInt(backend: CBackend) -> bool {
+    if backend == NULL || backend.module == NULL { return false }
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == "main" || f.name == "orbit_main" || f.name == "main_main" {
+            if f.returnType != "void" && f.returnType != "" {
+                return true
+            }
+        }
+        fi = fi + 1
+    }
+    return false
 }
 
 fn isEnumType(backend: CBackend, typeName: string) -> bool {
@@ -387,6 +411,67 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
         var pi = 0
         while pi < func.instructions.len() {
             val inst: IRInstruction = func.instructions.get(pi)
+            if inst != NULL {
+                match inst.opcode {
+                    IROpcode.decl_var => {
+                        var vn = ""
+                        match inst.operand1 {
+                            IRValue.Sym(s) => { vn = s.value }
+                            IRValue.String(s) => { vn = s.value }
+                            _ => {}
+                        }
+                        if vn != "" {
+                            if isStringOperand(backend, inst.operand2) {
+                                backend.strVars.push(vn)
+                            }
+                            var isStrVar = isStringVar(backend, vn)
+                            if isStrVar == false {
+                                var pIdx = 0
+                                while pIdx < func.params.len() {
+                                    if func.params.get(pIdx) == vn && func.paramTypes.get(pIdx) == "string" {
+                                        isStrVar = true
+                                    }
+                                    pIdx = pIdx + 1
+                                }
+                            }
+                            if isStrVar {
+                                match inst.operand2 {
+                                    IRValue.Register(reg) => {
+                                        if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                            func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    IROpcode.store_var => {
+                        var vn = ""
+                        match inst.operand1 {
+                            IRValue.Sym(s) => { vn = s.value }
+                            IRValue.String(s) => { vn = s.value }
+                            _ => {}
+                        }
+                        if vn != "" {
+                            if isStringOperand(backend, inst.operand2) {
+                                backend.strVars.push(vn)
+                            }
+                            if isStringVar(backend, vn) {
+                                match inst.operand2 {
+                                    IRValue.Register(reg) => {
+                                        if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                            func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if inst != NULL && inst.dest >= 0 && inst.dest < func.registerTypes.len() {
                 val cur = func.registerTypes.get(inst.dest)
                 if cur == "unknown" || cur == "void" || cur == "" || cur == "void*" {
@@ -425,6 +510,9 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                                             inf = func.paramTypes.get(p)
                                         }
                                         p = p + 1
+                                    }
+                                    if inf == "" {
+                                        inf = variableDefType(backend, func, vn)
                                     }
                                     if inf == "" && isStringVar(backend, vn) {
                                         inf = "string"
@@ -612,38 +700,10 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         func.registerTypes = setStrAt(func.registerTypes, inst.dest, inf)
                     }
                 }
-                // Forward/backward string type propagation
+                // Forward/backward register string-type propagation
+                // (decl_var/store_var handled at top of loop, before the
+                // dest >= 0 guard, because those opcodes carry dest == -1)
                 match inst.opcode {
-                    IROpcode.decl_var => {
-                        var vn = ""
-                        match inst.operand1 {
-                            IRValue.Sym(s) => { vn = s.value }
-                            IRValue.String(s) => { vn = s.value }
-                            _ => {}
-                        }
-                        if vn != "" {
-                            var isStrVar = isStringVar(backend, vn)
-                            if isStrVar == false {
-                                var pIdx = 0
-                                while pIdx < func.params.len() {
-                                    if func.params.get(pIdx) == vn && func.paramTypes.get(pIdx) == "string" {
-                                        isStrVar = true
-                                    }
-                                    pIdx = pIdx + 1
-                                }
-                            }
-                            if isStrVar {
-                                match inst.operand2 {
-                                    IRValue.Register(reg) => {
-                                        if reg.value >= 0 && reg.value < func.registerTypes.len() {
-                                            func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
                     IROpcode.eq => {
                         if isStringOperand(backend, inst.operand1) {
                             match inst.operand2 {
@@ -686,12 +746,15 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                             }
                         }
                     }
-                    IROpcode.add => {
+                                        IROpcode.add => {
                         if isStringOperand(backend, inst.operand1) {
                             match inst.operand2 {
                                 IRValue.Register(reg) => {
-                                    if reg.value >= 0 && reg.value < func.registerTypes.len() {
-                                        func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                                    val opT = registerVarDefType(backend, func, reg.value)
+                                    if opT != "int" && opT != "float" && opT != "bool" && opT != "void" {
+                                        if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                            func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                                        }
                                     }
                                 }
                                 _ => {}
@@ -699,8 +762,11 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         } else if isStringOperand(backend, inst.operand2) {
                             match inst.operand1 {
                                 IRValue.Register(reg) => {
-                                    if reg.value >= 0 && reg.value < func.registerTypes.len() {
-                                        func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                                    val opT = registerVarDefType(backend, func, reg.value)
+                                    if opT != "int" && opT != "float" && opT != "bool" && opT != "void" {
+                                        if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                            func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                                        }
                                     }
                                 }
                                 _ => {}
@@ -763,7 +829,11 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     }
     if isMain {
         fName = "orbit_main"
-        retType = "void"
+        if func.returnType != "void" && func.returnType != "" {
+            retType = mapTypeToC(backend, func.returnType)
+        } else {
+            retType = "void"
+        }
     }
     var out = "static " + retType + " " + fName + "("
     var i = 0
@@ -939,7 +1009,12 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
             }
             if hseen == false {
                 backend.declVars.push(hname)
-                out = out + "    uintptr_t " + hname + " = 0;\n"
+                val vType = variableDefType(backend, func, hname)
+                var cType = "uintptr_t"
+                if vType == "string" { cType = "orbit_string" }
+                else if vType == "float" { cType = "orbit_float" }
+                else if vType == "bool" { cType = "orbit_bool" }
+                out = out + "    " + cType + " " + hname + " = 0;\n"
             }
         }
         hi = hi + 1
@@ -1039,7 +1114,7 @@ fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string 
         return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (orbit_string)(" + valStr + ");\n"
     }
     if regT == "float" || regT == "orbit_float" {
-        return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (orbit_float)(uintptr_t)(" + valStr + ");\n"
+        return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (orbit_float)(" + valStr + ");\n"
     }
     return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
 }
@@ -1063,23 +1138,18 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return generateRegAssign(backend, instr.dest, valStr)
         }
         IROpcode.store_var => {
-            return "    " + generateValue(backend, instr.operand1) + " = (uintptr_t)(" + generateValue(backend, instr.operand2) + ");\n"
+            val svName = generateValue(backend, instr.operand1)
+            return "    " + svName + " = " + storeCastFor(backend, svName) + "(" + generateValue(backend, instr.operand2) + ");\n"
         }
         IROpcode.decl_var => {
             val dvName = generateValue(backend, instr.operand1)
-            return "    " + dvName + " = (uintptr_t)(" + generateValue(backend, instr.operand2) + ");\n"
+            return "    " + dvName + " = " + storeCastFor(backend, dvName) + "(" + generateValue(backend, instr.operand2) + ");\n"
         }
         IROpcode.add => {
             if isStringOperand(backend, instr.operand1) || isStringOperand(backend, instr.operand2) {
-                var s1 = generateValue(backend, instr.operand1)
-                if isStringOperand(backend, instr.operand1) == false {
-                    s1 = "orbit_int_to_string_selfhost((orbit_int)(uintptr_t)(" + s1 + "))"
-                }
-                var s2 = generateValue(backend, instr.operand2)
-                if isStringOperand(backend, instr.operand2) == false {
-                    s2 = "orbit_int_to_string_selfhost((orbit_int)(uintptr_t)(" + s2 + "))"
-                }
-                return generateRegAssign(backend, instr.dest, "orbit_string_concat(arena, (orbit_string)(" + s1 + "), (orbit_string)(" + s2 + "))")
+                val s1 = stringifyConcatOperand(backend, instr.operand1)
+                val s2 = stringifyConcatOperand(backend, instr.operand2)
+                return generateRegAssign(backend, instr.dest, "orbit_string_concat(arena, " + s1 + ", " + s2 + ")")
             }
             return generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") + (uintptr_t)(" + generateValue(backend, instr.operand2) + ")")
         }
@@ -1740,6 +1810,132 @@ fn isStringOperand(backend: CBackend, operand: IRValue) -> bool {
         }
         _ => { return false }
     }
+}
+
+fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {
+    var di = 0
+    while di < func.instructions.len() {
+        val inst: IRInstruction = func.instructions.get(di)
+        if inst != NULL {
+            var cname = ""
+            match inst.operand1 {
+                IRValue.Sym(s) => { cname = s.value }
+                IRValue.String(s) => { cname = s.value }
+                _ => {}
+            }
+            if cname == vn {
+                match inst.opcode {
+                    IROpcode.decl_var => { return operandDefType(backend, func, inst.operand2) }
+                    IROpcode.store_var => { return operandDefType(backend, func, inst.operand2) }
+                    _ => {}
+                }
+            }
+        }
+        di = di + 1
+    }
+    return "unknown"
+}
+
+fn storeCastFor(backend: CBackend, vn: string) -> string {
+    val vType = variableDefType(backend, backend.currentFunction, vn)
+    if vType == "float" { return "(orbit_float)" }
+    if vType == "bool" { return "(orbit_int)(uintptr_t)" }
+    if vType == "string" { return "(orbit_string)" }
+    return "(uintptr_t)"
+}
+
+fn operandDefType(backend: CBackend, func: IRFunction, op2: IRValue) -> string {
+    match op2 {
+        IRValue.Int(v) => { return "int" }
+        IRValue.Float(v) => { return "float" }
+        IRValue.Bool(v) => { return "bool" }
+        IRValue.String(s) => {
+            if s.value.indexOf("TAG_") != -1 { return "int" }
+            return "string"
+        }
+        IRValue.Sym(s) => {
+            if s.value == "true" || s.value == "false" { return "bool" }
+            if s.value.indexOf("TAG_") != -1 { return "int" }
+            return "unknown"
+        }
+        IRValue.Register(reg) => {
+            if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                val t = func.registerTypes.get(reg.value)
+                if t != "unknown" && t != "" && t != "void" {
+                    return t
+                }
+            }
+            return "unknown"
+        }
+        _ => { return "unknown" }
+    }
+}
+
+fn registerVarDefType(backend: CBackend, func: IRFunction, regId: int) -> string {
+    var di = 0
+    while di < func.instructions.len() {
+        val inst: IRInstruction = func.instructions.get(di)
+        if inst != NULL && inst.dest == regId {
+            match inst.opcode {
+                IROpcode.load_var => {
+                    var vn = ""
+                    match inst.operand1 {
+                        IRValue.Sym(s) => { vn = s.value }
+                        IRValue.String(s) => { vn = s.value }
+                        _ => {}
+                    }
+                    if vn != "" {
+                        val t = variableDefType(backend, func, vn)
+                        if t != "unknown" { return t }
+                        if isStringVar(backend, vn) { return "string" }
+                    }
+                }
+                _ => {}
+            }
+            return "unknown"
+        }
+        di = di + 1
+    }
+    return "unknown"
+}
+
+fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {
+    val raw = generateValue(backend, operand)
+    if isStringOperand(backend, operand) {
+        return "(orbit_string)(" + raw + ")"
+    }
+    var t = "int"
+    match operand {
+        IRValue.Register(reg) => {
+            if backend != NULL && backend.currentFunction != NULL {
+                val f: IRFunction = backend.currentFunction
+                if reg.value >= 0 && reg.value < f.registerTypes.len() {
+                    t = f.registerTypes.get(reg.value)
+                }
+            }
+        }
+        IRValue.Bool(v) => { t = "bool" }
+        IRValue.Float(v) => { t = "float" }
+        IRValue.Int(v) => { t = "int" }
+        IRValue.String(s) => {
+            if s.value.indexOf("TAG_") != -1 { t = "int" }
+        }
+        IRValue.Sym(s) => {
+            if s.value == "true" || s.value == "false" { t = "bool" }
+            else if s.value.indexOf("TAG_") != -1 { t = "int" }
+        }
+        _ => {}
+    }
+    if t == "bool" {
+        return "orbit_bool_to_string(arena, (orbit_bool)(uintptr_t)(" + raw + "))"
+    }
+    if t == "float" {
+        return "orbit_float_to_string(arena, (orbit_float)(" + raw + "))"
+    }
+    if t == "string" {
+        return "(orbit_string)(" + raw + ")"
+    }
+    return "orbit_int_to_string_selfhost((orbit_int)(uintptr_t)(" + raw + "))"
 }
 
 fn functionReturnsVoid(backend: CBackend, name: string) -> bool {

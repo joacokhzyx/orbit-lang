@@ -5,6 +5,8 @@ enum TokType {
     StringLiteral,
     IntegerLiteral,
     FloatLiteral,
+    CharLiteral,
+    InterpStringLiteral,
 
     // Keywords
     KeywordIf,
@@ -86,6 +88,8 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.StringLiteral => return "StringLiteral"
         TokType.IntegerLiteral => return "IntegerLiteral"
         TokType.FloatLiteral => return "FloatLiteral"
+        TokType.CharLiteral => return "CharLiteral"
+        TokType.InterpStringLiteral => return "InterpStringLiteral"
         TokType.KeywordIf => return "if"
         TokType.KeywordElse => return "else"
         TokType.KeywordFor => return "for"

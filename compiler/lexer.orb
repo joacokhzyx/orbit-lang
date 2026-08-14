@@ -204,6 +204,24 @@ fn nextToken(lexer: Lexer) -> Token {
         return Token(TokType.StringLiteral, textString, line, col)
     }
 
+    if c == 39 { // '\''
+        if peek(lexer) == 92 { // '\''
+            advance(lexer)
+            if peek(lexer) == 110 || peek(lexer) == 116 || peek(lexer) == 114 || peek(lexer) == 48 || peek(lexer) == 92 || peek(lexer) == 39 || peek(lexer) == 34 {
+                advance(lexer)
+            }
+        } else {
+            if peek(lexer) != 39 && peek(lexer) != 0 {
+                advance(lexer)
+            }
+        }
+        if peek(lexer) == 39 {
+            advance(lexer)
+        }
+        val textChar = lexer.source.slice(start, lexer.pos)
+        return Token(TokType.CharLiteral, textChar, line, col)
+    }
+
     // Operators and delimiters
     if c == 123 { return Token(TokType.OpenBrace, "{", line, col) }
         if c == 125 { return Token(TokType.CloseBrace, "}", line, col) }

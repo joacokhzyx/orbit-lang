@@ -727,6 +727,7 @@ pub const IRBuilder = struct {
                 break :blk IRValue{ .string = unescaped };
             },
             .boolean_literal => IRValue{ .bool = std.mem.eql(u8, node.data.boolean_literal.getText(self.source), "true") },
+            .char_literal => IRValue{ .int = node.data.char_literal.charCode(self.source) },
             .identifier => blk: {
                 const name = node.data.identifier.getText(self.source);
                 // Check global constants first

@@ -143,6 +143,9 @@ fn parsePrimary(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.StringLiteral) {
         return ASTNode.Literal(LiteralNode("string", parser.previousToken.text))
     }
+    if matchToken(parser, TokType.CharLiteral) {
+        return ASTNode.Literal(LiteralNode("char", parser.previousToken.text))
+    }
     if matchToken(parser, TokType.Identifier) {
         val name = parser.previousToken.text
         if name == "true" { return ASTNode.Literal(LiteralNode("bool", name)) }

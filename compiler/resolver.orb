@@ -54,13 +54,26 @@ fn getDir(filePath: string) -> string {
 
 fn resolveFilePath(baseDir: string, relPath: string) -> string {
     var cleanRel = stripQuotes(relPath)
-    if cleanRel.len() >= 2 {
-        if cleanRel.at(0) == 46 && cleanRel.at(1) == 47 {
-            cleanRel = cleanRel.slice(2, cleanRel.len())
+    var base = baseDir
+    var resolving = true
+    while resolving {
+        if cleanRel.len() >= 3 {
+            if cleanRel.slice(0, 3) == "../" {
+                cleanRel = cleanRel.slice(3, cleanRel.len())
+                base = getDir(base)
+                continue
+            }
         }
+        if cleanRel.len() >= 2 {
+            if cleanRel.slice(0, 2) == "./" {
+                cleanRel = cleanRel.slice(2, cleanRel.len())
+                continue
+            }
+        }
+        resolving = false
     }
-    if baseDir != "" {
-        val candidate = baseDir + "/" + cleanRel
+    if base != "" {
+        val candidate = base + "/" + cleanRel
         val content = orbit_file_read_selfhost(candidate)
         if content != "" { return candidate }
     }
@@ -133,4 +146,3 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
         }
     }
 }
-

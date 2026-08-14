@@ -470,6 +470,11 @@ pub const ExpressionParser = struct {
             return node;
         }
 
+        if (self.match(.KeywordTrue) or self.match(.KeywordFalse)) {
+            const node = try self.createNode(.boolean_literal, .{ .boolean_literal = self.previous_token.* });
+            return node;
+        }
+
         if (self.match(.KeywordAsync)) {
             const expr = try self.parseExpression();
             const node = try self.createNode(.await_expr, .{ .await_expr = .{ .expr = expr } });

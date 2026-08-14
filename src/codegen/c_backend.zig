@@ -662,7 +662,10 @@ pub const CBackend = struct {
                     {
                         var_type = .string;
                     } else {
-                        var_type = .int;
+                        // Unknown-typed values often hold pointers (list elements,
+                        // opaque call results). Default to a 64-bit integer so
+                        // pointer values are never truncated through 32-bit orbit_int.
+                        var_type = .usize;
                     }
                 }
                 try self.local_variable_types.put(self.allocator, var_name, var_type);
@@ -1002,6 +1005,30 @@ pub const CBackend = struct {
                             .load_const, .copy, .decl_var, .store_var => {
                                 const src_val = if (instr.opcode == .decl_var or instr.opcode == .store_var) instr.operand2 else instr.operand1;
                                 const vt = self.getValueType(src_val);
+                                if (vt != .unknown) {
+                                    func.register_types.items[d] = vt;
+                                }
+                            },
+                            .load_var => blk: {
+                                const name = switch (instr.operand1) {
+                                    .string => |s| s,
+                                    .symbol => |s| s,
+                                    else => break :blk,
+                                };
+                                var vt: IRType = .unknown;
+                                if (self.local_variable_types.get(name)) |t| {
+                                    vt = t;
+                                } else if (self.current_func) |f| {
+                                    for (f.params, f.param_types) |pname, ptype| {
+                                        if (std.mem.eql(u8, pname, name)) {
+                                            vt = ptype;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (vt == .unknown and std.mem.indexOf(u8, name, "_TAG_") != null) {
+                                    vt = .int;
+                                }
                                 if (vt != .unknown) {
                                     func.register_types.items[d] = vt;
                                 }
@@ -1468,6 +1495,10 @@ pub const CBackend = struct {
                         const var_is_int = (std.mem.indexOf(u8, var_name, "TAG_") != null) or self.enum_names.contains(var_name);
                         if (!var_is_int and d_type != .int and d_type != .float and d_type != .bool and d_type != .void and d_type != .enumeration) {
                             try self.output.appendSlice(self.allocator, "(void*)(");
+                            try self.output.appendSlice(self.allocator, var_name);
+                            try self.output.appendSlice(self.allocator, ")");
+                        } else if (d_type == .float) {
+                            try self.output.appendSlice(self.allocator, "(orbit_float)(");
                             try self.output.appendSlice(self.allocator, var_name);
                             try self.output.appendSlice(self.allocator, ")");
                         } else {
