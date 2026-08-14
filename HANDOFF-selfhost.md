@@ -3,12 +3,13 @@
 Objetivo: que el compilador de Orbit se compile a si mismo hasta alcanzar un punto
 fijo (stage2.exe.c identico a stage3.exe.c).
 
-Estado real al 2026-08-13 (HEAD `92b9f17`). Leelo entero antes de tocar nada.
-Corrida fresca del 2026-08-13 con `zig-out/bin/orbit.exe` (Debug, Zig local
+Estado real al 2026-08-14 (HEAD `2bd0443`). Leelo entero antes de tocar nada.
+Corrida fresca del 2026-08-14 con `zig-out/bin/orbit.exe` (Debug, Zig local
 `0.17.0-dev.1503+1f1bee62e`; el pin de CI es `0.17.0-dev.1737+de207594e`).
 Los fixes previos (`ae2f3d7` cache de longitud del lexer, `6a3b495` acceso O(1) a
 chars, `6bce0c4` fix de `orbit_list_push` en `c_backend.orb`) ya estan dentro del
-snapshot descrito en la seccion 2, que reemplaza el estado viejo del 2026-08-07.
+snapshot descrito en la seccion 2. El bootstrap **converge** desde el 2026-08-14:
+ver seccion 2.
 
 ---
 
@@ -35,71 +36,63 @@ con `CC` por defecto `zig cc`. Cada stage deja su C al lado: `stageN.exe.c`.
 
 ---
 
-## 2. Estado actual (corrida fresca 2026-08-13, HEAD `92b9f17`)
+## 2. Estado actual (corrida fresca 2026-08-14, HEAD `2bd0443`)
 
 **Paso 1 (seed -> stage1):** ok. `stage1.exe` generado por `zig-out/bin/orbit.exe`.
 
 **Paso 2 (stage1 -> stage2):** ok. `stage2.exe.c` (1.8 MB) y `stage2.exe` producidos.
-El fallo de la corrida vieja que moria al lanzar `zig cc` NO se reprodujo: la
-invocacion del subproceso funciona hoy.
 
-**Paso 3 (stage2 -> stage3):** sigue muriendo, ahora dentro del Pass 3, al construir
-la funcion `tokTypeToString`:
+**Paso 3 (stage2 -> stage3):** ok. `stage3.exe.c` y `stage3.exe` producidos.
 
-```
-[pass3] decl 51
-[buildFn] tokTypeToString
+**Paso 4 (stage3 -> stage4):** ok. `stage4.exe.c` y `stage4.exe` producidos.
 
-[ORBIT RUNTIME CRASH] ExceptionCode 0xC0000005 at address 00007FF660FB2ED0
-[bootstrap] Failed to build Stage 3 compiler.
-error: BootstrapStage3Failed        (src/main.zig:1279 runBootstrapMode)
-```
+**Convergencia: ALCANZADA.** `stage3.exe.c` es byte-identico a `stage4.exe.c`
+(verificado por SHA256 en la corrida del 2026-08-14). Es decir, la tercera y la cuarta
+generacion, producidas por caminos distintos (stage2 y stage3), generan el mismo C.
 
-Puntos a diagnosticar:
+### Que habia que arreglar para converger
 
-- Muere en `[buildFn] tokTypeToString`, inmediatamente despues de `[pass3] decl 51`.
-  `tokTypeToString` vive en `compiler/token.orb`; es el siguiente candidato a leer.
-- El crash es `0xC0000005` sin traza de Zig: el fallo esta en `src/runtime` (C
-  compilado aparte) o en una llamada a un subproceso/sistema. Candidatos habituales
-  segun seccion 4: `orbit_string_concat`/`strcmp` con NULL, o un NULL que viajo desde
-  un `orbit_list_get` fuera de rango.
-- Nunca se escribio `stage3.exe.c` (verificar con timestamps antes de diagnosticar).
-- No confundir con la corrida vieja: ahi el paso 2 fallaba al lanzar `zig cc` y el
-  paso 3 moria a los "306 decls". Ahora el paso 2 pasa y el paso 3 avanza hasta la
-  funcion 52 del Pass 3. Es progreso: hay un solo bloqueador localizable.
+El ultimo bloqueador era el resolver de imports (`compiler/resolver.orb` +
+`resolveModuleAST` en el pipeline). El crash `0xC0000005` que mataba `stage1 -> stage2`
+en "Resolving module imports" tenia dos causas:
+
+1. **Truncamiento de punteros en la inferencia de tipos del seed** (`src/codegen/c_backend.zig`).
+   Una variable como `val decl = p.decls.get(i)` se tipaba `.int` por default cuando su
+   RHS tenia tipo desconocido. Como `orbit_int` es `int` (32 bits), el `load_var` de
+   `decl` emitia `(orbit_int)(uintptr_t)(decl)`, truncando el puntero `ASTNode*` de
+   64 bits a 32. El `match ASTNode.ImportStmt(imp)` leia el tag de un puntero corrupto.
+   Fix: el default de variables de tipo desconocido paso de `.int` a `.usize`
+   (uintptr_t), coherente con la regla ya existente "widen to 64-bit so pointer values
+   are never truncated through orbit_int".
+2. **Concat con operandos int/float/bool** (seed y selfhost). `string_concat_mixed.orb`
+   (`"total=" + total + ", ok=" + successFlag + ", ratio=" + ratio`) crasheaba por
+   cast/truncamiento de los operandos no-string. Se arreglo en ambos backends
+   (`boolean_literal` en el parser, inferencia de `load_var`, casts `(orbit_float)`,
+   y el handling del concat en `c_backend.orb`).
+
+Ademas se incorporaron literales de `char` y `boolean` en el selfhost (lexer/parser).
 
 ---
 
-## 3. Primera tarea, en este orden
+## 3. Proximo trabajo (ya no es depurar el crash)
 
-### 3.1 Descartar que el fallo del paso 2 sea artefacto del script
+El bootstrap converge desde el 2026-08-14; la seccion 2 describe que habia que arreglar.
+Los pasos 3.x de este documento (que describian como cazar el crash de stage3) quedaron
+obsoletos: ese crash ya no existe. Si reapareciera un `0xC0000005`, la guia de
+interpretacion esta en la seccion 4 y el historial de bugs en la seccion 6.
 
-Entre la ultima corrida buena del paso 2 y la que fallo, lo unico que cambio fue:
+Trabajo pendiente real del compilador selfhost:
 
-1. dos `print` de instrumentacion agregados a `compiler/builder.orb` (ver seccion 5)
-2. la redireccion `*> archivo.log` que usa `runall.ps1`
-
-La sospecha principal es (2): el pipeline lanza un subproceso mientras stdout es un
-handle de archivo y no una consola. Corre el paso 2 a mano, SIN redireccion:
-
-```
-.\compiler\selfhost\stage1.exe build .\compiler\main.orb -o .\compiler\selfhost\stage2.exe
-$LASTEXITCODE
-```
-
-- Si pasa: el bug del paso 2 es de la captura de salida, no del compilador. Arregla
-  `runall.ps1` (por ejemplo con `Tee-Object` o `2>&1 | Tee-Object`) y segui al 3.2.
-- Si falla igual: el problema esta en como el pipeline invoca el subproceso. Mira la
-  funcion de ejecucion de comandos en `compiler/pipeline.orb`.
-
-### 3.2 Localizar el crash del paso 3
-
-La instrumentacion ya esta puesta y sirve justo para esto. Corre el paso 3 y fijate
-cual es el ultimo `[pass3] decl N` y el ultimo `[buildFn] <nombre>` antes de morir.
-Eso acota el crash a una funcion concreta del fuente.
-
-Una vez que tengas el nombre, abri esa funcion en el `.orb` correspondiente y busca
-que construccion del lenguaje usa. La clave interpretativa esta en la seccion 4.
+1. **Limpieza de prints de debug.** El compilador es ruidoso (ver seccion 5). Quitar los
+   prints por-funcion/por-declaracion (`[genC]`, `[genFn]`, `[genFn-2]`, `[buildFn]`,
+   `[sema sig]`, `[sema body]`, `[pass3] decl`, `[buildAST]`) y el resto de debug, pero
+   **convertir** los prints de error (`[sema error]`, `Parser error`, `Semantic error`,
+   `Import error`, `Invalid token fallback`) en output de error funcional. Tras tocar
+   cualquier `.orb`, rehacer stage1 (seed) -> stage2 -> stage3 -> stage4 y reverificar
+   convergencia.
+2. **Backend nativo** (`src/backend/`): desbloquear `alloc`/`db_*`/`http_*` en
+   `capabilities.zig` y añadir `--emit=lir`; luego `load_field`/`store_field`, colecciones
+   (`list_*`/`map_*`), `result_*`/`union_*` y float SSE2. Ver `PLAN.md`.
 
 ---
 
@@ -148,17 +141,27 @@ Asi se identificaron `0x16` = 22 = `Literal` y `0x26` = 38 = `Empty`.
 
 ---
 
-## 5. Instrumentacion temporal que hay que sacar despues
+## 5. Instrumentacion / prints de debug
 
-En `compiler/builder.orb` hay dos `print` agregados solo para depurar:
+El compilador selfhost es ruidoso de por si. Inventario (al 2026-08-14): ~52 `print`
+de debug repartidos en `sema.orb` (Pass 1-4, sig, body), `pipeline.orb` (progreso),
+`c_backend.orb` (`[genC]`, `[genFn]`, `[genFn-2]`), `builder.orb` (`[buildAST]`,
+`[pass3]`, `[buildFn]`, `[field-owner-miss]`) y `main.orb` (`[bootstrap]`, `[selfhost]`).
 
-- en `buildAST`, dentro del bucle del Pass 3: `print("[pass3] decl " + ...)`
-- al inicio de `buildFunction`: `print("[buildFn] " + f.name)`
+- Los prints **por-funcion/por-declaracion** son los mas ruidosos (crecen con el tamano
+  del programa): `[genC]`, `[genFn]`, `[genFn-2]`, `[buildFn]`, `[sema sig]`,
+  `[sema body]`, `[pass3] decl`.
+- Los prints de **progreso** (`[pipeline] ...`, `[buildAST] ...`, `[sema] Pass N ...`)
+  se pueden quitar.
+- Los prints de **error** (`[sema error]`, `[sema ERROR]`, `Parser error`, `Semantic
+  error`, `Import error`, `Invalid token fallback`) NO se borran: son el diagnostico que
+  el compilador le muestra al usuario. Deben mantenerse (idealmente sin prefijo debug).
+- Los prints **funcionales** (doctor, `lextrace`, CLI usage/errores, relay de
+  subprocesos, y el `print` que `c_backend.orb` emite en el C generado) se mantienen.
 
-Quitalos cuando el bootstrap converja. Mientras tanto son muy utiles.
-
-El compilador ya es ruidoso de por si (`[sema] declareSymbol ...` por cada simbolo).
-Esos prints son preexistentes; tambien conviene limpiarlos al final, pero no ahora.
+La limpieza queda registrada como trabajo pendiente en la seccion 3. Tras tocar cualquier
+`.orb` hay que rehacer stage1 (seed) -> stage2 -> stage3 -> stage4 y reverificar
+convergencia.
 
 ---
 
@@ -250,15 +253,13 @@ Otros: `ir.orb`, `lexer.orb`, `optimizer.orb`, `resolver.orb`, `token.orb`,
 
 ## 9. Definicion de terminado
 
-1. Los tres pasos corren sin crash.
+1. Los pasos 1-4 corren sin crash (seed -> stage1 -> stage2 -> stage3 -> stage4).
 2. El paso 3 imprime `Program has 306 decls` y `After Pass 3: 210 functions`.
-3. `fc.exe stage2.exe.c stage3.exe.c` no reporta diferencias.
+3. `stage3.exe.c` es byte-identico a `stage4.exe.c` (verificado por SHA256).
 
-Sobre el punto 3, expectativa realista: es poco probable que de identico al primer
-intento. `stage2.exe.c` lo genera stage1 y `stage3.exe.c` lo genera stage2, que son
-binarios producidos por caminos distintos. Si stage3 compila y funciona pero `fc.exe`
-lista diferencias, eso ya es un avance grande, y esas diferencias son exactamente el
-mapa de lo que falta para converger. Analizalas una por una en vez de asumir fracaso.
+El punto 3 es el gate de convergencia: `stage3.exe.c` lo genera stage2 y `stage4.exe.c`
+lo genera stage3, que son binarios producidos por caminos distintos. Si ambos generan el
+mismo C, el compilador alcanzo el punto fijo.
 
 ---
 

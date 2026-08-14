@@ -4,12 +4,15 @@ This document details the self-hosting bootstrap execution steps and the fixed-p
 
 ## Pipeline
 
-`orbit bootstrap` (driven by `src/main.zig`) compiles `compiler/main.orb` through three stages:
+The bootstrap builds `compiler/main.orb` through successive stages; each stage is
+built by the previous one and compiles the same source again. In the hand-run flow
+each stage leaves its generated C beside it as `stageN.exe.c`:
 
 ```
 stage 0  orbit (host compiler, Zig)  build compiler/main.orb  ->  stage1.exe
 stage 1  stage1.exe                  build compiler/main.orb  ->  stage2.exe
 stage 2  stage2.exe                  build compiler/main.orb  ->  stage3.exe
+stage 3  stage3.exe                  build compiler/main.orb  ->  stage4.exe
 ```
 
 Each stage emits C (`src/codegen/c_backend.zig`; self-hosted path via `compiler/c_backend.orb`)
@@ -18,14 +21,14 @@ as `stageN.exe.c`. The artifacts live under `compiler/selfhost/` and are git-ign
 
 ## Fixed-Point Verification
 
-When `--max-stage 3 --verify` is used, the Zig driver reads `stage2.exe` and `stage3.exe`
-and checks them **byte-for-byte** (identical size and contents). Equality proves the
-compiler reached a fixed point: stage 2 and stage 3 are produced by different code paths
-and encode the same compiler.
+A fixed point is reached when a stage built by the previous one produces the same
+compiler as the next stage. In the hand-run flow this is checked by comparing the
+generated C byte-for-byte: `stage3.exe.c` must equal `stage4.exe.c` (both encode the
+same compiler, produced by stage2 and stage3 respectively).
 
-The earlier self-hosted runbook compared the generated C instead (`fc.exe stage2.exe.c
-stage3.exe.c`); the authoritative gate is the byte-identical binary comparison performed
-by the driver.
+When `orbit bootstrap --max-stage 3 --verify` is used, the Zig driver compares
+`stage2.exe` and `stage3.exe` byte-for-byte (identical size and contents). Equality
+proves the compiler reached a fixed point.
 
 ## Requirements for Stage Promotion
 
@@ -33,12 +36,14 @@ by the driver.
    stage1 binary from `compiler/main.orb`.
 2. **Stage 1 -> Stage 2**: stage1 must rebuild the compiler without the host.
 3. **Stage 2 -> Stage 3**: stage2 rebuilds the compiler; promotion requires
-   `stage2.exe == stage3.exe` byte-for-byte.
+   `stage2.exe == stage3.exe` byte-for-byte (or equivalently `stage3.exe.c == stage4.exe.c`
+   in the hand-run flow).
 
 ## Current Status
 
-As of HEAD `6bce0c4`, the pipeline does **not yet converge**: the snapshot handoff
-(`HANDOFF-selfhost.md`) recorded stage2 dying with `0xC0000005` at the `zig cc` spawn and
-stage3 crashing in its Pass 3, with `stage3.exe` never produced. Subsequent fixes
-(`ae2f3d7`, `6a3b495`, `6bce0c4`) landed after that snapshot; the stages must be re-run
-to establish the current state.
+The bootstrap **converges**: `stage1 -> stage2 -> stage3 -> stage4` all succeed, and
+`stage3.exe.c` is byte-identical to `stage4.exe.c`. This was reached after fixing the
+seed's local-variable type inference (unknown-typed values such as list elements are now
+typed `uintptr_t` so pointers are not truncated through the 32-bit `orbit_int`), which
+was crashing `resolveModuleAST` with `0xC0000005`. See `HANDOFF-selfhost.md` for the full
+history and the runbook.
