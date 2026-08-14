@@ -175,7 +175,6 @@ fn checkConstDecl(sema: Sema, node: ASTNode) {
 fn checkFunctionSignature(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
-            print("[sema sig] " + f.name)
             var returnType = f.returnType
             if returnType == "" {
                 returnType = "void"
@@ -189,7 +188,6 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
 fn checkFunctionBody(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
-            print("[sema body] " + f.name)
             var returnType = f.returnType
             if returnType == "" {
                 returnType = "void"
@@ -534,7 +532,6 @@ fn checkNode(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Program(prog) => {
             // Pass 1: Register types and models
-            print("[sema] Pass 1: register types/models")
             var i = 0
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
@@ -546,7 +543,6 @@ fn checkNode(sema: Sema, node: ASTNode) {
                 i = i + 1
             }
             // Pass 2: Register function signatures
-            print("[sema] Pass 2: function signatures")
             i = 0
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
@@ -558,7 +554,6 @@ fn checkNode(sema: Sema, node: ASTNode) {
                 i = i + 1
             }
             // Pass 3: Constants and top-level vals
-            print("[sema] Pass 3: consts/vals")
             i = 0
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
@@ -570,7 +565,6 @@ fn checkNode(sema: Sema, node: ASTNode) {
                 i = i + 1
             }
             // Pass 4: Function bodies, routes, impls
-            print("[sema] Pass 4: function bodies")
             i = 0
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)

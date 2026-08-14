@@ -69,18 +69,15 @@ fn runFrontend() {
         orbit_os_exit_selfhost(1)
         return
     }
-    print("[frontend] wrote canonical TIR: " + outputPath)
 }
 
 fn runBootstrap() {
-    print("[bootstrap] Starting Orbit Multi-Stage Bootstrap Pipeline")
     var hostCompiler = orbit_os_env_selfhost("ORBIT_HOST_COMPILER")
     if hostCompiler == "" {
         hostCompiler = "orbit.exe"
     }
 
     val stage1Cmd = "\"" + hostCompiler + "\" build \"compiler/main.orb\" -o \"zig-out/stage1_orbit.exe\" --backend=steel"
-    print("[bootstrap Stage 1] Building Stage 1 compiler...")
     val s1Out = orbit_os_exec_selfhost(stage1Cmd)
     print(s1Out)
     if s1Out.indexOf("FAILED") != -1 || s1Out.indexOf("error:") != -1 || s1Out.indexOf("Error:") != -1 {
@@ -90,7 +87,6 @@ fn runBootstrap() {
     }
 
     val stage2Cmd = "\"zig-out/stage1_orbit.exe\" build \"compiler/main.orb\" -o \"zig-out/stage2_orbit.exe\" --backend=steel"
-    print("[bootstrap Stage 2] Building Stage 2 compiler using Stage 1...")
     val s2Out = orbit_os_exec_selfhost(stage2Cmd)
     print(s2Out)
     if s2Out.indexOf("FAILED") != -1 || s2Out.indexOf("error:") != -1 || s2Out.indexOf("Error:") != -1 {
@@ -100,7 +96,6 @@ fn runBootstrap() {
     }
 
     val stage3Cmd = "\"zig-out/stage2_orbit.exe\" build \"compiler/main.orb\" -o \"zig-out/stage3_orbit.exe\" --backend=steel"
-    print("[bootstrap Stage 3] Building Stage 3 compiler using Stage 2 (Fixed-Point Verification)...")
     val s3Out = orbit_os_exec_selfhost(stage3Cmd)
     print(s3Out)
     if s3Out.indexOf("FAILED") != -1 || s3Out.indexOf("error:") != -1 || s3Out.indexOf("Error:") != -1 {
@@ -108,11 +103,9 @@ fn runBootstrap() {
         orbit_os_exit_selfhost(1)
         return
     }
-    print("[bootstrap] Verification step completed.")
 }
 
 fn main() {
-    print("[selfhost] Self-hosted compiler pipeline starting")
     var outputPath = ""
     var inputPath = ""
     var i = 1
@@ -159,22 +152,15 @@ fn main() {
         outputPath = inputPath + ".c"
     }
 
-    print("[selfhost] Compiling " + inputPath + " -> " + outputPath)
-
-    print("[main] Reading file " + inputPath)
     val source = orbit_file_read_selfhost(inputPath)
-    print("[main] Read complete, length=" + orbit_int_to_string_selfhost(source.len()))
     if source == "" {
         print("Error: Could not read input file: " + inputPath)
         orbit_os_exit_selfhost(1)
         return
     }
 
-    print("[main] Calling compileSourceWithFile")
-    if compileSourceWithFile(source, inputPath, outputPath) {
-        print("[selfhost] Compilation successful: " + outputPath)
-    } else {
-        print("[selfhost] Compilation FAILED")
+    if compileSourceWithFile(source, inputPath, outputPath) == false {
+        print("Compilation FAILED: " + outputPath)
         orbit_os_exit_selfhost(1)
     }
 }

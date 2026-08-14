@@ -12,12 +12,8 @@ fn compileSource(source: string, outputPath: string) -> bool {
 }
 
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
-    print("[pipeline] initParser start")
     val parser = initParser(source)
-    print("[pipeline] parseProgram start")
     val rawAST = parseProgram(parser)
-    print("[pipeline] parseProgram done")
-    print("[pipeline] Parser diagnostics: " + orbit_int_to_string_selfhost(parser.diagnostics.len()))
     var i = 0
     while i < parser.diagnostics.len() {
         val diag: ParserDiagnostic = parser.diagnostics.get(i)
@@ -28,7 +24,6 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         return false
     }
 
-    print("[pipeline] Resolving module imports...")
     val resolver = initModuleResolver()
     val ast = resolveModuleAST(resolver, rawAST, inputPath)
     if resolver.errors.len() > 0 {
@@ -40,7 +35,6 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         return false
     }
 
-    print("[pipeline] Semantic analysis...")
     val sema = initSema()
     analyze(sema, ast)
     if hasErrors(sema) {
@@ -52,20 +46,14 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         return false
     }
 
-    print("[pipeline] Building IR...")
     val builder = initIRBuilder()
     val irModule = buildAST(builder, ast)
-    print("[pipeline] IR module has " + orbit_int_to_string_selfhost(irModule.functions.len()) + " functions")
 
-    print("[pipeline] Optimizing IR...")
     val optStats = optimizeIRModule(irModule)
-    print("[pipeline] Superluminal optimizer applied " + orbit_int_to_string_selfhost(optStats.patterns_applied) + " simplifications")
 
-    print("[pipeline] Code generation...")
     val backend = initCBackend(irModule)
     val cCode = generateC(backend)
 
-    print("[pipeline] Writing C source...")
     val cPath = outputPath + ".c"
 
     if orbit_file_write_selfhost(cPath, cCode) == false {
@@ -73,7 +61,6 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         return false
     }
 
-    print("[pipeline] Compiling executable binary...")
     var linkFlags = ""
     val osName = orbit_os_env_selfhost("OS")
     val winDir = orbit_os_env_selfhost("WINDIR")
@@ -92,7 +79,6 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
     val compCmd = cCompiler + " -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I src/runtime" + linkFlags + " 2>&1"
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
-        print("[pipeline] Compiler output: " + compOutput)
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {
             return false
         }

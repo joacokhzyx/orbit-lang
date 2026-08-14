@@ -268,7 +268,6 @@ fn generateC(backend: CBackend) -> string {
     i = 0
     while i < backend.module.functions.len() {
         val func: IRFunction = backend.module.functions.get(i)
-        print("[genC] fn " + orbit_int_to_string_selfhost(i) + " " + func.name + " ext=" + orbit_int_to_string_selfhost(func.isExtern))
         if func.isExtern == false {
             var fName3 = func.name
             var isMain3 = false
@@ -783,7 +782,6 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
 }
 
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
-    print("[genFn] " + func.name)
     backend.currentFunction = func
     backend.callArgs = []
     // Reset the per-function string tracking BEFORE inferring register types.
@@ -807,7 +805,6 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         spi = spi + 1
     }
     inferRegisterTypes(backend, func)
-    print("[genFn-2] " + func.name)
     var rti = 0
     while rti < func.registerTypes.len() {
         if func.registerTypes.get(rti) == "string" {

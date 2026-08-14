@@ -284,9 +284,6 @@ fn fieldOwnerForObject(builder: IRBuilder, obj: ASTNode, fieldName: string) -> s
     if objType != "unknown" && modelHasField(builder, objType, fieldName) {
         return objType
     }
-    if fieldName == "line" || fieldName == "col" {
-        print("[field-owner-miss] " + fieldName + " receiver=" + objType)
-    }
     return ""
 }
 
@@ -409,7 +406,6 @@ fn findFunction(module: IRModule, name: string) -> int {
 fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
     match rootNode {
         ASTNode.Program(p) => {
-            print("[buildAST] Program has " + orbit_int_to_string_selfhost(p.decls.len()) + " decls")
             // Pass 1: Register models and types
             var i = 0
             while i < p.decls.len() {
@@ -429,11 +425,9 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
             i = 0
             while i < p.decls.len() {
                 val decl = p.decls.get(i)
-                print("[pass3] decl " + orbit_int_to_string_selfhost(i))
                 buildDecl(builder, decl)
                 i = i + 1
             }
-            print("[buildAST] After Pass 3: " + orbit_int_to_string_selfhost(builder.module.functions.len()) + " functions in module")
         }
         _ => {}
     }
@@ -449,7 +443,6 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
             builder.module.functions.push(builder.currentFunction)
         }
     }
-    print("[buildAST] Returning module with " + orbit_int_to_string_selfhost(builder.module.functions.len()) + " functions")
     return builder.module
 }
 
@@ -493,7 +486,6 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
 }
 
 fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
-    print("[buildFn] " + f.name)
     val func = getOrCreateFunction(builder, f.name)
     func.returnType = f.returnType
     val prevFunc = builder.currentFunction
