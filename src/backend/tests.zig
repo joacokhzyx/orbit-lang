@@ -257,7 +257,7 @@ test "capabilities: empty module has no unsupported ops" {
     try std.testing.expect(cap_mod.firstUnsupported(&module) == null);
 }
 
-test "capabilities: db_get is unsupported by native backend" {
+test "capabilities: load_field is unsupported by native backend" {
     const ir_mod = @import("../ir/ir.zig");
     const cap_mod = @import("capabilities.zig");
 
@@ -270,12 +270,12 @@ test "capabilities: db_get is unsupported by native backend" {
 
     var func = ir_mod.IRFunction.init(alloc, "entry");
     func.return_type = .void;
-    try func.instructions.append(alloc, ir_mod.IRInstruction.init(.db_get));
+    try func.instructions.append(alloc, ir_mod.IRInstruction.init(.load_field));
     try module.addFunction(func);
 
     const unsup = cap_mod.firstUnsupported(&module);
     try std.testing.expect(unsup != null);
-    try std.testing.expectEqualStrings("db_get", unsup.?);
+    try std.testing.expectEqualStrings("load_field", unsup.?);
 }
 
 // ── Section 3: COFF / ELF magic bytes ────────────────────────────────────────

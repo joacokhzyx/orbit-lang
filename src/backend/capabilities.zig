@@ -41,6 +41,13 @@ const NATIVE_SUPPORTED: []const IROpcode = &.{
     .label,
     .copy,
     .arg,
+    // F1: runtime-backed opcodes implemented in the native lowering path.
+    .alloc, // → arena_alloc → call orbit_alloc
+    .db_get, // → db_query → call orbit_db_query
+    .db_set, // → db_query → call orbit_db_query
+    .db_all, // → db_query → call orbit_db_query
+    .db_where, // → db_query → call orbit_db_query
+    .http_response, // → http_write → call orbit_http_send
 };
 
 fn isSupported(op: IROpcode) bool {

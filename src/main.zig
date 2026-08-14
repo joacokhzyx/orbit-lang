@@ -32,6 +32,9 @@ const Capabilities = @import("backend/capabilities.zig");
 const NativeDiag = @import("backend/diagnostics.zig");
 const MirBuilder = @import("backend/mir/builder.zig").MirBuilder;
 const MirPrinter = @import("backend/mir/printer.zig").MirPrinter;
+const LirPrinter = @import("backend/lir/printer.zig").LirPrinter;
+const Lowering = @import("backend/x86_64/lowering.zig").Lowering;
+const RegisterAllocator = @import("backend/lir/regalloc.zig").RegisterAllocator;
 
 /// Which compilation backend to use.
 pub const BackendMode = enum {
@@ -49,7 +52,7 @@ pub const EmitMode = enum {
     exe, // Default: linked executable
     obj, // Relocatable object file
     mir, // Human-readable MIR dump
-    lir, // Not yet implemented
+    lir, // Human-readable LIR dump (post register allocation)
 };
 
 /// Linker selection mode.
@@ -656,8 +659,29 @@ fn compileToBinary(
         profiler.record(&profiler.gen_c_ns);
 
         if (emit_mode == .lir) {
-            std.debug.print("ERROR: --emit=lir is not supported by the native backend yet.\n", .{});
-            return error.LirEmitNotSupported;
+            const lir_path = try std.mem.concat(arena, u8, &.{ out_bin_path, ".lir" });
+            var cwd = std.Io.Dir.cwd();
+            var lf = try cwd.createFile(init.io, lir_path, .{ .truncate = true });
+            var wb: [8192]u8 = undefined;
+            var lw = std.Io.File.Writer.init(lf, init.io, &wb);
+
+            const mir = native_be.mir_module orelse return error.MirNotReady;
+            for (mir.functions.items) |*func| {
+                var lowering = Lowering.init(arena, native_be.target);
+                var lir_func = try lowering.lowerFunction(func);
+                defer lir_func.deinit(arena);
+
+                var regalloc = RegisterAllocator.init(arena, .stack);
+                var allocated = try regalloc.allocate(&lir_func);
+                defer allocated.deinit(arena);
+
+                try LirPrinter.printFunction(&allocated, &lw.interface);
+                try lw.interface.writeAll("\n");
+            }
+
+            try lw.flush();
+            lf.close(init.io);
+            return out_bin_path;
         }
 
         // --emit=mir: dump MIR and exit early.
