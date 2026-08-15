@@ -106,9 +106,17 @@ crash). **`result_*` — DONE (2026-08-15)** (4 opcodes: a `.result` register
     `mov_mr32` and `movzx_rm`; gotcha: the stack-based regalloc
     (`src/backend/lir/regalloc.zig`) only resolves virtual registers that appear
     as `.reg` operands or `.dest`, NOT as mem base addresses — so result reads
-    must load the register's stack slot into a physical scratch first). Remaining:
-    `union_*`
-    and float SSE2. See `PLAN.md`.
+    must load the register's stack slot into a physical scratch first).
+    **`union_*` — DONE (2026-08-15)** (3 opcodes; a union register is a pointer
+    to an arena-allocated 16-byte `{ int tag@0; union { void* data; } data@8; }`;
+    tag constants like `Color_TAG_Blue` resolve to their variant index via a
+    tag-name→index map built in `Backend.lower` from `ir_module.types` and
+    passed into `Lowering`; gotcha: `emitObject` stringifies every `imm_str`
+    operand into `__str_N` BEFORE lowering, so tag constants must be exempted
+    from that rewrite or `mapOperand` never sees the original name; new encoder
+    opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
+    bytes). Remaining:
+    float SSE2. See `PLAN.md`.
 
 ---
 
