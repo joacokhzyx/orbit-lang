@@ -85,9 +85,9 @@ pub const MirOpcode = enum {
     // Orbit Specific Runtime Ops
     arena_alloc, // Call runtime arena allocation
     sret_alloc, // Arena-allocate a 24-byte OrbitResult buffer for a hidden-sret call
+    arena_arg, // Inject orbit_global_arena as ABI argument 0 for an arena-requiring call
     kynx_lease_check, // Verify lease limits
     kynx_lease_end, // End lease execution
-    db_query, // Execute DB statement
     http_write, // Send response via http
 };
 

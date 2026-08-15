@@ -165,6 +165,7 @@ pub const MirBuilder = struct {
                     ir_instr.dest != null and
                     ir_instr.dest.? < ir_func.register_types.items.len and
                     ir_func.register_types.items[ir_instr.dest.?] == .result;
+                const is_arena_call = ir_instr.opcode == .call and isArenaCallName(callNameOf(ir_instr.operand1));
                 if (is_sret_call) {
                     // Reserve the arena-allocated OrbitResult the callee
                     // writes through its hidden sret pointer; dest must be
@@ -172,6 +173,14 @@ pub const MirBuilder = struct {
                     try mir_func.blocks.items[current_block_id].instructions.append(self.allocator, MirInstruction{
                         .opcode = .sret_alloc,
                         .dest = ir_instr.dest,
+                    });
+                } else if (is_arena_call) {
+                    // Runtime functions declared to take `OrbitArena*` as their
+                    // first parameter (mirroring the C backend's arena-function
+                    // registry) receive orbit_global_arena as hidden ABI arg 0.
+                    try mir_func.blocks.items[current_block_id].instructions.append(self.allocator, MirInstruction{
+                        .opcode = .arena_arg,
+                        .dest = null,
                     });
                 }
                 for (pending_args.items) |arg_instr| {
@@ -272,6 +281,59 @@ pub const MirBuilder = struct {
             }
         }
         return null;
+    }
+
+    /// Extracts the callee name from a `.call` instruction's operand1.
+    fn callNameOf(val: ir_mod.IRValue) ?[]const u8 {
+        return switch (val) {
+            .string => |s| s,
+            .symbol => |s| s,
+            else => null,
+        };
+    }
+
+    /// Runtime functions whose first parameter is `OrbitArena*`; the C backend
+    /// injects the arena at codegen (`registerArenaFunction`), the native MIR
+    /// builder mirrors that with a hidden `arena_arg` before the arguments.
+    fn isArenaCallName(name: ?[]const u8) bool {
+        const name_ = name orelse return false;
+        const arena_fns = [_][]const u8{
+            "orbit_file_read",
+            "orbit_file_list_dir",
+            "orbit_list_create",
+            "orbit_map_create",
+            "orbit_response_create",
+            "orbit_string_slice",
+            "orbit_string_split",
+            "orbit_string_replace",
+            "orbit_os_exec",
+            "orbit_os_env",
+            "orbit_os_argv",
+            "orbit_string_concat",
+            "orbit_int_to_string",
+            "orbit_float_to_string",
+            "orbit_http_query_get",
+            "orbit_http_header_get",
+            "orbit_auth_bearer_token",
+            "orbit_auth_role",
+            "orbit_auth_current_role",
+            "orbit_auth_has_role",
+            "orbit_db_query_all",
+            "orbit_db_query_where",
+            "orbit_db_query_get",
+            "orbit_http_client_fetch",
+            "orbit_cache_get",
+            "orbit_file_upload_save",
+            "orbit_http_param_get",
+            "orbit_http_body_get",
+            "orbit_base64url_encode_str",
+            "orbit_sha256_hex",
+            "orbit_hmac_sha256_base64url",
+        };
+        for (arena_fns) |af| {
+            if (std.mem.eql(u8, name_, af)) return true;
+        }
+        return false;
     }
 
     fn lowerInstruction(self: *MirBuilder, ir_instr: ir_mod.IRInstruction, idx_to_block: *const std.AutoHashMap(usize, u32), instructions: []const ir_mod.IRInstruction, variable_map: *std.StringHashMap(ValueId), mir_func: *MirFunction, ir_func: *const IRFunction, layout: *const ModelLayout) !MirInstruction {
@@ -501,7 +563,6 @@ pub const MirBuilder = struct {
             .jump => MirOpcode.jmp,
             .jump_if_false => MirOpcode.jmp_if,
             .alloc => MirOpcode.arena_alloc,
-            .db_get, .db_set, .db_all, .db_where => MirOpcode.db_query,
             .http_response => MirOpcode.http_write,
             else => MirOpcode.nop,
         };

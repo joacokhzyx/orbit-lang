@@ -2500,3 +2500,140 @@ test "native end-to-end: model constructor from source allocates and stores fiel
     const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
     try std.testing.expectEqual(@as(u32, 42), code);
 }
+
+const arena_stub_body =
+    \\orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
+    \\    if (arena == (OrbitArena*)orbit_global_arena && strcmp(table_name, "users") == 0) return "OK";
+    \\    return "BAD";
+    \\}
+    \\int main(void) {
+    \\    orbit_string_pool_init(1024);
+    \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
+    \\    int code = orbit_main();
+    \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
+    \\    orbit_string_pool_cleanup();
+    \\    return code;
+    \\}
+    \\
+;
+
+test "native end-to-end: arena-requiring call injects orbit_global_arena" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    // Generic `.call` to the real arena-requiring orbit_db_query_all (mirrors
+    // the frontend's `User.all()` emission: only the table name is an explicit
+    // arg). The MIR builder injects arena_arg, the lowering passes
+    // orbit_global_arena as hidden arg 0 and the table as arg 1. The stub
+    // (database.c is guarded by ORBIT_WITH_DB, so the real symbol is free)
+    // verifies both.
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .string); // r0 = call result
+    _ = try func.allocRegister(alloc, .bool); // r1 = r0 == "OK"
+
+    var arg = ir_mod.IRInstruction.init(.arg);
+    arg.operand1 = .{ .string = "users" };
+    try func.emit(alloc, arg);
+
+    var call = ir_mod.IRInstruction.init(.call);
+    call.dest = 0;
+    call.operand1 = .{ .string = "orbit_db_query_all" };
+    call.operand2 = .{ .int = 1 };
+    try func.emit(alloc, call);
+
+    var eq = ir_mod.IRInstruction.init(.eq);
+    eq.dest = 1;
+    eq.operand1 = .{ .register = 0 };
+    eq.operand2 = .{ .string = "OK" };
+    try func.emit(alloc, eq);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, arena_stub_body);
+    try std.testing.expectEqual(@as(u32, 1), code);
+}
+
+test "native end-to-end: model User.all() from source reaches orbit_db_query_all with arena" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const Parser = @import("../parser.zig").Parser;
+    const Sema = @import("../sema.zig").Sema;
+    const IRBuilder = @import("../ir/builder.zig").IRBuilder;
+    const backend_mod = @import("backend.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    // The full official DB integration path: model CRUD from source lowers to a
+    // generic `.call orbit_db_query_all` whose arena arg the native backend
+    // injects. The stub (database.c is guarded by ORBIT_WITH_DB) stands in for
+    // sqlite and returns "OK" only when it received orbit_global_arena and the
+    // "users" table name.
+    const source =
+        \\model User {
+        \\    id: int
+        \\    name: string
+        \\}
+        \\
+        \\fn main() -> int {
+        \\    val r = User.all()
+        \\    if (r == "OK") {
+        \\        return 1
+        \\    }
+        \\    return 0
+        \\}
+    ;
+
+    var p = Parser.init(source, "db_from_source.orb", alloc);
+    const root = try p.parse();
+
+    var sema = try Sema.create(alloc, source);
+    defer sema.deinit();
+    sema.analyze(root) catch |err| {
+        std.debug.print("sema failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    try std.testing.expect(sema.diagnostics.getDiagnostics().len == 0);
+
+    var builder = IRBuilder.init(alloc, source, &sema.node_types, &sema.model_registry);
+    var ir_module = try builder.build(root);
+    defer ir_module.deinit();
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, arena_stub_body);
+    try std.testing.expectEqual(@as(u32, 1), code);
+}

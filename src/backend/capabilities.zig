@@ -62,10 +62,10 @@ const NATIVE_SUPPORTED: []const IROpcode = &.{
     .union_create, // → arena-allocated OrbitUnion, tag=op1 index, data=op2
     .union_get_tag, // → load union.tag (zero-extended int)
     .union_get_data, // → load union.data
-    .db_get, // → db_query → call orbit_db_query
-    .db_set, // → db_query → call orbit_db_query
-    .db_all, // → db_query → call orbit_db_query
-    .db_where, // → db_query → call orbit_db_query
+    .db_get, // → no-op in native (frontend never emits db_*; model CRUD uses generic calls)
+    .db_set, // → no-op in native (frontend never emits db_*)
+    .db_all, // → no-op in native (frontend never emits db_*)
+    .db_where, // → no-op in native (frontend never emits db_*)
     .http_response, // → http_write → call orbit_http_send
 };
 

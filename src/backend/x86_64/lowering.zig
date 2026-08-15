@@ -37,6 +37,9 @@ pub const Lowering = struct {
     /// Set by `sret_alloc`; while set, `.arg` instructions place arguments at
     /// position 1+ and `.call` loads the hidden sret pointer into arg slot 0.
     sret_pending: bool = false,
+    /// Set by `arena_arg`; while set, `.arg` instructions place arguments at
+    /// position 1+ (slot 0 already holds orbit_global_arena).
+    arena_pending: bool = false,
     /// Maps tag-name strings ("Foo_TAG_Bar") to their variant index (int),
     /// derived from the IR module's type declarations. Tag constants in the
     /// frontend are emitted as strings; the native lowering resolves them to
@@ -1047,8 +1050,11 @@ pub const Lowering = struct {
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
                 const is_float_arg = operandIsFloat(op1_lir, mir_func);
                 const float_arg_regs: usize = if (self.target.abi == .windows_x64) 4 else 8;
-                // Hidden sret calls reserve ABI position 0 for the result pointer.
-                const pos = self.arg_count + (if (self.sret_pending) @as(usize, 1) else 0);
+                // Hidden sret/arena calls reserve ABI position 0 for the
+                // result pointer / orbit_global_arena.
+                const hidden = (if (self.sret_pending) @as(usize, 1) else 0) +
+                    (if (self.arena_pending) @as(usize, 1) else 0);
+                const pos = self.arg_count + hidden;
                 if (is_float_arg and pos < float_arg_regs) {
                     // Floating-point arguments are passed in XMM registers, one
                     // per ABI position (XMM0 for position 0, XMM1 for position 1...).
@@ -1117,6 +1123,7 @@ pub const Lowering = struct {
                     }
                     self.sret_pending = false;
                 }
+                self.arena_pending = false;
 
                 try block.instructions.append(self.allocator, .{
                     .opcode = @backingInt(X86Opcode.call),
@@ -1347,6 +1354,18 @@ pub const Lowering = struct {
                 }
                 self.sret_pending = true;
             },
+            .arena_arg => {
+                // Runtime functions declared `(OrbitArena* arena, ...)` receive
+                // orbit_global_arena in ABI slot 0; explicit args follow at 1+.
+                const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
+                const arg0_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm_sym),
+                    .dest = arg0_reg,
+                    .op1 = .{ .symbol = "orbit_global_arena" },
+                });
+                self.arena_pending = true;
+            },
             .kynx_lease_check => {
                 try block.instructions.append(self.allocator, .{
                     .opcode = @backingInt(X86Opcode.call),
@@ -1358,26 +1377,6 @@ pub const Lowering = struct {
                     .opcode = @backingInt(X86Opcode.call),
                     .op1 = .{ .symbol = "kynx_end_lease" },
                 });
-            },
-            .db_query => {
-                const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
-                const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
-                try self.emitMov(block, arg1_reg, op1_lir);
-
-                try block.instructions.append(self.allocator, .{
-                    .opcode = @backingInt(X86Opcode.call),
-                    .op1 = .{ .symbol = "orbit_db_query" },
-                });
-
-                if (mir_instr.dest) |d| {
-                    const dest = mapReg(d);
-                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
-                    try block.instructions.append(self.allocator, .{
-                        .opcode = @backingInt(X86Opcode.mov_rr),
-                        .dest = dest,
-                        .op1 = .{ .reg = rax_phys },
-                    });
-                }
             },
             .http_write => {
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
