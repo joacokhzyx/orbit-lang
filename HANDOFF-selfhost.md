@@ -152,12 +152,32 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      the alloc size is computed from the model's declared fields mirroring
      `model_layout.zig` sizes/alignments; verified end-to-end by a native
      test that parses real source through Parser → Sema → IRBuilder →
-     backend and returns a stored field). Remaining in `src/backend`: the
-     MIR `.db_query` opcode lowers to a call of `orbit_db_query`, which does
-     not exist in `src/runtime` (dead — the frontend never emits `db_*`
-     opcodes), and the frontend's `file.read` emission still passes
-     `("file", filename)` instead of `(arena, filename)`, so it would call
-     `orbit_file_read` with the wrong args (the C backend special-cases it).
+     backend and returns a stored field).
+     **DB integration via arena calls — DONE (2026-08-15)** (the dead MIR
+     `.db_query` opcode is removed — it called nonexistent `orbit_db_query`;
+     the frontend never emits `db_*` opcodes and model CRUD instead emits
+     generic `.call`s to `orbit_db_query_all/where/get`, which take
+     `(OrbitArena* arena, const char* table_name, ...)`. The MIR builder now
+     injects a new `arena_arg` opcode before the arguments of any call whose
+     callee is in an arena-requiring list mirroring the C backend's
+     `registerArenaFunction` registry, and the lowering loads
+     `orbit_global_arena` into ABI slot 0 (`mov [orbit_global_arena]` into
+     arg0) with real args shifted to position 1+ while `arena_pending`.
+     `orbit_db_insert`/`orbit_db_delete` take no arena and are correctly left
+     alone. Verified by two native e2e tests: a manual-IR call to
+     `orbit_db_query_all` where a stub (database.c is guarded by
+     `ORBIT_WITH_DB`, so the real symbol is free) checks `arena ==
+     orbit_global_arena && table == "users"`, and a full source-level test
+     where `User.all()` → `.call orbit_db_query_all` → strcmp with `"OK"`
+     returns 1). Remaining in `src/backend`: the frontend's `file.read`
+     emission still passes `("file", filename)` instead of `(arena,
+     filename)`, so it would call `orbit_file_read` with the wrong args (the
+     C backend special-cases it), and neither backend emits
+     `orbit_db_init(config.db_path)` in generated code (the C backend gates
+     it behind `has_db`, which only triggers on `db_*` opcodes the frontend
+     never emits; native `database.c`/`auth.c` are guarded by
+     `ORBIT_WITH_DB` and `-lsqlite3` is not linkable on this machine, so
+     real SQLite execution requires that macro + a bundled sqlite3).
 
 ---
 
