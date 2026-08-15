@@ -257,7 +257,7 @@ test "capabilities: empty module has no unsupported ops" {
     try std.testing.expect(cap_mod.firstUnsupported(&module) == null);
 }
 
-test "capabilities: load_field is unsupported by native backend" {
+test "capabilities: load_field and store_field are supported by native backend" {
     const ir_mod = @import("../ir/ir.zig");
     const cap_mod = @import("capabilities.zig");
 
@@ -271,11 +271,154 @@ test "capabilities: load_field is unsupported by native backend" {
     var func = ir_mod.IRFunction.init(alloc, "entry");
     func.return_type = .void;
     try func.instructions.append(alloc, ir_mod.IRInstruction.init(.load_field));
+    try func.instructions.append(alloc, ir_mod.IRInstruction.init(.store_field));
     try module.addFunction(func);
 
     const unsup = cap_mod.firstUnsupported(&module);
-    try std.testing.expect(unsup != null);
-    try std.testing.expectEqualStrings("load_field", unsup.?);
+    try std.testing.expect(unsup == null);
+}
+
+test "native layout: model field offsets match C struct layout" {
+    const layout_mod = @import("mir/model_layout.zig");
+    const ir_mod = @import("../ir/ir.zig");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var module = ir_mod.IRModule.init(alloc);
+    defer module.deinit();
+
+    // User { id: int, name: string }  ->  id@0, name@8, size 16
+    var user = ir_mod.IRModel.init(alloc, "User");
+    try user.fields.append(alloc, .{ .name = "id", .type_name = "int" });
+    try user.fields.append(alloc, .{ .name = "name", .type_name = "string" });
+    try module.addModel(user);
+
+    // Mixed { ok: bool, code: int, ratio: float, label: string }
+    //  ->  ok@0, code@4, ratio@8, label@16
+    var mixed = ir_mod.IRModel.init(alloc, "Mixed");
+    try mixed.fields.append(alloc, .{ .name = "ok", .type_name = "bool" });
+    try mixed.fields.append(alloc, .{ .name = "code", .type_name = "int" });
+    try mixed.fields.append(alloc, .{ .name = "ratio", .type_name = "float" });
+    try mixed.fields.append(alloc, .{ .name = "label", .type_name = "string" });
+    try module.addModel(mixed);
+
+    // Padded { flag: bool, a: int, b: int }  ->  flag@0, a@4, b@8
+    var padded = ir_mod.IRModel.init(alloc, "Padded");
+    try padded.fields.append(alloc, .{ .name = "flag", .type_name = "bool" });
+    try padded.fields.append(alloc, .{ .name = "a", .type_name = "int" });
+    try padded.fields.append(alloc, .{ .name = "b", .type_name = "int" });
+    try module.addModel(padded);
+
+    // Prim { a: u8, b: i16, c: i32, d: i64 }  ->  a@0, b@2, c@4, d@8
+    var prim = ir_mod.IRModel.init(alloc, "Prim");
+    try prim.fields.append(alloc, .{ .name = "a", .type_name = "u8" });
+    try prim.fields.append(alloc, .{ .name = "b", .type_name = "i16" });
+    try prim.fields.append(alloc, .{ .name = "c", .type_name = "i32" });
+    try prim.fields.append(alloc, .{ .name = "d", .type_name = "i64" });
+    try module.addModel(prim);
+
+    var layout = try layout_mod.ModelLayout.compute(alloc, &module);
+    defer layout.deinit(alloc);
+
+    try std.testing.expectEqual(@as(i32, 0), layout.fieldOffset("User", "id").?);
+    try std.testing.expectEqual(@as(i32, 8), layout.fieldOffset("User", "name").?);
+    try std.testing.expectEqual(@as(i32, 0), layout.fieldOffset("Mixed", "ok").?);
+    try std.testing.expectEqual(@as(i32, 4), layout.fieldOffset("Mixed", "code").?);
+    try std.testing.expectEqual(@as(i32, 8), layout.fieldOffset("Mixed", "ratio").?);
+    try std.testing.expectEqual(@as(i32, 16), layout.fieldOffset("Mixed", "label").?);
+    try std.testing.expectEqual(@as(i32, 0), layout.fieldOffset("Padded", "flag").?);
+    try std.testing.expectEqual(@as(i32, 4), layout.fieldOffset("Padded", "a").?);
+    try std.testing.expectEqual(@as(i32, 8), layout.fieldOffset("Padded", "b").?);
+    try std.testing.expectEqual(@as(i32, 0), layout.fieldOffset("Prim", "a").?);
+    try std.testing.expectEqual(@as(i32, 2), layout.fieldOffset("Prim", "b").?);
+    try std.testing.expectEqual(@as(i32, 4), layout.fieldOffset("Prim", "c").?);
+    try std.testing.expectEqual(@as(i32, 8), layout.fieldOffset("Prim", "d").?);
+}
+
+test "native MIR: load_field/store_field carry resolved field offsets" {
+    const builder_mod = @import("mir/builder.zig");
+    const ir_mod = @import("../ir/ir.zig");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var module = ir_mod.IRModule.init(alloc);
+    defer module.deinit();
+
+    var user = ir_mod.IRModel.init(alloc, "User");
+    try user.fields.append(alloc, .{ .name = "id", .type_name = "int" });
+    try user.fields.append(alloc, .{ .name = "name", .type_name = "string" });
+    try module.addModel(user);
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .model = "User" }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var alloc_instr = ir_mod.IRInstruction.init(.alloc);
+    alloc_instr.dest = 0;
+    alloc_instr.operand1 = .{ .int = 16 };
+    try func.emit(alloc, alloc_instr);
+
+    var store_id = ir_mod.IRInstruction.init(.store_field);
+    store_id.operand1 = .{ .register = 0 };
+    store_id.operand2 = .{ .string = "id" };
+    store_id.operand3 = .{ .int = 42 };
+    try func.emit(alloc, store_id);
+
+    var store_name = ir_mod.IRInstruction.init(.store_field);
+    store_name.operand1 = .{ .register = 0 };
+    store_name.operand2 = .{ .string = "name" };
+    store_name.operand3 = .{ .string = "hello" };
+    try func.emit(alloc, store_name);
+
+    var load_instr = ir_mod.IRInstruction.init(.load_field);
+    load_instr.dest = 1;
+    load_instr.operand1 = .{ .register = 0 };
+    load_instr.operand2 = .{ .string = "id" };
+    try func.emit(alloc, load_instr);
+
+    var ret_instr = ir_mod.IRInstruction.init(.ret);
+    ret_instr.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret_instr);
+
+    try module.functions.append(alloc, func);
+
+    var builder = builder_mod.MirBuilder.init(alloc);
+    var mir = try builder.build(&module);
+    defer mir.deinit();
+
+    try std.testing.expect(mir.functions.items.len == 1);
+    const mir_func = &mir.functions.items[0];
+    const block = &mir_func.blocks.items[0];
+
+    var found_store_id = false;
+    var found_store_name = false;
+    var found_load = false;
+    for (block.instructions.items) |instr| {
+        switch (instr.opcode) {
+            .store_field => {
+                if (instr.op2 == .imm_int and instr.op2.imm_int == 0 and instr.op3 == .imm_int and instr.op3.imm_int == 42) {
+                    found_store_id = true;
+                }
+                if (instr.op2 == .imm_int and instr.op2.imm_int == 8 and instr.op3 == .imm_str) {
+                    found_store_name = true;
+                }
+            },
+            .load_field => {
+                if (instr.dest.? == 1 and instr.op2 == .imm_int and instr.op2.imm_int == 0) {
+                    found_load = true;
+                }
+            },
+            else => {},
+        }
+    }
+    try std.testing.expect(found_store_id);
+    try std.testing.expect(found_store_name);
+    try std.testing.expect(found_load);
 }
 
 // ── Section 3: COFF / ELF magic bytes ────────────────────────────────────────
@@ -900,4 +1043,231 @@ test "native in-memory end-to-end: IR to relocatable object" {
         }
     }
     try std.testing.expect(found_main);
+}
+
+test "native in-memory: model alloc/store_field/load_field/return emits field memory ops" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var user = ir_mod.IRModel.init(alloc, "User");
+    try user.fields.append(alloc, .{ .name = "id", .type_name = "int" });
+    try user.fields.append(alloc, .{ .name = "name", .type_name = "string" });
+    try ir_module.addModel(user);
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .model = "User" }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var alloc_instr = ir_mod.IRInstruction.init(.alloc);
+    alloc_instr.dest = 0;
+    alloc_instr.operand1 = .{ .int = 16 };
+    try func.emit(alloc, alloc_instr);
+
+    var store_id = ir_mod.IRInstruction.init(.store_field);
+    store_id.operand1 = .{ .register = 0 };
+    store_id.operand2 = .{ .string = "id" };
+    store_id.operand3 = .{ .int = 42 };
+    try func.emit(alloc, store_id);
+
+    var store_name = ir_mod.IRInstruction.init(.store_field);
+    store_name.operand1 = .{ .register = 0 };
+    store_name.operand2 = .{ .string = "name" };
+    store_name.operand3 = .{ .string = "hello" };
+    try func.emit(alloc, store_name);
+
+    var load_instr = ir_mod.IRInstruction.init(.load_field);
+    load_instr.dest = 1;
+    load_instr.operand1 = .{ .register = 0 };
+    load_instr.operand2 = .{ .string = "id" };
+    try func.emit(alloc, load_instr);
+
+    var ret_instr = ir_mod.IRInstruction.init(.ret);
+    ret_instr.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret_instr);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+    try std.testing.expect(obj_bytes.len > 0);
+
+    const link_mod = @import("link/mod.zig");
+    const builtin_mod = @import("builtin");
+    var parsed_obj = try switch (builtin_mod.os.tag) {
+        .windows => link_mod.coff_reader.readObject(alloc, obj_bytes),
+        else => link_mod.elf_reader.readObject(alloc, obj_bytes),
+    };
+    defer parsed_obj.deinit(alloc);
+
+    var text_bytes = std.ArrayListUnmanaged(u8).empty;
+    defer text_bytes.deinit(alloc);
+    for (parsed_obj.sections.items) |sec| {
+        if (std.mem.eql(u8, sec.name, ".text")) {
+            try text_bytes.appendSlice(alloc, sec.bytes.items);
+        }
+    }
+    try std.testing.expect(text_bytes.items.len > 0);
+
+    // Store id@0: mov [r10], r11 -> 4D 89 1A
+    try std.testing.expect(std.mem.indexOf(u8, text_bytes.items, &.{ 0x4D, 0x89, 0x1A }) != null);
+    // Store name@8: mov [r10+8], r11 -> 4D 89 5A 08
+    try std.testing.expect(std.mem.indexOf(u8, text_bytes.items, &.{ 0x4D, 0x89, 0x5A, 0x08 }) != null);
+    // Load id@0: mov rax, [r10] -> 49 8B 02
+    try std.testing.expect(std.mem.indexOf(u8, text_bytes.items, &.{ 0x49, 0x8B, 0x02 }) != null);
+}
+
+test "native end-to-end: model alloc/store_field/load_field returns stored value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // global_single_threaded uses the failing allocator, so subprocess spawns
+    // OOM on Windows. Use a dedicated Threaded io with a real allocator.
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // @src().file is relative to the module root (src/), not to the process
+    // cwd (the repo root), so derive paths from the real cwd instead.
+    const repo_root = try std.process.currentPathAlloc(io, alloc);
+    const src_dir = try std.fs.path.join(alloc, &.{ repo_root, "src" });
+    const runtime_dir = try std.fs.path.join(alloc, &.{ src_dir, "runtime" });
+    const temp_dir = try std.fs.path.join(alloc, &.{ repo_root, ".native_model_test_tmp" });
+
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    defer {
+        cwd.deleteTree(io, temp_dir) catch {};
+    }
+
+    // Build the model IR in memory.
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var user = ir_mod.IRModel.init(alloc, "User");
+    try user.fields.append(alloc, .{ .name = "id", .type_name = "int" });
+    try user.fields.append(alloc, .{ .name = "name", .type_name = "string" });
+    try ir_module.addModel(user);
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .model = "User" }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var alloc_instr = ir_mod.IRInstruction.init(.alloc);
+    alloc_instr.dest = 0;
+    alloc_instr.operand1 = .{ .int = 16 };
+    try func.emit(alloc, alloc_instr);
+
+    var store_id = ir_mod.IRInstruction.init(.store_field);
+    store_id.operand1 = .{ .register = 0 };
+    store_id.operand2 = .{ .string = "id" };
+    store_id.operand3 = .{ .int = 42 };
+    try func.emit(alloc, store_id);
+
+    var store_name = ir_mod.IRInstruction.init(.store_field);
+    store_name.operand1 = .{ .register = 0 };
+    store_name.operand2 = .{ .string = "name" };
+    store_name.operand3 = .{ .string = "hello" };
+    try func.emit(alloc, store_name);
+
+    var load_instr = ir_mod.IRInstruction.init(.load_field);
+    load_instr.dest = 1;
+    load_instr.operand1 = .{ .register = 0 };
+    load_instr.operand2 = .{ .string = "id" };
+    try func.emit(alloc, load_instr);
+
+    var ret_instr = ir_mod.IRInstruction.init(.ret);
+    ret_instr.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret_instr);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    // Write the native object to disk.
+    const obj_ext = if (builtin_mod.os.tag == .windows) ".obj" else ".o";
+    const obj_path = try std.fs.path.join(alloc, &.{ temp_dir, "orbit_model" ++ obj_ext });
+    {
+        var obj_file = try cwd.createFile(io, obj_path, .{ .truncate = true });
+        var wb: [4096]u8 = undefined;
+        var fw = std.Io.File.Writer.init(obj_file, io, &wb);
+        try fw.interface.writeAll(obj_bytes);
+        try fw.flush();
+        obj_file.close(io);
+    }
+
+    // Minimal native stub: init the global arena and call orbit_main.
+    const stub_path = try std.fs.path.join(alloc, &.{ temp_dir, "stub.c" });
+    {
+        var stub_file = try cwd.createFile(io, stub_path, .{ .truncate = true });
+        var wb: [4096]u8 = undefined;
+        var fw = std.Io.File.Writer.init(stub_file, io, &wb);
+        try fw.interface.writeAll(
+            \\#include "runtime.h"
+            \\void* orbit_global_arena = NULL;
+            \\extern int orbit_main(void);
+            \\int main(void) {
+            \\    orbit_string_pool_init(1024);
+            \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
+            \\    int code = orbit_main();
+            \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
+            \\    orbit_string_pool_cleanup();
+            \\    return code;
+            \\}
+            \\
+        );
+        try fw.flush();
+        stub_file.close(io);
+    }
+
+    const runtime_inc = runtime_dir;
+    const runtime_inc_flag = try std.fmt.allocPrint(alloc, "-I{s}", .{runtime_inc});
+    const exe_path = try std.fs.path.join(alloc, &.{ temp_dir, "model_test_exe.exe" });
+
+    const link_result = try std.process.run(alloc, io, .{
+        .argv = &.{
+            "zig", "cc",
+            obj_path,
+            stub_path,
+            runtime_inc_flag,
+            "-o", exe_path,
+            "-O0",
+            "-w",
+            "-s",
+        },
+    });
+    defer alloc.free(link_result.stdout);
+    defer alloc.free(link_result.stderr);
+
+    if (link_result.term != .exited or link_result.term.exited != 0) {
+        std.debug.print("Native link failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+        return error.NativeModelLinkFailed;
+    }
+
+    const run_result = try std.process.run(alloc, io, .{ .argv = &.{exe_path} });
+    defer alloc.free(run_result.stdout);
+    defer alloc.free(run_result.stderr);
+
+    try std.testing.expect(run_result.term == .exited);
+    try std.testing.expectEqual(@as(u32, 42), run_result.term.exited);
 }

@@ -25,6 +25,10 @@ pub const MirOpcode = enum {
     load_stack,
     store_stack,
 
+    // Orbit model field access (op2 carries the resolved byte offset)
+    load_field,
+    store_field,
+
     // Arithmetic & Bitwise
     add,
     sub,

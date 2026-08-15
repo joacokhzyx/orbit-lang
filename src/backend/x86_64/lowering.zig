@@ -296,6 +296,43 @@ pub const Lowering = struct {
 
         switch (mir_instr.opcode) {
             .nop => {},
+            .load_field => {
+                // dest = *(i64*)(obj + offset)
+                const dest = mapReg(mir_instr.dest.?);
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                try self.emitMov(block, r10_phys, op1_lir);
+                const offset: i32 = if (op2_lir == .imm_int) @intCast(op2_lir.imm_int) else 0;
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm),
+                    .dest = dest,
+                    .op1 = .{ .mem = .{ .base = r10_phys, .disp = offset } },
+                });
+            },
+            .store_field => {
+                // *(i64*)(obj + offset) = value
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                try self.emitMov(block, r10_phys, op1_lir);
+                const offset: i32 = if (op2_lir == .imm_int) @intCast(op2_lir.imm_int) else 0;
+                const op3_lir = self.mapOperand(mir_instr.op3);
+                if (op3_lir == .reg) {
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.mov_mr),
+                        .op1 = .{ .mem = .{ .base = r10_phys, .disp = offset } },
+                        .op2 = op3_lir,
+                    });
+                } else {
+                    // Materialize non-register values in R11 (self-contained
+                    // sequence; the register allocator only touches R11 when
+                    // loading *virtual* source registers).
+                    const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
+                    try self.emitMov(block, r11_phys, op3_lir);
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.mov_mr),
+                        .op1 = .{ .mem = .{ .base = r10_phys, .disp = offset } },
+                        .op2 = .{ .reg = r11_phys },
+                    });
+                }
+            },
             .copy => {
                 const dest = mapReg(mir_instr.dest.?);
                 const dest_type = mir_func.val_types.items[mir_instr.dest.?];
@@ -859,7 +896,15 @@ pub const Lowering = struct {
             .arena_alloc => {
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
                 const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
-                try self.emitMov(block, arg1_reg, op1_lir);
+                const arg2_reg = LirRegister{ .id = @backingInt(arg_regs[1]), .is_physical = true };
+                // orbit_alloc(OrbitArena* arena, size_t bytes); the native stub
+                // owns the global arena, mirroring the C backend's arena-alloc.
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_ri),
+                    .dest = arg1_reg,
+                    .op1 = .{ .symbol = "orbit_global_arena" },
+                });
+                try self.emitMov(block, arg2_reg, op1_lir);
 
                 try block.instructions.append(self.allocator, .{
                     .opcode = @backingInt(X86Opcode.call),

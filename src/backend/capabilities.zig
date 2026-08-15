@@ -43,6 +43,8 @@ const NATIVE_SUPPORTED: []const IROpcode = &.{
     .arg,
     // F1: runtime-backed opcodes implemented in the native lowering path.
     .alloc, // → arena_alloc → call orbit_alloc
+    .load_field, // → mov [obj + offset]
+    .store_field, // → mov [obj + offset], value
     .db_get, // → db_query → call orbit_db_query
     .db_set, // → db_query → call orbit_db_query
     .db_all, // → db_query → call orbit_db_query

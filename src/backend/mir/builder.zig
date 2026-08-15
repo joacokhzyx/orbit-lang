@@ -23,6 +23,9 @@ const MirOperand = mir_mod.MirOperand;
 const MirType = mir_mod.MirType;
 const ValueId = mir_mod.ValueId;
 
+const layout_mod = @import("model_layout.zig");
+const ModelLayout = layout_mod.ModelLayout;
+
 pub const MirBuilder = struct {
     allocator: std.mem.Allocator,
 
@@ -35,8 +38,11 @@ pub const MirBuilder = struct {
         var mir_module = MirModule.init(self.allocator);
         errdefer mir_module.deinit();
 
+        var layout = try ModelLayout.compute(self.allocator, ir_module);
+        defer layout.deinit(self.allocator);
+
         for (ir_module.functions.items) |*ir_func| {
-            const mir_func = try self.buildFunction(ir_func);
+            const mir_func = try self.buildFunction(ir_func, &layout);
             try mir_module.functions.append(self.allocator, mir_func);
         }
 
@@ -54,7 +60,7 @@ pub const MirBuilder = struct {
         };
     }
 
-    fn buildFunction(self: *MirBuilder, ir_func: *const IRFunction) !MirFunction {
+    fn buildFunction(self: *MirBuilder, ir_func: *const IRFunction, layout: *const ModelLayout) !MirFunction {
 
         // Map parameter types
         var param_types = try self.allocator.alloc(MirType, ir_func.params.len);
@@ -140,7 +146,7 @@ pub const MirBuilder = struct {
             }
 
             // Lower instruction to MIR
-            const mir_instr = try self.lowerInstruction(ir_instr, &idx_to_block, ir_func.instructions.items, &variable_map, &mir_func);
+            const mir_instr = try self.lowerInstruction(ir_instr, &idx_to_block, ir_func.instructions.items, &variable_map, &mir_func, ir_func, layout);
             if (mir_instr.opcode != .nop) {
                 try mir_func.blocks.items[current_block_id].instructions.append(self.allocator, mir_instr);
             }
@@ -233,7 +239,7 @@ pub const MirBuilder = struct {
         return null;
     }
 
-    fn lowerInstruction(self: *MirBuilder, ir_instr: ir_mod.IRInstruction, idx_to_block: *const std.AutoHashMap(usize, u32), instructions: []const ir_mod.IRInstruction, variable_map: *std.StringHashMap(ValueId), mir_func: *MirFunction) !MirInstruction {
+    fn lowerInstruction(self: *MirBuilder, ir_instr: ir_mod.IRInstruction, idx_to_block: *const std.AutoHashMap(usize, u32), instructions: []const ir_mod.IRInstruction, variable_map: *std.StringHashMap(ValueId), mir_func: *MirFunction, ir_func: *const IRFunction, layout: *const ModelLayout) !MirInstruction {
         _ = idx_to_block;
 
         if (ir_instr.opcode == .decl_var) {
@@ -266,6 +272,31 @@ pub const MirBuilder = struct {
                 };
             }
             return .{ .opcode = .nop, .dest = null };
+        }
+
+        if (ir_instr.opcode == .load_field) {
+            const field_name = fieldNameOf(ir_instr.operand2);
+            const obj_val = ir_instr.operand1;
+            const offset = self.resolveFieldOffset(ir_func, obj_val, field_name, layout) orelse return error.UnresolvedField;
+            return MirInstruction{
+                .opcode = .load_field,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(obj_val, variable_map),
+                .op2 = .{ .imm_int = offset },
+            };
+        }
+
+        if (ir_instr.opcode == .store_field) {
+            const field_name = fieldNameOf(ir_instr.operand2);
+            const obj_val = ir_instr.operand1;
+            const offset = self.resolveFieldOffset(ir_func, obj_val, field_name, layout) orelse return error.UnresolvedField;
+            return MirInstruction{
+                .opcode = .store_field,
+                .dest = null,
+                .op1 = mapValue(obj_val, variable_map),
+                .op2 = .{ .imm_int = offset },
+                .op3 = mapValue(ir_instr.operand3, variable_map),
+            };
         }
 
         const opcode = switch (ir_instr.opcode) {
@@ -339,5 +370,44 @@ pub const MirBuilder = struct {
             .op2 = op2,
             .op3 = op3,
         };
+    }
+
+    /// Extracts the field name from a load_field/store_field operand2.
+    fn fieldNameOf(val: ir_mod.IRValue) []const u8 {
+        return switch (val) {
+            .string => |s| s,
+            .symbol => |s| s,
+            else => "",
+        };
+    }
+
+    /// Returns the model name carried by an operand's register type, if any.
+    fn modelNameOf(val: ir_mod.IRValue, ir_func: *const IRFunction) ?[]const u8 {
+        return switch (val) {
+            .register => |r| if (r < ir_func.register_types.items.len) switch (ir_func.register_types.items[r]) {
+                .model => |m| m,
+                else => null,
+            } else null,
+            else => null,
+        };
+    }
+
+    /// Resolves the byte offset of `field` on the object in `obj_val`.
+    ///
+    /// The owner model is taken from (in order):
+    /// 1. A qualified field name "ModelName.field",
+    /// 2. The object register's IR type (`register_types` -> `.model`),
+    /// 3. The global field-name -> owner map when the name is unambiguous.
+    fn resolveFieldOffset(self: *MirBuilder, ir_func: *const IRFunction, obj_val: ir_mod.IRValue, field_name: []const u8, layout: *const ModelLayout) ?i32 {
+        _ = self;
+        var model: ?[]const u8 = modelNameOf(obj_val, ir_func);
+        var field = field_name;
+        if (std.mem.indexOfScalar(u8, field_name, '.')) |dot| {
+            model = field_name[0..dot];
+            field = field_name[dot + 1 ..];
+        }
+        if (model == null) model = layout.field_owners.get(field);
+        if (model == null) return null;
+        return layout.fieldOffset(model.?, field);
     }
 };
