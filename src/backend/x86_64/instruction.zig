@@ -63,8 +63,18 @@ pub const X86Opcode = enum(u32) {
 
     // SSE2 Floating Point
     movsd_rr, // Move scalar double-precision (F2 0F 10 /r)
+    movsd_rm, // Move scalar double-precision from memory (F2 0F 10 /r)
+    movsd_mr, // Move scalar double-precision to memory (F2 0F 11 /r)
     addsd_rr, // Add scalar double-precision (F2 0F 58 /r)
     subsd_rr, // Subtract scalar double-precision (F2 0F 5C /r)
     mulsd_rr, // Multiply scalar double-precision (F2 0F 59 /r)
     divsd_rr, // Divide scalar double-precision (F2 0F 5E /r)
+    movq_rr, // Move 64-bit from GPR to XMM (66 REX.W 0F 6E /r)
+    ucomisd_rr, // Unordered compare scalar double (66 0F 2E /r)
+
+    // Set-byte-on-condition for float comparisons (ucomisd sets CF/ZF).
+    setb_r, // CF=1 (unsigned below / float <)
+    setbe_r, // CF|ZF (unsigned below-or-equal / float <=)
+    seta_r, // !CF&&!ZF (unsigned above / float >)
+    setae_r, // !CF (unsigned above-or-equal / float >=)
 };

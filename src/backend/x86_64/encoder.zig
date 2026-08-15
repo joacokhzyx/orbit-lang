@@ -166,6 +166,12 @@ pub const Encoder = struct {
                         .kind = .ABS64,
                         .addend = 0,
                     });
+                } else if (instr.op1 == .imm_float) {
+                    // Materialize the IEEE-754 bit pattern into the register.
+                    const bits: i64 = @bitCast(instr.op1.imm_float);
+                    var bytes: [8]u8 = undefined;
+                    std.mem.writeInt(i64, &bytes, bits, .little);
+                    @memcpy(self.code.items[patch_idx..], &bytes);
                 } else {
                     const val = instr.op1.imm_int;
                     var bytes: [8]u8 = undefined;
@@ -356,7 +362,7 @@ pub const Encoder = struct {
                 try self.append(0x85);
                 try self.append(enc.modrm.toByte());
             },
-            .sete_r, .setne_r, .setl_r, .setle_r, .setg_r, .setge_r => {
+            .sete_r, .setne_r, .setl_r, .setle_r, .setg_r, .setge_r, .setb_r, .setbe_r, .seta_r, .setae_r => {
                 const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
                 const dest_val = @backingInt(dest);
                 if (dest_val >= 4) {
@@ -371,6 +377,10 @@ pub const Encoder = struct {
                     .setle_r => 0x9D,
                     .setg_r => 0x9F,
                     .setge_r => 0x9E,
+                    .setb_r => 0x92,
+                    .setbe_r => 0x96,
+                    .seta_r => 0x97,
+                    .setae_r => 0x93,
                     else => unreachable,
                 };
                 try self.append(cond_byte);
@@ -489,6 +499,55 @@ pub const Encoder = struct {
                 try self.append(0xF2);
                 if (enc.rex.required()) try self.append(enc.rex.toByte());
                 try self.appendSlice(&.{ 0x0F, op_byte });
+                try self.append(enc.modrm.toByte());
+            },
+            .movsd_rm => {
+                // movsd xmm, [base + disp] -> F2 0F 10 /r
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
+                const disp = instr.op1.mem.disp;
+
+                const enc = encodeRegMem(false, dest, base, disp);
+                try self.append(0xF2);
+                if (enc.rex.required()) try self.append(enc.rex.toByte());
+                try self.appendSlice(&.{ 0x0F, 0x10 });
+                try self.append(enc.modrm.toByte());
+                if (enc.sib) |sib| try self.append(sib.toByte());
+                try self.writeDisp(disp, enc.disp_bytes);
+            },
+            .movsd_mr => {
+                // movsd [base + disp], xmm -> F2 0F 11 /r
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
+                const disp = instr.op1.mem.disp;
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op2.reg.id));
+
+                const enc = encodeRegMem(false, src, base, disp);
+                try self.append(0xF2);
+                if (enc.rex.required()) try self.append(enc.rex.toByte());
+                try self.appendSlice(&.{ 0x0F, 0x11 });
+                try self.append(enc.modrm.toByte());
+                if (enc.sib) |sib| try self.append(sib.toByte());
+                try self.writeDisp(disp, enc.disp_bytes);
+            },
+            .movq_rr => {
+                // movq xmm, gp -> 66 REX.W 0F 6E /r
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
+                const enc = encodeRegReg(true, dest, src);
+                try self.append(0x66);
+                try self.append(0x48);
+                if (enc.rex.r or enc.rex.b) try self.append(enc.rex.toByte());
+                try self.appendSlice(&.{ 0x0F, 0x6E });
+                try self.append(enc.modrm.toByte());
+            },
+            .ucomisd_rr => {
+                // ucomisd xmm, xmm -> 66 0F 2E /r
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op1.reg.id));
+                const enc = encodeRegReg(false, dest, src);
+                try self.append(0x66);
+                if (enc.rex.required()) try self.append(enc.rex.toByte());
+                try self.appendSlice(&.{ 0x0F, 0x2E });
                 try self.append(enc.modrm.toByte());
             },
         }
