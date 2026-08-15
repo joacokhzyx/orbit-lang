@@ -299,6 +299,88 @@ pub const MirBuilder = struct {
             };
         }
 
+        // Collections: carry the IR operands straight through. The void-dest
+        // results of push/set are discarded at the MIR level.
+        if (ir_instr.opcode == .list_create) {
+            return MirInstruction{
+                .opcode = .list_create,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .list_push) {
+            return MirInstruction{
+                .opcode = .list_push,
+                .dest = null,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .list_pop) {
+            return MirInstruction{
+                .opcode = .list_pop,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .list_get) {
+            return MirInstruction{
+                .opcode = .list_get,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .list_set) {
+            return MirInstruction{
+                .opcode = .list_set,
+                .dest = null,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+                .op3 = mapValue(ir_instr.operand3, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .list_len) {
+            return MirInstruction{
+                .opcode = .list_len,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .map_create) {
+            return MirInstruction{
+                .opcode = .map_create,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .map_set) {
+            return MirInstruction{
+                .opcode = .map_set,
+                .dest = null,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+                .op3 = mapValue(ir_instr.operand3, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .map_get) {
+            return MirInstruction{
+                .opcode = .map_get,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .map_has) {
+            return MirInstruction{
+                .opcode = .map_has,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+            };
+        }
+
         const opcode = switch (ir_instr.opcode) {
             .nop => MirOpcode.nop,
             .load_const => MirOpcode.copy,

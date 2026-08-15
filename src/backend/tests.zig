@@ -1271,3 +1271,416 @@ test "native end-to-end: model alloc/store_field/load_field returns stored value
     try std.testing.expect(run_result.term == .exited);
     try std.testing.expectEqual(@as(u32, 42), run_result.term.exited);
 }
+
+/// Links a native object with a minimal runtime stub and returns the process
+/// exit code. The stub carries the extern wrappers the native lowering relies
+/// on for the static-inline collection accessors.
+fn runNativeRuntimeProgram(
+    alloc: std.mem.Allocator,
+    io: std.Io,
+    is_windows: bool,
+    obj_bytes: []const u8,
+    stub_body: []const u8,
+) !u32 {
+    const repo_root = try std.process.currentPathAlloc(io, alloc);
+    const src_dir = try std.fs.path.join(alloc, &.{ repo_root, "src" });
+    const runtime_dir = try std.fs.path.join(alloc, &.{ src_dir, "runtime" });
+    const temp_dir = try std.fs.path.join(alloc, &.{ repo_root, ".native_runtime_test_tmp" });
+
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    defer {
+        cwd.deleteTree(io, temp_dir) catch {};
+    }
+
+    const obj_ext = if (is_windows) ".obj" else ".o";
+    const obj_path = try std.fs.path.join(alloc, &.{ temp_dir, try std.fmt.allocPrint(alloc, "orbit_prog{s}", .{obj_ext}) });
+    {
+        var obj_file = try cwd.createFile(io, obj_path, .{ .truncate = true });
+        var wb: [4096]u8 = undefined;
+        var fw = std.Io.File.Writer.init(obj_file, io, &wb);
+        try fw.interface.writeAll(obj_bytes);
+        try fw.flush();
+        obj_file.close(io);
+    }
+
+    const stub_path = try std.fs.path.join(alloc, &.{ temp_dir, "stub.c" });
+    {
+        var stub_file = try cwd.createFile(io, stub_path, .{ .truncate = true });
+        var wb: [4096]u8 = undefined;
+        var fw = std.Io.File.Writer.init(stub_file, io, &wb);
+        try fw.interface.writeAll(
+            \\#include "runtime.h"
+            \\void* orbit_global_arena = NULL;
+            \\extern int orbit_main(void);
+            \\size_t orbit_list_len_native(OrbitList* list) { return orbit_list_len(list); }
+            \\OrbitResult orbit_list_get_native(OrbitList* list, size_t index) { return orbit_list_get(list, index); }
+            \\OrbitResult orbit_map_get_native(OrbitMap* map, const char* key) { return orbit_map_get(map, key); }
+            \\bool orbit_map_has_native(OrbitMap* map, const char* key) { return orbit_map_has(map, key); }
+            \\
+        );
+        try fw.interface.writeAll(stub_body);
+        try fw.flush();
+        stub_file.close(io);
+    }
+
+    const runtime_inc_flag = try std.fmt.allocPrint(alloc, "-I{s}", .{runtime_dir});
+    const exe_path = try std.fs.path.join(alloc, &.{ temp_dir, "prog_exe.exe" });
+
+    const link_result = try std.process.run(alloc, io, .{
+        .argv = &.{
+            "zig", "cc",
+            obj_path,
+            stub_path,
+            runtime_inc_flag,
+            "-o", exe_path,
+            "-O0",
+            "-w",
+            "-s",
+        },
+    });
+    defer alloc.free(link_result.stdout);
+    defer alloc.free(link_result.stderr);
+
+    if (link_result.term != .exited or link_result.term.exited != 0) {
+        std.debug.print("Native link failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
+        return error.NativeCollectionLinkFailed;
+    }
+
+    const run_result = try std.process.run(alloc, io, .{ .argv = &.{exe_path} });
+    defer alloc.free(run_result.stdout);
+    defer alloc.free(run_result.stderr);
+
+    try std.testing.expect(run_result.term == .exited);
+    return run_result.term.exited;
+}
+
+const native_stub_main_body =
+    \\int main(void) {
+    \\    orbit_string_pool_init(1024);
+    \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
+    \\    int code = orbit_main();
+    \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
+    \\    orbit_string_pool_cleanup();
+    \\    return code;
+    \\}
+    \\
+;
+
+test "native MIR: collection opcodes carry mapped operands" {
+    const builder_mod = @import("mir/builder.zig");
+    const ir_mod = @import("../ir/ir.zig");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var module = ir_mod.IRModule.init(alloc);
+    defer module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .list = null }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+    _ = try func.allocRegister(alloc, .int); // r2
+    _ = try func.allocRegister(alloc, .{ .map = null }); // r3
+    _ = try func.allocRegister(alloc, .int); // r4
+    _ = try func.allocRegister(alloc, .bool); // r5
+
+    var create = ir_mod.IRInstruction.init(.list_create);
+    create.dest = 0;
+    create.operand1 = .{ .int = 4 };
+    create.operand2 = .{ .int = 8 };
+    try func.emit(alloc, create);
+
+    var push = ir_mod.IRInstruction.init(.list_push);
+    push.operand1 = .{ .register = 0 };
+    push.operand2 = .{ .int = 42 };
+    try func.emit(alloc, push);
+
+    var get = ir_mod.IRInstruction.init(.list_get);
+    get.dest = 1;
+    get.operand1 = .{ .register = 0 };
+    get.operand2 = .{ .int = 0 };
+    try func.emit(alloc, get);
+
+    var len = ir_mod.IRInstruction.init(.list_len);
+    len.dest = 2;
+    len.operand1 = .{ .register = 0 };
+    try func.emit(alloc, len);
+
+    var map_create = ir_mod.IRInstruction.init(.map_create);
+    map_create.dest = 3;
+    map_create.operand1 = .{ .int = 8 };
+    try func.emit(alloc, map_create);
+
+    var map_set = ir_mod.IRInstruction.init(.map_set);
+    map_set.operand1 = .{ .register = 3 };
+    map_set.operand2 = .{ .string = "k" };
+    map_set.operand3 = .{ .int = 42 };
+    try func.emit(alloc, map_set);
+
+    var map_get = ir_mod.IRInstruction.init(.map_get);
+    map_get.dest = 4;
+    map_get.operand1 = .{ .register = 3 };
+    map_get.operand2 = .{ .string = "k" };
+    try func.emit(alloc, map_get);
+
+    var map_has = ir_mod.IRInstruction.init(.map_has);
+    map_has.dest = 5;
+    map_has.operand1 = .{ .register = 3 };
+    map_has.operand2 = .{ .string = "k" };
+    try func.emit(alloc, map_has);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try module.functions.append(alloc, func);
+
+    var builder = builder_mod.MirBuilder.init(alloc);
+    var mir = try builder.build(&module);
+    defer mir.deinit();
+
+    const block = &mir.functions.items[0].blocks.items[0];
+    var found_create = false;
+    var found_push = false;
+    var found_get = false;
+    var found_len = false;
+    var found_map_create = false;
+    var found_map_set = false;
+    var found_map_get = false;
+    var found_map_has = false;
+
+    for (block.instructions.items) |instr| {
+        switch (instr.opcode) {
+            .list_create => {
+                found_create = true;
+                try std.testing.expect(instr.op1 == .imm_int and instr.op1.imm_int == 4);
+                try std.testing.expect(instr.op2 == .imm_int and instr.op2.imm_int == 8);
+            },
+            .list_push => {
+                found_push = true;
+                try std.testing.expect(instr.dest == null);
+                try std.testing.expect(instr.op1 == .reg and instr.op1.reg == 0);
+                try std.testing.expect(instr.op2 == .imm_int and instr.op2.imm_int == 42);
+            },
+            .list_get => {
+                found_get = true;
+                try std.testing.expect(instr.dest.? == 1);
+                try std.testing.expect(instr.op2 == .imm_int and instr.op2.imm_int == 0);
+            },
+            .list_len => {
+                found_len = true;
+                try std.testing.expect(instr.dest.? == 2);
+                try std.testing.expect(instr.op1 == .reg and instr.op1.reg == 0);
+            },
+            .map_create => {
+                found_map_create = true;
+                try std.testing.expect(instr.op1 == .imm_int and instr.op1.imm_int == 8);
+            },
+            .map_set => {
+                found_map_set = true;
+                try std.testing.expect(instr.dest == null);
+                try std.testing.expect(instr.op2 == .imm_str and std.mem.eql(u8, instr.op2.imm_str, "k"));
+            },
+            .map_get => {
+                found_map_get = true;
+                try std.testing.expect(instr.op2 == .imm_str and std.mem.eql(u8, instr.op2.imm_str, "k"));
+            },
+            .map_has => {
+                found_map_has = true;
+                try std.testing.expect(instr.op2 == .imm_str and std.mem.eql(u8, instr.op2.imm_str, "k"));
+            },
+            else => {},
+        }
+    }
+
+    try std.testing.expect(found_create);
+    try std.testing.expect(found_push);
+    try std.testing.expect(found_get);
+    try std.testing.expect(found_len);
+    try std.testing.expect(found_map_create);
+    try std.testing.expect(found_map_set);
+    try std.testing.expect(found_map_get);
+    try std.testing.expect(found_map_has);
+}
+
+test "native in-memory: collection calls reserve an sret buffer and push element addresses" {
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+    const link_mod = @import("link/mod.zig");
+    const builtin = @import("builtin");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .list = null }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var create = ir_mod.IRInstruction.init(.list_create);
+    create.dest = 0;
+    create.operand1 = .{ .int = 4 };
+    create.operand2 = .{ .int = 8 };
+    try func.emit(alloc, create);
+
+    var push = ir_mod.IRInstruction.init(.list_push);
+    push.operand1 = .{ .register = 0 };
+    push.operand2 = .{ .int = 42 };
+    try func.emit(alloc, push);
+
+    var get = ir_mod.IRInstruction.init(.list_get);
+    get.dest = 1;
+    get.operand1 = .{ .register = 0 };
+    get.operand2 = .{ .int = 0 };
+    try func.emit(alloc, get);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    var obj = try switch (builtin.os.tag) {
+        .windows => link_mod.coff_reader.readObject(alloc, obj_bytes),
+        else => link_mod.elf_reader.readObject(alloc, obj_bytes),
+    };
+    defer obj.deinit(alloc);
+
+    var text_bytes: std.ArrayList(u8) = .empty;
+    defer text_bytes.deinit(alloc);
+    for (obj.sections.items) |sec| {
+        if (std.mem.eql(u8, sec.name, ".text")) {
+            try text_bytes.appendSlice(alloc, sec.bytes.items);
+        }
+    }
+    try std.testing.expect(text_bytes.items.len > 0);
+
+    // sub rsp, 32 (sret buffer reserve)
+    try std.testing.expect(std.mem.indexOf(u8, text_bytes.items, &.{ 0x48, 0x83, 0xEC, 0x20 }) != null);
+    // sub rsp, 8 (element address push)
+    try std.testing.expect(std.mem.indexOf(u8, text_bytes.items, &.{ 0x48, 0x83, 0xEC, 0x08 }) != null);
+    // add rsp, 32 (buffer release)
+    try std.testing.expect(std.mem.indexOf(u8, text_bytes.items, &.{ 0x48, 0x83, 0xC4, 0x20 }) != null);
+}
+
+test "native end-to-end: list create/push/get returns stored value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .list = null }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var create = ir_mod.IRInstruction.init(.list_create);
+    create.dest = 0;
+    create.operand1 = .{ .int = 4 };
+    create.operand2 = .{ .int = 8 };
+    try func.emit(alloc, create);
+
+    var push = ir_mod.IRInstruction.init(.list_push);
+    push.operand1 = .{ .register = 0 };
+    push.operand2 = .{ .int = 42 };
+    try func.emit(alloc, push);
+
+    var get = ir_mod.IRInstruction.init(.list_get);
+    get.dest = 1;
+    get.operand1 = .{ .register = 0 };
+    get.operand2 = .{ .int = 0 };
+    try func.emit(alloc, get);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 42), code);
+}
+
+test "native end-to-end: map create/set/get returns stored value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .map = null }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var create = ir_mod.IRInstruction.init(.map_create);
+    create.dest = 0;
+    create.operand1 = .{ .int = 8 };
+    try func.emit(alloc, create);
+
+    var set = ir_mod.IRInstruction.init(.map_set);
+    set.operand1 = .{ .register = 0 };
+    set.operand2 = .{ .string = "k" };
+    set.operand3 = .{ .int = 42 };
+    try func.emit(alloc, set);
+
+    var get = ir_mod.IRInstruction.init(.map_get);
+    get.dest = 1;
+    get.operand1 = .{ .register = 0 };
+    get.operand2 = .{ .string = "k" };
+    try func.emit(alloc, get);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 42), code);
+}

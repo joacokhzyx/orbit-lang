@@ -725,8 +725,6 @@ fn compileToBinary(
             \\#define orbit_http_query_get original_orbit_http_query_get
             \\#define orbit_response_create original_orbit_response_create
             \\#endif
-            \\#define orbit_list_create original_orbit_list_create
-            \\#define orbit_map_create original_orbit_map_create
             \\#define orbit_string_slice original_orbit_string_slice
             \\#define orbit_int_to_string original_orbit_int_to_string
             \\#define orbit_float_to_string original_orbit_float_to_string
@@ -746,8 +744,6 @@ fn compileToBinary(
             \\#undef orbit_http_query_get
             \\#undef orbit_response_create
             \\#endif
-            \\#undef orbit_list_create
-            \\#undef orbit_map_create
             \\#undef orbit_string_slice
             \\#undef orbit_int_to_string
             \\#undef orbit_float_to_string
@@ -783,12 +779,10 @@ fn compileToBinary(
             \\    return original_orbit_http_query_get((OrbitArena*)orbit_global_arena, req, key);
             \\}
             \\#endif
-            \\OrbitResult orbit_list_create(size_t elem_size, size_t initial_capacity) {
-            \\    return original_orbit_list_create((OrbitArena*)orbit_global_arena, elem_size, initial_capacity);
-            \\}
-            \\OrbitResult orbit_map_create(size_t value_size) {
-            \\    return original_orbit_map_create((OrbitArena*)orbit_global_arena, value_size);
-            \\}
+            \\size_t orbit_list_len_native(OrbitList* list) { return orbit_list_len(list); }
+            \\OrbitResult orbit_list_get_native(OrbitList* list, size_t index) { return orbit_list_get(list, index); }
+            \\OrbitResult orbit_map_get_native(OrbitMap* map, const char* key) { return orbit_map_get(map, key); }
+            \\bool orbit_map_has_native(OrbitMap* map, const char* key) { return orbit_map_has(map, key); }
             \\orbit_string orbit_string_slice(orbit_string s, orbit_int start, orbit_int end) {
             \\    return original_orbit_string_slice((OrbitArena*)orbit_global_arena, s, start, end);
             \\}

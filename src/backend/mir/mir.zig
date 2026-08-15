@@ -29,6 +29,18 @@ pub const MirOpcode = enum {
     load_field,
     store_field,
 
+    // Orbit collections (list_*/map_*)
+    list_create,
+    list_push,
+    list_pop,
+    list_get,
+    list_set,
+    list_len,
+    map_create,
+    map_set,
+    map_get,
+    map_has,
+
     // Arithmetic & Bitwise
     add,
     sub,

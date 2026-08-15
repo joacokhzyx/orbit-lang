@@ -45,6 +45,16 @@ const NATIVE_SUPPORTED: []const IROpcode = &.{
     .alloc, // → arena_alloc → call orbit_alloc
     .load_field, // → mov [obj + offset]
     .store_field, // → mov [obj + offset], value
+    .list_create, // → call orbit_list_create (OrbitResult, sret)
+    .list_push, // → call orbit_list_push
+    .list_pop, // → call orbit_list_pop
+    .list_get, // → call orbit_list_get_native
+    .list_set, // → call orbit_list_set
+    .list_len, // → call orbit_list_len_native
+    .map_create, // → call orbit_map_create
+    .map_set, // → call orbit_map_set
+    .map_get, // → call orbit_map_get_native
+    .map_has, // → call orbit_map_has_native
     .db_get, // → db_query → call orbit_db_query
     .db_set, // → db_query → call orbit_db_query
     .db_all, // → db_query → call orbit_db_query

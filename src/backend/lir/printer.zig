@@ -89,6 +89,7 @@ pub const LirPrinter = struct {
             },
             .label => |l| try writer.print(" bb_{d}", .{l}),
             .symbol => |s| try writer.print(" {s}", .{s}),
+            .symbol_value => |s| try writer.print(" [{s}]", .{s}),
         }
     }
 };

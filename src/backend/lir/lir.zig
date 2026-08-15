@@ -37,7 +37,8 @@ pub const LirOperand = union(enum) {
     stack_slot: u32, // Stack offset index
     mem: LirMemoryRef,
     label: u32, // Target block index
-    symbol: []const u8, // External reference symbol
+    symbol: []const u8, // External reference symbol (address)
+    symbol_value: []const u8, // Load the value stored at an external symbol
 };
 
 /// A target-specific instruction in LIR.

@@ -15,6 +15,7 @@ const MirFunction = mir_mod.MirFunction;
 const MirBasicBlock = mir_mod.MirBasicBlock;
 const MirInstruction = mir_mod.MirInstruction;
 const MirOperand = mir_mod.MirOperand;
+const ValueId = mir_mod.ValueId;
 
 const lir_mod = @import("../lir/lir.zig");
 const LirFunction = lir_mod.LirFunction;
@@ -55,6 +56,14 @@ pub const Lowering = struct {
                 .dest = dest,
                 .op1 = src,
             });
+        } else if (src == .symbol_value) {
+            // Load the 64-bit value stored at the external symbol (e.g. the
+            // current arena pointer in orbit_global_arena).
+            try block.instructions.append(self.allocator, .{
+                .opcode = @backingInt(X86Opcode.mov_rm_sym),
+                .dest = dest,
+                .op1 = .{ .symbol = src.symbol_value },
+            });
         } else if (src == .imm_float) {
             // Materialize the IEEE-754 bit pattern in a GPR.
             try block.instructions.append(self.allocator, .{
@@ -73,6 +82,131 @@ pub const Lowering = struct {
                 .opcode = @backingInt(X86Opcode.mov_ri),
                 .dest = dest,
                 .op1 = src,
+            });
+        }
+    }
+
+    /// Emits a call to a C runtime function following the target ABI.
+    ///
+    /// - `sret`: the function returns `OrbitResult` by value (24 bytes) via a
+    ///   hidden first argument. A 32-byte scratch buffer is reserved at [rsp]
+    ///   and its address is passed as argument 0; after the call `dest` is
+    ///   loaded from the buffer's `.value` slot (offset 16), either directly
+    ///   (`deref == false`, e.g. create) or as a 64-bit deref of it
+    ///   (`deref == true`, e.g. get/pop).
+    /// - `addr_of[i]`: operand i is passed as the *address* of the value, so
+    ///   the value is materialized in R10, stored to an 8-byte slot pushed on
+    ///   the stack, and RSP is passed (mirrors the C backend's `&r_N`).
+    fn emitRuntimeCall(
+        self: *Lowering,
+        block: *LirBasicBlock,
+        symbol: []const u8,
+        sret: bool,
+        args: []const LirOperand,
+        addr_of: []const bool,
+        dest: ?ValueId,
+        deref: bool,
+    ) !void {
+        const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
+        const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+        const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
+        const rsp_phys = LirRegister{ .id = @backingInt(RegisterId.rsp), .is_physical = true };
+
+        var arg_idx: usize = if (sret) 1 else 0;
+        var pushed: usize = 0;
+
+        for (args, addr_of) |arg, by_addr| {
+            const arg_reg = LirRegister{ .id = @backingInt(arg_regs[arg_idx]), .is_physical = true };
+            if (by_addr) {
+                try self.emitMov(block, r10_phys, arg);
+                // sub rsp, 8; mov [rsp], r10; mov arg_reg, rsp
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.sub_ri),
+                    .dest = rsp_phys,
+                    .op1 = .{ .imm_int = 8 },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rsp_phys, .disp = 0 } },
+                    .op2 = .{ .reg = r10_phys },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rr),
+                    .dest = arg_reg,
+                    .op1 = .{ .reg = rsp_phys },
+                });
+                pushed += 1;
+            } else {
+                try self.emitMov(block, arg_reg, arg);
+            }
+            arg_idx += 1;
+        }
+
+        if (sret) {
+            const sret_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
+            // Reserve the result buffer and pass its address as hidden arg 0.
+            try block.instructions.append(self.allocator, .{
+                .opcode = @backingInt(X86Opcode.sub_ri),
+                .dest = rsp_phys,
+                .op1 = .{ .imm_int = 32 },
+            });
+            try block.instructions.append(self.allocator, .{
+                .opcode = @backingInt(X86Opcode.mov_rr),
+                .dest = sret_reg,
+                .op1 = .{ .reg = rsp_phys },
+            });
+        }
+
+        try block.instructions.append(self.allocator, .{
+            .opcode = @backingInt(X86Opcode.call),
+            .op1 = .{ .symbol = symbol },
+        });
+
+        if (sret) {
+            if (dest) |d| {
+                const dest_reg = mapReg(d);
+                if (deref) {
+                    // R11 = result.value (offset 16); dest = *R11
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.mov_rm),
+                        .dest = r11_phys,
+                        .op1 = .{ .mem = .{ .base = rsp_phys, .disp = 16 } },
+                    });
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.mov_rm),
+                        .dest = dest_reg,
+                        .op1 = .{ .mem = .{ .base = r11_phys, .disp = 0 } },
+                    });
+                } else {
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.mov_rm),
+                        .dest = dest_reg,
+                        .op1 = .{ .mem = .{ .base = rsp_phys, .disp = 16 } },
+                    });
+                }
+            }
+            try block.instructions.append(self.allocator, .{
+                .opcode = @backingInt(X86Opcode.add_ri),
+                .dest = rsp_phys,
+                .op1 = .{ .imm_int = 32 },
+            });
+        } else {
+            if (dest) |d| {
+                const dest_reg = mapReg(d);
+                const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rr),
+                    .dest = dest_reg,
+                    .op1 = .{ .reg = rax_phys },
+                });
+            }
+        }
+
+        if (pushed > 0) {
+            try block.instructions.append(self.allocator, .{
+                .opcode = @backingInt(X86Opcode.add_ri),
+                .dest = rsp_phys,
+                .op1 = .{ .imm_int = @intCast(pushed * 8) },
             });
         }
     }
@@ -333,6 +467,16 @@ pub const Lowering = struct {
                     });
                 }
             },
+            .list_create => try self.emitRuntimeCall(block, "orbit_list_create", true, &.{ .{ .symbol_value = "orbit_global_arena" }, op1_lir, op2_lir }, &.{ false, false, false }, mir_instr.dest, false),
+            .list_push => try self.emitRuntimeCall(block, "orbit_list_push", true, &.{ op1_lir, op2_lir }, &.{ false, true }, null, false),
+            .list_pop => try self.emitRuntimeCall(block, "orbit_list_pop", true, &.{op1_lir}, &.{false}, mir_instr.dest, true),
+            .list_get => try self.emitRuntimeCall(block, "orbit_list_get_native", true, &.{ op1_lir, op2_lir }, &.{ false, false }, mir_instr.dest, true),
+            .list_set => try self.emitRuntimeCall(block, "orbit_list_set", true, &.{ op1_lir, op2_lir, self.mapOperand(mir_instr.op3) }, &.{ false, false, true }, null, false),
+            .list_len => try self.emitRuntimeCall(block, "orbit_list_len_native", false, &.{op1_lir}, &.{false}, mir_instr.dest, false),
+            .map_create => try self.emitRuntimeCall(block, "orbit_map_create", true, &.{ .{ .symbol_value = "orbit_global_arena" }, op1_lir }, &.{ false, false }, mir_instr.dest, false),
+            .map_set => try self.emitRuntimeCall(block, "orbit_map_set", true, &.{ op1_lir, op2_lir, self.mapOperand(mir_instr.op3) }, &.{ false, false, true }, null, false),
+            .map_get => try self.emitRuntimeCall(block, "orbit_map_get_native", true, &.{ op1_lir, op2_lir }, &.{ false, false }, mir_instr.dest, true),
+            .map_has => try self.emitRuntimeCall(block, "orbit_map_has_native", false, &.{ op1_lir, op2_lir }, &.{ false, false }, mir_instr.dest, false),
             .copy => {
                 const dest = mapReg(mir_instr.dest.?);
                 const dest_type = mir_func.val_types.items[mir_instr.dest.?];
@@ -900,7 +1044,7 @@ pub const Lowering = struct {
                 // orbit_alloc(OrbitArena* arena, size_t bytes); the native stub
                 // owns the global arena, mirroring the C backend's arena-alloc.
                 try block.instructions.append(self.allocator, .{
-                    .opcode = @backingInt(X86Opcode.mov_ri),
+                    .opcode = @backingInt(X86Opcode.mov_rm_sym),
                     .dest = arg1_reg,
                     .op1 = .{ .symbol = "orbit_global_arena" },
                 });

@@ -205,6 +205,26 @@ pub const Encoder = struct {
                 if (enc.sib) |sib| try self.append(sib.toByte());
                 try self.writeDisp(disp, enc.disp_bytes);
             },
+            .mov_rm_sym => {
+                // mov reg, [rip + disp32]: load the 64-bit value stored at an
+                // external symbol. PC32 reloc with addend -4 (the CPU adds the
+                // address of the next instruction, i.e. patch + 4, to the disp).
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const dest_val = @backingInt(dest);
+                const rex = Rex{ .w = true, .b = dest_val >= 8 };
+                if (rex.required()) try self.append(rex.toByte());
+                try self.append(0x8B);
+                const modrm = ModRm{ .mod = 0, .reg = @intCast(dest_val & 7), .rm = 5 };
+                try self.append(modrm.toByte());
+                const patch_idx = self.code.items.len;
+                try self.appendSlice(&.{ 0, 0, 0, 0 });
+                try self.symbol_relocs.append(self.allocator, .{
+                    .patch_offset = patch_idx,
+                    .symbol_name = instr.op1.symbol,
+                    .kind = .PC32,
+                    .addend = -4,
+                });
+            },
             .movzx_rr => {
                 // movzx reg64, reg8 -> 0x0F 0xB6 /r
                 const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
