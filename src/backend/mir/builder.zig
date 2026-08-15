@@ -174,10 +174,16 @@ pub const MirBuilder = struct {
                         .opcode = .sret_alloc,
                         .dest = ir_instr.dest,
                     });
-                } else if (is_arena_call) {
+                }
+                // A callee may be BOTH sret-returning (`.result` dest) and
+                // arena-requiring (e.g. `orbit_file_read`), so arena_arg is a
+                // separate emission, not an `else if`. The lowering places the
+                // sret buffer in ABI slot 0 and the arena in slot 1 (or slot 0
+                // when no sret), with the explicit args shifted past both.
+                if (is_arena_call) {
                     // Runtime functions declared to take `OrbitArena*` as their
                     // first parameter (mirroring the C backend's arena-function
-                    // registry) receive orbit_global_arena as hidden ABI arg 0.
+                    // registry) receive orbit_global_arena as a hidden ABI arg.
                     try mir_func.blocks.items[current_block_id].instructions.append(self.allocator, MirInstruction{
                         .opcode = .arena_arg,
                         .dest = null,

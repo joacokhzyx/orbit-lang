@@ -357,6 +357,17 @@ pub const IRBuilder = struct {
             }
         }
 
+        // A program may not combine top-level executable statements with an
+        // explicit `fn main`: both claim the single entry point (`orbit_main`),
+        // which would surface downstream as a duplicate-symbol link error.
+        if (self.main_function.instructions.items.len > 0) {
+            for (self.module.functions.items) |f| {
+                if (std.mem.eql(u8, f.name, "main")) {
+                    return error.TopLevelWithMainFunction;
+                }
+            }
+        }
+
         const is_main_added = (self.main_function.instructions.items.len > 0) or (self.module.functions.items.len == 0);
         if (is_main_added) {
             const main_needs_ret = if (self.main_function.instructions.items.len == 0) true else blk: {

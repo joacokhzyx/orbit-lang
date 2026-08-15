@@ -1356,12 +1356,15 @@ pub const Lowering = struct {
             },
             .arena_arg => {
                 // Runtime functions declared `(OrbitArena* arena, ...)` receive
-                // orbit_global_arena in ABI slot 0; explicit args follow at 1+.
+                // orbit_global_arena in ABI slot 0 (or slot 1 when the callee is
+                // also sret-returning, whose hidden result pointer owns slot 0);
+                // explicit args follow at 1+ / 2+.
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
-                const arg0_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
+                const slot: usize = if (self.sret_pending) 1 else 0;
+                const slot_reg = LirRegister{ .id = @backingInt(arg_regs[slot]), .is_physical = true };
                 try block.instructions.append(self.allocator, .{
                     .opcode = @backingInt(X86Opcode.mov_rm_sym),
-                    .dest = arg0_reg,
+                    .dest = slot_reg,
                     .op1 = .{ .symbol = "orbit_global_arena" },
                 });
                 self.arena_pending = true;

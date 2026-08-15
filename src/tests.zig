@@ -472,6 +472,28 @@ test "ir_builder.simple_function_produces_ir" {
     try std.testing.expect(builder.module.functions.items.len > 0);
 }
 
+test "ir_builder.rejects_top_level_with_fn_main" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\print("top-level")
+        \\
+        \\fn main() -> int {
+        \\    return 42
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+
+    var builder = IRBuilder.init(allocator, source, &sema.node_types, &sema.model_registry);
+    try std.testing.expectError(error.TopLevelWithMainFunction, builder.build(root));
+}
+
 test "ir_builder.fn_with_call_in_body" {
     var ta = testArena();
     defer ta.arena.deinit();

@@ -2629,6 +2629,94 @@ test "native end-to-end: arena-requiring call injects orbit_global_arena" {
     try std.testing.expectEqual(@as(u32, 1), code);
 }
 
+const file_read_stub_body =
+    \\int main(void) {
+    \\    orbit_string_pool_init(1024);
+    \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
+    \\    int code = orbit_main();
+    \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
+    \\    orbit_string_pool_cleanup();
+    \\    return code;
+    \\}
+    \\
+;
+
+test "native end-to-end: file.read reaches orbit_file_read with arena" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    // Create a real file in the harness temp dir so the generated call to the
+    // REAL orbit_file_read (from src/runtime/file.c, always linked) can read it.
+    const repo_root = try std.process.currentPathAlloc(io, alloc);
+    const temp_dir = try std.fs.path.join(alloc, &.{ repo_root, ".native_runtime_test_tmp" });
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    const file_path = try std.fs.path.join(alloc, &.{ temp_dir, "somefile.txt" });
+    {
+        var f = try cwd.createFile(io, file_path, .{ .truncate = true });
+        var wb: [4096]u8 = undefined;
+        var fw = std.Io.File.Writer.init(f, io, &wb);
+        try fw.interface.writeAll("HELLO-FILE");
+        try fw.flush();
+        f.close(io);
+    }
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    // `file.read(path)` from source lowers to a generic `.call orbit_file_read`
+    // carrying only the filename as an explicit arg into a `.result` dest. The
+    // callee is BOTH sret-returning (OrbitResult) AND arena-requiring, so the
+    // MIR builder must inject both sret_alloc and arena_arg; the lowering passes
+    // the sret buffer in slot 0, orbit_global_arena in slot 1 and the filename
+    // in slot 2. If the arena were not injected (or land in the wrong slot),
+    // orbit_alloc inside file.c would read a bogus arena and the read fails.
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .result = null }); // r0 = OrbitResult*
+    _ = try func.allocRegister(alloc, .bool); // r1 = is_ok
+
+    var arg = ir_mod.IRInstruction.init(.arg);
+    arg.operand1 = .{ .string = file_path };
+    try func.emit(alloc, arg);
+
+    var call = ir_mod.IRInstruction.init(.call);
+    call.dest = 0;
+    call.operand1 = .{ .string = "orbit_file_read" };
+    call.operand2 = .{ .int = 1 };
+    try func.emit(alloc, call);
+
+    var is_ok = ir_mod.IRInstruction.init(.result_is_ok);
+    is_ok.dest = 1;
+    is_ok.operand1 = .{ .register = 0 };
+    try func.emit(alloc, is_ok);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, file_read_stub_body);
+    try std.testing.expectEqual(@as(u32, 1), code);
+}
+
 test "native end-to-end: model User.all() from source reaches orbit_db_query_all with arena" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

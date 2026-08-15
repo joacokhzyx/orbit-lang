@@ -198,10 +198,18 @@ returns 1).
       fails, so the test proves the row was written). Verified: full suite
       10/10 steps; both `--backend=c` and `--backend=native` compile a
       `model User` app whose `User.create()`+`User.all()` exits 1 and the
-      seeded `u9/bob` row is persisted to `orbit.db`. Remaining: the
-      frontend's `file.read` emission still passes `("file", filename)`
-      instead of `(arena, filename)` (the C backend special-cases it; the
-      native backend would call `orbit_file_read` with wrong args).
+       seeded `u9/bob` row is persisted to `orbit.db`. **`file.read` arena arg
+       — DONE (2026-08-15)**: the `orbit_file_read` call is BOTH sret-returning
+       (`.result` dest → 24-byte `OrbitResult`) and arena-requiring
+       (`isArenaCallName`). The MIR builder emitted only `sret_alloc` because it
+       used `else if` between the sret and arena branches, so the arena was never
+       injected (`orbit_file_read` was called as `(buffer, filename)` with no
+       arena). Fixed: the builder now emits `sret_alloc` AND `arena_arg` for the
+       same call, and the lowering places the arena in ABI slot 1 (slot 0 when no
+       sret) — sret buffer slot 0, arena slot 1, explicit args at 2+. Verified by
+       a native e2e test that reads a real file through the real
+       `orbit_file_read` (file.c is always linked via runtime.h) and unwraps the
+       result.
       **Native PE linker end-to-end — DONE (2026-08-15)**: `--backend=native
       --linker=native` links the C stub + runtime + codegen object into a
       runnable exe without invoking Zig. Fixed in this session: (a)
@@ -223,9 +231,11 @@ returns 1).
       `--backend=c` unchanged; suite 44/46 → 46/46 (updated
       `link.resolve.undefined_symbol_errors` to the new invariant: undefined
       `orbit_*` runtime symbols are the hard-error case; everything else is a
-      DLL import). Remaining known limitation: programs with top-level code AND
-      `fn main` still fail to link with `duplicate symbol 'orbit_main'` (two
-      `main`s both renamed to `orbit_main` in `backend.zig`).
+       DLL import). **Top-level code + `fn main` — DONE (2026-08-15)**: instead
+       of the duplicate-symbol link error, the IR frontend now rejects the
+       combination with a clear diagnostic (`error.TopLevelWithMainFunction` —
+       a program may not have both top-level executable statements and an
+       explicit `fn main`, since both claim the single `orbit_main` entry).
 
 ---
 
