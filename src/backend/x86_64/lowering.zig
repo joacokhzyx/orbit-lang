@@ -211,6 +211,28 @@ pub const Lowering = struct {
         }
     }
 
+    /// Emits `orbit_alloc(&orbit_global_arena value, size)`, leaving the result
+    /// pointer in RAX. Uses the same global-arena load as the collections path.
+    fn emitAllocFromArena(self: *Lowering, block: *LirBasicBlock, size: u32) !void {
+        const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
+        const arg1_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
+        const arg2_reg = LirRegister{ .id = @backingInt(arg_regs[1]), .is_physical = true };
+        try block.instructions.append(self.allocator, .{
+            .opcode = @backingInt(X86Opcode.mov_rm_sym),
+            .dest = arg1_reg,
+            .op1 = .{ .symbol = "orbit_global_arena" },
+        });
+        try block.instructions.append(self.allocator, .{
+            .opcode = @backingInt(X86Opcode.mov_ri),
+            .dest = arg2_reg,
+            .op1 = .{ .imm_int = size },
+        });
+        try block.instructions.append(self.allocator, .{
+            .opcode = @backingInt(X86Opcode.call),
+            .op1 = .{ .symbol = "orbit_alloc" },
+        });
+    }
+
     fn xmmReg(id: u8) LirRegister {
         return .{ .id = id, .is_physical = true, .class = .xmm };
     }
@@ -477,6 +499,122 @@ pub const Lowering = struct {
             .map_set => try self.emitRuntimeCall(block, "orbit_map_set", true, &.{ op1_lir, op2_lir, self.mapOperand(mir_instr.op3) }, &.{ false, false, true }, null, false),
             .map_get => try self.emitRuntimeCall(block, "orbit_map_get_native", true, &.{ op1_lir, op2_lir }, &.{ false, false }, mir_instr.dest, true),
             .map_has => try self.emitRuntimeCall(block, "orbit_map_has_native", false, &.{ op1_lir, op2_lir }, &.{ false, false }, mir_instr.dest, false),
+            .result_ok => {
+                // OrbitResult { ok=true@0, error_code=0@4, error_msg=NULL@8, value@16 }
+                try self.emitAllocFromArena(block, 24);
+                const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
+                // ok=true + error_code=0 in one 64-bit store at [rax+0].
+                try self.emitMov(block, r11_phys, op1_lir); // value
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_ri),
+                    .dest = r10_phys,
+                    .op1 = .{ .imm_int = 1 },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 0 } },
+                    .op2 = .{ .reg = r10_phys },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_ri),
+                    .dest = r10_phys,
+                    .op1 = .{ .imm_int = 0 },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 8 } },
+                    .op2 = .{ .reg = r10_phys },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 16 } },
+                    .op2 = .{ .reg = r11_phys },
+                });
+                const dest = mapReg(mir_instr.dest.?);
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rr),
+                    .dest = dest,
+                    .op1 = .{ .reg = rax_phys },
+                });
+            },
+            .result_err => {
+                // OrbitResult { ok=false@0, error_code=op1@4, error_msg=op2@8, value=NULL@16 }
+                try self.emitAllocFromArena(block, 24);
+                const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
+                try self.emitMov(block, r11_phys, op2_lir); // msg
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_ri),
+                    .dest = r10_phys,
+                    .op1 = .{ .imm_int = 0 },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 0 } },
+                    .op2 = .{ .reg = r10_phys },
+                });
+                try self.emitMov(block, r10_phys, op1_lir); // code
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr32),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 4 } },
+                    .op2 = .{ .reg = r10_phys },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 8 } },
+                    .op2 = .{ .reg = r11_phys },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_ri),
+                    .dest = r10_phys,
+                    .op1 = .{ .imm_int = 0 },
+                });
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 16 } },
+                    .op2 = .{ .reg = r10_phys },
+                });
+                const dest = mapReg(mir_instr.dest.?);
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rr),
+                    .dest = dest,
+                    .op1 = .{ .reg = rax_phys },
+                });
+            },
+            .result_is_ok => {
+                // Load the result pointer from its stack slot into a physical
+                // scratch (the regalloc only resolves virtual regs in .reg
+                // operands, not mem bases), then read the ok byte.
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm),
+                    .dest = r10_phys,
+                    .op1 = slotMem(mir_instr.op1.reg),
+                });
+                const dest = mapReg(mir_instr.dest.?);
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.movzx_rm),
+                    .dest = dest,
+                    .op1 = .{ .mem = .{ .base = r10_phys, .disp = 0 } },
+                });
+            },
+            .result_unwrap => {
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm),
+                    .dest = r10_phys,
+                    .op1 = slotMem(mir_instr.op1.reg),
+                });
+                const dest = mapReg(mir_instr.dest.?);
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm),
+                    .dest = dest,
+                    .op1 = .{ .mem = .{ .base = r10_phys, .disp = 16 } },
+                });
+            },
             .copy => {
                 const dest = mapReg(mir_instr.dest.?);
                 const dest_type = mir_func.val_types.items[mir_instr.dest.?];

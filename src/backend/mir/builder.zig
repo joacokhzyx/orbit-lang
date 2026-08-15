@@ -381,6 +381,38 @@ pub const MirBuilder = struct {
             };
         }
 
+        // Results: the register holds a pointer to an arena-allocated
+        // OrbitResult; operands map straight through.
+        if (ir_instr.opcode == .result_ok) {
+            return MirInstruction{
+                .opcode = .result_ok,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .result_err) {
+            return MirInstruction{
+                .opcode = .result_err,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .result_unwrap) {
+            return MirInstruction{
+                .opcode = .result_unwrap,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .result_is_ok) {
+            return MirInstruction{
+                .opcode = .result_is_ok,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+
         const opcode = switch (ir_instr.opcode) {
             .nop => MirOpcode.nop,
             .load_const => MirOpcode.copy,

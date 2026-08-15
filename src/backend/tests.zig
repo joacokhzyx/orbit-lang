@@ -1684,3 +1684,221 @@ test "native end-to-end: map create/set/get returns stored value" {
     const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
     try std.testing.expectEqual(@as(u32, 42), code);
 }
+
+test "native MIR: result opcodes carry mapped operands" {
+    const builder_mod = @import("mir/builder.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const mir_mod = @import("mir/mir.zig");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var module = ir_mod.IRModule.init(alloc);
+    defer module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .result = null }); // r0
+    _ = try func.allocRegister(alloc, .bool); // r1
+    _ = try func.allocRegister(alloc, .int); // r2
+
+    var ok_instr = ir_mod.IRInstruction.init(.result_ok);
+    ok_instr.dest = 0;
+    ok_instr.operand1 = .{ .int = 42 };
+    try func.emit(alloc, ok_instr);
+
+    var chk = ir_mod.IRInstruction.init(.result_is_ok);
+    chk.dest = 1;
+    chk.operand1 = .{ .register = 0 };
+    try func.emit(alloc, chk);
+
+    var unwrap = ir_mod.IRInstruction.init(.result_unwrap);
+    unwrap.dest = 2;
+    unwrap.operand1 = .{ .register = 0 };
+    try func.emit(alloc, unwrap);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 2 };
+    try func.emit(alloc, ret);
+
+    try module.functions.append(alloc, func);
+
+    var mir_builder = builder_mod.MirBuilder.init(alloc);
+    var mir = try mir_builder.build(&module);
+    defer mir.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), mir.functions.items.len);
+    const mf = &mir.functions.items[0];
+    const instrs = mf.blocks.items[0].instructions.items;
+
+    try std.testing.expectEqual(mir_mod.MirOpcode.result_ok, instrs[0].opcode);
+    try std.testing.expectEqual(@as(?u32, 0), instrs[0].dest);
+    try std.testing.expectEqual(mir_mod.MirOperand{ .imm_int = 42 }, instrs[0].op1);
+
+    try std.testing.expectEqual(mir_mod.MirOpcode.result_is_ok, instrs[1].opcode);
+    try std.testing.expectEqual(mir_mod.MirOperand{ .reg = 0 }, instrs[1].op1);
+
+    try std.testing.expectEqual(mir_mod.MirOpcode.result_unwrap, instrs[2].opcode);
+    try std.testing.expectEqual(@as(?u32, 2), instrs[2].dest);
+    try std.testing.expectEqual(mir_mod.MirOperand{ .reg = 0 }, instrs[2].op1);
+}
+
+test "native in-memory: result ops emit arena alloc call" {
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var module = ir_mod.IRModule.init(alloc);
+    defer module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .result = null }); // r0
+    _ = try func.allocRegister(alloc, .bool); // r1
+    _ = try func.allocRegister(alloc, .int); // r2
+
+    var ok_instr = ir_mod.IRInstruction.init(.result_ok);
+    ok_instr.dest = 0;
+    ok_instr.operand1 = .{ .int = 42 };
+    try func.emit(alloc, ok_instr);
+
+    var chk = ir_mod.IRInstruction.init(.result_is_ok);
+    chk.dest = 1;
+    chk.operand1 = .{ .register = 0 };
+    try func.emit(alloc, chk);
+
+    var unwrap = ir_mod.IRInstruction.init(.result_unwrap);
+    unwrap.dest = 2;
+    unwrap.operand1 = .{ .register = 0 };
+    try func.emit(alloc, unwrap);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 2 };
+    try func.emit(alloc, ret);
+
+    try module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &module);
+    const obj = try backend.emitObject(alloc);
+    defer alloc.free(obj);
+
+    var text_found = false;
+    var i: usize = 0;
+    while (i + 7 <= obj.len) : (i += 1) {
+        // call orbit_alloc: E8 <rel32>
+        if (obj[i] == 0xE8) {
+            text_found = true;
+            break;
+        }
+    }
+    try std.testing.expect(text_found);
+}
+
+test "native end-to-end: result_ok then is_ok then unwrap returns stored value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .result = null }); // r0
+    _ = try func.allocRegister(alloc, .bool); // r1
+    _ = try func.allocRegister(alloc, .int); // r2
+
+    var ok_instr = ir_mod.IRInstruction.init(.result_ok);
+    ok_instr.dest = 0;
+    ok_instr.operand1 = .{ .int = 42 };
+    try func.emit(alloc, ok_instr);
+
+    var chk = ir_mod.IRInstruction.init(.result_is_ok);
+    chk.dest = 1;
+    chk.operand1 = .{ .register = 0 };
+    try func.emit(alloc, chk);
+
+    var unwrap = ir_mod.IRInstruction.init(.result_unwrap);
+    unwrap.dest = 2;
+    unwrap.operand1 = .{ .register = 0 };
+    try func.emit(alloc, unwrap);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 2 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 42), code);
+}
+
+test "native end-to-end: result_err is not ok" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .result = null }); // r0
+    _ = try func.allocRegister(alloc, .bool); // r1
+
+    var err_instr = ir_mod.IRInstruction.init(.result_err);
+    err_instr.dest = 0;
+    err_instr.operand1 = .{ .int = 7 };
+    err_instr.operand2 = .{ .string = "boom" };
+    try func.emit(alloc, err_instr);
+
+    var chk = ir_mod.IRInstruction.init(.result_is_ok);
+    chk.dest = 1;
+    chk.operand1 = .{ .register = 0 };
+    try func.emit(alloc, chk);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 0), code);
+}

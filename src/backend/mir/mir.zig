@@ -41,6 +41,13 @@ pub const MirOpcode = enum {
     map_get,
     map_has,
 
+    // Orbit results (Result<T, E>): native registers hold a pointer to a
+    // 24-byte OrbitResult { bool ok@0; int error_code@4; const char* error_msg@8; void* value@16; }.
+    result_ok,
+    result_err,
+    result_unwrap,
+    result_is_ok,
+
     // Arithmetic & Bitwise
     add,
     sub,

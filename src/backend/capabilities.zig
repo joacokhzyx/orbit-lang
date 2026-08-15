@@ -55,6 +55,10 @@ const NATIVE_SUPPORTED: []const IROpcode = &.{
     .map_set, // → call orbit_map_set
     .map_get, // → call orbit_map_get_native
     .map_has, // → call orbit_map_has_native
+    .result_ok, // → arena-allocated OrbitResult, ok=true, value=op1
+    .result_err, // → arena-allocated OrbitResult, ok=false, code=op1, msg=op2
+    .result_unwrap, // → load result.value
+    .result_is_ok, // → load result.ok (bool)
     .db_get, // → db_query → call orbit_db_query
     .db_set, // → db_query → call orbit_db_query
     .db_all, // → db_query → call orbit_db_query

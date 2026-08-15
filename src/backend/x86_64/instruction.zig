@@ -11,9 +11,11 @@ pub const X86Opcode = enum(u32) {
     mov_rr,
     mov_rm,
     mov_mr,
+    mov_mr32, // mov dword [mem], reg32
     mov_ri,
     mov_rm_sym, // mov reg, [symbol]: load the value stored at an external symbol
     movzx_rr, // Move with zero-extend
+    movzx_rm, // movzx reg, byte [mem]
     lea, // Load Effective Address
 
     // Push / Pop

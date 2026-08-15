@@ -225,6 +225,32 @@ pub const Encoder = struct {
                     .addend = -4,
                 });
             },
+            .mov_mr32 => {
+                // mov dword [base + disp], reg32 -> 0x89 (no REX.W)
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
+                const disp = instr.op1.mem.disp;
+                const src: RegisterId = @fromBackingInt(@intCast(instr.op2.reg.id));
+
+                const enc = encodeRegMem(false, src, base, disp);
+                if (enc.rex.required()) try self.append(enc.rex.toByte());
+                try self.append(0x89);
+                try self.append(enc.modrm.toByte());
+                if (enc.sib) |sib| try self.append(sib.toByte());
+                try self.writeDisp(disp, enc.disp_bytes);
+            },
+            .movzx_rm => {
+                // movzx reg64, byte [base + disp] -> 0F B6 /r
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
+                const disp = instr.op1.mem.disp;
+
+                const enc = encodeRegMem(true, dest, base, disp);
+                if (enc.rex.required()) try self.append(enc.rex.toByte());
+                try self.appendSlice(&.{ 0x0F, 0xB6 });
+                try self.append(enc.modrm.toByte());
+                if (enc.sib) |sib| try self.append(sib.toByte());
+                try self.writeDisp(disp, enc.disp_bytes);
+            },
             .movzx_rr => {
                 // movzx reg64, reg8 -> 0x0F 0xB6 /r
                 const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
