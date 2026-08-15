@@ -202,6 +202,30 @@ returns 1).
       frontend's `file.read` emission still passes `("file", filename)`
       instead of `(arena, filename)` (the C backend special-cases it; the
       native backend would call `orbit_file_read` with wrong args).
+      **Native PE linker end-to-end — DONE (2026-08-15)**: `--backend=native
+      --linker=native` links the C stub + runtime + codegen object into a
+      runnable exe without invoking Zig. Fixed in this session: (a)
+      `ucrtbase.dll` does NOT export the `printf` family (`printf/fprintf/
+      sprintf/snprintf/_snprintf` map to `__stdio_common_vfprintf/vsprintf` +
+      `__acrt_iob_func` internally), so the native-linker stub emits thin
+      wrappers over those plus `unsigned long _tls_index = 0`, gated to
+      `linker_mode == .native` (kept OUT of the static stub string to avoid
+      `duplicate symbol: _tls_index` vs zig's libc under the system linker);
+      imports are now just kernel32 + ucrtbase (`__acrt_iob_func`). (b) The
+      CRT-less raw-entry exit path: returning from `main()` leaves the loader
+      to tear down console/std handles, which blocks ~30 s whenever stdout is a
+      pipe or was never written (isolated with `probe_a` `return 42` → 30 s vs
+      `probe_b` `ExitProcess(42)` → 316 ms; RIP sat in ntdll, CPU=0, exit code
+      still correct). The native stub now calls
+      `ExitProcess((unsigned int)_orbit_exit_code)` before the return. Verified:
+      hello/hello5/hello6/hello7 return 42 and hello3 prints `hi-native-linker`,
+      all fast with and without redirected stdout; `--linker=system` and
+      `--backend=c` unchanged; suite 44/46 → 46/46 (updated
+      `link.resolve.undefined_symbol_errors` to the new invariant: undefined
+      `orbit_*` runtime symbols are the hard-error case; everything else is a
+      DLL import). Remaining known limitation: programs with top-level code AND
+      `fn main` still fail to link with `duplicate symbol 'orbit_main'` (two
+      `main`s both renamed to `orbit_main` in `backend.zig`).
 
 ---
 
