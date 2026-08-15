@@ -87,7 +87,11 @@ Real pending work of the self-hosted compiler:
    progress prints were removed; error prints were converted into functional
    diagnostics (see section 5 for the current inventory).
 2. **Native backend** (`src/backend/`): unlock `alloc`/`db_*`/`http_*` in
-   `capabilities.zig` and add `--emit=lir`; then `load_field`/`store_field`, collections
+   `capabilities.zig` and add `--emit=lir`; then **`load_field`/`store_field` — DONE
+   (2026-08-14)** (model field offsets mirror the C backend's struct layout; see
+   `src/backend/mir/model_layout.zig`, and note `std.Io.Threaded.global_single_threaded`
+   uses the failing allocator so subprocess-spawning tests must create a dedicated
+   `Threaded` io with a real allocator), collections
    (`list_*`/`map_*`), `result_*`/`union_*` and float SSE2. See `PLAN.md`.
 
 ---
