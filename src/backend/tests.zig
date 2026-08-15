@@ -1275,12 +1275,54 @@ test "native end-to-end: model alloc/store_field/load_field returns stored value
 /// Links a native object with a minimal runtime stub and returns the process
 /// exit code. The stub carries the extern wrappers the native lowering relies
 /// on for the static-inline collection accessors.
+fn copyFileSimple(
+    io: std.Io,
+    alloc: std.mem.Allocator,
+    src_dir: std.Io.Dir,
+    src_path: []const u8,
+    dst_dir: std.Io.Dir,
+    dst_path: []const u8,
+) !void {
+    var src_file = try src_dir.openFile(io, src_path, .{});
+    defer src_file.close(io);
+    const stat = try src_file.stat(io);
+    const data = try alloc.alloc(u8, stat.size);
+    defer alloc.free(data);
+    var read_buf: [8192]u8 = undefined;
+    var reader = std.Io.File.Reader.init(src_file, io, &read_buf);
+    try reader.interface.readSliceAll(data);
+
+    var dst_file = try dst_dir.createFile(io, dst_path, .{ .truncate = true });
+    defer dst_file.close(io);
+    var write_buf: [8192]u8 = undefined;
+    var writer = std.Io.File.Writer.init(dst_file, io, &write_buf);
+    try writer.interface.writeAll(data);
+    try writer.flush();
+}
+
 fn runNativeRuntimeProgram(
     alloc: std.mem.Allocator,
     io: std.Io,
     is_windows: bool,
     obj_bytes: []const u8,
     stub_body: []const u8,
+) !u32 {
+    return runNativeRuntimeProgramOpts(alloc, io, is_windows, obj_bytes, stub_body, .{});
+}
+
+const NativeRunOpts = struct {
+    /// Compile stub.c with -DORBIT_WITH_DB (pulls in database.c, needs the
+    /// bundled sqlite3.h/import-lib) and deploy sqlite3.dll next to the exe.
+    db: bool = false,
+};
+
+fn runNativeRuntimeProgramOpts(
+    alloc: std.mem.Allocator,
+    io: std.Io,
+    is_windows: bool,
+    obj_bytes: []const u8,
+    stub_body: []const u8,
+    opts: NativeRunOpts,
 ) !u32 {
     const repo_root = try std.process.currentPathAlloc(io, alloc);
     const src_dir = try std.fs.path.join(alloc, &.{ repo_root, "src" });
@@ -1327,24 +1369,32 @@ fn runNativeRuntimeProgram(
     const runtime_inc_flag = try std.fmt.allocPrint(alloc, "-I{s}", .{runtime_dir});
     const exe_path = try std.fs.path.join(alloc, &.{ temp_dir, "prog_exe.exe" });
 
-    const link_result = try std.process.run(alloc, io, .{
-        .argv = &.{
-            "zig", "cc",
-            obj_path,
-            stub_path,
-            runtime_inc_flag,
-            "-o", exe_path,
-            "-O0",
-            "-w",
-            "-s",
-        },
-    });
+    var link_args = std.ArrayListUnmanaged([]const u8).empty;
+    try link_args.appendSlice(alloc, &.{ "zig", "cc", obj_path, stub_path, runtime_inc_flag, "-o", exe_path, "-O0", "-w", "-s" });
+    if (opts.db) {
+        // database.c needs the bundled sqlite3 header and the import library
+        // (the real orbit_db_query_all symbols live in sqlite3.dll).
+        const vendor_dir = try std.fs.path.join(alloc, &.{ src_dir, "runtime", "vendor" });
+        const vendor_inc = try std.fmt.allocPrint(alloc, "-I{s}", .{vendor_dir});
+        const sqlite3_lib = try std.fs.path.join(alloc, &.{ vendor_dir, "win-x64", "sqlite3.lib" });
+        try link_args.appendSlice(alloc, &.{ "-DORBIT_WITH_DB", vendor_inc, sqlite3_lib });
+    }
+
+    const link_result = try std.process.run(alloc, io, .{ .argv = link_args.items });
     defer alloc.free(link_result.stdout);
     defer alloc.free(link_result.stderr);
 
     if (link_result.term != .exited or link_result.term.exited != 0) {
         std.debug.print("Native link failed!\nstdout:\n{s}\nstderr:\n{s}\n", .{ link_result.stdout, link_result.stderr });
         return error.NativeCollectionLinkFailed;
+    }
+
+    if (opts.db and is_windows) {
+        // The exe imports sqlite3.dll at load time; deploy it next to the exe.
+        const vendor_dir = try std.fs.path.join(alloc, &.{ src_dir, "runtime", "vendor" });
+        const dll_src = try std.fs.path.join(alloc, &.{ vendor_dir, "win-x64", "sqlite3.dll" });
+        const dll_dst = try std.fs.path.join(alloc, &.{ temp_dir, "sqlite3.dll" });
+        copyFileSimple(io, alloc, cwd, dll_src, cwd, dll_dst) catch {};
     }
 
     const run_result = try std.process.run(alloc, io, .{ .argv = &.{exe_path} });
@@ -2635,5 +2685,83 @@ test "native end-to-end: model User.all() from source reaches orbit_db_query_all
     const obj_bytes = try backend.emitObject(alloc);
 
     const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, arena_stub_body);
+    try std.testing.expectEqual(@as(u32, 1), code);
+}
+
+const sqlite_stub_body =
+    \\int main(void) {
+    \\    orbit_string_pool_init(1024);
+    \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
+    \\    orbit_db_init(":memory:");
+    \\    bool ok = orbit_db_insert("users", "{\\\"id\\\":\\\"u1\\\",\\\"username\\\":\\\"alice\\\",\\\"email\\\":\\\"a@x.com\\\",\\\"role_name\\\":\\\"admin\\\"}");
+    \\    int code = orbit_main();
+    \\    orbit_db_close();
+    \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
+    \\    orbit_string_pool_cleanup();
+    \\    return ok ? code : 100;
+    \\}
+    \\
+;
+
+test "native end-to-end: User.all() returns seeded rows from real SQLite" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const Parser = @import("../parser.zig").Parser;
+    const Sema = @import("../sema.zig").Sema;
+    const IRBuilder = @import("../ir/builder.zig").IRBuilder;
+    const backend_mod = @import("backend.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    // The complete official DB integration: real SQLite, no stub. The stub
+    // main seeds one row into :memory:, then the Orbit program's User.all()
+    // lowers to a generic `.call orbit_db_query_all` (arena arg injected) that
+    // serialises the row to JSON — so the result is non-empty and main returns
+    // 1. The stub returns 100 if the insert failed (so the test also proves
+    // orbit_db_insert wrote the seeded row, not just that the query is
+    // non-empty). Requires the bundled sqlite3.dll (deployed by NativeRunOpts.db).
+    const source =
+        \\model User {
+        \\    id: int
+        \\    name: string
+        \\}
+        \\
+        \\fn main() -> int {
+        \\    val r = User.all()
+        \\    if (r == "[]") {
+        \\        return 0
+        \\    }
+        \\    return 1
+        \\}
+    ;
+
+    var p = Parser.init(source, "db_real_sqlite.orb", alloc);
+    const root = try p.parse();
+
+    var sema = try Sema.create(alloc, source);
+    defer sema.deinit();
+    sema.analyze(root) catch |err| {
+        std.debug.print("sema failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    try std.testing.expect(sema.diagnostics.getDiagnostics().len == 0);
+
+    var builder = IRBuilder.init(alloc, source, &sema.node_types, &sema.model_registry);
+    var ir_module = try builder.build(root);
+    defer ir_module.deinit();
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgramOpts(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, sqlite_stub_body, .{ .db = true });
     try std.testing.expectEqual(@as(u32, 1), code);
 }

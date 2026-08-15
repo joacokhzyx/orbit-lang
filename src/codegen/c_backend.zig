@@ -76,6 +76,11 @@ pub const CBackend = struct {
         if (std.mem.eql(u8, func_name, "check") or std.mem.endsWith(u8, func_name, "_check")) return 2;
         if (std.mem.eql(u8, func_name, "isAtEnd") or std.mem.endsWith(u8, func_name, "_isAtEnd")) return 1;
         if (std.mem.eql(u8, func_name, "orbit_string_indexOf")) return 2;
+        if (std.mem.eql(u8, func_name, "orbit_db_query_all")) return 2;
+        if (std.mem.eql(u8, func_name, "orbit_db_query_where")) return 3;
+        if (std.mem.eql(u8, func_name, "orbit_db_query_get")) return 3;
+        if (std.mem.eql(u8, func_name, "orbit_db_insert")) return 2;
+        if (std.mem.eql(u8, func_name, "orbit_db_delete")) return 2;
         if (self.function_param_counts.get(func_name)) |c| return c;
         var it = self.function_param_counts.iterator();
         while (it.next()) |entry| {
@@ -551,19 +556,7 @@ pub const CBackend = struct {
             );
         }
 
-        var has_db = false;
-        for (module.functions.items) |func| {
-            for (func.instructions.items) |instr| {
-                switch (instr.opcode) {
-                    .db_get, .db_set, .db_all, .db_where => {
-                        has_db = true;
-                        break;
-                    },
-                    else => {},
-                }
-            }
-            if (has_db) break;
-        }
+        const has_db = module.usesDatabase();
 
         const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, has_db, self.config, self.boost_metrics.boostPercent());
         try self.output.appendSlice(self.allocator, main_func);

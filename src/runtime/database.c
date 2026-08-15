@@ -34,7 +34,14 @@ typedef struct {
 
 /* ── Lifecycle ──────────────────────────────────────────────────────── */
 
+/* The Kynx lease guard lives in kynx.c, which is only compiled with
+ * ORBIT_WITH_NET. Without it, provide a no-op progress handler so DB-only
+ * programs link without pulling in the network stack. */
+#ifdef ORBIT_WITH_NET
 extern int orbit_sqlite_progress_handler(void*);
+#else
+static int orbit_sqlite_progress_handler(void* param) { (void)param; return 0; }
+#endif
 
 #ifdef ORBIT_WITH_NET
 #define KYNX_DB_QUERY_CHECK(ret) \
@@ -327,23 +334,129 @@ bool orbit_db_exists(orbit_collection col, const char* id) {
 }
 
 /** @brief Insert a JSON document into @p col; uses malloc for the query buffer since no arena is available at insert time. */
+/** @brief Extract a value for @p key from a flat JSON object: quoted string values
+ *         ("key":"value") or bare values ("key":value, e.g. numbers). Returns NULL
+ *         when the key is absent. Caller frees the returned copy.
+ */
+static char* orbit_json_get_value(const char* json, const char* key) {
+    if (!json || !key) return NULL;
+
+    /* Quoted string value: "key":"value" */
+    size_t key_len = strlen(key);
+    size_t q_search_len = key_len + 4; /* "key":" */
+    char* q_search = (char*)malloc(q_search_len + 1);
+    if (!q_search) return NULL;
+    snprintf(q_search, q_search_len + 1, "\"%s\":\"", key);
+
+    const char* start = strstr(json, q_search);
+    if (start) {
+        start += q_search_len;
+        const char* end = strchr(start, '"');
+        if (end) {
+            size_t len = (size_t)(end - start);
+            char* res = (char*)malloc(len + 1);
+            if (res) {
+                memcpy(res, start, len);
+                res[len] = '\0';
+            }
+            free(q_search);
+            return res;
+        }
+    }
+    free(q_search);
+
+    /* Bare value: "key":value */
+    size_t b_search_len = key_len + 3; /* "key": */
+    char* b_search = (char*)malloc(b_search_len + 1);
+    if (!b_search) return NULL;
+    snprintf(b_search, b_search_len + 1, "\"%s\":", key);
+
+    start = strstr(json, b_search);
+    if (!start) {
+        free(b_search);
+        return NULL;
+    }
+    start += b_search_len;
+    const char* end = start;
+    while (*end && *end != ',' && *end != '}' && *end != '\n') end++;
+    size_t len = (size_t)(end - start);
+    char* res = (char*)malloc(len + 1);
+    if (res) {
+        memcpy(res, start, len);
+        res[len] = '\0';
+    }
+    free(b_search);
+    return res;
+}
+
 bool orbit_db_add(orbit_collection col, const char* json_data) {
     KYNX_DB_QUERY_CHECK(false);
-    size_t query_len = strlen("INSERT INTO  (JSON_DATA) VALUES (?);") + strlen(col.table_name) + 1;
-    char* query = (char*)malloc(query_len);
-    if (!query) return false;
-    snprintf(query, query_len, "INSERT INTO %s (JSON_DATA) VALUES (?);", col.table_name);
+    if (!col.table_name || !json_data) return false;
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK) {
-        free(query);
+    /* Resolve the table's real columns via PRAGMA so INSERT matches the typed
+     * schema created by orbit_db_init instead of assuming a JSON_DATA column. */
+    char pragma_sql[512];
+    snprintf(pragma_sql, sizeof(pragma_sql), "PRAGMA table_info(%s);", col.table_name);
+
+    sqlite3_stmt* col_stmt = NULL;
+    if (sqlite3_prepare_v2(orbit_db_conn, pragma_sql, -1, &col_stmt, NULL) != SQLITE_OK) {
         return false;
     }
 
-    sqlite3_bind_text(stmt, 1, json_data, -1, SQLITE_STATIC);
-    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
-    sqlite3_finalize(stmt);
+    enum { kMaxCols = 64 };
+    const char* col_names[kMaxCols];
+    int ncols = 0;
+    while (sqlite3_step(col_stmt) == SQLITE_ROW && ncols < kMaxCols) {
+        const char* name = (const char*)sqlite3_column_text(col_stmt, 1);
+        if (name) {
+            char* copy = (char*)malloc(strlen(name) + 1);
+            if (copy) {
+                strcpy(copy, name);
+                col_names[ncols] = copy;
+                ncols++;
+            }
+        }
+    }
+    sqlite3_finalize(col_stmt);
+    if (ncols == 0) return false;
+
+    /* "INSERT INTO <table> (c1,c2,...) VALUES (?,?,...);" */
+    size_t qlen = strlen("INSERT INTO  ( ) VALUES ();") + strlen(col.table_name) + 1;
+    for (int i = 0; i < ncols; i++) qlen += strlen(col_names[i]) + 2;
+    char* query = (char*)malloc(qlen);
+    if (!query) {
+        for (int i = 0; i < ncols; i++) free((void*)col_names[i]);
+        return false;
+    }
+
+    char* p = query;
+    p += snprintf(p, (size_t)(query + qlen - p), "INSERT INTO %s (", col.table_name);
+    for (int i = 0; i < ncols; i++) {
+        if (i > 0) *(p++) = ',';
+        p += snprintf(p, (size_t)(query + qlen - p), "%s", col_names[i]);
+    }
+    p += snprintf(p, (size_t)(query + qlen - p), ") VALUES (");
+    for (int i = 0; i < ncols; i++) {
+        if (i > 0) *(p++) = ',';
+        *(p++) = '?';
+    }
+    p += snprintf(p, (size_t)(query + qlen - p), ");");
+
+    sqlite3_stmt* stmt = NULL;
+    int rc = sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL);
+    bool success = false;
+    if (rc == SQLITE_OK) {
+        for (int i = 0; i < ncols; i++) {
+            char* value = orbit_json_get_value(json_data, col_names[i]);
+            sqlite3_bind_text(stmt, i + 1, value ? value : "", -1, SQLITE_TRANSIENT);
+            free(value);
+        }
+        success = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+    }
+
     free(query);
+    for (int i = 0; i < ncols; i++) free((void*)col_names[i]);
     return success;
 }
 

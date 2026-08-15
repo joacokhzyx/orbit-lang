@@ -383,4 +383,33 @@ pub const IRModule = struct {
         }
         return null;
     }
+
+    /// True when the module touches the database: either a `db_*` opcode or a
+    /// generic `.call` to one of the runtime CRUD entry points (what model
+    /// CRUD like `User.all()` actually emits). Both backends use this to decide
+    /// whether to emit `ORBIT_WITH_DB`, `orbit_db_init` and the sqlite3 link.
+    pub fn usesDatabase(self: *const IRModule) bool {
+        const db_calls = [_][]const u8{
+            "orbit_db_query_all",
+            "orbit_db_query_where",
+            "orbit_db_query_get",
+            "orbit_db_insert",
+            "orbit_db_delete",
+        };
+        for (self.functions.items) |func| {
+            for (func.instructions.items) |instr| {
+                switch (instr.opcode) {
+                    .db_get, .db_set, .db_all, .db_where => return true,
+                    .call => if (instr.operand1 == .string) {
+                        const name = instr.operand1.string;
+                        for (db_calls) |db| {
+                            if (std.mem.eql(u8, name, db)) return true;
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+        return false;
+    }
 };

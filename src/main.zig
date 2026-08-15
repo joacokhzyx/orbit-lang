@@ -500,19 +500,7 @@ fn compileToBinary(
     var ir_module = try builder.build(root);
     profiler.record(&profiler.build_ir_ns);
 
-    var has_db = false;
-    for (ir_module.functions.items) |func| {
-        for (func.instructions.items) |instr| {
-            switch (instr.opcode) {
-                .db_get, .db_set, .db_all, .db_where => {
-                    has_db = true;
-                    break;
-                },
-                else => {},
-            }
-        }
-        if (has_db) break;
-    }
+    const has_db = ir_module.usesDatabase();
 
     // ── Superluminal multi-pass IR optimization pipeline ──────────────
     const superluminal_pass = @import("superluminal/pass_runner.zig");
@@ -902,7 +890,20 @@ fn compileToBinary(
             \\#endif
             \\    orbit_string_pool_init(1024);
             \\    orbit_global_arena = orbit_arena_create(1024 * 1024);
+            \\
+        );
+        if (has_db) {
+            const db_init_line = try std.fmt.allocPrint(arena, "    orbit_db_init(\"{s}\");\n", .{session.config.db_path});
+            try stub_fw.interface.writeAll(db_init_line);
+        }
+        try stub_fw.interface.writeAll(
             \\    int _orbit_exit_code = orbit_main();
+            \\
+        );
+        if (has_db) {
+            try stub_fw.interface.writeAll("    orbit_db_close();\n");
+        }
+        try stub_fw.interface.writeAll(
             \\    orbit_arena_destroy((OrbitArena*)orbit_global_arena);
             \\    orbit_string_pool_cleanup();
             \\#ifdef _WIN32
@@ -969,6 +970,18 @@ fn compileToBinary(
         runtime_inc = try std.fmt.allocPrint(arena, "-I{s}", .{runtime_inc_cand2});
     }
 
+    // Bundled SQLite (src/runtime/vendor): `sqlite3.h` + a precompiled
+    // win-x64 DLL/import-lib so DB programs link without a system sqlite3.
+    const vendor_dir = resolveVendorDir(init, arena);
+    const vendor_inc = try std.fmt.allocPrint(arena, "-I{s}", .{vendor_dir});
+    // sqlite3.lib only exists for bundled win-x64; other platforms use -lsqlite3.
+    const sqlite3_win64_lib = try std.fs.path.join(arena, &.{ vendor_dir, "win-x64", "sqlite3.lib" });
+    var has_bundled_sqlite3 = false;
+    if (cand_cwd.openFile(init.io, sqlite3_win64_lib, .{}) catch null) |f| {
+        f.close(init.io);
+        has_bundled_sqlite3 = true;
+    }
+
     const builtin_target = @import("builtin");
     var windows_res_obj: ?[]const u8 = null;
     if (builtin_target.os.tag == .windows) {
@@ -995,6 +1008,7 @@ fn compileToBinary(
             try stub_args.append(arena, "-o");
             try stub_args.append(arena, native_stub_o_path);
             try stub_args.append(arena, runtime_inc);
+            if (has_db) try stub_args.append(arena, vendor_inc);
             // Suppress GCC stack-protector and UBSan intrinsics so they don't
             // appear as undefined symbols in the native-linked import table.
             try stub_args.append(arena, "-fno-stack-protector");
@@ -1032,6 +1046,7 @@ fn compileToBinary(
             try compile_args.append(arena, "-o");
             try compile_args.append(arena, main_o_path);
             try compile_args.append(arena, runtime_inc);
+            if (has_db) try compile_args.append(arena, vendor_inc);
             // Suppress GCC intrinsics for native linker path.
             try compile_args.append(arena, "-fno-stack-protector");
             try compile_args.append(arena, "-fno-sanitize=all");
@@ -1092,6 +1107,15 @@ fn compileToBinary(
             // std.Io.Dir.deleteFileAbsolute(init.io, obj_paths.items[0]) catch {};
         }
 
+        if (has_db and has_bundled_sqlite3 and builtin_target.os.tag == .windows) {
+            // Ship the bundled sqlite3.dll next to the cache binary so the
+            // run-time copy next to the real output has a source.
+            const dll_src = try std.fs.path.join(arena, &.{ vendor_dir, "win-x64", "sqlite3.dll" });
+            const out_dir = std.fs.path.dirname(out_bin_path) orelse ".";
+            const dll_dst = try std.fs.path.join(arena, &.{ out_dir, "sqlite3.dll" });
+            copyFile(init.io, arena, dll_src, dll_dst) catch {};
+        }
+
         profiler.record(&profiler.compile_app_ns);
         profiler.linking_ns = 0;
         return out_bin_path;
@@ -1146,7 +1170,14 @@ fn compileToBinary(
     }
     if (has_db) {
         try args_list.append(arena, "-DORBIT_WITH_DB");
-        try args_list.append(arena, "-lsqlite3");
+        try args_list.append(arena, vendor_inc);
+        if (has_bundled_sqlite3) {
+            // Prefer the bundled win-x64 import lib so DB programs link without
+            // a system-installed sqlite3.
+            try args_list.append(arena, sqlite3_win64_lib);
+        } else {
+            try args_list.append(arena, "-lsqlite3");
+        }
     }
     try args_list.append(arena, runtime_inc);
     try args_list.append(arena, "-o");
@@ -1185,6 +1216,15 @@ fn compileToBinary(
     profiler.linking_ns = 0;
 
     if (term_status == .exited and term_status.exited == 0) {
+        if (has_db and has_bundled_sqlite3 and builtin_target.os.tag == .windows) {
+            // Ship the bundled sqlite3.dll next to the cache binary so the
+            // run-time copy next to the real output has a source. The DLL keeps
+            // its canonical name (the import table references "sqlite3.dll").
+            const dll_src = try std.fs.path.join(arena, &.{ vendor_dir, "win-x64", "sqlite3.dll" });
+            const out_dir = std.fs.path.dirname(out_bin_path) orelse ".";
+            const dll_dst = try std.fs.path.join(arena, &.{ out_dir, "sqlite3.dll" });
+            copyFile(init.io, arena, dll_src, dll_dst) catch {};
+        }
         return out_bin_path;
     } else {
         std.debug.print("Compilation failed.\n", .{});
@@ -1349,6 +1389,7 @@ fn runBuildMode(
     linker_mode: LinkerMode,
 ) !void {
     const arena = init.arena.allocator();
+    const builtin = @import("builtin");
 
     var session = try CompilationSession.init(init, file_path, no_kynx, debug, verbose, timings, timings_json, config);
     defer session.deinit();
@@ -1369,6 +1410,7 @@ fn runBuildMode(
             f.close(init.io);
             use_cache = true;
             try copyFile(init.io, arena, cb_path, out_bin_name);
+            if (builtin.os.tag == .windows) shipSqlite3Dll(init.io, arena, cb_path, out_bin_name);
             session.profiler.record(&session.profiler.cache_lookup_ns);
         } else |_| {}
     }
@@ -1383,6 +1425,7 @@ fn runBuildMode(
         const actual_out_path = try compileToBinary(init, &session, cb_path, temp_c_path, backend_mode, emit_mode, linker_mode);
         // std.Io.Dir.deleteFileAbsolute(init.io, temp_c_path) catch {};
         try copyFile(init.io, arena, actual_out_path, out_bin_name);
+        if (builtin.os.tag == .windows) shipSqlite3Dll(init.io, arena, actual_out_path, out_bin_name);
     }
 
     spinner.stop();
@@ -1850,6 +1893,43 @@ fn isSamePath(a: []const u8, b: []const u8) bool {
         if (na != nb) return false;
     }
     return true;
+}
+
+/// Resolve `src/runtime/vendor` relative to the running compiler binary,
+/// mirroring how `runtime_inc` is located; falls back to a relative path.
+fn resolveVendorDir(init: std.process.Init, arena: std.mem.Allocator) []const u8 {
+    const self_exe_dir = std.process.executableDirPathAlloc(init.io, arena) catch ".";
+    const cand_dev = std.fs.path.join(arena, &.{ self_exe_dir, "../../src/runtime/vendor" }) catch return "src/runtime/vendor";
+    const cand1 = std.fs.path.join(arena, &.{ self_exe_dir, "../src/runtime/vendor" }) catch return "src/runtime/vendor";
+    const cand2 = std.fs.path.join(arena, &.{ self_exe_dir, "src/runtime/vendor" }) catch return "src/runtime/vendor";
+    var cwd = std.Io.Dir.cwd();
+    if (cwd.openFile(init.io, cand_dev, .{})) |f| {
+        f.close(init.io);
+        return cand_dev;
+    } else |_| {}
+    if (cwd.openFile(init.io, cand1, .{})) |f| {
+        f.close(init.io);
+        return cand1;
+    } else |_| {}
+    if (cwd.openFile(init.io, cand2, .{})) |f| {
+        f.close(init.io);
+        return cand2;
+    } else |_| {}
+    return "src/runtime/vendor";
+}
+
+/// Copy sqlite3.dll from next to `src_exe` (the cache binary, where
+/// compileToBinary drops it only for DB programs) to next to the real output
+/// `out_exe`, so DB programs resolve their `sqlite3.dll` load-time import.
+/// No-op when the source DLL is absent (non-DB builds) or the copy fails.
+fn shipSqlite3Dll(io: anytype, allocator: std.mem.Allocator, src_exe: []const u8, out_exe: []const u8) void {
+    const src_dir = std.fs.path.dirname(src_exe) orelse ".";
+    const dll_src = std.fs.path.join(allocator, &.{ src_dir, "sqlite3.dll" }) catch return;
+    defer allocator.free(dll_src);
+    const out_dir = std.fs.path.dirname(out_exe) orelse ".";
+    const dll_dst = std.fs.path.join(allocator, &.{ out_dir, "sqlite3.dll" }) catch return;
+    defer allocator.free(dll_dst);
+    copyFile(io, allocator, dll_src, dll_dst) catch {};
 }
 
 fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []const u8) !void {
