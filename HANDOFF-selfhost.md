@@ -124,9 +124,26 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      params arrive in XMM registers in the prologue; gotcha: the frontend's
      raw `.copy` IR opcode is NOT mapped by the MIR builder — float (or any)
      constant materialization from source uses `.load_const`, which maps to
-     MIR `copy`. Note `.neg`/`.mod` on float and float returns via XMM0 are
-     not covered — the frontend never emits those from source for `main`,
-     which returns `int`). **Models from source — DONE (2026-08-15)**
+     MIR `copy`. **Float neg/mod/return — DONE (2026-08-15)** (the lowering
+     now covers float `.neg` (IEEE sign-bit flip via `xor` with
+     `0x8000000000000000`), float `.mod` (calls `fmod` with XMM0/XMM1 args
+     and reads the XMM0 result), float `.ret` (returns via XMM0) and float
+     `.call` destinations (reads XMM0), keyed off `operandIsFloat` so
+     `.unknown`-typed dests from the frontend still work; verified
+     end-to-end by three native e2e tests, including a two-function program
+     `fn scale(x: float) -> float` exercising XMM float args, the float
+     prologue, and XMM0 returns).
+     **Sret calls — DONE (2026-08-15)** (generic `.call` to a C function
+     returning a 24-byte `OrbitResult` by value now emits the hidden sret
+     pointer instead of just copying RAX: `MirType.result` and a new
+     `sret_alloc` MIR opcode arena-allocate the buffer into the `.result`-
+     typed dest register, `.arg` shifts real args to ABI position 1+ while
+     `sret_pending`, and `.call` loads the buffer pointer into arg slot 0
+     before calling; the MIR builder buffers `.arg` instructions and injects
+     `sret_alloc` before them when the call's dest register type is
+     `.result`; verified end-to-end by a native e2e test calling a stub
+     `OrbitResult orbit_stub_make(int)` through `result_is_ok`/`result_unwrap`).
+     **Models from source — DONE (2026-08-15)**
      (the Zig IR frontend `src/ir/builder.zig` now emits `.alloc` +
      `.store_field` for model constructor calls like `User(id: 42, name:
      "hello")` instead of a broken generic `.call` to the model name; the
@@ -135,7 +152,12 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      the alloc size is computed from the model's declared fields mirroring
      `model_layout.zig` sizes/alignments; verified end-to-end by a native
      test that parses real source through Parser → Sema → IRBuilder →
-     backend and returns a stored field). Remaining: none in `src/backend`.
+     backend and returns a stored field). Remaining in `src/backend`: the
+     MIR `.db_query` opcode lowers to a call of `orbit_db_query`, which does
+     not exist in `src/runtime` (dead — the frontend never emits `db_*`
+     opcodes), and the frontend's `file.read` emission still passes
+     `("file", filename)` instead of `(arena, filename)`, so it would call
+     `orbit_file_read` with the wrong args (the C backend special-cases it).
 
 ---
 
