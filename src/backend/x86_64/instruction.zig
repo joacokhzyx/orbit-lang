@@ -10,6 +10,7 @@ pub const X86Opcode = enum(u32) {
     // Moves
     mov_rr,
     mov_rm,
+    mov_rm32, // mov reg32, [mem]: zero-extends into the 64-bit register
     mov_mr,
     mov_mr32, // mov dword [mem], reg32
     mov_ri,

@@ -667,7 +667,7 @@ fn compileToBinary(
 
             const mir = native_be.mir_module orelse return error.MirNotReady;
             for (mir.functions.items) |*func| {
-                var lowering = Lowering.init(arena, native_be.target);
+                var lowering = Lowering.init(arena, native_be.target, native_be.tag_map);
                 var lir_func = try lowering.lowerFunction(func);
                 defer lir_func.deinit(arena);
 

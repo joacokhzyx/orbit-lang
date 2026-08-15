@@ -99,8 +99,16 @@ Real pending work of the self-hosted compiler:
    use the new `mov_rm_sym` opcode + `symbol_value` operand, i.e.
    `mov reg, [orbit_global_arena]` — passing `&orbit_global_arena` to the runtime
    made `orbit_alloc` read the zeroed `.bss` neighbours as `arena->cursor` and
-   crash). Remaining: `result_*`/`union_*`
-   and float SSE2. See `PLAN.md`.
+crash). **`result_*` — DONE (2026-08-15)** (4 opcodes: a `.result` register
+    holds a pointer to an arena-allocated 24-byte `OrbitResult`
+    `{ bool ok@0; int error_code@4; const char* error_msg@8; void* value@16 }`
+    built inline via `orbit_alloc` — no runtime calls needed; new encoder opcodes
+    `mov_mr32` and `movzx_rm`; gotcha: the stack-based regalloc
+    (`src/backend/lir/regalloc.zig`) only resolves virtual registers that appear
+    as `.reg` operands or `.dest`, NOT as mem base addresses — so result reads
+    must load the register's stack slot into a physical scratch first). Remaining:
+    `union_*`
+    and float SSE2. See `PLAN.md`.
 
 ---
 

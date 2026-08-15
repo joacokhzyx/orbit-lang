@@ -59,6 +59,9 @@ const NATIVE_SUPPORTED: []const IROpcode = &.{
     .result_err, // → arena-allocated OrbitResult, ok=false, code=op1, msg=op2
     .result_unwrap, // → load result.value
     .result_is_ok, // → load result.ok (bool)
+    .union_create, // → arena-allocated OrbitUnion, tag=op1 index, data=op2
+    .union_get_tag, // → load union.tag (zero-extended int)
+    .union_get_data, // → load union.data
     .db_get, // → db_query → call orbit_db_query
     .db_set, // → db_query → call orbit_db_query
     .db_all, // → db_query → call orbit_db_query

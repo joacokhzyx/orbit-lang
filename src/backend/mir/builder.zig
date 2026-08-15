@@ -413,6 +413,32 @@ pub const MirBuilder = struct {
             };
         }
 
+        // Tagged unions: carry IR operands straight through. The tag operand is
+        // a string like "Foo_TAG_Bar"; the native lowering resolves it to its
+        // variant index via the module's type map.
+        if (ir_instr.opcode == .union_create) {
+            return MirInstruction{
+                .opcode = .union_create,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+                .op2 = mapValue(ir_instr.operand2, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .union_get_tag) {
+            return MirInstruction{
+                .opcode = .union_get_tag,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+        if (ir_instr.opcode == .union_get_data) {
+            return MirInstruction{
+                .opcode = .union_get_data,
+                .dest = ir_instr.dest,
+                .op1 = mapValue(ir_instr.operand1, variable_map),
+            };
+        }
+
         const opcode = switch (ir_instr.opcode) {
             .nop => MirOpcode.nop,
             .load_const => MirOpcode.copy,

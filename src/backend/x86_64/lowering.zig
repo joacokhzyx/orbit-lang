@@ -34,12 +34,18 @@ pub const Lowering = struct {
     allocator: std.mem.Allocator,
     target: Target,
     arg_count: usize = 0,
+    /// Maps tag-name strings ("Foo_TAG_Bar") to their variant index (int),
+    /// derived from the IR module's type declarations. Tag constants in the
+    /// frontend are emitted as strings; the native lowering resolves them to
+    /// the small integers the C runtime stores in `Foo_Tag tag`.
+    tag_map: std.StringHashMap(i32),
 
-    pub fn init(allocator: std.mem.Allocator, target: Target) Lowering {
+    pub fn init(allocator: std.mem.Allocator, target: Target, tag_map: std.StringHashMap(i32)) Lowering {
         return .{
             .allocator = allocator,
             .target = target,
             .arg_count = 0,
+            .tag_map = tag_map,
         };
     }
 
@@ -434,14 +440,20 @@ pub const Lowering = struct {
     }
 
     fn mapOperand(self: *Lowering, op: MirOperand) LirOperand {
-        _ = self;
         return switch (op) {
             .none => .none,
             .reg => |r| .{ .reg = mapReg(r) },
             .imm_int => |v| .{ .imm_int = v },
             .imm_float => |v| .{ .imm_float = v },
             .imm_bool => |v| .{ .imm_int = if (v) 1 else 0 },
-            .imm_str => |v| .{ .symbol = v }, // Lower to string symbol address reference
+            .imm_str => |v| blk: {
+                // Tag constants ("Foo_TAG_Bar") resolve to their variant index;
+                // every other string literal materializes as a symbol address.
+                if (self.tag_map.get(v)) |idx| {
+                    break :blk .{ .imm_int = idx };
+                }
+                break :blk .{ .symbol = v };
+            },
             .block => |b| .{ .label = b },
         };
     }
@@ -613,6 +625,59 @@ pub const Lowering = struct {
                     .opcode = @backingInt(X86Opcode.mov_rm),
                     .dest = dest,
                     .op1 = .{ .mem = .{ .base = r10_phys, .disp = 16 } },
+                });
+            },
+            .union_create => {
+                // OrbitUnion { int tag@0; union { void* data; } data@8; } (16 bytes).
+                try self.emitAllocFromArena(block, 16);
+                const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
+                try self.emitMov(block, r10_phys, op1_lir); // tag (resolved to index)
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr32),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 0 } },
+                    .op2 = .{ .reg = r10_phys },
+                });
+                try self.emitMov(block, r11_phys, op2_lir); // data
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_mr),
+                    .op1 = .{ .mem = .{ .base = rax_phys, .disp = 8 } },
+                    .op2 = .{ .reg = r11_phys },
+                });
+                const dest = mapReg(mir_instr.dest.?);
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rr),
+                    .dest = dest,
+                    .op1 = .{ .reg = rax_phys },
+                });
+            },
+            .union_get_tag => {
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm),
+                    .dest = r10_phys,
+                    .op1 = slotMem(mir_instr.op1.reg),
+                });
+                const dest = mapReg(mir_instr.dest.?);
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm32),
+                    .dest = dest,
+                    .op1 = .{ .mem = .{ .base = r10_phys, .disp = 0 } },
+                });
+            },
+            .union_get_data => {
+                const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm),
+                    .dest = r10_phys,
+                    .op1 = slotMem(mir_instr.op1.reg),
+                });
+                const dest = mapReg(mir_instr.dest.?);
+                try block.instructions.append(self.allocator, .{
+                    .opcode = @backingInt(X86Opcode.mov_rm),
+                    .dest = dest,
+                    .op1 = .{ .mem = .{ .base = r10_phys, .disp = 8 } },
                 });
             },
             .copy => {

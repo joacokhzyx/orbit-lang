@@ -1902,3 +1902,167 @@ test "native end-to-end: result_err is not ok" {
     const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
     try std.testing.expectEqual(@as(u32, 0), code);
 }
+
+test "native MIR: union opcodes carry mapped operands" {
+    const builder_mod = @import("mir/builder.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const mir_mod = @import("mir/mir.zig");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var module = ir_mod.IRModule.init(alloc);
+    defer module.deinit();
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .tagged_union = "Color" }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var create = ir_mod.IRInstruction.init(.union_create);
+    create.dest = 0;
+    create.operand1 = .{ .string = "Color_TAG_Blue" };
+    create.operand2 = .{ .int = 99 };
+    try func.emit(alloc, create);
+
+    var tag = ir_mod.IRInstruction.init(.union_get_tag);
+    tag.dest = 1;
+    tag.operand1 = .{ .register = 0 };
+    try func.emit(alloc, tag);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try module.functions.append(alloc, func);
+
+    var mir_builder = builder_mod.MirBuilder.init(alloc);
+    var mir = try mir_builder.build(&module);
+    defer mir.deinit();
+
+    const instrs = mir.functions.items[0].blocks.items[0].instructions.items;
+
+    try std.testing.expectEqual(mir_mod.MirOpcode.union_create, instrs[0].opcode);
+    try std.testing.expectEqual(@as(?u32, 0), instrs[0].dest);
+    try std.testing.expectEqual(mir_mod.MirOperand{ .imm_str = "Color_TAG_Blue" }, instrs[0].op1);
+    try std.testing.expectEqual(mir_mod.MirOperand{ .imm_int = 99 }, instrs[0].op2);
+
+    try std.testing.expectEqual(mir_mod.MirOpcode.union_get_tag, instrs[1].opcode);
+    try std.testing.expectEqual(@as(?u32, 1), instrs[1].dest);
+    try std.testing.expectEqual(mir_mod.MirOperand{ .reg = 0 }, instrs[1].op1);
+}
+
+test "native end-to-end: union create/get_tag returns variant index" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    try ir_module.types.append(alloc, ir_mod.IRTypeDecl{
+        .name = "Color",
+        .kind = .union_type,
+        .variants = &.{ try alloc.dupe(u8, "Red"), try alloc.dupe(u8, "Green"), try alloc.dupe(u8, "Blue") },
+        .rich_variants = &.{},
+        .methods = &.{},
+    });
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .tagged_union = "Color" }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var create = ir_mod.IRInstruction.init(.union_create);
+    create.dest = 0;
+    create.operand1 = .{ .string = "Color_TAG_Blue" };
+    create.operand2 = .{ .int = 99 };
+    try func.emit(alloc, create);
+
+    var tag = ir_mod.IRInstruction.init(.union_get_tag);
+    tag.dest = 1;
+    tag.operand1 = .{ .register = 0 };
+    try func.emit(alloc, tag);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 2), code);
+}
+
+test "native end-to-end: union create/get_data returns stored data" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    try ir_module.types.append(alloc, ir_mod.IRTypeDecl{
+        .name = "Color",
+        .kind = .union_type,
+        .variants = &.{ try alloc.dupe(u8, "Red"), try alloc.dupe(u8, "Green"), try alloc.dupe(u8, "Blue") },
+        .rich_variants = &.{},
+        .methods = &.{},
+    });
+
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .{ .tagged_union = "Color" }); // r0
+    _ = try func.allocRegister(alloc, .int); // r1
+
+    var create = ir_mod.IRInstruction.init(.union_create);
+    create.dest = 0;
+    create.operand1 = .{ .string = "Color_TAG_Blue" };
+    create.operand2 = .{ .int = 99 };
+    try func.emit(alloc, create);
+
+    var data = ir_mod.IRInstruction.init(.union_get_data);
+    data.dest = 1;
+    data.operand1 = .{ .register = 0 };
+    try func.emit(alloc, data);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 1 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 99), code);
+}

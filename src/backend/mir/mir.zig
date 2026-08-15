@@ -48,6 +48,12 @@ pub const MirOpcode = enum {
     result_unwrap,
     result_is_ok,
 
+    // Tagged unions: native registers hold a pointer to a 16-byte
+    // OrbitUnion { int tag@0; union { void* data; } data@8; }.
+    union_create,
+    union_get_tag,
+    union_get_data,
+
     // Arithmetic & Bitwise
     add,
     sub,

@@ -66,6 +66,10 @@ pub const Backend = struct {
     mir_module: ?MirModule = null,
     /// Cached machine-code bytes, set after `emitObject()`.
     obj_bytes: ?[]const u8 = null,
+    /// Maps tag-name strings ("Foo_TAG_Bar") to their variant index, built
+    /// from the IR module's type declarations in `lower()`. Consumed by the
+    /// x86-64 lowering to resolve union/enum tag constants.
+    tag_map: std.StringHashMap(i32) = undefined,
 
     // ── Construction ─────────────────────────────────────────────────────────
 
@@ -83,7 +87,22 @@ pub const Backend = struct {
             .target = Target.detectHost(),
             .config = config,
             .has_server_init = has_server_init,
+            .tag_map = std.StringHashMap(i32).init(allocator),
         };
+    }
+
+    /// Build the tag-name→index map from the IR module's type declarations.
+    /// Tag constants are named `<Type>_TAG_<Variant>` and their numeric value is
+    /// the variant's declaration index (mirroring the C backend's `typedef enum`).
+    fn buildTagMap(self: *Backend, ir_module: *const IRModule) !void {
+        self.tag_map.clearRetainingCapacity();
+        for (ir_module.types.items) |*t| {
+            if (t.kind != .enumeration and t.kind != .union_type) continue;
+            for (t.variants, 0..) |variant, i| {
+                const tag_name = try std.fmt.allocPrint(self.allocator, "{s}_TAG_{s}", .{ t.name, variant });
+                try self.tag_map.put(tag_name, @intCast(i));
+            }
+        }
     }
 
     // ── Pipeline ─────────────────────────────────────────────────────────────
@@ -102,6 +121,7 @@ pub const Backend = struct {
         var verifier = MirVerifier.init(self.allocator);
         try verifier.verify(&mir);
 
+        try self.buildTagMap(ir_module);
         self.mir_module = mir;
     }
 
@@ -137,6 +157,9 @@ pub const Backend = struct {
 
                         if (op_ptr.* == .imm_str) {
                             const str = op_ptr.imm_str;
+                            // Tag constants ("Foo_TAG_Bar") are resolved to their
+                            // variant index during lowering, not stringified.
+                            if (self.tag_map.contains(str)) continue;
                             const sym_name = if (string_literal_syms.get(str)) |sym| sym else blk: {
                                 const offset = @as(u32, @intCast(string_literals.items.len));
                                 try string_literals.appendSlice(self.allocator, str);
@@ -189,7 +212,7 @@ pub const Backend = struct {
             const function_offset = all_code.items.len;
 
             // Lower MIR function → LIR
-            var lowering = Lowering.init(self.allocator, self.target);
+            var lowering = Lowering.init(self.allocator, self.target, self.tag_map);
             var lir_func = try lowering.lowerFunction(func);
             defer lir_func.deinit(self.allocator);
 
@@ -337,7 +360,7 @@ pub const Backend = struct {
 
         const first_func = &mir.functions.items[0];
 
-        var lowering = Lowering.init(self.allocator, self.target);
+        var lowering = Lowering.init(self.allocator, self.target, self.tag_map);
         var lir_func = try lowering.lowerFunction(first_func);
         defer lir_func.deinit(self.allocator);
 

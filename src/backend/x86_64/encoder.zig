@@ -238,6 +238,19 @@ pub const Encoder = struct {
                 if (enc.sib) |sib| try self.append(sib.toByte());
                 try self.writeDisp(disp, enc.disp_bytes);
             },
+            .mov_rm32 => {
+                // mov reg32, [base + disp] -> 0x8B (no REX.W; zero-extends)
+                const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
+                const base: RegisterId = @fromBackingInt(@intCast(instr.op1.mem.base.?.id));
+                const disp = instr.op1.mem.disp;
+
+                const enc = encodeRegMem(false, dest, base, disp);
+                if (enc.rex.required()) try self.append(enc.rex.toByte());
+                try self.append(0x8B);
+                try self.append(enc.modrm.toByte());
+                if (enc.sib) |sib| try self.append(sib.toByte());
+                try self.writeDisp(disp, enc.disp_bytes);
+            },
             .movzx_rm => {
                 // movzx reg64, byte [base + disp] -> 0F B6 /r
                 const dest: RegisterId = @fromBackingInt(@intCast(instr.dest.?.id));
