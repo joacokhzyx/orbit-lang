@@ -169,15 +169,39 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      `ORBIT_WITH_DB`, so the real symbol is free) checks `arena ==
      orbit_global_arena && table == "users"`, and a full source-level test
      where `User.all()` → `.call orbit_db_query_all` → strcmp with `"OK"`
-     returns 1). Remaining in `src/backend`: the frontend's `file.read`
-     emission still passes `("file", filename)` instead of `(arena,
-     filename)`, so it would call `orbit_file_read` with the wrong args (the
-     C backend special-cases it), and neither backend emits
-     `orbit_db_init(config.db_path)` in generated code (the C backend gates
-     it behind `has_db`, which only triggers on `db_*` opcodes the frontend
-     never emits; native `database.c`/`auth.c` are guarded by
-     `ORBIT_WITH_DB` and `-lsqlite3` is not linkable on this machine, so
-     real SQLite execution requires that macro + a bundled sqlite3).
+returns 1).
+      **Real DB integration with bundled sqlite3 — DONE (2026-08-15)**: the
+      remaining gaps above are closed. `has_db` now uses
+      `IRModule.usesDatabase()` (matches `db_*` opcodes OR `.call`s to
+      `orbit_db_query_all/where/get/insert/delete`), so the C backend emits
+      `orbit_db_init(config.db_path)`/`orbit_db_close()` in `main` for real DB
+      programs (via `runtime_loader.generateMainFunction`), and the native
+      backend's C stub emits them too (stub write in `compileToBinary`).
+      `src/runtime/vendor/` bundles SQLite 3.53.4 for win-x64: `sqlite3.h`
+      (declarations only — NOT the amalgamation source), `win-x64/sqlite3.dll`
+      and `win-x64/sqlite3.lib` (import lib regenerable via
+      `zig dlltool -d sqlite3.def -D sqlite3.dll -l sqlite3.lib -m i386:x86-64`).
+      `compileToBinary` adds `-DORBIT_WITH_DB`, `-I<vendor>`, and the bundled
+      `.lib` (fallback `-lsqlite3`) to `zig cc` for the system linker, and
+      copies `sqlite3.dll` next to the cache binary; `runExecuteMode` ships it
+      next to the real output via `shipSqlite3Dll` (only for DB builds — it
+      copies from the cache dir where compileToBinary dropped it). The native
+      PE linker already imports `sqlite3.dll` directly (pe_image.zig), so it
+      needs no import lib. `getFunctionParamCount` in c_backend.zig now
+      returns the real param counts for `orbit_db_query_all/where/get` and
+      `orbit_db_insert/delete` (fixes dropped table arg in generated C), and
+      `database.c`'s `orbit_sqlite_progress_handler` is a static no-op fallback
+      unless `ORBIT_WITH_NET` (kynx.c defines it only then). `orbit_db_add`
+      now inserts into the table's real typed columns via `PRAGMA table_info`
+      instead of a nonexistent `JSON_DATA` column (inserts were silently
+      failing; the `:memory:` e2e test's stub now returns 100 if the insert
+      fails, so the test proves the row was written). Verified: full suite
+      10/10 steps; both `--backend=c` and `--backend=native` compile a
+      `model User` app whose `User.create()`+`User.all()` exits 1 and the
+      seeded `u9/bob` row is persisted to `orbit.db`. Remaining: the
+      frontend's `file.read` emission still passes `("file", filename)`
+      instead of `(arena, filename)` (the C backend special-cases it; the
+      native backend would call `orbit_file_read` with wrong args).
 
 ---
 
