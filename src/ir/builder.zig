@@ -173,6 +173,20 @@ pub const IRBuilder = struct {
         };
     }
 
+    /// Byte size of a model struct, mirroring the C struct layout used by
+    /// `src/backend/mir/model_layout.zig` (orbit_int = 4 bytes, pointers and
+    /// everything unknown = 8, natural alignment).
+    fn modelByteSize(self: *IRBuilder, model: @import("../sema/model_registry.zig").ModelInfo) i64 {
+        _ = self;
+        var offset: i64 = 0;
+        for (model.fields) |field| {
+            const field_align = modelFieldAlign(field.type_name);
+            offset = std.mem.alignForward(i64, offset, field_align);
+            offset += modelFieldSize(field.type_name);
+        }
+        return offset;
+    }
+
     pub fn build(self: *IRBuilder, root: *Node) !IRModule {
         if (root.tag != .root) return error.NotARootNode;
 
@@ -1015,6 +1029,43 @@ pub const IRBuilder = struct {
     }
 
     fn buildCall(self: *IRBuilder, node: *Node) !IRValue {
+        // Model constructor: `User(id: 42, name: "x")` arena-allocates via
+        // `.alloc` and stores each named field with `.store_field`. Only taken
+        // when every argument is a named `field_init`; positional calls on a
+        // model name fall through to the generic call path below.
+        if (node.data.call.func.tag == .identifier) {
+            const model_name = node.data.call.func.data.identifier.getText(self.source);
+            var all_named = true;
+            for (node.data.call.args) |arg| {
+                if (arg.tag != .field_init) {
+                    all_named = false;
+                    break;
+                }
+            }
+            if (all_named) {
+                if (self.model_registry) |mreg| {
+                    if (mreg.getModel(model_name)) |model| {
+                        const model_reg = try self.current_function.?.allocRegister(self.allocator, .{ .model = model_name });
+                        var alloc_instr = IRInstruction.init(.alloc);
+                        alloc_instr.dest = model_reg;
+                        alloc_instr.operand1 = IRValue{ .int = self.modelByteSize(model) };
+                        try self.current_function.?.emit(self.allocator, alloc_instr);
+
+                        for (node.data.call.args) |arg| {
+                            const field_name = arg.data.field_init.name.getText(self.source);
+                            const field_val = try self.buildExpr(arg.data.field_init.value);
+                            var store = IRInstruction.init(.store_field);
+                            store.operand1 = IRValue{ .register = model_reg };
+                            store.operand2 = IRValue{ .string = field_name };
+                            store.operand3 = field_val;
+                            try self.current_function.?.emit(self.allocator, store);
+                        }
+                        return IRValue{ .register = model_reg };
+                    }
+                }
+            }
+        }
+
         const type_val = self.getNodeType(node);
         const reg = try self.current_function.?.allocRegister(self.allocator, type_val);
 
@@ -1818,4 +1869,38 @@ fn unescapeString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
         }
     }
     return out.toOwnedSlice(allocator);
+}
+
+/// Size (bytes) of a model field type, mirroring `model_layout.zig` so the
+/// arena allocation covers every `.store_field` the MIR builder resolves.
+fn modelFieldSize(type_name: []const u8) i64 {
+    if (type_name.len > 0 and type_name[0] == '&') return 8;
+
+    if (std.mem.eql(u8, type_name, "i8") or
+        std.mem.eql(u8, type_name, "u8") or
+        std.mem.eql(u8, type_name, "byte") or
+        std.mem.eql(u8, type_name, "bool")) return 1;
+    if (std.mem.eql(u8, type_name, "i16") or
+        std.mem.eql(u8, type_name, "u16")) return 2;
+    if (std.mem.eql(u8, type_name, "i32") or
+        std.mem.eql(u8, type_name, "u32")) return 4;
+    if (std.mem.eql(u8, type_name, "int")) return 4; // orbit_int
+    // Models are stored as pointers; unions are 16-byte values; everything
+    // unknown (string, float, decimal, i64, ...) defaults to 8 bytes.
+    return 8;
+}
+
+/// Natural alignment (bytes) of a model field type, mirroring `model_layout.zig`.
+fn modelFieldAlign(type_name: []const u8) i64 {
+    if (type_name.len > 0 and type_name[0] == '&') return 8;
+    if (std.mem.eql(u8, type_name, "i8") or
+        std.mem.eql(u8, type_name, "u8") or
+        std.mem.eql(u8, type_name, "byte") or
+        std.mem.eql(u8, type_name, "bool")) return 1;
+    if (std.mem.eql(u8, type_name, "i16") or
+        std.mem.eql(u8, type_name, "u16")) return 2;
+    if (std.mem.eql(u8, type_name, "i32") or
+        std.mem.eql(u8, type_name, "u32")) return 4;
+    if (std.mem.eql(u8, type_name, "int")) return 4;
+    return 8;
 }

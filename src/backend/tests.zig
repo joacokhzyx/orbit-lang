@@ -2150,3 +2150,56 @@ test "native end-to-end: SSE2 float arithmetic and comparison" {
     const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
     try std.testing.expectEqual(@as(u32, 1), code);
 }
+
+test "native end-to-end: model constructor from source allocates and stores fields" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const Parser = @import("../parser.zig").Parser;
+    const Sema = @import("../sema.zig").Sema;
+    const IRBuilder = @import("../ir/builder.zig").IRBuilder;
+    const backend_mod = @import("backend.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    const source =
+        \\model User {
+        \\    id: int
+        \\    name: string
+        \\}
+        \\
+        \\fn main() -> int {
+        \\    val u = User(id: 42, name: "hello")
+        \\    return u.id
+        \\}
+    ;
+
+    var p = Parser.init(source, "models_from_source.orb", alloc);
+    const root = try p.parse();
+
+    var sema = try Sema.create(alloc, source);
+    defer sema.deinit();
+    sema.analyze(root) catch |err| {
+        std.debug.print("sema failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    try std.testing.expect(sema.diagnostics.getDiagnostics().len == 0);
+
+    var builder = IRBuilder.init(alloc, source, &sema.node_types, &sema.model_registry);
+    var ir_module = try builder.build(root);
+    defer ir_module.deinit();
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 42), code);
+}

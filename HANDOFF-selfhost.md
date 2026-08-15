@@ -126,7 +126,16 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      constant materialization from source uses `.load_const`, which maps to
      MIR `copy`. Note `.neg`/`.mod` on float and float returns via XMM0 are
      not covered — the frontend never emits those from source for `main`,
-     which returns `int`). Remaining: none in `src/backend`.
+     which returns `int`). **Models from source — DONE (2026-08-15)**
+     (the Zig IR frontend `src/ir/builder.zig` now emits `.alloc` +
+     `.store_field` for model constructor calls like `User(id: 42, name:
+     "hello")` instead of a broken generic `.call` to the model name; the
+     constructor branch only fires when every argument is a named
+     `field_init` node and the name resolves via `sema.model_registry`, and
+     the alloc size is computed from the model's declared fields mirroring
+     `model_layout.zig` sizes/alignments; verified end-to-end by a native
+     test that parses real source through Parser → Sema → IRBuilder →
+     backend and returns a stored field). Remaining: none in `src/backend`.
 
 ---
 
