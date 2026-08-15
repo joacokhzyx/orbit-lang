@@ -34,6 +34,9 @@ pub const Lowering = struct {
     allocator: std.mem.Allocator,
     target: Target,
     arg_count: usize = 0,
+    /// Set by `sret_alloc`; while set, `.arg` instructions place arguments at
+    /// position 1+ and `.call` loads the hidden sret pointer into arg slot 0.
+    sret_pending: bool = false,
     /// Maps tag-name strings ("Foo_TAG_Bar") to their variant index (int),
     /// derived from the IR module's type declarations. Tag constants in the
     /// frontend are emitted as strings; the native lowering resolves them to
@@ -1044,13 +1047,15 @@ pub const Lowering = struct {
                 const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
                 const is_float_arg = operandIsFloat(op1_lir, mir_func);
                 const float_arg_regs: usize = if (self.target.abi == .windows_x64) 4 else 8;
-                if (is_float_arg and self.arg_count < float_arg_regs) {
+                // Hidden sret calls reserve ABI position 0 for the result pointer.
+                const pos = self.arg_count + (if (self.sret_pending) @as(usize, 1) else 0);
+                if (is_float_arg and pos < float_arg_regs) {
                     // Floating-point arguments are passed in XMM registers, one
                     // per ABI position (XMM0 for position 0, XMM1 for position 1...).
-                    const xmm = Lowering.xmmReg(@intCast(self.arg_count));
+                    const xmm = Lowering.xmmReg(@intCast(pos));
                     try self.emitFloatLoadXmm(block, xmm, op1_lir);
-                } else if (self.arg_count < arg_regs.len) {
-                    const arg_reg_id = arg_regs[self.arg_count];
+                } else if (pos < arg_regs.len) {
+                    const arg_reg_id = arg_regs[pos];
                     const phys_reg = LirRegister{
                         .id = @backingInt(arg_reg_id),
                         .is_physical = true,
@@ -1086,9 +1091,14 @@ pub const Lowering = struct {
             },
             .ret => {
                 if (mir_instr.op1 != .none) {
-                    // RAX is the standard return register on both Windows and SysV ABI.
-                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
-                    try self.emitMov(block, rax_phys, op1_lir);
+                    if (operandIsFloat(op1_lir, mir_func)) {
+                        // Floating-point values return in XMM0.
+                        try self.emitFloatLoadXmm(block, Lowering.xmmReg(0), op1_lir);
+                    } else {
+                        // RAX is the standard return register on both Windows and SysV ABI.
+                        const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                        try self.emitMov(block, rax_phys, op1_lir);
+                    }
                 }
                 try block.instructions.append(self.allocator, .{
                     .opcode = @backingInt(X86Opcode.ret),
@@ -1097,6 +1107,16 @@ pub const Lowering = struct {
             .call => {
                 // Reset argument count for the next call sequence
                 self.arg_count = 0;
+                if (self.sret_pending) {
+                    // Hidden sret call: pass the arena-allocated OrbitResult buffer
+                    // (held in dest) as argument 0 before the explicit arguments.
+                    if (mir_instr.dest) |d| {
+                        const arg_regs = if (self.target.abi == .windows_x64) &reg_mod.windows_args else &reg_mod.sysv_args;
+                        const arg0_reg = LirRegister{ .id = @backingInt(arg_regs[0]), .is_physical = true };
+                        try self.emitMov(block, arg0_reg, .{ .reg = mapReg(d) });
+                    }
+                    self.sret_pending = false;
+                }
 
                 try block.instructions.append(self.allocator, .{
                     .opcode = @backingInt(X86Opcode.call),
@@ -1105,17 +1125,28 @@ pub const Lowering = struct {
 
                 if (mir_instr.dest) |d| {
                     const dest = mapReg(d);
-                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
-                    try block.instructions.append(self.allocator, .{
-                        .opcode = @backingInt(X86Opcode.mov_rr),
-                        .dest = dest,
-                        .op1 = .{ .reg = rax_phys },
-                    });
+                    if (d < mir_func.val_types.items.len and mir_func.val_types.items[d] == .float) {
+                        // Floating-point results return in XMM0.
+                        try block.instructions.append(self.allocator, .{
+                            .opcode = @backingInt(X86Opcode.movsd_mr),
+                            .op1 = slotMem(d),
+                            .op2 = .{ .reg = Lowering.xmmReg(0) },
+                        });
+                    } else {
+                        const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                        try block.instructions.append(self.allocator, .{
+                            .opcode = @backingInt(X86Opcode.mov_rr),
+                            .dest = dest,
+                            .op1 = .{ .reg = rax_phys },
+                        });
+                    }
                 }
             },
             .div, .mod => {
                 const dest = mapReg(mir_instr.dest.?);
-                if (mir_func.val_types.items[mir_instr.dest.?] == .float and mir_instr.opcode == .div) {
+                const dest_is_float = mir_instr.dest.? < mir_func.val_types.items.len and mir_func.val_types.items[mir_instr.dest.?] == .float;
+                const op_is_float = operandIsFloat(op1_lir, mir_func) or operandIsFloat(op2_lir, mir_func);
+                if ((dest_is_float or op_is_float) and mir_instr.opcode == .div) {
                     const xmm0 = Lowering.xmmReg(0);
                     const xmm1 = Lowering.xmmReg(1);
                     try self.emitFloatLoadXmm(block, xmm0, op1_lir);
@@ -1124,6 +1155,21 @@ pub const Lowering = struct {
                         .opcode = @backingInt(X86Opcode.divsd_rr),
                         .dest = xmm0,
                         .op1 = .{ .reg = xmm1 },
+                    });
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.movsd_mr),
+                        .op1 = slotMem(mir_instr.dest.?),
+                        .op2 = .{ .reg = xmm0 },
+                    });
+                } else if (op_is_float and mir_instr.opcode == .mod) {
+                    // fmod(double, double) -> XMM0/XMM1 args, XMM0 result.
+                    const xmm0 = Lowering.xmmReg(0);
+                    const xmm1 = Lowering.xmmReg(1);
+                    try self.emitFloatLoadXmm(block, xmm0, op1_lir);
+                    try self.emitFloatLoadXmm(block, xmm1, op2_lir);
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.call),
+                        .op1 = .{ .symbol = "fmod" },
                     });
                     try block.instructions.append(self.allocator, .{
                         .opcode = @backingInt(X86Opcode.movsd_mr),
@@ -1154,6 +1200,23 @@ pub const Lowering = struct {
             },
             .neg, .not_op => {
                 const dest = mapReg(mir_instr.dest.?);
+                if (mir_instr.opcode == .neg and operandIsFloat(op1_lir, mir_func)) {
+                    // IEEE 754 negation flips the sign bit: xor 0x8000000000000000.
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                    const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
+                    try self.emitMov(block, rax_phys, op1_lir);
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.mov_ri),
+                        .dest = r10_phys,
+                        .op1 = .{ .imm_int = std.math.minInt(i64) },
+                    });
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.xor_rr),
+                        .dest = rax_phys,
+                        .op1 = .{ .reg = r10_phys },
+                    });
+                    try self.emitMov(block, dest, .{ .reg = rax_phys });
+                } else {
                 const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
                 try self.emitMov(block, rax_phys, op1_lir);
                 try block.instructions.append(self.allocator, .{
@@ -1161,6 +1224,7 @@ pub const Lowering = struct {
                     .dest = rax_phys,
                 });
                 try self.emitMov(block, dest, .{ .reg = rax_phys });
+                }
             },
             .shl, .shr => {
                 const dest = mapReg(mir_instr.dest.?);
@@ -1267,6 +1331,21 @@ pub const Lowering = struct {
                         .op1 = .{ .reg = rax_phys },
                     });
                 }
+            },
+            .sret_alloc => {
+                // Arena-allocate the 24-byte OrbitResult buffer the callee writes
+                // through its hidden sret pointer; the pointer lands in dest.
+                try self.emitAllocFromArena(block, 24);
+                if (mir_instr.dest) |d| {
+                    const dest = mapReg(d);
+                    const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.mov_rr),
+                        .dest = dest,
+                        .op1 = .{ .reg = rax_phys },
+                    });
+                }
+                self.sret_pending = true;
             },
             .kynx_lease_check => {
                 try block.instructions.append(self.allocator, .{

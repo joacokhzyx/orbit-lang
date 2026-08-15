@@ -84,6 +84,7 @@ pub const MirOpcode = enum {
 
     // Orbit Specific Runtime Ops
     arena_alloc, // Call runtime arena allocation
+    sret_alloc, // Arena-allocate a 24-byte OrbitResult buffer for a hidden-sret call
     kynx_lease_check, // Verify lease limits
     kynx_lease_end, // End lease execution
     db_query, // Execute DB statement
@@ -101,6 +102,7 @@ pub const MirType = enum {
     bool,
     void,
     ptr, // Generic pointer (for runtime structs, arenas)
+    result, // Pointer to an arena-allocated OrbitResult (sret-returning calls)
 };
 
 /// A MIR operand.

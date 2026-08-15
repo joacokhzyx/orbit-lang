@@ -56,6 +56,7 @@ pub const MirBuilder = struct {
             .string => .string,
             .bool => .bool,
             .void => .void,
+            .result => .result,
             else => .ptr,
         };
     }
@@ -138,11 +139,45 @@ pub const MirBuilder = struct {
 
         // Populate basic blocks with instructions
         var current_block_id: u32 = 0;
+        var pending_args = std.ArrayListUnmanaged(MirInstruction).empty;
+        defer pending_args.deinit(self.allocator);
+
         for (ir_func.instructions.items, 0..) |ir_instr, i| {
             if (block_starts.get(i)) |_| {
                 if (idx_to_block.get(i)) |bid| {
                     current_block_id = bid;
                 }
+            }
+
+            // `.arg` instructions are buffered so an sret-returning call
+            // (dest typed `.result`) can inject its hidden `sret_alloc`
+            // BEFORE the arguments are placed (arg 0 = result pointer).
+            if (ir_instr.opcode == .arg) {
+                const mir_arg = try self.lowerInstruction(ir_instr, &idx_to_block, ir_func.instructions.items, &variable_map, &mir_func, ir_func, layout);
+                if (mir_arg.opcode != .nop) {
+                    try pending_args.append(self.allocator, mir_arg);
+                }
+                continue;
+            }
+
+            if (pending_args.items.len > 0) {
+                const is_sret_call = ir_instr.opcode == .call and
+                    ir_instr.dest != null and
+                    ir_instr.dest.? < ir_func.register_types.items.len and
+                    ir_func.register_types.items[ir_instr.dest.?] == .result;
+                if (is_sret_call) {
+                    // Reserve the arena-allocated OrbitResult the callee
+                    // writes through its hidden sret pointer; dest must be
+                    // typed `.result` (maps to MIR `.result`).
+                    try mir_func.blocks.items[current_block_id].instructions.append(self.allocator, MirInstruction{
+                        .opcode = .sret_alloc,
+                        .dest = ir_instr.dest,
+                    });
+                }
+                for (pending_args.items) |arg_instr| {
+                    try mir_func.blocks.items[current_block_id].instructions.append(self.allocator, arg_instr);
+                }
+                pending_args.clearRetainingCapacity();
             }
 
             // Lower instruction to MIR
