@@ -2066,3 +2066,87 @@ test "native end-to-end: union create/get_data returns stored data" {
     const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
     try std.testing.expectEqual(@as(u32, 99), code);
 }
+
+test "native end-to-end: SSE2 float arithmetic and comparison" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const ir_mod = @import("../ir/ir.zig");
+    const atlas_mod = @import("../atlas.zig");
+
+    var ir_module = ir_mod.IRModule.init(alloc);
+    defer ir_module.deinit();
+
+    // (10.0 + 4.0 - 4.0) * 2.0 / 5.0 = 4.0, then 4.0 > 3.5 -> true (1).
+    var func = ir_mod.IRFunction.init(alloc, "main");
+    func.return_type = .int;
+    _ = try func.allocRegister(alloc, .float); // r0 = 10.0
+    _ = try func.allocRegister(alloc, .float); // r1 = 4.0
+    _ = try func.allocRegister(alloc, .float); // r2 = a
+    _ = try func.allocRegister(alloc, .float); // r3 = b
+    _ = try func.allocRegister(alloc, .float); // r4 = c
+    _ = try func.allocRegister(alloc, .float); // r5 = d
+    _ = try func.allocRegister(alloc, .bool); // r6 = e
+
+    var c0 = ir_mod.IRInstruction.init(.load_const);
+    c0.dest = 0;
+    c0.operand1 = .{ .float = 10.0 };
+    try func.emit(alloc, c0);
+
+    var c1 = ir_mod.IRInstruction.init(.load_const);
+    c1.dest = 1;
+    c1.operand1 = .{ .float = 4.0 };
+    try func.emit(alloc, c1);
+
+    var add = ir_mod.IRInstruction.init(.add);
+    add.dest = 2;
+    add.operand1 = .{ .register = 0 };
+    add.operand2 = .{ .register = 1 };
+    try func.emit(alloc, add);
+
+    var sub = ir_mod.IRInstruction.init(.sub);
+    sub.dest = 3;
+    sub.operand1 = .{ .register = 2 };
+    sub.operand2 = .{ .register = 1 };
+    try func.emit(alloc, sub);
+
+    var mul = ir_mod.IRInstruction.init(.mul);
+    mul.dest = 4;
+    mul.operand1 = .{ .register = 3 };
+    mul.operand2 = .{ .float = 2.0 };
+    try func.emit(alloc, mul);
+
+    var div = ir_mod.IRInstruction.init(.div);
+    div.dest = 5;
+    div.operand1 = .{ .register = 4 };
+    div.operand2 = .{ .float = 5.0 };
+    try func.emit(alloc, div);
+
+    var gt = ir_mod.IRInstruction.init(.gt);
+    gt.dest = 6;
+    gt.operand1 = .{ .register = 5 };
+    gt.operand2 = .{ .float = 3.5 };
+    try func.emit(alloc, gt);
+
+    var ret = ir_mod.IRInstruction.init(.ret);
+    ret.operand1 = .{ .register = 6 };
+    try func.emit(alloc, ret);
+
+    try ir_module.functions.append(alloc, func);
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    try std.testing.expectEqual(@as(u32, 1), code);
+}

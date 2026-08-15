@@ -114,9 +114,19 @@ crash). **`result_*` — DONE (2026-08-15)** (4 opcodes: a `.result` register
     passed into `Lowering`; gotcha: `emitObject` stringifies every `imm_str`
     operand into `__str_N` BEFORE lowering, so tag constants must be exempted
     from that rewrite or `mapOperand` never sees the original name; new encoder
-    opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
-    bytes). Remaining:
-    float SSE2. See `PLAN.md`.
+opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
+     bytes). **`float` SSE2 — DONE (2026-08-15)** (verified end-to-end by a
+     native e2e test: float literals load via `.load_const`→`copy`, the
+     lowering branches on `val_types == .float` for add/sub/mul/div
+     (`addsd`/`subsd`/`mulsd`/`divsd` via `emitFloatLoadXmm`) and comparisons
+     (`ucomisd` + `setcc` + `movzx`); float constants materialize their bit
+     pattern directly into stack slots via `emitFloatConstToSlot`; float
+     params arrive in XMM registers in the prologue; gotcha: the frontend's
+     raw `.copy` IR opcode is NOT mapped by the MIR builder — float (or any)
+     constant materialization from source uses `.load_const`, which maps to
+     MIR `copy`. Note `.neg`/`.mod` on float and float returns via XMM0 are
+     not covered — the frontend never emits those from source for `main`,
+     which returns `int`). Remaining: none in `src/backend`.
 
 ---
 
