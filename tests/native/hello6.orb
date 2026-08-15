@@ -1,0 +1,4 @@
+fn main() -> int {
+    print("HELLO6-AFTER")
+    return 42
+}

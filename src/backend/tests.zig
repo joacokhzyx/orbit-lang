@@ -740,8 +740,10 @@ test "link.resolve.undefined_symbol_errors" {
         .is_defined = true,
         .is_extern = false,
     });
+    // Runtime functions (orbit_*) must be defined by the stub object; the native
+    // linker only materialises non-orbit undefined symbols as DLL imports.
     try obj.symbols.append(alloc, Symbol{
-        .name = try alloc.dupe(u8, "some_missing_fn"),
+        .name = try alloc.dupe(u8, "orbit_missing_runtime_fn"),
         .section_index = null,
         .value = 0,
         .binding = .global,

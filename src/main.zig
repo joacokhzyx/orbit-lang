@@ -835,6 +835,7 @@ fn compileToBinary(
             \\
             \\#ifdef _WIN32
             \\__declspec(dllimport) char* __stdcall GetCommandLineA(void);
+            \\__declspec(dllimport) void __stdcall ExitProcess(unsigned int uExitCode);
             \\
             \\static void parse_command_line(const char* cmdline, int* argc, char*** argv) {
             \\    int cap = 16;
@@ -912,6 +913,18 @@ fn compileToBinary(
             \\    }
             \\    free(parsed_argv);
             \\#endif
+            \\
+        );
+        if (linker_mode == .native) {
+            // CRT-less raw entry: returning from main() leaves the loader to tear
+            // down console/std handles, which blocks ~30s when stdout is a pipe or
+            // was never written. Terminate directly instead.
+            try stub_fw.interface.writeAll(
+                \\    ExitProcess((unsigned int)_orbit_exit_code);
+                \\
+            );
+        }
+        try stub_fw.interface.writeAll(
             \\    return _orbit_exit_code;
             \\}
             \\
@@ -920,6 +933,45 @@ fn compileToBinary(
             \\#endif
             \\
         );
+        if (linker_mode == .native) {
+            try stub_fw.interface.writeAll(
+                \\/* The native linker has no CRT to provide the TLS index; the runtime
+                \\ * only touches thread-locals in server paths, so a zero index (TLS
+                \\ * array slot 0) is sufficient for the programs this backend targets. */
+                \\unsigned long _tls_index = 0;
+                \\
+                \\/* ucrtbase.dll exports __stdio_common_vfprintf/vsprintf but not
+                \\ * the printf family; provide thin wrappers so the native linker
+                \\ * only imports symbols the CRT actually exports. */
+                \\#include <stdarg.h>
+                \\int __cdecl printf(const char* format, ...) {
+                \\    va_list args; va_start(args, format);
+                \\    int result = __stdio_common_vfprintf(0, stdout, format, NULL, args);
+                \\    va_end(args); return result;
+                \\}
+                \\int __cdecl fprintf(FILE* stream, const char* format, ...) {
+                \\    va_list args; va_start(args, format);
+                \\    int result = __stdio_common_vfprintf(0, stream, format, NULL, args);
+                \\    va_end(args); return result;
+                \\}
+                \\int __cdecl sprintf(char* buffer, const char* format, ...) {
+                \\    va_list args; va_start(args, format);
+                \\    int result = __stdio_common_vsprintf(0, buffer, (size_t)-1, format, NULL, args);
+                \\    va_end(args); return result;
+                \\}
+                \\int __cdecl snprintf(char* buffer, size_t size, const char* format, ...) {
+                \\    va_list args; va_start(args, format);
+                \\    int result = __stdio_common_vsprintf(0, buffer, size, format, NULL, args);
+                \\    va_end(args); return result;
+                \\}
+                \\int __cdecl _snprintf(char* buffer, size_t size, const char* format, ...) {
+                \\    va_list args; va_start(args, format);
+                \\    int result = __stdio_common_vsprintf(0, buffer, size, format, NULL, args);
+                \\    va_end(args); return result;
+                \\}
+                \\
+            );
+        }
         try stub_fw.flush();
         stub_file.close(init.io);
 

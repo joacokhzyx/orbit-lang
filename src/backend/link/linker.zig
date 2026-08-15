@@ -47,6 +47,29 @@ fn isStandardWin32Symbol(name: []const u8) bool {
     return false;
 }
 
+/// True when `name` will be materialised as a PE import by the format writer
+/// (kernel32/msvcrt/ws2_32/sqlite3). Mirrors the DLL-mapping heuristic in
+/// `pe_image.zig`. `orbit_*` runtime functions are NEVER imports — they must
+/// be defined by the runtime compiled into the stub object, so a missing one
+/// is still reported as a hard error instead of silently failing at load time.
+fn isImportableWin32Symbol(name: []const u8) bool {
+    if (std.mem.startsWith(u8, name, "orbit_")) return false;
+    if (std.mem.startsWith(u8, name, "sqlite3_")) return true;
+
+    const ws2_symbols = [_][]const u8{
+        "WSAStartup", "WSACleanup", "socket", "connect", "send", "recv", "closesocket",
+        "htons",      "setsockopt", "bind",    "listen",  "accept", "select",
+        "__WSAFDIsSet", "getaddrinfo", "freeaddrinfo",
+    };
+    for (ws2_symbols) |s| {
+        if (std.mem.eql(u8, name, s)) return true;
+    }
+
+    // kernel32 exports are capitalised; the CRT (msvcrt.dll) exports the rest.
+    if (name.len > 0 and name[0] >= 'A' and name[0] <= 'Z') return true;
+    return true;
+}
+
 pub const Linker = struct {
     allocator: std.mem.Allocator,
     objects: std.ArrayListUnmanaged(LoadedObject) = .empty,
@@ -226,7 +249,7 @@ pub const Linker = struct {
                             if (std.mem.startsWith(u8, clean_name, "__imp_")) {
                                 clean_name = clean_name["__imp_".len..];
                             }
-                            if (isStandardWin32Symbol(clean_name)) {
+                            if (isStandardWin32Symbol(clean_name) or isImportableWin32Symbol(clean_name)) {
                                 continue;
                             }
                         }

@@ -171,7 +171,9 @@ pub fn writeExecutable(allocator: std.mem.Allocator, linker: *Linker, entry_name
                 } else if (name_clean[0] >= 'A' and name_clean[0] <= 'Z') {
                     dll_name_opt = "kernel32.dll";
                 } else {
-                    dll_name_opt = "msvcrt.dll";
+                    // The Universal CRT present on Windows 10+ exports the full set
+                    // (printf, malloc, _time64, _getcwd, __acrt_iob_func, ...).
+                    dll_name_opt = "ucrtbase.dll";
                 }
             }
 

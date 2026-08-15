@@ -1,0 +1,4 @@
+fn main() -> int {
+    print("HELLO5-BEFORE")
+    return 42
+}
