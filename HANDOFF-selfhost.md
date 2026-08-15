@@ -91,8 +91,16 @@ Real pending work of the self-hosted compiler:
    (2026-08-14)** (model field offsets mirror the C backend's struct layout; see
    `src/backend/mir/model_layout.zig`, and note `std.Io.Threaded.global_single_threaded`
    uses the failing allocator so subprocess-spawning tests must create a dedicated
-   `Threaded` io with a real allocator), collections
-   (`list_*`/`map_*`), `result_*`/`union_*` and float SSE2. See `PLAN.md`.
+   `Threaded` io with a real allocator), and **collections `list_*`/`map_*` — DONE
+   (2026-08-15)** (10 opcodes lowered to the C runtime via `emitRuntimeCall`;
+   `map_delete`/`map_keys` are intentionally NOT implemented — the frontend never
+   emits them and the runtime declares them `static`; gotcha: a `mov_ri` with a
+   `.symbol` operand materializes the symbol's ADDRESS, so arena/global loads must
+   use the new `mov_rm_sym` opcode + `symbol_value` operand, i.e.
+   `mov reg, [orbit_global_arena]` — passing `&orbit_global_arena` to the runtime
+   made `orbit_alloc` read the zeroed `.bss` neighbours as `arena->cursor` and
+   crash). Remaining: `result_*`/`union_*`
+   and float SSE2. See `PLAN.md`.
 
 ---
 
