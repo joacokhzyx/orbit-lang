@@ -77,6 +77,7 @@ pub const CBackend = struct {
         if (std.mem.eql(u8, func_name, "orbit_string_indexOf")) return 2;
         if (std.mem.eql(u8, func_name, "orbit_db_query_all")) return 2;
         if (std.mem.eql(u8, func_name, "orbit_db_query_where")) return 3;
+        if (std.mem.eql(u8, func_name, "orbit_db_query_where_p")) return 4;
         if (std.mem.eql(u8, func_name, "orbit_db_query_get")) return 3;
         if (std.mem.eql(u8, func_name, "orbit_db_insert")) return 2;
         if (std.mem.eql(u8, func_name, "orbit_db_delete")) return 2;
@@ -404,6 +405,7 @@ pub const CBackend = struct {
         try self.registerArenaFunction("orbit_auth_has_role");
         try self.registerArenaFunction("orbit_db_query_all");
         try self.registerArenaFunction("orbit_db_query_where");
+        try self.registerArenaFunction("orbit_db_query_where_p");
         try self.registerArenaFunction("orbit_db_query_get");
         try self.registerArenaFunction("orbit_http_client_fetch");
         try self.registerArenaFunction("orbit_cache_get");
@@ -432,6 +434,7 @@ pub const CBackend = struct {
         try self.function_return_types.put(self.allocator, "orbit_auth_has_role", .bool);
         try self.function_return_types.put(self.allocator, "orbit_db_query_all", .string);
         try self.function_return_types.put(self.allocator, "orbit_db_query_where", .string);
+        try self.function_return_types.put(self.allocator, "orbit_db_query_where_p", .string);
         try self.function_return_types.put(self.allocator, "orbit_db_query_get", .string);
         try self.function_return_types.put(self.allocator, "orbit_db_insert", .bool);
         try self.function_return_types.put(self.allocator, "orbit_db_delete", .bool);
@@ -1545,6 +1548,16 @@ pub const CBackend = struct {
                     try self.generateValue(instr.operand1);
                     try self.output.appendSlice(self.allocator, " != (void*)0);\n    ");
                 }
+                const obj_type = self.getValueType(instr.operand1);
+                if (obj_type == .string) {
+                    // String-typed object (e.g. `body.id` on a req.body() JSON
+                    // string): extract the field via JSON lookup instead of a
+                    // struct cast, which would dereference raw JSON bytes.
+                    try self.output.print(self.allocator, "r_{d} = orbit_json_field(arena, ", .{d});
+                    try self.generateValue(instr.operand1);
+                    try self.output.print(self.allocator, ", \"{s}\");\n", .{field_name});
+                    return;
+                }
                 const d_type = if (self.current_func) |f| (if (d < f.register_types.items.len) f.register_types.items[d] else .unknown) else .unknown;
                 try self.output.print(self.allocator, "r_{d} = ", .{d});
                 if (d_type == .int or d_type == .enumeration or d_type == .bool) {
@@ -1554,7 +1567,6 @@ pub const CBackend = struct {
                 } else if (d_type != .void) {
                     try self.output.appendSlice(self.allocator, "(void*)(uintptr_t)(");
                 }
-                const obj_type = self.getValueType(instr.operand1);
                 const owner_model_opt: ?[]const u8 = switch (obj_type) {
                     .model => |m_name| m_name,
                     else => self.model_field_owners.get(field_name),

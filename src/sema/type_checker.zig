@@ -495,6 +495,9 @@ pub const TypeChecker = struct {
             if (std.mem.eql(u8, func_name, "orbit_clock_ns")) return "int";
             if (std.mem.eql(u8, func_name, "orbit_int_to_string")) return "string";
             if (std.mem.eql(u8, func_name, "orbit_http_query_get")) return "string";
+            if (std.mem.eql(u8, func_name, "orbit_db_query_where")) return "string";
+            if (std.mem.eql(u8, func_name, "orbit_db_query_where_p")) return "string";
+            if (std.mem.eql(u8, func_name, "orbit_db_query_all")) return "string";
 
             if (scope.get(func_name)) |entry| {
                 if (entry.is_function) return entry.type_name;
@@ -539,6 +542,10 @@ pub const TypeChecker = struct {
                     if (std.mem.eql(u8, mem, "rewind")) return "bool";
                 }
                 if (std.mem.eql(u8, obj, "req")) {
+                    if (std.mem.eql(u8, mem, "body")) return "string";
+                    if (std.mem.eql(u8, mem, "json")) return "string";
+                    if (std.mem.eql(u8, mem, "param")) return "string";
+                    if (std.mem.eql(u8, mem, "file")) return "string";
                     if (std.mem.eql(u8, mem, "query")) return "string";
                     if (std.mem.eql(u8, mem, "bearer_token")) return "string";
                     if (std.mem.eql(u8, mem, "has_role")) return "bool";

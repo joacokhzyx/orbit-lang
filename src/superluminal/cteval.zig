@@ -683,6 +683,7 @@ fn isRuntimeFunction(name: []const u8) bool {
         "orbit_file_read",     "orbit_file_write",      "orbit_os_exec",         "orbit_os_env",
         "orbit_list_create",   "orbit_map_create",      "orbit_response_create", "orbit_response_json",
         "orbit_int_to_string", "orbit_float_to_string", "orbit_http_query_get",  "rand",
+        "orbit_db_query_where", "orbit_db_query_where_p", "orbit_db_query_all",    "orbit_db_query_get",
         "random",              "srand",                 "time",                  "malloc",
         "free",                "realloc",
     };

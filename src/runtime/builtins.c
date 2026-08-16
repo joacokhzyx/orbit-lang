@@ -158,6 +158,56 @@ orbit_string orbit_http_body_get(OrbitArena* arena, OrbitRequest* req) {
     return req->body;
 }
 
+/**
+ * Read a field out of a JSON object string (e.g. `body.id` where `body` is a
+ * `req.body()` string).  Returns an arena-allocated copy, or "" when the key is
+ * missing.  This is the safe member-access path for string-typed objects; the
+ * struct-cast path only applies to real model-typed values.
+ */
+orbit_string orbit_json_field(OrbitArena* arena, orbit_string json, orbit_string key) {
+    if (!arena || !json || !key) return "";
+    size_t key_len = strlen(key);
+    char search[256];
+    const char* start;
+    const char* end;
+    size_t len;
+    char* res;
+
+    /* Quoted string value: "key":"value" */
+    size_t q_len = key_len + 4; /* "key":" */
+    if (q_len >= sizeof(search)) return "";
+    snprintf(search, sizeof(search), "\"%s\":\"", key);
+    start = strstr(json, search);
+    if (start) {
+        start += q_len;
+        end = strchr(start, '"');
+        if (end) {
+            len = (size_t)(end - start);
+            res = (char*)orbit_alloc(arena, len + 1);
+            if (!res) return "";
+            memcpy(res, start, len);
+            res[len] = '\0';
+            return res;
+        }
+    }
+
+    /* Bare value: "key":value */
+    size_t b_len = key_len + 3; /* "key": */
+    if (b_len >= sizeof(search)) return "";
+    snprintf(search, sizeof(search), "\"%s\":", key);
+    start = strstr(json, search);
+    if (!start) return "";
+    start += b_len;
+    end = start;
+    while (*end && *end != ',' && *end != '}' && *end != '\n') end++;
+    len = (size_t)(end - start);
+    res = (char*)orbit_alloc(arena, len + 1);
+    if (!res) return "";
+    memcpy(res, start, len);
+    res[len] = '\0';
+    return res;
+}
+
 orbit_string orbit_http_client_fetch(OrbitArena* arena, orbit_string url) {
     (void)url;
     /* High-speed C HTTP Client fetch stub returning mock JSON response */

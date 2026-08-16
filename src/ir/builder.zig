@@ -1414,6 +1414,7 @@ pub const IRBuilder = struct {
 
             if (std.mem.eql(u8, obj_name, "req")) {
                 is_custom_member_call = true;
+                num_total_args += 1; // injected `req` operand (not counted by call.args.len)
                 if (std.mem.eql(u8, member_name, "file")) {
                     func_name = "orbit_file_upload_save";
                     var req_arg = IRInstruction.init(.arg);
@@ -1494,6 +1495,7 @@ pub const IRBuilder = struct {
                 }
             } else if (is_model or (obj_name.len > 0 and std.ascii.isUpper(obj_name[0]))) {
                 is_custom_member_call = true;
+                num_total_args += 1; // injected table-name operand
                 var table = try self.allocator.alloc(u8, obj_name.len + 1);
                 for (obj_name, 0..) |c, i| table[i] = std.ascii.toLower(c);
                 table[obj_name.len] = 's';
@@ -1511,7 +1513,11 @@ pub const IRBuilder = struct {
                 if (std.mem.eql(u8, member_name, "all")) {
                     func_name = "orbit_db_query_all";
                 } else if (std.mem.eql(u8, member_name, "where")) {
-                    func_name = "orbit_db_query_where";
+                    if (node.data.call.args.len == 2) {
+                        func_name = "orbit_db_query_where_p";
+                    } else {
+                        func_name = "orbit_db_query_where";
+                    }
                 } else if (std.mem.eql(u8, member_name, "find")) {
                     func_name = "orbit_db_query_get";
                 } else if (std.mem.eql(u8, member_name, "create")) {

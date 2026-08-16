@@ -547,6 +547,40 @@ orbit_string orbit_db_query_where(OrbitArena* arena, const char* table_name, con
     return orbit_db_where(arena, col, condition);
 }
 
+/** @brief Replace the first occurrence of @p needle in @p haystack with @p replacement (arena-allocated). */
+static char* orbit_replace_first(OrbitArena* arena, const char* haystack, const char* needle, const char* replacement) {
+    const char* pos = strstr(haystack, needle);
+    if (!pos) {
+        size_t len = strlen(haystack) + 1;
+        char* out = (char*)orbit_alloc(arena, len);
+        if (!out) return NULL;
+        memcpy(out, haystack, len);
+        return out;
+    }
+    size_t pre = (size_t)(pos - haystack);
+    size_t needle_len = strlen(needle);
+    size_t repl_len = strlen(replacement);
+    size_t out_len = strlen(haystack) - needle_len + repl_len + 1;
+    char* out = (char*)orbit_alloc(arena, out_len);
+    if (!out) return NULL;
+    memcpy(out, haystack, pre);
+    memcpy(out + pre, replacement, repl_len);
+    strcpy(out + pre + repl_len, pos + needle_len);
+    return out;
+}
+
+/** @brief Parameterized WHERE query: binds @p param as an escaped SQL literal into the first `?` of @p condition. */
+orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, const char* condition, const char* param) {
+    KYNX_DB_QUERY_CHECK("[]");
+    char* escaped = sqlite3_mprintf("%Q", param);
+    if (!escaped) return "[]";
+    char* cond = orbit_replace_first(arena, condition, "?", escaped);
+    sqlite3_free(escaped);
+    if (!cond) return "[]";
+    orbit_collection col = { table_name, NULL };
+    return orbit_db_where(arena, col, cond);
+}
+
 orbit_string orbit_db_query_get(OrbitArena* arena, const char* table_name, const char* id) {
     orbit_collection col = { table_name, NULL };
     return orbit_db_get(arena, col, id);

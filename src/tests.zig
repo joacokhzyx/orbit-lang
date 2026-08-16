@@ -1295,6 +1295,89 @@ test "codegen.compile.cache_member_contextual_keyword" {
     }
 }
 
+test "codegen.compile.catalog_member_call_arity" {
+    // Regresses the COMPILE-2 fixes: `req.query(...)` / `req.body()` call
+    // forms must carry the injected `req` operand, `Model.where(cond, param)`
+    // lowers to parameterized SQL, and `body.id` on a JSON string extracts the
+    // field instead of casting raw bytes to a struct.
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const this_file = @src().file;
+    const this_dir = std.fs.path.dirname(this_file) orelse ".";
+    const src_dir = std.fs.path.dirname(this_dir) orelse ".";
+    const root_dir = std.fs.path.dirname(src_dir) orelse ".";
+
+    const temp_dir = try std.fs.path.join(alloc, &.{ root_dir, ".catalog_arity_tmp" });
+    const compiler_path = try std.fs.path.join(alloc, &.{ root_dir, "zig-out", "bin", "orbit.exe" });
+
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    defer cwd.deleteTree(io, temp_dir) catch {};
+
+    const src_path = try std.fs.path.join(alloc, &.{ temp_dir, "catalog_arity.orb" });
+    const bin_path = try std.fs.path.join(alloc, &.{ temp_dir, "catalog_arity.exe" });
+
+    var file = try cwd.createFile(io, src_path, .{ .truncate = true });
+    var wb: [4096]u8 = undefined;
+    var fw = std.Io.File.Writer.init(file, io, &wb);
+    try fw.interface.writeAll(
+        \\port 4002
+        \\cors "*"
+        \\db "catalog_arity.db"
+        \\
+        \\model Product {
+        \\    id: string
+        \\    name: string
+        \\    category: string
+        \\}
+        \\
+        \\route GET "/v1/catalog" {
+        \\    val category = req.query("category")
+        \\    if (category != "") {
+        \\        val filtered = Product.where("category = ?", category)
+        \\        return ok 200 filtered
+        \\    }
+        \\    return ok 200 Product.all()
+        \\}
+        \\
+        \\route POST "/v1/catalog/items" {
+        \\    val body = req.body()
+        \\    val created = Product.create(body)
+        \\    if (created) {
+        \\        return ok 201 "{\"id\":\"" + body.id + "\"}"
+        \\    }
+        \\    err 400 "failed"
+        \\}
+        \\
+    );
+    try fw.flush();
+    file.close(io);
+
+    var compiler_file = cwd.openFile(io, compiler_path, .{}) catch return error.SkipZigTest;
+    compiler_file.close(io);
+
+    var compile_child = std.process.spawn(io, .{
+        .argv = &.{ compiler_path, "build", src_path, "-o", bin_path },
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const compile_term = try compile_child.wait(io);
+
+    const ok = compile_term == .exited and compile_term.exited == 0;
+    if (!ok) {
+        return error.CatalogMemberCallArityRegression;
+    }
+}
+
 test "superluminal.z3_equivalence" {
     const z3 = @import("superluminal/z3_integration.zig");
     if (!z3.isAvailable()) return error.SkipZigTest;

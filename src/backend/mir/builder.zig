@@ -326,6 +326,7 @@ pub const MirBuilder = struct {
             "orbit_auth_has_role",
             "orbit_db_query_all",
             "orbit_db_query_where",
+            "orbit_db_query_where_p",
             "orbit_db_query_get",
             "orbit_http_client_fetch",
             "orbit_cache_get",

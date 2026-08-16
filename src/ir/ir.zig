@@ -392,6 +392,7 @@ pub const IRModule = struct {
         const db_calls = [_][]const u8{
             "orbit_db_query_all",
             "orbit_db_query_where",
+            "orbit_db_query_where_p",
             "orbit_db_query_get",
             "orbit_db_insert",
             "orbit_db_delete",
