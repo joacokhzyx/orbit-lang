@@ -42,12 +42,12 @@ pub const TailCallOptimizer = struct {
     }
 
     pub fn optimize(self: *TailCallOptimizer, module: *IRModule) !void {
-        for (module.functions.items) |*func| {
-            try self.optimizeFunction(func);
+        for (module.functions.items, 0..) |*func, func_index| {
+            try self.optimizeFunction(func, func_index);
         }
     }
 
-    fn optimizeFunction(self: *TailCallOptimizer, func: *IRFunction) !void {
+    fn optimizeFunction(self: *TailCallOptimizer, func: *IRFunction, func_index: usize) !void {
         // Quick scan: is there a self-recursive tail call?
         if (!hasSelfTailCall(func)) return;
         if (func.params.len == 0 or func.params.len > MAX_TCO_PARAMS) return;
@@ -62,7 +62,10 @@ pub const TailCallOptimizer = struct {
 
         // Inject loop header label at position 0.
         // All tail-call sites will jump back here.
-        const loop_label_id = TCO_LOOP_LABEL_BASE +% @as(u32, @truncate(@intFromPtr(func)));
+        // Use the function's index in the module (deterministic across runs)
+        // instead of its pointer address, which varies with ASLR/heap layout
+        // and made every build emit a different binary.
+        const loop_label_id = TCO_LOOP_LABEL_BASE +% @as(u32, @truncate(func_index));
         var header = IRInstruction.init(.label);
         header.operand1 = IRValue{ .label = loop_label_id };
         result.appendAssumeCapacity(header);

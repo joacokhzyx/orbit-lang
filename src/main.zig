@@ -1173,6 +1173,8 @@ fn compileToBinary(
             copyFile(init.io, arena, dll_src, dll_dst) catch {};
         }
 
+        zeroPeTimestamp(init.io, out_bin_path);
+
         profiler.record(&profiler.compile_app_ns);
         profiler.linking_ns = 0;
         return out_bin_path;
@@ -1282,6 +1284,7 @@ fn compileToBinary(
             const dll_dst = try std.fs.path.join(arena, &.{ out_dir, "sqlite3.dll" });
             copyFile(init.io, arena, dll_src, dll_dst) catch {};
         }
+        zeroPeTimestamp(init.io, out_bin_path);
         return out_bin_path;
     } else {
         std.debug.print("Compilation failed.\n", .{});
@@ -1398,6 +1401,12 @@ fn runBootstrapMode(init: std.process.Init, args: []const [:0]const u8) !void {
 
     if (verify and max_stage >= 3) {
         std.debug.print("[bootstrap] Verifying fixed-point reproducibility...\n", .{});
+        // The intermediate C emitted by the self-host compiler is deterministic;
+        // only the COFF link time stamp varies between two separate link runs.
+        // Normalize it on both binaries so the byte comparison validates the
+        // codegen fixed-point rather than a linker artifact.
+        zeroPeTimestamp(init.io, "compiler/selfhost/stage2.exe");
+        zeroPeTimestamp(init.io, "compiler/selfhost/stage3.exe");
         const f2 = try cwd.openFile(init.io, "compiler/selfhost/stage2.exe", .{});
         defer f2.close(init.io);
         const f3 = try cwd.openFile(init.io, "compiler/selfhost/stage3.exe", .{});
@@ -2025,6 +2034,34 @@ fn copyFile(io: anytype, allocator: std.mem.Allocator, src: []const u8, dest: []
             return err;
         }
     }
+}
+
+/// Zero the PE TimeDateStamp in a linked Windows binary. The COFF linker embeds
+/// the link time in the header, so two builds of identical code differ by these
+/// 4 bytes and the 3-stage bootstrap fixed-point comparison could never pass.
+/// Zeroing them makes otherwise-identical builds byte-identical (the same
+/// normalization /BREPRO performs for reproducible builds). No-op for
+/// non-PE files and for binaries whose timestamp is already zeroed.
+fn zeroPeTimestamp(io: anytype, path: []const u8) void {
+    const builtin_target = @import("builtin");
+    if (builtin_target.os.tag != .windows) return;
+
+    var cwd = std.Io.Dir.cwd();
+    var file = cwd.openFile(io, path, .{ .mode = .read_write }) catch return;
+    defer file.close(io);
+
+    var hdr: [0x100]u8 = undefined;
+    var read_buf: [64]u8 = undefined;
+    var reader = std.Io.File.Reader.init(file, io, &read_buf);
+    reader.interface.readSliceAll(&hdr) catch return;
+
+    const lfanew = std.mem.readInt(u32, hdr[0x3C..0x40], .little);
+    // PE signature (4) + Machine (2) + NumberOfSections (2) -> TimeDateStamp.
+    const ts_off: usize = lfanew + 8;
+    if (ts_off == 8 or ts_off + 4 > hdr.len) return;
+    if (!std.mem.eql(u8, hdr[lfanew..][0..4], "PE\x00\x00")) return;
+    if (hdr[ts_off] == 0 and hdr[ts_off + 1] == 0 and hdr[ts_off + 2] == 0 and hdr[ts_off + 3] == 0) return;
+    file.writePositionalAll(io, &[_]u8{ 0, 0, 0, 0 }, ts_off) catch return;
 }
 
 fn sendLspResponse(writer: anytype, payload: []const u8) !void {
