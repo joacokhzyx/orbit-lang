@@ -380,7 +380,11 @@ pub const MirBuilder = struct {
         if (ir_instr.opcode == .load_field) {
             const field_name = fieldNameOf(ir_instr.operand2);
             const obj_val = ir_instr.operand1;
-            const offset = self.resolveFieldOffset(ir_func, obj_val, field_name, layout) orelse return error.UnresolvedField;
+            const offset = self.resolveFieldOffset(ir_func, obj_val, field_name, layout) orelse {
+                const oreg: u32 = if (obj_val == .register) obj_val.register else 9999;
+                std.debug.print("UNRESOLVED load_field fn={s} field={s} obj_reg={d} regtype={s}\n", .{ ir_func.name, field_name, oreg, @tagName(if (oreg < ir_func.register_types.items.len) ir_func.register_types.items[oreg] else .unknown) });
+                return error.UnresolvedField;
+            };
             return MirInstruction{
                 .opcode = .load_field,
                 .dest = ir_instr.dest,
@@ -392,7 +396,10 @@ pub const MirBuilder = struct {
         if (ir_instr.opcode == .store_field) {
             const field_name = fieldNameOf(ir_instr.operand2);
             const obj_val = ir_instr.operand1;
-            const offset = self.resolveFieldOffset(ir_func, obj_val, field_name, layout) orelse return error.UnresolvedField;
+            const offset = self.resolveFieldOffset(ir_func, obj_val, field_name, layout) orelse {
+                std.debug.print("UNRESOLVED store_field fn={s} field={s} obj_val={s}\n", .{ ir_func.name, field_name, @tagName(obj_val) });
+                return error.UnresolvedField;
+            };
             return MirInstruction{
                 .opcode = .store_field,
                 .dest = null,

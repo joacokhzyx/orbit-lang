@@ -504,7 +504,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             inferType(sema, m.expr)
             if m.cases.len() > 0 {
                 match m.cases.get(0) {
-                    ASTNode.MatchCase(c) => { return inferType(sema, c.body) }
+                    ASTNode.MatchCase(mc) => { return inferType(sema, mc.body) }
                     _ => { return "void" }
                 }
             }
@@ -600,12 +600,12 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.If(stmt) => { checkIfStatement(sema, node) }
         ASTNode.While(w) => { checkWhileLoop(sema, node) }
         ASTNode.For(f) => { checkForLoop(sema, node) }
-        ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
+        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants) }
         ASTNode.RouteDecl(r) => { checkRouteBody(sema, node) }
-        ASTNode.Try(t) => { inferType(sema, t.expr) }
+        ASTNode.Try(tr) => { inferType(sema, tr.expr) }
         ASTNode.MatchCase(mc) => {}
         ASTNode.GenericParam(gp) => {}
-        ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name, "type", false, false) }
+        ASTNode.TraitDecl(trd) => { declareSymbol(sema, trd.name, "type", false, false) }
         ASTNode.ImplDecl(impl) => {
             var j = 0
             while j < impl.methods.len() {

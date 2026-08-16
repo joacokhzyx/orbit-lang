@@ -2,7 +2,9 @@
 
 This directory contains the Orbit benchmark suite. It measures Orbit against
 Go, Rust, C, C++, Node.js, and Python across two categories: raw computation
-and HTTP throughput.
+and HTTP throughput. A standalone HTTP dispatch latency micro-benchmark
+(`bench-http-dispatch`) measures the C runtime's per-request parse/dispatch
+cost in isolation.
 
 ## Prerequisites
 
@@ -39,6 +41,8 @@ zig build bench -- --suite http         # http throughput only
 zig build bench -- --suite death        # death/stress test only
 zig build bench -- --lang go,rust       # filter languages
 zig build bench -- --no-color           # disable ANSI output
+zig build bench-http-dispatch           # HTTP dispatch latency micro-benchmark
+zig build bench-http-dispatch -- --requests=100000 --runs=10   # custom size
 ```
 
 Results are written to `results/YYYY-MM-DD_HH-MM.json` and
@@ -76,6 +80,20 @@ GET /          → 200  "OK\n"
 GET /fib?n=N   → 200  "<fib(N)>\n"  (iterative, mod 10^9+7, N capped at 10^6)
 ```
 
+Cross-language ranking runs through `zig build bench-http-dynamic`
+(`dynamic/run_dynamic_bench.py`). Orbit is built with `cwd=dynamic/` so the
+`dynamic/orbit.atlas` config applies — it pins `logs: disabled` + `kynx: disabled`,
+which compile the per-request log printf and the Kynx lease path out of the
+generated router (`ORBIT_LOGS_ACTIVE 0` / `ORBIT_KYNX_ACTIVE 0`). Without that
+config every worker serializes on the CRT stdout lock per request and the
+benchmark measures console contention instead of the engine.
+
+Measurement caveat: on a 2-core machine with a local client, end-to-end
+throughput is client-limited. Orbit's acceptor distributes sockets 50/50 and
+per-request cost is flat with more workers, but a single local client competes
+with the worker threads for the same physical cores, so multi-worker scaling is
+only observable with >=3 cores or a remote client.
+
 Measurement procedure per language:
 1. Start server
 2. Wait for TCP bind (poll every 100 ms, timeout 10 s)
@@ -92,6 +110,40 @@ Frameworks used:
 - C++: raw POSIX sockets
 - Node.js: built-in `http` module
 - Python: `uvicorn` + raw ASGI (no starlette/fastapi)
+
+### HTTP dispatch latency micro-benchmark
+
+`bench-http-dispatch` (`benchmarks/http_dispatch_latency.zig`) measures the
+per-request cost of the C runtime's HTTP parse/dispatch path —
+`orbit_http_parse_request()` in `src/runtime/http.c` — with no network I/O. It
+links the C runtime directly through `benchmarks/http_dispatch_latency_shim.c`
+(`http.c` plus its arena/string-pool/pulse dependencies) and is always built
+in ReleaseFast: latency numbers from Debug builds are not meaningful.
+
+A fixed set of realistic HTTP/1.1 request buffers (GET/POST/PUT/DELETE, query
+strings, request bodies) is dispatched repeatedly through the parse API. Each
+request is first copied into a fresh scratch buffer, because the parser
+NUL-terminates the buffer in place; it is then parsed and its request target
+is folded into a checksum so the optimizer cannot elide the work. The arena is
+reset after every request to model per-request arena reuse.
+
+Measurement procedure:
+1. Calibrate RDTSC cycles-per-ns against the boot clock (~60 ms busy-wait)
+2. Warm-up: 10,000 requests (discarded)
+3. 20 measured runs of 200,000 requests each; the median run time is reported
+4. Per-request RDTSC samples (the same clock the runtime's `orbit_rdtsc()`
+   uses, in `src/runtime/performance.h`) are collected and converted to ns for
+   p50/p95/p99
+
+Reported: requests/sec, average latency per request, p50/p95/p99 latency in
+ns, and a dispatch checksum for reproducibility.
+
+How to interpret: these numbers are a single-core, in-memory upper bound on
+dispatch throughput. The full dispatch hook `orbit_handle_request()` in
+`http.c` requires a connected client socket, so the micro-benchmark measures
+the network-free parse/dispatch path that bounds end-to-end latency.
+End-to-end HTTP latency (the `http` suite above) is always higher because it
+includes the network stack, sockets, and concurrency.
 
 ### Death / stress test
 

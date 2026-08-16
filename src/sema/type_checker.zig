@@ -247,6 +247,32 @@ pub const TypeChecker = struct {
                                 .file_source = "",
                             }) catch {};
                         }
+                    } else {
+                        // Check parameter types matching
+                        for (tm.param_types, im.param_types, 0..) |trait_pt, impl_pt, idx| {
+                            if (!std.mem.eql(u8, trait_pt, impl_pt)) {
+                                if (!std.mem.eql(u8, trait_pt, "unknown") and
+                                    !std.mem.eql(u8, impl_pt, "unknown"))
+                                {
+                                    valid = false;
+                                    if (self.diagnostics) |d| {
+                                        const msg = std.fmt.allocPrint(
+                                            self.allocator,
+                                            "Impl method '{s}' param {d} has type '{s}' but trait expects '{s}'",
+                                            .{ tm.name, idx + 1, impl_pt, trait_pt },
+                                        ) catch "";
+                                        defer if (msg.len > 0) self.allocator.free(msg);
+                                        d.reportError("impl/param-type", msg, .{
+                                            .tag = .Invalid,
+                                            .loc = .{ .start = 0, .end = 0, .line = 1, .col = 1 },
+                                            .text = "",
+                                            .file_path = "",
+                                            .file_source = "",
+                                        }) catch {};
+                                    }
+                                }
+                            }
+                        }
                     }
                     if (!std.mem.eql(u8, tm.return_type, im.return_type)) {
                         // Allow unknown in either direction

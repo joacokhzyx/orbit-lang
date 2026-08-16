@@ -40,14 +40,15 @@ pub fn runFixedPoint(allocator: std.mem.Allocator, instructions: []const IRInstr
     return FixedPointResult{
         .instructions = current,
         .passes_run = total_passes,
-        .iterations = iteration + 1,
-        .changes_made = changed,
+        .iterations = iteration,
+        .changes_made = total_passes > 0,
     };
 }
 
 pub fn findLabel(instructions: []const IRInstruction, label_id: u32) ?usize {
     for (instructions, 0..) |instr, i| {
         if (instr.opcode == .label) {
+            if (instr.operand1 == .label and instr.operand1.label == label_id) return i;
             if (instr.operand1 == .int and instr.operand1.int == label_id) return i;
             if (instr.operand1 == .string) {
                 const s = instr.operand1.string;
@@ -63,6 +64,7 @@ pub fn findLabel(instructions: []const IRInstruction, label_id: u32) ?usize {
 
 pub fn getLabelId(instr: IRInstruction) ?u32 {
     if (instr.opcode != .label) return null;
+    if (instr.operand1 == .label) return @intCast(instr.operand1.label);
     if (instr.operand1 == .int) return @intCast(instr.operand1.int);
     if (instr.operand1 == .string) {
         return std.fmt.parseInt(u32, instr.operand1.string, 10) catch null;
@@ -72,9 +74,11 @@ pub fn getLabelId(instr: IRInstruction) ?u32 {
 
 pub fn getJumpTarget(instr: IRInstruction) ?u32 {
     if (instr.opcode == .jump) {
+        if (instr.operand1 == .label) return @intCast(instr.operand1.label);
         if (instr.operand1 == .int) return @intCast(instr.operand1.int);
     }
     if (instr.opcode == .jump_if_false) {
+        if (instr.operand2 == .label) return @intCast(instr.operand2.label);
         if (instr.operand2 == .int) return @intCast(instr.operand2.int);
     }
     return null;

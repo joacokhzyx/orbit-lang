@@ -1233,7 +1233,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             if instr.dest != -1 {
                 var pIdx = 0
                 match instr.operand1 {
-                    IRValue.Int(m) => { pIdx = m.value }
+                    IRValue.Int(pi) => { pIdx = pi.value }
                     _ => {}
                 }
                 if pIdx < backend.currentFunction.params.len() {
@@ -1292,7 +1292,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             }
             var numArgs = 0
             match instr.operand2 {
-                IRValue.Int(m) => { numArgs = m.value }
+                IRValue.Int(iv) => { numArgs = iv.value }
                 _ => {}
             }
             var expCount = 0

@@ -373,6 +373,52 @@ test "sema.generic_function_param_scope" {
     try std.testing.expect(sema.diagnostics.error_count == 0);
 }
 
+test "sema.impl_param_type_mismatch_diagnosed" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\trait Printable {
+        \\    fn print(msg: string) -> void
+        \\}
+        \\
+        \\model Console {
+        \\    id: int
+        \\}
+        \\
+        \\impl Printable for Console {
+        \\    fn print(msg: int) -> void {
+        \\    }
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    const sema = try Sema.create(allocator, source);
+    _ = sema.analyze(root) catch {};
+    try std.testing.expect(sema.diagnostics.hasErrors());
+}
+
+test "sema.trait_generic_param_scope" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\trait Container[T] {
+        \\    fn get() -> T
+        \\    fn put(item: T) -> void
+        \\}
+    ;
+    var p = Parser.init(source, "test.orb", allocator);
+    const root = try p.parse();
+
+    const sema = try Sema.create(allocator, source);
+    try sema.analyze(root);
+    try std.testing.expect(sema.diagnostics.error_count == 0);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Workstream D: IR instruction structure tests (P0)
 // Pure unit tests — no parser/sema/allocator dependency
@@ -677,7 +723,6 @@ test "codegen.c_backend_golden_snapshot" {
         \\}
         \\
         \\static void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double boost_pct) {
-        \\    (void)num_workers;
         \\    printf("\n  Orbit 0.1-rc.2");
         \\    if (boost_pct >= 0.5) {
         \\        printf(" ");
@@ -686,6 +731,7 @@ test "codegen.c_backend_golden_snapshot" {
         \\    printf("\n\n");
         \\
         \\    printf("   \x1b[90m-\x1b[0m \x1b[37mLocal:\x1b[0m \x1b[1;37mhttp://localhost:%d\x1b[0m\n", port);
+        \\    printf("   \x1b[90m-\x1b[0m \x1b[37mWorkers:\x1b[0m \x1b[1;37m%d\x1b[0m\n", num_workers);
         \\
         \\    if (boost_pct >= 0.5) {
         \\        char boost_buf[64];
@@ -772,6 +818,8 @@ test "codegen.c_backend_golden_snapshot" {
         \\}
         \\
         \\#ifdef ORBIT_WITH_NET
+        \\#define ORBIT_LOGS_ACTIVE 1
+        \\#define ORBIT_KYNX_ACTIVE 1
         \\static inline uint64_t orbit_route_hash(const char* method, const char* path) {
         \\    uint64_t h = 14695981039346656037ULL;
         \\    if (!method || !path) return 0;
@@ -781,6 +829,7 @@ test "codegen.c_backend_golden_snapshot" {
         \\    return h;
         \\}
         \\
+        \\#if ORBIT_LOGS_ACTIVE
         \\static inline void orbit_log_request_fmt(const char* method, const char* path, int status, uint64_t start_rdtsc) {
         \\    uint64_t elapsed_cycles = orbit_rdtsc() - start_rdtsc;
         \\    double ms = (double)elapsed_cycles / 2500000.0;
@@ -815,6 +864,7 @@ test "codegen.c_backend_golden_snapshot" {
         \\    printf("  %s%-6s\x1b[0m \x1b[1;37m%-32s\x1b[0m %s%d %-18s\x1b[0m \x1b[2;90m%.1f ms\x1b[0m\n",
         \\        method_color, method_str, path_str, status_color, status, status_text, ms);
         \\}
+        \\#endif
         \\
         \\int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
         \\    uint64_t start = orbit_rdtsc();
@@ -828,23 +878,31 @@ test "codegen.c_backend_golden_snapshot" {
         \\    int keep_alive = 1;
         \\    if (strstr(raw_request, "Connection: close") || strstr(raw_request, "connection: close")) keep_alive = 0;
         \\
+        \\#if ORBIT_KYNX_ACTIVE
         \\    extern OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
         \\    extern void orbit_kynx_lease_destroy(OrbitKynxLease* lease);
         \\    OrbitKynxLease* lease = orbit_kynx_lease_create_for_route(req->path, req->method, arena);
         \\    if (lease && (lease->flags & 1)) {
         \\        OrbitResponse* res = orbit_response_create(arena, 503, "text/plain", "503 Siege Mode Active - Non-critical Route Blocked");
         \\        orbit_send_response(client_sock, res);
+        \\#if ORBIT_LOGS_ACTIVE
         \\        orbit_log_request_fmt(req->method, req->path, 503, start);
+        \\#endif
         \\        orbit_kynx_lease_destroy(lease);
         \\        orbit_perf_end_request(start);
         \\        return 0;
         \\    }
+        \\#endif
         \\        
         \\    if (req->path && strcmp(req->path, "/_pulse") == 0) {
         \\        OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
         \\        orbit_send_response(client_sock, res);
+        \\#if ORBIT_LOGS_ACTIVE
         \\        orbit_log_request_fmt(req->method, req->path, 200, start);
+        \\#endif
+        \\#if ORBIT_KYNX_ACTIVE
         \\        if (lease) orbit_kynx_lease_destroy(lease);
+        \\#endif
         \\        orbit_perf_end_request(start);
         \\        return keep_alive;
         \\    }
@@ -852,8 +910,12 @@ test "codegen.c_backend_golden_snapshot" {
         \\        orbit_string json = orbit_pulse_get_stats_json(arena);
         \\        OrbitResponse* res = orbit_response_json(arena, 200, json);
         \\        orbit_send_response(client_sock, res);
+        \\#if ORBIT_LOGS_ACTIVE
         \\        orbit_log_request_fmt(req->method, req->path, 200, start);
+        \\#endif
+        \\#if ORBIT_KYNX_ACTIVE
         \\        if (lease) orbit_kynx_lease_destroy(lease);
+        \\#endif
         \\        orbit_perf_end_request(start);
         \\        return keep_alive;
         \\    }
@@ -861,8 +923,12 @@ test "codegen.c_backend_golden_snapshot" {
         \\    switch (route_key) {    default: {
         \\        OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
         \\        orbit_send_response(client_sock, res);
+        \\#if ORBIT_LOGS_ACTIVE
         \\        orbit_log_request_fmt(req->method, req->path, 404, start);
+        \\#endif
+        \\#if ORBIT_KYNX_ACTIVE
         \\        if (lease) orbit_kynx_lease_destroy(lease);
+        \\#endif
         \\        orbit_perf_end_request(start);
         \\        return keep_alive;
         \\    }
@@ -1621,4 +1687,263 @@ test "superluminal.pass_runner_fixed_point_cleanup" {
         try std.testing.expect(instr.opcode != .label and instr.opcode != .jump);
         if (instr.opcode == .load_const) try std.testing.expect(instr.dest.? != 1);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream: Doctor — route conflict detection with path normalisation (DOCTOR-0)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "doctor.normalize_route_path: static paths are unchanged" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const alloc = ta.arena.allocator();
+
+    const checker = @import("doctor/checker.zig");
+    const norm = try checker.normalizeRoutePath(alloc, "/api/health");
+    try std.testing.expectEqualStrings("/api/health", norm);
+}
+
+test "doctor.normalize_route_path: colon param becomes placeholder" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const alloc = ta.arena.allocator();
+
+    const checker = @import("doctor/checker.zig");
+    const norm = try checker.normalizeRoutePath(alloc, "/users/:id");
+    try std.testing.expectEqualStrings("/users/{}", norm);
+}
+
+test "doctor.normalize_route_path: brace param becomes placeholder" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const alloc = ta.arena.allocator();
+
+    const checker = @import("doctor/checker.zig");
+    const norm = try checker.normalizeRoutePath(alloc, "/items/{uuid}/details");
+    try std.testing.expectEqualStrings("/items/{}/details", norm);
+}
+
+test "doctor.normalize_route_path: wildcard segment becomes placeholder" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const alloc = ta.arena.allocator();
+
+    const checker = @import("doctor/checker.zig");
+    const norm = try checker.normalizeRoutePath(alloc, "/files/*");
+    try std.testing.expectEqualStrings("/files/{}", norm);
+}
+
+test "doctor.normalize_route_path: quoted path strips quotes before normalising" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const alloc = ta.arena.allocator();
+
+    const checker = @import("doctor/checker.zig");
+    // Token text includes surrounding double-quotes as produced by the lexer.
+    const norm = try checker.normalizeRoutePath(alloc, "\"/orders/:orderId/items/:itemId\"");
+    try std.testing.expectEqualStrings("/orders/{}/items/{}", norm);
+}
+
+test "doctor.normalize_route_path: two different param names produce identical keys" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const alloc = ta.arena.allocator();
+
+    const checker = @import("doctor/checker.zig");
+    const a = try checker.normalizeRoutePath(alloc, "/users/:id");
+    const b = try checker.normalizeRoutePath(alloc, "/users/:uuid");
+    // Both routes occupy the same URL space — their canonical keys must match.
+    try std.testing.expectEqualStrings(a, b);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workstream: Doctor — deep static analysis layers (DOCTOR-1)
+// Each test asserts the exact severity, code, line, and message contract.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const doctor_ui = @import("doctor/ui.zig");
+const doctor_ast = @import("doctor/ast_analysis.zig");
+const doctor_semantic = @import("doctor/semantic_analysis.zig");
+
+fn doctorCountWithCode(findings: []const doctor_ui.Finding, code: []const u8) usize {
+    var n: usize = 0;
+    for (findings) |f| {
+        if (std.mem.eql(u8, f.code, code)) n += 1;
+    }
+    return n;
+}
+
+fn doctorGetFinding(findings: []const doctor_ui.Finding, code: []const u8) ?doctor_ui.Finding {
+    for (findings) |f| {
+        if (std.mem.eql(u8, f.code, code)) return f;
+    }
+    return null;
+}
+
+fn doctorHasLine(lines: []const usize, target: usize) bool {
+    for (lines) |l| {
+        if (l == target) return true;
+    }
+    return false;
+}
+
+test "doctor.layer2: cyclomatic complexity between 11 and 20 warns at fn line" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    var buf = std.ArrayListUnmanaged(u8).empty;
+    try buf.appendSlice(allocator, "fn heavy(x: int) -> int {\n");
+    var i: usize = 0;
+    while (i < 11) : (i += 1) {
+        const line = try std.fmt.allocPrint(allocator, "if x > {d} {{ return {d} }}\n", .{ i, i });
+        defer allocator.free(line);
+        try buf.appendSlice(allocator, line);
+    }
+    try buf.appendSlice(allocator, "return 0\n}\n");
+    const source = try buf.toOwnedSlice(allocator);
+
+    const findings = try doctor_ast.analyze(allocator, source, "complex.orb");
+    try std.testing.expectEqual(@as(usize, 1), doctorCountWithCode(findings, "DOC-L2-001"));
+    const f = doctorGetFinding(findings, "DOC-L2-001").?;
+    try std.testing.expectEqual(doctor_ui.DiagnosticSeverity.warning, f.severity);
+    try std.testing.expectEqual(@as(usize, 1), f.line);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "Function complexity 12") != null);
+}
+
+test "doctor.layer2: recursion without TCO warns at fn line" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn count(n: int) -> int {
+        \\    count(n - 1)
+        \\    return 0
+        \\}
+    ;
+    const findings = try doctor_ast.analyze(allocator, source, "rec.orb");
+    try std.testing.expectEqual(@as(usize, 1), doctorCountWithCode(findings, "DOC-L2-002"));
+    const f = doctorGetFinding(findings, "DOC-L2-002").?;
+    try std.testing.expectEqual(doctor_ui.DiagnosticSeverity.warning, f.severity);
+    try std.testing.expectEqual(@as(usize, 1), f.line);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "fn count is recursive but not in tail position") != null);
+}
+
+test "doctor.layer2: allocation inside loop warns with exact lines" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\route GET "/render" => render()
+        \\fn render(rows: int) {
+        \\    for item in rows {
+        \\        val b = buffer_alloc(1024)
+        \\        map_create()
+        \\    }
+        \\    while true {
+        \\        list_create()
+        \\    }
+        \\}
+    ;
+    const findings = try doctor_ast.analyze(allocator, source, "loop.orb");
+    try std.testing.expectEqual(@as(usize, 3), doctorCountWithCode(findings, "DOC-L2-003"));
+    var found_lines = std.ArrayListUnmanaged(usize).empty;
+    defer found_lines.deinit(allocator);
+    for (findings) |f| {
+        if (std.mem.eql(u8, f.code, "DOC-L2-003")) {
+            try found_lines.append(allocator, f.line);
+        }
+    }
+    try std.testing.expect(doctorHasLine(found_lines.items, 4));
+    try std.testing.expect(doctorHasLine(found_lines.items, 5));
+    try std.testing.expect(doctorHasLine(found_lines.items, 8));
+    const f = doctorGetFinding(findings, "DOC-L2-003").?;
+    try std.testing.expectEqual(doctor_ui.DiagnosticSeverity.warning, f.severity);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "Allocation inside loop body in fn render at") != null);
+}
+
+test "doctor.layer2: dead function warns at fn line" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn unused_helper(x: int) -> int {
+        \\    return x
+        \\}
+        \\route GET "/" {
+        \\    return 1
+        \\}
+    ;
+    const findings = try doctor_ast.analyze(allocator, source, "dead.orb");
+    try std.testing.expectEqual(@as(usize, 1), doctorCountWithCode(findings, "DOC-L2-004"));
+    const f = doctorGetFinding(findings, "DOC-L2-004").?;
+    try std.testing.expectEqual(doctor_ui.DiagnosticSeverity.warning, f.severity);
+    try std.testing.expectEqual(@as(usize, 1), f.line);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "fn unused_helper is never called from any route or schedule") != null);
+}
+
+test "doctor.layer3: mutable module var written from route is a data race" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\val mut counter = 0
+        \\route POST "/inc" {
+        \\    counter = counter + 1
+        \\    return ok 200 counter
+        \\}
+    ;
+    const findings = try doctor_semantic.analyze(allocator, source, "race.orb");
+    try std.testing.expectEqual(@as(usize, 1), doctorCountWithCode(findings, "DOC-L3-001"));
+    const f = doctorGetFinding(findings, "DOC-L3-001").?;
+    try std.testing.expectEqual(doctor_ui.DiagnosticSeverity.err, f.severity);
+    try std.testing.expectEqual(@as(usize, 3), f.line);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "Module-level mutable variable 'counter'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "This is a data race.") != null);
+}
+
+test "doctor.layer3: untrusted request field flows into db operation" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\route GET "/v1/catalog" {
+        \\    val category = req.query("category")
+        \\    if (category != "") {
+        \\        val filtered = Product.where("category = ?", category)
+        \\        return ok 200 filtered
+        \\    }
+        \\}
+    ;
+    const findings = try doctor_semantic.analyze(allocator, source, "catalog.orb");
+    try std.testing.expectEqual(@as(usize, 1), doctorCountWithCode(findings, "DOC-L3-002"));
+    const f = doctorGetFinding(findings, "DOC-L3-002").?;
+    try std.testing.expectEqual(doctor_ui.DiagnosticSeverity.err, f.severity);
+    try std.testing.expectEqual(@as(usize, 4), f.line);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "Untrusted request field 'category'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "Possible injection risk") != null);
+}
+
+test "doctor.layer3: unfreed allocation outside handler warns" {
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    const source =
+        \\fn main() {
+        \\    val buffer = buffer_alloc(1024)
+        \\    print(buffer)
+        \\}
+    ;
+    const findings = try doctor_semantic.analyze(allocator, source, "main.orb");
+    try std.testing.expectEqual(@as(usize, 1), doctorCountWithCode(findings, "DOC-L3-003"));
+    const f = doctorGetFinding(findings, "DOC-L3-003").?;
+    try std.testing.expectEqual(doctor_ui.DiagnosticSeverity.warning, f.severity);
+    try std.testing.expectEqual(@as(usize, 2), f.line);
+    try std.testing.expect(std.mem.indexOf(u8, f.message, "Possible unfreed allocation in fn main") != null);
 }

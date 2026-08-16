@@ -44,7 +44,6 @@ pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
         \\}}
         \\
         \\static void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double boost_pct) {{
-        \\    (void)num_workers;
         \\    printf("\n  Orbit 0.1-rc.2");
         \\    if (boost_pct >= 0.5) {{
         \\        printf(" ");
@@ -53,6 +52,7 @@ pub fn generateHeaders(allocator: std.mem.Allocator) ![]const u8 {
         \\    printf("\n\n");
         \\
         \\    printf("   \x1b[90m-\x1b[0m \x1b[37mLocal:\x1b[0m \x1b[1;37mhttp://localhost:%d\x1b[0m\n", port);
+        \\    printf("   \x1b[90m-\x1b[0m \x1b[37mWorkers:\x1b[0m \x1b[1;37m%d\x1b[0m\n", num_workers);
         \\
         \\    if (boost_pct >= 0.5) {{
         \\        char boost_buf[64];
@@ -89,7 +89,6 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\static void* orbit_worker_loop(void* arg) {{
             \\#endif
             \\    OrbitWorkerCtx* ctx = (OrbitWorkerCtx*)arg;
-            \\    orbit_socket_t server_sock = ctx->server_sock;
             \\
             \\    /* Each thread owns its private arena — zero pool contention */
             \\    OrbitArena* thread_arena = orbit_arena_create(131072);
@@ -105,20 +104,24 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\    for (int j = 0; j < 512; j++) {{
             \\        free_buffers[j] = buffer_pool + j * 16384;
             \\    }}
-            \\    int free_buffers_count = 512;
-            \\    
+\\    int free_buffers_count = 512;
             \\    while (1) {{
             \\        fd_set readfds;
             \\        FD_ZERO(&readfds);
-            \\        FD_SET(server_sock, &readfds);
-            \\        orbit_socket_t max_fd = server_sock;
+            \\        orbit_socket_t max_fd = 0;
+            \\        FD_SET(ctx->wake_recv, &readfds);
+            \\        if (ctx->wake_recv > max_fd) max_fd = ctx->wake_recv;
             \\
             \\        for (int i = 0; i < num_clients; i++) {{
             \\            FD_SET(clients[i], &readfds);
             \\            if (clients[i] > max_fd) max_fd = clients[i];
             \\        }}
             \\
-            \\        struct timeval tv = {{{d}, 0}};
+            \\        /* Select timeout is bounded to 1s so an idle worker re-checks
+            \\         * its accept queue even if a wake datagram is ever dropped. */
+            \\        int _orbit_sel_s = {d};
+            \\        if (_orbit_sel_s > 1) _orbit_sel_s = 1;
+            \\        struct timeval tv = {{_orbit_sel_s, 0}};
             \\        int activity = select((int)max_fd + 1, &readfds, NULL, NULL, &tv);
             \\
             \\        if (activity < 0) {{
@@ -159,23 +162,20 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\            continue;
             \\        }}
             \\
-            \\        if (FD_ISSET(server_sock, &readfds)) {{
-            \\            orbit_socket_t new_sock = accept(server_sock, NULL, NULL);
-            \\            if (new_sock != ORBIT_INVALID_SOCKET) {{
-            \\                if (num_clients < 512 && free_buffers_count > 0) {{
-            \\                    int nodelay = 1;
-            \\                    setsockopt(new_sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay));
-            \\                    int sndbuf = 65536;
-            \\                    int rcvbuf = 65536;
-            \\                    setsockopt(new_sock, SOL_SOCKET, SO_SNDBUF, (char*)&sndbuf, sizeof(sndbuf));
-            \\                    setsockopt(new_sock, SOL_SOCKET, SO_RCVBUF, (char*)&rcvbuf, sizeof(rcvbuf));
-            \\                    clients[num_clients] = new_sock;
-            \\                    buffered[num_clients] = 0;
-            \\                    buffers[num_clients] = free_buffers[--free_buffers_count];
-            \\                    num_clients++;
-            \\                }} else {{
-            \\                    orbit_socket_close(new_sock);
-            \\                }}
+            \\        if (FD_ISSET(ctx->wake_recv, &readfds)) {{
+            \\            orbit_wake_drain(ctx->wake_recv);
+            \\        }}
+            \\
+            \\        /* Adopt sockets pushed by the acceptor thread (lock-free SPSC). */
+            \\        orbit_socket_t new_sock;
+            \\        while (orbit_accept_q_pop(&ctx->q, &new_sock)) {{
+            \\            if (num_clients < 512 && free_buffers_count > 0) {{
+            \\                clients[num_clients] = new_sock;
+            \\                buffered[num_clients] = 0;
+            \\                buffers[num_clients] = free_buffers[--free_buffers_count];
+            \\                num_clients++;
+            \\            }} else {{
+            \\                orbit_socket_close(new_sock);
             \\            }}
             \\        }}
             \\
@@ -201,12 +201,12 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\                    int keep_alive = 1;
             \\                    size_t parsed = 0;
             \\                    while (parsed < buffered[i]) {{
-            \\                        size_t consumed = 0;
-            \\                        orbit_arena_reset(thread_arena);
-            \\                        int keep = orbit_handle_request(client_sock, buffers[i] + parsed, buffered[i] - parsed, thread_arena, &consumed);
-            \\                        if (!keep) keep_alive = 0;
-            \\                        if (consumed == 0) break;
-            \\                        parsed += consumed;
+\\    size_t consumed = 0;
+                        \\    orbit_arena_reset(thread_arena);
+                        \\    int keep = orbit_handle_request(client_sock, buffers[i] + parsed, buffered[i] - parsed, thread_arena, &consumed);
+                        \\    if (!keep) keep_alive = 0;
+                        \\    if (consumed == 0) break;
+                        \\    parsed += consumed;
             \\                    }}
             \\                    
             \\                    if (parsed > 0) {{
@@ -227,12 +227,12 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\                buffered[i] = buffered[num_clients - 1];
             \\                buffers[i] = buffers[num_clients - 1];
             \\                num_clients--;
-            \\            }} else {{
-            \\                i++;
-            \\            }}
-            \\        }}
-            \\    }}
-            \\    free(buffer_pool);
+\\            }} else {{
+                \\                i++;
+                \\            }}
+                \\        }}
+                \\    }}
+                \\    free(buffer_pool);
             \\    orbit_arena_destroy(thread_arena);
             \\#ifdef _WIN32
             \\    return 0;
@@ -315,6 +315,14 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\#endif
             \\
             \\    int num_workers = {d};
+            \\    if (num_workers <= 0) {{
+            \\        const char* _orbit_env_w = getenv("ORBIT_WORKERS");
+            \\        if (_orbit_env_w != NULL) {{
+            \\            int _orbit_env_n = atoi(_orbit_env_w);
+            \\            if (_orbit_env_n > 0) num_workers = _orbit_env_n;
+            \\        }}
+            \\    }}
+            \\    if (num_workers <= 0) num_workers = ORBIT_CPU_COUNT();
             \\    if (num_workers <= 0) num_workers = 1;
             \\    if (num_workers > 64) num_workers = 64;
             \\
@@ -323,16 +331,41 @@ pub fn generateMainFunction(allocator: std.mem.Allocator, has_server: bool, has_
             \\    orbit_thread_t* workers = (orbit_thread_t*)malloc(sizeof(orbit_thread_t) * (size_t)num_workers);
             \\    OrbitWorkerCtx* ctxs = (OrbitWorkerCtx*)malloc(sizeof(OrbitWorkerCtx) * (size_t)num_workers);
             \\
+            \\    OrbitAcceptorCtx acceptor;
+            \\    acceptor.server_sock = server_sock;
+            \\    acceptor.num_workers = num_workers;
+            \\    acceptor.wake_send = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            \\    if (acceptor.wake_send == ORBIT_INVALID_SOCKET) {{
+            \\        printf("Failed to create accept wake socket\n");
+            \\        orbit_socket_close(server_sock);
+            \\        return 1;
+            \\    }}
+            \\
+            \\    int _wake_ok = 1;
+            \\    for (int i = 0; i < num_workers; i++) {{
+            \\        orbit_accept_q_init(&ctxs[i].q);
+            \\        ctxs[i].thread_id = i;
+            \\        ctxs[i].port      = port;
+            \\        if (!orbit_wake_recv_create(&ctxs[i].wake_recv, &acceptor.wake_addr[i])) {{
+            \\            printf("Failed to create worker wake socket\n");
+            \\            _wake_ok = 0;
+            \\            break;
+            \\        }}
+            \\        acceptor.queues[i] = &ctxs[i].q;
+            \\    }}
+            \\    if (!_wake_ok) {{
+            \\        orbit_socket_close(acceptor.wake_send);
+            \\        orbit_socket_close(server_sock);
+            \\        return 1;
+            \\    }}
+            \\
+            \\    orbit_thread_t acceptor_thread;
+            \\    ORBIT_THREAD_CREATE(acceptor_thread, orbit_acceptor_loop, &acceptor);
+            \\
             \\    for (int i = 1; i < num_workers; i++) {{
-            \\        ctxs[i].server_sock = server_sock;
-            \\        ctxs[i].thread_id   = i;
-            \\        ctxs[i].port        = port;
             \\        ORBIT_THREAD_CREATE(workers[i], orbit_worker_loop, &ctxs[i]);
             \\    }}
             \\
-            \\    ctxs[0].server_sock = server_sock;
-            \\    ctxs[0].thread_id   = 0;
-            \\    ctxs[0].port        = port;
             \\    orbit_worker_loop(&ctxs[0]);
             \\
             \\    orbit_kynx_cleanup();

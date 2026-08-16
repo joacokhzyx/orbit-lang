@@ -22,6 +22,22 @@ pub const DoctorSummary = struct {
     warning_count: usize = 0,
     error_count: usize = 0,
     duration_ns: u64 = 0,
+    layer1_token_ns: u64 = 0,
+    layer2_ast_ns: u64 = 0,
+    layer3_semantic_ns: u64 = 0,
+};
+
+/// A single structured finding produced by the Doctor analysis layers.
+///
+/// Every finding carries the diagnostic code (e.g. `DOC-L2-001`), severity,
+/// file path, 1-based line number, and a one-sentence actionable suggestion.
+pub const Finding = struct {
+    category: []const u8,
+    code: []const u8,
+    severity: DiagnosticSeverity,
+    file: []const u8,
+    line: usize,
+    message: []const u8,
 };
 
 pub fn renderRedShimmer(writer: anytype, text: []const u8) !void {

@@ -703,7 +703,14 @@ pub const Sema = struct {
         try self.type_checker.registerTypeKind(trait_name, .trait_type);
         try scope.define(trait_name, "type", false);
 
-        // Register generic parameter names in the trait's scope
+        // Register generic parameter names and Self in the trait's scope
+        const trait_scope = try self.scope_manager.pushScope();
+        defer self.scope_manager.popScope();
+        try self.injectGenericParams(trait_data.generic_params, trait_scope);
+        trait_scope.define("Self", "type", false) catch |err| {
+            if (err != error.DuplicateDefinition) return err;
+        };
+
         var methods = std.ArrayListUnmanaged(TraitMethod).empty;
         for (trait_data.methods) |method_node| {
             const fn_node = if (method_node.tag == .expression_stmt) method_node.data.expression_stmt.expr else method_node;

@@ -57,6 +57,14 @@ pub const IRBuilder = struct {
     }
 
     fn getNodeType(self: *IRBuilder, node: *Node) IRType {
+        // Variables bound by the IRBuilder (params, val decls, match payloads)
+        // are tracked more precisely than sema's node_types, which does not
+        // scope match-case payload identifiers. Check them first for identifiers.
+        if (node.tag == .identifier) {
+            const name = node.data.identifier.getText(self.source);
+            if (self.variable_types.get(name)) |t| return t;
+        }
+
         if (self.node_types.get(node)) |type_name| {
             for (self.module.types.items) |t| {
                 if (std.mem.eql(u8, t.name, type_name)) {
@@ -650,15 +658,53 @@ pub const IRBuilder = struct {
             .return_stmt => {
                 const value = node.data.return_stmt.expr;
                 const result = if (value) |v| try self.buildExpr(v) else IRValue.none;
-                var instr = IRInstruction.init(.ret);
-                instr.operand1 = result;
-                try self.current_function.?.emit(self.allocator, instr);
+
+                const fn_ret = self.current_function.?.return_type;
+                const value_type: IRType = switch (result) {
+                    .register => |r| if (r < self.current_function.?.register_types.items.len) self.current_function.?.register_types.items[r] else .unknown,
+                    .string => .string,
+                    .int => .int,
+                    .float => .float,
+                    .bool => .bool,
+                    else => .unknown,
+                };
+
+                if (fn_ret == .response and value_type == .string) {
+                    const status_code = if (node.data.return_stmt.status) |s|
+                        try std.fmt.parseInt(i32, s.getText(self.source), 10)
+                    else
+                        200;
+
+                    var instr = IRInstruction.init(.call);
+                    instr.operand1 = IRValue{ .string = "orbit_response_json" };
+                    const dest_reg = try self.current_function.?.allocRegister(self.allocator, .response);
+                    instr.dest = dest_reg;
+
+                    var arg1 = IRInstruction.init(.arg);
+                    arg1.operand1 = IRValue{ .int = @intCast(status_code) };
+                    var arg2 = IRInstruction.init(.arg);
+                    arg2.operand1 = result;
+
+                    try self.current_function.?.emit(self.allocator, arg1);
+                    try self.current_function.?.emit(self.allocator, arg2);
+                    try self.current_function.?.emit(self.allocator, instr);
+
+                    var ret_instr = IRInstruction.init(.ret);
+                    ret_instr.operand1 = IRValue{ .register = dest_reg };
+                    try self.current_function.?.emit(self.allocator, ret_instr);
+                } else {
+                    var instr = IRInstruction.init(.ret);
+                    instr.operand1 = result;
+                    try self.current_function.?.emit(self.allocator, instr);
+                }
             },
             .return_ok => {
                 const expr_val = try self.buildExpr(node.data.return_ok.expr);
-                const ret_str = try ast.formatTypeExpr(self.allocator, node.data.return_ok.expr, self.source);
-                self.current_function.?.return_type = try self.resolveType(ret_str);
-                self.allocator.free(ret_str);
+                if (node.data.return_ok.expr.tag == .type_expr) {
+                    const ret_str = try ast.formatTypeExpr(self.allocator, node.data.return_ok.expr, self.source);
+                    self.current_function.?.return_type = try self.resolveType(ret_str);
+                    self.allocator.free(ret_str);
+                }
 
                 const status_code = if (node.data.return_ok.status) |s|
                     try std.fmt.parseInt(i32, s.getText(self.source), 10)
@@ -1163,7 +1209,6 @@ pub const IRBuilder = struct {
             // Intercept collection methods
             if (std.mem.eql(u8, member_name, "push") or std.mem.eql(u8, member_name, "append")) {
                 const obj = try self.buildExpr(ma.object);
-                std.debug.print("[IR DEBUG] buildCall: push handler, args.len={d}, func={s}\n", .{ node.data.call.args.len, self.current_function.?.name });
                 if (node.data.call.args.len == 1) {
                     const val = try self.buildExpr(node.data.call.args[0]);
                     var instr = IRInstruction.init(.list_push);
@@ -1172,7 +1217,6 @@ pub const IRBuilder = struct {
                     const push_res = try self.current_function.?.allocRegister(self.allocator, .void);
                     instr.dest = push_res;
                     try self.current_function.?.emit(self.allocator, instr);
-                    std.debug.print("[IR DEBUG] buildCall: push EMITTED! func={s} instr_count={d}\n", .{ self.current_function.?.name, self.current_function.?.instructions.items.len });
                     return IRValue{ .register = push_res };
                 }
             } else if (std.mem.eql(u8, member_name, "pop")) {
@@ -1678,6 +1722,8 @@ pub const IRBuilder = struct {
         for (match_data.cases) |case| {
             const case_data = case.data.match_case;
             const next_case_label = self.allocLabel();
+            var bound_var: ?[]const u8 = null;
+            var prev_var_type: ?IRType = null;
 
             // Handle pattern comparison
             if (case_data.pattern.tag == .identifier and std.mem.eql(u8, case_data.pattern.data.identifier.getText(self.source), "_")) {
@@ -1741,13 +1787,15 @@ pub const IRBuilder = struct {
                         get_data.operand2 = IRValue{ .symbol = tag_const_name };
                         try self.current_function.?.emit(self.allocator, get_data);
 
+                        const var_name = v_tok.getText(self.source);
                         var decl = IRInstruction.init(.decl_var);
-                        decl.operand1 = IRValue{ .string = v_tok.getText(self.source) };
+                        decl.operand1 = IRValue{ .string = var_name };
                         decl.operand2 = IRValue{ .register = data_reg };
                         try self.current_function.?.emit(self.allocator, decl);
 
-                        // Register the type for later access (e.g. in print)
-                        try self.variable_types.put(v_tok.getText(self.source), p_type);
+                        bound_var = var_name;
+                        prev_var_type = self.variable_types.get(var_name);
+                        try self.variable_types.put(var_name, p_type);
                     }
                 }
             } else {
@@ -1769,6 +1817,13 @@ pub const IRBuilder = struct {
             }
 
             try self.buildStmt(case_data.body);
+            if (bound_var) |bv| {
+                if (prev_var_type) |pt| {
+                    try self.variable_types.put(bv, pt);
+                } else {
+                    _ = self.variable_types.remove(bv);
+                }
+            }
             try self.current_function.?.emit(self.allocator, IRInstruction.init(.end_block));
 
             var end_jump = IRInstruction.init(.jump);

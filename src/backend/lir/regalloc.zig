@@ -381,12 +381,13 @@ pub const RegisterAllocator = struct {
         stack_size = (stack_size + 15) & ~@as(u32, 15);
 
         const rax_phys = LirRegister{ .id = @backingInt(RegisterId.rax), .is_physical = true };
+        const r10_phys = LirRegister{ .id = @backingInt(RegisterId.r10), .is_physical = true };
         const r11_phys = LirRegister{ .id = @backingInt(RegisterId.r11), .is_physical = true };
         const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
         const rsp_phys = LirRegister{ .id = @backingInt(RegisterId.rsp), .is_physical = true };
 
         // Helper: translate a virtual LirRegister into its physical assignment or
-        // return a scratch register (R11 for sources, RAX for destinations).
+        // return a scratch register (R10 for op1, R11 for op2/sources, RAX for destinations).
         // If a virtual reg is spilled, the caller must emit a load/store explicitly.
         const physReg = struct {
             fn get(map: []const ?u32, r: LirRegister, scratch: LirRegister) LirRegister {
@@ -499,18 +500,30 @@ pub const RegisterAllocator = struct {
 
                 var new_instr = instr;
 
-                // Resolve op1 (source register).
+                // Resolve op1 (source register or memory base).
                 if (instr.op1 == .reg and !instr.op1.reg.is_physical) {
                     const vr = instr.op1.reg;
                     if (slotOffset(spill_slot, vr)) |off| {
                         try res_block.instructions.append(self.allocator, .{
                             .opcode = @backingInt(X86Opcode.mov_rm),
-                            .dest = r11_phys,
+                            .dest = r10_phys,
                             .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
                         });
-                        new_instr.op1 = .{ .reg = r11_phys };
+                        new_instr.op1 = .{ .reg = r10_phys };
                     } else {
-                        new_instr.op1 = .{ .reg = physReg(reg_map, vr, r11_phys) };
+                        new_instr.op1 = .{ .reg = physReg(reg_map, vr, r10_phys) };
+                    }
+                } else if (instr.op1 == .mem and instr.op1.mem.base != null and !instr.op1.mem.base.?.is_physical) {
+                    const vr = instr.op1.mem.base.?;
+                    if (slotOffset(spill_slot, vr)) |off| {
+                        try res_block.instructions.append(self.allocator, .{
+                            .opcode = @backingInt(X86Opcode.mov_rm),
+                            .dest = r10_phys,
+                            .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
+                        });
+                        new_instr.op1.mem.base = r10_phys;
+                    } else {
+                        new_instr.op1.mem.base = physReg(reg_map, vr, r10_phys);
                     }
                 }
 
@@ -526,6 +539,21 @@ pub const RegisterAllocator = struct {
                         new_instr.op2 = .{ .reg = r11_phys };
                     } else {
                         new_instr.op2 = .{ .reg = physReg(reg_map, vr, r11_phys) };
+                    }
+                }
+
+                // Resolve op3 (source register).
+                if (instr.op3 == .reg and !instr.op3.reg.is_physical) {
+                    const vr = instr.op3.reg;
+                    if (slotOffset(spill_slot, vr)) |off| {
+                        try res_block.instructions.append(self.allocator, .{
+                            .opcode = @backingInt(X86Opcode.mov_rm),
+                            .dest = r11_phys,
+                            .op1 = .{ .mem = .{ .base = rbp_phys, .disp = off } },
+                        });
+                        new_instr.op3 = .{ .reg = r11_phys };
+                    } else {
+                        new_instr.op3 = .{ .reg = physReg(reg_map, vr, r11_phys) };
                     }
                 }
 

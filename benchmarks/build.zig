@@ -35,4 +35,45 @@ pub fn build(b: *std.Build) void {
     }
 
     bench_step.dependOn(&run_harness.step);
+
+    // ── HTTP dispatch latency micro-benchmark (BENCH-0) ──────────────────
+    // Standalone benchmark for the C runtime's per-request parse/dispatch
+    // path in src/runtime/http.c.  Linked directly against the C runtime via
+    // the shim in http_dispatch_latency_shim.c (which also supplies the TLS
+    // oracle-session backing store normally provided by src/runtime/oracle.c).
+    // ReleaseFast is hardcoded: latency measurements in Debug builds are
+    // not representative of the runtime's dispatch cost.
+    const dispatch = b.addExecutable(.{
+        .name = "bench_http_dispatch",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("http_dispatch_latency.zig"),
+            .target = target,
+            .optimize = .fast,
+            .link_libc = true,
+        }),
+    });
+
+    dispatch.root_module.addCSourceFile(.{
+        .file = b.path("http_dispatch_latency_shim.c"),
+        .flags = &.{ "-O2", "-std=c11" },
+    });
+    if (target.result.os.tag == .windows) {
+        dispatch.root_module.linkSystemLibrary("ws2_32", .{});
+    }
+
+    const bench_http_dispatch_step = b.step("bench-http-dispatch", "Run the HTTP dispatch latency micro-benchmark");
+    const run_dispatch = b.addRunArtifact(dispatch);
+    run_dispatch.addPassthruArgs();
+    bench_http_dispatch_step.dependOn(&run_dispatch.step);
+
+    // ── Dynamic cross-language HTTP benchmark ────────────────────────────
+    // Orbit vs Go vs Rust vs Node vs C over real sockets (hello-world
+    // endpoint), loaded with `hey`.  Requires python, go, cargo, node and
+    // hey on PATH.  Relative ranking is meaningful; absolute numbers are
+    // environment-dependent, so run on a quiet machine and compare within
+    // a single session.
+    const dynamic_step = b.step("bench-http-dynamic", "Run the dynamic cross-language HTTP benchmark (Orbit vs Go/Rust/Node/C)");
+    const run_dynamic = b.addSystemCommand(&.{ "python", "dynamic/run_dynamic_bench.py" });
+    run_dynamic.setCwd(b.path("."));
+    dynamic_step.dependOn(&run_dynamic.step);
 }

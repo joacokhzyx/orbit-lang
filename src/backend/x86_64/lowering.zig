@@ -34,6 +34,7 @@ pub const Lowering = struct {
     allocator: std.mem.Allocator,
     target: Target,
     arg_count: usize = 0,
+    stack_args_pushed: usize = 0,
     /// Set by `sret_alloc`; while set, `.arg` instructions place arguments at
     /// position 1+ and `.call` loads the hidden sret pointer into arg slot 0.
     sret_pending: bool = false,
@@ -51,6 +52,7 @@ pub const Lowering = struct {
             .allocator = allocator,
             .target = target,
             .arg_count = 0,
+            .stack_args_pushed = 0,
             .tag_map = tag_map,
         };
     }
@@ -417,9 +419,10 @@ pub const Lowering = struct {
                         });
                     }
                 } else {
-                    // Parameter passed on stack.
-                    // The stack parameters are located at [RBP + 16 + (param_idx - abi_regs.len)*8]
-                    const disp: i32 = @intCast(16 + (param_idx - abi_regs.len) * 8);
+                    // The caller pushes stack arguments sequentially (sub rsp, 8; mov [rsp], src).
+                    // When the call executes, the stack contains the return address [RBP + 8]
+                    // and the stack arguments pushed in order, with the last argument at [RBP + 16].
+                    const disp: i32 = @intCast(16 + (num_params - 1 - param_idx) * 8);
 
                     const rbp_phys = LirRegister{ .id = @backingInt(RegisterId.rbp), .is_physical = true };
                     // Prepend mov dest_reg, [RBP + disp]
@@ -1092,6 +1095,7 @@ pub const Lowering = struct {
                         .op1 = .{ .mem = .{ .base = rsp_phys, .disp = 0 } },
                         .op2 = .{ .reg = src_reg },
                     });
+                    self.stack_args_pushed += 1;
                 }
                 self.arg_count += 1;
             },
@@ -1147,6 +1151,16 @@ pub const Lowering = struct {
                             .op1 = .{ .reg = rax_phys },
                         });
                     }
+                }
+
+                if (self.stack_args_pushed > 0) {
+                    const rsp_phys = LirRegister{ .id = @backingInt(RegisterId.rsp), .is_physical = true };
+                    try block.instructions.append(self.allocator, .{
+                        .opcode = @backingInt(X86Opcode.add_ri),
+                        .dest = rsp_phys,
+                        .op1 = .{ .imm_int = @intCast(self.stack_args_pushed * 8) },
+                    });
+                    self.stack_args_pushed = 0;
                 }
             },
             .div, .mod => {

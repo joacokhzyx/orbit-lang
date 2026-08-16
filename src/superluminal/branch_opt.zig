@@ -20,9 +20,9 @@ pub fn branchThreading(allocator: std.mem.Allocator, instructions: []const IRIns
                         if (next_target) |next_id| {
                             if (next_id != label_id) {
                                 if (result[i].opcode == .jump) {
-                                    result[i].operand1 = IRValue{ .int = @intCast(next_id) };
+                                    result[i].operand1 = IRValue{ .label = next_id };
                                 } else if (result[i].opcode == .jump_if_false) {
-                                    result[i].operand2 = IRValue{ .int = @intCast(next_id) };
+                                    result[i].operand2 = IRValue{ .label = next_id };
                                 }
                                 modified = true;
                             }

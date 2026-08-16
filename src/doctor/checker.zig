@@ -6,6 +6,54 @@ const Lexer = @import("../lexer.zig").Lexer;
 const Token = @import("../token.zig").Token;
 const TokenType = @import("../token.zig").TokenType;
 
+/// Normalise an HTTP path for conflict detection.
+///
+/// Replaces every parameterised segment — those starting with ':' or '{' — with
+/// the canonical placeholder `{}`. This ensures that `GET /users/:id` and
+/// `GET /users/:uuid` are treated as the same route signature, which they are:
+/// both match exactly the same request space and therefore constitute a conflict.
+///
+/// Examples:
+///   `/users/:id`            → `/users/{}`
+///   `/items/{uuid}/details` → `/items/{}/details`
+///   `/api/health`           → `/api/health`   (unchanged)
+///
+/// The caller owns the returned slice; it is allocated from `allocator`.
+pub fn normalizeRoutePath(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
+    // Strip surrounding quotes if present (path tokens include the quote chars).
+    const path = if (raw.len >= 2 and raw[0] == '"' and raw[raw.len - 1] == '"')
+        raw[1 .. raw.len - 1]
+    else
+        raw;
+
+    var out = std.ArrayListUnmanaged(u8).empty;
+    errdefer out.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < path.len) {
+        if (path[i] == '/') {
+            try out.append(allocator, '/');
+            i += 1;
+            // Scan to end of this segment.
+            const seg_start = i;
+            while (i < path.len and path[i] != '/') : (i += 1) {}
+            const seg = path[seg_start..i];
+            if (seg.len == 0) continue;
+            // Parameterised segment: starts with ':' or '{', or is the bare '*' wildcard.
+            if (seg[0] == ':' or seg[0] == '{' or std.mem.eql(u8, seg, "*")) {
+                try out.appendSlice(allocator, "{}");
+            } else {
+                try out.appendSlice(allocator, seg);
+            }
+        } else {
+            try out.append(allocator, path[i]);
+            i += 1;
+        }
+    }
+
+    return out.toOwnedSlice(allocator);
+}
+
 pub const DoctorOptions = struct {
     auto_fix: bool = false,
     verbose: bool = false,
@@ -82,8 +130,17 @@ pub fn runDiagnostics(io: std.Io, allocator: std.mem.Allocator, target_dir: []co
                         const method_tok = lexer.next();
                         const path_tok = lexer.next();
                         if (path_tok.tag == .StringLiteral) {
-                            const key = try std.fmt.allocPrint(allocator, "{s} {s}", .{ method_tok.text, path_tok.text });
-                            defer allocator.free(key);
+                            // Normalise the path so that parameterised segments
+                            // (`:id`, `{uuid}`, `*`) all become `{}` before we
+                            // compare routes. Without normalisation, GET /users/:id
+                            // and GET /users/:uuid would be missed as a collision.
+                            const norm_path = try normalizeRoutePath(allocator, path_tok.text);
+                            defer allocator.free(norm_path);
+
+                            // The map retains this key slice for the whole scan, so
+                            // it must NOT be freed here: the arena would reclaim the
+                            // tail allocation and later writes would corrupt it.
+                            const key = try std.fmt.allocPrint(allocator, "{s} {s}", .{ method_tok.text, norm_path });
 
                             const gop = try route_map.getOrPut(key);
                             if (gop.found_existing) {

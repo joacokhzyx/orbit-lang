@@ -287,6 +287,89 @@ static void test_no_leaks_on_error(void) {
     assert(arena == NULL); // Must fail cleanly without leaking anything
 }
 
+// 26. Cross-request arena isolation: sequential requests
+// 27. Cross-request arena isolation: concurrent in-flight requests
+static int region_has_byte(const void* ptr, size_t n, unsigned char byte) {
+    const unsigned char* p = (const unsigned char*)ptr;
+    for (size_t i = 0; i < n; i++) {
+        if (p[i] == byte) return 1;
+    }
+    return 0;
+}
+
+static void test_cross_request_sequential_isolation(void) {
+    orbit_arena_pool_init(2, 4096);
+
+    const size_t pad_size = 512 * 1024;
+    const size_t chunk = 4096;
+    const int chunks = 4;
+    const char* secret = "request1_secret";
+    size_t secret_len = strlen(secret);
+
+    OrbitArena* req1 = orbit_arena_pool_acquire();
+    assert(req1 != NULL);
+
+    void* pad1 = orbit_alloc(req1, pad_size);
+    assert(pad1 != NULL);
+    for (int i = 0; i < chunks; i++) {
+        void* p = orbit_alloc(req1, chunk);
+        assert(p != NULL);
+        memset(p, 0xAB, chunk);
+    }
+    const char* s1 = orbit_string_intern(req1, secret);
+    assert(s1 != NULL);
+
+    orbit_arena_pool_release(req1);
+
+    OrbitArena* req2 = orbit_arena_pool_acquire();
+    assert(req2 != NULL);
+    assert(req2 == req1);
+
+    void* pad2 = orbit_alloc(req2, pad_size);
+    assert(pad2 != NULL);
+    for (int i = 0; i < chunks; i++) {
+        void* p = orbit_alloc(req2, chunk);
+        assert(p != NULL);
+        assert(!region_has_byte(p, chunk, 0xAB));
+    }
+
+    void* cover = orbit_alloc(req2, chunk);
+    assert(cover != NULL);
+    assert(memcmp(s1, secret, secret_len) != 0);
+
+    const char* s2 = orbit_string_intern(req2, secret);
+    assert(s2 != NULL);
+    assert(strcmp(s2, secret) == 0);
+
+    orbit_arena_pool_release(req2);
+    orbit_arena_pool_cleanup();
+}
+
+static void test_cross_request_concurrent_isolation(void) {
+    orbit_arena_pool_init(2, 4096);
+
+    OrbitArena* a1 = orbit_arena_pool_acquire();
+    OrbitArena* a2 = orbit_arena_pool_acquire();
+    assert(a1 != NULL);
+    assert(a2 != NULL);
+    assert(a1 != a2);
+    assert(a1->base != a2->base);
+
+    unsigned char* r1 = (unsigned char*)orbit_alloc(a1, 16384);
+    unsigned char* r2 = (unsigned char*)orbit_alloc(a2, 16384);
+    assert(r1 != NULL);
+    assert(r2 != NULL);
+    memset(r1, 0x11, 16384);
+    memset(r2, 0x22, 16384);
+
+    assert(!region_has_byte(r1, 16384, 0x22));
+    assert(!region_has_byte(r2, 16384, 0x11));
+
+    orbit_arena_pool_release(a1);
+    orbit_arena_pool_release(a2);
+    orbit_arena_pool_cleanup();
+}
+
 int main(void) {
     printf("=== ORBIT EPOCHAL ARENA RUNTIME TESTS ===\n");
     
@@ -311,7 +394,9 @@ int main(void) {
     RUN_TEST(test_pool_concurrency_and_overflow);
     RUN_TEST(test_thousands_of_resets);
     RUN_TEST(test_no_leaks_on_error);
+    RUN_TEST(test_cross_request_sequential_isolation);
+    RUN_TEST(test_cross_request_concurrent_isolation);
     
-    printf("All 25 mandatory Orbit Arena runtime tests PASSED successfully!\n");
+    printf("All 27 mandatory Orbit Arena runtime tests PASSED successfully!\n");
     return 0;
 }

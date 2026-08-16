@@ -37,6 +37,9 @@ benchmarks/clients/go/runner_go
 benchmarks/clients/cpp/runner_cpp.exe
 benchmarks/clients/go/runner_go.exe
 benchmarks/clients/rust/target/
+benchmarks/dynamic/.out/
+benchmarks/dynamic/rust_server/target/
+benchmarks/dynamic/last_run.txt
 
 # Local bootstrap build outputs
 bootstrap_server.exe

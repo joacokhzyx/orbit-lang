@@ -2855,3 +2855,183 @@ test "native end-to-end: User.all() returns seeded rows from real SQLite" {
     const code = try runNativeRuntimeProgramOpts(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, sqlite_stub_body, .{ .db = true });
     try std.testing.expectEqual(@as(u32, 1), code);
 }
+
+test "native end-to-end: function with 6 parameters passed via registers and stack" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const atlas_mod = @import("../atlas.zig");
+    const Parser = @import("../parser.zig").Parser;
+    const Sema = @import("../sema.zig").Sema;
+    const IRBuilder = @import("../ir/builder.zig").IRBuilder;
+
+    const source =
+        \\fn sum6(a: int, b: int, c: int, d: int, e: int, f: int) -> int {
+        \\    return a + b + c + d + e + f
+        \\}
+        \\
+        \\fn main() -> int {
+        \\    val res = sum6(1, 2, 3, 4, 10, 20)
+        \\    return res
+        \\}
+    ;
+
+    var p = Parser.init(source, "sum6.orb", alloc);
+    const root = try p.parse();
+
+    var sema = try Sema.create(alloc, source);
+    defer sema.deinit();
+    try sema.analyze(root);
+    try std.testing.expect(sema.diagnostics.getDiagnostics().len == 0);
+
+    var builder = IRBuilder.init(alloc, source, &sema.node_types, &sema.model_registry);
+    var ir_module = try builder.build(root);
+    defer ir_module.deinit();
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    // 1 + 2 + 3 + 4 + 10 + 20 = 40
+    try std.testing.expectEqual(@as(u32, 40), code);
+}
+
+test "native end-to-end: 8-parameter function called in a loop does not leak stack" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const backend_mod = @import("backend.zig");
+    const atlas_mod = @import("../atlas.zig");
+    const Parser = @import("../parser.zig").Parser;
+    const Sema = @import("../sema.zig").Sema;
+    const IRBuilder = @import("../ir/builder.zig").IRBuilder;
+
+    const source =
+        \\fn sum8(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) -> int {
+        \\    return a + b + c + d + e + f + g + h
+        \\}
+        \\
+        \\fn main() -> int {
+        \\    var mut total = 0
+        \\    var mut i = 0
+        \\    while i < 10 {
+        \\        total = total + sum8(1, 1, 1, 1, 1, 1, 1, 1)
+        \\        i = i + 1
+        \\    }
+        \\    return total
+        \\}
+    ;
+
+    var p = Parser.init(source, "sum8.orb", alloc);
+    const root = try p.parse();
+
+    var sema = try Sema.create(alloc, source);
+    defer sema.deinit();
+    try sema.analyze(root);
+    try std.testing.expect(sema.diagnostics.getDiagnostics().len == 0);
+
+    var builder = IRBuilder.init(alloc, source, &sema.node_types, &sema.model_registry);
+    var ir_module = try builder.build(root);
+    defer ir_module.deinit();
+
+    var backend = backend_mod.Backend.init(alloc, atlas_mod.AtlasConfig{}, false);
+    try backend.lower(alloc, &ir_module);
+    const obj_bytes = try backend.emitObject(alloc);
+
+    const code = try runNativeRuntimeProgram(alloc, io, builtin_mod.os.tag == .windows, obj_bytes, native_stub_main_body);
+    // 10 iterations * 8 = 80
+    try std.testing.expectEqual(@as(u32, 80), code);
+}
+
+test "regalloc: linear scan allocates physical registers and produces valid assembly" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const lir_mod = @import("lir/lir.zig");
+    const regalloc_mod = @import("lir/regalloc.zig");
+    const inst_mod = @import("x86_64/instruction.zig");
+    const reg_mod = @import("x86_64/registers.zig");
+    const Encoder = @import("x86_64/encoder.zig").Encoder;
+
+    var func = lir_mod.LirFunction{
+        .name = try alloc.dupe(u8, "calc"),
+        .stack_size = 64,
+    };
+    defer func.deinit(alloc);
+
+    var block = lir_mod.LirBasicBlock{ .id = 0 };
+    // mov v0, 10
+    try block.instructions.append(alloc, .{
+        .opcode = @backingInt(inst_mod.X86Opcode.mov_ri),
+        .dest = .{ .id = 0, .is_physical = false },
+        .op1 = .{ .imm_int = 10 },
+    });
+    // mov v1, 20
+    try block.instructions.append(alloc, .{
+        .opcode = @backingInt(inst_mod.X86Opcode.mov_ri),
+        .dest = .{ .id = 1, .is_physical = false },
+        .op1 = .{ .imm_int = 20 },
+    });
+    // add v0, v1
+    try block.instructions.append(alloc, .{
+        .opcode = @backingInt(inst_mod.X86Opcode.add_rr),
+        .dest = .{ .id = 0, .is_physical = false },
+        .op1 = .{ .reg = .{ .id = 1, .is_physical = false } },
+    });
+    // mov rax, v0
+    try block.instructions.append(alloc, .{
+        .opcode = @backingInt(inst_mod.X86Opcode.mov_rr),
+        .dest = .{ .id = @backingInt(reg_mod.RegisterId.rax), .is_physical = true },
+        .op1 = .{ .reg = .{ .id = 0, .is_physical = false } },
+    });
+    // ret
+    try block.instructions.append(alloc, .{
+        .opcode = @backingInt(inst_mod.X86Opcode.ret),
+    });
+
+    try func.blocks.append(alloc, block);
+
+    var allocator = regalloc_mod.RegisterAllocator.init(alloc, .linear);
+    var allocated = try allocator.allocate(&func);
+    defer allocated.deinit(alloc);
+
+    try std.testing.expect(allocated.blocks.items.len == 1);
+
+    // Verify that all virtual registers were transformed into physical registers
+    for (allocated.blocks.items[0].instructions.items) |instr| {
+        if (instr.dest) |d| {
+            try std.testing.expect(d.is_physical);
+        }
+        if (instr.op1 == .reg) {
+            try std.testing.expect(instr.op1.reg.is_physical);
+        }
+        if (instr.op2 == .reg) {
+            try std.testing.expect(instr.op2.reg.is_physical);
+        }
+    }
+
+    // Machine encode to verify encoder acceptance
+    var encoder = Encoder.init(alloc);
+    defer encoder.deinit();
+    const code = try encoder.encodeFunction(&allocated);
+    try std.testing.expect(code.len > 0);
+}
