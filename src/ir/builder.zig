@@ -1040,6 +1040,38 @@ pub const IRBuilder = struct {
             return IRValue{ .register = reg };
         }
 
+        // `req.*` used as a value (no call parens), e.g. `User.create(req.body)`.
+        // Lower to the same runtime builtins as the call form in buildCall.
+        if (ma.object.tag == .identifier) {
+            const obj_name = ma.object.data.identifier.getText(self.source);
+            if (std.mem.eql(u8, obj_name, "req")) {
+                var builtin_name: []const u8 = "";
+                var req_operand: IRValue = IRValue{ .symbol = "req" };
+                if (std.mem.eql(u8, member_name, "body") or std.mem.eql(u8, member_name, "json")) {
+                    builtin_name = "orbit_http_body_get";
+                } else if (std.mem.eql(u8, member_name, "bearer_token")) {
+                    builtin_name = "orbit_auth_bearer_token";
+                    req_operand = IRValue{ .symbol = "req->headers" };
+                } else if (std.mem.eql(u8, member_name, "role")) {
+                    builtin_name = "orbit_auth_current_role";
+                    req_operand = IRValue{ .symbol = "req->headers" };
+                }
+                if (builtin_name.len > 0) {
+                    var req_arg = IRInstruction.init(.arg);
+                    req_arg.operand1 = req_operand;
+                    try self.current_function.?.emit(self.allocator, req_arg);
+
+                    const reg = try self.current_function.?.allocRegister(self.allocator, self.getNodeType(node));
+                    var call_instr = IRInstruction.init(.call);
+                    call_instr.dest = reg;
+                    call_instr.operand1 = IRValue{ .string = builtin_name };
+                    call_instr.operand2 = IRValue{ .int = 1 };
+                    try self.current_function.?.emit(self.allocator, call_instr);
+                    return IRValue{ .register = reg };
+                }
+            }
+        }
+
         // Object access
         const obj_val = try self.buildExpr(ma.object);
         const type_val = self.getNodeType(node);

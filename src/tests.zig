@@ -1097,6 +1097,138 @@ test "bootstrap.fixed_point_verification" {
     return error.SkipZigTest;
 }
 
+test "runtime.http_pipelined_parse_no_buffer_clobber" {
+    const allocator = std.heap.smp_allocator;
+    const is_windows = @import("builtin").os.tag == .windows;
+    const bin_name = if (is_windows) ".\\test_http_parse.exe" else "./test_http_parse";
+    const bin_out = if (is_windows) "test_http_parse.exe" else "test_http_parse";
+
+    var args: std.ArrayList([]const u8) = .empty;
+    defer args.deinit(allocator);
+    try args.appendSlice(allocator, &.{
+        "zig",
+        "cc",
+        "-DORBIT_WITH_NET",
+        "-Isrc/runtime",
+        "-Isrc/runtime/vendor",
+        "src/runtime/test_http_parse.c",
+        "-o",
+        bin_out,
+    });
+    if (is_windows) {
+        try args.append(allocator, "-lws2_32");
+    }
+
+    // global_single_threaded.io() uses a failing allocator, so process spawning
+    // through it always returns OutOfMemory on Windows. Use a dedicated Threaded
+    // io with a real allocator (same pattern as backend/tests.zig).
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var compile_child = std.process.spawn(io, .{
+        .argv = args.items,
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const compile_term = try compile_child.wait(io);
+    if (compile_term != .exited or compile_term.exited != 0) {
+        return error.SkipZigTest;
+    }
+
+    var test_child = std.process.spawn(io, .{
+        .argv = &.{bin_name},
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const test_term = try test_child.wait(io);
+
+    // Clean up compiled binary
+    std.Io.Dir.cwd().deleteFile(io, bin_out) catch {};
+
+    if (test_term != .exited or test_term.exited != 0) {
+        std.debug.print("[HTTP-TEST] test binary failed: {any}\n", .{test_term});
+        return error.HttpParseRegression;
+    }
+}
+
+test "codegen.compile.req_member_value" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // global_single_threaded.io() uses a failing allocator, so process spawning
+    // through it always returns OutOfMemory on Windows. Use a dedicated Threaded
+    // io with a real allocator (same pattern as backend/tests.zig).
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const this_file = @src().file;
+    const this_dir = std.fs.path.dirname(this_file) orelse ".";
+    const src_dir = std.fs.path.dirname(this_dir) orelse ".";
+    const root_dir = std.fs.path.dirname(src_dir) orelse ".";
+
+    const temp_dir = try std.fs.path.join(alloc, &.{ root_dir, ".req_member_tmp" });
+    const compiler_path = try std.fs.path.join(alloc, &.{ root_dir, "zig-out", "bin", "orbit.exe" });
+
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    defer cwd.deleteTree(io, temp_dir) catch {};
+
+    const src_path = try std.fs.path.join(alloc, &.{ temp_dir, "req_member.orb" });
+    const bin_path = try std.fs.path.join(alloc, &.{ temp_dir, "req_member.exe" });
+
+    var file = try cwd.createFile(io, src_path, .{ .truncate = true });
+    var wb: [4096]u8 = undefined;
+    var fw = std.Io.File.Writer.init(file, io, &wb);
+    try fw.interface.writeAll(
+        \\port 4002
+        \\cors "*"
+        \\db "req_member_bench.db"
+        \\
+        \\model User {
+        \\    id: string primary
+        \\    username: string
+        \\    token: string
+        \\}
+        \\
+        \\route POST "/register" => {
+        \\    val u = User.create(req.body)
+        \\    return response.json(201, "{\"status\":\"registered\"}")
+        \\}
+        \\
+        \\route POST "/login" => {
+        \\    val tok = "token_secret_123"
+        \\    return response.json(200, "{\"token\":\"" + tok + "\"}")
+        \\}
+        \\
+    );
+    try fw.flush();
+    file.close(io);
+
+    var compiler_file = cwd.openFile(io, compiler_path, .{}) catch return error.SkipZigTest;
+    compiler_file.close(io);
+
+    var compile_child = std.process.spawn(io, .{
+        .argv = &.{ compiler_path, "build", src_path, "-o", bin_path },
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const compile_term = try compile_child.wait(io);
+
+    const ok = compile_term == .exited and compile_term.exited == 0;
+    if (!ok) {
+        return error.ReqMemberCompileRegression;
+    }
+}
+
 test "superluminal.z3_equivalence" {
     const z3 = @import("superluminal/z3_integration.zig");
     if (!z3.isAvailable()) return error.SkipZigTest;

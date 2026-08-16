@@ -3,6 +3,7 @@ import sys
 import time
 import subprocess
 import json
+import shutil
 import urllib.request
 import urllib.error
 import socket
@@ -46,12 +47,15 @@ def main():
     server_exes = {}
     for s in servers_spec:
         orb_path = os.path.join(SERVERS_DIR, s["file"])
+        built_exe = os.path.join(SERVERS_DIR, os.path.splitext(s["file"])[0] + ".exe")
         print(f"[*] Compiling Orbit Server: {s['name']}...")
-        res = subprocess.run([ORBIT_EXE, "build", orb_path], capture_output=True, text=True, errors="replace", cwd=ROOT_DIR)
+        # -o is required: without it `orbit build` writes the binary to
+        # orbit.exe in the current working directory, silently overwriting the
+        # compiler in ROOT_DIR and leaving the launched exe stale.
+        res = subprocess.run([ORBIT_EXE, "build", orb_path, "-o", built_exe], capture_output=True, text=True, errors="replace", cwd=ROOT_DIR)
         if res.returncode != 0:
             print(f"[-] Build failed for {s['file']}: {res.stderr}")
             sys.exit(1)
-        built_exe = os.path.join(SERVERS_DIR, os.path.splitext(s["file"])[0] + ".exe")
         server_exes[s["name"]] = built_exe
 
     # 2. Compile Go Client
@@ -68,7 +72,19 @@ def main():
 
     results = []
 
-    # 4. Benchmark Loop
+    # 4. Provision sqlite3.dll next to the built servers: DB-enabled servers
+    # emit a load-time import for sqlite3.dll, so the DLL must be findable at
+    # runtime (next to the exe). Copy it from the tracked vendor copy so the
+    # benchmark is self-sufficient.
+    sqlite_dll_src = os.path.join(ROOT_DIR, "src", "runtime", "vendor", "win-x64", "sqlite3.dll")
+    sqlite_dll_dst = os.path.join(SERVERS_DIR, "sqlite3.dll")
+    if os.path.exists(sqlite_dll_src):
+        shutil.copy2(sqlite_dll_src, sqlite_dll_dst)
+        print(f"[*] Provisioned {sqlite_dll_dst}")
+    else:
+        print("[-] WARNING: vendored sqlite3.dll not found; DB servers may fail to load.")
+
+    # 5. Benchmark Loop
     for s in servers_spec:
         exe = server_exes[s["name"]]
         print(f"\n---> Launching Server [{s['name']}] on port {s['port']}...")
@@ -123,7 +139,7 @@ def main():
         results.append(server_results)
         print(f"    [DEBUG] server_results for {s['name']}: {server_results}")
 
-    # 5. Generate Markdown Report
+    # 6. Generate Markdown Report
     print(f"\n[*] Generating MARKETING_BENCHMARK_REPORT.md (results count: {len(results)})...")
     md = []
     md.append("# Orbit Language Benchmark & Stress Resilience Report")

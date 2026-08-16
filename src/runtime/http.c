@@ -79,7 +79,25 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     // Ensure we have a complete HTTP request header
     const char* headers_end = strstr(raw, "\r\n\r\n");
     if (!headers_end) return 0;
-    
+
+    const char* body_start = headers_end + 4;
+
+    // Resolve Content-Length from the raw header bytes BEFORE any in-place
+    // null termination below: strstr stops at the first '\0', and the
+    // method/path terminators precede the header block.
+    size_t content_length = 0;
+    const char* cl_hdr = strstr(raw, "Content-Length:");
+    if (!cl_hdr) cl_hdr = strstr(raw, "content-length:");
+    if (cl_hdr && cl_hdr < headers_end) {
+        content_length = (size_t)atol(cl_hdr + 15);
+    }
+
+    // If we don't have the full body yet, return 0 to wait for more data
+    if (raw_len < (size_t)(body_start - raw) + content_length) {
+        if (out_req) *out_req = NULL;
+        return 0; // Incomplete body
+    }
+
     OrbitRequest* req = (OrbitRequest*)orbit_alloc(arena, sizeof(OrbitRequest));
     if (!req) return 0;
     memset(req, 0, sizeof(OrbitRequest));
@@ -117,33 +135,26 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     }
 
     /* Body (after \r\n\r\n) */
-    const char* body_sep = headers_end;
-    size_t consumed = (size_t)((headers_end + 4) - raw);
-    
-    const char* body_start = body_sep + 4;
-    
-    // Find Content-Length in headers
-    size_t content_length = 0;
-    const char* cl_hdr = strstr(raw, "Content-Length:");
-    if (!cl_hdr) cl_hdr = strstr(raw, "content-length:");
-    if (cl_hdr && cl_hdr < body_sep) {
-        content_length = (size_t)atol(cl_hdr + 15);
-    }
-    
-    // If we don't have the full body yet, return 0 to wait for more data
-    if (raw_len < consumed + content_length) {
-        if (out_req) *out_req = NULL;
-        return 0; // Incomplete body
-    }
-    
     req->body_len = content_length;
     if (req->body_len > 0) {
-        req->body = (char*)body_start;
-        mutable_raw[consumed + content_length] = '\0';
+        // Copy the body into the arena with a null terminator instead of
+        // writing the terminator into the shared read buffer. With pipelined
+        // requests that byte is the first byte of the next request, which the
+        // previous code clobbered with '\0', corrupting its method/path and
+        // making the router return 404 for every request after the first.
+        char* body_copy = (char*)orbit_alloc(arena, req->body_len + 1);
+        if (body_copy) {
+            memcpy(body_copy, body_start, req->body_len);
+            body_copy[req->body_len] = '\0';
+            req->body = body_copy;
+        } else {
+            req->body = NULL;
+            req->body_len = 0;
+        }
     } else {
         req->body = NULL;
     }
-    consumed = (size_t)(body_start - raw) + content_length;
+    size_t consumed = (size_t)(body_start - raw) + content_length;
 
     if (out_req) *out_req = req;
     return consumed;
