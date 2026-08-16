@@ -125,6 +125,7 @@ pub const IRBuilder = struct {
                     if (std.mem.eql(u8, f.name, name)) return f.return_type;
                 }
                 if (std.mem.eql(u8, name, "orbit_os_argv")) return .string;
+                if (std.mem.eql(u8, name, "orbit_os_exec_selfhost")) return .string;
                 if (std.mem.eql(u8, name, "orbit_string_to_int")) return .int;
                 if (std.mem.eql(u8, name, "orbit_clock_ns")) return .int;
                 if (std.mem.eql(u8, name, "orbit_int_to_string")) return .string;

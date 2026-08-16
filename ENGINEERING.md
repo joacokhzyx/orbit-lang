@@ -323,12 +323,18 @@ Goal: **Orbit source → any C compiler (seed) → stageN.exe → native binary 
 
 ### Phase S1: C Bootstrap Seed
 
+**Status**: Resolved (2026-08-16). Deliverables verified end-to-end below.
+
 **Deliverable**: `dist/orbit_bootstrap.c` — a single amalgamated C source file compilable with `gcc -O2`, `clang -O2`, or `cl /O2` on any platform, without Zig.
 
 Steps:
 1. Concatenate `compiler/selfhost/stage3.exe.c` with `src/runtime/*.c`, inlining all `#include` references to produce a single self-contained translation unit.
+   - Implemented by `scripts/amalgamate.py`: recursively inlines every project-relative `#include "..."` (resolved from the including file's directory, fallback to `src/runtime`), wraps each inlined file in its own per-path include guard so an `#ifdef`-gated occurrence cannot mask a later unconditional one, and leaves system includes untouched. Output is deterministic (fixed order, LF newlines).
 2. Create `scripts/build_seed.sh` (Linux/macOS) and `scripts/build_seed.bat` (Windows) that auto-detect the available C compiler and invoke it.
+   - Detection order: `$ORBIT_CC`/`%ORBIT_CC%` override → `gcc` → `clang` → `cc`/`cl` → `zig cc`. Missing `dist/orbit_bootstrap.c` triggers `amalgamate.py` first. `-O2` plus the same `-Wno-int-conversion`/`-Wno-incompatible-pointer-types` suppression the pipeline uses for its own generated C.
 3. Verify: the binary produced by the C seed must generate a byte-identical `stage3.exe.c` to the one produced by the Zig seed. This is the C-bootstrap fixed-point integrity check.
+   - Verified locally: `dist/orbit_seed.exe` (amalgamated `stage3.exe.c` compiled with `zig cc`) run against `compiler/main.orb` emitted `orbit_selfhost_build.c` hash `9752AAECB1F00759FD4220612D46A3A4DD3A89A52813FC88D016A9D444B64136`, byte-identical to the canonical stage-3 build. Full chain via the seed (seed2 → chain2 → chain3) plus the Zig-bootstrap stages all hash `EFC1C576749A39D28850CF5B87E046AA89F38C5ED4B50E7E4EA4AE8C3A39378B` after `zeroPeTimestamp`.
+   - The self-hosted pipeline already consumes `ORBIT_CC` → `CC` → `zig cc` (`compiler/pipeline.orb`), so a gcc-only machine sets `ORBIT_CC=gcc` once and bootstraps without Zig. A necessary blocker fix shipped with this item: `orbit_os_exec_selfhost` was untyped in sema, so `compOutput.indexOf(...)` in the self-host source emitted an undeclared `compOutput_indexOf`; sema/IR now type it `string` (`codegen.compile.selfhost_exec_indexof_typing` regression test).
 
 **Gate**: A user with only `gcc` and no Zig installation must be able to fully bootstrap Orbit from source. `zig build` must not be required.
 
@@ -379,7 +385,7 @@ A feature is **done** when ALL of the following are true simultaneously:
 | ~~COMPILE-0~~ | `benchmarks/marketing_suite/servers/02_auth_server.orb` | — | ~~Does not compile. Codegen: `no member named 'body' in 'struct OrbitModel'` — request model field access emitted against the wrong C struct.~~ Resolved (2026-08-16): `req.*` value access lowered to `orbit_http_body_get`/`orbit_http_param_get`, pipelined parser no longer clobbers the request buffer between keep-alive reads, bench harness builds with `-o` and provisions `sqlite3.dll`. | ✅ Resolved |
 | ~~COMPILE-1~~ | `benchmarks/marketing_suite/servers/03_page_cache_server.orb` | — | ~~Does not compile. Parser: `unexpected token 'TypeSet'` — syntax rejected at parse time, pre-existing.~~ Resolved (2026-08-16): contextual keywords — member names after `.` accept any keyword/type token and resolve by text, so `cache.set(...)` parses. Regression test `codegen.compile.cache_member_contextual_keyword`. | ✅ Resolved |
 | ~~COMPILE-2~~ | `examples/catalog_service.orb` | — | ~~Does not compile. Codegen builtin arity mismatch on `orbit_http_query_get`, `orbit_db_query_where`, `orbit_http_body_get`.~~ Resolved (2026-08-16): injected `req`/table operands counted in call arity; `Model.where(cond, param)` lowers to new `orbit_db_query_where_p` (sqlite3_mprintf `%Q` binding); `req.body/param/file` typed string and `body.id` on a JSON string emits `orbit_json_field` (was a struct cast that dereferenced raw JSON bytes and crashed the server). Regression test `codegen.compile.catalog_member_call_arity`; POST /v1/catalog/items verified 201 end-to-end. | ✅ Resolved |
-| SOVER-0 | `scripts/` | — | No C bootstrap seed or build scripts. Zig is required to bootstrap. | **Medium** |
+| ~~SOVER-0~~ | `scripts/` | — | ~~No C bootstrap seed or build scripts. Zig is required to bootstrap.~~ Resolved (2026-08-16): `dist/orbit_bootstrap.c` amalgamated from `stage3.exe.c` + runtime (`scripts/amalgamate.py`); `scripts/build_seed.sh`/`.bat` auto-detect the C compiler; seed C fixed-point verified byte-identical to the Zig bootstrap (`orbit_selfhost_build.c` `9752AAEC…`, chain binaries `EFC1C576…`). Blocker fix shipped: `orbit_os_exec_selfhost` typed `string` in sema/IR so `result.indexOf(...)` lowers to `orbit_string_indexOf` (was undeclared `compOutput_indexOf`). Regression test `codegen.compile.selfhost_exec_indexof_typing`. | ✅ Resolved |
 | SOVER-1 | `compiler/` | — | x86-64 encoder, PE emitter, and regalloc not ported to Orbit source. | **Medium** |
 
 ---

@@ -63,7 +63,7 @@ test "lexer.unclosed_string" {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Workstream B: Parser regression tests (P0)
-// Syntax reference: tests/bootstrap/fixtures/
+// Syntax reference: the self-hosted compiler sources under compiler/*.orb
 //   - keyword: `fn` (not `func`)
 //   - `val` declarations live inside fn bodies
 //   - top level: only fn / type declarations
@@ -1375,6 +1375,70 @@ test "codegen.compile.catalog_member_call_arity" {
     const ok = compile_term == .exited and compile_term.exited == 0;
     if (!ok) {
         return error.CatalogMemberCallArityRegression;
+    }
+}
+
+test "codegen.compile.selfhost_exec_indexof_typing" {
+    // Regresses SOVER-0: `orbit_os_exec_selfhost(...)` must be typed as a
+    // string so `result.indexOf(...)` lowers to `orbit_string_indexOf`.
+    // Before the fix, sema left the call unknown and codegen emitted a call to
+    // an undeclared `compOutput_indexOf`, breaking the self-host bootstrap.
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const this_file = @src().file;
+    const this_dir = std.fs.path.dirname(this_file) orelse ".";
+    const src_dir = std.fs.path.dirname(this_dir) orelse ".";
+    const root_dir = std.fs.path.dirname(src_dir) orelse ".";
+
+    const temp_dir = try std.fs.path.join(alloc, &.{ root_dir, ".selfhost_exec_tmp" });
+    const compiler_path = try std.fs.path.join(alloc, &.{ root_dir, "zig-out", "bin", "orbit.exe" });
+
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    defer cwd.deleteTree(io, temp_dir) catch {};
+
+    const src_path = try std.fs.path.join(alloc, &.{ temp_dir, "selfhost_exec.orb" });
+    const bin_path = try std.fs.path.join(alloc, &.{ temp_dir, "selfhost_exec.exe" });
+
+    var file = try cwd.createFile(io, src_path, .{ .truncate = true });
+    var wb: [4096]u8 = undefined;
+    var fw = std.Io.File.Writer.init(file, io, &wb);
+    try fw.interface.writeAll(
+        \\fn main() {
+        \\    val compOutput = orbit_os_exec_selfhost("echo probe")
+        \\    if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 {
+        \\        print("compiler output contained an error")
+        \\    } else {
+        \\        print("ok")
+        \\    }
+        \\}
+        \\
+    );
+    try fw.flush();
+    file.close(io);
+
+    var compiler_file = cwd.openFile(io, compiler_path, .{}) catch return error.SkipZigTest;
+    compiler_file.close(io);
+
+    var compile_child = std.process.spawn(io, .{
+        .argv = &.{ compiler_path, "build", src_path, "-o", bin_path },
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const compile_term = try compile_child.wait(io);
+
+    const ok = compile_term == .exited and compile_term.exited == 0;
+    if (!ok) {
+        return error.SelfhostExecIndexOfRegression;
     }
 }
 

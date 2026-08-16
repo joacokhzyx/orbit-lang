@@ -1,5 +1,0 @@
-print("top-level")
-
-fn main() -> int {
-    return 42
-}

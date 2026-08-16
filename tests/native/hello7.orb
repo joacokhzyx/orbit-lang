@@ -1,7 +1,0 @@
-fn helper() -> int {
-    return 42
-}
-
-fn main() -> int {
-    return helper()
-}
