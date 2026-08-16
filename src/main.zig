@@ -393,8 +393,6 @@ pub fn main(init: std.process.Init) !void {
         runPackMode(init, file_path) catch std.process.exit(1);
     } else if (std.mem.eql(u8, command, "live")) {
         runLiveMode(init, file_path) catch std.process.exit(1);
-    } else if (std.mem.eql(u8, command, "cluster")) {
-        runClusterMode(init) catch std.process.exit(1);
     } else if (std.mem.eql(u8, command, "init")) {
         const options = init_mod.scaffold.InitOptions{
             .preset = selected_preset,
@@ -436,7 +434,7 @@ fn printHelp() void {
         \\    run        Execute binary             live       Hot-reload dev server
         \\
         \\  {s}Toolchain & Ecosystem:{s}
-        \\    pack       Synthesize SDKs            cluster    Cluster topology
+        \\    pack       Synthesize SDKs
         \\    init       Scaffold project           fmt        Auto-format code
         \\    doctor     System diagnostics         test       Execute unit tests
         \\    bootstrap  Build self-hosted compiler
@@ -505,12 +503,19 @@ fn compileToBinary(
     // ── Superluminal multi-pass IR optimization pipeline ──────────────
     const superluminal_pass = @import("superluminal/pass_runner.zig");
     const superluminal_branch = @import("superluminal/branch_opt.zig");
-    const superluminal_mem = @import("superluminal/mem_opt.zig");
     const superluminal_const = @import("superluminal/const_prop.zig");
     const superluminal_licm = @import("superluminal/licm.zig");
     const superluminal_cleanup = @import("superluminal/cleanup.zig");
 
-    const all_passes = superluminal_branch.passes ++ superluminal_mem.passes ++ superluminal_const.passes ++ superluminal_licm.passes ++ superluminal_cleanup.passes;
+    // NOTE: the former src/superluminal/mem_opt.zig passes (storeLoadForwarding,
+    // deadStoreElimination, redundantLoadElimination) were removed. They were
+    // unsound on this IR: storeLoadForwarding forwarded from `instr.dest orelse
+    // 0` (store_var has no dest) so every stored local var alias'd register 0,
+    // corrupting the self-hosted compiler build (`r_619 = r_617 - r_0`), and
+    // all three ignored register clobbering by calls and control-flow aliasing.
+    // If these optimizations are wanted again they must be reworked with real
+    // liveness/aliasing analysis (recoverable from git history).
+    const all_passes = superluminal_branch.passes ++ superluminal_const.passes ++ superluminal_licm.passes ++ superluminal_cleanup.passes;
 
     for (ir_module.functions.items) |*func| {
         if (func.instructions.items.len == 0) continue;
@@ -2137,12 +2142,6 @@ fn runLiveMode(init: std.process.Init, file_path: []const u8) !void {
     std.debug.print("\n  Orbit {s} (live)\n\n", .{ORBIT_VERSION});
     std.debug.print("  [Notice] Live hot-reload server for {s} is scheduled for 0.2.0 release.\n", .{target_file});
     std.debug.print("           Use 'orbit dev {s}' to execute in dev diagnostic mode.\n\n", .{target_file});
-}
-
-fn runClusterMode(init: std.process.Init) !void {
-    _ = init;
-    std.debug.print("\n  Orbit {s} (cluster)\n\n", .{ORBIT_VERSION});
-    std.debug.print("  [Notice] Multi-node cluster orchestration is scheduled for 0.2.0 release.\n\n", .{});
 }
 
 fn runReplMode(init: std.process.Init, debug: bool, no_kynx: bool, verbose: bool, timings: bool, timings_json: bool, config: AtlasConfig, backend_mode: BackendMode, emit_mode: EmitMode, linker_mode: LinkerMode) !void {

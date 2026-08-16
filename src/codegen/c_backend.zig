@@ -24,7 +24,6 @@ const superluminal_synthesis = @import("../superluminal/synthesis.zig");
 const superluminal_boost = @import("../superluminal/boost_display.zig");
 const superluminal_pass = @import("../superluminal/pass_runner.zig");
 const superluminal_branch = @import("../superluminal/branch_opt.zig");
-const superluminal_mem = @import("../superluminal/mem_opt.zig");
 const superluminal_const = @import("../superluminal/const_prop.zig");
 const superluminal_licm = @import("../superluminal/licm.zig");
 const superluminal_cleanup = @import("../superluminal/cleanup.zig");
@@ -170,6 +169,11 @@ pub const CBackend = struct {
 
     fn generateRouter(self: *CBackend, module: IRModule) !void {
         try self.output.appendSlice(self.allocator, "#ifdef ORBIT_WITH_NET\n");
+        try self.output.print(self.allocator,
+            \\#define ORBIT_LOGS_ACTIVE {d}
+            \\#define ORBIT_KYNX_ACTIVE {d}
+            \\
+        , .{ @as(u32, @intFromBool(self.config.logs_active)), @as(u32, @intFromBool(!self.config.no_kynx)) });
         try self.output.appendSlice(self.allocator,
             \\static inline uint64_t orbit_route_hash(const char* method, const char* path) {
             \\    uint64_t h = 14695981039346656037ULL;
@@ -180,6 +184,7 @@ pub const CBackend = struct {
             \\    return h;
             \\}
             \\
+            \\#if ORBIT_LOGS_ACTIVE
             \\static inline void orbit_log_request_fmt(const char* method, const char* path, int status, uint64_t start_rdtsc) {
             \\    uint64_t elapsed_cycles = orbit_rdtsc() - start_rdtsc;
             \\    double ms = (double)elapsed_cycles / 2500000.0;
@@ -214,6 +219,7 @@ pub const CBackend = struct {
             \\    printf("  %s%-6s\x1b[0m \x1b[1;37m%-32s\x1b[0m %s%d %-18s\x1b[0m \x1b[2;90m%.1f ms\x1b[0m\n",
             \\        method_color, method_str, path_str, status_color, status, status_text, ms);
             \\}
+            \\#endif
             \\
             \\int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
             \\    uint64_t start = orbit_rdtsc();
@@ -227,23 +233,31 @@ pub const CBackend = struct {
             \\    int keep_alive = 1;
             \\    if (strstr(raw_request, "Connection: close") || strstr(raw_request, "connection: close")) keep_alive = 0;
             \\
+            \\#if ORBIT_KYNX_ACTIVE
             \\    extern OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
             \\    extern void orbit_kynx_lease_destroy(OrbitKynxLease* lease);
             \\    OrbitKynxLease* lease = orbit_kynx_lease_create_for_route(req->path, req->method, arena);
             \\    if (lease && (lease->flags & 1)) {
             \\        OrbitResponse* res = orbit_response_create(arena, 503, "text/plain", "503 Siege Mode Active - Non-critical Route Blocked");
             \\        orbit_send_response(client_sock, res);
+            \\#if ORBIT_LOGS_ACTIVE
             \\        orbit_log_request_fmt(req->method, req->path, 503, start);
+            \\#endif
             \\        orbit_kynx_lease_destroy(lease);
             \\        orbit_perf_end_request(start);
             \\        return 0;
             \\    }
+            \\#endif
             \\        
             \\    if (req->path && strcmp(req->path, "/_pulse") == 0) {
             \\        OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
             \\        orbit_send_response(client_sock, res);
+            \\#if ORBIT_LOGS_ACTIVE
             \\        orbit_log_request_fmt(req->method, req->path, 200, start);
+            \\#endif
+            \\#if ORBIT_KYNX_ACTIVE
             \\        if (lease) orbit_kynx_lease_destroy(lease);
+            \\#endif
             \\        orbit_perf_end_request(start);
             \\        return keep_alive;
             \\    }
@@ -251,8 +265,12 @@ pub const CBackend = struct {
             \\        orbit_string json = orbit_pulse_get_stats_json(arena);
             \\        OrbitResponse* res = orbit_response_json(arena, 200, json);
             \\        orbit_send_response(client_sock, res);
+            \\#if ORBIT_LOGS_ACTIVE
             \\        orbit_log_request_fmt(req->method, req->path, 200, start);
+            \\#endif
+            \\#if ORBIT_KYNX_ACTIVE
             \\        if (lease) orbit_kynx_lease_destroy(lease);
+            \\#endif
             \\        orbit_perf_end_request(start);
             \\        return keep_alive;
             \\    }
@@ -276,12 +294,16 @@ pub const CBackend = struct {
                 try self.output.print(self.allocator,
                     \\    case {d}ULL: {{
                     \\        if (strcmp(req->path, "{s}") == 0 && strcmp(req->method, "{s}") == 0) {{
-                    \\            OrbitResponse* res = {s}(arena, req);
-                    \\            orbit_send_response(client_sock, res);
-                    \\            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);
-                    \\            if (lease) orbit_kynx_lease_destroy(lease);
-                    \\            orbit_perf_end_request(start);
-                    \\            return keep_alive;
+\\            OrbitResponse* res = {s}(arena, req);
+            \\            orbit_send_response(client_sock, res);
+            \\#if ORBIT_LOGS_ACTIVE
+            \\            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);
+            \\#endif
+            \\#if ORBIT_KYNX_ACTIVE
+            \\            if (lease) orbit_kynx_lease_destroy(lease);
+            \\#endif
+            \\            orbit_perf_end_request(start);
+            \\            return keep_alive;
                     \\        }}
                     \\        break;
                     \\    }}
@@ -294,8 +316,12 @@ pub const CBackend = struct {
             \\    default: {
             \\        OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
             \\        orbit_send_response(client_sock, res);
+            \\#if ORBIT_LOGS_ACTIVE
             \\        orbit_log_request_fmt(req->method, req->path, 404, start);
+            \\#endif
+            \\#if ORBIT_KYNX_ACTIVE
             \\        if (lease) orbit_kynx_lease_destroy(lease);
+            \\#endif
             \\        orbit_perf_end_request(start);
             \\        return keep_alive;
             \\    }
@@ -1046,10 +1072,10 @@ pub const CBackend = struct {
 
         // Declare registers
         for (func.register_types.items, 0..) |reg_type, i| {
-            if (reg_type == .void) continue;
+            const type_str = if (reg_type == .void) "void*" else try self.mapTypeToC(reg_type);
             try self.output.appendSlice(self.allocator, "    ");
-            try self.output.appendSlice(self.allocator, try self.mapTypeToC(reg_type));
-            try self.output.print(self.allocator, " r_{d};\n", .{i});
+            try self.output.appendSlice(self.allocator, type_str);
+            try self.output.print(self.allocator, " r_{d} = 0;\n", .{i});
         }
 
         // Declare parameter aliases for named parameters
@@ -1636,11 +1662,8 @@ pub const CBackend = struct {
             .arg => {
                 try self.call_args.append(self.allocator, instr.operand1);
             },
-            .begin_block => {
-                try self.output.appendSlice(self.allocator, "{\n");
-            },
-            .end_block => {
-                try self.output.appendSlice(self.allocator, "}\n");
+            .begin_block, .end_block => {
+                self.output.items.len -= 4;
             },
             .call => {
                 const func_name = instr.operand1.string;
@@ -1833,19 +1856,19 @@ pub const CBackend = struct {
             },
             .jump => {
                 try self.output.appendSlice(self.allocator, "goto ");
-                try self.generateValue(instr.operand1);
+                try self.generateLabelTarget(instr.operand1);
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .jump_if_false => {
                 try self.output.appendSlice(self.allocator, "if (!(");
                 try self.generateValue(instr.operand1);
                 try self.output.appendSlice(self.allocator, ")) goto ");
-                try self.generateValue(instr.operand2);
+                try self.generateLabelTarget(instr.operand2);
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .label => {
                 self.output.items.len -= 4;
-                try self.generateValue(instr.operand1);
+                try self.generateLabelTarget(instr.operand1);
                 try self.output.appendSlice(self.allocator, ":;\n");
             },
             .store_field => {
@@ -1890,7 +1913,6 @@ pub const CBackend = struct {
                 try self.output.print(self.allocator, "); r_{d} = _lr.ok ? (OrbitList*)_lr.value : NULL; }}\n", .{instr.dest.?});
             },
             .list_push => {
-                std.debug.print("[CG DEBUG] list_push codegen! dest=r_{d}\n", .{if (instr.dest) |d| d else 99999});
                 try self.output.appendSlice(self.allocator, "orbit_list_push(");
                 try self.generateValue(instr.operand1);
                 try self.output.appendSlice(self.allocator, ", ");
@@ -2301,6 +2323,15 @@ pub const CBackend = struct {
             .register => |r| try self.output.print(self.allocator, "r_{d}", .{r}),
             .label => |l| try self.output.print(self.allocator, "label_{d}", .{l}),
             .none => try self.output.appendSlice(self.allocator, "NULL"),
+        }
+    }
+
+    pub fn generateLabelTarget(self: *CBackend, val: IRValue) !void {
+        switch (val) {
+            .label => |l| try self.output.print(self.allocator, "label_{d}", .{l}),
+            .int => |v| try self.output.print(self.allocator, "label_{d}", .{v}),
+            .string => |s| try self.output.print(self.allocator, "label_{s}", .{s}),
+            else => try self.generateValue(val),
         }
     }
 
