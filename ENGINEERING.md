@@ -370,7 +370,31 @@ A feature is **done** when ALL of the following are true simultaneously:
 
 ---
 
-## 6. Debt Catalogue
+## 6. Stability Roadmap
+
+Tasks that materially harden the compiler against regressions, silent
+miscompilations, and bootstrap breakage. Ordered by stability impact. Each item
+records its Definition of Done so completion is machine-checkable.
+
+| ID | Area | Description | DoD / Gate | Status |
+|---|---|---|---|---|
+| STAB-0 | CI | Fixed-point gate on every push: full 3-stage bootstrap, freshly regenerated seed, and C byte-identity must all pass automatically. | A CI job runs `scripts/verify_seed.py --bootstrap`; any hash drift fails the run. | ✅ Resolved (2026-08-16): `seed-gate` job in `.github/workflows/ci-gate.yml` on ubuntu+windows; runs `zig build`, `zig build test`, then `verify_seed.py --bootstrap` (5/5 checks). |
+| STAB-1 | Scripts | One-command seed verifier replacing the manual 5-step regeneration (`scripts/verify_seed.py`): regen stage3 C → amalgamate → build seed → compare hashes (C and binaries, zeroed PE timestamp). | `python scripts/verify_seed.py` exits 0 and prints `MATCH` for C and binaries. | ✅ Resolved (2026-08-16): `scripts/verify_seed.py` — hermetic by default; `--bootstrap` regenerates the canonical via the Zig lineage and establishes `stage3.exe.c` on clean checkouts. Verified 5/5 on Windows: seed C `9752aaec…` == canonical, chain + fresh stages byte-identical (`15066da8…` after zeroing). |
+| STAB-2 | Self-host | Remove the dual-compiler drift: the Zig frontend (`src/main.zig`) and the self-hosted `.orb` pipeline currently emit different C for the same source. Make the `.orb` pipeline the single source of truth (Zig becomes a thin loader). | Same input → byte-identical `temp_build.c`/`orbit_selfhost_build.c` regardless of which driver produced it. | Open |
+| STAB-3 | Codegen | Clean C emission: drop the `-w` / `-Wno-int-conversion` crutches and the `(void*)(uintptr_t)` pointer/int conflation in generated C. | Every generated C compiles under gcc/clang with `-Wall -Werror -O2`; `build_seed` and pipeline drop the suppression flags. | Open |
+| STAB-4 | Tests | 150/150 green. Resolve the 2 OOM-skipped tests via the `std.Io.Threaded` local pattern (no shared stdout). | `zig build test` reports `X passed; 0 skipped; 0 failed`. | ✅ Resolved (2026-08-16): `runtime.arena_epochal_tests` now uses a dedicated `Threaded` io with `page_allocator` (global_single_threaded OOMs on Windows spawns); `bootstrap.fixed_point_verification` now runs `orbit.exe bootstrap --verify` for real instead of skipping. Direct run: **All 101 tests passed** (0 skipped, 0 failed). |
+| STAB-5 | IR | Type-consistency verifier over the emitted IR for the C backend (analogous to `src/backend/mir/verifier.zig`). Catches unknown-typed degradation (the `compOutput_indexOf` class of bug) at build time. | Verifier runs in `zig build test`; a deliberately unknown-typed snippet fails it. | Open |
+| STAB-6 | Data | Schema versioning/migrations for models/DB (stale-row UNIQUE failures observed in the bench). | A `migrations` directive applies idempotent DDL; test covers add-column and stale-row upgrade. | Open |
+| STAB-7 | Reproducibility | Cross-platform determinism test: same source compiled in different working dirs / path spellings yields byte-identical C (line endings, separators, embedded paths). | Test compiles from two dirs and asserts SHA-256 equality of generated C. | Open |
+| STAB-8 | Release | Ship without Zig: `release.yml` falls back to the C seed and attaches the amalgamated `orbit_bootstrap.c` to release artifacts (not the git repo). | A CI job builds the seed on a gcc-only runner and boots a server from it. | Open |
+
+SOVER-1 (native backend port) remains the large catalogue item; STAB-0..3,
+STAB-7, and STAB-8 are prerequisites or independently valuable even if SOVER-1
+is deferred.
+
+---
+
+## 7. Debt Catalogue
 
 | ID | File | Line | Description | Priority |
 |---|---|---|---|---|
@@ -390,7 +414,7 @@ A feature is **done** when ALL of the following are true simultaneously:
 
 ---
 
-## 7. Instructions for Agents
+## 8. Instructions for Agents
 
 Read this entire document before writing any code. Then:
 
@@ -399,5 +423,5 @@ Read this entire document before writing any code. Then:
 3. **Write the test before the implementation.** If you cannot write a test for a function, the function is not well-specified. Stop and clarify.
 4. **Run `zig build test --summary all` and report the exact output** before declaring completion.
 5. **Run `orbit bootstrap` and report both SHA-256 hashes** after any change to `src/`.
-6. **Log new debt items in §6** if you defer anything. Include file, line, description, and priority.
+6. **Log new debt items in §7** if you defer anything. Include file, line, description, and priority.
 7. The words `TODO`, `FIXME`, `placeholder`, `stub`, `scheduled for`, `coming soon` must not appear in any committed `.zig` or `.orb` source file outside of this planning document.

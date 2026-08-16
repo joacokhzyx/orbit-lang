@@ -66,5 +66,9 @@ repomix-output*.xml
 # Local agent skills/configs
 .agents/
 
+# Python bytecode (scripts/)
+__pycache__/
+*.pyc
+
 # Research / prototyping (git-ignored until stable)
 research/

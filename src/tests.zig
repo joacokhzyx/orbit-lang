@@ -1065,7 +1065,15 @@ test "runtime.arena_epochal_tests" {
         try args.append(allocator, "-lws2_32");
     }
 
-    const io = std.Io.Threaded.global_single_threaded.io();
+    // global_single_threaded.io() uses a failing allocator, so process spawning
+    // through it always returns OutOfMemory on Windows. Use a dedicated Threaded
+    // io with a real allocator (same pattern as backend/tests.zig).
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
 
     var compile_child = std.process.spawn(io, .{
         .argv = args.items,
@@ -1093,8 +1101,46 @@ test "runtime.arena_epochal_tests" {
 }
 
 test "bootstrap.fixed_point_verification" {
-    // Self-hosting 3-stage bootstrap verification is tested via `orbit bootstrap --stage=3 --verify` CLI
-    return error.SkipZigTest;
+    // Self-hosting 3-stage bootstrap verification (STAB-1): `orbit bootstrap
+    // --verify` rebuilds stage1 -> stage2 -> stage3 and asserts stage2 and
+    // stage3 are byte-identical after zeroing the COFF link timestamp.
+    // Skipped only when the Zig-built driver or a C compiler is unavailable.
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const this_file = @src().file;
+    const this_dir = std.fs.path.dirname(this_file) orelse ".";
+    const src_dir = std.fs.path.dirname(this_dir) orelse ".";
+    const root_dir = std.fs.path.dirname(src_dir) orelse ".";
+
+    const driver_path = try std.fs.path.join(alloc, &.{ root_dir, "zig-out", "bin", "orbit.exe" });
+    var cwd = std.Io.Dir.cwd();
+    var driver_file = cwd.openFile(io, driver_path, .{}) catch return error.SkipZigTest;
+    driver_file.close(io);
+
+    // The bootstrap pipeline links via ORBIT_CC -> CC -> `zig cc`. Any machine
+    // that can run `zig build test` has zig, so `zig cc` is always available
+    // unless the caller explicitly points ORBIT_CC/CC at a missing compiler,
+    // which is a configuration error the test should surface, not skip.
+
+    var boot_child = std.process.spawn(io, .{
+        .argv = &.{ driver_path, "bootstrap", "--verify" },
+        .cwd = .{ .path = root_dir },
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const bt = try boot_child.wait(io);
+    if (bt != .exited or bt.exited != 0) {
+        return error.BootstrapFixedPointFailed;
+    }
 }
 
 test "runtime.http_pipelined_parse_no_buffer_clobber" {
