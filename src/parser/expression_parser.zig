@@ -588,13 +588,18 @@ pub const ExpressionParser = struct {
     /// (identifier, literal, or certain keyword tokens that appear as property names).
     fn isMemberToken(self: *ExpressionParser) bool {
         const t = self.current_token.tag;
-        return t == .Identifier or
+        if (t == .Identifier or
             t == .IntegerLiteral or
             t == .StringLiteral or
             t == .FloatLiteral or
             t == .KeywordTrue or
             t == .KeywordFalse or
-            t == .KeywordNull;
+            t == .KeywordNull) return true;
+        // Contextual keywords: member names may collide with language keywords
+        // (`cache.set(...)`, `.list`, `.map`, `.string`, ...). Allow any keyword
+        // token after `.`; downstream code resolves members by text, never by tag.
+        const tag_name = @tagName(t);
+        return std.mem.startsWith(u8, tag_name, "Keyword") or std.mem.startsWith(u8, tag_name, "Type");
     }
 
     /// Returns `true` if `tag` represents a named HTTP-error shortcut keyword

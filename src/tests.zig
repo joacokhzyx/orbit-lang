@@ -1229,6 +1229,72 @@ test "codegen.compile.req_member_value" {
     }
 }
 
+test "codegen.compile.cache_member_contextual_keyword" {
+    // `cache.set(...)` regresses if the lexer keeps `set` a reserved keyword:
+    // member names after `.` must accept contextual keywords. Mirrors
+    // 03_page_cache_server.orb (COMPILE-1).
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const this_file = @src().file;
+    const this_dir = std.fs.path.dirname(this_file) orelse ".";
+    const src_dir = std.fs.path.dirname(this_dir) orelse ".";
+    const root_dir = std.fs.path.dirname(src_dir) orelse ".";
+
+    const temp_dir = try std.fs.path.join(alloc, &.{ root_dir, ".cache_member_tmp" });
+    const compiler_path = try std.fs.path.join(alloc, &.{ root_dir, "zig-out", "bin", "orbit.exe" });
+
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, temp_dir) catch {};
+    defer cwd.deleteTree(io, temp_dir) catch {};
+
+    const src_path = try std.fs.path.join(alloc, &.{ temp_dir, "cache_member.orb" });
+    const bin_path = try std.fs.path.join(alloc, &.{ temp_dir, "cache_member.exe" });
+
+    var file = try cwd.createFile(io, src_path, .{ .truncate = true });
+    var wb: [4096]u8 = undefined;
+    var fw = std.Io.File.Writer.init(file, io, &wb);
+    try fw.interface.writeAll(
+        \\port 4003
+        \\cors "*"
+        \\
+        \\route GET "/page" => {
+        \\    val cached = cache.get("html_page")
+        \\    if (cached != "") return response.json(200, cached)
+        \\
+        \\    val page = "<h1>page</h1>"
+        \\    cache.set("html_page", page, 600)
+        \\    return response.json(200, page)
+        \\}
+        \\
+    );
+    try fw.flush();
+    file.close(io);
+
+    var compiler_file = cwd.openFile(io, compiler_path, .{}) catch return error.SkipZigTest;
+    compiler_file.close(io);
+
+    var compile_child = std.process.spawn(io, .{
+        .argv = &.{ compiler_path, "build", src_path, "-o", bin_path },
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const compile_term = try compile_child.wait(io);
+
+    const ok = compile_term == .exited and compile_term.exited == 0;
+    if (!ok) {
+        return error.CacheMemberCompileRegression;
+    }
+}
+
 test "superluminal.z3_equivalence" {
     const z3 = @import("superluminal/z3_integration.zig");
     if (!z3.isAvailable()) return error.SkipZigTest;
