@@ -121,5 +121,3 @@ orbit run app.orb                  # Compile and execute
 orbit test app.orb                 # Run test blocks
 orbit bootstrap                    # Multi-stage self-hosting bootstrap
 ```
-
-See [the release status](../STATUS.md) for backend and platform limitations.

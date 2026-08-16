@@ -2,7 +2,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Zig Version](https://img.shields.io/badge/Zig-0.16.0%2B-orange.svg)](https://ziglang.org/)
-[![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](STATUS.md)
 
 ![Orbit Banner](assets/orbit_banner.png)
 
@@ -97,8 +96,6 @@ Orbit has been stress-tested across 4 core server categories against multi-threa
 | **03. Page Cache Hit** | **9,375.0 RPS** | **5,475.0 RPS** | **5,000.0 RPS** | In-memory rendered template cache |
 | **04. Kynx Guarded Defense** | **10,475.0 RPS** | **6,025.0 RPS** | **5,000.0 RPS** | 1-ns Bloom Filter DDoS protection |
 
-For full details, view the [Marketing & Stress Benchmark Report](benchmarks/marketing_suite/MARKETING_BENCHMARK_REPORT.md).
-
 ---
 
 ## Documentation
@@ -106,7 +103,6 @@ For full details, view the [Marketing & Stress Benchmark Report](benchmarks/mark
 - [Language Reference](docs/LANGUAGE_REFERENCE.md)
 - [Architecture Overview](docs/ARCHITECTURE.md)
 - [Server Examples](examples/README.md)
-- [Release Status & Compatibility](STATUS.md)
 
 ---
 
