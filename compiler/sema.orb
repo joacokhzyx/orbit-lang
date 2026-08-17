@@ -403,6 +403,22 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                 }
             }
         }
+        ASTNode.ReturnOk(r) => {
+            match r.expr {
+                ASTNode.Empty => {
+                    reportError(sema, "ok response must include a value")
+                }
+                _ => {}
+            }
+        }
+        ASTNode.ReturnErr(r) => {
+            match r.expr {
+                ASTNode.Empty => {
+                    reportError(sema, "err response must include a message")
+                }
+                _ => {}
+            }
+        }
         _ => {}
     }
 }
@@ -597,6 +613,8 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.FieldDecl(fd) => {}
         ASTNode.Block(block) => { checkBlock(sema, node) }
         ASTNode.Return(r) => { checkReturn(sema, node) }
+        ASTNode.ReturnOk(r) => { checkReturn(sema, node) }
+        ASTNode.ReturnErr(r) => { checkReturn(sema, node) }
         ASTNode.If(stmt) => { checkIfStatement(sema, node) }
         ASTNode.While(w) => { checkWhileLoop(sema, node) }
         ASTNode.For(f) => { checkForLoop(sema, node) }

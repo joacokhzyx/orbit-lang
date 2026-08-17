@@ -40,6 +40,9 @@ enum TokType {
     KeywordDelete,
     KeywordHead,
     KeywordOptions,
+    KeywordErr,
+    KeywordOk,
+    KeywordWith,
     KeywordUse,
     KeywordImport,
     KeywordTrait,
@@ -128,6 +131,9 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.KeywordDelete => return "DELETE"
         TokType.KeywordHead => return "HEAD"
         TokType.KeywordOptions => return "OPTIONS"
+        TokType.KeywordErr => return "err"
+        TokType.KeywordOk => return "ok"
+        TokType.KeywordWith => return "with"
         TokType.KeywordUse => return "use"
         TokType.KeywordImport => return "import"
         TokType.KeywordTrait => return "trait"

@@ -27,6 +27,9 @@ fn generateC(backend: CBackend) -> string {
         out = out + "#include \"runtime.h\"\n\n"
         out = out + "OrbitArena* arena = NULL;\n\n"
     }
+    if hasRoutes {
+        out = out + generateRouteTypeDecls(backend)
+    }
     if hasRoutes == false {
     out = out + "#ifndef AST_VARIANTS_DEFINED\n"
     out = out + "#define AST_VARIANTS_DEFINED\n"
@@ -383,6 +386,7 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     if orbitType == "list" || orbitType == "List" || orbitType == "OrbitList*" { return "OrbitList*" }
     if orbitType == "map" || orbitType == "Map" || orbitType == "OrbitMap*" { return "OrbitMap*" }
     if orbitType == "result" || orbitType == "Result" || orbitType == "OrbitResult" { return "OrbitResult" }
+    if orbitType == "response" || orbitType == "Response" || orbitType == "OrbitResponse*" { return "OrbitResponse*" }
     if isEnumType(backend, orbitType) { return orbitType }
     if orbitType.indexOf("_TAG_") != -1 || orbitType.indexOf("TAG_") != -1 {
         val en = getEnumNameFromTag(orbitType)
@@ -975,9 +979,124 @@ val t3 = h3 * 435 + carry
 }
 
 fn generateRoutePreamble() -> string {
+    return routePreambleText()
+}
+
+fn generateRouteTypeDecls(backend: CBackend) -> string {
     var out = ""
-    out = out + routePreambleText()
+    // Forward declare model typedefs
+    var mi = 0
+    while mi < backend.module.models.len() {
+        val modelDecl: IRModelDecl = backend.module.models.get(mi)
+        out = out + "typedef struct " + modelDecl.name + " " + modelDecl.name + ";\n"
+        mi = mi + 1
+    }
+    // Forward declare union typedefs
+    var ui = 0
+    while ui < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(ui)
+        if tDecl.kind == "union_type" {
+            out = out + "typedef struct " + tDecl.name + " " + tDecl.name + ";\n"
+        }
+        ui = ui + 1
+    }
     out = out + "\n"
+    // Emit enums, unions and aliases in module order
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(ti)
+        if tDecl.kind == "enumeration" {
+            out = out + "typedef enum {\n"
+            var vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                out = out + "    " + tDecl.name + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
+                if vi + 1 < tDecl.variants.len() {
+                    out = out + ",\n"
+                } else {
+                    out = out + "\n"
+                }
+                vi = vi + 1
+            }
+            out = out + "} " + tDecl.name + ";\n"
+            out = out + "#define " + tDecl.name + "_COUNT " + orbit_int_to_string_selfhost(tDecl.variants.len()) + "\n\n"
+        } else if tDecl.kind == "union_type" {
+            out = out + "typedef enum {\n"
+            var vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                out = out + "    " + tDecl.name + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
+                if vi + 1 < tDecl.variants.len() {
+                    out = out + ",\n"
+                } else {
+                    out = out + "\n"
+                }
+                vi = vi + 1
+            }
+            out = out + "} " + tDecl.name + "_Tag;\n\n"
+            out = out + "typedef struct " + tDecl.name + " {\n"
+            out = out + "    " + tDecl.name + "_Tag tag;\n"
+            out = out + "    union {\n"
+            out = out + "        void* data;\n"
+            vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                val payload: string = tDecl.richVariants.get(vi)
+                if payload != "" {
+                    out = out + "        " + mapTypeToC(backend, payload) + " " + vName + ";\n"
+                } else {
+                    out = out + "        int " + vName + "; /* unit variant */\n"
+                }
+                vi = vi + 1
+            }
+            out = out + "    } data;\n"
+            out = out + "} " + tDecl.name + ";\n"
+            out = out + "#define " + tDecl.name + "_COUNT " + orbit_int_to_string_selfhost(tDecl.variants.len()) + "\n\n"
+        } else if tDecl.kind == "alias" {
+            out = out + "typedef void* " + tDecl.name + ";\n\n"
+        }
+        ti = ti + 1
+    }
+    // Emit model struct definitions and constructors
+    mi = 0
+    while mi < backend.module.models.len() {
+        val modelDecl: IRModelDecl = backend.module.models.get(mi)
+        out = out + "typedef struct " + modelDecl.name + " {\n"
+        var fi = 0
+        while fi < modelDecl.fields.len() {
+            val field: IRModelField = modelDecl.fields.get(fi)
+            val cType = mapTypeToC(backend, field.typeName)
+            out = out + "    " + cType + " " + field.name + ";\n"
+            fi = fi + 1
+        }
+        out = out + "} " + modelDecl.name + ";\n"
+        val mName = modelDecl.name
+        if modelDecl.fields.len() == 0 {
+            out = out + "#define " + mName + "() (" + mName + "*)orbit_model_" + mName + "_create(arena)\n"
+            out = out + "static inline " + mName + "* orbit_model_" + mName + "_create(OrbitArena* a) {\n"
+        } else {
+            out = out + "#define " + mName + "(...) (" + mName + "*)orbit_model_" + mName + "_create(arena, __VA_ARGS__)\n"
+            out = out + "static inline " + mName + "* orbit_model_" + mName + "_create(OrbitArena* a"
+            fi = 0
+            while fi < modelDecl.fields.len() {
+                val field: IRModelField = modelDecl.fields.get(fi)
+                val cType = mapTypeToC(backend, field.typeName)
+                out = out + ", " + cType + " " + field.name
+                fi = fi + 1
+            }
+            out = out + ") {\n"
+        }
+        out = out + "    " + mName + "* m = (" + mName + "*)orbit_alloc(a, sizeof(" + mName + "));\n"
+        fi = 0
+        while fi < modelDecl.fields.len() {
+            val field: IRModelField = modelDecl.fields.get(fi)
+            out = out + "    m->" + field.name + " = " + field.name + ";\n"
+            fi = fi + 1
+        }
+        out = out + "    return m;\n"
+        out = out + "}\n\n"
+        mi = mi + 1
+    }
     return out
 }
 
@@ -1095,7 +1214,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         }
         val rType = mapTypeToC(backend, rTypeName)
         if rType != "void" {
-            out = out + "    " + rType + " r_" + orbit_int_to_string_selfhost(i) + ";\n"
+            out = out + "    " + rType + " r_" + orbit_int_to_string_selfhost(i) + " = 0;\n"
         }
         i = i + 1
     }
@@ -1598,7 +1717,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
 
             var callExpr = calleeName + "("
             var arenaFirst = false
-            if calleeName == "orbit_string_slice" || calleeName == "orbit_string_concat" || calleeName == "orbit_string_split" || calleeName == "orbit_string_replace" {
+            if calleeName == "orbit_string_slice" || calleeName == "orbit_string_concat" || calleeName == "orbit_string_split" || calleeName == "orbit_string_replace" || calleeName == "orbit_response_json" || calleeName == "orbit_response_error" {
                 arenaFirst = true
             }
             var i = startIdx
@@ -1616,6 +1735,8 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 val aStr = backend.callArgs.get(i)
                 if orbit_string_indexOf(aStr, "TAG_") != -1 {
                     callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
+                } else if calleeName == "orbit_response_json" || calleeName == "orbit_response_error" {
+                    callExpr = callExpr + aStr
                 } else if calleeName == "check" || calleeName == "matchToken" || calleeName == "consume" {
                     if argIdx == 1 {
                         callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
@@ -1731,6 +1852,9 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 backend.callArgs.pop()
             }
             if destNeeded {
+                if calleeName == "orbit_response_json" || calleeName == "orbit_response_error" {
+                    return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + callExpr + ";\n"
+                }
                 return generateRegAssign(backend, instr.dest, callExpr)
             }
             return "    " + callExpr + ";\n"
@@ -1760,7 +1884,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     } else if rtype == "string" || rtype == "orbit_string" {
                         return "    return (orbit_string)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
                     } else {
-                        return "    return (void*)(uintptr_t)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
+                        return "    return (void*)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
                     }
                 }
                 _ => {
@@ -1771,7 +1895,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     } else if rtype == "string" || rtype == "orbit_string" {
                         return "    return (orbit_string)(" + valStr + ");\n"
                     } else {
-                        return "    return (void*)(uintptr_t)(" + valStr + ");\n"
+                        return "    return (void*)(" + valStr + ");\n"
                     }
                 }
             }

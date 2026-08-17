@@ -207,6 +207,16 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         val node = ASTNode.Literal(LiteralNode("identifier", name))
         return parsePostfix(parser, node)
     }
+    if matchToken(parser, TokType.KeywordOk) {
+        val name = parser.previousToken.text
+        val node = ASTNode.Literal(LiteralNode("identifier", name))
+        return parsePostfix(parser, node)
+    }
+    if matchToken(parser, TokType.KeywordErr) {
+        val name = parser.previousToken.text
+        val node = ASTNode.Literal(LiteralNode("identifier", name))
+        return parsePostfix(parser, node)
+    }
     if matchToken(parser, TokType.KeywordMatch) {
         return parseMatchExpr(parser)
     }
@@ -521,6 +531,7 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
 
     var kind = "alias"
     var variants = []
+    var variantPayloads = []
     var baseType = ""
 
     matchToken(parser, TokType.Equal)
@@ -538,10 +549,11 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
                 consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
             }
             variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
+            variantPayloads.push(payloadType)
             matchToken(parser, TokType.Comma)
         }
         consume(parser, TokType.CloseBrace, "Expected '}' after enum variants.")
-        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType))
+        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads))
     }
 
     if kw == TokType.KeywordUnion || matchToken(parser, TokType.KeywordUnion) {
@@ -557,10 +569,11 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
                 consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
             }
             variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
+            variantPayloads.push(payloadType)
             matchToken(parser, TokType.Comma)
         }
         consume(parser, TokType.CloseBrace, "Expected '}' after union variants.")
-        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType))
+        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads))
     }
 
     matchToken(parser, TokType.Pipe)
@@ -577,6 +590,7 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
                 consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
             }
             variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
+            variantPayloads.push(payloadType)
             if matchToken(parser, TokType.Pipe) {
                 isSumType = true
             } else {
@@ -588,13 +602,13 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
         }
         if isSumType {
             kind = "union"
-            return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, ""))
+            return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, "", variantPayloads))
         } else {
-            return ASTNode.TypeDecl(TypeDeclNode(name, "alias", [], baseType))
+            return ASTNode.TypeDecl(TypeDeclNode(name, "alias", [], baseType, []))
         }
     }
 
-    return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType))
+    return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads))
 }
 
 fn isHttpMethodToken(tag: TokType) -> bool {
@@ -719,6 +733,20 @@ fn parseStatement(parser: Parser) -> ASTNode {
         return parseConstDecl(parser, false)
     }
     if matchToken(parser, TokType.KeywordReturn) {
+        if check(parser, TokType.KeywordOk) {
+            advanceParser(parser)
+            var statusText = ""
+            if check(parser, TokType.IntegerLiteral) {
+                statusText = parser.currentToken.text
+                advanceParser(parser)
+            }
+            var expr = ASTNode.Empty
+            if check(parser, TokType.SemiColon) == false && check(parser, TokType.CloseBrace) == false {
+                expr = parseExpression(parser)
+            }
+            matchToken(parser, TokType.SemiColon)
+            return ASTNode.ReturnOk(ReturnOkNode(expr, statusText))
+        }
         var expr = ASTNode.Empty
         if check(parser, TokType.SemiColon) == false && check(parser, TokType.CloseBrace) == false {
             expr = parseExpression(parser)
@@ -727,6 +755,19 @@ fn parseStatement(parser: Parser) -> ASTNode {
     }
     if matchToken(parser, TokType.KeywordIf) {
         return parseIfStatement(parser)
+    }
+    if matchToken(parser, TokType.KeywordErr) {
+        var codeText = "500"
+        if check(parser, TokType.IntegerLiteral) {
+            codeText = parser.currentToken.text
+            advanceParser(parser)
+        }
+        var message = ASTNode.Empty
+        if check(parser, TokType.SemiColon) == false && check(parser, TokType.CloseBrace) == false {
+            message = parseExpression(parser)
+        }
+        matchToken(parser, TokType.SemiColon)
+        return ASTNode.ReturnErr(ReturnErrNode(message, codeText))
     }
     if matchToken(parser, TokType.KeywordWhile) {
         return parseWhileStatement(parser)

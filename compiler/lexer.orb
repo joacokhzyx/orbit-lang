@@ -126,6 +126,9 @@ fn matchKeyword(text: string) -> TokType {
     if text == "DELETE" { return TokType.KeywordDelete }
     if text == "HEAD" { return TokType.KeywordHead }
     if text == "OPTIONS" { return TokType.KeywordOptions }
+    if text == "err" { return TokType.KeywordErr }
+    if text == "ok" { return TokType.KeywordOk }
+    if text == "with" { return TokType.KeywordWith }
     if text == "val" { return TokType.KeywordVal }
     if text == "var" { return TokType.KeywordVar }
     if text == "const" { return TokType.KeywordConst }

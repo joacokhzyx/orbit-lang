@@ -122,6 +122,47 @@ fn fieldTypeOfModel(builder: IRBuilder, typeName: string, fieldName: string) -> 
     return "unknown"
 }
 
+fn parseIntSelfhost(s: string) -> int {
+    var result = 0
+    var i = 0
+    while i < orbit_string_len(s) {
+        val c = s.at(i)
+        if c >= 48 && c <= 57 {
+            result = result * 10 + (c - 48)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn buildCallArgValue(builder: IRBuilder, node: ASTNode) -> IRValue {
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "string" {
+                return ir_string(unescapeString(l.text))
+            }
+            if l.valType == "int" {
+                return ir_int(parseIntSelfhost(l.text))
+            }
+            if l.valType == "char" {
+                return ir_int(charCodeOf(l.text))
+            }
+            if l.valType == "bool" {
+                if l.text == "true" {
+                    return ir_bool(true)
+                }
+                return ir_bool(false)
+            }
+            val reg = buildExpr(builder, node)
+            return ir_register(reg)
+        }
+        _ => {
+            val reg = buildExpr(builder, node)
+            return ir_register(reg)
+        }
+    }
+}
+
 fn dotPosOf(s: string) -> int {
     var i = 0
     while i < orbit_string_len(s) {
@@ -356,7 +397,14 @@ fn builderRegisterType(builder: IRBuilder, node: ASTNode) {
                 }
                 vi = vi + 1
             }
-            val irType = IRTypeDecl(t.name, kind, irVariants, [], [])
+            var irRich = []
+            var rvi = 0
+            while rvi < t.variantPayloads.len() {
+                val payload: string = t.variantPayloads.get(rvi)
+                irRich.push(payload)
+                rvi = rvi + 1
+            }
+            val irType = IRTypeDecl(t.name, kind, irVariants, irRich, [])
             builder.module.types.push(irType)
         }
         _ => {}
@@ -434,15 +482,7 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
     }
     // Add main function if it has instructions
     if builder.currentFunction.instructions.len() > 0 {
-        val needsRet = builder.currentFunction.instructions.len() == 0
-        if needsRet == false {
-            val last = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
-            if last.opcode != IROpcode.ret {
-                builder.module.functions.push(builder.currentFunction)
-            }
-        } else {
-            builder.module.functions.push(builder.currentFunction)
-        }
+        builder.module.functions.push(builder.currentFunction)
     }
     return builder.module
 }
@@ -515,9 +555,10 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     val needsRet = func.instructions.len() == 0
     var needsRet2 = false
     if needsRet == false {
-        val last = func.instructions.get(func.instructions.len() - 1)
-        if last.opcode != IROpcode.ret {
-            needsRet2 = true
+        val last: IRInstruction = func.instructions.get(func.instructions.len() - 1)
+        match last.opcode {
+            IROpcode.ret => {}
+            _ => { needsRet2 = true }
         }
     }
     if needsRet || needsRet2 {
@@ -564,9 +605,10 @@ fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
     val needsRet = func.instructions.len() == 0
     var needsRet2 = false
     if needsRet == false {
-        val last = func.instructions.get(func.instructions.len() - 1)
-        if last.opcode != IROpcode.ret {
-            needsRet2 = true
+        val last: IRInstruction = func.instructions.get(func.instructions.len() - 1)
+        match last.opcode {
+            IROpcode.ret => {}
+            _ => { needsRet2 = true }
         }
     }
     if needsRet || needsRet2 {
@@ -720,6 +762,48 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
                     ir_emit(builder.currentFunction, retInstr)
                 }
             }
+        }
+        ASTNode.ReturnOk(r) => {
+            var statusCode = 200
+            if r.status != "" {
+                statusCode = parseIntSelfhost(r.status)
+            }
+            val arg1 = ir_init_instr(IROpcode.arg)
+            arg1.operand1 = ir_int(statusCode)
+            ir_emit(builder.currentFunction, arg1)
+            val arg2 = ir_init_instr(IROpcode.arg)
+            arg2.operand1 = buildCallArgValue(builder, r.expr)
+            ir_emit(builder.currentFunction, arg2)
+            val resReg = ir_alloc_register(builder.currentFunction, "response")
+            val callInstr = ir_init_instr(IROpcode.call)
+            callInstr.dest = resReg
+            callInstr.operand1 = ir_string("orbit_response_json")
+            callInstr.operand2 = ir_int(2)
+            ir_emit(builder.currentFunction, callInstr)
+            val retInstr = ir_init_instr(IROpcode.ret)
+            retInstr.operand1 = ir_register(resReg)
+            ir_emit(builder.currentFunction, retInstr)
+        }
+        ASTNode.ReturnErr(r) => {
+            var statusCode = 500
+            if r.code != "" {
+                statusCode = parseIntSelfhost(r.code)
+            }
+            val arg1 = ir_init_instr(IROpcode.arg)
+            arg1.operand1 = ir_int(statusCode)
+            ir_emit(builder.currentFunction, arg1)
+            val arg2 = ir_init_instr(IROpcode.arg)
+            arg2.operand1 = buildCallArgValue(builder, r.expr)
+            ir_emit(builder.currentFunction, arg2)
+            val resReg = ir_alloc_register(builder.currentFunction, "response")
+            val callInstr = ir_init_instr(IROpcode.call)
+            callInstr.dest = resReg
+            callInstr.operand1 = ir_string("orbit_response_error")
+            callInstr.operand2 = ir_int(2)
+            ir_emit(builder.currentFunction, callInstr)
+            val retInstr = ir_init_instr(IROpcode.ret)
+            retInstr.operand1 = ir_register(resReg)
+            ir_emit(builder.currentFunction, retInstr)
         }
         ASTNode.VarDecl(v) => {
             val varReg = buildExpr(builder, v.value)
