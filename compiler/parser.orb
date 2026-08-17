@@ -254,7 +254,12 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
     consume(parser, TokType.Equal, "Expected '=' after variable name.")
     val value = parseExpression(parser)
 
-    return ASTNode.VarDecl(VarDeclNode(name, isMut, value))
+    var annotationName = ""
+    match typeAnnotation {
+        ASTNode.TypeAnnotation(ta) => { annotationName = ta.token }
+        _ => {}
+    }
+    return ASTNode.VarDecl(VarDeclNode(name, isMut, value, annotationName))
 }
 
 fn parseIfStatement(parser: Parser) -> ASTNode {

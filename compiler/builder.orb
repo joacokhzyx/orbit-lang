@@ -474,7 +474,11 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
             instr.operand1 = ir_symbol(v.name)
             instr.operand2 = ir_register(varReg)
             ir_emit(func, instr)
-            defineVariable(builder, v.name, inferValueType(builder, v.value))
+            var vType = v.typeAnnotation
+            if vType == "" {
+                vType = inferValueType(builder, v.value)
+            }
+            defineVariable(builder, v.name, vType)
         }
         ASTNode.ConstDecl(c) => {
             val valueReg = buildExpr(builder, c.value)
@@ -697,7 +701,11 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             varInstr.operand1 = ir_symbol(v.name)
             varInstr.operand2 = ir_register(varReg)
             ir_emit(builder.currentFunction, varInstr)
-            defineVariable(builder, v.name, inferValueType(builder, v.value))
+            var vType = v.typeAnnotation
+            if vType == "" {
+                vType = inferValueType(builder, v.value)
+            }
+            defineVariable(builder, v.name, vType)
         }
         ASTNode.Match(m) => {
             buildMatchStatement(builder, m)

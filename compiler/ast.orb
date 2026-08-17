@@ -86,6 +86,7 @@ model VarDeclNode {
     name: string
     isMutable: bool
     value: list
+    typeAnnotation: string
 }
 
 model ConstDeclNode {
