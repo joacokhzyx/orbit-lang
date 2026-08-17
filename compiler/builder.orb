@@ -103,6 +103,73 @@ fn lookupFunctionReturnType(builder: IRBuilder, name: string) -> string {
     return "unknown"
 }
 
+fn registerBuiltinFunctionReturnTypes(builder: IRBuilder) {
+    registerFunctionReturnType(builder, "orbit_http_client_fetch", "string")
+    registerFunctionReturnType(builder, "orbit_cache_get", "string")
+    registerFunctionReturnType(builder, "orbit_cache_set", "bool")
+    registerFunctionReturnType(builder, "orbit_file_upload_save", "string")
+    registerFunctionReturnType(builder, "orbit_http_param_get", "string")
+    registerFunctionReturnType(builder, "orbit_http_body_get", "string")
+    registerFunctionReturnType(builder, "orbit_http_query_get", "string")
+    registerFunctionReturnType(builder, "orbit_http_header_get", "string")
+    registerFunctionReturnType(builder, "orbit_base64url_encode_str", "string")
+    registerFunctionReturnType(builder, "orbit_sha256_hex", "string")
+    registerFunctionReturnType(builder, "orbit_hmac_sha256_base64url", "string")
+    registerFunctionReturnType(builder, "orbit_string_slice", "string")
+    registerFunctionReturnType(builder, "orbit_auth_bearer_token", "string")
+    registerFunctionReturnType(builder, "orbit_auth_role", "string")
+    registerFunctionReturnType(builder, "orbit_auth_current_role", "string")
+    registerFunctionReturnType(builder, "orbit_auth_has_role", "bool")
+    registerFunctionReturnType(builder, "orbit_db_query_all", "string")
+    registerFunctionReturnType(builder, "orbit_db_query_where", "string")
+    registerFunctionReturnType(builder, "orbit_db_query_where_p", "string")
+    registerFunctionReturnType(builder, "orbit_db_query_get", "string")
+    registerFunctionReturnType(builder, "orbit_db_insert", "bool")
+    registerFunctionReturnType(builder, "orbit_db_delete", "bool")
+    registerFunctionReturnType(builder, "orbit_response_json", "response")
+    registerFunctionReturnType(builder, "orbit_response_error", "response")
+}
+
+fn lowercaseModelChar(c: int, source: string, idx: int) -> string {
+    if c == 65 { return "a" }
+    if c == 66 { return "b" }
+    if c == 67 { return "c" }
+    if c == 68 { return "d" }
+    if c == 69 { return "e" }
+    if c == 70 { return "f" }
+    if c == 71 { return "g" }
+    if c == 72 { return "h" }
+    if c == 73 { return "i" }
+    if c == 74 { return "j" }
+    if c == 75 { return "k" }
+    if c == 76 { return "l" }
+    if c == 77 { return "m" }
+    if c == 78 { return "n" }
+    if c == 79 { return "o" }
+    if c == 80 { return "p" }
+    if c == 81 { return "q" }
+    if c == 82 { return "r" }
+    if c == 83 { return "s" }
+    if c == 84 { return "t" }
+    if c == 85 { return "u" }
+    if c == 86 { return "v" }
+    if c == 87 { return "w" }
+    if c == 88 { return "x" }
+    if c == 89 { return "y" }
+    if c == 90 { return "z" }
+    return orbit_string_slice(source, idx, idx + 1)
+}
+
+fn modelTableName(name: string) -> string {
+    var table = ""
+    var i = 0
+    while i < orbit_string_len(name) {
+        table = table + lowercaseModelChar(name.at(i), name, i)
+        i = i + 1
+    }
+    return table + "s"
+}
+
 fn fieldTypeOfModel(builder: IRBuilder, typeName: string, fieldName: string) -> string {
     var mi = 0
     while mi < builder.module.models.len() {
@@ -456,6 +523,7 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
     match rootNode {
         ASTNode.Program(p) => {
             // Pass 1: Register models and types
+            registerBuiltinFunctionReturnTypes(builder)
             var i = 0
             while i < p.decls.len() {
                 val decl = p.decls.get(i)
@@ -1253,8 +1321,105 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 ir_emit(builder.currentFunction, vCall)
                 return vRes
             }
-            val objReg = buildExpr(builder, ma.object)
             val memberName = ma.field
+            var reqBuiltin = ""
+            var reqOperand = ir_symbol("req")
+            match ma.object {
+                ASTNode.Literal(ol) => {
+                    if ol.valType == "identifier" && ol.text == "req" {
+                        if memberName == "file" {
+                            reqBuiltin = "orbit_file_upload_save"
+                        } else if memberName == "param" {
+                            reqBuiltin = "orbit_http_param_get"
+                        } else if memberName == "body" || memberName == "json" {
+                            reqBuiltin = "orbit_http_body_get"
+                        } else if memberName == "query" {
+                            reqBuiltin = "orbit_http_query_get"
+                        } else if memberName == "bearer_token" {
+                            reqBuiltin = "orbit_auth_bearer_token"
+                            reqOperand = ir_symbol("req->headers")
+                        } else if memberName == "has_role" {
+                            reqBuiltin = "orbit_auth_has_role"
+                            reqOperand = ir_symbol("req->headers")
+                        } else if memberName == "role" {
+                            reqBuiltin = "orbit_auth_current_role"
+                            reqOperand = ir_symbol("req->headers")
+                        } else if memberName == "header" {
+                            reqBuiltin = "orbit_http_header_get"
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if reqBuiltin != "" {
+                val reqArg = ir_init_instr(IROpcode.arg)
+                reqArg.operand1 = reqOperand
+                ir_emit(builder.currentFunction, reqArg)
+                var rai = 0
+                while rai < c.args.len() {
+                    val reqCallArg = ir_init_instr(IROpcode.arg)
+                    reqCallArg.operand1 = buildCallArgValue(builder, c.args.get(rai))
+                    ir_emit(builder.currentFunction, reqCallArg)
+                    rai = rai + 1
+                }
+                val reqRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, reqBuiltin))
+                val reqCall = ir_init_instr(IROpcode.call)
+                reqCall.dest = reqRes
+                reqCall.operand1 = ir_string(reqBuiltin)
+                reqCall.operand2 = ir_int(c.args.len() + 1)
+                ir_emit(builder.currentFunction, reqCall)
+                return reqRes
+            }
+            var modelName = ""
+            match ma.object {
+                ASTNode.Literal(ol) => {
+                    if ol.valType == "identifier" && ol.text.len() > 0 {
+                        val firstChar = ol.text.at(0)
+                        if firstChar >= 65 && firstChar <= 90 {
+                            modelName = ol.text
+                        }
+                    }
+                }
+                _ => {}
+            }
+            var modelBuiltin = ""
+            if modelName != "" {
+                if memberName == "all" {
+                    modelBuiltin = "orbit_db_query_all"
+                } else if memberName == "where" {
+                    if c.args.len() == 2 {
+                        modelBuiltin = "orbit_db_query_where_p"
+                    } else {
+                        modelBuiltin = "orbit_db_query_where"
+                    }
+                } else if memberName == "find" {
+                    modelBuiltin = "orbit_db_query_get"
+                } else if memberName == "create" {
+                    modelBuiltin = "orbit_db_insert"
+                } else if memberName == "delete" {
+                    modelBuiltin = "orbit_db_delete"
+                }
+            }
+            if modelBuiltin != "" {
+                val tableArg = ir_init_instr(IROpcode.arg)
+                tableArg.operand1 = ir_string(modelTableName(modelName))
+                ir_emit(builder.currentFunction, tableArg)
+                var mai = 0
+                while mai < c.args.len() {
+                    val modelCallArg = ir_init_instr(IROpcode.arg)
+                    modelCallArg.operand1 = buildCallArgValue(builder, c.args.get(mai))
+                    ir_emit(builder.currentFunction, modelCallArg)
+                    mai = mai + 1
+                }
+                val modelRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, modelBuiltin))
+                val modelCall = ir_init_instr(IROpcode.call)
+                modelCall.dest = modelRes
+                modelCall.operand1 = ir_string(modelBuiltin)
+                modelCall.operand2 = ir_int(c.args.len() + 1)
+                ir_emit(builder.currentFunction, modelCall)
+                return modelRes
+            }
+            val objReg = buildExpr(builder, ma.object)
             // Collection methods
             if memberName == "push" && c.args.len() >= 1 {
                 val valReg = buildExpr(builder, c.args.get(0))
@@ -1508,7 +1673,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                         ir_emit(builder.currentFunction, argInstr)
                         ei = ei + 1
                     }
-                    val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+                    val resReg = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, lit.text))
                     val callInstr = ir_init_instr(IROpcode.call)
                     callInstr.dest = resReg
                     callInstr.operand1 = ir_string(lit.text)
@@ -1685,6 +1850,36 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         }
         ASTNode.MemberAccess(ma) => {
             val memberText = ma.field
+            var reqValueBuiltin = ""
+            var reqValueOperand = ir_symbol("req")
+            match ma.object {
+                ASTNode.Literal(lit) => {
+                    if lit.valType == "identifier" && lit.text == "req" {
+                        if memberText == "body" || memberText == "json" {
+                            reqValueBuiltin = "orbit_http_body_get"
+                        } else if memberText == "bearer_token" {
+                            reqValueBuiltin = "orbit_auth_bearer_token"
+                            reqValueOperand = ir_symbol("req->headers")
+                        } else if memberText == "role" {
+                            reqValueBuiltin = "orbit_auth_current_role"
+                            reqValueOperand = ir_symbol("req->headers")
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if reqValueBuiltin != "" {
+                val reqValueArg = ir_init_instr(IROpcode.arg)
+                reqValueArg.operand1 = reqValueOperand
+                ir_emit(builder.currentFunction, reqValueArg)
+                val reqValueRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, reqValueBuiltin))
+                val reqValueCall = ir_init_instr(IROpcode.call)
+                reqValueCall.dest = reqValueRes
+                reqValueCall.operand1 = ir_string(reqValueBuiltin)
+                reqValueCall.operand2 = ir_int(1)
+                ir_emit(builder.currentFunction, reqValueCall)
+                return reqValueRes
+            }
             // Check if object is uppercase (type/enum constant reference like Type.Variant)
             var enumConstName = ""
             var enumOwnerName = ""

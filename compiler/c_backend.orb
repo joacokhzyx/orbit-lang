@@ -1716,10 +1716,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
 
 
             var callExpr = calleeName + "("
-            var arenaFirst = false
-            if calleeName == "orbit_string_slice" || calleeName == "orbit_string_concat" || calleeName == "orbit_string_split" || calleeName == "orbit_string_replace" || calleeName == "orbit_response_json" || calleeName == "orbit_response_error" {
-                arenaFirst = true
-            }
+            val arenaFirst = functionNeedsArena(calleeName)
             var i = startIdx
             var anyArg = false
             if arenaFirst {
@@ -1735,7 +1732,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 val aStr = backend.callArgs.get(i)
                 if orbit_string_indexOf(aStr, "TAG_") != -1 {
                     callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
-                } else if calleeName == "orbit_response_json" || calleeName == "orbit_response_error" {
+                } else if isRouteRuntimeBuiltin(calleeName) {
                     callExpr = callExpr + aStr
                 } else if calleeName == "check" || calleeName == "matchToken" || calleeName == "consume" {
                     if argIdx == 1 {
@@ -1852,7 +1849,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 backend.callArgs.pop()
             }
             if destNeeded {
-                if calleeName == "orbit_response_json" || calleeName == "orbit_response_error" {
+                if isRouteRuntimeBuiltin(calleeName) {
                     return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + callExpr + ";\n"
                 }
                 return generateRegAssign(backend, instr.dest, callExpr)
@@ -2323,6 +2320,33 @@ fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
     return false
 }
 
+fn functionNeedsArena(name: string) -> bool {
+    if name == "orbit_file_read" || name == "orbit_file_list_dir" { return true }
+    if name == "orbit_list_create" || name == "orbit_map_create" { return true }
+    if name == "orbit_response_create" || name == "orbit_response_json" || name == "orbit_response_error" { return true }
+    if name == "orbit_string_slice" || name == "orbit_string_split" || name == "orbit_string_replace" || name == "orbit_string_concat" { return true }
+    if name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_argv" { return true }
+    if name == "orbit_int_to_string" || name == "orbit_float_to_string" { return true }
+    if name == "orbit_http_query_get" || name == "orbit_http_header_get" || name == "orbit_http_param_get" || name == "orbit_http_body_get" { return true }
+    if name == "orbit_db_get" || name == "orbit_db_all" || name == "orbit_db_where" || name == "orbit_db_first" { return true }
+    if name == "orbit_auth_bearer_token" || name == "orbit_auth_role" || name == "orbit_auth_current_role" || name == "orbit_auth_has_role" { return true }
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" { return true }
+    if name == "orbit_http_client_fetch" || name == "orbit_cache_get" || name == "orbit_file_upload_save" { return true }
+    if name == "orbit_base64url_encode_str" || name == "orbit_sha256_hex" || name == "orbit_hmac_sha256_base64url" { return true }
+    return false
+}
+
+fn isRouteRuntimeBuiltin(name: string) -> bool {
+    if name == "orbit_http_client_fetch" { return true }
+    if name == "orbit_http_query_get" || name == "orbit_http_body_get" || name == "orbit_http_param_get" || name == "orbit_http_header_get" { return true }
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" { return true }
+    if name == "orbit_db_insert" || name == "orbit_db_delete" { return true }
+    if name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_auth_has_role" { return true }
+    if name == "orbit_response_json" || name == "orbit_response_error" { return true }
+    if name == "orbit_file_upload_save" { return true }
+    return false
+}
+
 fn isStringReturningFunction(name: string) -> bool {
     if name == "slice" { return true }
     if name == "generateValue" { return true }
@@ -2350,6 +2374,13 @@ fn isStringReturningFunction(name: string) -> bool {
     if name == "orbit_int_to_string" { return true }
     if name == "orbit_float_to_string" { return true }
     if name == "orbit_bool_to_string" { return true }
+    if name == "orbit_http_client_fetch" { return true }
+    if name == "orbit_cache_get" { return true }
+    if name == "orbit_file_upload_save" { return true }
+    if name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_query_get" || name == "orbit_http_header_get" { return true }
+    if name == "orbit_base64url_encode_str" || name == "orbit_sha256_hex" || name == "orbit_hmac_sha256_base64url" { return true }
+    if name == "orbit_auth_bearer_token" || name == "orbit_auth_role" || name == "orbit_auth_current_role" { return true }
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" { return true }
     return false
 }
 
