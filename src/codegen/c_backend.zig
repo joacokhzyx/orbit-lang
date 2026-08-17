@@ -15,6 +15,7 @@ const IRType = ir.IRType;
 const IRTypeDecl = ir.IRTypeDecl;
 const IRModel = ir.IRModel;
 const RuntimeLoader = @import("runtime_loader.zig");
+const IRVerifier = @import("ir_verifier.zig");
 const AtlasConfig = @import("../atlas.zig").AtlasConfig;
 const superluminal_matcher = @import("../superluminal/pattern_matcher.zig");
 const superluminal_emitter = @import("../superluminal/emitter.zig");
@@ -438,6 +439,8 @@ pub const CBackend = struct {
         try self.function_return_types.put(self.allocator, "orbit_db_query_get", .string);
         try self.function_return_types.put(self.allocator, "orbit_db_insert", .bool);
         try self.function_return_types.put(self.allocator, "orbit_db_delete", .bool);
+        try self.function_return_types.put(self.allocator, "orbit_response_json", .response);
+        try self.function_return_types.put(self.allocator, "orbit_response_error", .response);
 
         const headers = try RuntimeLoader.generateHeaders(self.allocator);
         try self.output.appendSlice(self.allocator, headers);
@@ -586,6 +589,12 @@ pub const CBackend = struct {
         }
 
         const has_db = module.usesDatabase();
+
+        // STAB-5: fail the build on any register that is still unknown-typed
+        // after codegen yet referenced as an operand. The self-host bootstrap
+        // once emitted an undeclared `compOutput_indexOf` from exactly this
+        // class of degradation; the verifier makes it a hard error.
+        try IRVerifier.verifyTypedIR(&module);
 
         const main_func = try RuntimeLoader.generateMainFunction(self.allocator, self.has_server_init, has_db, self.config, self.boost_metrics.boostPercent());
         try self.output.appendSlice(self.allocator, main_func);
@@ -2186,6 +2195,17 @@ pub const CBackend = struct {
         const dest_type = if (self.current_func) |f| f.register_types.items[instr.dest.?] else .unknown;
 
         if (std.mem.eql(u8, op, " + ") and (type1 == .string or type2 == .string or dest_type == .string)) {
+            if (instr.dest) |d| {
+                if (self.current_func) |f| {
+                    if (d < f.register_types.items.len and f.register_types.items[d] == .unknown) {
+                        // A concat produces a string; leaving the dest unknown
+                        // lets the math-dest block below mis-type it as int,
+                        // turning later chained `+` into `(orbit_int)(uintptr_t)`
+                        // math on a char* (a silent miscompile of `a + b + c`).
+                        f.register_types.items[d] = .string;
+                    }
+                }
+            }
             try self.output.print(self.allocator, "r_{d} = orbit_string_concat(arena, ", .{instr.dest.?});
             try self.generateStringConcatOperand(instr.operand1, type1);
             try self.output.appendSlice(self.allocator, ", ");

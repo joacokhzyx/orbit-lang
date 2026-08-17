@@ -1488,6 +1488,143 @@ test "codegen.compile.selfhost_exec_indexof_typing" {
     }
 }
 
+test "reproducibility.cross_directory_byte_identical" {
+    // STAB-7: compiling the same source from two different working dirs must
+    // emit byte-identical generated C. Guards against cwd/path leakage into
+    // the C backend (the self-host pipeline embeds the C source path in the
+    // compiled binary, so the C text itself is the portable invariant).
+    var arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const builtin_mod = @import("builtin");
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{
+        .environ = .{ .block = if (builtin_mod.os.tag == .windows) .global else .empty },
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const this_file = @src().file;
+    const this_dir = std.fs.path.dirname(this_file) orelse ".";
+    const src_dir = std.fs.path.dirname(this_dir) orelse ".";
+    const root_dir = std.fs.path.dirname(src_dir) orelse ".";
+
+    const temp_base = try std.fs.path.join(alloc, &.{ root_dir, ".repro_tmp" });
+    const dir_a = try std.fs.path.join(alloc, &.{ temp_base, "a" });
+    const dir_b = try std.fs.path.join(alloc, &.{ temp_base, "b" });
+    const compiler_path = try std.fs.path.join(alloc, &.{ root_dir, "zig-out", "bin", "orbit.exe" });
+
+    var cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, dir_a) catch {};
+    cwd.createDirPath(io, dir_b) catch {};
+    defer cwd.deleteTree(io, temp_base) catch {};
+
+    const src_a = try std.fs.path.join(alloc, &.{ dir_a, "app.orb" });
+    const src_b = try std.fs.path.join(alloc, &.{ dir_b, "app.orb" });
+    const out_a = try std.fs.path.join(alloc, &.{ dir_a, "app_a.exe" });
+    const out_b = try std.fs.path.join(alloc, &.{ dir_b, "app_b.exe" });
+
+    const source =
+        \\fn main() -> int {
+        \\    return 42
+        \\}
+        \\
+    ;
+    var wb: [4096]u8 = undefined;
+    {
+        var f = try cwd.createFile(io, src_a, .{ .truncate = true });
+        var w = std.Io.File.Writer.init(f, io, &wb);
+        try w.interface.writeAll(source);
+        try w.flush();
+        f.close(io);
+    }
+    {
+        var f = try cwd.createFile(io, src_b, .{ .truncate = true });
+        var w = std.Io.File.Writer.init(f, io, &wb);
+        try w.interface.writeAll(source);
+        try w.flush();
+        f.close(io);
+    }
+
+    var compiler_file = cwd.openFile(io, compiler_path, .{}) catch return error.SkipZigTest;
+    compiler_file.close(io);
+
+    var build_a = std.process.spawn(io, .{
+        .argv = &.{ compiler_path, "build", src_a, "-o", out_a },
+        .cwd = .{ .path = dir_a },
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const term_a = try build_a.wait(io);
+    if (term_a != .exited or term_a.exited != 0) {
+        return error.ReproBuildFailed;
+    }
+
+    var build_b = std.process.spawn(io, .{
+        .argv = &.{ compiler_path, "build", src_b, "-o", out_b },
+        .cwd = .{ .path = dir_b },
+        .stdout = .ignore,
+        .stderr = .inherit,
+    }) catch return error.SkipZigTest;
+    const term_b = try build_b.wait(io);
+    if (term_b != .exited or term_b.exited != 0) {
+        return error.ReproBuildFailed;
+    }
+
+    const gen_a = try std.fs.path.join(alloc, &.{ dir_a, "last_generated.c" });
+    const gen_b = try std.fs.path.join(alloc, &.{ dir_b, "last_generated.c" });
+    const c_a = try readGeneratedC(io, cwd, gen_a, alloc);
+    const c_b = try readGeneratedC(io, cwd, gen_b, alloc);
+    try std.testing.expectEqualSlices(u8, c_a, c_b);
+}
+
+fn readGeneratedC(io: anytype, cwd: std.Io.Dir, path: []const u8, alloc: std.mem.Allocator) ![]u8 {
+    var file = try cwd.openFile(io, path, .{});
+    defer file.close(io);
+    const len = try file.length(io);
+    const buf = try alloc.alloc(u8, len);
+    var rbuf: [8192]u8 = undefined;
+    var reader = std.Io.File.Reader.init(file, io, &rbuf);
+    try reader.interface.readSliceAll(buf);
+    return buf;
+}
+
+test "ir_verifier.unknown_register_use_rejected" {
+    // STAB-5: a register that stays `.unknown` after codegen yet is referenced
+    // as an operand of a type-dependent opcode must fail `verifyTypedIR` (the
+    // `compOutput_indexOf` degradation class); a fully-typed module must pass.
+    const verifier = @import("codegen/ir_verifier.zig");
+    var ta = testArena();
+    defer ta.arena.deinit();
+    const allocator = ta.arena.allocator();
+
+    var module = ir.IRModule.init(allocator);
+    defer module.deinit();
+
+    var bad_func = ir.IRFunction.init(allocator, "bad");
+    _ = try bad_func.allocRegister(allocator, .unknown);
+    var bad_use = ir.IRInstruction.init(.sub);
+    bad_use.dest = 1;
+    bad_use.operand1 = .{ .register = 0 };
+    bad_use.operand2 = .{ .int = 1 };
+    try bad_func.emit(allocator, bad_use);
+    try module.addFunction(bad_func);
+
+    try std.testing.expectError(verifier.VerifierError.UnknownRegisterUse, verifier.verifyTypedIR(&module));
+
+    var good_module = ir.IRModule.init(allocator);
+    defer good_module.deinit();
+    var good_func = ir.IRFunction.init(allocator, "good");
+    _ = try good_func.allocRegister(allocator, .int);
+    var good_use = ir.IRInstruction.init(.sub);
+    good_use.dest = 1;
+    good_use.operand1 = .{ .register = 0 };
+    good_use.operand2 = .{ .int = 1 };
+    try good_func.emit(allocator, good_use);
+    try good_module.addFunction(good_func);
+    try verifier.verifyTypedIR(&good_module);
+}
+
 test "superluminal.z3_equivalence" {
     const z3 = @import("superluminal/z3_integration.zig");
     if (!z3.isAvailable()) return error.SkipZigTest;

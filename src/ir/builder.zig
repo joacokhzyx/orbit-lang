@@ -146,6 +146,7 @@ pub const IRBuilder = struct {
             }
 
             const obj_type = self.getNodeType(ma.object);
+            if (obj_type == .string) return .string; // JSON field lookup
             switch (obj_type) {
                 .model => |m_name| {
                     if (self.model_registry) |reg| {
