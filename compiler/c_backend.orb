@@ -1,4 +1,5 @@
 import "./ir.orb"
+import "./route_runtime.orb"
 
 model CBackend {
     module: IRModule
@@ -17,9 +18,16 @@ fn initCBackend(module: IRModule) -> CBackend {
 }
 
 fn generateC(backend: CBackend) -> string {
+    var hasRoutes = moduleHasRoute(backend)
     var i = 0
-    var out = "#include \"runtime.h\"\n\n"
-    out = out + "OrbitArena* arena = NULL;\n\n"
+    var out = ""
+    if hasRoutes {
+        out = out + generateRoutePreamble()
+    } else {
+        out = out + "#include \"runtime.h\"\n\n"
+        out = out + "OrbitArena* arena = NULL;\n\n"
+    }
+    if hasRoutes == false {
     out = out + "#ifndef AST_VARIANTS_DEFINED\n"
     out = out + "#define AST_VARIANTS_DEFINED\n"
     out = out + "typedef struct OrbitASTVariantNode { int tag; void* data; } OrbitASTVariantNode;\n"
@@ -198,8 +206,10 @@ fn generateC(backend: CBackend) -> string {
         }
         mi = mi + 1
     }
-
+    }
+    if hasRoutes == false {
     out = out + "// Forward declare function signatures\n"
+    }
     var fo = 0
     while fo < backend.module.models.len() {
         val mDecl: IRModelDecl = backend.module.models.get(fo)
@@ -218,43 +228,42 @@ fn generateC(backend: CBackend) -> string {
         val func: IRFunction = backend.module.functions.get(i)
         if func.isExtern == false {
             var fName2 = func.name
-            var isMain2 = false
-            if fName2 == "main" || fName2 == "orbit_main" || fName2 == "main_main" {
-                isMain2 = true
-            } else {
-                val fLen2 = orbit_string_len(fName2)
-                if fLen2 > 5 {
-                    val tail2 = orbit_string_slice(fName2, fLen2 - 5, fLen2)
-                    if tail2 == "_main" { isMain2 = true }
-                }
-            }
+            var isMain2 = isMainFuncName(fName2)
+            var isRoute2 = func.routeMethod != ""
             if isMain2 {
                 fName2 = "orbit_main"
             }
             var isSkipped2 = false
-            if fName2 == "orbit_main" && func.name != "main" && moduleHasFunction(backend, "main") {
+            if fName2 == "orbit_main" && func.name != "main" && (moduleHasFunction(backend, "main") || hasRoutes) {
                 isSkipped2 = true
             }
             if isSkipped2 == false {
                 var retType2 = mapTypeToC(backend, func.returnType)
                 if isMain2 {
-                    if func.returnType != "void" && func.returnType != "" {
-                        retType2 = mapTypeToC(backend, func.returnType)
-                    } else {
-                        retType2 = "void"
-                    }
+                    retType2 = "int"
                 }
-                var proto = "static " + retType2 + " " + fName2 + "("
-                if func.params.len() == 0 {
-                    proto = proto + "void"
+                if isRoute2 {
+                    retType2 = "OrbitResponse*"
+                }
+                fName2 = sanitizeIdentifier(fName2)
+                var proto = ""
+                if isRoute2 {
+                    proto = retType2 + " " + fName2 + "(OrbitArena* arena, OrbitRequest* req"
+                } else if isMain2 {
+                    proto = retType2 + " " + fName2 + "(OrbitArena* _init_arena"
                 } else {
-                    var pi2 = 0
-                    while pi2 < func.params.len() {
-                        proto = proto + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
-                        if pi2 < func.params.len() - 1 {
-                            proto = proto + ", "
+                    proto = "static " + retType2 + " " + fName2 + "("
+                    if func.params.len() == 0 {
+                        proto = proto + "void"
+                    } else {
+                        var pi2 = 0
+                        while pi2 < func.params.len() {
+                            proto = proto + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
+                            if pi2 < func.params.len() - 1 {
+                                proto = proto + ", "
+                            }
+                            pi2 = pi2 + 1
                         }
-                        pi2 = pi2 + 1
                     }
                 }
                 out = out + proto + ");\n"
@@ -284,7 +293,7 @@ fn generateC(backend: CBackend) -> string {
                 fName3 = "orbit_main"
             }
             var isSkipped3 = false
-            if fName3 == "orbit_main" && func.name != "main" && moduleHasFunction(backend, "main") {
+            if fName3 == "orbit_main" && func.name != "main" && (moduleHasFunction(backend, "main") || hasRoutes) {
                 isSkipped3 = true
             }
             if isSkipped3 == false {
@@ -293,20 +302,31 @@ fn generateC(backend: CBackend) -> string {
         }
         i = i + 1
     }
-    out = out + "extern char** _orbit_argv;\n"
-    out = out + "extern int _orbit_argc;\n\n"
-    out = out + "int main(int argc, char** argv) {\n"
-    out = out + "    _orbit_argv = argv;\n"
-    out = out + "    _orbit_argc = argc;\n"
-    out = out + "    arena = orbit_arena_create(512 * 1024 * 1024);\n"
-    if mainReturnsInt(backend) {
-        out = out + "    int _orbit_exit_code = (int)(orbit_main());\n"
-        out = out + "    return _orbit_exit_code;\n"
+    if hasRoutes {
+        out = out + generateRouterBlock(backend)
+        if moduleHasFunction(backend, "main") == false {
+            out = out + "int orbit_main(OrbitArena* _init_arena) {\n"
+            out = out + "    (void)_init_arena;\n"
+            out = out + "    return 0;\n"
+            out = out + "}\n"
+        }
+        out = out + generateServerMain()
     } else {
-        out = out + "    orbit_main();\n"
-        out = out + "    return 0;\n"
+        out = out + "extern char** _orbit_argv;\n"
+        out = out + "extern int _orbit_argc;\n\n"
+        out = out + "int main(int argc, char** argv) {\n"
+        out = out + "    _orbit_argv = argv;\n"
+        out = out + "    _orbit_argc = argc;\n"
+        out = out + "    arena = orbit_arena_create(512 * 1024 * 1024);\n"
+        if mainReturnsInt(backend) {
+            out = out + "    int _orbit_exit_code = (int)(orbit_main(arena));\n"
+            out = out + "    return _orbit_exit_code;\n"
+        } else {
+            out = out + "    orbit_main(arena);\n"
+            out = out + "    return 0;\n"
+        }
+        out = out + "}\n"
     }
-    out = out + "}\n"
     return out
 }
 
@@ -781,6 +801,219 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
     }
 }
 
+fn sanitizeIdentifier(name: string) -> string {
+    var out = ""
+    var i = 0
+    val len = orbit_string_len(name)
+    while i < len {
+        val ch = name.at(i)
+        if (ch >= 48 && ch <= 57) || (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) {
+            out = out + name.slice(i, i + 1)
+        } else {
+            out = out + "_"
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn isMainFuncName(name: string) -> bool {
+    if name == "main" { return true }
+    if name == "orbit_main" { return true }
+    if name == "main_main" { return true }
+    val len = orbit_string_len(name)
+    if len > 5 {
+        if orbit_string_slice(name, len - 5, len) == "_main" { return true }
+    }
+    return false
+}
+
+fn isRouteFuncName(name: string) -> bool {
+    if orbit_string_len(name) < 6 { return false }
+    return orbit_string_slice(name, 0, 6) == "route_"
+}
+
+fn moduleHasRoute(backend: CBackend) -> bool {
+    var i = 0
+    while i < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(i)
+        if f.routeMethod != "" {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn xor16(a: int, b: int) -> int {
+    var r = 0
+    var p = 1
+    var k = 0
+    while k < 16 {
+        val abit = (a / p) % 2
+        val bbit = (b / p) % 2
+        val xb = (abit + bbit) % 2
+        r = r + xb * p
+        p = p * 2
+        k = k + 1
+    }
+    return r
+}
+
+fn fnv1a64Hash(method: string, path: string) -> string {
+    var h3 = 52210
+    var h2 = 40164
+    var h1 = 33826
+    var h0 = 8997
+    val ml = orbit_string_len(method)
+    var mi = 0
+    while mi < ml {
+        val b = method.at(mi)
+        h0 = xor16(h0, b)
+        val t0 = h0 * 435
+        val r0 = t0 % 65536
+        var carry = t0 / 65536
+        val t1 = h1 * 435 + carry
+        val r1 = t1 % 65536
+        carry = t1 / 65536
+        val t2 = h2 * 435 + carry
+        val r2 = t2 % 65536
+        carry = t2 / 65536
+        val t3 = h3 * 435 + carry
+        val r3 = t3 % 65536
+        val c0 = (h0 * 256) % 65536
+        val c1 = h0 / 256
+        val c2 = (h1 * 256) % 65536 + c1
+        val nh2 = (r2 + c0) % 65536
+        val carry2 = (r2 + c0) / 65536
+        val nh3 = (r3 + c2 + carry2) % 65536
+        h3 = nh3
+        h2 = nh2
+        h1 = r1
+        h0 = r0
+        mi = mi + 1
+    }
+    h0 = xor16(h0, 58)
+    val t0 = h0 * 435
+    val r0 = t0 % 65536
+    var carry = t0 / 65536
+    val t1 = h1 * 435 + carry
+    val r1 = t1 % 65536
+    carry = t1 / 65536
+    val t2 = h2 * 435 + carry
+    val r2 = t2 % 65536
+    carry = t2 / 65536
+val t3 = h3 * 435 + carry
+    val r3 = t3 % 65536
+    val c0 = (h0 * 256) % 65536
+    val c1 = h0 / 256
+    val c2 = (h1 * 256) % 65536 + c1
+    val nh2 = (r2 + c0) % 65536
+    val carry2 = (r2 + c0) / 65536
+    val nh3 = (r3 + c2 + carry2) % 65536
+    h3 = nh3
+    h2 = nh2
+    h1 = r1
+    h0 = r0
+    val pl = orbit_string_len(path)
+    var pi = 0
+    while pi < pl {
+        val b = path.at(pi)
+        h0 = xor16(h0, b)
+        val t0 = h0 * 435
+        val r0 = t0 % 65536
+        var carry = t0 / 65536
+        val t1 = h1 * 435 + carry
+        val r1 = t1 % 65536
+        carry = t1 / 65536
+        val t2 = h2 * 435 + carry
+        val r2 = t2 % 65536
+        carry = t2 / 65536
+        val t3 = h3 * 435 + carry
+        val r3 = t3 % 65536
+        val c0 = (h0 * 256) % 65536
+        val c1 = h0 / 256
+        val c2 = (h1 * 256) % 65536 + c1
+        val nh2 = (r2 + c0) % 65536
+        val carry2 = (r2 + c0) / 65536
+        val nh3 = (r3 + c2 + carry2) % 65536
+        h3 = nh3
+        h2 = nh2
+        h1 = r1
+        h0 = r0
+        pi = pi + 1
+    }
+    var rev = ""
+    val digits9 = "0123456789"
+    var keepGoing = true
+    while keepGoing {
+        var rem = 0
+        val d3 = rem * 65536 + h3
+        h3 = d3 / 10
+        rem = d3 % 10
+        val d2 = rem * 65536 + h2
+        h2 = d2 / 10
+        rem = d2 % 10
+        val d1 = rem * 65536 + h1
+        h1 = d1 / 10
+        rem = d1 % 10
+        val d0 = rem * 65536 + h0
+        h0 = d0 / 10
+        rem = d0 % 10
+        rev = rev + digits9.slice(rem, rem + 1)
+        if h3 == 0 && h2 == 0 && h1 == 0 && h0 == 0 {
+            keepGoing = false
+        }
+    }
+    var dec = ""
+    var revIdx = orbit_string_len(rev)
+    while revIdx > 0 {
+        revIdx = revIdx - 1
+        dec = dec + rev.slice(revIdx, revIdx + 1)
+    }
+    return dec
+}
+
+fn generateRoutePreamble() -> string {
+    var out = ""
+    out = out + routePreambleText()
+    out = out + "\n"
+    return out
+}
+
+fn generateRouterBlock(backend: CBackend) -> string {
+    var out = ""
+    out = out + routerPreText()
+    var i = 0
+    while i < backend.module.functions.len() {
+        val func: IRFunction = backend.module.functions.get(i)
+        if func.routeMethod != "" {
+            out = out + "    case " + fnv1a64Hash(func.routeMethod, func.routePath) + "ULL: {\n"
+            out = out + "        if (strcmp(req->path, \"" + func.routePath + "\") == 0 && strcmp(req->method, \"" + func.routeMethod + "\") == 0) {\n"
+            out = out + "            OrbitResponse* res = " + sanitizeIdentifier(func.name) + "(arena, req);\n"
+            out = out + "            orbit_send_response(client_sock, res);\n"
+            out = out + "#if ORBIT_LOGS_ACTIVE\n"
+            out = out + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);\n"
+            out = out + "#endif\n"
+            out = out + "#if ORBIT_KYNX_ACTIVE\n"
+            out = out + "            if (lease) orbit_kynx_lease_destroy(lease);\n"
+            out = out + "#endif\n"
+            out = out + "            orbit_perf_end_request(start);\n"
+            out = out + "            return keep_alive;\n"
+            out = out + "        }\n"
+            out = out + "        break;\n"
+            out = out + "    }\n"
+        }
+        i = i + 1
+    }
+    out = out + routerTailText()
+    return out
+}
+
+fn generateServerMain() -> string {
+    return serverMainText()
+}
+
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     backend.currentFunction = func
     backend.callArgs = []
@@ -814,44 +1047,46 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     }
     var retType = mapTypeToC(backend, func.returnType)
     var fName = func.name
-    var isMain = false
-    if fName == "main" || fName == "orbit_main" || fName == "main_main" {
-        isMain = true
-    } else {
-        val fLen = orbit_string_len(fName)
-        if fLen > 5 {
-            val tail = orbit_string_slice(fName, fLen - 5, fLen)
-            if tail == "_main" { isMain = true }
-        }
-    }
+    var isMain = isMainFuncName(fName)
+    var isRoute = func.routeMethod != ""
     if isMain {
         fName = "orbit_main"
-        if func.returnType != "void" && func.returnType != "" {
-            retType = mapTypeToC(backend, func.returnType)
-        } else {
-            retType = "void"
-        }
+        retType = "int"
     }
-    var out = "static " + retType + " " + fName + "("
-    var i = 0
-    if func.params.len() == 0 {
-        out = out + "void"
+    if isRoute {
+        retType = "OrbitResponse*"
+    }
+    fName = sanitizeIdentifier(fName)
+    var out = ""
+    if isRoute {
+        out = "__attribute__((always_inline))\n    " + retType + " " + fName + "(OrbitArena* arena, OrbitRequest* req"
+    } else if isMain {
+        out = retType + " " + fName + "(OrbitArena* _init_arena"
     } else {
-        while i < func.params.len() {
-            val pName = func.params.get(i)
-            var pTypeName = "void*"
-            if i < func.paramTypes.len() {
-                pTypeName = func.paramTypes.get(i)
+        out = "static " + retType + " " + fName + "("
+        var i = 0
+        if func.params.len() == 0 {
+            out = out + "void"
+        } else {
+            while i < func.params.len() {
+                val pName = func.params.get(i)
+                var pTypeName = "void*"
+                if i < func.paramTypes.len() {
+                    pTypeName = func.paramTypes.get(i)
+                }
+                val pType = mapTypeToC(backend, pTypeName)
+                out = out + pType + " " + pName
+                if i < func.params.len() - 1 {
+                    out = out + ", "
+                }
+                i = i + 1
             }
-            val pType = mapTypeToC(backend, pTypeName)
-            out = out + pType + " " + pName
-            if i < func.params.len() - 1 {
-                out = out + ", "
-            }
-            i = i + 1
         }
     }
     out = out + ") {\n"
+    if isMain {
+        out = out + "    arena = _init_arena;\n"
+    }
     i = 0
     while i < func.registerCount {
         var rTypeName = "void*"
@@ -1022,7 +1257,11 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         out = out + generateInstruction(backend, instr)
         i = i + 1
     }
-    if func.returnType != "void" {
+    if isRoute {
+        out = out + "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n"
+    } else if isMain {
+        out = out + "    return 0;\n"
+    } else if func.returnType != "void" {
         if retType == "orbit_int" {
             out = out + "    return 0;\n"
         } else if retType == "orbit_bool" {
@@ -1502,6 +1741,8 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     val rtype = backend.currentFunction.returnType
                     if rtype == "int" || rtype == "bool" {
                         return "    return 0;\n"
+                    } else if isMainFuncName(backend.currentFunction.name) {
+                        return "    return 0;\n"
                     } else if rtype == "float" {
                         return "    return 0.0;\n"
                     } else if rtype == "void" {
@@ -1514,7 +1755,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 }
                 IRValue.Register(v) => {
                     val rtype = backend.currentFunction.returnType
-                    if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) {
+                    if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
                         return "    return (orbit_int)(uintptr_t)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
                     } else if rtype == "string" || rtype == "orbit_string" {
                         return "    return (orbit_string)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
@@ -1525,7 +1766,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 _ => {
                     val rtype = backend.currentFunction.returnType
                     val valStr = generateValue(backend, instr.operand1)
-                    if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) {
+                    if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
                         return "    return (orbit_int)(uintptr_t)(" + valStr + ");\n"
                     } else if rtype == "string" || rtype == "orbit_string" {
                         return "    return (orbit_string)(" + valStr + ");\n"

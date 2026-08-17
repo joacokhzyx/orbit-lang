@@ -71,6 +71,60 @@ fn consume(parser: Parser, expected: TokType, message: string) {
     }
 }
 
+fn isKeywordToken(tag: TokType) -> bool {
+    if tag == TokType.KeywordIf { return true }
+    if tag == TokType.KeywordElse { return true }
+    if tag == TokType.KeywordFor { return true }
+    if tag == TokType.KeywordIn { return true }
+    if tag == TokType.KeywordWhile { return true }
+    if tag == TokType.KeywordLoop { return true }
+    if tag == TokType.KeywordBreak { return true }
+    if tag == TokType.KeywordContinue { return true }
+    if tag == TokType.KeywordReturn { return true }
+    if tag == TokType.KeywordMatch { return true }
+    if tag == TokType.KeywordType { return true }
+    if tag == TokType.KeywordEnum { return true }
+    if tag == TokType.KeywordUnion { return true }
+    if tag == TokType.KeywordConst { return true }
+    if tag == TokType.KeywordVal { return true }
+    if tag == TokType.KeywordVar { return true }
+    if tag == TokType.KeywordMut { return true }
+    if tag == TokType.KeywordPrivate { return true }
+    if tag == TokType.KeywordExtern { return true }
+    if tag == TokType.KeywordEvery { return true }
+    if tag == TokType.KeywordAsync { return true }
+    if tag == TokType.KeywordFn { return true }
+    if tag == TokType.KeywordModel { return true }
+    if tag == TokType.KeywordRoute { return true }
+    if tag == TokType.KeywordGet { return true }
+    if tag == TokType.KeywordPost { return true }
+    if tag == TokType.KeywordPut { return true }
+    if tag == TokType.KeywordPatch { return true }
+    if tag == TokType.KeywordDelete { return true }
+    if tag == TokType.KeywordHead { return true }
+    if tag == TokType.KeywordOptions { return true }
+    if tag == TokType.KeywordUse { return true }
+    if tag == TokType.KeywordImport { return true }
+    if tag == TokType.KeywordTrait { return true }
+    if tag == TokType.KeywordImpl { return true }
+    return false
+}
+
+// Contextual keywords: member names may collide with language keywords
+// (map.delete(...), .list, .map, .string, ...). Members resolve by text
+// downstream, never by tag, so accept an Identifier or any keyword here.
+fn consumeMemberName(parser: Parser, message: string) {
+    val t = parser.currentToken.tag
+    if t == TokType.Identifier || isKeywordToken(t) {
+        advanceParser(parser)
+    } else {
+        parserError(parser, message)
+        if isAtEnd(parser) == false {
+            advanceParser(parser)
+        }
+    }
+}
+
 fn getPrecedence(tag: TokType) -> int {
     if tag == TokType.DoublePipe { return 1 }
     if tag == TokType.DoubleAmpersand { return 2 }
@@ -108,7 +162,7 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
             result = ASTNode.Call(CallNode(result, args))
         } else {
             if matchToken(parser, TokType.Dot) {
-                consume(parser, TokType.Identifier, "Expected member name after '.'.")
+                consumeMemberName(parser, "Expected member name after '.'.")
                 val member = parser.previousToken.text
                 result = ASTNode.MemberAccess(MemberAccessNode(result, member))
             } else {
@@ -543,9 +597,28 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
     return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType))
 }
 
+fn isHttpMethodToken(tag: TokType) -> bool {
+    if tag == TokType.KeywordGet { return true }
+    if tag == TokType.KeywordPost { return true }
+    if tag == TokType.KeywordPut { return true }
+    if tag == TokType.KeywordPatch { return true }
+    if tag == TokType.KeywordDelete { return true }
+    if tag == TokType.KeywordHead { return true }
+    if tag == TokType.KeywordOptions { return true }
+    return false
+}
+
 fn parseRouteDecl(parser: Parser, decorators: list) -> ASTNode {
-    consume(parser, TokType.StringLiteral, "Expected HTTP method string.")
-    val method = parser.previousToken.text
+    var method = ""
+    if isHttpMethodToken(parser.currentToken.tag) {
+        advanceParser(parser)
+        method = parser.previousToken.text
+    } else {
+        parserError(parser, "Expected HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS).")
+        if isAtEnd(parser) == false {
+            advanceParser(parser)
+        }
+    }
     consume(parser, TokType.StringLiteral, "Expected path string.")
     val path = parser.previousToken.text
     val body = parseBlock(parser)

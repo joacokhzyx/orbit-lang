@@ -33,6 +33,13 @@ enum TokType {
     KeywordAsync,
     KeywordModel,
     KeywordRoute,
+    KeywordGet,
+    KeywordPost,
+    KeywordPut,
+    KeywordPatch,
+    KeywordDelete,
+    KeywordHead,
+    KeywordOptions,
     KeywordUse,
     KeywordImport,
     KeywordTrait,
@@ -114,6 +121,13 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.KeywordFn => return "fn"
         TokType.KeywordModel => return "model"
         TokType.KeywordRoute => return "route"
+        TokType.KeywordGet => return "GET"
+        TokType.KeywordPost => return "POST"
+        TokType.KeywordPut => return "PUT"
+        TokType.KeywordPatch => return "PATCH"
+        TokType.KeywordDelete => return "DELETE"
+        TokType.KeywordHead => return "HEAD"
+        TokType.KeywordOptions => return "OPTIONS"
         TokType.KeywordUse => return "use"
         TokType.KeywordImport => return "import"
         TokType.KeywordTrait => return "trait"

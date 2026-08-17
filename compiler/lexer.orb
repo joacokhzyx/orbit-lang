@@ -119,6 +119,13 @@ fn matchKeyword(text: string) -> TokType {
     if text == "fn" { return TokType.KeywordFn }
     if text == "model" { return TokType.KeywordModel }
     if text == "route" { return TokType.KeywordRoute }
+    if text == "GET" { return TokType.KeywordGet }
+    if text == "POST" { return TokType.KeywordPost }
+    if text == "PUT" { return TokType.KeywordPut }
+    if text == "PATCH" { return TokType.KeywordPatch }
+    if text == "DELETE" { return TokType.KeywordDelete }
+    if text == "HEAD" { return TokType.KeywordHead }
+    if text == "OPTIONS" { return TokType.KeywordOptions }
     if text == "val" { return TokType.KeywordVal }
     if text == "var" { return TokType.KeywordVar }
     if text == "const" { return TokType.KeywordConst }
