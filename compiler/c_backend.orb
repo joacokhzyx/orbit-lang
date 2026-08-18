@@ -250,12 +250,16 @@ fn generateC(backend: CBackend) -> string {
                 }
                 fName2 = sanitizeIdentifier(fName2)
                 var proto = ""
+                var protoAttr = ""
+                if isDualPathFunction(backend, func) {
+                    protoAttr = "__attribute__((hot)) "
+                }
                 if isRoute2 {
-                    proto = retType2 + " " + fName2 + "(OrbitArena* arena, OrbitRequest* req"
+                    proto = proto + protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena, OrbitRequest* req"
                 } else if isMain2 {
-                    proto = retType2 + " " + fName2 + "(OrbitArena* _init_arena"
+                    proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* _init_arena"
                 } else {
-                    proto = "static " + retType2 + " " + fName2 + "("
+                    proto = protoAttr + "static " + retType2 + " " + fName2 + "("
                     if func.params.len() == 0 {
                         proto = proto + "void"
                     } else {
@@ -313,7 +317,7 @@ fn generateC(backend: CBackend) -> string {
             out = out + "    return 0;\n"
             out = out + "}\n"
         }
-        out = out + generateServerMain()
+        out = out + generateServerMain(moduleUsesDatabase(backend.module))
     } else {
         out = out + "extern char** _orbit_argv;\n"
         out = out + "extern int _orbit_argc;\n\n"
@@ -837,6 +841,26 @@ fn isRouteFuncName(name: string) -> bool {
     return orbit_string_slice(name, 0, 6) == "route_"
 }
 
+fn isDualPathFunction(backend: CBackend, func: IRFunction) -> bool {
+    if func == NULL { return false }
+    if func.instructions.len() > 200 { return false }
+    if func.instructions.len() < 4 { return false }
+    var di = 0
+    while di < func.instructions.len() {
+        val dInstr: IRInstruction = func.instructions.get(di)
+        match dInstr.opcode {
+            IROpcode.load_field => { return true }
+            IROpcode.store_field => { return true }
+            IROpcode.list_get => { return true }
+            IROpcode.map_get => { return true }
+            IROpcode.map_set => { return true }
+            _ => {}
+        }
+        di = di + 1
+    }
+    return false
+}
+
 fn moduleHasRoute(backend: CBackend) -> bool {
     var i = 0
     while i < backend.module.functions.len() {
@@ -1129,8 +1153,8 @@ fn generateRouterBlock(backend: CBackend) -> string {
     return out
 }
 
-fn generateServerMain() -> string {
-    return serverMainText()
+fn generateServerMain(hasDb: bool) -> string {
+    return serverMainText(hasDb)
 }
 
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
@@ -1177,12 +1201,19 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     }
     fName = sanitizeIdentifier(fName)
     var out = ""
+    var funcAttr = ""
+    if func.instructions.len() > 0 && func.instructions.len() <= 10 {
+        funcAttr = "__attribute__((always_inline))\n    "
+    }
+    if isDualPathFunction(backend, func) {
+        funcAttr = funcAttr + "__attribute__((hot)) "
+    }
     if isRoute {
-        out = "__attribute__((always_inline))\n    " + retType + " " + fName + "(OrbitArena* arena, OrbitRequest* req"
+        out = funcAttr + retType + " " + fName + "(OrbitArena* arena, OrbitRequest* req"
     } else if isMain {
-        out = retType + " " + fName + "(OrbitArena* _init_arena"
+        out = funcAttr + retType + " " + fName + "(OrbitArena* _init_arena"
     } else {
-        out = "static " + retType + " " + fName + "("
+        out = funcAttr + "static " + retType + " " + fName + "("
         var i = 0
         if func.params.len() == 0 {
             out = out + "void"
@@ -1362,18 +1393,28 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
                 backend.declVars.push(hname)
                 val vType = variableDefType(backend, func, hname)
                 var cType = "uintptr_t"
-                if vType == "string" { cType = "orbit_string" }
+                if vType == "int" { cType = "orbit_int" }
+                else if vType == "string" { cType = "orbit_string" }
                 else if vType == "float" { cType = "orbit_float" }
                 else if vType == "bool" { cType = "orbit_bool" }
-                out = out + "    " + cType + " " + hname + " = 0;\n"
+                out = out + "    " + cType + " " + hname + ";\n"
             }
         }
         hi = hi + 1
     }
+    if isDualPathFunction(backend, func) {
+        out = out + "    orbit_int _orbit_dualpath_;\n"
+    }
     i = 0
+    var firstDualPathInstr = isDualPathFunction(backend, func)
     while i < func.instructions.len() {
         val instr: IRInstruction = func.instructions.get(i)
-        out = out + generateInstruction(backend, instr)
+        var line = generateInstruction(backend, instr)
+        if firstDualPathInstr {
+            line = "    " + line
+            firstDualPathInstr = false
+        }
+        out = out + line
         i = i + 1
     }
     if isRoute {
@@ -1437,7 +1478,7 @@ fn generateValue(backend: CBackend, value: IRValue) -> string {
             if v.value < 0 { return "0" }
             return "r_" + orbit_int_to_string_selfhost(v.value)
         }
-        IRValue.Label(v) => { return "label_" + orbit_int_to_string_selfhost(v.value) }
+        IRValue.Label(v) => { return orbit_int_to_string_selfhost(v.value) }
         _ => { return "" }
     }
 }
@@ -1490,7 +1531,23 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 IRValue.Sym(s) => { valStr = s.value }
                 _ => { valStr = generateValue(backend, instr.operand1) }
             }
-            return generateRegAssign(backend, instr.dest, valStr)
+            var lrT = ""
+            if backend != NULL && backend.currentFunction != NULL {
+                val lf: IRFunction = backend.currentFunction
+                if instr.dest >= 0 && instr.dest < lf.registerTypes.len() {
+                    lrT = lf.registerTypes.get(instr.dest)
+                }
+            }
+            if orbit_string_indexOf(valStr, "TAG_") != -1 {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n"
+            }
+            if lrT == "float" || lrT == "orbit_float" {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_float)(" + valStr + ");\n"
+            }
+            if lrT == "int" || lrT == "bool" || lrT == "orbit_int" || lrT == "orbit_bool" || lrT == "enumeration" || isEnumType(backend, lrT) {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n"
+            }
+            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (void*)(" + valStr + ");\n"
         }
         IROpcode.store_var => {
             val svName = generateValue(backend, instr.operand1)
@@ -1504,7 +1561,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             if isStringOperand(backend, instr.operand1) || isStringOperand(backend, instr.operand2) {
                 val s1 = stringifyConcatOperand(backend, instr.operand1)
                 val s2 = stringifyConcatOperand(backend, instr.operand2)
-                return generateRegAssign(backend, instr.dest, "orbit_string_concat(arena, " + s1 + ", " + s2 + ")")
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_string_concat(arena, " + s1 + ", " + s2 + ");\n"
             }
             return generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") + (uintptr_t)(" + generateValue(backend, instr.operand2) + ")")
         }
@@ -1524,7 +1581,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             val v1 = generateValue(backend, instr.operand1)
             val v2 = generateValue(backend, instr.operand2)
             if isStringOperand(backend, instr.operand1) && isStringOperand(backend, instr.operand2) {
-                return generateRegAssign(backend, instr.dest, "((orbit_string)(" + v1 + ") != NULL && (orbit_string)(" + v2 + ") != NULL ? strcmp((orbit_string)(" + v1 + "), (orbit_string)(" + v2 + ")) == 0 : (uintptr_t)(" + v1 + ") == (uintptr_t)(" + v2 + "))")
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = strcmp(" + v1 + ", " + v2 + ") == 0;\n"
             }
             return generateRegAssign(backend, instr.dest, "((uintptr_t)(" + v1 + ") == (uintptr_t)(" + v2 + "))")
         }
@@ -1532,7 +1589,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             val v1 = generateValue(backend, instr.operand1)
             val v2 = generateValue(backend, instr.operand2)
             if isStringOperand(backend, instr.operand1) && isStringOperand(backend, instr.operand2) {
-                return generateRegAssign(backend, instr.dest, "((orbit_string)(" + v1 + ") != NULL && (orbit_string)(" + v2 + ") != NULL ? strcmp((orbit_string)(" + v1 + "), (orbit_string)(" + v2 + ")) != 0 : (uintptr_t)(" + v1 + ") != (uintptr_t)(" + v2 + "))")
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = strcmp(" + v1 + ", " + v2 + ") != 0;\n"
             }
             return generateRegAssign(backend, instr.dest, "((uintptr_t)(" + v1 + ") != (uintptr_t)(" + v2 + "))")
         }
@@ -1581,7 +1638,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    goto label_" + generateValue(backend, instr.operand1) + ";\n"
         }
         IROpcode.jump_if_false => {
-            return "    if (!" + generateValue(backend, instr.operand1) + ") goto label_" + generateValue(backend, instr.operand2) + ";\n"
+            return "    if (!(" + generateValue(backend, instr.operand1) + ")) goto label_" + generateValue(backend, instr.operand2) + ";\n"
         }
         IROpcode.copy => {
             val valStr = generateValue(backend, instr.operand1)
@@ -1923,6 +1980,9 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             if isStringFieldName(backend, fname) && backend != NULL && instr.dest >= 0 {
                 backend.strRegs.push(instr.dest)
             }
+            if isStringOperand(backend, instr.operand1) {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_json_field(arena, " + generateValue(backend, instr.operand1) + ", \"" + fname + "\");\n"
+            }
             if owner == "" {
                 if fname == "length" || fname == "len" {
                     return generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(backend, instr.operand1) + "))")
@@ -2198,8 +2258,13 @@ fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {
 fn storeCastFor(backend: CBackend, vn: string) -> string {
     val vType = variableDefType(backend, backend.currentFunction, vn)
     if vType == "float" { return "(orbit_float)" }
-    if vType == "bool" { return "(orbit_int)(uintptr_t)" }
-    if vType == "string" { return "(orbit_string)" }
+    if vType == "int" || vType == "bool" || isEnumType(backend, vType) { return "(orbit_int)(uintptr_t)" }
+    val vlen = orbit_string_len(vn)
+    if vlen >= 2 {
+        val tail2 = orbit_string_slice(vn, vlen - 2, vlen)
+        if tail2 == "Id" || tail2 == "id" { return "(orbit_int)(uintptr_t)" }
+    }
+    if vn == "scopeId" { return "(orbit_int)(uintptr_t)" }
     return "(uintptr_t)"
 }
 
@@ -2261,7 +2326,7 @@ fn registerVarDefType(backend: CBackend, func: IRFunction, regId: int) -> string
 fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {
     val raw = generateValue(backend, operand)
     if isStringOperand(backend, operand) {
-        return "(orbit_string)(" + raw + ")"
+        return raw
     }
     var t = "int"
     match operand {
@@ -2292,7 +2357,7 @@ fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {
         return "orbit_float_to_string(arena, (orbit_float)(" + raw + "))"
     }
     if t == "string" {
-        return "(orbit_string)(" + raw + ")"
+        return raw
     }
     return "orbit_int_to_string_selfhost((orbit_int)(uintptr_t)(" + raw + "))"
 }
@@ -2430,6 +2495,39 @@ fn moduleHasFunction(backend: CBackend, name: string) -> bool {
             return true
         }
         i = i + 1
+    }
+    return false
+}
+
+fn isDbBuiltin(name: string) -> bool {
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" || name == "orbit_db_insert" || name == "orbit_db_delete" {
+        return true
+    }
+    return false
+}
+
+fn moduleUsesDatabase(module: IRModule) -> bool {
+    var fi = 0
+    while fi < module.functions.len() {
+        val f: IRFunction = module.functions.get(fi)
+        var ii = 0
+        while ii < f.instructions.len() {
+            val inst: IRInstruction = f.instructions.get(ii)
+            match inst.opcode {
+                IROpcode.call => {
+                    var cn = ""
+                    match inst.operand1 {
+                        IRValue.String(s) => { cn = s.value }
+                        IRValue.Sym(s) => { cn = s.value }
+                        _ => {}
+                    }
+                    if isDbBuiltin(cn) { return true }
+                }
+                _ => {}
+            }
+            ii = ii + 1
+        }
+        fi = fi + 1
     }
     return false
 }

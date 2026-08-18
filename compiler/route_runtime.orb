@@ -248,7 +248,7 @@ fn routerTailText() -> string {
     return out
 }
 
-fn serverMainText() -> string {
+fn serverMainText(hasDb: bool) -> string {
     var out = ""
     out = out + "#ifdef _WIN32\n"
     out = out + "static unsigned __stdcall orbit_worker_loop(void* arg) {\n"
@@ -410,7 +410,11 @@ fn serverMainText() -> string {
     out = out + "\n"
     out = out + "int main(int argc, char* argv[]) {\n"
     out = out + "    orbit_http_init();\n"
-    out = out + "    \n"
+    if hasDb {
+        out = out + "    orbit_db_init(\"orbit.db\");\n"
+    } else {
+        out = out + "    \n"
+    }
     out = out + "    orbit_arena_pool_init(16, 131072);\n"
     out = out + "    orbit_string_pool_init(2048);\n"
     out = out + "\n"
@@ -538,7 +542,11 @@ fn serverMainText() -> string {
     out = out + "    orbit_kynx_cleanup();\n"
     out = out + "    orbit_arena_pool_cleanup();\n"
     out = out + "    orbit_string_pool_cleanup();\n"
-    out = out + "    \n"
+    if hasDb {
+        out = out + "    orbit_db_close();\n"
+    } else {
+        out = out + "    \n"
+    }
     out = out + "    orbit_http_cleanup();\n"
     out = out + "    orbit_socket_close(server_sock);\n"
     out = out + "    return _orbit_exit_code;\n"

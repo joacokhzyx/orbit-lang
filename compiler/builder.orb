@@ -230,6 +230,22 @@ fn buildCallArgValue(builder: IRBuilder, node: ASTNode) -> IRValue {
     }
 }
 
+fn buildBinaryOperand(builder: IRBuilder, node: ASTNode) -> IRValue {
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "string" {
+                return ir_string(unescapeString(l.text))
+            }
+            val reg = buildExpr(builder, node)
+            return ir_register(reg)
+        }
+        _ => {
+            val reg = buildExpr(builder, node)
+            return ir_register(reg)
+        }
+    }
+}
+
 fn dotPosOf(s: string) -> int {
     var i = 0
     while i < orbit_string_len(s) {
@@ -688,6 +704,15 @@ fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
     builder.currentFunction = prevFunc
 }
 
+fn isTerminatorInstr(instr: IRInstruction) -> bool {
+    match instr.opcode {
+        IROpcode.ret => { return true }
+        IROpcode.jump => { return true }
+        IROpcode.jump_if_false => { return true }
+        _ => { return false }
+    }
+}
+
 fn buildNode(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.Block(b) => {
@@ -707,17 +732,40 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             jmpFalse.operand1 = ir_register(condReg)
             jmpFalse.operand2 = ir_label(elseLabel)
             ir_emit(builder.currentFunction, jmpFalse)
+            val thenStart = builder.currentFunction.instructions.len()
             buildNode(builder, stmt.thenBody)
-            val jmpEnd = ir_init_instr(IROpcode.jump)
-            jmpEnd.operand1 = ir_label(endLabel)
-            ir_emit(builder.currentFunction, jmpEnd)
+            val thenAdded = builder.currentFunction.instructions.len() - thenStart
+            var thenTerminates = false
+            if thenAdded > 0 {
+                val lastThen: IRInstruction = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
+                thenTerminates = isTerminatorInstr(lastThen)
+            }
+            if thenTerminates == false {
+                val jmpEnd = ir_init_instr(IROpcode.jump)
+                jmpEnd.operand1 = ir_label(endLabel)
+                ir_emit(builder.currentFunction, jmpEnd)
+            }
             val lblElseInstr = ir_init_instr(IROpcode.label)
             lblElseInstr.operand1 = ir_label(elseLabel)
             ir_emit(builder.currentFunction, lblElseInstr)
-            buildNode(builder, stmt.elseBody)
-            val lblEndInstr = ir_init_instr(IROpcode.label)
-            lblEndInstr.operand1 = ir_label(endLabel)
-            ir_emit(builder.currentFunction, lblEndInstr)
+            var hasElse = true
+            match stmt.elseBody {
+                ASTNode.Empty => { hasElse = false }
+                _ => {}
+            }
+            if hasElse {
+                buildNode(builder, stmt.elseBody)
+            }
+            var elseTerminates = thenTerminates
+            if hasElse && builder.currentFunction.instructions.len() > 0 {
+                val lastElse: IRInstruction = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
+                elseTerminates = isTerminatorInstr(lastElse)
+            }
+            if thenTerminates == false || elseTerminates == false {
+                val lblEndInstr = ir_init_instr(IROpcode.label)
+                lblEndInstr.operand1 = ir_label(endLabel)
+                ir_emit(builder.currentFunction, lblEndInstr)
+            }
         }
         ASTNode.While(stmt) => {
             val startLabel = allocLabel(builder)
@@ -822,6 +870,35 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
                     val retInstr = ir_init_instr(IROpcode.ret)
                     retInstr.operand1 = ir_none()
                     ir_emit(builder.currentFunction, retInstr)
+                }
+                ASTNode.Literal(lit) => {
+                    if lit.valType == "int" {
+                        var litVal = 0
+                        var neg = false
+                        var li = 0
+                        if orbit_string_len(lit.text) > 0 && lit.text.at(0) == 45 {
+                            neg = true
+                            li = 1
+                        }
+                        while li < orbit_string_len(lit.text) {
+                            val c = lit.text.at(li)
+                            if c >= 48 && c <= 57 {
+                                litVal = litVal * 10 + (c - 48)
+                            }
+                            li = li + 1
+                        }
+                        if neg {
+                            litVal = 0 - litVal
+                        }
+                        val retInstr = ir_init_instr(IROpcode.ret)
+                        retInstr.operand1 = ir_int(litVal)
+                        ir_emit(builder.currentFunction, retInstr)
+                    } else {
+                        val retReg = buildExpr(builder, r.expr)
+                        val retInstr = ir_init_instr(IROpcode.ret)
+                        retInstr.operand1 = ir_register(retReg)
+                        ir_emit(builder.currentFunction, retInstr)
+                    }
                 }
                 _ => {
                     val retReg = buildExpr(builder, r.expr)
@@ -1401,6 +1478,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 }
             }
             if modelBuiltin != "" {
+                val modelRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, modelBuiltin))
                 val tableArg = ir_init_instr(IROpcode.arg)
                 tableArg.operand1 = ir_string(modelTableName(modelName))
                 ir_emit(builder.currentFunction, tableArg)
@@ -1411,7 +1489,6 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     ir_emit(builder.currentFunction, modelCallArg)
                     mai = mai + 1
                 }
-                val modelRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, modelBuiltin))
                 val modelCall = ir_init_instr(IROpcode.call)
                 modelCall.dest = modelRes
                 modelCall.operand1 = ir_string(modelBuiltin)
@@ -1801,8 +1878,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     }
                 }
             }
-            val lhsReg = buildExpr(builder, bin.lhs)
-            val rhsReg = buildExpr(builder, bin.rhs)
+            val lhsOperand = buildBinaryOperand(builder, bin.lhs)
+            val rhsOperand = buildBinaryOperand(builder, bin.rhs)
             var opCode = IROpcode.add
             if bin.op == "+" { opCode = IROpcode.add }
             if bin.op == "-" { opCode = IROpcode.sub }
@@ -1820,8 +1897,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val binInstr = ir_init_instr(opCode)
             val binReg = ir_alloc_register(builder.currentFunction, "unknown")
             binInstr.dest = binReg
-            binInstr.operand1 = ir_register(lhsReg)
-            binInstr.operand2 = ir_register(rhsReg)
+            binInstr.operand1 = lhsOperand
+            binInstr.operand2 = rhsOperand
             ir_emit(builder.currentFunction, binInstr)
             return binReg
         }
