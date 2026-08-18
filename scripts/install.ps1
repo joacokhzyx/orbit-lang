@@ -34,17 +34,57 @@ if (-not (Test-Path $BootstrapExe)) {
 
 $SourceExe = $BootstrapExe
 
-if ($SelfHost -and (-not $Bootstrap)) {
-    Write-Host "[*] Building Self-Hosted Orbit Compiler (Stage 1 / Stage 2)..." -ForegroundColor Yellow
-    try {
-        & $BootstrapExe bootstrap
-        $SelfHostStage1 = "$RootDir\compiler\selfhost\stage1.exe"
-        if (Test-Path $SelfHostStage1) {
-            $SourceExe = $SelfHostStage1
-            Write-Host "[+] Selected Self-Hosted Orbit Compiler: $SourceExe" -ForegroundColor Green
+# 2a. Prefer a pre-built fixed-point compiler shipped with a release.
+$FixedPoint = "$RootDir\dist\orbit-windows-x86_64.exe"
+if ($SelfHost -and (-not $Bootstrap) -and (Test-Path $FixedPoint)) {
+    $SourceExe = $FixedPoint
+    Write-Host "[+] Selected released fixed-point compiler: $SourceExe" -ForegroundColor Green
+}
+elseif ($SelfHost -and (-not $Bootstrap)) {
+    # 2b. Pure self-hosted seed chain: canonical C -> seed -> seed2 -> chain2 -> chain3.
+    $SeedExe = "$RootDir\dist\orbit_seed.exe"
+    $ChainTmp = "$RootDir\dist\.chain_tmp"
+    if (-not (Test-Path $SeedExe)) {
+        Write-Host "[*] Building bootstrap seed from canonical C (dist/orbit_bootstrap.c)..." -ForegroundColor Yellow
+        if (Test-Path "$RootDir\scripts\build_seed.bat") {
+            Push-Location $RootDir
+            try { & "$RootDir\scripts\build_seed.bat" } catch { }
+            Pop-Location
         }
-    } catch {
-        Write-Host "[!] Self-hosted build fallback to bootstrap compiler." -ForegroundColor Yellow
+    }
+    if (Test-Path $SeedExe) {
+        Write-Host "[*] Building self-hosted seed chain (seed -> seed2 -> chain2 -> chain3)..." -ForegroundColor Yellow
+        if (-not (Test-Path $ChainTmp)) { New-Item -ItemType Directory -Path $ChainTmp -Force | Out-Null }
+        function Build-Orb {
+            param([string]$Compiler, [string]$OutPath)
+            $env:TEMP = $ChainTmp; $env:TMP = $ChainTmp
+            & $Compiler build "$RootDir\compiler\main.orb" -o $OutPath
+            if ($LASTEXITCODE -ne 0) { throw "orbit build failed: $Compiler -> $OutPath (exit $LASTEXITCODE)" }
+        }
+        try {
+            Build-Orb $SeedExe "$RootDir\dist\orbit_seed2.exe"
+            Build-Orb "$RootDir\dist\orbit_seed2.exe" "$RootDir\dist\orbit_chain2.exe"
+            Build-Orb "$RootDir\dist\orbit_chain2.exe" "$RootDir\dist\orbit_chain3.exe"
+            Remove-Item Env:TEMP -ErrorAction SilentlyContinue; Remove-Item Env:TMP -ErrorAction SilentlyContinue
+            $SourceExe = "$RootDir\dist\orbit_chain3.exe"
+            Write-Host "[+] Selected self-hosted fixed-point compiler (chain3): $SourceExe" -ForegroundColor Green
+        } catch {
+            Write-Host "[!] Seed chain build failed: $($_.Exception.Message). Falling back to Zig bootstrap." -ForegroundColor Yellow
+        }
+    }
+    # 2c. Zig bootstrap fallback: use the self-hosted stage fixed point (stage3), not stage1.
+    if ($SourceExe -eq $BootstrapExe) {
+        Write-Host "[*] Building self-hosted compiler via Zig bootstrap (stage chain)..." -ForegroundColor Yellow
+        try {
+            & $BootstrapExe bootstrap
+            $SelfHostStage3 = "$RootDir\compiler\selfhost\stage3.exe"
+            if (Test-Path $SelfHostStage3) {
+                $SourceExe = $SelfHostStage3
+                Write-Host "[+] Selected self-hosted fixed-point compiler: $SourceExe" -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "[!] Self-hosted build fallback to bootstrap compiler." -ForegroundColor Yellow
+        }
     }
 }
 

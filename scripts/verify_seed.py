@@ -15,10 +15,22 @@ With ``--bootstrap`` the canonical C is first regenerated through the
 independent Zig lineage (``zig-out/bin/orbit.exe bootstrap``) and must match
 the committed ``stage3.exe.c``, so a drift in either lineage fails the run.
 
+``--release`` enforces the published fixed-point C contract (``PUBLISHED_C``)
+as a hard check; it requires ``--bootstrap`` so the canonical is regenerated
+through the Zig lineage on a clean checkout. The published binary hash stays
+informational because it is platform/toolchain specific (linker, C compiler,
+PE layout) -- the reproducible cross-platform contract is the C source.
+
+``--emit-fixed-point PATH`` copies the seed-chain fixed-point compiler
+(``chain3``, byte-identical to ``seed2``/``chain2``) to PATH. That binary is
+built entirely by the self-hosted seed chain (canonical C -> seed -> seed2 ->
+chain2 -> chain3); the Zig driver is never involved in producing it.
+
 Exit code 0 iff every hard check passes.
 
 Usage:
-    python scripts/verify_seed.py [--bootstrap] [--work DIR] [--cc CC] [--refresh] [--keep]
+    python scripts/verify_seed.py [--bootstrap] [--release] [--emit-fixed-point PATH]
+                                  [--work DIR] [--cc CC] [--refresh] [--keep]
 """
 
 import argparse
@@ -36,9 +48,12 @@ DRIVER = os.path.join(ROOT, "zig-out", "bin", "orbit.exe")
 MAIN_ORB = os.path.join("compiler", "main.orb")
 
 SUPPRESS_FLAGS = ["-O2", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types"]
-# Published SOVER-0 fixed-point hashes, informational only.
-PUBLISHED_C = "9752AAECB1F00759FD4220612D46A3A4DD3A89A52813FC88D016A9D444B64136"
-PUBLISHED_BIN = "EFC1C576749A39D28850CF5B87E046AA89F38C5ED4B50E7E4EA4AE8C3A39378B"
+# Published fixed-point contract for the current compiler source. The C hash is
+# the cross-platform reproducibility contract (enforced with --release); the
+# binary hash is platform/toolchain specific and stays informational.
+# Regenerated 2026-08-18 from the parity work (Fix A/B/C/D); chain3 == stage3.
+PUBLISHED_C = "9E4C15F3C9AD6BDB63A5A84904F47EE770EC8E6372DBC944885CA85D2153FEEF"
+PUBLISHED_BIN = "F5C86401CEAF178075C5856E46667DAAD0B3A60A8ACA194EF1F038F795D5E9CE"
 
 
 def sha256(path: str) -> str:
@@ -95,11 +110,17 @@ def run(argv, cwd, env_extra=None, label=""):
 def main() -> int:
     ap = argparse.ArgumentParser(description="Verify the C bootstrap seed fixed point")
     ap.add_argument("--bootstrap", action="store_true", help="regenerate canonical C via the Zig lineage first")
+    ap.add_argument("--release", action="store_true", help="enforce the published fixed-point C contract (requires --bootstrap)")
+    ap.add_argument("--emit-fixed-point", default=None, metavar="PATH", help="copy the seed-chain fixed-point compiler (chain3) to PATH")
     ap.add_argument("--work", default=None, help="work directory (default: temp)")
     ap.add_argument("--cc", default=None, help="C compiler for the seed (default: auto-detect)")
     ap.add_argument("--refresh", action="store_true", help="also refresh dist/orbit_bootstrap.c and dist/orbit_seed")
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
     args = ap.parse_args()
+
+    if args.release and not args.bootstrap:
+        print("[verify] --release requires --bootstrap (the canonical must be regenerated through the Zig lineage on a clean checkout).")
+        return 1
 
     if args.work:
         work = os.path.abspath(args.work)
@@ -216,14 +237,25 @@ def main() -> int:
               + ("" if ok else " (informational without --bootstrap; paths differ)"))
 
     if h_seed_c.upper() == PUBLISHED_C:
-        print(f"[verify] note: seed C matches published SOVER-0 hash {PUBLISHED_C}")
+        print(f"[verify] note: seed C matches published contract {PUBLISHED_C}")
     if h_bins[1].upper() == PUBLISHED_BIN:
-        print(f"[verify] note: chain binaries match published SOVER-0 hash {PUBLISHED_BIN}")
+        print(f"[verify] note: chain binaries match published binary contract {PUBLISHED_BIN}")
+    if args.release:
+        check("published C contract (--release)", h_seed_c.upper() == PUBLISHED_C,
+              f"seed={h_seed_c.upper()} published={PUBLISHED_C}")
+        # PUBLISHED_BIN stays informational: the released binary differs per
+        # platform/toolchain (linker, C compiler, PE layout). The reproducible
+        # cross-platform contract is the C source, enforced above.
 
     if args.refresh:
         os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
         shutil.copyfile(amal, os.path.join(ROOT, "dist", "orbit_bootstrap.c"))
         run([*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe), amal], ROOT, label="refresh dist/orbit_seed")
+
+    if args.emit_fixed_point:
+        os.makedirs(os.path.dirname(os.path.abspath(args.emit_fixed_point)), exist_ok=True)
+        shutil.copyfile(chain3, args.emit_fixed_point)
+        print(f"[verify] fixed-point compiler (seed chain, chain3) emitted: {args.emit_fixed_point}")
 
     failed = [n for n, ok, _ in checks if not ok]
     print(f"\n[verify] {len(checks) - len(failed)}/{len(checks)} checks passed"

@@ -20,12 +20,10 @@ jobs:
           - os: windows-latest
             name: windows-x86_64
             bootstrap_binary: zig-out/bin/orbit.exe
-            selfhost_binary: compiler/selfhost/stage1.exe
             asset: orbit-windows-x86_64.exe
           - os: ubuntu-latest
             name: linux-x86_64
             bootstrap_binary: zig-out/bin/orbit
-            selfhost_binary: compiler/selfhost/stage1.exe
             asset: orbit-linux-x86_64
 
     steps:
@@ -50,34 +48,26 @@ jobs:
       - name: Build bootstrap compiler
         run: zig build -Doptimize=ReleaseFast
 
-      - name: Build Self-Hosted Orbit Compiler (Stage 1 / Stage 2)
+      - name: Verify seed chain and emit the fixed-point compiler
         shell: bash
         run: |
-          set +e
-          "${{ matrix.bootstrap_binary }}" bootstrap
-          bootstrap_exit=$?
-          set -e
-          if [ "$bootstrap_exit" -ne 0 ]; then
-            echo "[Release] Self-host bootstrap failed (exit $bootstrap_exit); the release will fall back to the bootstrap compiler."
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/verify_seed.py --bootstrap --release --refresh \
+            --emit-fixed-point "dist/${{ matrix.asset }}"
+          if [ ! -f "dist/${{ matrix.asset }}" ]; then
+            echo "[Release] FAILED: the fixed-point compiler was not emitted."
+            exit 1
           fi
+          echo "[Release] Fixed-point compiler (self-hosted seed chain): dist/${{ matrix.asset }}"
 
-      - name: Package Self-Hosted / Release compiler
-        shell: bash
-        run: |
-          mkdir -p dist
-          if [ -f "${{ matrix.selfhost_binary }}" ]; then
-            echo "[Release] Packaging Self-Hosted Orbit Compiler: ${{ matrix.selfhost_binary }}"
-            cp "${{ matrix.selfhost_binary }}" "dist/${{ matrix.asset }}"
-          else
-            echo "[Release] Packaging Bootstrap Orbit Compiler: ${{ matrix.bootstrap_binary }}"
-            cp "${{ matrix.bootstrap_binary }}" "dist/${{ matrix.asset }}"
-          fi
-
-      - name: Upload release artifact
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: dist/${{ matrix.asset }}
+          path: |
+            dist/${{ matrix.asset }}
+            dist/orbit_bootstrap.c
+            dist/orbit_seed*
           if-no-files-found: error
 
   publish:

@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [ 'feat/**', 'feature/**' ]
+    branches: [ 'main', 'feat/**', 'feature/**' ]
+    tags: [ 'v*' ]
   pull_request:
-    branches: [ 'feat/**', 'feature/**' ]
+    branches: [ 'main', 'feat/**', 'feature/**' ]
   workflow_dispatch:
 
 permissions:
@@ -85,3 +86,46 @@ jobs:
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/verify_seed.py --bootstrap
+
+  stress-gate:
+    name: Seed chain stress (flakiness detector)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.17.0-dev.1737+de207594e
+
+      - name: Verify toolchain version
+        shell: bash
+        run: |
+          expected="0.17.0-dev.1737+de207594e"
+          actual="$(zig version)"
+          echo "zig version: $actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Expected Zig $expected, got $actual"
+            exit 1
+          fi
+
+      - name: Build compiler
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Establish canonical (bootstrap)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/verify_seed.py --bootstrap
+
+      - name: Stress the seed chain (8 consecutive fixed-point runs)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          for i in $(seq 1 8); do
+            echo "[stress] iteration $i"
+            "$PY" scripts/verify_seed.py || { echo "[stress] FAILED at iteration $i"; exit 1; }
+          done
+          echo "[stress] 8/8 iterations passed"
