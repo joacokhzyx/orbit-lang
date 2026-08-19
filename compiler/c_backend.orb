@@ -2231,6 +2231,50 @@ fn isStringOperand(backend: CBackend, operand: IRValue) -> bool {
     }
 }
 
+fn feBuildTimeCallType(name: string) -> string {
+    if name == "print" || name == "orbit_os_exit_selfhost" || name == "orbit_os_exit" || name == "orbit_os_destroy" || name == "orbit_os_reset" || name == "orbit_list_push" || name == "orbit_map_set" { return "void" }
+    if name == "ok" || name == "err" { return "result" }
+    if name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" { return "string" }
+    if name == "bit_op" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" { return "int" }
+    if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
+    if name == "orbit_file_list_dir" { return "list" }
+    if name == "orbit_os_alloc" || name == "orbit_os_create_arena" { return "ptr" }
+    if name == "orbit_response_json" { return "response" }
+    return "unknown"
+}
+
+fn operandFeFirstPrescanType(backend: CBackend, func: IRFunction, op2: IRValue) -> string {
+    match op2 {
+        IRValue.Register(reg) => {
+            var di = 0
+            while di < func.instructions.len() {
+                val inst: IRInstruction = func.instructions.get(di)
+                if inst != NULL && inst.dest == reg.value {
+                    match inst.opcode {
+                        IROpcode.call => {
+                            var cn = ""
+                            match inst.operand1 {
+                                IRValue.String(s) => { cn = s.value }
+                                IRValue.Sym(s) => { cn = s.value }
+                                _ => {}
+                            }
+                            if cn != "" {
+                                val bt = feBuildTimeCallType(cn)
+                                if bt == "unknown" || bt == "void" { return "unknown" }
+                            }
+                        }
+                        _ => {}
+                    }
+                    return ""
+                }
+                di = di + 1
+            }
+        }
+        _ => {}
+    }
+    return ""
+}
+
 fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {
     var di = 0
     while di < func.instructions.len() {
@@ -2244,8 +2288,22 @@ fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {
             }
             if cname == vn {
                 match inst.opcode {
-                    IROpcode.decl_var => { return operandDefType(backend, func, inst.operand2) }
-                    IROpcode.store_var => { return operandDefType(backend, func, inst.operand2) }
+                    IROpcode.decl_var => {
+                        val fb = operandFeFirstPrescanType(backend, func, inst.operand2)
+                        if fb == "unknown" {
+                            if vn == "test_name" || vn == "msg" || vn == "message" || vn == "name" || vn == "path" || vn == "url" || vn == "cmd" { return "string" }
+                            return "usize"
+                        }
+                        return operandDefType(backend, func, inst.operand2)
+                    }
+                    IROpcode.store_var => {
+                        val fb = operandFeFirstPrescanType(backend, func, inst.operand2)
+                        if fb == "unknown" {
+                            if vn == "test_name" || vn == "msg" || vn == "message" || vn == "name" || vn == "path" || vn == "url" || vn == "cmd" { return "string" }
+                            return "usize"
+                        }
+                        return operandDefType(backend, func, inst.operand2)
+                    }
                     _ => {}
                 }
             }

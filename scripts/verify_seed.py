@@ -51,9 +51,10 @@ SUPPRESS_FLAGS = ["-O2", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
 # binary hash is platform/toolchain specific and stays informational.
-# Regenerated 2026-08-19 from the Fase-3 r4 fold parity work; chain3 == stage3.
-PUBLISHED_C = "8D89603AEF3672AE3F02B7A0D6CBCC9EE5685707644EC583F94FECC6AAC6A1D1"
-PUBLISHED_BIN = "BD1DFC7FDF66BE1737496F96785B1A80C3D0FD08E36E6C9C5E2E83A86E3E8B7E"
+# Regenerated 2026-08-19 from the r6 variable-type parity fix (FE first-prescan
+# heuristic for calls unknown to the frontend); chain3 == stage3.
+PUBLISHED_C = "18F7630FCFE23EE8D7AEEEA22CD9387F02E3DD4926CA8B1461A41A550CBFDC2E"
+PUBLISHED_BIN = "4E7C8F7ED0DEE1A4859738E2B49E192FD225FEED8183D7EABE4CFD4D7C43EE16"
 
 
 def sha256(path: str) -> str:
