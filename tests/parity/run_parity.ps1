@@ -32,7 +32,7 @@ foreach ($p in Get-ChildItem $ProbeDir -Filter *.orb | Sort-Object Name) {
     New-Item -ItemType Directory -Force -Path $shTmp, $feTmp | Out-Null
 
     $env:TEMP = $shTmp; $env:TMP = $shTmp
-    & $Stage $p.FullName *> $shLog 2>&1
+    & $Stage $p.FullName -o (Join-Path $shTmp ($name + "_sh.exe")) *> $shLog 2>&1
     $shExit = $LASTEXITCODE
     if (Test-Path (Join-Path $shTmp "orbit_selfhost_build.c")) {
         Copy-Item (Join-Path $shTmp "orbit_selfhost_build.c") $shC -Force
