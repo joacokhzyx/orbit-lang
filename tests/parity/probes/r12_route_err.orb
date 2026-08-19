@@ -1,0 +1,8 @@
+model Product {
+    id: int
+    name: string
+}
+
+route GET "/e" {
+    err 400 "failed"
+}

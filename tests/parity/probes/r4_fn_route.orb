@@ -1,0 +1,3 @@
+fn helper() -> int { return 5 }
+route GET "/p" { val n = helper()
+ return ok 200 n }

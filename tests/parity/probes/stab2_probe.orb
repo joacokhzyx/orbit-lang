@@ -1,0 +1,24 @@
+model Product {
+    id: string
+    name: string
+    price: float
+    stock: int
+}
+
+route GET "/probe" {
+    val page = req.query("page")
+    if (page == "") {
+        val products = Product.all()
+        return ok 200 products
+    }
+    return ok 200 "page:" + page
+}
+
+route POST "/probe/item" {
+    val body = req.body()
+    val created = Product.create(body)
+    if (created) {
+        return ok 201 "{\"id\":\"" + body.id + "\"}"
+    }
+    err 400 "failed"
+}

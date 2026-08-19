@@ -1,0 +1,8 @@
+model Product {
+    id: string
+    name: string
+}
+route GET "/p" {
+    val products = Product.all()
+    return ok 200 products
+}

@@ -1,0 +1,16 @@
+model Product {
+    id: int
+    name: string
+}
+
+enum Color {
+    Red
+    Green
+}
+
+union Payload {
+    A(Product)
+    B(string)
+}
+
+fn main() -> int { return 1 }

@@ -1,0 +1,5 @@
+fn main() -> int {
+    val s = orbit_http_client_fetch("http://x")
+    return 0
+}
+route GET "/p" { return ok 200 "hi" }

@@ -1,0 +1,5 @@
+model Product {
+    id: string
+    name: string
+}
+route GET "/p" { return ok 200 "hi" }

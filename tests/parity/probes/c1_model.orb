@@ -1,0 +1,5 @@
+model Product {
+    id: string
+    name: string
+}
+fn main() -> int { return 1 }

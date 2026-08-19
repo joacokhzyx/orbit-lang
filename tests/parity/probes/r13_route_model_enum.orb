@@ -1,0 +1,18 @@
+model Product {
+    id: int
+    name: string
+}
+
+enum Color {
+    Red
+    Green
+}
+
+union Payload {
+    A(Product)
+    B(string)
+}
+
+route GET "/m" {
+    return ok 200 "mixed"
+}

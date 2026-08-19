@@ -1,0 +1,2 @@
+route GET "/a" { return ok 200 "a" }
+route GET "/b" { return ok 200 "b" }

@@ -1,0 +1,4 @@
+route GET "/p" {
+    val x = 5
+    print("hi")
+}

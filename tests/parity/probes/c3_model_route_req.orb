@@ -1,0 +1,6 @@
+model Product {
+    id: string
+    name: string
+}
+route GET "/p" { val page = req.query("page")
+ return ok 200 "hi" }
