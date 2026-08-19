@@ -16,6 +16,7 @@ bin/
 
 # Local runtime data
 orbit.db
+/sqlite3.dll
 
 # Local logs and diagnostic dumps
 *.log
