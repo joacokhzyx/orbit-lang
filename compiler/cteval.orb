@@ -1,0 +1,926 @@
+// Orbit Self-Hosted Compiler - Superluminal CTE (Compile-Time Evaluation)
+// compiler/cteval.orb - port of src/superluminal/cteval.zig
+//
+// Scans IR for calls to pure functions with statically-known integer
+// arguments, evaluates them in a small IR interpreter, and replaces the
+// call site with the resulting constant.
+
+import "./ir.orb"
+
+model CTEState {
+    result: int
+    success: bool
+    folded: int
+    steps: int
+    depth: int
+}
+
+fn cteInit() -> CTEState {
+    return CTEState(0, true, 0, 0, 0)
+}
+
+fn isRuntimeFunction(name: string) -> bool {
+    if name == "print" || name == "println" || name == "eprint" || name == "eprintln" { return true }
+    if name == "orbit_print" || name == "orbit_println" || name == "orbit_string_concat" || name == "orbit_string_split" { return true }
+    if name == "orbit_file_read" || name == "orbit_file_write" || name == "orbit_os_exec" || name == "orbit_os_env" { return true }
+    if name == "orbit_list_create" || name == "orbit_map_create" || name == "orbit_response_create" || name == "orbit_response_json" { return true }
+    if name == "orbit_int_to_string" || name == "orbit_float_to_string" || name == "orbit_http_query_get" || name == "rand" { return true }
+    if name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_db_query_get" { return true }
+    if name == "random" || name == "srand" || name == "time" || name == "malloc" { return true }
+    if name == "free" || name == "realloc" { return true }
+    return false
+}
+
+fn isImpureOp(op: IROpcode) -> bool {
+    match op {
+        IROpcode.store_var => { return true }
+        IROpcode.store_field => { return true }
+        IROpcode.db_get => { return true }
+        IROpcode.db_set => { return true }
+        IROpcode.db_all => { return true }
+        IROpcode.db_where => { return true }
+        IROpcode.http_response => { return true }
+        IROpcode.list_push => { return true }
+        IROpcode.list_pop => { return true }
+        IROpcode.list_set => { return true }
+        IROpcode.map_set => { return true }
+        IROpcode.map_delete => { return true }
+        IROpcode.alloc => { return true }
+        IROpcode.free => { return true }
+        _ => { return false }
+    }
+}
+
+fn isPure(func: IRFunction) -> bool {
+    if func.isExtern { return false }
+    if func.instructions.len() == 0 { return false }
+    var i = 0
+    while i < func.instructions.len() {
+        val instr: IRInstruction = func.instructions.get(i)
+        if isImpureOp(instr.opcode) {
+            return false
+        }
+        match instr.opcode {
+            IROpcode.call => {
+                var cn = ""
+                match instr.operand1 {
+                    IRValue.String(s) => { cn = s.value }
+                    IRValue.Sym(s) => { cn = s.value }
+                    _ => {}
+                }
+                if isRuntimeFunction(cn) { return false }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn hasSideEffects(op: IROpcode) -> bool {
+    match op {
+        IROpcode.ret => { return true }
+        IROpcode.call => { return true }
+        IROpcode.store_var => { return true }
+        IROpcode.store_field => { return true }
+        IROpcode.free => { return true }
+        IROpcode.db_set => { return true }
+        IROpcode.list_push => { return true }
+        IROpcode.list_pop => { return true }
+        IROpcode.list_set => { return true }
+        IROpcode.map_set => { return true }
+        IROpcode.map_delete => { return true }
+        _ => { return false }
+    }
+}
+
+fn cteFindFunction(module: IRModule, name: string) -> IRFunction {
+    var i = 0
+    while i < module.functions.len() {
+        val f: IRFunction = module.functions.get(i)
+        if f.name == name {
+            return f
+        }
+        i = i + 1
+    }
+    return NULL
+}
+
+fn getInt(l: list, i: int) -> int {
+    return l.get(i)
+}
+
+fn indexOfReg(regs: list, r: int) -> int {
+    var i = 0
+    while i < regs.len() {
+        if getInt(regs, i) == r {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn isUsed(used: list, r: int) -> bool {
+    return indexOfReg(used, r) >= 0
+}
+
+fn markRegUsed(used: list, v: IRValue) {
+    match v {
+        IRValue.Register(r) => {
+            if !isUsed(used, r.value) {
+                used.push(r.value)
+            }
+        }
+        _ => {}
+    }
+}
+
+fn regSet(regs: list, known: list, idx: int, value: int) {
+    while regs.len() <= idx {
+        regs.push(0)
+    }
+    while known.len() <= idx {
+        known.push(0)
+    }
+    regs[idx] = value
+    known[idx] = 1
+}
+
+fn regIsKnown(known: list, idx: int) -> bool {
+    if idx < 0 { return false }
+    if idx >= known.len() { return false }
+    if getInt(known, idx) == 1 { return true }
+    return false
+}
+
+fn regGet(regs: list, known: list, idx: int) -> int {
+    if idx < 0 { return 0 }
+    if idx >= regs.len() { return 0 }
+    return getInt(regs, idx)
+}
+
+fn resolveValue(regs: list, known: list, v: IRValue, st: CTEState) -> int {
+    match v {
+        IRValue.Int(m) => { return m.value }
+        IRValue.Bool(b) => {
+            if b.value { return 1 }
+            return 0
+        }
+        IRValue.Register(r) => {
+            if regIsKnown(known, r.value) {
+                return regGet(regs, known, r.value)
+            }
+            st.success = false
+            return 0
+        }
+        _ => {
+            st.success = false
+            return 0
+        }
+    }
+}
+
+fn findLabelIndex(instrs: list, target: int) -> int {
+    var i = 0
+    while i < instrs.len() {
+        val ins: IRInstruction = instrs.get(i)
+        match ins.opcode {
+            IROpcode.label => {
+                var lbl = -1
+                match ins.operand1 {
+                    IRValue.Label(l) => { lbl = l.value }
+                    IRValue.Int(v) => { lbl = v.value }
+                    _ => {}
+                }
+                if lbl == target {
+                    return i
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn isNopOrControl(op: IROpcode) -> bool {
+    match op {
+        IROpcode.nop => { return true }
+        IROpcode.label => { return true }
+        IROpcode.begin_block => { return true }
+        IROpcode.end_block => { return true }
+        _ => { return false }
+    }
+}
+
+fn opIs(op: IROpcode, which: int) -> bool {
+    if which == 1 {
+        match op {
+            IROpcode.load_var => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 2 {
+        match op {
+            IROpcode.decl_var => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 3 {
+        match op {
+            IROpcode.load_const => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 4 {
+        match op {
+            IROpcode.copy => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 5 {
+        match op {
+            IROpcode.add => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 6 {
+        match op {
+            IROpcode.sub => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 7 {
+        match op {
+            IROpcode.mul => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 8 {
+        match op {
+            IROpcode.div => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 9 {
+        match op {
+            IROpcode.mod => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 10 {
+        match op {
+            IROpcode.neg => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 11 {
+        match op {
+            IROpcode.not_op => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 12 {
+        match op {
+            IROpcode.and_op => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 13 {
+        match op {
+            IROpcode.or_op => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 14 {
+        match op {
+            IROpcode.eq => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 15 {
+        match op {
+            IROpcode.ne => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 16 {
+        match op {
+            IROpcode.lt => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 17 {
+        match op {
+            IROpcode.le => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 18 {
+        match op {
+            IROpcode.gt => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 19 {
+        match op {
+            IROpcode.ge => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 20 {
+        match op {
+            IROpcode.jump => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 21 {
+        match op {
+            IROpcode.jump_if_false => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 22 {
+        match op {
+            IROpcode.arg => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 23 {
+        match op {
+            IROpcode.call => { return true }
+            _ => { return false }
+        }
+    }
+    if which == 24 {
+        match op {
+            IROpcode.ret => { return true }
+            _ => { return false }
+        }
+    }
+    return false
+}
+
+fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) -> bool {
+    if st.depth > 4096 { st.success = false; return false }
+    if st.steps > 10000000 { st.success = false; return false }
+    st.depth = st.depth + 1
+
+    var regs = []
+    var known = []
+    var pi = 0
+    while pi < args.len() {
+        regSet(regs, known, pi, args.get(pi))
+        pi = pi + 1
+    }
+
+    var pending = []
+    var ip = 0
+    val instrs = func.instructions
+    while ip < instrs.len() {
+        if st.steps > 10000000 {
+            st.success = false
+            st.depth = st.depth - 1
+            return false
+        }
+        st.steps = st.steps + 1
+        val instr: IRInstruction = instrs.get(ip)
+
+        if isNopOrControl(instr.opcode) {
+            ip = ip + 1
+        } else if opIs(instr.opcode, 1) {
+            // load_var
+            var vn = ""
+            match instr.operand1 {
+                IRValue.String(s) => { vn = s.value }
+                IRValue.Sym(s) => { vn = s.value }
+                _ => {}
+            }
+            var found = false
+            var pj = 0
+            while pj < func.params.len() {
+                if func.params.get(pj) == vn {
+                    if pj < args.len() {
+                        regSet(regs, known, instr.dest, args.get(pj))
+                        found = true
+                    }
+                }
+                pj = pj + 1
+            }
+            if !found {
+                st.success = false
+                st.depth = st.depth - 1
+                return false
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 2) {
+            // decl_var
+            ip = ip + 1
+        } else if opIs(instr.opcode, 3) {
+            // load_const
+            match instr.operand1 {
+                IRValue.Int(v) => {
+                    regSet(regs, known, instr.dest, v.value)
+                }
+                IRValue.Bool(b) => {
+                    if b.value {
+                        regSet(regs, known, instr.dest, 1)
+                    } else {
+                        regSet(regs, known, instr.dest, 0)
+                    }
+                }
+                IRValue.Float(f) => {
+                    st.success = false
+                    st.depth = st.depth - 1
+                    return false
+                }
+                _ => {}
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 4) {
+            // copy
+            val cv = resolveValue(regs, known, instr.operand1, st)
+            if !st.success {
+                st.depth = st.depth - 1
+                return false
+            }
+            regSet(regs, known, instr.dest, cv)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 5) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            regSet(regs, known, instr.dest, a + b)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 6) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            regSet(regs, known, instr.dest, a - b)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 7) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            regSet(regs, known, instr.dest, a * b)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 8) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if b == 0 {
+                st.success = false
+                st.depth = st.depth - 1
+                return false
+            }
+            regSet(regs, known, instr.dest, a / b)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 9) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if b == 0 {
+                st.success = false
+                st.depth = st.depth - 1
+                return false
+            }
+            regSet(regs, known, instr.dest, a % b)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 10) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            regSet(regs, known, instr.dest, -a)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 11) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a == 0 {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 12) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a != 0 && b != 0 {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 13) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a != 0 || b != 0 {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 14) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a == b {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 15) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a != b {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 16) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a < b {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 17) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a <= b {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 18) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a > b {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 19) {
+            val a = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            val b = resolveValue(regs, known, instr.operand2, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if a >= b {
+                regSet(regs, known, instr.dest, 1)
+            } else {
+                regSet(regs, known, instr.dest, 0)
+            }
+            ip = ip + 1
+        } else if opIs(instr.opcode, 20) {
+            // jump
+            var target = -1
+            match instr.operand1 {
+                IRValue.Label(l) => { target = l.value }
+                IRValue.Int(v) => { target = v.value }
+                _ => {
+                    st.success = false
+                    st.depth = st.depth - 1
+                    return false
+                }
+            }
+            val lblIdx = findLabelIndex(instrs, target)
+            if lblIdx < 0 {
+                st.success = false
+                st.depth = st.depth - 1
+                return false
+            }
+            ip = lblIdx
+        } else if opIs(instr.opcode, 21) {
+            // jump_if_false
+            val cond = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            if cond == 0 {
+                var target = -1
+                match instr.operand2 {
+                    IRValue.Label(l) => { target = l.value }
+                    IRValue.Int(v) => { target = v.value }
+                    _ => {
+                        st.success = false
+                        st.depth = st.depth - 1
+                        return false
+                    }
+                }
+                val lblIdx = findLabelIndex(instrs, target)
+                if lblIdx < 0 {
+                    st.success = false
+                    st.depth = st.depth - 1
+                    return false
+                }
+                ip = lblIdx
+            } else {
+                ip = ip + 1
+            }
+        } else if opIs(instr.opcode, 22) {
+            // arg
+            val av = resolveValue(regs, known, instr.operand1, st)
+            if !st.success { st.depth = st.depth - 1; return false }
+            pending.push(av)
+            ip = ip + 1
+        } else if opIs(instr.opcode, 23) {
+            // call
+            var cn = ""
+            match instr.operand1 {
+                IRValue.String(s) => { cn = s.value }
+                IRValue.Sym(s) => { cn = s.value }
+                _ => {}
+            }
+            if isRuntimeFunction(cn) {
+                st.success = false
+                st.depth = st.depth - 1
+                return false
+            }
+            val callee = cteFindFunction(module, cn)
+            if callee == NULL {
+                st.success = false
+                st.depth = st.depth - 1
+                return false
+            }
+            if !isPure(callee) {
+                st.success = false
+                st.depth = st.depth - 1
+                return false
+            }
+            val nestedOk = evalFunction(module, callee, pending, st)
+            if !nestedOk {
+                st.depth = st.depth - 1
+                return false
+            }
+            regSet(regs, known, instr.dest, st.result)
+            pending = []
+            ip = ip + 1
+        } else if opIs(instr.opcode, 24) {
+            // ret
+            var res = 0
+            match instr.operand1 {
+                IRValue.None => {
+                    res = 0
+                }
+                _ => {
+                    res = resolveValue(regs, known, instr.operand1, st)
+                    if !st.success {
+                        st.depth = st.depth - 1
+                        return false
+                    }
+                }
+            }
+            st.result = res
+            st.depth = st.depth - 1
+            return true
+        } else {
+            st.success = false
+            st.depth = st.depth - 1
+            return false
+        }
+    }
+
+    st.result = 0
+    st.depth = st.depth - 1
+    return true
+}
+
+fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -> bool {
+    val callInstr: IRInstruction = func.instructions.get(callIdx)
+    var calleeName = ""
+    match callInstr.operand1 {
+        IRValue.String(s) => { calleeName = s.value }
+        IRValue.Sym(s) => { calleeName = s.value }
+        _ => {}
+    }
+    if calleeName == "" { return false }
+    if isRuntimeFunction(calleeName) { return false }
+    val callee = cteFindFunction(module, calleeName)
+    if callee == NULL { return false }
+    if !isPure(callee) { return false }
+    val destReg = callInstr.dest
+    if destReg < 0 { return false }
+
+    var knownRegs = []
+    var knownVals = []
+    var ki = 0
+    while ki < callIdx {
+        val prev: IRInstruction = func.instructions.get(ki)
+        if opIs(prev.opcode, 3) {
+            // load_const
+            match prev.operand1 {
+                IRValue.Int(v) => {
+                    knownRegs.push(prev.dest)
+                    knownVals.push(v.value)
+                }
+                IRValue.Bool(b) => {
+                    knownRegs.push(prev.dest)
+                    if b.value {
+                        knownVals.push(1)
+                    } else {
+                        knownVals.push(0)
+                    }
+                }
+                _ => {}
+            }
+        } else if opIs(prev.opcode, 4) {
+            // copy
+            var copiedVal = 0
+            var copied = false
+            match prev.operand1 {
+                IRValue.Register(r) => {
+                    val ri = indexOfReg(knownRegs, r.value)
+                    if ri >= 0 {
+                        copiedVal = getInt(knownVals, ri)
+                        copied = true
+                    }
+                }
+                IRValue.Int(v) => {
+                    copiedVal = v.value
+                    copied = true
+                }
+                _ => {}
+            }
+            if copied {
+                knownRegs.push(prev.dest)
+                knownVals.push(copiedVal)
+            }
+        }
+        ki = ki + 1
+    }
+
+    var scan = callIdx
+    var argStart = callIdx
+    while scan > 0 {
+        scan = scan - 1
+        val si: IRInstruction = func.instructions.get(scan)
+        if !opIs(si.opcode, 22) { break }
+        argStart = scan
+    }
+
+    var args = []
+    var k = argStart
+    while k < callIdx {
+        val argInstr: IRInstruction = func.instructions.get(k)
+        if opIs(argInstr.opcode, 22) {
+            var argVal = 0
+            var resolved = true
+            match argInstr.operand1 {
+                IRValue.Int(v) => { argVal = v.value }
+                IRValue.Bool(b) => {
+                    if b.value {
+                        argVal = 1
+                    } else {
+                        argVal = 0
+                    }
+                }
+                IRValue.Register(r) => {
+                    val ri = indexOfReg(knownRegs, r.value)
+                    if ri >= 0 {
+                        argVal = getInt(knownVals, ri)
+                    } else {
+                        resolved = false
+                    }
+                }
+                _ => { resolved = false }
+            }
+            if !resolved { return false }
+            args.push(argVal)
+        }
+        k = k + 1
+    }
+
+    st.depth = 0
+    st.steps = 0
+    st.success = true
+    val okEval = evalFunction(module, callee, args, st)
+    if !okEval { return false }
+    val resultVal = st.result
+
+    var use_i = callIdx + 1
+    while use_i < func.instructions.len() {
+        val u: IRInstruction = func.instructions.get(use_i)
+        if u.dest == destReg { break }
+        match u.operand1 {
+            IRValue.Register(r) => {
+                if r.value == destReg {
+                    u.operand1 = ir_int(resultVal)
+                }
+            }
+            _ => {}
+        }
+        match u.operand2 {
+            IRValue.Register(r) => {
+                if r.value == destReg {
+                    u.operand2 = ir_int(resultVal)
+                }
+            }
+            _ => {}
+        }
+        match u.operand3 {
+            IRValue.Register(r) => {
+                if r.value == destReg {
+                    u.operand3 = ir_int(resultVal)
+                }
+            }
+            _ => {}
+        }
+        use_i = use_i + 1
+    }
+
+    var nidx = argStart
+    while nidx <= callIdx {
+        val ninstr: IRInstruction = func.instructions.get(nidx)
+        ninstr.opcode = IROpcode.nop
+        ninstr.dest = -1
+        nidx = nidx + 1
+    }
+
+    st.folded = st.folded + 1
+    return true
+}
+
+fn cteFoldFunction(module: IRModule, func: IRFunction, st: CTEState) {
+    var changed = true
+    while changed {
+        changed = false
+        var i = 0
+        while i < func.instructions.len() {
+            val instr: IRInstruction = func.instructions.get(i)
+            if opIs(instr.opcode, 23) {
+                if tryFoldCall(module, func, i, st) {
+                    changed = true
+                    continue
+                }
+            }
+            i = i + 1
+        }
+    }
+}
+
+fn dceFunction(func: IRFunction) {
+    var used = []
+    var i = 0
+    while i < func.instructions.len() {
+        val instr: IRInstruction = func.instructions.get(i)
+        if !isNopOrControl(instr.opcode) {
+            markRegUsed(used, instr.operand1)
+            markRegUsed(used, instr.operand2)
+            markRegUsed(used, instr.operand3)
+        }
+        i = i + 1
+    }
+    var di = 0
+    while di < func.instructions.len() {
+        val instr: IRInstruction = func.instructions.get(di)
+        if !isNopOrControl(instr.opcode) {
+            if instr.dest >= 0 {
+                if !isUsed(used, instr.dest) && !hasSideEffects(instr.opcode) {
+                    instr.opcode = IROpcode.nop
+                    instr.dest = -1
+                }
+            }
+        }
+        di = di + 1
+    }
+}
+
+fn cteOptimize(module: IRModule) -> int {
+    val st = cteInit()
+    var fi = 0
+    while fi < module.functions.len() {
+        val func: IRFunction = module.functions.get(fi)
+        if func.instructions.len() > 0 {
+            cteFoldFunction(module, func, st)
+        }
+        fi = fi + 1
+    }
+    var di = 0
+    while di < module.functions.len() {
+        val func: IRFunction = module.functions.get(di)
+        dceFunction(func)
+        di = di + 1
+    }
+    return st.folded
+}

@@ -5,7 +5,12 @@ import "./sema.orb"
 import "./builder.orb"
 import "./ir.orb"
 import "./optimizer.orb"
+import "./cteval.orb"
 import "./c_backend.orb"
+
+fn cteEnabled() -> bool {
+    return true
+}
 
 fn compileSource(source: string, outputPath: string) -> bool {
     return compileSourceWithFile(source, "", outputPath)
@@ -50,6 +55,10 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
     val irModule = buildAST(builder, ast)
 
     val optStats = optimizeIRModule(irModule)
+    var cteFolds = 0
+    if cteEnabled() {
+        cteFolds = cteOptimize(irModule)
+    }
 
     val backend = initCBackend(irModule)
     val cCode = generateC(backend)
