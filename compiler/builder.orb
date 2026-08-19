@@ -594,10 +594,10 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
         }
         ASTNode.VarDecl(v) => {
             val func = builder.currentFunction
-            val varReg = buildExpr(builder, v.value)
+            val varVal = buildCallArgValue(builder, v.value)
             val instr = ir_init_instr(IROpcode.decl_var)
             instr.operand1 = ir_symbol(v.name)
-            instr.operand2 = ir_register(varReg)
+            instr.operand2 = varVal
             ir_emit(func, instr)
             var vType = v.typeAnnotation
             if vType == "" {
@@ -951,10 +951,10 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             ir_emit(builder.currentFunction, retInstr)
         }
         ASTNode.VarDecl(v) => {
-            val varReg = buildExpr(builder, v.value)
+            val varVal = buildCallArgValue(builder, v.value)
             val varInstr = ir_init_instr(IROpcode.decl_var)
             varInstr.operand1 = ir_symbol(v.name)
-            varInstr.operand2 = ir_register(varReg)
+            varInstr.operand2 = varVal
             ir_emit(builder.currentFunction, varInstr)
             var vType = v.typeAnnotation
             if vType == "" {
@@ -1682,19 +1682,19 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 return resReg
             }
             // Default method call: emit obj as first arg, then call memberName as function
-            val argList = []
+            val argVals = []
             var ai0 = 0
             while ai0 < c.args.len() {
-                argList.push(buildExpr(builder, c.args.get(ai0)))
+                argVals.push(buildCallArgValue(builder, c.args.get(ai0)))
                 ai0 = ai0 + 1
             }
             val arg1 = ir_init_instr(IROpcode.arg)
             arg1.operand1 = ir_register(objReg)
             ir_emit(builder.currentFunction, arg1)
             var ei0 = 0
-            while ei0 < argList.len() {
+            while ei0 < argVals.len() {
                 val argInstr = ir_init_instr(IROpcode.arg)
-                argInstr.operand1 = ir_register(argList.get(ei0))
+                argInstr.operand1 = argVals.get(ei0)
                 ir_emit(builder.currentFunction, argInstr)
                 ei0 = ei0 + 1
             }
@@ -1736,17 +1736,20 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     }
                     // Regular function call. Evaluate every argument first so a
                     // nested call (arg[i] is itself a call) cannot steal the
-                    // pending .arg instructions of this call.
-                    val argRegs = []
+                    // pending .arg instructions of this call. Literals are
+                    // passed as constant operands (like the Zig frontend) so
+                    // the C backend inlines them; buildExpr would materialize
+                    // them into load_const registers.
+                    val argVals = []
                     var ai = 0
                     while ai < c.args.len() {
-                        argRegs.push(buildExpr(builder, c.args.get(ai)))
+                        argVals.push(buildCallArgValue(builder, c.args.get(ai)))
                         ai = ai + 1
                     }
                     var ei = 0
-                    while ei < argRegs.len() {
+                    while ei < argVals.len() {
                         val argInstr = ir_init_instr(IROpcode.arg)
-                        argInstr.operand1 = ir_register(argRegs.get(ei))
+                        argInstr.operand1 = argVals.get(ei)
                         ir_emit(builder.currentFunction, argInstr)
                         ei = ei + 1
                     }

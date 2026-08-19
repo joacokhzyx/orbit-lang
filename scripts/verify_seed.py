@@ -51,8 +51,8 @@ SUPPRESS_FLAGS = ["-O2", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
 # binary hash is platform/toolchain specific and stays informational.
-# Regenerated 2026-08-18 from the parity work (Fix A/B/C/D); chain3 == stage3.
-PUBLISHED_C = "9E4C15F3C9AD6BDB63A5A84904F47EE770EC8E6372DBC944885CA85D2153FEEF"
+# Regenerated 2026-08-18 from the Fase-3 literal-fold parity work; chain3 == stage3.
+PUBLISHED_C = "2D10AB9F25E9759B615BE0109B8C4BC86B8EA8E71CE074C65D7D7AE1E1F6643D"
 PUBLISHED_BIN = "F5C86401CEAF178075C5856E46667DAAD0B3A60A8ACA194EF1F038F795D5E9CE"
 
 
