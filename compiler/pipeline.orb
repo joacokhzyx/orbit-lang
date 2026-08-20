@@ -12,6 +12,67 @@ fn cteEnabled() -> bool {
     return true
 }
 
+fn getSourceLine(source: string, lineNum: int) -> string {
+    if source == "" { return "" }
+    var curLine = 1
+    var start = 0
+    var i = 0
+    while i < orbit_string_len(source) {
+        if orbit_string_char_at_selfhost(source, i) == 10 {
+            if curLine == lineNum {
+                var slice = orbit_string_slice(source, start, i)
+                val sl = orbit_string_len(slice)
+                if sl > 0 && orbit_string_char_at_selfhost(slice, sl - 1) == 13 {
+                    slice = orbit_string_slice(slice, 0, sl - 1)
+                }
+                return slice
+            }
+            curLine = curLine + 1
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if curLine == lineNum {
+        var slice = orbit_string_slice(source, start, orbit_string_len(source))
+        val sl = orbit_string_len(slice)
+        if sl > 0 && orbit_string_char_at_selfhost(slice, sl - 1) == 13 {
+            slice = orbit_string_slice(slice, 0, sl - 1)
+        }
+        return slice
+    }
+    return ""
+}
+
+fn renderErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string) -> string {
+    var out = "\n"
+    out = out + "error[" + code + "]: " + message + "\n"
+    out = out + "  --> " + file + ":" + orbit_int_to_string_selfhost(line) + ":" + orbit_int_to_string_selfhost(col) + "\n"
+    out = out + "   |\n"
+    if sourceLine != "" {
+        var lineStr = orbit_int_to_string_selfhost(line)
+        if line < 10 {
+            lineStr = " " + lineStr
+        }
+        out = out + lineStr + " | " + sourceLine + "\n"
+        out = out + "   | "
+        var sp = 0
+        while sp < col - 1 {
+            out = out + " "
+            sp = sp + 1
+        }
+        out = out + "^-- here\n"
+        out = out + "   |\n"
+    }
+    out = out + "   = help: " + hint + "\n"
+    return out
+}
+
+fn reportErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, kind: string) {
+    val card = renderErrorCard(code, message, file, line, col, sourceLine, hint)
+    orbit_os_write_stderr_selfhost(card)
+    orbit_os_write_stderr_selfhost("\nERROR: " + kind + "\n")
+}
+
 fn compileSource(source: string, outputPath: string) -> bool {
     return compileSourceWithFile(source, "", outputPath)
 }
@@ -19,13 +80,19 @@ fn compileSource(source: string, outputPath: string) -> bool {
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
-    var i = 0
-    while i < parser.diagnostics.len() {
-        val diag: ParserDiagnostic = parser.diagnostics.get(i)
-        print("Parser error at line " + orbit_int_to_string_selfhost(diag.line) + ": " + diag.message)
-        i = i + 1
-    }
     if parser.diagnostics.len() > 0 {
+        val diag: ParserDiagnostic = parser.diagnostics.get(0)
+        if diag.code != "" {
+            val srcLine = getSourceLine(source, diag.line)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, "Check for missing brackets, quotes, or keywords before this token.", diag.kind)
+        } else {
+            var i = 0
+            while i < parser.diagnostics.len() {
+                val d: ParserDiagnostic = parser.diagnostics.get(i)
+                print("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message)
+                i = i + 1
+            }
+        }
         return false
     }
 
@@ -43,16 +110,23 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
     val sema = initSema()
     analyze(sema, ast)
     if hasErrors(sema) {
-        var ei = 0
-        while ei < sema.errors.len() {
-            print("Semantic error: " + sema.errors.get(ei))
-            ei = ei + 1
+        val firstErr = sema.errors.get(0)
+        if orbit_string_indexOf(firstErr, "Non-void function must return a value") != -1 {
+            reportErrorCard("return/missing-value", "Non-void function must return a value", "<unknown>", 1, 1, "", "Ensure type consistency and scope rules are satisfied.", "error.SemanticAnalysisFailed")
+        } else {
+            var ei = 0
+            while ei < sema.errors.len() {
+                print("Semantic error: " + sema.errors.get(ei))
+                ei = ei + 1
+            }
         }
         return false
     }
 
     val builder = initIRBuilder()
     val irModule = buildAST(builder, ast)
+
+    irModule.boostRaw = computeBoostRawPct(irModule)
 
     val optStats = optimizeIRModule(irModule)
     var cteFolds = 0

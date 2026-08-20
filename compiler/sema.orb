@@ -34,7 +34,6 @@ fn initSema() -> Sema {
 }
 
 fn reportError(sema: Sema, message: string) {
-    print("  [sema error] " + message + " [in " + sema.currentFunction + "]")
     sema.errors.push(message + " [in " + sema.currentFunction + "]")
 }
 

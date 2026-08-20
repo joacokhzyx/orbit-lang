@@ -61,6 +61,12 @@ pub const CBackend = struct {
     /// Local variable types in the current function being generated.
     local_variable_types: std.StringHashMapUnmanaged(IRType),
 
+    /// Local variable names in first-introduction (source) order, so that
+    /// declaration order in the generated C matches the self-host's codegen
+    /// (which walks instructions in order) instead of the hash-map iteration
+    /// order of `local_variable_types`.
+    local_variable_order: std.ArrayListUnmanaged([]const u8),
+
     /// Return types of functions in the module to avoid void assignments.
     function_return_types: std.StringHashMapUnmanaged(IRType) = .{},
 
@@ -137,6 +143,7 @@ pub const CBackend = struct {
             .enum_names = .empty,
             .union_names = .empty,
             .local_variable_types = .empty,
+            .local_variable_order = .empty,
         };
     }
 
@@ -150,6 +157,7 @@ pub const CBackend = struct {
         self.enum_names.deinit(self.allocator);
         self.union_names.deinit(self.allocator);
         self.local_variable_types.deinit(self.allocator);
+        self.local_variable_order.deinit(self.allocator);
     }
 
     /// Register a runtime function that needs Arena* as first param.
@@ -674,6 +682,7 @@ pub const CBackend = struct {
         self.call_args.clearRetainingCapacity();
 
         self.local_variable_types.clearRetainingCapacity();
+        self.local_variable_order.clearRetainingCapacity();
         for (func.instructions.items) |instr| {
             if (instr.opcode == .decl_var or instr.opcode == .store_var) {
                 const var_name = switch (instr.operand1) {
@@ -698,6 +707,9 @@ pub const CBackend = struct {
                         // pointer values are never truncated through 32-bit orbit_int.
                         var_type = .usize;
                     }
+                }
+if (!self.local_variable_types.contains(var_name)) {
+                    try self.local_variable_order.append(self.allocator, var_name);
                 }
                 try self.local_variable_types.put(self.allocator, var_name, var_type);
             }
@@ -852,11 +864,9 @@ pub const CBackend = struct {
         }
 
         // Declare local variables
-        var var_iter = self.local_variable_types.iterator();
-        while (var_iter.next()) |entry| {
-            const var_name = entry.key_ptr.*;
+        for (self.local_variable_order.items) |var_name| {
             if (std.mem.eql(u8, var_name, "_")) continue;
-            const var_type = entry.value_ptr.*;
+            const var_type = self.local_variable_types.get(var_name) orelse .unknown;
             try self.output.print(self.allocator, "    {s} {s};\n", .{ try self.mapTypeToC(var_type), var_name });
         }
 
@@ -1139,6 +1149,7 @@ pub const CBackend = struct {
                                 }
                             }
                         } else {
+                            try self.local_variable_order.append(self.allocator, var_name);
                             _ = try self.local_variable_types.put(self.allocator, var_name, var_type);
                         }
                     }
@@ -1158,6 +1169,7 @@ pub const CBackend = struct {
                             }
                             if (!is_p and !self.local_variable_types.contains(s)) {
                                 if (std.mem.indexOf(u8, s, "_TAG_") != null) continue;
+                                try self.local_variable_order.append(self.allocator, s);
                                 try self.local_variable_types.put(self.allocator, s, .int);
                             }
                         }
@@ -1168,11 +1180,9 @@ pub const CBackend = struct {
         }
 
         // Declare local variables at top of function scope
-        var var_iter = self.local_variable_types.iterator();
-        while (var_iter.next()) |entry| {
-            const var_name = entry.key_ptr.*;
+        for (self.local_variable_order.items) |var_name| {
             if (std.mem.eql(u8, var_name, "_")) continue;
-            var var_type = entry.value_ptr.*;
+            var var_type = self.local_variable_types.get(var_name) orelse .unknown;
             if (var_type == .unknown) {
                 // Second pass: try to resolve type from decl_var instruction annotations/values
                 for (func.instructions.items) |instr2| {

@@ -32,7 +32,8 @@ foreach ($p in Get-ChildItem $ProbeDir -Filter *.orb | Sort-Object Name) {
     New-Item -ItemType Directory -Force -Path $shTmp, $feTmp | Out-Null
 
     $env:TEMP = $shTmp; $env:TMP = $shTmp
-    & $Stage $p.FullName -o (Join-Path $shTmp ($name + "_sh.exe")) *> $shLog 2>&1
+    $shOut = Join-Path $shTmp ($name + "_sh.exe")
+    cmd /c "`"$($Stage)`" `"$($p.FullName)`" -o `"$($shOut)`" 1> `"$($shLog)`" 2>&1"
     $shExit = $LASTEXITCODE
     if (Test-Path (Join-Path $shTmp "orbit_selfhost_build.c")) {
         Copy-Item (Join-Path $shTmp "orbit_selfhost_build.c") $shC -Force
@@ -43,7 +44,8 @@ foreach ($p in Get-ChildItem $ProbeDir -Filter *.orb | Sort-Object Name) {
     New-Item -ItemType Directory -Force -Path $shTmp, $feTmp | Out-Null
 
     $env:TEMP = $feTmp; $env:TMP = $feTmp
-    & $Front build $p.FullName -o (Join-Path $OutDir ($name + "_fe.exe")) *> $feLog 2>&1
+    $feOut = Join-Path $OutDir ($name + "_fe.exe")
+    cmd /c "`"$($Front)`" build `"$($p.FullName)`" -o `"$($feOut)`" 1> `"$($feLog)`" 2>&1"
     $feExit = $LASTEXITCODE
     $feC2 = Join-Path $feTmp "orbit\temp_build.c"
     if (Test-Path (Join-Path $feTmp "orbit_selfhost_build.c")) { $feC2 = Join-Path $feTmp "orbit_selfhost_build.c" }

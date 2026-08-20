@@ -248,7 +248,7 @@ fn routerTailText() -> string {
     return out
 }
 
-fn serverMainText(hasDb: bool) -> string {
+fn serverMainText(hasDb: bool, boostPct: string) -> string {
     var out = ""
     out = out + "#ifdef _WIN32\n"
     out = out + "static unsigned __stdcall orbit_worker_loop(void* arg) {\n"
@@ -497,7 +497,7 @@ fn serverMainText(hasDb: bool) -> string {
     out = out + "    if (num_workers <= 0) num_workers = 1;\n"
     out = out + "    if (num_workers > 64) num_workers = 64;\n"
     out = out + "\n"
-    out = out + "    orbit_render_server_banner(port, num_workers, kynx_cfg.enabled, 0);\n"
+    out = out + "    orbit_render_server_banner(port, num_workers, kynx_cfg.enabled, " + boostPct + ");\n"
     out = out + "\n"
     out = out + "    orbit_thread_t* workers = (orbit_thread_t*)malloc(sizeof(orbit_thread_t) * (size_t)num_workers);\n"
     out = out + "    OrbitWorkerCtx* ctxs = (OrbitWorkerCtx*)malloc(sizeof(OrbitWorkerCtx) * (size_t)num_workers);\n"

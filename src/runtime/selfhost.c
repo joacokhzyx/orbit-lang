@@ -26,6 +26,10 @@ orbit_string orbit_os_argv_selfhost(orbit_int index) {
     return (orbit_os_argv)(orbit_arena_get_global(), index);
 }
 
+orbit_string orbit_float_to_string_selfhost(orbit_float value) {
+    return (orbit_float_to_string)(orbit_arena_get_global(), value);
+}
+
 orbit_string orbit_os_exec_selfhost(orbit_string command) {
     return (orbit_os_exec)(orbit_arena_get_global(), command);
 }
@@ -36,6 +40,22 @@ orbit_string orbit_os_env_selfhost(orbit_string var_name) {
 
 void orbit_os_exit_selfhost(orbit_int code) {
     (orbit_os_exit)(code);
+}
+
+// Raw stderr writer: emits bytes verbatim (LF line endings, no CRLF translation)
+// so self-host diagnostics are byte-identical to the Zig front-end's stderr.
+void orbit_os_write_stderr_selfhost(orbit_string content) {
+    if (!content) return;
+    size_t len = strlen(content);
+    if (len == 0) return;
+#ifdef _WIN32
+    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+    DWORD written = 0;
+    WriteFile(h, content, (DWORD)len, &written, NULL);
+#else
+    fwrite(content, 1, len, stderr);
+    fflush(stderr);
+#endif
 }
 
 // File I/O functions

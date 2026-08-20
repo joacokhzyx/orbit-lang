@@ -90,6 +90,88 @@ model Token {
     col: int
 }
 
+fn tokTagName(tag: TokType) -> string {
+    match tag {
+        TokType.EOF => return "EOF"
+        TokType.Invalid => return "Invalid"
+        TokType.Identifier => return "Identifier"
+        TokType.StringLiteral => return "StringLiteral"
+        TokType.IntegerLiteral => return "IntegerLiteral"
+        TokType.FloatLiteral => return "FloatLiteral"
+        TokType.CharLiteral => return "CharLiteral"
+        TokType.InterpStringLiteral => return "InterpStringLiteral"
+        TokType.KeywordIf => return "KeywordIf"
+        TokType.KeywordElse => return "KeywordElse"
+        TokType.KeywordFor => return "KeywordFor"
+        TokType.KeywordIn => return "KeywordIn"
+        TokType.KeywordWhile => return "KeywordWhile"
+        TokType.KeywordLoop => return "KeywordLoop"
+        TokType.KeywordBreak => return "KeywordBreak"
+        TokType.KeywordContinue => return "KeywordContinue"
+        TokType.KeywordReturn => return "KeywordReturn"
+        TokType.KeywordMatch => return "KeywordMatch"
+        TokType.KeywordType => return "KeywordType"
+        TokType.KeywordEnum => return "KeywordEnum"
+        TokType.KeywordUnion => return "KeywordUnion"
+        TokType.KeywordConst => return "KeywordConst"
+        TokType.KeywordVal => return "KeywordVal"
+        TokType.KeywordVar => return "KeywordVar"
+        TokType.KeywordMut => return "KeywordMut"
+        TokType.KeywordPrivate => return "KeywordPrivate"
+        TokType.KeywordExtern => return "KeywordExtern"
+        TokType.KeywordEvery => return "KeywordEvery"
+        TokType.KeywordAsync => return "KeywordAsync"
+        TokType.KeywordFn => return "KeywordFn"
+        TokType.KeywordModel => return "KeywordModel"
+        TokType.KeywordRoute => return "KeywordRoute"
+        TokType.KeywordGet => return "KeywordGet"
+        TokType.KeywordPost => return "KeywordPost"
+        TokType.KeywordPut => return "KeywordPut"
+        TokType.KeywordPatch => return "KeywordPatch"
+        TokType.KeywordDelete => return "KeywordDelete"
+        TokType.KeywordHead => return "KeywordHead"
+        TokType.KeywordOptions => return "KeywordOptions"
+        TokType.KeywordErr => return "KeywordErr"
+        TokType.KeywordOk => return "KeywordOk"
+        TokType.KeywordWith => return "KeywordWith"
+        TokType.KeywordUse => return "KeywordUse"
+        TokType.KeywordImport => return "KeywordImport"
+        TokType.KeywordTrait => return "KeywordTrait"
+        TokType.KeywordImpl => return "KeywordImpl"
+        TokType.Plus => return "Plus"
+        TokType.Minus => return "Minus"
+        TokType.Asterisk => return "Asterisk"
+        TokType.Slash => return "Slash"
+        TokType.Percent => return "Percent"
+        TokType.Equal => return "Equal"
+        TokType.DoubleEqual => return "DoubleEqual"
+        TokType.NotEqual => return "NotEqual"
+        TokType.Less => return "Less"
+        TokType.LessEqual => return "LessEqual"
+        TokType.Greater => return "Greater"
+        TokType.GreaterEqual => return "GreaterEqual"
+        TokType.DoublePipe => return "DoublePipe"
+        TokType.Pipe => return "Pipe"
+        TokType.DoubleAmpersand => return "DoubleAmpersand"
+        TokType.Ampersand => return "Ampersand"
+        TokType.Bang => return "Bang"
+        TokType.Arrow => return "Arrow"
+        TokType.FatArrow => return "FatArrow"
+        TokType.At => return "At"
+        TokType.OpenBrace => return "OpenBrace"
+        TokType.CloseBrace => return "CloseBrace"
+        TokType.OpenParen => return "OpenParen"
+        TokType.CloseParen => return "CloseParen"
+        TokType.OpenBracket => return "OpenBracket"
+        TokType.CloseBracket => return "CloseBracket"
+        TokType.Colon => return "Colon"
+        TokType.Dot => return "Dot"
+        TokType.Comma => return "Comma"
+        TokType.SemiColon => return "SemiColon"
+        _ => return "unknown"
+    }
+}
+
 fn tokTypeToString(tag: TokType) -> string {
     match tag {
         TokType.EOF => return "EOF"
@@ -170,5 +252,9 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.SemiColon => return ";"
         _ => return "unknown"
     }
+}
+
+fn tokIsSymbol(tag: TokType) -> bool {
+    return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon
 }
 

@@ -6,6 +6,8 @@ model ParserDiagnostic {
     message: string
     line: int
     column: int
+    code: string
+    kind: string
 }
 
 model Parser {
@@ -48,7 +50,16 @@ fn isAtEnd(parser: Parser) -> bool {
 }
 
 fn parserError(parser: Parser, message: string) {
-    parser.diagnostics.push(ParserDiagnostic(message, parser.currentToken.line, parser.currentToken.col))
+    parser.diagnostics.push(ParserDiagnostic(message, parser.currentToken.line, parser.currentToken.col, "", ""))
+}
+
+fn parserUnexpectedToken(parser: Parser, kind: string) {
+    val tok = parser.currentToken
+    var col = tok.col
+    if tokIsSymbol(tok.tag) {
+        col = tok.col + tok.text.len()
+    }
+    parser.diagnostics.push(ParserDiagnostic("unexpected token '" + tokTagName(tok.tag) + "'", tok.line, col, "E0301", kind))
 }
 
 fn parseTypeName(parser: Parser) -> string {
@@ -238,7 +249,7 @@ fn parsePrimary(parser: Parser) -> ASTNode {
     return ASTNode.ListLiteral(ListLiteralNode(elements))
 }
 
-parserError(parser, "Unexpected token in expression: " + tokTypeToString(parser.currentToken.tag))
+parserUnexpectedToken(parser, "error.UnexpectedToken")
 if isAtEnd(parser) == false {
     advanceParser(parser)
 }
@@ -443,7 +454,14 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
     if check(parser, TokType.CloseParen) == false {
         var parsingParams = true
         while parsingParams {
-            consume(parser, TokType.Identifier, "Expected parameter name.")
+            if check(parser, TokType.Identifier) {
+                advanceParser(parser)
+            } else {
+                parserUnexpectedToken(parser, "error.UnexpectedToken")
+                if isAtEnd(parser) == false {
+                    advanceParser(parser)
+                }
+            }
             val paramName = parser.previousToken.text
             params.push(paramName)
             
@@ -494,7 +512,14 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
 }
 
 fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
-    consume(parser, TokType.Identifier, "Expected model name.")
+    if check(parser, TokType.Identifier) {
+        advanceParser(parser)
+    } else {
+        parserUnexpectedToken(parser, "error.UnexpectedToken")
+        if isAtEnd(parser) == false {
+            advanceParser(parser)
+        }
+    }
     val name = parser.previousToken.text
     val genericParams = parseGenericParams(parser)
     consume(parser, TokType.OpenBrace, "Expected '{' after model name.")
@@ -628,7 +653,7 @@ fn parseRouteDecl(parser: Parser, decorators: list) -> ASTNode {
         advanceParser(parser)
         method = parser.previousToken.text
     } else {
-        parserError(parser, "Expected HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS).")
+        parserUnexpectedToken(parser, "error.ExpectedHttpMethod")
         if isAtEnd(parser) == false {
             advanceParser(parser)
         }

@@ -160,7 +160,6 @@ fn main() {
     }
 
     if compileSourceWithFile(source, inputPath, outputPath) == false {
-        print("Compilation FAILED: " + outputPath)
         orbit_os_exit_selfhost(1)
     }
 }
