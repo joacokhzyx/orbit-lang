@@ -2186,7 +2186,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 owner2 = findFieldOwner(backend, fname2)
             }
             var valCast = "(void*)(uintptr_t)(" + generateValue(backend, instr.operand3) + ")"
-            if isIntFieldName(fname2) {
+            if declaredScalarField(backend, fname2) || isIntFieldName(fname2) {
                 valCast = "(orbit_int)(uintptr_t)(" + generateValue(backend, instr.operand3) + ")"
             }
             if backend != NULL && backend.currentFunction != NULL {
@@ -2803,6 +2803,28 @@ fn moduleUsesDatabase(module: IRModule) -> bool {
         fi = fi + 1
     }
     return false
+}
+
+fn declaredScalarField(backend: CBackend, fieldName: string) -> bool {
+    var found = false
+    var allScalar = true
+    var mi = 0
+    while mi < backend.module.models.len() {
+        val m: IRModelDecl = backend.module.models.get(mi)
+        var fi = 0
+        while fi < m.fields.len() {
+            val f: IRModelField = m.fields.get(fi)
+            if f.name == fieldName {
+                found = true
+                if f.typeName != "int" && f.typeName != "bool" && f.typeName != "float" {
+                    allScalar = false
+                }
+            }
+            fi = fi + 1
+        }
+        mi = mi + 1
+    }
+    return found && allScalar
 }
 
 fn isStringFieldName(backend: CBackend, fieldName: string) -> bool {

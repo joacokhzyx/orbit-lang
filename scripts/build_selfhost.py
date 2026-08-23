@@ -40,7 +40,11 @@ CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 MAIN_ORB = os.path.join("compiler", "main.orb")
 VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 
-SUPPRESS_FLAGS = ["-O2", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types"]
+# -O0 keeps peak memory low: these builds run once per gate and speed is
+# irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
+# -O2 links. The compiler's own internal invocations (pipeline.orb) already
+# use -O0.
+SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types"]
 MAX_ITERATIONS = 4
 
 

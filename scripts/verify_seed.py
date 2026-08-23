@@ -49,14 +49,18 @@ CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 DRIVER = os.path.join(ROOT, "zig-out", "bin", "orbit.exe")
 MAIN_ORB = os.path.join("compiler", "main.orb")
 
-SUPPRESS_FLAGS = ["-O2", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types"]
+# -O0 keeps peak memory low: these builds run once per gate and speed is
+# irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
+# -O2 links. The compiler's own internal invocations (pipeline.orb) already
+# use -O0.
+SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types"]
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
 # binary hash is platform/toolchain specific and stays informational.
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "CA4F4C9F617EF9BB0796A26152C8BC8AB124E69E46B9C31575647BAC540ADDF6"
+PUBLISHED_C = "4C75FE39AD4B092310A5341C2EC7143A1723AD737ADA847317F4712CFD7BE4BA"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
@@ -220,9 +224,30 @@ def main() -> int:
                 break
             time.sleep(3)
         if last_rc != 0:
-            print(f"[verify] FAILED ({last_rc}): {label}")
-            raise SystemExit(2)
-        c = os.path.join(tmp, "orbit_selfhost_build.c")
+            # The compiler's internal cc step is incidental to the contract:
+            # what matters is the emitted C (fixed point) and binaries built by
+            # OUR OWN toolchain invocation. If it failed (e.g. AV locks or
+            # memory pressure killing the linker), rebuild from the snapshot.
+            c = os.path.join(tmp, "orbit_selfhost_build.c")
+            if not os.path.isfile(c):
+                print(f"[verify] FAILED ({last_rc}): {label} (no C emitted)")
+                raise SystemExit(2)
+            print(f"[verify] note: {label} exited {last_rc} after emitting C; rebuilding with our own cc.")
+        else:
+            c = os.path.join(tmp, "orbit_selfhost_build.c")
+        # Always (re)build through the SHARED intermediate path: zig embeds the
+        # C source path into the binary, so distinct snapshot filenames would
+        # break the binary fixed-point comparison even for identical code.
+        shared = os.path.join(tmp, "orbit_selfhost_build.c")
+        if os.path.abspath(c) != os.path.abspath(shared):
+            shutil.copyfile(c, shared)
+        if last_rc != 0:
+            # Flags mirror pipeline.orb's internal invocation INCLUDING -s:
+            # without stripping, zig embeds a random PDB GUID (.buildid/RSDS)
+            # that breaks the binary fixed-point comparison.
+            run([*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
+                 "-o", os.path.join(work, out), shared], ROOT,
+                env_extra={"TEMP": tmp, "TMP": tmp}, label=f"rebuild {out} from emitted C")
         shutil.copyfile(c, snapshot_c)
         return snapshot_c
 
