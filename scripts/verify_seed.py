@@ -60,7 +60,7 @@ SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "8D9381903AD8EF970F2EA80B8B53C06549E2D902BC6A660A855A92E4359C27B5"
+PUBLISHED_C = "AB3D707C1C6B73F5DF0F087DD5DD589A84D49DC7C7841D26C1A4599A6E0A1338"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
