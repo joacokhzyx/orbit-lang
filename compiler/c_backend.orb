@@ -2186,7 +2186,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 owner2 = findFieldOwner(backend, fname2)
             }
             var valCast = "(void*)(uintptr_t)(" + generateValue(backend, instr.operand3) + ")"
-            if declaredScalarField(backend, fname2) || isIntFieldName(fname2) {
+            if declaredScalarField(backend, fname2) {
                 valCast = "(orbit_int)(uintptr_t)(" + generateValue(backend, instr.operand3) + ")"
             }
             if backend != NULL && backend.currentFunction != NULL {
@@ -2828,9 +2828,6 @@ fn declaredScalarField(backend: CBackend, fieldName: string) -> bool {
 }
 
 fn isStringFieldName(backend: CBackend, fieldName: string) -> bool {
-    if fieldName == "source" || fieldName == "message" || fieldName == "name" || fieldName == "value" || fieldName == "text" || fieldName == "inputPath" || fieldName == "outputPath" || fieldName == "path" {
-        return true
-    }
     var allString = true
     var found = false
     var mi = 0
@@ -2851,13 +2848,6 @@ fn isStringFieldName(backend: CBackend, fieldName: string) -> bool {
     }
     if found == false { return false }
     return allString
-}
-
-fn isIntFieldName(fname: string) -> bool {
-    if fname == "pos" || fname == "line" || fname == "col" || fname == "column" || fname == "index" || fname == "len" || fname == "length" || fname == "id" || fname == "tag" || fname == "count" || fname == "start" || fname == "end" || fname == "isMutable" || fname == "isAsync" || fname == "isPrivate" || fname == "isExtern" || fname == "isNullable" || fname == "isSumType" || fname == "isPointer" || fname == "isPointerReturn" || fname == "instr_count" || fname == "dest" || fname == "nextBlockId" || fname == "nextValueId" || fname == "registerCount" || fname == "labelCounter" || fname == "currentScope" || fname == "parentId" {
-        return true
-    }
-    return false
 }
 
 fn dualPathQualifies(f: IRFunction) -> bool {
