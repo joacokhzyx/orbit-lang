@@ -42,6 +42,12 @@ pub const CBackend = struct {
     golden_mode: bool = false,
     handler_emitted: bool = false,
 
+    /// Register indices actually read by instructions (declared to avoid
+    /// -Wunused-variable on dead registers emitted by dead-code paths).
+    used_registers: std.AutoHashMapUnmanaged(usize, void) = .{},
+    /// Labels actually targeted by jumps (declared to avoid -Wunused-label).
+    referenced_labels: std.AutoHashMapUnmanaged(usize, void) = .{},
+
     /// Set of known functions that require OrbitArena* as first argument.
     /// Dynamically checked — not hardcoded per function name.
     arena_functions: std.StringHashMapUnmanaged(void),
@@ -336,6 +342,7 @@ pub const CBackend = struct {
             \\        return keep_alive;
             \\    }
             \\    }
+            \\    return keep_alive;
             \\}
             \\#endif
             \\
@@ -855,10 +862,41 @@ if (!self.local_variable_types.contains(var_name)) {
         // Use getBodyInstructions to skip the memo marker nop.
         const body = superluminal_memo.getBodyInstructions(func);
 
+        // Pre-scan used registers and referenced labels so dead registers are
+        // not declared (avoids -Wunused-variable / -Wunused-label under -Werror).
+        self.used_registers.clearRetainingCapacity();
+        self.referenced_labels.clearRetainingCapacity();
+        for (body) |instr| {
+            if (instr.dest) |d| {
+                if (d < func.register_types.items.len) {
+                    try self.used_registers.put(self.allocator, d, {});
+                }
+            }
+            const operands = [_]IRValue{ instr.operand1, instr.operand2, instr.operand3 };
+            for (operands) |op| {
+                switch (op) {
+                    .register => |r| {
+                        if (r < func.register_types.items.len) {
+                            try self.used_registers.put(self.allocator, r, {});
+                        }
+                    },
+                    else => {},
+                }
+            }
+            if (instr.opcode == .jump or instr.opcode == .jump_if_false) {
+                const target = if (instr.opcode == .jump) instr.operand1 else instr.operand2;
+                if (target == .label) {
+                    try self.referenced_labels.put(self.allocator, target.label, {});
+                } else if (target == .int) {
+                    try self.referenced_labels.put(self.allocator, @intCast(target.int), {});
+                }
+            }
+        }
+
         // Declare registers
         for (func.register_types.items, 0..) |reg_type, i| {
             if (reg_type == .void) continue;
-            try self.output.appendSlice(self.allocator, "    ");
+            try self.output.appendSlice(self.allocator, "    __attribute__((unused)) ");
             try self.output.appendSlice(self.allocator, try self.mapTypeToC(reg_type));
             try self.output.print(self.allocator, " r_{d};\n", .{i});
         }
@@ -1093,9 +1131,37 @@ if (!self.local_variable_types.contains(var_name)) {
         }
 
         // Declare registers
+        self.used_registers.clearRetainingCapacity();
+        self.referenced_labels.clearRetainingCapacity();
+        for (func.instructions.items) |instr| {
+            if (instr.dest) |d| {
+                if (d < func.register_types.items.len) {
+                    try self.used_registers.put(self.allocator, d, {});
+                }
+            }
+            const operands = [_]IRValue{ instr.operand1, instr.operand2, instr.operand3 };
+            for (operands) |op| {
+                switch (op) {
+                    .register => |r| {
+                        if (r < func.register_types.items.len) {
+                            try self.used_registers.put(self.allocator, r, {});
+                        }
+                    },
+                    else => {},
+                }
+            }
+            if (instr.opcode == .jump or instr.opcode == .jump_if_false) {
+                const target = if (instr.opcode == .jump) instr.operand1 else instr.operand2;
+                if (target == .label) {
+                    try self.referenced_labels.put(self.allocator, target.label, {});
+                } else if (target == .int) {
+                    try self.referenced_labels.put(self.allocator, @intCast(target.int), {});
+                }
+            }
+        }
         for (func.register_types.items, 0..) |reg_type, i| {
             const type_str = if (reg_type == .void) "void*" else try self.mapTypeToC(reg_type);
-            try self.output.appendSlice(self.allocator, "    ");
+            try self.output.appendSlice(self.allocator, "    __attribute__((unused)) ");
             try self.output.appendSlice(self.allocator, type_str);
             try self.output.print(self.allocator, " r_{d} = 0;\n", .{i});
         }
@@ -1104,7 +1170,7 @@ if (!self.local_variable_types.contains(var_name)) {
         for (func.params, 0..) |pname, pi| {
             if (pi < func.param_types.len) {
                 const param_type_str = try self.mapTypeToC(func.param_types[pi]);
-                try self.output.print(self.allocator, "    {s} {s} = _p_{d};\n", .{ param_type_str, pname, pi });
+                try self.output.print(self.allocator, "    __attribute__((unused)) {s} {s} = _p_{d};\n", .{ param_type_str, pname, pi });
             }
         }
 
@@ -1270,7 +1336,10 @@ if (!self.local_variable_types.contains(var_name)) {
                 }
             }
             const c_type = try self.mapTypeToC(var_type);
-            try self.output.print(self.allocator, "    {s} {s};\n", .{ c_type, var_name });
+            try self.output.print(self.allocator, "    __attribute__((unused)) {s} {s};\n", .{ c_type, var_name });
+            if (std.mem.startsWith(u8, var_name, "_") and !std.mem.eql(u8, var_name, "_")) {
+                try self.output.print(self.allocator, "    (void){s};\n", .{var_name});
+            }
         }
 
         // Superluminal multi-pass optimization framework
@@ -1629,7 +1698,11 @@ if (!self.local_variable_types.contains(var_name)) {
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else if (v_type != .float and v_type != .void) {
-                        try self.output.appendSlice(self.allocator, "(uintptr_t)(");
+                        if (isPointerCType(v_type)) {
+                            try self.output.appendSlice(self.allocator, "(void*)(");
+                        } else {
+                            try self.output.appendSlice(self.allocator, "(uintptr_t)(");
+                        }
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else {
@@ -1654,7 +1727,11 @@ if (!self.local_variable_types.contains(var_name)) {
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else if (v_type != .float and v_type != .void) {
-                        try self.output.appendSlice(self.allocator, "(uintptr_t)(");
+                        if (isPointerCType(v_type)) {
+                            try self.output.appendSlice(self.allocator, "(void*)(");
+                        } else {
+                            try self.output.appendSlice(self.allocator, "(uintptr_t)(");
+                        }
                         try self.generateValue(instr.operand2);
                         try self.output.appendSlice(self.allocator, ")");
                     } else {
@@ -1717,7 +1794,7 @@ if (!self.local_variable_types.contains(var_name)) {
                     const arg_type = self.getValueType(arg);
 
                     if (arg_type == .string) {
-                        try self.output.appendSlice(self.allocator, "print(");
+                        try self.output.appendSlice(self.allocator, "print(\"%s\", ");
                         try self.generateValue(arg);
                         try self.output.appendSlice(self.allocator, ");\n");
                     } else if (arg_type == .int) {
@@ -1898,9 +1975,16 @@ if (!self.local_variable_types.contains(var_name)) {
                 try self.output.appendSlice(self.allocator, ";\n");
             },
             .label => {
-                self.output.items.len -= 4;
-                try self.generateLabelTarget(instr.operand1);
-                try self.output.appendSlice(self.allocator, ":;\n");
+                const label_val = switch (instr.operand1) {
+                    .label => |l| l,
+                    .int => |v| @as(usize, @intCast(v)),
+                    else => null,
+                };
+                if (label_val != null and self.referenced_labels.contains(label_val.?)) {
+                    self.output.items.len -= 4;
+                    try self.generateLabelTarget(instr.operand1);
+                    try self.output.appendSlice(self.allocator, ":;\n");
+                }
             },
             .store_field => {
                 if (!self.golden_mode and (self.getValueType(instr.operand1) == .model or self.getValueType(instr.operand1) == .tagged_union)) {
@@ -2410,6 +2494,14 @@ if (!self.local_variable_types.contains(var_name)) {
             .byte => "uint8_t",
             .pointer => |inner| if (inner) |in| try std.fmt.allocPrint(self.allocator, "{s}*", .{try self.mapTypeToC(in.*)}) else "void*",
             .mut_pointer => |inner| if (inner) |in| try std.fmt.allocPrint(self.allocator, "{s}*", .{try self.mapTypeToC(in.*)}) else "void*",
+        };
+    }
+
+    /// Whether an IR type maps to a C pointer type in the emitted code.
+    fn isPointerCType(t: IRType) bool {
+        return switch (t) {
+            .string, .response, .model, .list, .map, .tagged_union, .pointer, .mut_pointer => true,
+            else => false,
         };
     }
 

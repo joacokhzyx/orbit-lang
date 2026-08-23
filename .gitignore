@@ -5,6 +5,9 @@ zig-out/
 # Native build artifacts
 *.exe
 *.exe.c
+# The canonical self-hosted compiler C source is COMMITTED: it is the root of
+# trust for bootstrapping without Zig (any C compiler can rebuild from it).
+!compiler/selfhost/stage3.exe.c
 *.pdb
 *.o
 *.obj

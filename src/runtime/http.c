@@ -17,7 +17,7 @@
 #include "arena.c"
 #include "types.c"
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
 #endif
 

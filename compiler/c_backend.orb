@@ -11,10 +11,22 @@ model CBackend {
     fieldNames: list
     fieldOwners: list
     declVars: list
+    usedRegs: list
+    refLabels: list
 }
 
 fn initCBackend(module: IRModule) -> CBackend {
-    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [])
+    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [])
+}
+
+fn listContainsStr(items: list, value: string) -> bool {
+    if items == NULL { return false }
+    var i = 0
+    while i < items.len() {
+        if items.get(i) == value { return true }
+        i = i + 1
+    }
+    return false
 }
 
 fn generateC(backend: CBackend) -> string {
@@ -1252,6 +1264,25 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     if isMain {
         out = out + "    arena = _init_arena;\n"
     }
+    backend.refLabels = []
+    var si = 0
+    while si < func.instructions.len() {
+        val sinst: IRInstruction = func.instructions.get(si)
+        if sinst != NULL {
+            match sinst.opcode {
+                IROpcode.jump => {
+                    var starget = generateValue(backend, sinst.operand1)
+                    if listContainsStr(backend.refLabels, starget) == false { backend.refLabels.push(starget) }
+                }
+                IROpcode.jump_if_false => {
+                    var starget = generateValue(backend, sinst.operand2)
+                    if listContainsStr(backend.refLabels, starget) == false { backend.refLabels.push(starget) }
+                }
+                _ => {}
+            }
+        }
+        si = si + 1
+    }
     i = 0
     while i < func.registerCount {
         var rTypeName = "void*"
@@ -1260,7 +1291,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         }
         val rType = mapTypeToC(backend, rTypeName)
         if rType != "void" {
-            out = out + "    " + rType + " r_" + orbit_int_to_string_selfhost(i) + " = 0;\n"
+            out = out + "    __attribute__((unused)) " + rType + " r_" + orbit_int_to_string_selfhost(i) + " = 0;\n"
         }
         i = i + 1
     }
@@ -1412,13 +1443,17 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
                 else if vType == "string" { cType = "orbit_string" }
                 else if vType == "float" { cType = "orbit_float" }
                 else if vType == "bool" { cType = "orbit_bool" }
-                out = out + "    " + cType + " " + hname + ";\n"
+                out = out + "    __attribute__((unused)) " + cType + " " + hname + ";\n"
+                if orbit_string_len(hname) > 0 && hname.at(0) == 95 {
+                    out = out + "    (void)" + hname + ";\n"
+                }
             }
         }
         hi = hi + 1
     }
     if isDualPathFunction(backend, func) {
-        out = out + "    orbit_int _orbit_dualpath_;\n"
+        out = out + "    __attribute__((unused)) orbit_int _orbit_dualpath_;\n"
+        out = out + "    (void)_orbit_dualpath_;\n"
     }
     i = 0
     var firstDualPathInstr = isDualPathFunction(backend, func)
@@ -1699,7 +1734,9 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             return "    }\n"
         }
         IROpcode.label => {
-            return "label_" + generateValue(backend, instr.operand1) + ":;\n"
+            var lval = generateValue(backend, instr.operand1)
+            if listContainsStr(backend.refLabels, lval) == false { return "" }
+            return "label_" + lval + ":;\n"
         }
         IROpcode.jump => {
             return "    goto label_" + generateValue(backend, instr.operand1) + ";\n"
@@ -1758,7 +1795,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     val argStr = backend.callArgs.get(0)
                     backend.callArgs.pop()
                     if isStringArg(backend, argStr) {
-                        return "    print(" + argStr + ");\n"
+                        return "    print(\"%s\", " + argStr + ");\n"
                     } else {
                         return "    printf(\"%lld\\n\", (long long)(" + argStr + "));\n"
                     }
@@ -2432,6 +2469,14 @@ fn storeCastFor(backend: CBackend, vn: string) -> string {
         if tail2 == "Id" || tail2 == "id" { return "(orbit_int)(uintptr_t)" }
     }
     if vn == "scopeId" { return "(orbit_int)(uintptr_t)" }
+    if vType == "unknown" || vType == "usize" || vType == "" { return "(uintptr_t)" }
+    if vType == "string" || vType == "list" || vType == "map" || vType == "response" || vType == "tagged_union" || vType == "pointer" || vType == "mut_pointer" { return "(void*)" }
+    val cType = mapTypeToC(backend, vType)
+    val clen = orbit_string_len(cType)
+    if clen > 0 {
+        val last = orbit_string_slice(cType, clen - 1, clen)
+        if last == "*" { return "(void*)" }
+    }
     return "(uintptr_t)"
 }
 

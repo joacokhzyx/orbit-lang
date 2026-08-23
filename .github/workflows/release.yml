@@ -12,47 +12,29 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             name: windows-x86_64
-            bootstrap_binary: zig-out/bin/orbit.exe
+            cc: clang
             asset: orbit-windows-x86_64.exe
           - os: ubuntu-latest
             name: linux-x86_64
-            bootstrap_binary: zig-out/bin/orbit
+            cc: gcc
             asset: orbit-linux-x86_64
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.17.0-dev.1737+de207594e
-
-      - name: Verify toolchain version
-        shell: bash
-        run: |
-          expected="0.17.0-dev.1737+de207594e"
-          actual="$(zig version)"
-          echo "zig version: $actual"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::Expected Zig $expected, got $actual"
-            exit 1
-          fi
-
-      - name: Build bootstrap compiler
-        run: zig build -Doptimize=ReleaseFast
-
-      - name: Verify seed chain and emit the fixed-point compiler
+      - name: Verify self-host chain and emit the fixed-point compiler (SOVER-1, Zig-free)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/verify_seed.py --bootstrap --release --refresh \
+          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale
+          "$PY" scripts/verify_seed.py --release --refresh \
             --emit-fixed-point "dist/${{ matrix.asset }}"
           if [ ! -f "dist/${{ matrix.asset }}" ]; then
             echo "[Release] FAILED: the fixed-point compiler was not emitted."

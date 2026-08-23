@@ -11,15 +11,16 @@ holds:
   binary fixed pt  : the seed chain (seed2 -> chain2 -> chain3) must be
                      byte-identical once the COFF link timestamps are zeroed.
 
-With ``--bootstrap`` the canonical C is first regenerated through the
-independent Zig lineage (``zig-out/bin/orbit.exe bootstrap``) and must match
-the committed ``stage3.exe.c``, so a drift in either lineage fails the run.
+With ``--bootstrap`` the committed canonical C is additionally cross-checked
+against the legacy Zig lineage (``zig-out/bin/orbit.exe bootstrap``, override
+with ``--driver``), so a drift in either lineage fails the run. This is now
+OPTIONAL: the primary gate is self-host-only -- canonical C + any C compiler.
 
 ``--release`` enforces the published fixed-point C contract (``PUBLISHED_C``)
-as a hard check; it requires ``--bootstrap`` so the canonical is regenerated
-through the Zig lineage on a clean checkout. The published binary hash stays
-informational because it is platform/toolchain specific (linker, C compiler,
-PE layout) -- the reproducible cross-platform contract is the C source.
+as a hard check against the self-hosted rebuild; it works without ``--bootstrap``
+whenever the canonical C is present (it is committed since SOVER-1). The published
+binary hash stays informational because it is platform/toolchain specific (linker,
+C compiler, PE layout) -- the reproducible cross-platform contract is the C source.
 
 ``--emit-fixed-point PATH`` copies the seed-chain fixed-point compiler
 (``chain3``, byte-identical to ``seed2``/``chain2``) to PATH. That binary is
@@ -54,7 +55,7 @@ SUPPRESS_FLAGS = ["-O2", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "EF664AE4D05BDAFF83AABF6FD22BE53029A93EBB49FCB97AAFDB872550C70213"
+PUBLISHED_C = "B48471559DFCA58B71ECDBE4B64D9AA020833AFE508AE288958BD8D0D8E47E5B"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
@@ -111,7 +112,9 @@ def run(argv, cwd, env_extra=None, label=""):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Verify the C bootstrap seed fixed point")
-    ap.add_argument("--bootstrap", action="store_true", help="regenerate canonical C via the Zig lineage first")
+    ap.add_argument("--bootstrap", action="store_true", help="cross-check the canonical C against the legacy Zig lineage first")
+    ap.add_argument("--driver", default=DRIVER, metavar="PATH",
+                    help="legacy Zig driver used by --bootstrap (default: %(default)s)")
     ap.add_argument("--release", action="store_true", help="enforce the published fixed-point C contract (requires --bootstrap)")
     ap.add_argument("--emit-fixed-point", default=None, metavar="PATH", help="copy the seed-chain fixed-point compiler (chain3) to PATH")
     ap.add_argument("--work", default=None, help="work directory (default: temp)")
@@ -120,8 +123,8 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
     args = ap.parse_args()
 
-    if args.release and not args.bootstrap:
-        print("[verify] --release requires --bootstrap (the canonical must be regenerated through the Zig lineage on a clean checkout).")
+    if args.release and not args.bootstrap and not os.path.isfile(CANONICAL_C):
+        print("[verify] --release requires either --bootstrap or a committed canonical C.")
         return 1
 
     if args.work:
@@ -155,14 +158,17 @@ def main() -> int:
         print("[verify] canonical C absent (clean checkout); will establish it from the Zig lineage with --bootstrap")
 
     if args.bootstrap:
-        if not os.path.isfile(DRIVER):
-            print(f"[verify] FAIL: {DRIVER} not found; run `zig build` first.")
+        if not os.path.isfile(args.driver):
+            print(f"[verify] FAIL: legacy Zig driver {args.driver} not found.")
+            print("[verify] The self-hosted chain no longer needs it; to refresh the")
+            print("[verify] canonical after compiler changes run:")
+            print("[verify]   python scripts/build_selfhost.py --promote")
             return 1
         # Reuse the chain's shared temp dir so the freshly built stages and the
         # seed chain embed the SAME C source path and are byte-comparable.
         build_tmp = os.path.join(work, "tmp_build")
         os.makedirs(build_tmp, exist_ok=True)
-        run([DRIVER, "bootstrap"], ROOT, env_extra={"TEMP": build_tmp, "TMP": build_tmp}, label="bootstrap (Zig lineage)")
+        run([args.driver, "bootstrap"], ROOT, env_extra={"TEMP": build_tmp, "TMP": build_tmp}, label="bootstrap (legacy Zig lineage)")
         fresh_c = os.path.join(build_tmp, "orbit_selfhost_build.c")
         h_fresh = sha256(fresh_c)
         if have_canon:

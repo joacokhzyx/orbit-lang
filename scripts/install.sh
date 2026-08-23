@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Orbit Programming Language Automated Linux & macOS Installer
-# Builds and installs Orbit self-hosted or bootstrap compiler binary, configures PATH, and registers VS Code Extension.
+# Installs the self-hosted Orbit compiler (Zig-free bootstrap), configures PATH,
+# and registers the VS Code extension.
 
 set -e
 
@@ -15,45 +16,41 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$ROOT_DIR"
 
-USE_SELFHOST=1
+SOURCE_EXE=""
 
-for arg in "$@"; do
-  case $arg in
-    --bootstrap)
-      USE_SELFHOST=0
-      shift
-      ;;
-    --selfhost)
-      USE_SELFHOST=1
-      shift
-      ;;
-  esac
-done
-
-echo "[*] Building Orbit bootstrap compiler with Zig..."
-zig build -Doptimize=ReleaseFast
-
-SOURCE_EXE="$ROOT_DIR/zig-out/bin/orbit"
-if [ ! -f "$SOURCE_EXE" ]; then
-    echo "[ERROR] Bootstrap compiler not found at $SOURCE_EXE. Did 'zig build' succeed?" >&2
-    exit 1
+# 1a. Prefer a pre-built fixed-point compiler shipped with a release.
+FIXED_POINT="$ROOT_DIR/dist/orbit-linux-x86_64"
+if [ -f "$FIXED_POINT" ]; then
+    SOURCE_EXE="$FIXED_POINT"
+    echo "[+] Selected released fixed-point compiler: $SOURCE_EXE"
 fi
 
-if [ "$USE_SELFHOST" -eq 1 ]; then
-    echo "[*] Building Self-Hosted Orbit Compiler (Stage 1 / Stage 2)..."
-    if "$SOURCE_EXE" bootstrap; then
-        SELFHOST_STAGE1="$ROOT_DIR/compiler/selfhost/stage1.exe"
-        if [ -f "$SELFHOST_STAGE1" ]; then
-            SOURCE_EXE="$SELFHOST_STAGE1"
-            echo "[+] Selected Self-Hosted Orbit Compiler: $SOURCE_EXE"
-        fi
-    else
-        echo "[!] Self-hosted build fallback to bootstrap compiler."
+# 1b. Zig-free self-hosted bootstrap from the committed canonical C.
+#     Root of trust: compiler/selfhost/stage3.exe.c + any C compiler.
+if [ -z "$SOURCE_EXE" ]; then
+    if [ ! -f "$ROOT_DIR/compiler/selfhost/stage3.exe.c" ]; then
+        echo "[ERROR] Canonical compiler C source not found at compiler/selfhost/stage3.exe.c." >&2
+        exit 1
     fi
+    PY="$(command -v python3 || command -v python)"
+    if [ -z "$PY" ]; then
+        echo "[ERROR] Python is required to run the Zig-free bootstrap (scripts/build_selfhost.py)." >&2
+        exit 1
+    fi
+    echo "[*] Building self-hosted fixed-point compiler (no Zig involved)..."
+    BUILD_ARGS=("$ROOT_DIR/scripts/build_selfhost.py" --out "$INSTALL_DIR/orbit")
+    if [ -n "$ORBIT_CC" ]; then
+        BUILD_ARGS+=(--cc "$ORBIT_CC")
+    fi
+    "$PY" "${BUILD_ARGS[@]}"
+    SOURCE_EXE="$INSTALL_DIR/orbit"
+    echo "[+] Selected self-hosted fixed-point compiler: $SOURCE_EXE"
 fi
 
-cp "$SOURCE_EXE" "$INSTALL_DIR/orbit"
-chmod +x "$INSTALL_DIR/orbit"
+if [ "$SOURCE_EXE" != "$INSTALL_DIR/orbit" ]; then
+    cp "$SOURCE_EXE" "$INSTALL_DIR/orbit"
+    chmod +x "$INSTALL_DIR/orbit"
+fi
 echo "[+] Installed Orbit binary to $INSTALL_DIR/orbit"
 
 # Update PATH in shell config files

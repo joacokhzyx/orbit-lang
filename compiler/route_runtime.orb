@@ -243,6 +243,7 @@ fn routerTailText() -> string {
     out = out + "        return keep_alive;\n"
     out = out + "    }\n"
     out = out + "    }\n"
+    out = out + "    return keep_alive;\n"
     out = out + "}\n"
     out = out + "#endif\n"
     return out

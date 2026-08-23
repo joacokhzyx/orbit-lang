@@ -160,12 +160,14 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         linkFlags = " -lws2_32"
     }
 
+    // Sovereignty: the compiler never assumes a specific toolchain vendor.
+    // Resolution order: ORBIT_CC -> CC -> POSIX "cc" convention.
     var cCompiler = orbit_os_env_selfhost("ORBIT_CC")
     if cCompiler == "" {
         cCompiler = orbit_os_env_selfhost("CC")
     }
     if cCompiler == "" {
-        cCompiler = "zig cc"
+        cCompiler = "cc"
     }
 
     var dbFlags = ""
@@ -177,6 +179,9 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {
+            if compOutput.indexOf("not recognized") != -1 || compOutput.indexOf("not found") != -1 {
+                print("C compiler '" + cCompiler + "' was not found. Set the ORBIT_CC environment variable to your C compiler (e.g. gcc, clang, cc).")
+            }
             return false
         }
     }
