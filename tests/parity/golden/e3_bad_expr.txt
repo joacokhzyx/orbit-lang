@@ -1,0 +1,12 @@
+exit=1
+kind=DIAG
+
+error[E0301]: unexpected token 'CloseBrace'
+  --> tests/parity/probes/e3_bad_expr.orb:1:33
+   |
+ 1 | fn main() -> int { val x = 1 + }
+   |                                 ^-- here
+   |
+   = help: Check for missing brackets, quotes, or keywords before this token.
+
+ERROR: error.UnexpectedToken

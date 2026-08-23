@@ -1,0 +1,12 @@
+exit=1
+kind=DIAG
+
+error[E0301]: unexpected token 'OpenBrace'
+  --> tests/parity/probes/e4_bad_model.orb:1:8
+   |
+ 1 | model { }
+   |        ^-- here
+   |
+   = help: Check for missing brackets, quotes, or keywords before this token.
+
+ERROR: error.UnexpectedToken

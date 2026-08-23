@@ -1,0 +1,9 @@
+exit=1
+kind=DIAG
+
+error[return/missing-value]: Non-void function must return a value
+  --> <unknown>:1:1
+   |
+   = help: Ensure type consistency and scope rules are satisfied.
+
+ERROR: error.SemanticAnalysisFailed

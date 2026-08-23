@@ -41,11 +41,21 @@ jobs:
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale
 
-      - name: Hermetic seed verification
+      - name: Hermetic seed verification + emit fixed-point compiler
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/verify_seed.py --cc "${{ matrix.cc }}"
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/verify_seed.py --cc "${{ matrix.cc }}" \
+            --emit-fixed-point "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+
+      - name: Probe stability gate (25 goldens)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/parity_selfhost.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
 
   stress-gate:
     name: Self-host chain stress (flakiness detector)

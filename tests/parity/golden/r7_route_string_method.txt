@@ -1,0 +1,12 @@
+exit=1
+kind=DIAG
+
+error[E0301]: unexpected token 'StringLiteral'
+  --> tests/parity/probes/r7_route_string_method.orb:1:7
+   |
+ 1 | route "GET" "/p" { return ok 200 "hi" }
+   |       ^-- here
+   |
+   = help: Check for missing brackets, quotes, or keywords before this token.
+
+ERROR: error.ExpectedHttpMethod
