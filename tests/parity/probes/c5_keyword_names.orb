@@ -1,0 +1,4 @@
+model switch {
+    register: int
+}
+fn main() -> int { return 7 }

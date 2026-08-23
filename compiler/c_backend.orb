@@ -245,11 +245,21 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
         return "orbit_int"
     }
     val otLen = orbit_string_len(orbitType)
-    if otLen > 0 && orbit_string_slice(orbitType, otLen - 1, otLen) == "*" { return orbitType }
+    if otLen > 0 && orbit_string_slice(orbitType, otLen - 1, otLen) == "*" {
+        val base = orbit_string_slice(orbitType, 0, otLen - 1)
+        val blen = orbit_string_len(base)
+        if blen > 0 {
+            val bfc = base.at(0)
+            if bfc >= 65 && bfc <= 90 {
+                return sanitizeIdentifier(base) + "*"
+            }
+        }
+        return orbitType
+    }
     if otLen > 0 {
         val fc = orbitType.at(0)
         if fc >= 65 && fc <= 90 {
-            return orbitType + "*"
+            return sanitizeIdentifier(orbitType) + "*"
         }
     }
     return "void*"
@@ -705,6 +715,44 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
     }
 }
 
+fn isCKeyword(name: string) -> bool {
+    if name == "auto" { return true }
+    if name == "break" { return true }
+    if name == "case" { return true }
+    if name == "char" { return true }
+    if name == "const" { return true }
+    if name == "continue" { return true }
+    if name == "default" { return true }
+    if name == "do" { return true }
+    if name == "double" { return true }
+    if name == "else" { return true }
+    if name == "enum" { return true }
+    if name == "extern" { return true }
+    if name == "float" { return true }
+    if name == "for" { return true }
+    if name == "goto" { return true }
+    if name == "if" { return true }
+    if name == "inline" { return true }
+    if name == "int" { return true }
+    if name == "long" { return true }
+    if name == "register" { return true }
+    if name == "restrict" { return true }
+    if name == "return" { return true }
+    if name == "short" { return true }
+    if name == "signed" { return true }
+    if name == "sizeof" { return true }
+    if name == "static" { return true }
+    if name == "struct" { return true }
+    if name == "switch" { return true }
+    if name == "typedef" { return true }
+    if name == "union" { return true }
+    if name == "unsigned" { return true }
+    if name == "void" { return true }
+    if name == "volatile" { return true }
+    if name == "while" { return true }
+    return false
+}
+
 fn sanitizeIdentifier(name: string) -> string {
     var out = ""
     var i = 0
@@ -717,6 +765,15 @@ fn sanitizeIdentifier(name: string) -> string {
             out = out + "_"
         }
         i = i + 1
+    }
+    if len > 0 {
+        val first = name.at(0)
+        if first >= 48 && first <= 57 {
+            out = "_" + out
+        }
+    }
+    if isCKeyword(out) {
+        return out + "_"
     }
     return out
 }
@@ -969,7 +1026,8 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
     var mi = 0
     while mi < backend.module.models.len() {
         val modelDecl: IRModelDecl = backend.module.models.get(mi)
-        out = out + "typedef struct " + modelDecl.name + " " + modelDecl.name + ";\n"
+        val mFwd = sanitizeIdentifier(modelDecl.name)
+        out = out + "typedef struct " + mFwd + " " + mFwd + ";\n"
         mi = mi + 1
     }
     // Forward declare union typedefs
@@ -1042,16 +1100,17 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
     mi = 0
     while mi < backend.module.models.len() {
         val modelDecl: IRModelDecl = backend.module.models.get(mi)
-        out = out + "typedef struct " + modelDecl.name + " {\n"
+        val mName = sanitizeIdentifier(modelDecl.name)
+        out = out + "typedef struct " + mName + " {\n"
         var fi = 0
         while fi < modelDecl.fields.len() {
             val field: IRModelField = modelDecl.fields.get(fi)
             val cType = mapTypeToC(backend, field.typeName)
-            out = out + "    " + cType + " " + field.name + ";\n"
+            val sField = sanitizeIdentifier(field.name)
+            out = out + "    " + cType + " " + sField + ";\n"
             fi = fi + 1
         }
-        out = out + "} " + modelDecl.name + ";\n"
-        val mName = modelDecl.name
+        out = out + "} " + mName + ";\n"
         if modelDecl.fields.len() == 0 {
             out = out + "#define " + mName + "() (" + mName + "*)orbit_model_" + mName + "_create(arena)\n"
             out = out + "static inline " + mName + "* orbit_model_" + mName + "_create(OrbitArena* a) {\n"
@@ -1062,7 +1121,8 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
             while fi < modelDecl.fields.len() {
                 val field: IRModelField = modelDecl.fields.get(fi)
                 val cType = mapTypeToC(backend, field.typeName)
-                out = out + ", " + cType + " " + field.name
+                val sField = sanitizeIdentifier(field.name)
+                out = out + ", " + cType + " " + sField
                 fi = fi + 1
             }
             out = out + ") {\n"
@@ -1071,7 +1131,8 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
         fi = 0
         while fi < modelDecl.fields.len() {
             val field: IRModelField = modelDecl.fields.get(fi)
-            out = out + "    m->" + field.name + " = " + field.name + ";\n"
+            val sField = sanitizeIdentifier(field.name)
+            out = out + "    m->" + sField + " = " + sField + ";\n"
             fi = fi + 1
         }
         out = out + "    return m;\n"
@@ -2688,15 +2749,15 @@ fn fieldRefOwner(fieldRef: string) -> string {
     if dot <= 0 {
         return ""
     }
-    return orbit_string_slice(fieldRef, 0, dot)
+    return sanitizeIdentifier(orbit_string_slice(fieldRef, 0, dot))
 }
 
 fn fieldRefName(fieldRef: string) -> string {
     val dot = fieldRefDotPos(fieldRef)
     if dot <= 0 {
-        return fieldRef
+        return sanitizeIdentifier(fieldRef)
     }
-    return orbit_string_slice(fieldRef, dot + 1, orbit_string_len(fieldRef))
+    return sanitizeIdentifier(orbit_string_slice(fieldRef, dot + 1, orbit_string_len(fieldRef)))
 }
 
 fn moduleHasFunction(backend: CBackend, name: string) -> bool {

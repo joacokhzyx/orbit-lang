@@ -1,0 +1,1 @@
+route GET "/we\"ird\path" { return ok 200 "ok" }

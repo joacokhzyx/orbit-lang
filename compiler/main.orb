@@ -2,7 +2,6 @@
 //
 // Subcommands supported:
 //   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
-//   - `bootstrap [--stage=N]`: Orchestrates stage promotion (Stage 0 -> Stage 1 -> Stage 2 -> Stage 3).
 //   - `build <input.orb> [-o output.exe]`: Standard build driver.
 
 import "./extern.orb"
@@ -71,40 +70,6 @@ fn runFrontend() {
     }
 }
 
-fn runBootstrap() {
-    var hostCompiler = orbit_os_env_selfhost("ORBIT_HOST_COMPILER")
-    if hostCompiler == "" {
-        hostCompiler = "orbit.exe"
-    }
-
-    val stage1Cmd = "\"" + hostCompiler + "\" build \"compiler/main.orb\" -o \"zig-out/stage1_orbit.exe\" --backend=steel"
-    val s1Out = orbit_os_exec_selfhost(stage1Cmd)
-    print(s1Out)
-    if s1Out.indexOf("FAILED") != -1 || s1Out.indexOf("error:") != -1 || s1Out.indexOf("Error:") != -1 {
-        print("[bootstrap] Stage 1 build FAILED")
-        orbit_os_exit_selfhost(1)
-        return
-    }
-
-    val stage2Cmd = "\"zig-out/stage1_orbit.exe\" build \"compiler/main.orb\" -o \"zig-out/stage2_orbit.exe\" --backend=steel"
-    val s2Out = orbit_os_exec_selfhost(stage2Cmd)
-    print(s2Out)
-    if s2Out.indexOf("FAILED") != -1 || s2Out.indexOf("error:") != -1 || s2Out.indexOf("Error:") != -1 {
-        print("[bootstrap] Stage 2 build FAILED")
-        orbit_os_exit_selfhost(1)
-        return
-    }
-
-    val stage3Cmd = "\"zig-out/stage2_orbit.exe\" build \"compiler/main.orb\" -o \"zig-out/stage3_orbit.exe\" --backend=steel"
-    val s3Out = orbit_os_exec_selfhost(stage3Cmd)
-    print(s3Out)
-    if s3Out.indexOf("FAILED") != -1 || s3Out.indexOf("error:") != -1 || s3Out.indexOf("Error:") != -1 {
-        print("[bootstrap] Stage 3 build FAILED")
-        orbit_os_exit_selfhost(1)
-        return
-    }
-}
-
 fn main() {
     var outputPath = ""
     var inputPath = ""
@@ -120,11 +85,6 @@ fn main() {
 
         if arg == "lextrace" {
             runLexTrace()
-            return
-        }
-
-        if arg == "bootstrap" {
-            runBootstrap()
             return
         }
 

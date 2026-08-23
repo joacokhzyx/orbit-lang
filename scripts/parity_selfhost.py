@@ -41,9 +41,22 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def normalize_diag(text: str) -> str:
-    """Make diagnostics machine-independent: LF endings, forward slashes."""
+    """Make diagnostics machine-independent: LF endings and forward slashes."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\\", "/")
+    return text
+
+
+def scrub_work_paths(text: str, work: str) -> str:
+    """Replace the run's work/temp directories with <TMP> (longest first)."""
+    needles = []
+    for raw in (work, os.path.dirname(work), tempfile.gettempdir()):
+        if raw:
+            needles.append(raw)
+            needles.append(raw.replace("\\", "/"))
+    for n in sorted(set(needles), key=len, reverse=True):
+        if n:
+            text = text.replace(n, "<TMP>")
     return text
 
 
@@ -65,7 +78,7 @@ def probe_outcome(compiler: str, probe_path: str, name: str, work: str, cc: str)
     if proc.returncode == 0 and os.path.isfile(inter_c):
         with open(inter_c, "rb") as f:
             return proc.returncode, "C", sha256_bytes(f.read())
-    return proc.returncode, "DIAG", normalize_diag(proc.stdout or "")
+    return proc.returncode, "DIAG", scrub_work_paths(normalize_diag(proc.stdout or ""), work)
 
 
 def main() -> int:

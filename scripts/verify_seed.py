@@ -42,6 +42,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
@@ -55,7 +56,7 @@ SUPPRESS_FLAGS = ["-O2", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "38D5C94A6BDB8ACCE5356F994458DAE06FDAF9DCD12D3FCD0DD61C64BA74084E"
+PUBLISHED_C = "CA4F4C9F617EF9BB0796A26152C8BC8AB124E69E46B9C31575647BAC540ADDF6"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
@@ -204,8 +205,23 @@ def main() -> int:
         # binary fixed point even for identical code. Snapshot the C afterwards.
         tmp = os.path.join(work, "tmp_build")
         os.makedirs(tmp, exist_ok=True)
-        run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out)], ROOT,
-            env_extra={"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc}, label=f"{os.path.basename(compiler)} -> {out}")
+        label = f"{os.path.basename(compiler)} -> {out}"
+        # Windows real-time AV (Defender) briefly locks freshly linked
+        # executables; running one immediately after linking can fail
+        # spuriously. Retry once before giving up.
+        last_rc = None
+        for attempt in (1, 2):
+            env = dict(os.environ)
+            env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc})
+            print(f"[verify] {label}" + ("  (retry)" if attempt == 2 else ""))
+            proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out)], cwd=ROOT, env=env)
+            last_rc = proc.returncode
+            if last_rc == 0:
+                break
+            time.sleep(3)
+        if last_rc != 0:
+            print(f"[verify] FAILED ({last_rc}): {label}")
+            raise SystemExit(2)
         c = os.path.join(tmp, "orbit_selfhost_build.c")
         shutil.copyfile(c, snapshot_c)
         return snapshot_c

@@ -25,12 +25,23 @@ model Sema {
     typeRegistry: list
     currentReturnType: string
     currentFunction: string
+    seenRoutes: list
 }
 
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], "", "")
+    return Sema(initialScopes, 0, [], [], "", "", [])
+}
+
+fn listContainsValue(items: list, value: string) -> bool {
+    if items == NULL { return false }
+    var i = 0
+    while i < items.len() {
+        if items.get(i) == value { return true }
+        i = i + 1
+    }
+    return false
 }
 
 fn reportError(sema: Sema, message: string) {
@@ -218,6 +229,12 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
 fn checkRouteBody(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.RouteDecl(r) => {
+            val routeKey = r.http_method + " " + r.path
+            if listContainsValue(sema.seenRoutes, routeKey) {
+                reportError(sema, "Duplicate route: " + routeKey)
+            } else {
+                sema.seenRoutes.push(routeKey)
+            }
             val prevReturn = sema.currentReturnType
             sema.currentReturnType = "response"
             pushScope(sema)
