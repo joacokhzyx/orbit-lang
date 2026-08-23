@@ -21,7 +21,7 @@ Each `OrbitArena` instance pre-reserves a contiguous 64 MB Virtual Address (VA) 
 +──────────────────┴──────────────────┴─────────────────────────────────────+
 ```
 
-### Struct Layout (`src/runtime/arena.c`)
+### Struct Layout (`runtime/arena.c`)
 
 ```c
 typedef struct OrbitArena {
@@ -95,7 +95,7 @@ When `orbit_arena_reset` is called, the interning table hash buckets are cleared
 
 ## Arena Pooling & Thread Caching
 
-To eliminate the cost of repeated OS allocation calls for short-lived tasks (such as HTTP request handlers), Orbit implements a global, concurrency-safe arena pool (`src/runtime/arena_pool.c`).
+To eliminate the cost of repeated OS allocation calls for short-lived tasks (such as HTTP request handlers), Orbit implements a global, concurrency-safe arena pool (`runtime/arena_pool.c`).
 
 ```c
 typedef struct {

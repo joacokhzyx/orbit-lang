@@ -105,6 +105,6 @@ zig build test
 ### Run Performance Benchmarks
 To run the high-speed benchmark comparing different memory allocation patterns:
 ```powershell
-zig cc -O3 -Isrc/runtime src/runtime/benchmark_arena.c -o benchmark_arena.exe -lws2_32
+zig cc -O3 -Iruntime runtime/benchmark_arena.c -o benchmark_arena.exe -lws2_32
 .\benchmark_arena.exe
 ```

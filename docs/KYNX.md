@@ -2,7 +2,7 @@
 
 Kynx is the sovereign computational control layer for Orbit. It enforces $O(1)$ sharded admission control, monotonic-clock deadline tracking, and CPU instruction-boundary computational leases across all worker threads.
 
-Unlike external middleware or proxy-based rate limiters, Kynx is integrated directly into the Orbit compiler lowering pipeline (`src/backend/x86_64/lowering.zig`) and runtime kernel (`src/runtime/kynx.c`).
+Unlike external middleware or proxy-based rate limiters, Kynx is integrated directly into the Orbit compiler lowering pipeline (`src/backend/x86_64/lowering.zig`) and runtime kernel (`runtime/kynx.c`).
 
 ---
 

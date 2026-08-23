@@ -1,4 +1,4 @@
-#include "src/runtime/runtime.h"
+#include "runtime/runtime.h"
 #include <stdio.h>
 
 int main(void) {

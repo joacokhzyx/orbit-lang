@@ -74,7 +74,7 @@ flowchart TD
 ## Subsystem Reference
 
 ### Orbit Arena (virtual-memory epoch allocator)
-File: `src/runtime/arena.c`
+File: `runtime/arena.c`
 
 The arena reserves a large virtual address window (default: 64 MiB per arena) at startup and commits pages on demand.  
 Every HTTP request runs inside an **epoch**, bracketed by checkpoint/rewind:
@@ -92,13 +92,13 @@ See `docs/architecture/ORBIT_ARENA.md` for detailed design.
 ---
 
 ### Orbit Kynx (computational leases)
-File: `src/runtime/kynx.c`
+File: `runtime/kynx.c`
 
 Each route handler gets a **lease** — a budget of CPU cycles and I/O operations.  
 If the handler exceeds its budget, Kynx rejects the request with HTTP 429 before writing the response.  
 In **siege mode** (burst of requests detected), all new leases are rejected until the server drains.
 
-API surface (`src/runtime/kynx.c`):
+API surface (`runtime/kynx.c`):
 ```c
 void             orbit_kynx_init(OrbitKynxConfig config);
 bool             orbit_kynx_check(const char* ip_str);
@@ -113,7 +113,7 @@ uint64_t         orbit_kynx_get_total_blocked(void);
 ---
 
 ### Orbit Pulse (performance counters)
-File: `src/runtime/pulse.c`
+File: `runtime/pulse.c`
 
 RDTSC-based wall-clock and CPU-cycle measurements.  
 Records per-request latency into lock-free histogram buckets and computes P50 / P95 / P99 on demand.
@@ -191,19 +191,19 @@ HTTP server (generated code)
 | `src/ir/optimizer.zig` | Constant folding, DCE |
 | `src/codegen/c_backend.zig` | IR-based C code emitter (main) |
 | `src/codegen/runtime_loader.zig` | Embeds C runtime into output |
-| `src/runtime/arena.c` | Epoch virtual-memory allocator |
-| `src/runtime/arena_pool.c` | Thread-local arena pool |
-| `src/runtime/http.c` | HTTP server & request parser |
-| `src/runtime/database.c` | SQLite bindings |
-| `src/runtime/kynx.c` | Computational leases |
-| `src/runtime/pulse.c` | Performance counters |
-| `src/runtime/collections.c` | Arrays, hash maps |
-| `src/runtime/types.c` | Runtime type system |
-| `src/runtime/auth.c` | Authentication helpers |
-| `src/runtime/string_pool.c` | String interning |
-| `src/runtime/thread_pool.c` | Worker thread pool |
-| `src/runtime/os.c` | OS abstractions |
-| `src/runtime/file.c` | File I/O helpers |
+| `runtime/arena.c` | Epoch virtual-memory allocator |
+| `runtime/arena_pool.c` | Thread-local arena pool |
+| `runtime/http.c` | HTTP server & request parser |
+| `runtime/database.c` | SQLite bindings |
+| `runtime/kynx.c` | Computational leases |
+| `runtime/pulse.c` | Performance counters |
+| `runtime/collections.c` | Arrays, hash maps |
+| `runtime/types.c` | Runtime type system |
+| `runtime/auth.c` | Authentication helpers |
+| `runtime/string_pool.c` | String interning |
+| `runtime/thread_pool.c` | Worker thread pool |
+| `runtime/os.c` | OS abstractions |
+| `runtime/file.c` | File I/O helpers |
 | `src/terminal/` | Compiler terminal UI |
 
 ---

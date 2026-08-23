@@ -72,7 +72,7 @@ def amalgamate(entry_path: str, runtime_root: str, out_path: str) -> None:
 def main() -> int:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     entry = os.path.join(root, "compiler", "selfhost", "stage3.exe.c")
-    runtime_root = os.path.join(root, "src", "runtime")
+    runtime_root = os.path.join(root, "runtime")
     out = os.path.join(root, "dist", "orbit_bootstrap.c")
     args = sys.argv[1:]
     if "--entry" in args:

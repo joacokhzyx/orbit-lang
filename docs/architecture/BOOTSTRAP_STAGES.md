@@ -16,7 +16,7 @@ stage 3  stage3.exe                  build compiler/main.orb  ->  stage4.exe
 ```
 
 Each stage emits C (`src/codegen/c_backend.zig`; self-hosted path via `compiler/c_backend.orb`)
-and compiles it with `zig cc -I src/runtime`; each stage leaves its generated C beside it
+and compiles it with `zig cc -I runtime`; each stage leaves its generated C beside it
 as `stageN.exe.c`. The artifacts live under `compiler/selfhost/` and are git-ignored.
 
 ## Fixed-Point Verification

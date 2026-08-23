@@ -172,10 +172,10 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
 
     var dbFlags = ""
     if hasDb {
-        dbFlags = " -DORBIT_WITH_DB -Isrc/runtime/vendor src/runtime/vendor/win-x64/sqlite3.lib"
+        dbFlags = " -DORBIT_WITH_DB -Iruntime/vendor runtime/vendor/win-x64/sqlite3.lib"
     }
 
-    val compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I src/runtime -DORBIT_WITH_NET" + dbFlags + linkFlags + " 2>&1"
+    val compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I runtime -DORBIT_WITH_NET" + dbFlags + linkFlags + " 2>&1"
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {

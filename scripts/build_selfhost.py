@@ -79,14 +79,31 @@ def run(argv, cwd=ROOT, env_extra=None, label=""):
 
 
 def orb_build(compiler, out_exe, work, cc, snapshot_path) -> str:
-    """Compile compiler/main.orb with `compiler`; snapshot the intermediate C."""
+    """Compile compiler/main.orb with `compiler`; snapshot the intermediate C.
+
+    The compiler's own final cc invocation is redundant here (we recompile the
+    snapshot ourselves with known-good flags). If it fails -- e.g. because an
+    older compiler bakes a stale runtime include path -- we continue as long
+    as the C was emitted.
+    """
     tmp = os.path.join(work, "tmp_build")
     os.makedirs(tmp, exist_ok=True)
-    run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out_exe)],
-        env_extra={"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc},
-        label=f"{os.path.basename(compiler)} build main.orb -> {out_exe}")
-    c = os.path.join(tmp, "orbit_selfhost_build.c")
-    shutil.copyfile(c, snapshot_path)
+    inter_c = os.path.join(tmp, "orbit_selfhost_build.c")
+    if os.path.isfile(inter_c):
+        os.remove(inter_c)
+    env = dict(os.environ)
+    env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc})
+    label = f"{os.path.basename(compiler)} build main.orb -> {out_exe}"
+    print(f"[selfhost] {label}")
+    proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out_exe)],
+                          cwd=ROOT, env=env)
+    if proc.returncode != 0:
+        if not os.path.isfile(inter_c):
+            print(f"[selfhost] FAILED ({proc.returncode}): {label} (no C emitted)")
+            raise SystemExit(2)
+        print(f"[selfhost] note: compiler exited {proc.returncode} but emitted C "
+              "(stale baked-in flags?); continuing with our own cc invocation.")
+    shutil.copyfile(inter_c, snapshot_path)
     return snapshot_path
 
 
@@ -165,7 +182,7 @@ def main() -> int:
         next_exe = os.path.join(work, f"iter{i}_exe" + exe)
         # Generated C is not amalgamated: it needs the runtime headers on the
         # include path (pipeline.orb does the same when building user programs).
-        run([*cc_cmd, *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "src", "runtime"),
+        run([*cc_cmd, *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
              "-o", next_exe, c_i],
             label=f"build iter{i} compiler from its own C")
         print(f"[selfhost] iteration {i}: {h_i}"

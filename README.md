@@ -110,7 +110,8 @@ Orbit has been stress-tested across 4 core server categories against multi-threa
 
 ```text
 src/          Zig compiler pipeline (lexer, parser, sema, IR, C backend, diagnostics)
-src/runtime/  C runtime (http, arena_pool, kynx, orm, json)
+src/          Legacy Zig seed compiler (deprecated, see docs/architecture/SOVEREIGNTY.md)
+runtime/      C runtime (http, arena_pool, kynx, orm, json)
 benchmarks/   Multi-language stress testing suite (Go, Node.js, C, Orbit)
 docs/         Language reference and internal design documentation
 examples/     Production-shaped Orbit service examples
