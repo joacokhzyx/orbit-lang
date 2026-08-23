@@ -1,0 +1,14 @@
+# Language statistics honesty (GitHub Linguist).
+# These files are NOT hand-written code; exclude them from language %.
+
+# Compiler output: the self-hosted fixed-point root of trust.
+compiler/selfhost/*.exe.c linguist-generated=true
+
+# Third-party vendored code (SQLite amalgamation header + prebuilt libs).
+src/runtime/vendor/** linguist-vendored=true
+
+# Release artifacts (if ever force-added).
+dist/** linguist-generated=true
+
+# Legacy seed lineage internals (generated C stages, if present locally).
+last_generated.c linguist-generated=true
