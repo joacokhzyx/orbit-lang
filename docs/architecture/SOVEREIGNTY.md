@@ -50,11 +50,12 @@ C compiler resolution everywhere: `ORBIT_CC` → `CC` → `gcc` → `clang` → 
 
 ## Status of the Zig tree
 
-`src/` remains only as:
+The Zig seed tree (`src/`, `build.zig`) was **removed** after the W2 parity
+gate froze its validated behavior into committed goldens. It remains available:
 
-1. A **legacy seed lineage** (`verify_seed.py --bootstrap`) for cross-checking.
-2. Host of the old test suite until parity tests are ported into Orbit
-   (CI runs them as a **non-blocking** `legacy-zig-tests` job).
+1. As the git tag **`legacy-zig-seed`** (full tree + history).
+2. For optional cross-checks, check out that tag, build it, and run
+   `python scripts/verify_seed.py --bootstrap` against this tree.
 
 Neither is required to build, verify, release, or install the compiler.
 

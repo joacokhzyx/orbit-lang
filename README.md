@@ -1,7 +1,7 @@
 # Orbit Programming Language
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Zig Version](https://img.shields.io/badge/Zig-0.16.0%2B-orange.svg)](https://ziglang.org/)
+[![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/architecture/SOVEREIGNTY.md)
 
 ![Orbit Banner](assets/orbit_banner.png)
 
@@ -55,18 +55,20 @@ route GET "/health" {
 
 ### Prerequisites
 
-- **Zig Compiler**: `0.16.0` or higher (0.17.0-dev toolchains are also used by the CI)
-- **C Toolchain**: MSVC (Windows), GCC, Clang, or `zig cc`
+- **C Toolchain**: MSVC (Windows), GCC, or Clang
+- **Python 3.10+** (bootstrap/verification scripts)
+
+No Zig, no foreign toolchains: Orbit is a self-hosting compiler whose root of trust is committed C source (see [Sovereignty](docs/architecture/SOVEREIGNTY.md)).
 
 ### Build Compiler
 
 ```bash
 git clone https://github.com/joacokhzyx/orbit-lang.git
 cd orbit
-zig build -Doptimize=ReleaseFast
+python scripts/build_selfhost.py --out orbit.exe
 ```
 
-The resulting binary will be installed at `zig-out/bin/orbit` (`orbit.exe` on Windows).
+Or use the automated installer: `scripts/install.ps1` (Windows) / `scripts/install.sh` (Linux/macOS).
 
 ---
 
@@ -109,14 +111,13 @@ Orbit has been stress-tested across 4 core server categories against multi-threa
 ## Repository Structure
 
 ```text
-src/          Zig compiler pipeline (lexer, parser, sema, IR, C backend, diagnostics)
-src/          Legacy Zig seed compiler (deprecated, see docs/architecture/SOVEREIGNTY.md)
+compiler/     Self-hosted compiler written in Orbit (lexer → parser → sema → IR → C backend)
 runtime/      C runtime (http, arena_pool, kynx, orm, json)
 benchmarks/   Multi-language stress testing suite (Go, Node.js, C, Orbit)
 docs/         Language reference and internal design documentation
 examples/     Production-shaped Orbit service examples
 std/          Orbit standard library modules
-tests/        Compiler test fixtures and integration tests
+tests/        Parity goldens and compiler test fixtures
 ```
 
 ---
@@ -125,10 +126,11 @@ tests/        Compiler test fixtures and integration tests
 
 We welcome contributions! Please review our [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting pull requests.
 
-Run the test suite prior to committing:
+Run the verification gates prior to committing:
 
 ```bash
-zig test src/tests.zig
+python scripts/build_selfhost.py --cc "$CC" --check-stale
+python scripts/verify_seed.py --cc "$CC"
 ```
 
 ---

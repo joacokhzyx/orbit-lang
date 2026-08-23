@@ -80,29 +80,3 @@ jobs:
             "$PY" scripts/verify_seed.py --cc gcc || { echo "[stress] FAILED at iteration $i"; exit 1; }
           done
           echo "[stress] 8/8 iterations passed"
-
-  # DEPRECATED (SOVER-1): the Zig seed lineage is kept only while its test
-  # suite is ported. Non-blocking; remove once parity tests live in Orbit.
-  legacy-zig-tests:
-    name: Legacy Zig compiler tests (deprecated)
-    runs-on: ${{ matrix.os }}
-    continue-on-error: true
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.17.0-dev.1737+de207594e
-
-      - name: Build legacy compiler
-        run: zig build -Doptimize=ReleaseSafe
-
-      - name: Run legacy test suite
-        run: zig build test

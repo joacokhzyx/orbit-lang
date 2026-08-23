@@ -1,5 +1,11 @@
 # Orbit Architecture
 
+> **Historical reference (SOVER-1).** The Zig implementation described below was
+> retired: the compiler is now self-hosted in `compiler/*.orb` and bootstraps from
+> committed C with any C toolchain. The pipeline *phases* remain accurate; the
+> `src/*.zig` file references are preserved for the legacy tag `legacy-zig-seed`.
+> See [architecture/SOVEREIGNTY.md](architecture/SOVEREIGNTY.md).
+
 > Deep-dive reference for contributors and integrators.
 
 ---
