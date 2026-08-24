@@ -35,6 +35,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install SQLite development library (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+
       - name: Build and verify Zig-free bootstrap (STAB-0 / STAB-1)
         shell: bash
         run: |

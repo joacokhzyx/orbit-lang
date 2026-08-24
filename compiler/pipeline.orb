@@ -172,8 +172,12 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
 
     var dbFlags = ""
     val isWindowsHost = osName == "Windows_NT" || winDir != ""
-    if isWindowsHost && hasDb {
-        dbFlags = " -DORBIT_WITH_DB -Iruntime/vendor runtime/vendor/win-x64/sqlite3.lib"
+    if hasDb {
+        if isWindowsHost {
+            dbFlags = " -DORBIT_WITH_DB -Iruntime/vendor runtime/vendor/win-x64/sqlite3.lib"
+        } else {
+            dbFlags = " -DORBIT_WITH_DB -Iruntime/vendor -lsqlite3"
+        }
     }
 
     val compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I runtime -DORBIT_WITH_NET" + dbFlags + linkFlags + " 2>&1"
