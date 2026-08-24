@@ -45,6 +45,12 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from build_selfhost import warn_low_memory
+except Exception:
+    def warn_low_memory() -> None:
+        pass
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 DRIVER = os.path.join(ROOT, "zig-out", "bin", "orbit.exe")
 MAIN_ORB = os.path.join("compiler", "main.orb")
@@ -127,6 +133,7 @@ def main() -> int:
     ap.add_argument("--refresh", action="store_true", help="also refresh dist/orbit_bootstrap.c and dist/orbit_seed")
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
     args = ap.parse_args()
+    warn_low_memory()
 
     if args.release and not args.bootstrap and not os.path.isfile(CANONICAL_C):
         print("[verify] --release requires either --bootstrap or a committed canonical C.")
