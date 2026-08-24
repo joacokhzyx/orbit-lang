@@ -26,10 +26,19 @@ PROBES = os.path.join(ROOT, "tests", "parity", "probes")
 CRASH_DIR = os.path.join(ROOT, "fuzz_crashes")
 
 DEEP_TOKENS = ["(", "{", "[", "match x { ", "if a { ", "while b { ", "\"", "$"]
+# Valid-language splices: exercise parser combinations the byte-level
+# mutations never produce (semantic mutation).
+SEMANTIC_TOKENS = [
+    "fn ", "return ", "route GET \"/p\" { }", "\"s\"", "val x = ", "var y = ",
+    "match z { _ => {} }", "} else { ", "; ", "@auth ", "&T", "-> int ", "42 ",
+    "3.14 ", "true", "NULL", "for i in [1] { ", "model M { f: int } ",
+]
 
 
 def mutate(src: bytes, rng: random.Random) -> bytes:
-    kind = rng.randrange(6)
+    kind = rng.randrange(7)
+    if kind == 6:
+        return mutate_semantic(src, rng)
     if kind == 0:  # truncate
         return src[: rng.randrange(0, max(1, len(src)))]
     if kind == 1:  # byte flips
@@ -51,6 +60,14 @@ def mutate(src: bytes, rng: random.Random) -> bytes:
     # 5: NUL / control bytes injection
     i = rng.randrange(0, max(1, len(src)))
     return src[:i] + bytes([0]) * rng.randrange(1, 20) + src[i:]
+    # 6 handled above via early dispatch below
+
+
+def mutate_semantic(src: bytes, rng: random.Random) -> bytes:
+    text = src.decode("utf-8", errors="replace")
+    tok = rng.choice(SEMANTIC_TOKENS)
+    i = rng.randrange(0, max(1, len(text)))
+    return (text[:i] + tok + text[i:]).encode("utf-8", errors="replace")
 
 
 def main() -> int:
