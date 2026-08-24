@@ -66,6 +66,25 @@ jobs:
           "$PY" scripts/parity_selfhost.py --cc "${{ matrix.cc }}" \
             --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
 
+      - name: Runtime C tests (arena + http)
+        shell: bash
+        run: |
+          CC="${{ matrix.cc }}"
+          LDFLAGS=""
+          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32"; fi
+          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin $LDFLAGS
+          ./t_arena_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
+          ./t_http_bin
+
+      - name: Orbit test suite (language behavior)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/test_suite.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+
   stress-gate:
     name: Self-host chain stress (flakiness detector)
     runs-on: ubuntu-latest

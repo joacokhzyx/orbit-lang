@@ -1,0 +1,10 @@
+// Model construction and field access.
+// expect-exit 7
+model Rect {
+    width: int
+    height: int
+}
+fn main() -> int {
+    val r = Rect(3, 4)
+    return r.width + r.height
+}

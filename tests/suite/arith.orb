@@ -1,0 +1,4 @@
+// Arithmetic precedence and negatives.
+fn main() -> int {
+    return 2 + 3 * 4 - 13
+}
