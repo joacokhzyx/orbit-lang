@@ -113,9 +113,15 @@ def run(argv, cwd=ROOT, env_extra=None, label=""):
     if env_extra:
         env.update(env_extra)
     print(f"[selfhost] {label or ' '.join(argv)}")
-    proc = subprocess.run(argv, cwd=cwd, env=env)
+    proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if out.strip():
+        print(out.rstrip())
     if proc.returncode != 0:
-        print(f"[selfhost] FAILED ({proc.returncode}): {label or ' '.join(argv)}")
+        # Emit as a GitHub error annotation: check-run annotations are public
+        # API-readable even when job logs require authentication.
+        tail = "\n".join(out.strip().splitlines()[-30:])
+        print(f"::error::[{label or ' '.join(argv)}] rc={proc.returncode}\n{tail}")
         raise SystemExit(2)
 
 
