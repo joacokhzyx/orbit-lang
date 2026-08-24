@@ -133,6 +133,8 @@ def main() -> int:
                     detail = f"(line {i+1}: expected '{exp_lines[i][:40]}' got '{got_lines[i][:40]}')"
                     break
             print(f"[parity] DIFF     {name:<24} {detail}")
+            payload = f"golden={expected[:200]!r} got={golden[:200]!r}".replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::error::[parity {name}] {payload}")
 
     total = len(probes)
     print(f"\n[parity] RESULT: {ok}/{total} match goldens"

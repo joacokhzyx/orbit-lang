@@ -114,8 +114,14 @@ def run(argv, cwd, env_extra=None, label=""):
     if env_extra:
         env.update(env_extra)
     print(f"[verify] {label or ' '.join(argv)}")
-    proc = subprocess.run(argv, cwd=cwd, env=env)
+    proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if out.strip():
+        print(out.rstrip())
     if proc.returncode != 0:
+        tail = "\n".join(out.strip().splitlines()[-30:])
+        payload = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
+        print(f"::error::[{label or ' '.join(argv)}] rc={proc.returncode} :: {payload}")
         print(f"[verify] FAILED ({proc.returncode}): {label or ' '.join(argv)}")
         raise SystemExit(2)
     return proc
