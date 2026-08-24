@@ -343,6 +343,8 @@ def main() -> int:
     if args.emit_fixed_point:
         os.makedirs(os.path.dirname(os.path.abspath(args.emit_fixed_point)), exist_ok=True)
         shutil.copyfile(chain3, args.emit_fixed_point)
+        if os.name != "nt":
+            os.chmod(args.emit_fixed_point, 0o755)
         print(f"[verify] fixed-point compiler (seed chain, chain3) emitted: {args.emit_fixed_point}")
 
     failed = [n for n, ok, _ in checks if not ok]
