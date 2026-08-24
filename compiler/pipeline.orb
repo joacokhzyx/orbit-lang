@@ -171,7 +171,8 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
     }
 
     var dbFlags = ""
-    if hasDb {
+    val isWindowsHost = osName == "Windows_NT" || winDir != ""
+    if isWindowsHost && hasDb {
         dbFlags = " -DORBIT_WITH_DB -Iruntime/vendor runtime/vendor/win-x64/sqlite3.lib"
     }
 
