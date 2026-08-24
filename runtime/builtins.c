@@ -299,7 +299,13 @@ orbit_int system_http_requests_error(void) {
 
 orbit_int system_os_exec(orbit_string cmd) {
     if (!cmd) return -1;
+#if !defined(ORBIT_WITH_EXEC)
+    /* R3.6: command execution is opt-in. Build with -DORBIT_WITH_EXEC
+     * to enable; default builds refuse (RCE surface). */
+    return -2;
+#else
     return (orbit_int)system(cmd);
+#endif
 }
 
 orbit_string system_env(orbit_string name) {

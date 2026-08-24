@@ -165,6 +165,8 @@ static void* orbit_acceptor_loop(void* arg) {
             for (;;) {
                 orbit_socket_t s = accept(ac->server_sock, NULL, NULL);
                 if (s == ORBIT_INVALID_SOCKET) break;
+                /* R3.4 anti-slowloris: idle/headers deadline per connection. */
+                orbit_set_recv_timeout(s, 30000);
                 int nodelay = 1;
                 setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay));
                 int sndbuf = 65536;

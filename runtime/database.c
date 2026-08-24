@@ -106,8 +106,7 @@ void orbit_db_init(const char* db_path) {
                 "INSERT INTO notes VALUES ('note_101', 'Orbit Architecture Notes', 'Steel C runtime manages thread-local arena memory without global lock contention.', 'usr_admin', '2026-07-22T01:00:00Z', 0);"
                 "INSERT INTO notes VALUES ('note_102', 'Superluminal Optimizer Guide', 'IR passes execute fixed-point optimizations including CTEVAL and auto-memoization.', 'usr_dev', '2026-07-22T01:15:00Z', 0);"
                 "INSERT INTO users VALUES ('usr_admin', 'admin', 'admin@orbit.dev', 'admin');"
-                "INSERT INTO users VALUES ('usr_dev', 'developer', 'dev@orbit.dev', 'developer');"
-                "INSERT INTO sessions VALUES ('bearer-secret-token-123', 'usr_admin', 0);";
+                "INSERT INTO users VALUES ('usr_dev', 'developer', 'dev@orbit.dev', 'developer');";
             sqlite3_exec(orbit_db_conn, seed_sql, NULL, NULL, NULL);
         }
     }

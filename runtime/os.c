@@ -62,6 +62,10 @@ orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name) {
 
 orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command) {
     if (!command) return "";
+#if !defined(ORBIT_WITH_EXEC)
+    /* R3.6: command execution is opt-in (see builtins.c system_os_exec). */
+    return "";
+#else
     OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
 
 #ifdef _WIN32
@@ -134,6 +138,7 @@ orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command) {
     free(buf);
 
     return result ? result : "";
+#endif /* ORBIT_WITH_EXEC */
 }
 
 void orbit_os_exit(orbit_int code) {
