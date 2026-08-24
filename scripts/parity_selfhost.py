@@ -119,7 +119,7 @@ def main() -> int:
             print(f"[parity] MISSING-GOLDEN {name}")
             continue
         with open(golden_path, "r", encoding="utf-8", newline="") as f:
-            expected = f.read()
+            expected = f.read().replace("\r\n", "\n")
         if expected == golden:
             ok += 1
             print(f"[parity] OK       {name:<24} {kind}")
