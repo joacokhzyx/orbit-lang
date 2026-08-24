@@ -248,19 +248,18 @@ def main() -> int:
             print(f"[verify] note: {label} exited {last_rc} after emitting C; rebuilding with our own cc.")
         else:
             c = os.path.join(tmp, "orbit_selfhost_build.c")
-        # Always (re)build through the SHARED intermediate path: zig embeds the
-        # C source path into the binary, so distinct snapshot filenames would
-        # break the binary fixed-point comparison even for identical code.
+        # Deterministic contract binaries: ALWAYS rebuild from the shared
+        # intermediate C with a FIXED output name. Internal builds use
+        # per-stage -o names and lld-link embeds <output>.pdb into PE even
+        # stripped, which breaks byte-equality across stages.
         shared = os.path.join(tmp, "orbit_selfhost_build.c")
         if os.path.abspath(c) != os.path.abspath(shared):
             shutil.copyfile(c, shared)
-        if last_rc != 0:
-            # Flags mirror pipeline.orb's internal invocation INCLUDING -s:
-            # without stripping, zig embeds a random PDB GUID (.buildid/RSDS)
-            # that breaks the binary fixed-point comparison.
-            run([*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
-                 "-o", os.path.join(work, out), shared], ROOT,
-                env_extra={"TEMP": tmp, "TMP": tmp}, label=f"rebuild {out} from emitted C")
+        fixed_out = os.path.join(work, "fixed_point_build" + exe)
+        run([*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
+             "-o", fixed_out, shared], ROOT,
+            env_extra={"TEMP": tmp, "TMP": tmp}, label=f"deterministic rebuild {out}")
+        shutil.move(fixed_out, os.path.join(work, out))
         shutil.copyfile(c, snapshot_c)
         return snapshot_c
 
