@@ -2062,6 +2062,10 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     callExpr = callExpr + "(orbit_string)(" + aStr + ")"
                 } else if isModelCtorName(backend, calleeName) {
                     callExpr = callExpr + aStr
+                } else if calleeEnumParamName(backend, calleeName, argIdx) != "" {
+                    // Declared enum parameter: standard cast-to-enum. Stock GCC
+                    // hard-rejects the void* default here (int-conversion).
+                    callExpr = callExpr + "(" + calleeEnumParamName(backend, calleeName, argIdx) + ")(uintptr_t)(" + aStr + ")"
                 } else {
                     callExpr = callExpr + "(void*)(uintptr_t)(" + aStr + ")"
                 }
@@ -2848,6 +2852,30 @@ fn isStringFieldName(backend: CBackend, fieldName: string) -> bool {
     }
     if found == false { return false }
     return allString
+}
+
+fn calleeEnumParamName(backend: CBackend, calleeName: string, argIdx: int) -> string {
+    var pT = ""
+    var pi = 0
+    while pi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(pi)
+        if f.name == calleeName {
+            var off = 0
+            if functionNeedsArena(calleeName) { off = 1 }
+            val idx = argIdx + off
+            if idx < f.paramTypes.len() { pT = f.paramTypes.get(idx) }
+            pi = backend.module.functions.len()
+        }
+        pi = pi + 1
+    }
+    if pT == "" { return "" }
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val t: IRTypeDecl = backend.module.types.get(ti)
+        if t.name == pT && t.kind == "enumeration" { return pT }
+        ti = ti + 1
+    }
+    return ""
 }
 
 fn dualPathQualifies(f: IRFunction) -> bool {
