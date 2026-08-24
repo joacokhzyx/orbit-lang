@@ -323,6 +323,13 @@ def main() -> int:
     print(f"\n[verify] {len(checks) - len(failed)}/{len(checks)} checks passed"
           + ("" if not failed else f", FAILED: {', '.join(failed)}"))
     print("[verify] work dir: " + work)
+    if failed:
+        details = []
+        for n, ok, d in checks:
+            if not ok:
+                details.append(f"{n}: {d}")
+        payload = " | ".join(details).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
+        print(f"::error::[verify checks] {payload}")
     return 1 if failed else 0
 
 
