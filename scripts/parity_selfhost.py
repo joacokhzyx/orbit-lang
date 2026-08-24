@@ -139,6 +139,19 @@ def main() -> int:
     total = len(probes)
     print(f"\n[parity] RESULT: {ok}/{total} match goldens"
           + ("" if not failed else "; FAILED: " + ", ".join(failed)))
+    if failed and not args.update:
+        # One consolidated annotation: survives even if per-probe commands
+        # are dropped, and carries the expected/got payloads verbatim.
+        parts = []
+        for pf in probes:
+            name = pf[:-4]
+            if name in failed:
+                gp = os.path.join(args.goldens, name + ".txt")
+                exp = open(gp, encoding="utf-8", newline="").read() if os.path.isfile(gp) else "<missing>"
+                rc, kind, payload = probe_outcome(args.compiler, os.path.join(PROBES, pf), name, work, args.cc or "")
+                parts.append(f"{name}: rc={rc} kind={kind} | GOLDEN={exp[:150]!r} | GOT={payload[:150]!r}")
+        blob = (" || ".join(parts)).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3500]
+        print(f"::error::[parity diffs] {blob}")
     if args.update:
         print("[parity] goldens refreshed; commit them together with the compiler change.")
         return 0
