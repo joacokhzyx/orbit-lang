@@ -15,12 +15,13 @@ model Parser {
     currentToken: Token
     previousToken: Token
     diagnostics: list
+    depth: int
 }
 
 fn initParser(source: string) -> Parser {
     val lex = initLexer(source)
     val dummy = Token(TokType.EOF, "", 1, 1)
-    val mut parser = Parser(lex, dummy, dummy, [])
+    val mut parser = Parser(lex, dummy, dummy, [], 0)
     advanceParser(parser)
     return parser
 }
@@ -295,7 +296,28 @@ fn parseBinary(parser: Parser, precedence: int) -> ASTNode {
     return lhs
 }
 
+fn parseDepthGuard(parser: Parser) -> bool {
+    if parser.depth > 600 {
+        if parser.diagnostics.len() == 0 {
+            val tok = parser.currentToken
+            parser.diagnostics.push(ParserDiagnostic("expression or statement nesting too deep", tok.line, tok.col, "E0130", "error.SyntaxDepthLimit"))
+        }
+        return true
+    }
+    return false
+}
+
 fn parseExpression(parser: Parser) -> ASTNode {
+    parser.depth = parser.depth + 1
+    var out = ASTNode.Literal(LiteralNode("int", "0"))
+    if parseDepthGuard(parser) == false {
+        out = parseExpressionInner(parser)
+    }
+    parser.depth = parser.depth - 1
+    return out
+}
+
+fn parseExpressionInner(parser: Parser) -> ASTNode {
     val lhs = parseBinary(parser, 0)
     if matchToken(parser, TokType.Equal) {
         val rhs = parseExpression(parser)
@@ -748,6 +770,16 @@ fn parseConfigDecl(parser: Parser) -> ASTNode {
 }
 
 fn parseStatement(parser: Parser) -> ASTNode {
+    parser.depth = parser.depth + 1
+    var out = ASTNode.Literal(LiteralNode("int", "0"))
+    if parseDepthGuard(parser) == false {
+        out = parseStatementInner(parser)
+    }
+    parser.depth = parser.depth - 1
+    return out
+}
+
+fn parseStatementInner(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.KeywordVal) {
         return parseVarDecl(parser, false)
     }

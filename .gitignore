@@ -76,3 +76,6 @@ __pycache__/
 
 # Research / prototyping (git-ignored until stable)
 research/
+
+# Fuzzer crash corpus (local evidence)
+fuzz_crashes/
