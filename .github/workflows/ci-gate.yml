@@ -39,7 +39,17 @@ jobs:
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale
+          set +e
+          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale > gate_output.log 2>&1
+          rc=$?
+          set -e
+          {
+            echo "### build_selfhost --check-stale (${{ matrix.os }}) rc=$rc"
+            echo '```'
+            tail -n 80 gate_output.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit $rc
 
       - name: Hermetic seed verification + emit fixed-point compiler
         shell: bash
