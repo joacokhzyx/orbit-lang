@@ -92,18 +92,35 @@ def zero_pe_timestamp(path: str) -> bool:
     """Zero the COFF TimeDateStamp so identical builds hash equally (no-op for ELF)."""
     try:
         with open(path, "r+b") as f:
-            hdr = f.read(0x100)
-            if len(hdr) < 0x40:
-                return False
-            lfanew = struct.unpack_from("<I", hdr, 0x3C)[0]
-            if lfanew + 12 > len(hdr) or hdr[lfanew : lfanew + 4] != b"PE\x00\x00":
-                return False
-            ts_off = lfanew + 8
-            f.seek(ts_off)
-            if f.read(4) == b"\x00\x00\x00\x00":
-                return True
-            f.seek(ts_off)
-            f.write(b"\x00\x00\x00\x00")
+            data = f.read()
+            changed = False
+            # 1) TimeDateStamp
+            hdr = data[:0x400]
+            if len(hdr) >= 0x40:
+                lfanew = struct.unpack_from("<I", hdr, 0x3C)[0]
+                if lfanew + 12 <= len(data) and data[lfanew : lfanew + 4] == b"PE\x00\x00":
+                    ts_off = lfanew + 8
+                    if data[ts_off : ts_off + 4] != b"\x00\x00\x00\x00":
+                        data = data[:ts_off] + b"\x00\x00\x00\x00" + data[ts_off + 4 :]
+                        changed = True
+            # 2) CodeView RSDS: random 16-byte GUID + 4-byte age + pdb path,
+            # written per-link by MSVC-toolchain linkers even when stripped.
+            pos = 0
+            while True:
+                i = data.find(b"RSDS", pos)
+                if i == -1:
+                    break
+                end = i + 4 + 20
+                j = end
+                while j < len(data) and data[j] != 0:
+                    j += 1
+                if j > end:
+                    data = data[: i + 4] + b"\x00" * (j - (i + 4)) + data[j:]
+                    changed = True
+                pos = j + 1
+            if changed:
+                f.seek(0)
+                f.write(data)
             return True
     except OSError:
         return False
