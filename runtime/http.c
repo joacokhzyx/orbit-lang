@@ -90,6 +90,11 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     // treated as ambiguous -> body ignored entirely.
     size_t content_length = 0;
     {
+#if defined(_WIN32)
+#define ORBIT_STRNCASECMP _strnicmp
+#else
+#define ORBIT_STRNCASECMP strncasecmp
+#endif
         const char* hdr_scan = raw;
         long long cl_value = -1;
         int cl_seen = 0;
@@ -97,7 +102,7 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
             const char* line_end = memchr(hdr_scan, '\n', (size_t)(body_start - hdr_scan));
             if (!line_end) break;
             size_t line_len = (size_t)(line_end - hdr_scan);
-            if (line_len > 15 && strncasecmp(hdr_scan, "content-length:", 15) == 0) {
+            if (line_len > 15 && ORBIT_STRNCASECMP(hdr_scan, "content-length:", 15) == 0) {
                 long long v = strtoll(hdr_scan + 15, NULL, 10);
                 if (!cl_seen) {
                     cl_value = v;
