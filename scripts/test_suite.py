@@ -65,9 +65,11 @@ def main() -> int:
         if build_rc != 0:
             failed.append(name)
             print(f"[suite] BUILD-FAIL {name}")
-            tail = "\n".join((proc.stdout or "").strip().splitlines()[-5:])
+            tail = "\n".join((proc.stdout or "").strip().splitlines()[-8:])
             if tail:
                 print("   " + tail.replace("\n", "\n   "))
+            payload = (tail or "(no output)").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1200]
+            print(f"::error::[suite build {name}] rc={build_rc} :: {payload}")
             continue
 
         run = subprocess.run([out_exe], cwd=work, capture_output=True,
@@ -81,6 +83,9 @@ def main() -> int:
 
     total = len(tests)
     print(f"\n[suite] RESULT: {ok}/{total}")
+    if failed:
+        payload = ", ".join(failed).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1500]
+        print(f"::error::[orbit-suite] failed: {payload}")
     return 0 if not failed else 1
 
 
