@@ -261,6 +261,20 @@ void orbit_kynx_reset(void) {
 /* ── Admission Control Core ─────────────────────────────────────────── */
 
 /** @brief Check whether the client at @p ip_str is allowed to proceed.  Returns true (allow) or false (block/ban). */
+/* Kynx 2.0: multi-hash Bloom maintenance (k=4, double-derived indexes).
+ * The filter is a NEGATIVE CACHE over the ban set, never the authority. */
+static void kynx_bloom_apply(uint32_t hash, int set) {
+    for (int j = 0; j < 4; j++) {
+        uint32_t idx = (hash + (uint32_t)(j * 0x9E3779B9u)) % 1024u;
+        uint64_t bit = 1ULL << ((hash + 61u * (uint32_t)j) & 63u);
+        if (set) {
+            __atomic_fetch_or(&orbit_kynx_banned_bloom[idx], bit, __ATOMIC_SEQ_CST);
+        } else {
+            __atomic_fetch_and(&orbit_kynx_banned_bloom[idx], ~bit, __ATOMIC_SEQ_CST);
+        }
+    }
+}
+
 bool orbit_kynx_check(const char* ip_str) {
     if (!__atomic_load_n(&orbit_kynx_config.enabled, __ATOMIC_RELAXED) || !ip_str) return true;
 
@@ -270,17 +284,18 @@ bool orbit_kynx_check(const char* ip_str) {
     __atomic_fetch_add(&orbit_kynx_total_checks, 1, __ATOMIC_RELAXED);
     uint32_t hash = kynx_hash_ip(&ip);
 
-    // ── 1-Nanosecond Lock-Free Bloom Filter Guard ─────────────────────────
-    // Fast path check: if the IP's Bloom bit is set, check if banned directly.
-    uint32_t bloom_idx = hash % 1024;
-    uint64_t bloom_bit = 1ULL << (hash & 63);
-    uint64_t bloom_val = __atomic_load_n(&orbit_kynx_banned_bloom[bloom_idx], __ATOMIC_RELAXED);
-    if ((bloom_val & bloom_bit) != 0) {
-        // Fast-path early rejection for banned IPs under DDoS attack!
-        __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
-        orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
-        orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
-        return false;
+    // ── Kynx 2.0: Bloom filter as NEGATIVE CACHE (k=4 hashes) ────────────
+    // Any clear bit PROVES the IP was never banned -> proceed at O(1).
+    // All-set only marks the IP SUSPECT; the authoritative shard table
+    // decides below, so innocent hash collisions are never blocked.
+    int maybe_banned = 1;
+    for (int j = 0; j < 4; j++) {
+        uint32_t idx = (hash + (uint32_t)(j * 0x9E3779B9u)) % 1024u;
+        uint64_t bit = 1ULL << ((hash + 61u * (uint32_t)j) & 63u);
+        if (((__atomic_load_n(&orbit_kynx_banned_bloom[idx], __ATOMIC_RELAXED)) & bit) == 0) {
+            maybe_banned = 0;
+            break;
+        }
     }
 
     uint32_t shard_idx = hash % KYNX_SHARD_COUNT;
@@ -310,7 +325,7 @@ bool orbit_kynx_check(const char* ip_str) {
                 if (now - e->banned_at_ns > 300ULL * 1000000000ULL) {
                     e->is_banned = false;
                     e->suspicion_score /= 2;
-                    __atomic_fetch_and(&orbit_kynx_banned_bloom[bloom_idx], ~bloom_bit, __ATOMIC_SEQ_CST);
+                    kynx_bloom_apply(hash, 0);
                 } else {
                     __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
                     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
@@ -328,7 +343,7 @@ bool orbit_kynx_check(const char* ip_str) {
                     if (e->suspicion_score >= orbit_kynx_config.ban_threshold) {
                         e->is_banned = true;
                         e->banned_at_ns = now;
-                        __atomic_fetch_or(&orbit_kynx_banned_bloom[bloom_idx], bloom_bit, __ATOMIC_SEQ_CST);
+                        kynx_bloom_apply(hash, 1);
                         __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
                         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
                         orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
