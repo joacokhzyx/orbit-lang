@@ -23,7 +23,7 @@ int main(void) {
 
     /* First request of a pipelined pair. */
     OrbitRequest* r1 = NULL;
-    size_t c1 = orbit_http_parse_request(arena, buf, l1 + l2, &r1);
+    size_t c1 = orbit_http_parse_request_ex(arena, buf, l1 + l2, &r1, NULL);
     assert(r1 != NULL);
     assert(c1 == l1);
     assert(strcmp(r1->method, "POST") == 0);
@@ -41,7 +41,7 @@ int main(void) {
 
     /* Second request starts exactly at the end of the first. */
     OrbitRequest* r2 = NULL;
-    size_t c2 = orbit_http_parse_request(arena, buf + c1, l1 + l2 - c1, &r2);
+    size_t c2 = orbit_http_parse_request_ex(arena, buf + c1, l1 + l2 - c1, &r2, NULL);
     assert(r2 != NULL);
     assert(c2 == l2);
     assert(strcmp(r2->method, "POST") == 0);
@@ -58,7 +58,7 @@ int main(void) {
     assert(get != NULL);
     memcpy(get, get_src, glen);
     OrbitRequest* r3 = NULL;
-    size_t c3 = orbit_http_parse_request(arena, get, glen, &r3);
+    size_t c3 = orbit_http_parse_request_ex(arena, get, glen, &r3, NULL);
     assert(r3 != NULL);
     assert(c3 == glen);
     assert(strcmp(r3->method, "GET") == 0);

@@ -17,17 +17,23 @@
 #include "arena.c"
 #include "types.c"
 
+#if defined(_WIN32)
+#define ORBIT_STRNCASECMP _strnicmp
+#else
+#define ORBIT_STRNCASECMP strncasecmp
+#endif
+
 #if defined(_WIN32) && defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
 #endif
 
-/* ──────────────────────────────────────────────────────────────────────
- * Orbit HTTP — Arena-backed request/response handling.
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * Orbit HTTP â€” Arena-backed request/response handling.
  *
  * All buffers are allocated from the request Arena, not stack-fixed.
  * This means request size is limited only by Arena capacity, not
  * by hardcoded buffer constants.
- * ────────────────────────────────────────────────────────────────────── */
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 #ifndef ORBIT_HTTP_H
 #define ORBIT_HTTP_H
@@ -44,6 +50,7 @@ typedef struct {
 
 /** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
+size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error);
 
 
 typedef struct {
@@ -71,9 +78,13 @@ void orbit_http_cleanup(void) {
 #endif
 }
 
-/* ── Parse raw HTTP into Arena-allocated OrbitRequest ────────────── */
+/* â”€â”€ Parse raw HTTP into Arena-allocated OrbitRequest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req) {
+    return orbit_http_parse_request_ex(arena, raw, raw_len, out_req, NULL);
+}
+
+size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error) {
     if (out_req) *out_req = NULL;
     
     // Ensure we have a complete HTTP request header
@@ -81,6 +92,27 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     if (!headers_end) return 0;
 
     const char* body_start = headers_end + 4;
+
+    if (out_parse_error) *out_parse_error = 0;
+    /* R3.3: reject Transfer-Encoding: chunked (request-smuggling vector). */
+    {
+        const char* hs = raw;
+        while (hs < body_start) {
+            const char* le = memchr(hs, '\n', (size_t)(body_start - hs));
+            if (!le) break;
+            size_t ll = (size_t)(le - hs);
+            if (ll > 19 && ORBIT_STRNCASECMP(hs, "transfer-encoding:", 18) == 0) {
+                const char* v = hs + 18;
+                while (v < le && (*v == ' ' || *v == '\t')) v++;
+                if ((size_t)(le - v) >= 7 && ORBIT_STRNCASECMP(v, "chunked", 7) == 0) {
+                    if (out_parse_error) *out_parse_error = 1;
+                    if (out_req) *out_req = NULL;
+                    return raw_len; /* consume buffer; caller responds 501 and closes */
+                }
+            }
+            hs = le + 1;
+        }
+    }
 
     // Resolve Content-Length from the raw header bytes BEFORE any in-place
     // null termination below: strstr stops at the first '\0', and the
@@ -90,11 +122,6 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     // treated as ambiguous -> body ignored entirely.
     size_t content_length = 0;
     {
-#if defined(_WIN32)
-#define ORBIT_STRNCASECMP _strnicmp
-#else
-#define ORBIT_STRNCASECMP strncasecmp
-#endif
         const char* hdr_scan = raw;
         long long cl_value = -1;
         int cl_seen = 0;
@@ -186,7 +213,7 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     return consumed;
 }
 
-/* ── Response builders ─────────────────────────────────────────────── */
+/* â”€â”€ Response builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /** @brief Create an arena-allocated OrbitResponse with the given @p status, @p content_type, and @p body. */
 OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* content_type, const char* body) {
@@ -215,7 +242,7 @@ OrbitResponse* orbit_response_error(OrbitArena* arena, int status, const char* m
     return orbit_response_create(arena, status, "text/plain", message);
 }
 
-/* ── Send response to socket ───────────────────────────────────────── */
+/* â”€â”€ Send response to socket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /** @brief Write @p resp (header + body) to @p client in a single fast-path send() syscall. */
 void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
@@ -288,7 +315,7 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     }
 }
 
-/* ── Main Dispatch Hook ────────────────────────────────────────────── */
+/* â”€â”€ Main Dispatch Hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 #ifndef ORBIT_CUSTOM_ROUTER
 /** @brief Default request dispatcher: handles /_pulse routes internally and returns 404 for everything else.  Returns 1 to keep the connection alive, 0 to close. */
@@ -307,7 +334,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
         keep_alive = 0;
     }
     
-    // ── System Routes: Orbit Pulse ───────────────────────────────────
+    // â”€â”€ System Routes: Orbit Pulse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (req->path && strcmp(req->path, "/_pulse") == 0) {
         OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
         orbit_send_response(client_sock, res);
@@ -323,14 +350,14 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
         return keep_alive;
     }
 
-    // ── Application Routes ───────────────────────────────────────────
+    // â”€â”€ Application Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
     orbit_send_response(client_sock, res);
     
     orbit_perf_end_request(start);
     return keep_alive;
 }
-/* ── Header accessor ────────────────────────────────────────────────── */
+/* â”€â”€ Header accessor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /** @brief Case-insensitive header name match helper. */
 static bool header_name_match(const char* raw, const char* name, size_t name_len) {
