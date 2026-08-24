@@ -57,6 +57,22 @@ static int orbit_sqlite_progress_handler(void* param) { (void)param; return 0; }
 #endif
 
 /** @brief Open (or create) the SQLite database at @p db_path and install the Kynx progress handler. */
+
+/* Internal: table/identifier names are interpolated into SQL. Anything
+ * outside [A-Za-z0-9_] cannot be a legit Orbit model table and would be
+ * an injection attempt — reject before formatting. */
+static bool orbit_db_valid_identifier(const char* name) {
+    if (!name || !*name) return false;
+    for (const char* c = name; *c; c++) {
+        char ch = *c;
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+              (ch >= '0' && ch <= '9') || ch == '_')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void orbit_db_init(const char* db_path) {
     sqlite3_open(db_path, &orbit_db_conn);
     if (orbit_db_conn) {
@@ -120,12 +136,45 @@ static char* orbit_db_build_query(OrbitArena* arena, const char* fmt, const char
     return buf;
 }
 
+/* ── Internal: append a JSON-escaped string within [p, end). ──────────── */
+
+static char* orbit_db_append_json_escaped(char* p, char* end, const char* s) {
+    if (p >= end) return p;
+    *(p++) = '"';
+    for (const char* c = s ? s : ""; *c && p < end; c++) {
+        unsigned char ch = (unsigned char)*c;
+        if (ch == '"' || ch == '\\') {
+            if (p + 2 > end) break;
+            *(p++) = '\\';
+            *(p++) = (char)ch;
+        } else if (ch == '\n' && p + 2 <= end) {
+            *(p++) = '\\';
+            *(p++) = 'n';
+        } else if (ch == '\r' && p + 2 <= end) {
+            *(p++) = '\\';
+            *(p++) = 'r';
+        } else if (ch == '\t' && p + 2 <= end) {
+            *(p++) = '\\';
+            *(p++) = 't';
+        } else if (ch < 0x20) {
+            if (p + 6 > end) break;
+            int w = snprintf(p, (size_t)(end - p), "\\u%04x", ch);
+            if (w > 0) p += w;
+        } else {
+            *(p++) = (char)ch;
+        }
+    }
+    if (p < end) *(p++) = '"';
+    return p;
+}
+
 /* ── Internal: serialize a row to JSON into Arena ──────────────────── */
 
 static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* out, size_t max_len) {
+    if (!out || max_len < 3) return 0;
     int cols = sqlite3_column_count(stmt);
     char* p = out;
-    char* end = out + max_len - 2;
+    char* end = out + max_len - 2; /* reserve space for '}' and NUL */
 
     *(p++) = '{';
 
@@ -133,14 +182,16 @@ static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* 
         const char* col_name = sqlite3_column_name(stmt, i);
         const char* col_text = (const char*)sqlite3_column_text(stmt, i);
 
-        if (i > 0) *(p++) = ',';
+        if (i > 0 && p < end) *(p++) = ',';
+        if (p >= end) break;
 
-        int written = snprintf(p, (size_t)(end - p), "\"%s\":\"%s\"",
-            col_name, col_text ? col_text : "");
-        if (written > 0) p += written;
+        p = orbit_db_append_json_escaped(p, end, col_name ? col_name : "");
+        if (p + 1 >= end) break; /* need room for ':' and at least one more byte */
+        *(p++) = ':';
+        p = orbit_db_append_json_escaped(p, end, col_text);
     }
 
-    *(p++) = '}';
+    if (p < end) *(p++) = '}';
     *p = '\0';
     return (size_t)(p - out);
 }
@@ -538,11 +589,13 @@ orbit_string orbit_json_get(OrbitArena* arena, orbit_string json, const char* ke
 }
 
 orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
+    if (!orbit_db_valid_identifier(table_name)) return "[]";
     orbit_collection col = { table_name, NULL };
     return orbit_db_all(arena, col);
 }
 
 orbit_string orbit_db_query_where(OrbitArena* arena, const char* table_name, const char* condition) {
+    if (!orbit_db_valid_identifier(table_name)) return "[]";
     orbit_collection col = { table_name, NULL };
     return orbit_db_where(arena, col, condition);
 }
@@ -571,6 +624,7 @@ static char* orbit_replace_first(OrbitArena* arena, const char* haystack, const 
 
 /** @brief Parameterized WHERE query: binds @p param as an escaped SQL literal into the first `?` of @p condition. */
 orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, const char* condition, const char* param) {
+    if (!orbit_db_valid_identifier(table_name)) return "[]";
     KYNX_DB_QUERY_CHECK("[]");
     char* escaped = sqlite3_mprintf("%Q", param);
     if (!escaped) return "[]";
@@ -582,16 +636,19 @@ orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, c
 }
 
 orbit_string orbit_db_query_get(OrbitArena* arena, const char* table_name, const char* id) {
+    if (!orbit_db_valid_identifier(table_name)) return NULL;
     orbit_collection col = { table_name, NULL };
     return orbit_db_get(arena, col, id);
 }
 
 bool orbit_db_insert(const char* table_name, const char* json_data) {
+    if (!orbit_db_valid_identifier(table_name)) return false;
     orbit_collection col = { table_name, NULL };
     return orbit_db_add(col, json_data);
 }
 
 bool orbit_db_delete(const char* table_name, const char* id) {
+    if (!orbit_db_valid_identifier(table_name)) return false;
     orbit_collection col = { table_name, NULL };
     return orbit_db_del(col, id);
 }
