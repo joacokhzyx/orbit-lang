@@ -625,6 +625,18 @@ static char* orbit_replace_first(OrbitArena* arena, const char* haystack, const 
 /** @brief Parameterized WHERE query: binds @p param as an escaped SQL literal into the first `?` of @p condition. */
 orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, const char* condition, const char* param) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
+    /* Single-parameter contract: exactly one '?' placeholder (extras would
+     * silently bind as NULL) and no ';' — statement chaining is never a
+     * legitimate WHERE fragment. */
+    if (!condition || !*condition) return "[]";
+    {
+        int qmarks = 0;
+        for (const char* c = condition; *c; c++) {
+            if (*c == '?') qmarks++;
+        }
+        if (qmarks != 1) return "[]";
+    }
+    if (strstr(condition, ";") != NULL) return "[]";
     KYNX_DB_QUERY_CHECK("[]");
     char* escaped = sqlite3_mprintf("%Q", param);
     if (!escaped) return "[]";
