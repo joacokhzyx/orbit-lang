@@ -159,4 +159,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        tb = traceback.format_exc()[-2500:]
+        print(tb)
+        print("::error::[parity crash] " + tb.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+        raise
