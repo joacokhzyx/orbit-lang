@@ -243,7 +243,15 @@ fn parsePrimary(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.OpenBracket) {
         var elements = []
         while check(parser, TokType.CloseBracket) == false && isAtEnd(parser) == false {
+            val eBTag = parser.currentToken.tag
+            val eBLine = parser.currentToken.line
+            val eBCol = parser.currentToken.col
             elements.push(parseExpression(parser))
+            // Panic-mode recovery: an element parse that consumed nothing
+            // (e.g. depth-limit fallback) must still advance, else this loop spins.
+            if parser.currentToken.tag == eBTag && parser.currentToken.line == eBLine && parser.currentToken.col == eBCol && isAtEnd(parser) == false {
+                advanceParser(parser)
+            }
             matchToken(parser, TokType.Comma)
         }
         consume(parser, TokType.CloseBracket, "Expected ']' after list literal.")
@@ -770,12 +778,20 @@ fn parseConfigDecl(parser: Parser) -> ASTNode {
 }
 
 fn parseStatement(parser: Parser) -> ASTNode {
+    val bTag = parser.currentToken.tag
+    val bLine = parser.currentToken.line
+    val bCol = parser.currentToken.col
     parser.depth = parser.depth + 1
     var out = ASTNode.Literal(LiteralNode("int", "0"))
     if parseDepthGuard(parser) == false {
         out = parseStatementInner(parser)
     }
     parser.depth = parser.depth - 1
+    // Panic-mode recovery: a statement parse that consumed nothing must
+    // advance anyway, otherwise enclosing block loops spin forever.
+    if parser.currentToken.tag == bTag && parser.currentToken.line == bLine && parser.currentToken.col == bCol && isAtEnd(parser) == false {
+        advanceParser(parser)
+    }
     return out
 }
 
