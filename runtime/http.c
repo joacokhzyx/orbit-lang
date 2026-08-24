@@ -85,11 +85,32 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
     // Resolve Content-Length from the raw header bytes BEFORE any in-place
     // null termination below: strstr stops at the first '\0', and the
     // method/path terminators precede the header block.
+    // Hardened scan: case-insensitive line walk (smuggling via unusual
+    // casings), negative values rejected, and multiple DIFFERENT values
+    // treated as ambiguous -> body ignored entirely.
     size_t content_length = 0;
-    const char* cl_hdr = strstr(raw, "Content-Length:");
-    if (!cl_hdr) cl_hdr = strstr(raw, "content-length:");
-    if (cl_hdr && cl_hdr < headers_end) {
-        content_length = (size_t)atol(cl_hdr + 15);
+    {
+        const char* hdr_scan = raw;
+        long long cl_value = -1;
+        int cl_seen = 0;
+        while (hdr_scan < body_start) {
+            const char* line_end = memchr(hdr_scan, '\n', (size_t)(body_start - hdr_scan));
+            if (!line_end) break;
+            size_t line_len = (size_t)(line_end - hdr_scan);
+            if (line_len > 15 && strncasecmp(hdr_scan, "content-length:", 15) == 0) {
+                long long v = strtoll(hdr_scan + 15, NULL, 10);
+                if (!cl_seen) {
+                    cl_value = v;
+                    cl_seen = 1;
+                } else if (v != cl_value) {
+                    cl_seen = -1; /* conflicting lengths: ambiguous */
+                }
+            }
+            hdr_scan = line_end + 1;
+        }
+        if (cl_seen == 1 && cl_value > 0) {
+            content_length = (size_t)cl_value;
+        }
     }
 
     // If we don't have the full body yet, return 0 to wait for more data
