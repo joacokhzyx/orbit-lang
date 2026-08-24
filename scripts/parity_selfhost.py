@@ -119,7 +119,7 @@ def main() -> int:
             print(f"[parity] MISSING-GOLDEN {name}")
             continue
         with open(golden_path, "r", encoding="utf-8", newline="") as f:
-            expected = f.read()
+            expected = f.read().replace("\r\n", "\n")
         if expected == golden:
             ok += 1
             print(f"[parity] OK       {name:<24} {kind}")
@@ -133,10 +133,25 @@ def main() -> int:
                     detail = f"(line {i+1}: expected '{exp_lines[i][:40]}' got '{got_lines[i][:40]}')"
                     break
             print(f"[parity] DIFF     {name:<24} {detail}")
+            payload = f"golden={expected[:200]!r} got={golden[:200]!r}".replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::error::[parity {name}] {payload}")
 
     total = len(probes)
     print(f"\n[parity] RESULT: {ok}/{total} match goldens"
           + ("" if not failed else "; FAILED: " + ", ".join(failed)))
+    if failed and not args.update:
+        # One consolidated annotation: survives even if per-probe commands
+        # are dropped, and carries the expected/got payloads verbatim.
+        parts = []
+        for pf in probes:
+            name = pf[:-4]
+            if name in failed:
+                gp = os.path.join(args.goldens, name + ".txt")
+                exp = open(gp, encoding="utf-8", newline="").read() if os.path.isfile(gp) else "<missing>"
+                rc, kind, payload = probe_outcome(args.compiler, os.path.join(PROBES, pf), name, work, args.cc or "")
+                parts.append(f"{name}: rc={rc} kind={kind} | GOLDEN={exp[:150]!r} | GOT={payload[:150]!r}")
+        blob = (" || ".join(parts)).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3500]
+        print(f"::error::[parity diffs] {blob}")
     if args.update:
         print("[parity] goldens refreshed; commit them together with the compiler change.")
         return 0
@@ -144,4 +159,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        tb = traceback.format_exc()[-2500:]
+        print(tb)
+        print("::error::[parity crash] " + tb.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+        raise

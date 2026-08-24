@@ -35,11 +35,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install SQLite development library (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+
       - name: Build and verify Zig-free bootstrap (STAB-0 / STAB-1)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale
+          set +e
+          "$PY" scripts/build_selfhost.py --cc "${{ matrix.cc }}" --check-stale > gate_output.log 2>&1
+          rc=$?
+          set -e
+          tail -n 40 gate_output.log
+          exit $rc
 
       - name: Hermetic seed verification + emit fixed-point compiler
         shell: bash

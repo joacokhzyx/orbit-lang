@@ -12,3 +12,7 @@ dist/** linguist-generated=true
 
 # Legacy seed lineage internals (generated C stages, if present locally).
 last_generated.c linguist-generated=true
+
+# Fixed-point canonical and parity goldens: byte-exact contracts, never EOL-converted.
+compiler/selfhost/*.exe.c -text
+tests/parity/golden/*.txt -text
