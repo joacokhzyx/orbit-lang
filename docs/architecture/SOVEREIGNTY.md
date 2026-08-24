@@ -66,3 +66,37 @@ Neither is required to build, verify, release, or install the compiler.
 - Never introduce a hard dependency on a specific toolchain vendor.
 - The reproducibility contract is the C source hash, cross-platform;
   binary hashes stay informational (PE timestamps are zeroed before compare).
+
+## Disaster recovery runbook
+
+Scenario 1 — canonical C corrupted or lost (`stage3.exe.c` broken/missing):
+
+1. `git checkout main -- compiler/selfhost/stage3.exe.c` (restore from history), OR
+   download `orbit_bootstrap.c` from the latest GitHub Release and re-split it
+   (it is the amalgamation; the canonical is its entry file).
+2. Validate: `python scripts/build_selfhost.py --cc <cc> --check-stale`
+3. If sources also moved past the restored canonical: converge forward instead
+   — `python scripts/build_selfhost.py --promote`, then parity refresh.
+
+Scenario 2 — fixed point broken by a bad commit:
+
+1. Identify the last green commit: CI history or
+   `git bisect run python scripts/build_selfhost.py --cc gcc --check-stale`.
+2. Either revert the offending commit, or fix forward:
+   repair `compiler/*.orb`, then `--promote` + goldens refresh in ONE commit.
+
+Scenario 3 — total loss of trust in the chain (suspected seed poisoning):
+
+1. Rebuild from scratch against a known-good tag:
+   `git checkout <last-green-tag>` then repeat Scenario 1 step 2.
+2. Cross-check two independent toolchains agree on the converged hash:
+   `--cc gcc` and `--cc clang` must produce identical canonical bytes.
+3. Only after 2+ toolchains agree, re-publish: update `PUBLISHED_C`
+   (the promote flow does it) and cut a release so `verify_seed.py --release`
+   pins the new contract.
+
+Invariants that must always hold afterwards:
+
+- `build_selfhost.py --check-stale` exits 0 on main.
+- `parity_selfhost.py` reports N/N against committed goldens.
+- CI (ubuntu-gcc / windows-clang / stress) is green.
