@@ -121,7 +121,8 @@ def run(argv, cwd=ROOT, env_extra=None, label=""):
         # Emit as a GitHub error annotation: check-run annotations are public
         # API-readable even when job logs require authentication.
         tail = "\n".join(out.strip().splitlines()[-30:])
-        print(f"::error::[{label or ' '.join(argv)}] rc={proc.returncode}\n{tail}")
+        payload = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
+        print(f"::error::[{label}] rc={proc.returncode} :: {payload}")
         raise SystemExit(2)
 
 
