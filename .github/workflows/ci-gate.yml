@@ -82,8 +82,19 @@ jobs:
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          set +e
           "$PY" scripts/test_suite.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > suite_output.log 2>&1
+          rc=$?
+          set -e
+          cat suite_output.log
+          {
+            echo "### orbit suite rc=$rc"
+            echo '```'
+            tail -n 60 suite_output.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit $rc
 
   stress-gate:
     name: Self-host chain stress (flakiness detector)
