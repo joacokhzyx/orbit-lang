@@ -1,0 +1,7 @@
+// expect-exit 5
+fn main() -> int {
+    if 1 < 2 && 2 < 3 {
+        return 5
+    }
+    return 6
+}

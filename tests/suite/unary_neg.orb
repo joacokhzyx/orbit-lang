@@ -1,0 +1,4 @@
+// expect-exit 2
+fn main() -> int {
+    return -(-5) + -(3)
+}

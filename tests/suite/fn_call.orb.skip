@@ -1,0 +1,7 @@
+// expect-exit 21
+fn double(v: int) -> int {
+    return v * 2
+}
+fn main() -> int {
+    return double(10) + 1
+}

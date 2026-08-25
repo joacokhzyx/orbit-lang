@@ -1,0 +1,9 @@
+// expect-exit 5
+fn main() -> int {
+    val a = "orbit"
+    val b = "orb" + "it"
+    if a == b {
+        return 5
+    }
+    return 6
+}

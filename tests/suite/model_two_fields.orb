@@ -1,0 +1,9 @@
+// expect-exit 30
+model Point {
+    x: int
+    y: int
+}
+fn main() -> int {
+    val p = Point(10, 20)
+    return p.x + p.y
+}
