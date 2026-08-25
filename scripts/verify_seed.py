@@ -59,7 +59,7 @@ MAIN_ORB = os.path.join("compiler", "main.orb")
 # irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
 # -O2 links. The compiler's own internal invocations (pipeline.orb) already
 # use -O0.
-SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types"]
+SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
 # binary hash is platform/toolchain specific and stays informational.

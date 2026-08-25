@@ -47,7 +47,7 @@ def main() -> int:
         name = tf[:-4]
         path = os.path.join(SUITE, tf)
         src = open(path, encoding="utf-8").read()
-        m = re.match(r"\s*//\s*expect-exit\s+(\d+)", src)
+        m = re.search(r"^\s*//\s*expect-exit\s+(\d+)", src, re.M)
         expected = int(m.group(1)) if m else 0
 
         out_exe = os.path.join(work, name + exe_suffix)

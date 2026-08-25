@@ -44,7 +44,9 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
 # -O2 links. The compiler's own internal invocations (pipeline.orb) already
 # use -O0.
-SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types"]
+# -O0 keeps peak memory low on 4 GB machines; -DORBIT_WITH_EXEC enables the
+# compiler's own process spawning (its cc invocations) -- trusted infrastructure.
+SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
 MAX_ITERATIONS = 4
 
 

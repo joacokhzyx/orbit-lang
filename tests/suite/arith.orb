@@ -1,4 +1,5 @@
 // Arithmetic precedence and negatives.
+// expect-exit 1
 fn main() -> int {
     return 2 + 3 * 4 - 13
 }
