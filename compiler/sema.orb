@@ -558,6 +558,10 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
         }
         ASTNode.Try(tr) => {
             inferType(sema, tr.expr)
+            match tr.catchBody {
+                ASTNode.Empty => {}
+                _ => { checkNode(sema, tr.catchBody) }
+            }
             return "unknown"
         }
         _ => { return "void" }
@@ -640,7 +644,13 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.For(f) => { checkForLoop(sema, node) }
         ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants) }
         ASTNode.RouteDecl(r) => { checkRouteBody(sema, node) }
-        ASTNode.Try(tr) => { inferType(sema, tr.expr) }
+        ASTNode.Try(tr) => {
+            inferType(sema, tr.expr)
+            match tr.catchBody {
+                ASTNode.Empty => {}
+                _ => { checkNode(sema, tr.catchBody) }
+            }
+        }
         ASTNode.MatchCase(mc) => {}
         ASTNode.GenericParam(gp) => {}
         ASTNode.TraitDecl(trd) => { declareSymbol(sema, trd.name, "type", false, false) }

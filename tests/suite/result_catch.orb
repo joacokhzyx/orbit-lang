@@ -1,0 +1,16 @@
+// expect-exit 7
+fn make_failure() -> result {
+    val value: result = err("invalid input", 7)
+    return value
+}
+
+fn read_failure() -> int {
+    val value: int = try make_failure() catch {
+        return 7
+    }
+    return value
+}
+
+fn main() -> int {
+    return read_failure()
+}

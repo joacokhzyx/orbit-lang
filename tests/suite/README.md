@@ -14,6 +14,7 @@ This directory contains small executable programs used to verify the behavior of
 | Imports and module resolution | `imports.orb`, `imports.support.orb` |
 | Result construction and returns | `result_values.orb` |
 | Result propagation | `result_try.orb` |
+| Result handling | `result_catch.orb` |
 | Models and mutation | `model_fields.orb`, `model_two_fields.orb`, `model_mutation.orb` |
 | Source encoding | `bom_utf8.orb` |
 

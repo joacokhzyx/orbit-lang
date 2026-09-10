@@ -176,6 +176,7 @@ model MatchCaseNode {
 
 model TryNode {
     expr: list
+    catchBody: list
 }
 
 model BinaryOpNode {

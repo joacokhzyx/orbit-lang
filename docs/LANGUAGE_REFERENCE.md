@@ -99,7 +99,19 @@ The expression constructors are distinct from the HTTP response forms
 `return ok 200 payload` and `err 400 message` used inside routes. Result values
 can be constructed and returned by the current compiler. A `try` expression
 propagates an error from a `result` value to the current function and yields the
-successful value; `catch` blocks remain under development.
+successful value. A `catch` block handles the failed branch:
+
+```orbit
+fn read_value() -> int {
+    val value: int = try load_value() catch {
+        return 0
+    }
+    return value
+}
+```
+
+The current handler can execute statements and return from the enclosing
+function. Binding the error payload to a named variable remains future work.
 
 ## HTTP services
 

@@ -22,7 +22,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | HTTP service runtime | Available for supported service features | `runtime/http.c`, `lib/net.orb`, examples |
 | Arena-based allocation | Available | `runtime/arena.c`, `runtime/arena_pool.c`, `docs/ARENA.md` |
 | Database integration | Available, with schema migration work still open | `runtime/database.c`, examples, `STAB-6` |
-| Behavior suite | 17 executable programs | `tests/suite/`, `tests/suite/README.md` |
+| Behavior suite | 18 executable programs | `tests/suite/`, `tests/suite/README.md` |
 | Parity and stability probes | 25-probe documented gate | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension and syntax support | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |
@@ -65,7 +65,7 @@ Key work:
 **Priority:** P1  
 **Status:** needs consolidation
 
-The language reference and examples cover the main syntax, but the project still needs a single compatibility policy for types, errors, imports, arenas, routes, models, and standard-library APIs. `Result` construction and returns are covered by the behavior suite; `try/catch` propagation remains an implementation gap. Public behavior should be specified before adding a large feature surface. The broader language mission includes general software; the current server focus is driven by the opportunity to measure resource use in continuously running systems.
+The language reference and examples cover the main syntax, but the project still needs a single compatibility policy for types, errors, imports, arenas, routes, models, and standard-library APIs. `Result` construction, returns, and `try/catch` handling are covered by the behavior suite; binding the error payload remains open. Public behavior should be specified before adding a large feature surface. The broader language mission includes general software; the current server focus is driven by the opportunity to measure resource use in continuously running systems.
 
 ### Developer Workflow
 

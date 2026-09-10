@@ -233,7 +233,12 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         return parseMatchExpr(parser)
     }
     if matchToken(parser, TokType.KeywordTry) {
-        return ASTNode.Try(TryNode(parseExpression(parser)))
+        val expr = parseExpression(parser)
+        var catchBody = ASTNode.Empty
+        if matchToken(parser, TokType.KeywordCatch) {
+            catchBody = parseBlock(parser)
+        }
+        return ASTNode.Try(TryNode(expr, catchBody))
     }
     if matchToken(parser, TokType.OpenParen) {
         val expr = parseExpression(parser)

@@ -2169,10 +2169,15 @@ fn buildTryExpr(builder: IRBuilder, t: TryNode) -> int {
     val lblErr = ir_init_instr(IROpcode.label)
     lblErr.operand1 = ir_label(errLabel)
     ir_emit(func, lblErr)
-    // Propagate error: return expr (which is the result itself)
-    val retInstr = ir_init_instr(IROpcode.ret)
-    retInstr.operand1 = ir_register(exprReg)
-    ir_emit(func, retInstr)
+    match t.catchBody {
+        ASTNode.Empty => {
+            // Without a handler, propagate the original Result unchanged.
+            val retInstr = ir_init_instr(IROpcode.ret)
+            retInstr.operand1 = ir_register(exprReg)
+            ir_emit(func, retInstr)
+        }
+        _ => { buildNode(builder, t.catchBody) }
+    }
     val lblEnd = ir_init_instr(IROpcode.label)
     lblEnd.operand1 = ir_label(endLabel)
     ir_emit(func, lblEnd)
