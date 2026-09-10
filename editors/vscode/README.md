@@ -1,7 +1,7 @@
 # Orbit Programming Language
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](STATUS.md)
+[![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](../../docs/STATUS.md)
 ![Orbit Banner](banner.png)
 
 The official Visual Studio Code extension for **Orbit** — a high-performance, statically typed systems programming language engineered for high-concurrency web services and APIs.

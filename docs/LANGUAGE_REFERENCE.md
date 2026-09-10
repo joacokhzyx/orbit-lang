@@ -78,6 +78,28 @@ print("${service.name} on ${ports[0]}")
 Collection APIs and their exact type coverage are still evolving; keep business
 logic simple and cover it with application-level tests.
 
+## Result values
+
+Functions can return the built-in `result` value type. Construct successful and
+failed values with `ok(value)` and `err(message, code)` in expressions:
+
+```orbit
+fn load_value() -> result {
+    val value: result = ok(41)
+    return value
+}
+
+fn reject_value() -> result {
+    val failure: result = err("invalid input", 7)
+    return failure
+}
+```
+
+The expression constructors are distinct from the HTTP response forms
+`return ok 200 payload` and `err 400 message` used inside routes. Result values
+can be constructed and returned by the current compiler; `try/catch` error
+propagation syntax remains under development.
+
 ## HTTP services
 
 Routes declare an HTTP method and a literal path. A route can return a successful

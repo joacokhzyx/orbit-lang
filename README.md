@@ -5,25 +5,37 @@
 
 ![Orbit Banner](assets/orbit_banner.png)
 
-**Orbit** is a high-performance, statically typed systems programming language engineered for high-concurrency web services, microservices, and network APIs. 
+**Orbit** is a statically typed systems programming language for web services, microservices, and network APIs.
 
-Orbit combines an expressive single-line directive syntax with a high-performance **C Target** runtime featuring $O(1)$ lock-free thread-local arena recycling, zero-copy HTTP request parsing, and **Kynx** 1-nanosecond Bloom filter DDoS protection.
+Orbit combines concise service declarations with a runtime written in C. The compiler emits C99, while the runtime provides HTTP request handling, request-scoped memory arenas, database access, and optional request admission controls through **Kynx**.
+
+---
+
+## Mission
+
+Orbit is designed to help software do more work with fewer computing resources. Its long-term goal is to reduce the CPU time, memory use, and energy required to operate servers and other backend systems at scale.
+
+The project pursues that goal through a compiler and runtime that make resource use visible and measurable: generated native code, request-scoped memory management, direct network handling, and benchmarks that can compare throughput, latency, and resource consumption under repeatable conditions.
+
+Orbit is not limited to web services. Its current development is centered on servers and APIs because these systems run continuously and consume resources at global scale. Improvements in this area can reduce the amount of hardware and electricity required to deliver the same service.
+
+The project treats energy efficiency as an engineering target, not a slogan. Claims about improvement must be supported by measurements that record workload, hardware, operating system, compiler, runtime configuration, and energy or resource data.
 
 ---
 
 ## Key Features
 
-- **C Compiler**: Zero-copy HTTP parsing and single-syscall socket flushing delivering **10,000+ RPS** under extreme concurrency.
-- **Secured By Kynx**: Built-in 1-nanosecond admission control and rate-limiting to protect sensitive routes under high load.
-- **Expressive Web Syntax**: Concise top-level single-line directives for server configuration (`port 3000`, `cors "*"`), routing (`route GET "/users" { ... }`), and ORM entities (`model User { ... }`).
-- **Memory Safety & Zero GC**: Deterministic thread-local arena allocation eliminates Garbage Collector pauses without manual memory management overhead.
-- **High-Performance C Code Generation**: Compiles down to optimized C99 linked directly with the platform C toolchain.
+- **C code generation**: Orbit programs are translated to C99 and compiled with the platform C toolchain.
+- **HTTP runtime**: The runtime parses requests, dispatches routes, and writes responses without requiring a separate application server.
+- **Request protection**: Kynx can apply admission control and rate limits before a request reaches a route handler.
+- **Request-scoped memory**: Thread-local arenas group temporary allocations by request and reclaim them together at the end of the request.
+- **Service-oriented syntax**: Top-level declarations configure a service (`port 3000`, `cors "*"`), define routes (`route GET "/users" { ... }`), and describe database models (`model User { ... }`).
 
 ---
 
 ## Quickstart Example
 
-Here is a full-featured Orbit HTTP service with ORM models, Kynx protection, and authenticated route groups:
+This example combines HTTP configuration, a database model, request protection, and an authenticated route group:
 
 ```orbit
 port 4000
@@ -52,6 +64,8 @@ route GET "/health" {
 ---
 
 ## Installation & Build from Source
+
+For the complete first-run walkthrough, see [Getting Started](docs/GETTING_STARTED.md). Platform-specific requirements are listed in [Platform Support](docs/SUPPORT.md).
 
 ### Prerequisites
 
@@ -87,23 +101,18 @@ orbit run main.orb
 
 ---
 
-## High-Stress Benchmarks
-
-Orbit has been stress-tested across 4 core server categories against multi-threaded load clients written in **Go**, **Node.js**, **C**, and **Orbit**:
-
-| Benchmark Category | Go Load Client | Node.js Client | C Native Client | Key Metric |
-| :--- | :---: | :---: | :---: | :--- |
-| **01. Raw HTTP Loop** | **10,125.0 RPS** | **5,725.0 RPS** | **5,000.0 RPS** | Zero-copy request parsing |
-| **02. Auth & ORM** | **8,450.0 RPS** | **4,975.0 RPS** | **5,000.0 RPS** | SQLite entity resolution & hashing |
-| **03. Page Cache Hit** | **9,375.0 RPS** | **5,475.0 RPS** | **5,000.0 RPS** | In-memory rendered template cache |
-| **04. Kynx Guarded Defense** | **10,475.0 RPS** | **6,025.0 RPS** | **5,000.0 RPS** | 1-ns Bloom Filter DDoS protection |
-
----
-
 ## Documentation
 
+- [Documentation Index](docs/README.md)
+- [Getting Started](docs/GETTING_STARTED.md)
+- [Command Reference](docs/COMMANDS.md)
+- [Platform Support](docs/SUPPORT.md)
+- [Versioning and Compatibility](docs/VERSIONING.md)
+- [Resource and Energy Measurement](docs/ENERGY.md)
+- [Release Artifacts](docs/RELEASES.md)
 - [Language Reference](docs/LANGUAGE_REFERENCE.md)
 - [Architecture Overview](docs/ARCHITECTURE.md)
+- [Project Roadmap](docs/ROADMAP.md)
 - [Server Examples](examples/README.md)
 
 ---
@@ -115,7 +124,7 @@ compiler/     Self-hosted compiler written in Orbit (lexer → parser → sema �
 runtime/      C runtime (http, arena_pool, kynx, orm, json)
 benchmarks/   Multi-language stress testing suite (Go, Node.js, C, Orbit)
 docs/         Language reference and internal design documentation
-examples/     Production-shaped Orbit service examples
+examples/     Orbit service examples covering HTTP, auth, and database access
 std/          Orbit standard library modules
 tests/        Parity goldens and compiler test fixtures
 ```
