@@ -60,13 +60,14 @@ MAIN_ORB = os.path.join("compiler", "main.orb")
 # -O2 links. The compiler's own internal invocations (pipeline.orb) already
 # use -O0.
 SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
+PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
 # binary hash is platform/toolchain specific and stays informational.
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "0192ED8ACDA289D4EAF4B63D5EE56C75F527E221F73AC9D403B73889C9DAD9BB"
+PUBLISHED_C = "228F4CCAFD0C644B2CE3411EE46DB8CC81259F4C2E188DFC2A4EE440D3944700"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
@@ -230,7 +231,7 @@ def main() -> int:
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"), "--entry", seed_src_c, "--out", amal], ROOT, label="amalgamate")
 
     seed_exe = os.path.join(work, "orbit_seed" + exe)
-    run([*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal], ROOT, label="build seed")
+    run([*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS], ROOT, label="build seed")
     check("seed builds", os.path.isfile(seed_exe))
 
     def orb_build(compiler, out, snapshot_c):
@@ -274,7 +275,7 @@ def main() -> int:
             shutil.copyfile(c, shared)
         fixed_out = os.path.join(work, "fixed_point_build" + exe)
         run([*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
-             "-o", fixed_out, shared], ROOT,
+             "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS], ROOT,
             env_extra={"TEMP": tmp, "TMP": tmp}, label=f"deterministic rebuild {out}")
         shutil.move(fixed_out, os.path.join(work, out))
         shutil.copyfile(c, snapshot_c)
@@ -338,7 +339,7 @@ def main() -> int:
     if args.refresh:
         os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
         shutil.copyfile(amal, os.path.join(ROOT, "dist", "orbit_bootstrap.c"))
-        run([*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe), amal], ROOT, label="refresh dist/orbit_seed")
+        run([*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe), amal, *PLATFORM_LINK_FLAGS], ROOT, label="refresh dist/orbit_seed")
 
     if args.emit_fixed_point:
         os.makedirs(os.path.dirname(os.path.abspath(args.emit_fixed_point)), exist_ok=True)

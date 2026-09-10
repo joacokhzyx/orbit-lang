@@ -26,7 +26,13 @@ model Lexer {
 }
 
 fn initLexer(source: string) -> Lexer {
-    return Lexer(source, source.len(), 0, 1, 1)
+    var startPos = 0
+    if source.len() >= 3 {
+        if orbit_string_char_at_selfhost(source, 0) == 239 && orbit_string_char_at_selfhost(source, 1) == 187 && orbit_string_char_at_selfhost(source, 2) == 191 {
+            startPos = 3
+        }
+    }
+    return Lexer(source, source.len(), startPos, 1, 1)
 }
 
 fn isWhitespace(c: int) -> bool {

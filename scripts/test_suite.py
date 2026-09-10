@@ -27,7 +27,10 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=60)
     args = ap.parse_args()
 
-    tests = sorted(f for f in os.listdir(SUITE) if f.endswith(".orb"))
+    tests = sorted(
+        f for f in os.listdir(SUITE)
+        if f.endswith(".orb") and not f.endswith(".support.orb")
+    )
     if not tests:
         print("[suite] FAIL: no tests found")
         return 1

@@ -1,0 +1,3 @@
+fn imported_value() -> int {
+    return 37
+}

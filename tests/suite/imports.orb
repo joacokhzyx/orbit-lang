@@ -1,0 +1,6 @@
+// expect-exit 37
+import "./imports.support.orb"
+
+fn main() -> int {
+    return imported_value()
+}

@@ -48,6 +48,7 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # compiler's own process spawning (its cc invocations) -- trusted infrastructure.
 SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
 MAX_ITERATIONS = 4
+PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 
 
 def warn_low_memory() -> None:
@@ -220,7 +221,7 @@ def main() -> int:
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"),
          "--entry", CANONICAL_C, "--out", amal], label="amalgamate canonical")
     seed_exe = os.path.join(work, "seed" + exe)
-    run([*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal], label="build seed from canonical C")
+    run([*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS], label="build seed from canonical C")
 
     # Iterate: current compiler builds the sources; repeat until C stabilises.
     prev_c_hash = None
@@ -235,7 +236,7 @@ def main() -> int:
         # Generated C is not amalgamated: it needs the runtime headers on the
         # include path (pipeline.orb does the same when building user programs).
         run([*cc_cmd, *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
-             "-o", next_exe, c_i],
+             "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS],
             label=f"build iter{i} compiler from its own C")
         print(f"[selfhost] iteration {i}: {h_i}"
               + ("  (fixed point)" if h_i == prev_c_hash else ""))

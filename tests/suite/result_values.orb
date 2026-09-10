@@ -1,0 +1,16 @@
+// expect-exit 0
+fn make_success() -> result {
+    val value: result = ok(41)
+    return value
+}
+
+fn make_failure() -> result {
+    val value: result = err("invalid input", 7)
+    return value
+}
+
+fn main() -> int {
+    make_success()
+    make_failure()
+    return 0
+}

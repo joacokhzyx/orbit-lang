@@ -128,6 +128,8 @@ fn registerBuiltinFunctionReturnTypes(builder: IRBuilder) {
     registerFunctionReturnType(builder, "orbit_db_delete", "bool")
     registerFunctionReturnType(builder, "orbit_response_json", "response")
     registerFunctionReturnType(builder, "orbit_response_error", "response")
+    registerFunctionReturnType(builder, "ok", "result")
+    registerFunctionReturnType(builder, "err", "result")
 }
 
 fn lowercaseModelChar(c: int, source: string, idx: int) -> string {

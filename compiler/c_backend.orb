@@ -1352,7 +1352,11 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         }
         val rType = mapTypeToC(backend, rTypeName)
         if rType != "void" {
-            out = out + "    __attribute__((unused)) " + rType + " r_" + orbit_int_to_string_selfhost(i) + " = 0;\n"
+            var initValue = "0"
+            if rType == "OrbitResult" {
+                initValue = "{0}"
+            }
+            out = out + "    __attribute__((unused)) " + rType + " r_" + orbit_int_to_string_selfhost(i) + " = " + initValue + ";\n"
         }
         i = i + 1
     }
@@ -1504,6 +1508,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
                 else if vType == "string" { cType = "orbit_string" }
                 else if vType == "float" { cType = "orbit_float" }
                 else if vType == "bool" { cType = "orbit_bool" }
+                else if vType == "result" || vType == "Result" || vType == "OrbitResult" { cType = "OrbitResult" }
                 out = out + "    __attribute__((unused)) " + cType + " " + hname + ";\n"
                 if orbit_string_len(hname) > 0 && hname.at(0) == 95 {
                     out = out + "    (void)" + hname + ";\n"
@@ -1543,6 +1548,8 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
             out = out + "    return \"\";\n"
         } else if isEnumType(backend, func.returnType) {
             out = out + "    return (" + retType + ")0;\n"
+        } else if retType == "OrbitResult" {
+            out = out + "    return (OrbitResult){0};\n"
         } else {
             out = out + "    return NULL;\n"
         }
@@ -1623,6 +1630,9 @@ fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string 
     if regT == "float" || regT == "orbit_float" {
         return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (orbit_float)(" + valStr + ");\n"
     }
+    if regT == "result" || regT == "Result" || regT == "OrbitResult" {
+        return "    r_" + orbit_int_to_string_selfhost(destReg) + " = " + valStr + ";\n"
+    }
     return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
 }
 
@@ -1676,6 +1686,9 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             }
             if lrT == "int" || lrT == "bool" || lrT == "orbit_int" || lrT == "orbit_bool" || lrT == "enumeration" || isEnumType(backend, lrT) {
                 return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n"
+            }
+            if lrT == "result" || lrT == "Result" || lrT == "OrbitResult" || vType == "result" || vType == "Result" || vType == "OrbitResult" {
+                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + valStr + ";\n"
             }
             return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (void*)(" + valStr + ");\n"
         }
@@ -2112,7 +2125,9 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 }
                 IRValue.Register(v) => {
                     val rtype = backend.currentFunction.returnType
-                    if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
+                    if rtype == "result" || rtype == "Result" || rtype == "OrbitResult" {
+                        return "    return r_" + orbit_int_to_string_selfhost(v.value) + ";\n"
+                    } else if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
                         return "    return (orbit_int)(uintptr_t)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
                     } else if rtype == "string" || rtype == "orbit_string" {
                         return "    return (orbit_string)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
@@ -2125,7 +2140,9 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 _ => {
                     val rtype = backend.currentFunction.returnType
                     val valStr = generateValue(backend, instr.operand1)
-                    if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
+                    if rtype == "result" || rtype == "Result" || rtype == "OrbitResult" {
+                        return "    return " + valStr + ";\n"
+                    } else if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
                         return "    return (orbit_int)(uintptr_t)(" + valStr + ");\n"
                     } else if rtype == "string" || rtype == "orbit_string" {
                         return "    return (orbit_string)(" + valStr + ");\n"
@@ -2256,7 +2273,7 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err(" + generateValue(backend, instr.operand1) + ");\n"
                 }
                 _ => {
-                    return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+                    return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err(" + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand1) + ");\n"
                 }
             }
         }
@@ -2528,6 +2545,7 @@ fn storeCastFor(backend: CBackend, vn: string) -> string {
     val vType = variableDefType(backend, backend.currentFunction, vn)
     if vType == "float" { return "(orbit_float)" }
     if vType == "int" || vType == "bool" || isEnumType(backend, vType) { return "(orbit_int)(uintptr_t)" }
+    if vType == "result" || vType == "Result" || vType == "OrbitResult" { return "" }
     val vlen = orbit_string_len(vn)
     if vlen >= 2 {
         val tail2 = orbit_string_slice(vn, vlen - 2, vlen)
