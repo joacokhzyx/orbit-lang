@@ -13,6 +13,7 @@ This directory contains small executable programs used to verify the behavior of
 | Functions | `fn_recursive.orb` |
 | Imports and module resolution | `imports.orb`, `imports.support.orb` |
 | Result construction and returns | `result_values.orb` |
+| Result propagation | `result_try.orb` |
 | Models and mutation | `model_fields.orb`, `model_two_fields.orb`, `model_mutation.orb` |
 | Source encoding | `bom_utf8.orb` |
 
@@ -41,7 +42,7 @@ The runner reports the number of successful programs and fails when a program ca
 The current behavior suite does not yet provide dedicated executable coverage for:
 
 - imports and module resolution;
-- `Result` propagation with `try/catch` syntax;
+- `catch` blocks for `Result` errors;
 - HTTP routes and request access;
 - database operations and migrations;
 - authentication and authorization;

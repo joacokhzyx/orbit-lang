@@ -1,0 +1,15 @@
+// expect-exit 0
+fn make_success() -> result {
+    val value: result = ok(41)
+    return value
+}
+
+fn read_success() -> result {
+    val value: int = try make_success()
+    return make_success()
+}
+
+fn main() -> int {
+    read_success()
+    return 0
+}

@@ -22,7 +22,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | HTTP service runtime | Available for supported service features | `runtime/http.c`, `lib/net.orb`, examples |
 | Arena-based allocation | Available | `runtime/arena.c`, `runtime/arena_pool.c`, `docs/ARENA.md` |
 | Database integration | Available, with schema migration work still open | `runtime/database.c`, examples, `STAB-6` |
-| Behavior suite | 16 executable programs | `tests/suite/`, `tests/suite/README.md` |
+| Behavior suite | 17 executable programs | `tests/suite/`, `tests/suite/README.md` |
 | Parity and stability probes | 25-probe documented gate | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension and syntax support | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |

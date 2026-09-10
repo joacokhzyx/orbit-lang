@@ -556,6 +556,10 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             }
             return "list"
         }
+        ASTNode.Try(tr) => {
+            inferType(sema, tr.expr)
+            return "unknown"
+        }
         _ => { return "void" }
     }
 }

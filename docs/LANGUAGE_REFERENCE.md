@@ -97,8 +97,9 @@ fn reject_value() -> result {
 
 The expression constructors are distinct from the HTTP response forms
 `return ok 200 payload` and `err 400 message` used inside routes. Result values
-can be constructed and returned by the current compiler; `try/catch` error
-propagation syntax remains under development.
+can be constructed and returned by the current compiler. A `try` expression
+propagates an error from a `result` value to the current function and yields the
+successful value; `catch` blocks remain under development.
 
 ## HTTP services
 

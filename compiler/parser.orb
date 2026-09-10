@@ -232,6 +232,9 @@ fn parsePrimary(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.KeywordMatch) {
         return parseMatchExpr(parser)
     }
+    if matchToken(parser, TokType.KeywordTry) {
+        return ASTNode.Try(TryNode(parseExpression(parser)))
+    }
     if matchToken(parser, TokType.OpenParen) {
         val expr = parseExpression(parser)
         consume(parser, TokType.CloseParen, "Expected ')' after expression.")

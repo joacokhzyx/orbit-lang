@@ -160,6 +160,8 @@ fn matchKeyword(text: string) -> TokType {
     if text == "import" { return TokType.KeywordImport }
     if text == "trait" { return TokType.KeywordTrait }
     if text == "impl" { return TokType.KeywordImpl }
+    if text == "try" { return TokType.KeywordTry }
+    if text == "catch" { return TokType.KeywordCatch }
     return TokType.Identifier
 }
 

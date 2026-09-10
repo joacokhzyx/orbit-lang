@@ -47,6 +47,8 @@ enum TokType {
     KeywordImport,
     KeywordTrait,
     KeywordImpl,
+    KeywordTry,
+    KeywordCatch,
 
     // Operators
     Plus,
@@ -138,6 +140,8 @@ fn tokTagName(tag: TokType) -> string {
         TokType.KeywordImport => return "KeywordImport"
         TokType.KeywordTrait => return "KeywordTrait"
         TokType.KeywordImpl => return "KeywordImpl"
+        TokType.KeywordTry => return "KeywordTry"
+        TokType.KeywordCatch => return "KeywordCatch"
         TokType.Plus => return "Plus"
         TokType.Minus => return "Minus"
         TokType.Asterisk => return "Asterisk"
