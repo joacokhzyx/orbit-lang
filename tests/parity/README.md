@@ -1,10 +1,6 @@
 # Parity / stability battery (W1 → W2)
 
-Originally the W1 battery proved **byte-identity between the two compiler
-lineages** (Zig FE vs self-host) across 25 probes. With the Zig seed retired
-(SOVER-1) the contract became a **stability contract against committed goldens**
-(W2): every probe compiled by the fixed-point self-host compiler must reproduce
-its recorded outcome exactly.
+W1 proved byte-identity between two compiler lineages (Zig FE vs self-host) across 25 probes. With the Zig seed retired, the contract is now stability against committed goldens (W2): every probe built by the fixed-point compiler must reproduce its recorded outcome exactly. No silent drift.
 
 | Probe exit | Golden records |
 |---|---|

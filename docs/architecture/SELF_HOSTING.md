@@ -1,5 +1,8 @@
 # Orbit Self-Hosting Specification
-This document defines how Orbit compiles itself to achieve complete independence.
+
+> Historical note: Stage 0 below describes the original Zig seed lineage. The Zig tree was removed after the W2 parity gate — the current trust root is committed C built with any C compiler. See [Sovereignty](SOVEREIGNTY.md) for the supported flow. This file stays as lineage record.
+
+This document defines how Orbit compiles itself to reach a fixed point.
 
 ## Stages of Self-Hosting
 

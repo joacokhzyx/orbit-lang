@@ -1,6 +1,6 @@
-# Orbit Arena Memory Architecture (Epochal Virtual Memory Engine)
+# Orbit Arena Memory Architecture
 
-This document describes the design, implementation, and performance characteristics of the Orbit Arena memory engine.
+This document describes the design and implementation of the Orbit Arena allocator. It's the allocator behind request-scoped memory: one request, one region, reclaimed together.
 
 ## 1. Problem with the Previous Arena
 The previous implementation of `OrbitArena` utilized a chained block allocator:
@@ -13,12 +13,12 @@ The previous implementation of `OrbitArena` utilized a chained block allocator:
 ---
 
 ## 2. Architecture & Design Goals
-The new memory engine introduces a **Virtual Memory (VM)** backend with an **Epochal lifecycle**.
-* **Zero Allocations in Hot Path:** All normal allocations are bump-allocated from pre-reserved virtual address space. Physical memory pages are committed on-demand in page-sized increments.
-* **Logical O(1) Reset:** Resetting an arena simply resets the bump cursor back to the base address and increments the epoch generation number. Old virtual memory segments are retained (up to a configurable retention window) or discarded.
-* **Guaranteed Alignment:** Allocations start directly at `base` (aligned to page boundaries by the OS) and are bumped using safe checked calculations.
-* **Generation-Aware Local String Pool:** Each arena holds its own string pool, which is reset in $O(1)$ when the arena is reset, eliminating data races and use-after-reset dangling pointers.
-* **Atomic Telemetry & Thread-Safety:** All pool operations and global counters are managed with thread-safe atomic operations (`Interlocked` APIs on Windows and GCC/Clang builtins on POSIX).
+The current design uses a **Virtual Memory (VM)** backend with an **epoch lifecycle**.
+* **No allocations in the hot path (goal):** normal allocations bump from pre-reserved address space. Pages commit on demand. Treat as target to measure, not guarantee.
+* **Fast reset (goal):** resetting moves the bump cursor back and bumps the epoch. Old segments are kept briefly or released. Measure on your target.
+* **Alignment by construction:** allocations start at `base` (page-aligned by the OS) and advance with checked math.
+* **Local string pool per arena:** each arena holds its own pool, cleared on reset. This avoids cross-request sharing bugs when used as documented.
+* **Atomic telemetry:** pool counters use atomics (`Interlocked` on Windows, builtins on POSIX).
 
 ---
 
@@ -63,9 +63,9 @@ For allocations with a lifetime shorter than the request, checkpoints are suppor
 ---
 
 ## 6. String Interning & Concurrency
-* **Per-Arena Interning:** The string pool is localized inside the `OrbitArena` struct.
-* **Zero Lock Contention:** Since each thread has its own arena (acquired from the pool), interning is lock-free.
-* **Epoch-Safe:** Resetting the arena resets the string pool count to 0 in $O(1)$, naturally invalidating old strings.
+* **Per-arena interning:** the pool lives inside `OrbitArena`.
+* **Low contention by design:** each thread borrows its own arena from the pool, so interning usually needs no locks. It isn't lock-free by magic — measure under your concurrency.
+* **Epoch-safe use:** resetting clears the pool count. Don't hold pointers across resets.
 
 ---
 

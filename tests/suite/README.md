@@ -1,6 +1,6 @@
 # Language Behavior Suite
 
-This directory contains small executable programs used to verify the behavior of the fixed-point Orbit compiler. Each file defines `fn main() -> int`; the process exit code is the assertion consumed by `scripts/test_suite.py`.
+This directory holds small programs that verify what the fixed-point compiler does. Each file defines `fn main() -> int`; the exit code is the assertion read by `scripts/test_suite.py`. Keep each test focused on one behavior — small files catch regressions faster.
 
 ## Current Coverage
 

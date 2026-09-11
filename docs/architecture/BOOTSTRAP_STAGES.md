@@ -1,6 +1,6 @@
 # Bootstrap Stages and Verification
 
-This document details the self-hosting bootstrap execution steps and the fixed-point verification criterion.
+This document details the bootstrap steps and the fixed-point check. The supported flow is Zig-free — any C compiler plus Python. Paths mentioning `src/codegen` or `zig cc` below are historical lineage; the current pipeline lives in `compiler/*.orb` with `runtime/`.
 
 ## Pipeline
 
