@@ -1,6 +1,6 @@
 # Orbit Documentation
 
-This directory contains the technical documentation for Orbit. Start with the document that matches the question you are trying to answer.
+Start with the question you're trying to answer. If you're new, read [Getting Started](GETTING_STARTED.md) — it builds the compiler and runs your first program without giant dependencies.
 
 ## Start Here
 
@@ -36,13 +36,14 @@ This directory contains the technical documentation for Orbit. Start with the do
 
 ## Documentation Standards
 
-Technical documentation should:
+Good docs here do this:
 
 - state whether a feature is current, experimental, historical, or planned;
 - include a runnable command or example when describing a workflow;
-- name the relevant verification gate;
-- distinguish measured results from targets;
-- document limitations and platform assumptions;
-- use stable terminology consistent with the language reference.
+- name the verification gate;
+- distinguish measured results from targets — I don't claim an improvement until it's measured;
+- document limitations and platform assumptions plainly, including what didn't work;
+- use stable terminology consistent with the language reference;
+- write directly to you with contractions (`you can't`, `here's`), no hype, no superiority.
 
 When changing compiler behavior, update the language reference or architecture documentation in the same change. When changing a verification workflow, update the contributor instructions and the relevant script documentation together.

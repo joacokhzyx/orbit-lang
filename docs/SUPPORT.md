@@ -1,6 +1,6 @@
 # Platform Support
 
-This page describes the supported development paths for the current self-hosted Orbit compiler. It distinguishes required tools from optional tools used by benchmarks or historical cross-checks.
+This page covers the supported paths for the current self-hosted compiler. It separates what you need from what's optional for benchmarks or historical checks.
 
 ## Support Matrix
 

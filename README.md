@@ -1,35 +1,37 @@
-# Orbit Programming Language
+# Do more with less.
+
+**Orbit** is a statically typed language for APIs and microservices. It compiles fast and needs little to run, so it stays fast even under load.
+
+I'm building Orbit to explore a simple idea: servers and APIs shouldn't need so much energy to be fast. I'm still measuring how far it can go.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/architecture/SOVEREIGNTY.md)
 
 ![Orbit Banner](assets/orbit_banner.png)
 
-**Orbit** is a statically typed systems programming language for web services, microservices, and network APIs.
-
-Orbit combines concise service declarations with a runtime written in C. The compiler emits C99, while the runtime provides HTTP request handling, request-scoped memory arenas, database access, and optional request admission controls through **Kynx**.
+Orbit combines concise service declarations with a runtime written in C. The compiler emits C99, while the runtime handles HTTP requests, reclaims memory per request with arenas, talks to the database, and applies admission control through **Kynx** when you enable it.
 
 ---
 
 ## Mission
 
-Orbit is designed to help software do more work with fewer computing resources. Its long-term goal is to reduce the CPU time, memory use, and energy required to operate servers and other backend systems at scale.
+Orbit tries to help software do more work with fewer resources. The long-term goal is to use less CPU time, less memory, and less energy to run servers and backend systems at scale.
 
-The project pursues that goal through a compiler and runtime that make resource use visible and measurable: generated native code, request-scoped memory management, direct network handling, and benchmarks that can compare throughput, latency, and resource consumption under repeatable conditions.
+It pursues that goal by making resource use visible and measurable: generated native code you can read, memory tied to each request, direct network handling, and benchmarks that compare throughput, latency, and resource use under the same conditions.
 
-Orbit is not limited to web services. Its current development is centered on servers and APIs because these systems run continuously and consume resources at global scale. Improvements in this area can reduce the amount of hardware and electricity required to deliver the same service.
+Orbit isn't limited to web services. Development is centered on servers and APIs for now because they run all the time and consume resources at global scale. If they need less hardware and electricity for the same service, it matters.
 
-The project treats energy efficiency as an engineering target, not a slogan. Claims about improvement must be supported by measurements that record workload, hardware, operating system, compiler, runtime configuration, and energy or resource data.
+Energy efficiency here is an engineering target, not a slogan. I don't claim an improvement until it's measured with workload, hardware, OS, compiler, runtime config, and energy or resource data recorded. See [Resource and Energy Measurement](docs/ENERGY.md).
 
 ---
 
 ## Key Features
 
-- **C code generation**: Orbit programs are translated to C99 and compiled with the platform C toolchain.
-- **HTTP runtime**: The runtime parses requests, dispatches routes, and writes responses without requiring a separate application server.
-- **Request protection**: Kynx can apply admission control and rate limits before a request reaches a route handler.
-- **Request-scoped memory**: Thread-local arenas group temporary allocations by request and reclaim them together at the end of the request.
-- **Service-oriented syntax**: Top-level declarations configure a service (`port 3000`, `cors "*"`), define routes (`route GET "/users" { ... }`), and describe database models (`model User { ... }`).
+- **C code generation**: Orbit translates to C99 and compiles with your platform C toolchain.
+- **HTTP runtime**: parses requests, dispatches routes, and writes responses without needing a separate app server.
+- **Request protection**: Kynx can check admission and rate limits before a request reaches your handler.
+- **Request-scoped memory**: thread-local arenas group temporary allocations by request and reclaim them together when the request ends.
+- **Service-oriented syntax**: configure a service (`port 3000`, `cors "*"`), define routes (`route GET "/users" { ... }`), and describe models (`model User { ... }`) at the top level.
 
 ---
 
@@ -65,14 +67,14 @@ route GET "/health" {
 
 ## Installation & Build from Source
 
-For the complete first-run walkthrough, see [Getting Started](docs/GETTING_STARTED.md). Platform-specific requirements are listed in [Platform Support](docs/SUPPORT.md).
+For the full first run, read [Getting Started](docs/GETTING_STARTED.md). Platform details are in [Platform Support](docs/SUPPORT.md).
 
 ### Prerequisites
 
 - **C Toolchain**: MSVC (Windows), GCC, or Clang
-- **Python 3.10+** (bootstrap/verification scripts)
+- **Python 3.10+** (bootstrap and verification scripts)
 
-No Zig, no foreign toolchains: Orbit is a self-hosting compiler whose root of trust is committed C source (see [Sovereignty](docs/architecture/SOVEREIGNTY.md)).
+You don't need Zig or other toolchains. Orbit is self-hosting and bootstraps from committed C source (see [Sovereignty](docs/architecture/SOVEREIGNTY.md)).
 
 ### Build Compiler
 
@@ -133,9 +135,9 @@ tests/        Parity goldens and compiler test fixtures
 
 ## Contributing
 
-We welcome contributions! Please review our [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting pull requests.
+Thanks for your interest — I read everything. Please start with the [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request.
 
-Run the verification gates prior to committing:
+Run the verification gates before committing:
 
 ```bash
 python scripts/build_selfhost.py --cc "$CC" --check-stale
@@ -146,4 +148,4 @@ python scripts/verify_seed.py --cc "$CC"
 
 ## License
 
-Orbit is open-source software licensed under the [MIT License](LICENSE).
+Orbit is open source under the [MIT License](LICENSE). It's early research — I publish what works, what doesn't, and how I measured it.

@@ -1,6 +1,6 @@
 # Command Reference
 
-This page separates commands used by Orbit users from commands used to develop and verify the compiler.
+This page separates commands you'll use every day from commands I use to develop and verify the compiler.
 
 ## User Commands
 

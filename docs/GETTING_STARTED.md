@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide builds the self-hosted Orbit compiler, verifies the fixed point, and runs a first program. It uses the current Zig-free workflow.
+This guide builds the self-hosted Orbit compiler, verifies the fixed point, and runs a first program. You don't need much — a C compiler and Python are enough.
 
 ## 1. Prerequisites
 
@@ -109,7 +109,7 @@ The installer registers the VS Code extension automatically. For a manual setup,
 
 ### No C compiler found
 
-Set the compiler explicitly:
+Orbit can't find your C compiler. Set it explicitly, then build again:
 
 ```powershell
 $env:ORBIT_CC = "clang"
@@ -120,9 +120,11 @@ python scripts/build_selfhost.py --cc clang --out orbit.exe
 ORBIT_CC=gcc python3 scripts/build_selfhost.py --cc gcc --out orbit
 ```
 
+Tip: run `clang --version` or `gcc --version` first to confirm it's on PATH. Small fix — you'll be building in seconds.
+
 ### The canonical C source is stale
 
-Run the build without `--check-stale` to inspect the converged output. Only promote a new canonical source after an intentional compiler change and after reviewing the generated diff:
+The generated output doesn't match the committed canonical source. Run without `--check-stale` to inspect the converged output. Only promote a new canonical source after an intentional compiler change and after reviewing the generated diff:
 
 ```sh
 python scripts/build_selfhost.py --promote
@@ -130,4 +132,4 @@ python scripts/build_selfhost.py --promote
 
 ### A benchmark tool is missing
 
-The compiler does not require the benchmark toolchain. Consult [Benchmarks](../benchmarks/README.md) for the optional dependencies and the commands specific to that suite.
+That's fine — the compiler doesn't need the benchmark toolchain. See [Benchmarks](../benchmarks/README.md) for the optional dependencies and the commands for that suite.

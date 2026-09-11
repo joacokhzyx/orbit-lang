@@ -1,6 +1,6 @@
 # Resource and Energy Measurement
 
-Orbit's mission includes reducing the CPU time, memory, and energy required to operate software. This document defines how that goal should be measured. It does not claim an improvement until a comparison has been reproduced under the same conditions.
+Orbit tries to use less CPU time, less memory, and less energy to run software. This document defines how to measure that. I don't claim an improvement until it's been reproduced under the same conditions.
 
 ## What to Measure
 
@@ -15,7 +15,7 @@ A useful evaluation records both service output and resource cost:
 | Energy per request | Energy consumed to complete one request, when hardware or a trusted power interface is available |
 | Idle and background power | Power consumed by the service when it is waiting or serving no workload |
 
-Throughput alone is insufficient. A system that serves more requests but consumes proportionally more power has not demonstrated lower energy per request.
+Throughput alone isn't enough. A system that serves more requests but uses proportionally more power hasn't shown lower energy per request.
 
 ## Required Test Record
 
@@ -62,6 +62,6 @@ A useful comparison reports both absolute and normalized results, for example:
 
 ## Repository Practice
 
-Benchmark implementations live under `benchmarks/`. The benchmark README defines how to run the existing workloads. Future reports should add the machine and configuration record required above and should not place unqualified performance claims in the project README.
+Benchmark implementations live under `benchmarks/`. The benchmark README defines how to run the existing workloads. Future reports should add the machine and configuration record required above and shouldn't place unqualified performance claims in the project README.
 
-Energy efficiency remains a project target until a repeatable measurement suite produces evidence across representative workloads and supported platforms.
+Energy efficiency stays a target until a repeatable suite shows evidence across representative workloads and supported platforms — including runs where numbers are bad. I publish those too.
