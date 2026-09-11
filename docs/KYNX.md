@@ -1,8 +1,7 @@
-# Kynx 2.0 — Sovereign Admission Control
+# Kynx 2.0 — Admission Control
 
 Kynx is Orbit's in-process admission-control and computational-budget layer.
-This document describes **measured behavior** of the implementation shipped in
-`runtime/kynx.c` and wired into every generated server (`compiler/route_runtime.orb`).
+This document describes measured behavior of what's in `runtime/kynx.c` and wired into every generated server (`compiler/route_runtime.orb`). If behavior and prose disagree, behavior wins and I fix the prose.
 
 ---
 

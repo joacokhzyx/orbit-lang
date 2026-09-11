@@ -12,8 +12,9 @@
 
 ## Overview
 
-Orbit is a single-pass, ahead-of-time compiler that transforms `.orb` source files into native binaries via a C intermediate representation.  
-The runtime is a small, portable C library embedded into every generated server.
+Orbit is a single-pass, ahead-of-time compiler that turns `.orb` source into native binaries through C. The runtime is a small, portable C library embedded into every generated server.
+
+If you're new, you don't need this file yet. Build something first with [Getting Started](GETTING_STARTED.md), then come back when you want to know how the pieces fit.
 
 ---
 

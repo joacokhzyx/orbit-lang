@@ -1,8 +1,6 @@
 # Orbit language reference
 
-Orbit source files use the `.orb` extension. This reference covers the syntax
-implemented by the `0.1.0-rc.2` compiler. The language remains pre-1.0, so new
-projects should keep their dependency on a specific release candidate.
+Orbit source files use the `.orb` extension. This reference covers what the `0.1.0-rc.2` compiler does today. The language is pre-1.0, so pin your dependency to a specific release candidate and expect gaps — I document limits alongside features.
 
 ## Program structure and functions
 
@@ -75,8 +73,8 @@ val service = { name: "api", healthy: true }
 print("${service.name} on ${ports[0]}")
 ```
 
-Collection APIs and their exact type coverage are still evolving; keep business
-logic simple and cover it with application-level tests.
+Collection APIs and their exact type coverage are still evolving. Keep business
+logic simple and cover it with application-level tests. If something you need isn't here, file an issue — I read everything.
 
 ## Result values
 
@@ -129,7 +127,7 @@ route GET "/private" {
 ```
 
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
-Their API surface is under active development; consult the runtime and examples
+Their API surface is under active development. Check the runtime and examples
 before depending on a new helper in a public service.
 
 ## SQLite
@@ -151,8 +149,10 @@ stable, so keep module boundaries small and pin the compiler version in CI.
 ```sh
 orbit build app.orb                # Default C target
 orbit build app.orb --backend=c     # Explicit C target
-orbit build app.orb --backend=native # Direct x86_64 native target
+orbit build app.orb --backend=native # Experimental x86_64 target, not stable yet
 orbit run app.orb                  # Compile and execute
 orbit test app.orb                 # Run test blocks
 orbit bootstrap                    # Multi-stage self-hosting bootstrap
 ```
+
+`--backend=native` is research in progress. The C backend stays the supported path until native matches it on behavior and bootstrap checks. See [Project Status](STATUS.md).

@@ -1,6 +1,6 @@
 # Versioning and Compatibility
 
-This document defines how Orbit versions the language, compiler, runtime, and standard library. It is intentionally conservative while the public language contract is still being consolidated.
+This document defines how I version the language, compiler, runtime, and standard library. It's intentionally conservative while the public contract is still coming together.
 
 ## Version Format
 

@@ -12,13 +12,13 @@ Security updates are applied to the latest release of Orbit.
 
 ## Reporting a Vulnerability
 
-We take the security of Orbit seriously. If you discover a security vulnerability in the Orbit compiler, runtime engine, or Kynx defense system, please report it via private disclosure rather than creating a public issue.
+I take the security of Orbit seriously. If you find a vulnerability in the compiler, runtime, or Kynx, please disclose it privately rather than opening a public issue.
 
 ### Disclosure Process
 
-1. **Email Findings**: Send your detailed vulnerability report to `security@orbit-lang.org`.
-2. **Provide Details**: Include reproduction steps, sample `.orb` code, affected operating system details, and potential impact.
-3. **Response Time**: Our maintainers will acknowledge receipt within **24 hours** and provide periodic updates regarding patch status.
-4. **Coordinated Disclosure**: We ask that you keep the vulnerability confidential until a security release or advisory is published.
+1. **Email findings**: send details to `security@orbit-lang.org`.
+2. **Provide details**: include reproduction steps, sample `.orb` code, OS details, and potential impact.
+3. **Response time**: I aim to acknowledge quickly and keep you updated on patch status. I'm solo, so if it's a weekend it can take a bit longer — I don't leave reports unread.
+4. **Coordinated disclosure**: please keep it confidential until a fix or advisory is out.
 
-Thank you for helping keep Orbit secure!
+Thanks for helping keep Orbit secure — I read every report.

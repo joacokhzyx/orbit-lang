@@ -1,6 +1,6 @@
 # Orbit Roadmap
 
-This roadmap turns the current Orbit foundation into a sequence of verifiable product milestones. It is intentionally ordered from low-risk documentation and organization work toward compiler, runtime, backend, and distributed-system work.
+This roadmap turns the current foundation into verifiable milestones. It's ordered from low-risk docs and organization work toward compiler, runtime, backend, and distributed work. Every phase ends with something you can run, not just something you can read.
 
 ## Direction
 

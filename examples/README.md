@@ -1,6 +1,6 @@
 # Orbit Examples
 
-This directory contains service examples built with the Orbit programming language. Each example demonstrates a specific combination of HTTP, data access, authentication, or runtime features. Treat examples as source references until they pass the current compiler and runtime gates.
+This directory holds service examples you can build and run. Each one shows a combination of HTTP, data access, auth, or runtime features. Treat them as references tied to the current compiler — if behavior and prose disagree, behavior wins.
 
 ## Available Examples
 
@@ -46,13 +46,13 @@ This directory contains service examples built with the Orbit programming langua
 
 ## Running Examples
 
-Compile and run with an installed Orbit compiler:
+Build and run with an installed compiler:
 
 ```sh
 orbit build examples/catalog_service.orb
 ```
 
-When using a compiler built in the repository root, call it by its local path:
+With a compiler you built in the repo root, call it by its local path:
 
 ```sh
 ./orbit build examples/catalog_service.orb -o catalog_service

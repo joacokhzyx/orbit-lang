@@ -170,9 +170,10 @@ Procedure:
 
 ## Understanding results
 
-Orbit is pre-release software. The purpose of this benchmark is to establish
-a reproducible baseline for tracking compiler and runtime improvements over
-time, not to claim performance equivalence with mature runtimes.
+Orbit is pre-release software. This benchmark exists to establish
+a reproducible baseline for tracking improvements over time, not to claim
+equivalence with mature runtimes. I publish method, hardware, and variance
+alongside summaries — including runs where numbers are bad.
 
 Orbit C Target performance is bounded by the C compiler it targets. Orbit Native
 performance reflects the quality of the x86-64 code emitter, which is in

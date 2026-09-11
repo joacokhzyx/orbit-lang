@@ -7,7 +7,7 @@ This document is a dated project snapshot. It is intended to answer "what is tru
 
 ## Executive Summary
 
-Orbit is a self-hosted, statically typed language and compiler for general software, with current development focused on native network services. The current implementation compiles Orbit source to C, then uses a platform C compiler to produce the executable. The compiler can bootstrap from committed canonical C without Zig.
+Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from committed canonical C without Zig.
 
 The project is past the bootstrap proof-of-concept stage. Its mission is to help software do more work with fewer CPU cycles, less memory, and lower energy use. The next challenge is to make that goal measurable while tightening compiler parity, reducing unsafe type degradation in generated C, defining the public language contract, and making the runtime observable and operationally predictable.
 

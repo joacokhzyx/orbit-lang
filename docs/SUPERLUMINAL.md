@@ -1,6 +1,6 @@
 # Superluminal
 
-Superluminal is Orbit’s experimental optimization and program-transformation subsystem. Its purpose is not to claim arbitrary speedups: it is to make **semantics-preserving, measurable** reductions in execution work while retaining a safe fallback to ordinary code generation.
+Superluminal is Orbit's experimental optimization and program-transformation work. Its purpose isn't to claim speedups. It's to make measurable reductions in execution work that preserve semantics, with a safe fallback to ordinary codegen when proof is incomplete.
 
 ## Status
 

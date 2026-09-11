@@ -1,8 +1,8 @@
 # Arena
 
-Arena is the epoch-based virtual-memory allocator for the Orbit runtime. It implements a region-based memory model backed directly by OS virtual memory primitives (`VirtualAlloc` on Windows, `mmap` on POSIX).
+Arena is the epoch-based virtual-memory allocator for the Orbit runtime. It uses a region-based model backed directly by OS virtual memory (`VirtualAlloc` on Windows, `mmap` on POSIX).
 
-Arena eliminates garbage collection pauses, pointer tracing overhead, and heap fragmentation by enforcing $O(1)$ allocation and $O(1)$ region reset.
+Arena tries to avoid garbage-collection pauses, pointer tracing, and heap fragmentation for request-scoped work by allocating with a bump pointer and resetting the whole region at once. The complexity targets below are design goals — I treat them as claims that need measurement on your hardware, not guarantees.
 
 ---
 
@@ -56,7 +56,7 @@ When requesting memory of size $N$, the allocator rounds $N$ to the default 16-b
 
 $$\text{new\_cursor} = \text{align\_up}(\text{cursor} + N, 16)$$
 
-If $\text{new\_cursor} \le \text{committed\_end}$, allocation completes in **3 CPU instructions**.
+If $\text{new\_cursor} \le \text{committed\_end}$, allocation completes on the fast path without OS traps. The exact instruction count depends on toolchain and CPU — measure on your target rather than trusting a fixed number.
 
 ### 2. Page Commit Path
 
@@ -126,6 +126,8 @@ typedef struct {
 
 ### Garbage Collection Comparison
 
-- **Tracing GC (Go, V8)**: Scans live object graph ($O(N)$ where $N$ = live objects). Introduces latency spikes.
-- **Borrow Checker (Rust)**: Move semantics and lifetime annotations enforced at compile time.
-- **Orbit Arena**: Region lifetime tied to task scope. Zero compile-time lifetime annotations, zero runtime GC pauses.
+Different tradeoffs, not a ranking:
+
+- **Tracing GC (Go, V8)**: scans live objects. Flexible for general heaps, can introduce pauses under pressure.
+- **Borrow Checker (Rust)**: checks lifetimes at compile time. Precise, with more annotations to write.
+- **Orbit Arena**: ties lifetime to task scope (one request = one region). No per-object tracking and no compile-time lifetime annotations for this pattern, but it's only a good fit when work really is request-scoped. If you hold data across requests, you need a different strategy.

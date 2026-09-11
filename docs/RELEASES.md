@@ -1,6 +1,6 @@
 # Release Artifacts
 
-Orbit releases publish a fixed-point compiler and the source material needed to verify its trust root. The release workflow is defined in `.github/workflows/release.yml`.
+Releases publish a fixed-point compiler and the source you need to verify its trust root. The workflow lives in `.github/workflows/release.yml`. If verification fails, the release fails — I don't publish what I can't reproduce.
 
 ## Published Platforms
 

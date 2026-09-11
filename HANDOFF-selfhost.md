@@ -86,7 +86,7 @@ Real pending work of the self-hosted compiler:
 1. **Debug print cleanup** — **DONE (2026-08-14).** Per-function/per-declaration and
    progress prints were removed; error prints were converted into functional
    diagnostics (see section 5 for the current inventory).
-2. **Native backend** (`src/backend/`): unlock `alloc`/`db_*`/`http_*` in
+2. **Native backend** (`src/backend/`): enable `alloc`/`db_*`/`http_*` in
    `capabilities.zig` and add `--emit=lir`; then **`load_field`/`store_field` — DONE
    (2026-08-14)** (model field offsets mirror the C backend's struct layout; see
    `src/backend/mir/model_layout.zig`, and note `std.Io.Threaded.global_single_threaded`
