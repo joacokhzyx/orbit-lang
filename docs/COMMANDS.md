@@ -11,6 +11,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit build <file>` | Compile an Orbit source file to an executable | `orbit build main.orb -o main` |
 | `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
 | `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
+| `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
 | `orbit --help` | Display the command-line help | `orbit --help` |
 | `orbit --version` | Display the compiler version | `orbit --version` |
 

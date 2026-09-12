@@ -15,8 +15,14 @@
 #include <stdio.h>
 #ifdef _WIN32
 #include <direct.h>
+#include <windows.h>
 #else
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
 #endif
 
 orbit_string orbit_os_cwd(OrbitArena* arena) {
@@ -158,6 +164,129 @@ orbit_int orbit_os_spawn(orbit_string command) {
     if (status == -1) return 1;
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     return 1;
+#endif
+}
+
+// ---- Single-host cluster orchestration (orbit cluster v1) ----------------
+// Detached background spawn + signal/probe. Used by the compiler binary
+// itself for `orbit cluster` (trusted infrastructure, like orbit_os_spawn).
+
+// Launch `command` detached: stdin is /dev/null (NUL), stdout/stderr are
+// appended to `logfile` (discarded when empty). Returns the child pid (>0),
+// or -1 when the child could not be started.
+// POSIX: fork + setsid, then `sh -c "exec <command>"` so the returned pid is
+// the server itself (no intermediate shell left to orphan). A graceful stop
+// sent to this pid therefore reaches the server's own SIGTERM handler.
+// Windows: CreateProcess with DETACHED_PROCESS, std handles on the log file.
+orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile) {
+    if (!command || !*command) return -1;
+#ifdef _WIN32
+    const char* lf = (logfile && *logfile) ? logfile : "NUL";
+    SECURITY_ATTRIBUTES sa;
+    ZeroMemory(&sa, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE hLog = CreateFileA(lf, FILE_APPEND_DATA,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hLog == INVALID_HANDLE_VALUE) return -1;
+    HANDLE hIn = CreateFileA("NUL", GENERIC_READ,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE,
+                             &sa, OPEN_EXISTING, 0, NULL);
+    STARTUPINFOA si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = hLog;
+    si.hStdError = hLog;
+    si.hStdInput = (hIn == INVALID_HANDLE_VALUE) ? NULL : hIn;
+    /* CreateProcessA may modify the command line: pass a mutable copy. */
+    size_t n = strlen(command);
+    char* cmdline = (char*)malloc(n + 1);
+    if (!cmdline) {
+        CloseHandle(hLog);
+        if (hIn != INVALID_HANDLE_VALUE) CloseHandle(hIn);
+        return -1;
+    }
+    memcpy(cmdline, command, n + 1);
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof(pi));
+    BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE,
+                             DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+                             NULL, NULL, &si, &pi);
+    free(cmdline);
+    CloseHandle(hLog);
+    if (hIn != INVALID_HANDLE_VALUE) CloseHandle(hIn);
+    if (!ok) return -1;
+    CloseHandle(pi.hThread);
+    orbit_int cpid = (orbit_int)pi.dwProcessId;
+    CloseHandle(pi.hProcess);
+    return cpid;
+#else
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        if (setsid() < 0) _exit(127);
+        const char* lf = (logfile && *logfile) ? logfile : "/dev/null";
+        int fd = open(lf, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) {
+            dup2(fd, STDOUT_FILENO);
+            dup2(fd, STDERR_FILENO);
+            if (fd > STDERR_FILENO) close(fd);
+        }
+        int dn = open("/dev/null", O_RDONLY);
+        if (dn >= 0) {
+            dup2(dn, STDIN_FILENO);
+            if (dn > STDERR_FILENO) close(dn);
+        }
+        /* `exec` replaces the shell, so getpid() == server pid. */
+        size_t clen = strlen(command);
+        char* exec_cmd = (char*)malloc(clen + 6);
+        if (!exec_cmd) _exit(127);
+        memcpy(exec_cmd, "exec ", 5);
+        memcpy(exec_cmd + 5, command, clen + 1);
+        execl("/bin/sh", "sh", "-c", exec_cmd, (char*)NULL);
+        _exit(127);
+    }
+    return (orbit_int)pid;
+#endif
+}
+
+// Signal or probe a process by pid.
+// mode 0 = forceful stop  (POSIX SIGKILL / Windows TerminateProcess).
+// mode 1 = graceful stop  (POSIX SIGTERM, honored by the generated server's
+//          drain handler; Windows TerminateProcess, which is NOT graceful).
+// mode 2 = probe only: report whether pid is alive, send nothing
+//          (POSIX kill(pid,0), plus a waitpid reap check so an already-exited
+//           child of this process reads as dead instead of lingering as a
+//           zombie; Windows OpenProcess + WaitForSingleObject(0)).
+// Returns 1 on success (probe: alive), 0 on failure (probe: dead/absent).
+orbit_int orbit_os_kill(orbit_int pid, orbit_int mode) {
+    if (pid <= 0) return 0;
+#ifdef _WIN32
+    if (mode == 2) {
+        HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
+        if (h == NULL) return 0;
+        DWORD w = WaitForSingleObject(h, 0);
+        CloseHandle(h);
+        return (w == WAIT_TIMEOUT) ? 1 : 0;
+    }
+    HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+    if (h == NULL) return 0;
+    BOOL ok = TerminateProcess(h, 0);
+    CloseHandle(h);
+    return ok ? 1 : 0;
+#else
+    if (mode == 2) {
+        int status = 0;
+        pid_t w = waitpid((pid_t)pid, &status, WNOHANG);
+        if (w == (pid_t)pid) return 0; /* own child, exited: reaped, dead */
+        if (w == 0) return 1;          /* own child, still running */
+        if (kill((pid_t)pid, 0) == 0) return 1;
+        return (errno == EPERM) ? 1 : 0; /* exists, but not permitted */
+    }
+    int sig = (mode == 0) ? SIGKILL : SIGTERM;
+    return (kill((pid_t)pid, sig) == 0) ? 1 : 0;
 #endif
 }
 

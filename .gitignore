@@ -79,3 +79,6 @@ research/
 
 # Fuzzer crash corpus (local evidence)
 fuzz_crashes/
+
+# Single-host cluster orchestration state (orbit cluster v1)
+.orbit/

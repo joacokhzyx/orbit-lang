@@ -10,6 +10,7 @@
 import "./extern.orb"
 import "./frontend/frontend.orb"
 import "./pipeline.orb"
+import "./cluster.orb"
 
 fn frontendOutputPath() -> string {
     var i = 2
@@ -82,6 +83,9 @@ fn printHelp() {
     print("  check <file.orb>           Parse and typecheck, no code emitted")
     print("  frontend <input.orb> [-o output.tir]")
     print("  lextrace <file.orb>")
+    print("  cluster up --nodes N --port-base P [--log-dir D] [--service S]")
+    print("  cluster status|drain <node>|restart --rolling|down|logs <node>")
+    print("                           Single-host multiprocess orchestration (see docs/CLUSTER.md)")
     print("  --help, -h                 Show this help")
     print("  --version, -v              Show version")
 }
@@ -149,6 +153,11 @@ fn main() {
     }
     if cmd == "check" {
         runCheck()
+        return
+    }
+    // cluster dispatch (agent)
+    if cmd == "cluster" {
+        runCluster()
         return
     }
     var outputPath = ""

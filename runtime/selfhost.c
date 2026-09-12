@@ -38,6 +38,14 @@ orbit_int orbit_os_spawn_selfhost(orbit_string command) {
     return (orbit_os_spawn)(command);
 }
 
+orbit_int orbit_os_spawn_bg_selfhost(orbit_string command, orbit_string logfile) {
+    return (orbit_os_spawn_bg)(command, logfile);
+}
+
+orbit_int orbit_os_kill_selfhost(orbit_int pid, orbit_int mode) {
+    return (orbit_os_kill)(pid, mode);
+}
+
 orbit_string orbit_os_env_selfhost(orbit_string var_name) {
     return (orbit_os_env)(orbit_arena_get_global(), var_name);
 }
@@ -93,6 +101,8 @@ orbit_int orbit_string_char_at_selfhost(orbit_string s, orbit_int index) {
 #define orbit_os_argv(idx)        orbit_os_argv_selfhost(idx)
 #define orbit_os_exec(cmd)        orbit_os_exec_selfhost(cmd)
 #define orbit_os_spawn(cmd)       orbit_os_spawn_selfhost(cmd)
+#define orbit_os_spawn_bg(c, l)   orbit_os_spawn_bg_selfhost(c, l)
+#define orbit_os_kill(pid, mode)  orbit_os_kill_selfhost(pid, mode)
 #define orbit_os_env(var)         orbit_os_env_selfhost(var)
 #define orbit_os_exit(code)       orbit_os_exit_selfhost(code)
 #define orbit_file_read(path)     orbit_file_read_selfhost(path)
