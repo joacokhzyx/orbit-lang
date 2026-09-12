@@ -1,0 +1,717 @@
+// Orbit cluster v1: single-host multiprocess orchestration.
+//
+// Scope: one machine, N processes. No gossip, no leader election, no
+// cross-host routing. State lives in .orbit/cluster.json; liveness is a
+// pid probe (orbit_os_kill_selfhost with mode 2). Health is process
+// liveness only: fetch() is a route-context builtin and is currently a
+// stub, so no HTTP check is performed.
+
+import "./extern.orb"
+import "./pipeline.orb"
+
+fn clusterParseInt(s: string) -> int {
+    var result = 0
+    var i = 0
+    while i < s.len() {
+        val c = s.at(i)
+        if c >= 48 && c <= 57 {
+            result = result * 10 + (c - 48)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn clusterIsDigits(s: string) -> bool {
+    if s.len() == 0 { return false }
+    var i = 0
+    while i < s.len() {
+        val c = s.at(i)
+        if c < 48 || c > 57 { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn clusterFlagValue(name: string, fromIdx: int) -> string {
+    var i = fromIdx
+    while true {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "" { break }
+        if a == name {
+            return orbit_os_argv_selfhost(i + 1)
+        }
+        val prefix = name + "="
+        if a.len() > prefix.len() && a.slice(0, prefix.len()) == prefix {
+            return a.slice(prefix.len(), a.len())
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fn clusterHasFlag(name: string, fromIdx: int) -> bool {
+    var i = fromIdx
+    while true {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "" { break }
+        if a == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn clusterIsWindows() -> bool {
+    val osName = orbit_os_env_selfhost("OS")
+    val winDir = orbit_os_env_selfhost("WINDIR")
+    if osName == "Windows_NT" || winDir != "" { return true }
+    return false
+}
+
+fn clusterNativePath(p: string) -> string {
+    if clusterIsWindows() == false { return p }
+    var out = ""
+    var i = 0
+    while i < p.len() {
+        if p.at(i) == 47 {
+            out = out + "\\"
+        } else {
+            out = out + p.slice(i, i + 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn clusterEnsureDir(path: string) {
+    val native = clusterNativePath(path)
+    if clusterIsWindows() {
+        val ignoredMk = orbit_os_exec_selfhost("mkdir \"" + native + "\" 2> NUL")
+    } else {
+        val ignoredMk2 = orbit_os_exec_selfhost("mkdir -p \"" + native + "\"")
+    }
+}
+
+fn clusterSleepSec(sec: int) {
+    var s = 0
+    while s < sec {
+        if clusterIsWindows() {
+            val ignoredSl = orbit_os_exec_selfhost("timeout /T 1 /NOBREAK > NUL 2>&1")
+        } else {
+            val ignoredSl2 = orbit_os_exec_selfhost("sleep 1")
+        }
+        s = s + 1
+    }
+}
+
+fn clusterIndexOfFrom(hay: string, needle: string, from: int) -> int {
+    if from < 0 { return -1 }
+    if from >= hay.len() { return -1 }
+    val tail = hay.slice(from, hay.len())
+    val pos = orbit_string_indexOf(tail, needle)
+    if pos == -1 { return -1 }
+    return from + pos
+}
+
+fn clusterFieldStr(content: string, key: string) -> string {
+    val needle = "\"" + key + "\":"
+    val pos = orbit_string_indexOf(content, needle)
+    if pos == -1 { return "" }
+    var i = pos + needle.len()
+    while i < content.len() {
+        if content.at(i) == 34 { break }
+        i = i + 1
+    }
+    if i >= content.len() { return "" }
+    val start = i + 1
+    var j = start
+    while j < content.len() {
+        if content.at(j) == 34 { break }
+        j = j + 1
+    }
+    return content.slice(start, j)
+}
+
+fn clusterNodeCount(content: string) -> int {
+    var n = 0
+    while n < 1024 {
+        val needle = "\"id\": " + orbit_int_to_string_selfhost(n) + ","
+        if orbit_string_indexOf(content, needle) == -1 { break }
+        n = n + 1
+    }
+    return n
+}
+
+fn clusterNodeInt(content: string, id: int, key: string) -> int {
+    val idNeedle = "\"id\": " + orbit_int_to_string_selfhost(id) + ","
+    val idPos = orbit_string_indexOf(content, idNeedle)
+    if idPos == -1 { return -1 }
+    val keyNeedle = "\"" + key + "\": "
+    val keyPos = clusterIndexOfFrom(content, keyNeedle, idPos)
+    if keyPos == -1 { return -1 }
+    val nextId = clusterIndexOfFrom(content, "\"id\": ", idPos + 1)
+    if nextId != -1 && keyPos > nextId { return -1 }
+    var i = keyPos + keyNeedle.len()
+    var num = 0
+    var found = false
+    while i < content.len() {
+        val c = content.at(i)
+        if c >= 48 && c <= 57 {
+            num = num * 10 + (c - 48)
+            found = true
+        } else {
+            if found { break }
+        }
+        i = i + 1
+    }
+    if found { return num }
+    return -1
+}
+
+fn clusterSetNodePid(content: string, id: int, pid: int) -> string {
+    val idNeedle = "\"id\": " + orbit_int_to_string_selfhost(id) + ","
+    val idPos = orbit_string_indexOf(content, idNeedle)
+    if idPos == -1 { return content }
+    val keyNeedle = "\"pid\": "
+    val keyPos = clusterIndexOfFrom(content, keyNeedle, idPos)
+    if keyPos == -1 { return content }
+    val start = keyPos + keyNeedle.len()
+    var end = start
+    while end < content.len() {
+        val c = content.at(end)
+        if c >= 48 && c <= 57 {
+            end = end + 1
+        } else {
+            break
+        }
+    }
+    return content.slice(0, start) + orbit_int_to_string_selfhost(pid) + content.slice(end, content.len())
+}
+
+fn clusterDrainingSub(content: string) -> string {
+    val needle = "\"draining\": ["
+    val pos = orbit_string_indexOf(content, needle)
+    if pos == -1 { return "" }
+    val start = pos + needle.len()
+    val tail = content.slice(start, content.len())
+    val endRel = orbit_string_indexOf(tail, "]")
+    if endRel == -1 { return "" }
+    return content.slice(start, start + endRel)
+}
+
+fn clusterDrainingContains(content: string, id: int) -> bool {
+    val sub = clusterDrainingSub(content)
+    if sub == "" { return false }
+    val want = orbit_int_to_string_selfhost(id)
+    var from = 0
+    while from < sub.len() {
+        val p = clusterIndexOfFrom(sub, want, from)
+        if p == -1 { return false }
+        var beforeOk = false
+        if p == 0 {
+            beforeOk = true
+        } else {
+            val b = sub.at(p - 1)
+            if b == 32 || b == 44 || b == 91 { beforeOk = true }
+        }
+        var afterOk = false
+        val afterPos = p + want.len()
+        if afterPos >= sub.len() {
+            afterOk = true
+        } else {
+            val a = sub.at(afterPos)
+            if a == 32 || a == 44 || a == 93 { afterOk = true }
+        }
+        if beforeOk && afterOk { return true }
+        from = p + 1
+    }
+    return false
+}
+
+fn clusterAddDraining(content: string, id: int) -> string {
+    if clusterDrainingContains(content, id) { return content }
+    val needle = "\"draining\": ["
+    val pos = orbit_string_indexOf(content, needle)
+    if pos == -1 { return content }
+    val start = pos + needle.len()
+    val sub = clusterDrainingSub(content)
+    if sub == "" {
+        return content.slice(0, start) + orbit_int_to_string_selfhost(id) + content.slice(start, content.len())
+    }
+    val tail = content.slice(start, content.len())
+    val endRel = orbit_string_indexOf(tail, "]")
+    if endRel == -1 { return content }
+    val at = start + endRel
+    return content.slice(0, at) + ", " + orbit_int_to_string_selfhost(id) + content.slice(at, content.len())
+}
+
+fn clusterBuildState(service: string, portBase: int, logDir: string, ports: list, pids: list, draining: list) -> string {
+    var out = "{\"version\": 1, \"service\": \"" + service + "\", \"port_base\": " + orbit_int_to_string_selfhost(portBase) + ", \"log_dir\": \"" + logDir + "\", \"nodes\": ["
+    var i = 0
+    while i < ports.len() {
+        val port: int = ports.get(i)
+        val pid: int = pids.get(i)
+        if i > 0 { out = out + ", " }
+        out = out + "{\"id\": " + orbit_int_to_string_selfhost(i) + ", \"port\": " + orbit_int_to_string_selfhost(port) + ", \"pid\": " + orbit_int_to_string_selfhost(pid) + "}"
+        i = i + 1
+    }
+    out = out + "], \"draining\": ["
+    var d = 0
+    while d < draining.len() {
+        val did: int = draining.get(d)
+        if d > 0 { out = out + ", " }
+        out = out + orbit_int_to_string_selfhost(did)
+        d = d + 1
+    }
+    out = out + "]}"
+    return out
+}
+
+fn clusterWaitAlive(pid: int, secs: int) -> bool {
+    var s = 0
+    while s < secs {
+        if orbit_os_kill_selfhost(pid, 2) == 1 { return true }
+        clusterSleepSec(1)
+        s = s + 1
+    }
+    if orbit_os_kill_selfhost(pid, 2) == 1 { return true }
+    return false
+}
+
+fn clusterWaitDead(pid: int, secs: int) -> bool {
+    var s = 0
+    while s < secs {
+        if orbit_os_kill_selfhost(pid, 2) == 0 { return true }
+        clusterSleepSec(1)
+        s = s + 1
+    }
+    if orbit_os_kill_selfhost(pid, 2) == 0 { return true }
+    return false
+}
+
+fn clusterConfirmAlive(pid: int) -> bool {
+    if clusterWaitAlive(pid, 10) == false { return false }
+    clusterSleepSec(2)
+    if orbit_os_kill_selfhost(pid, 2) == 1 { return true }
+    return false
+}
+
+fn clusterKillList(pids: list, mode: int) {
+    var i = 0
+    while i < pids.len() {
+        val pid: int = pids.get(i)
+        if pid > 0 {
+            val ignoredK = orbit_os_kill_selfhost(pid, mode)
+        }
+        i = i + 1
+    }
+}
+
+fn clusterUsage() {
+    print("Usage: orbit cluster <command> [options]")
+    print("")
+    print("Commands:")
+    print("  up --nodes N --port-base P [--log-dir D] [--service S]")
+    print("                           Compile the service once, launch N nodes on ports P..P+N-1")
+    print("  status                   Per-node health (alive/dead, draining flag)")
+    print("  drain <node>             Graceful stop of one node (finish in-flight, no restart)")
+    print("  restart --rolling        One node at a time, health-verified before the next")
+    print("  down                     Stop all nodes, remove state (no orphans left)")
+    print("  logs <node>              Print a node's log file")
+    print("")
+    print("Single host only. See docs/CLUSTER.md.")
+}
+
+fn clusterUp() {
+    val nodesStr = clusterFlagValue("--nodes", 3)
+    val portBaseStr = clusterFlagValue("--port-base", 3)
+    var logDir = clusterFlagValue("--log-dir", 3)
+    var servicePath = clusterFlagValue("--service", 3)
+    if logDir == "" { logDir = ".orbit/logs" }
+    if servicePath == "" { servicePath = "service.orb" }
+    if nodesStr == "" || portBaseStr == "" {
+        print("Usage: orbit cluster up --nodes N --port-base P [--log-dir D] [--service S]")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if clusterIsDigits(nodesStr) == false || clusterIsDigits(portBaseStr) == false {
+        orbit_os_write_stderr_selfhost("cluster up: --nodes and --port-base must be positive integers.\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.BadFlag\n")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if nodesStr.len() > 2 || portBaseStr.len() > 5 {
+        orbit_os_write_stderr_selfhost("cluster up: --nodes must be between 1 and 64.\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.BadFlag\n")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val nodeCount = clusterParseInt(nodesStr)
+    val portBase = clusterParseInt(portBaseStr)
+    if nodeCount < 1 || nodeCount > 64 {
+        orbit_os_write_stderr_selfhost("cluster up: --nodes must be between 1 and 64.\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.BadFlag\n")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val endPort = portBase + nodeCount
+    if portBase < 1 || portBase > 65535 || endPort > 65536 {
+        orbit_os_write_stderr_selfhost("cluster up: port range falls outside 1..65535.\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.BadFlag\n")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val existing = orbit_file_read_selfhost(".orbit/cluster.json")
+    if existing != "" {
+        print("cluster is already up (state file .orbit/cluster.json exists). Run `orbit cluster down` first.")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val source = orbit_file_read_selfhost(servicePath)
+    if source == "" {
+        orbit_os_write_stderr_selfhost("cluster up: could not read service file: " + servicePath + "\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.NoService\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    clusterEnsureDir(".orbit")
+    clusterEnsureDir(logDir)
+    var binary = ".orbit/cluster-service"
+    if clusterIsWindows() { binary = binary + ".exe" }
+    print("Compiling " + servicePath + " once...")
+    if compileSourceWithFile(source, servicePath, binary) == false {
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val runBin = clusterNativePath(binary)
+    val runLogDir = clusterNativePath(logDir)
+    var ports = []
+    var pids = []
+    var i = 0
+    while i < nodeCount {
+        val port = portBase + i
+        val log = runLogDir + "/node-" + orbit_int_to_string_selfhost(i) + ".log"
+        val cmd = "\"" + runBin + "\" " + orbit_int_to_string_selfhost(port)
+        val pid = orbit_os_spawn_bg_selfhost(cmd, log)
+        if pid <= 0 {
+            orbit_os_write_stderr_selfhost("cluster up: failed to start node " + orbit_int_to_string_selfhost(i) + " on port " + orbit_int_to_string_selfhost(port) + ".\n")
+            clusterKillList(pids, 1)
+            orbit_os_write_stderr_selfhost("\nERROR: cluster.SpawnFailed\n")
+            orbit_os_exit_selfhost(1)
+            return
+        }
+        ports.push(port)
+        pids.push(pid)
+        i = i + 1
+    }
+    var noDrain = []
+    val state = clusterBuildState(binary, portBase, logDir, ports, pids, noDrain)
+    if orbit_file_write_selfhost(".orbit/cluster.json", state) == false {
+        orbit_os_write_stderr_selfhost("cluster up: could not write state file .orbit/cluster.json.\n")
+        clusterKillList(pids, 1)
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.StateWriteFailed\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    var bad = 0
+    var j = 0
+    while j < nodeCount {
+        val wantPid: int = pids.get(j)
+        if clusterConfirmAlive(wantPid) == false {
+            print("node " + orbit_int_to_string_selfhost(j) + " (pid " + orbit_int_to_string_selfhost(wantPid) + ") did not become healthy. See " + logDir + "/node-" + orbit_int_to_string_selfhost(j) + ".log")
+            bad = bad + 1
+        }
+        j = j + 1
+    }
+    if bad > 0 {
+        print("cluster up: " + orbit_int_to_string_selfhost(bad) + " of " + orbit_int_to_string_selfhost(nodeCount) + " nodes failed. Inspect the logs, then run `orbit cluster down` to clean up.")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val lastPort = endPort - 1
+    print("cluster up: " + orbit_int_to_string_selfhost(nodeCount) + " nodes (" + binary + ", ports " + orbit_int_to_string_selfhost(portBase) + ".." + orbit_int_to_string_selfhost(lastPort) + ")")
+    var k = 0
+    while k < nodeCount {
+        val portK: int = ports.get(k)
+        val pidK: int = pids.get(k)
+        print("  node " + orbit_int_to_string_selfhost(k) + ": port " + orbit_int_to_string_selfhost(portK) + " pid " + orbit_int_to_string_selfhost(pidK) + " alive")
+        k = k + 1
+    }
+}
+
+fn clusterStatus() {
+    val content = orbit_file_read_selfhost(".orbit/cluster.json")
+    if content == "" {
+        print("cluster: down (no state file .orbit/cluster.json)")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val count = clusterNodeCount(content)
+    print("cluster: " + orbit_int_to_string_selfhost(count) + " nodes (single host)")
+    var i = 0
+    while i < count {
+        val port = clusterNodeInt(content, i, "port")
+        val pid = clusterNodeInt(content, i, "pid")
+        var health = "dead"
+        if pid > 0 && orbit_os_kill_selfhost(pid, 2) == 1 { health = "alive" }
+        var extra = ""
+        if clusterDrainingContains(content, i) { extra = " draining" }
+        print("  node " + orbit_int_to_string_selfhost(i) + ": port " + orbit_int_to_string_selfhost(port) + " pid " + orbit_int_to_string_selfhost(pid) + " " + health + extra)
+        i = i + 1
+    }
+}
+
+fn clusterDrain() {
+    val target = orbit_os_argv_selfhost(3)
+    if target == "" || clusterIsDigits(target) == false {
+        print("Usage: orbit cluster drain <node>")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val id = clusterParseInt(target)
+    val content = orbit_file_read_selfhost(".orbit/cluster.json")
+    if content == "" {
+        print("cluster: down (no state file .orbit/cluster.json)")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val port = clusterNodeInt(content, id, "port")
+    val pid = clusterNodeInt(content, id, "pid")
+    if port == -1 || pid == -1 {
+        orbit_os_write_stderr_selfhost("cluster drain: unknown node: " + target + "\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.UnknownNode\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    if clusterDrainingContains(content, id) {
+        print("node " + target + " is already draining.")
+    }
+    if orbit_os_kill_selfhost(pid, 2) != 1 {
+        print("node " + target + " (pid " + orbit_int_to_string_selfhost(pid) + ") is already stopped. Marking drained.")
+        val updGone = clusterAddDraining(content, id)
+        if orbit_file_write_selfhost(".orbit/cluster.json", updGone) == false {
+            orbit_os_write_stderr_selfhost("cluster drain: state file could not be updated.\n")
+            orbit_os_write_stderr_selfhost("\nERROR: cluster.StateWriteFailed\n")
+            orbit_os_exit_selfhost(1)
+            return
+        }
+        return
+    }
+    if orbit_os_kill_selfhost(pid, 1) != 1 {
+        orbit_os_write_stderr_selfhost("cluster drain: could not signal node " + target + " (pid " + orbit_int_to_string_selfhost(pid) + ").\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.SignalFailed\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val upd = clusterAddDraining(content, id)
+    if orbit_file_write_selfhost(".orbit/cluster.json", upd) == false {
+        orbit_os_write_stderr_selfhost("cluster drain: node signaled, but the state file could not be updated.\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.StateWriteFailed\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    print("draining node " + target + " (port " + orbit_int_to_string_selfhost(port) + ", pid " + orbit_int_to_string_selfhost(pid) + "): graceful stop requested, in-flight requests finish first.")
+}
+
+fn clusterRestart() {
+    if clusterHasFlag("--rolling", 3) == false {
+        print("Usage: orbit cluster restart --rolling")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    var content = orbit_file_read_selfhost(".orbit/cluster.json")
+    if content == "" {
+        print("cluster: down (no state file .orbit/cluster.json)")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val binary = clusterFieldStr(content, "service")
+    val logDir = clusterFieldStr(content, "log_dir")
+    if binary == "" || logDir == "" {
+        orbit_os_write_stderr_selfhost("cluster restart: state file is corrupt (missing service/log_dir).\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.BadState\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val runBin = clusterNativePath(binary)
+    val runLogDir = clusterNativePath(logDir)
+    val count = clusterNodeCount(content)
+    print("rolling restart: " + orbit_int_to_string_selfhost(count) + " nodes, one at a time.")
+    var i = 0
+    while i < count {
+        content = orbit_file_read_selfhost(".orbit/cluster.json")
+        if clusterDrainingContains(content, i) {
+            print("  node " + orbit_int_to_string_selfhost(i) + ": skipping (draining).")
+        } else {
+            val port = clusterNodeInt(content, i, "port")
+            val pid = clusterNodeInt(content, i, "pid")
+            if port == -1 || pid == -1 {
+                orbit_os_write_stderr_selfhost("cluster restart: state file is corrupt (node " + orbit_int_to_string_selfhost(i) + " unreadable). Aborting.\n")
+                orbit_os_write_stderr_selfhost("\nERROR: cluster.BadState\n")
+                orbit_os_exit_selfhost(1)
+                return
+            }
+            print("  node " + orbit_int_to_string_selfhost(i) + ": stopping pid " + orbit_int_to_string_selfhost(pid) + " (port " + orbit_int_to_string_selfhost(port) + ")...")
+            if orbit_os_kill_selfhost(pid, 2) == 1 {
+                val ignoredStop = orbit_os_kill_selfhost(pid, 1)
+                if clusterWaitDead(pid, 10) == false {
+                    print("  node " + orbit_int_to_string_selfhost(i) + ": graceful stop timed out, forcing.")
+                    val ignoredForce = orbit_os_kill_selfhost(pid, 0)
+                    if clusterWaitDead(pid, 5) == false {
+                        orbit_os_write_stderr_selfhost("cluster restart: node " + orbit_int_to_string_selfhost(i) + " did not stop. Aborting; remaining nodes untouched.\n")
+                        orbit_os_write_stderr_selfhost("\nERROR: cluster.StopFailed\n")
+                        orbit_os_exit_selfhost(1)
+                        return
+                    }
+                }
+            }
+            val log = runLogDir + "/node-" + orbit_int_to_string_selfhost(i) + ".log"
+            val cmd = "\"" + runBin + "\" " + orbit_int_to_string_selfhost(port)
+            val newPid = orbit_os_spawn_bg_selfhost(cmd, log)
+            if newPid <= 0 {
+                orbit_os_write_stderr_selfhost("cluster restart: node " + orbit_int_to_string_selfhost(i) + " failed to start. Aborting; inspect " + log + ".\n")
+                orbit_os_write_stderr_selfhost("\nERROR: cluster.SpawnFailed\n")
+                orbit_os_exit_selfhost(1)
+                return
+            }
+            if clusterConfirmAlive(newPid) == false {
+                val updBad = clusterSetNodePid(content, i, newPid)
+                val ignoredW = orbit_file_write_selfhost(".orbit/cluster.json", updBad)
+                orbit_os_write_stderr_selfhost("cluster restart: replacement for node " + orbit_int_to_string_selfhost(i) + " (pid " + orbit_int_to_string_selfhost(newPid) + ") failed health. Aborting; inspect " + log + ".\n")
+                orbit_os_write_stderr_selfhost("\nERROR: cluster.Unhealthy\n")
+                orbit_os_exit_selfhost(1)
+                return
+            }
+            val upd = clusterSetNodePid(content, i, newPid)
+            if orbit_file_write_selfhost(".orbit/cluster.json", upd) == false {
+                orbit_os_write_stderr_selfhost("cluster restart: node restarted, but the state file could not be updated.\n")
+                orbit_os_write_stderr_selfhost("\nERROR: cluster.StateWriteFailed\n")
+                orbit_os_exit_selfhost(1)
+                return
+            }
+            print("  node " + orbit_int_to_string_selfhost(i) + ": pid " + orbit_int_to_string_selfhost(pid) + " -> " + orbit_int_to_string_selfhost(newPid) + " healthy.")
+        }
+        i = i + 1
+    }
+    print("rolling restart complete.")
+}
+
+fn clusterDown() {
+    val content = orbit_file_read_selfhost(".orbit/cluster.json")
+    if content == "" {
+        print("cluster: already down (no state file).")
+        return
+    }
+    val count = clusterNodeCount(content)
+    var i = 0
+    while i < count {
+        val pid: int = clusterNodeInt(content, i, "pid")
+        if pid > 0 && orbit_os_kill_selfhost(pid, 2) == 1 {
+            val ignoredD = orbit_os_kill_selfhost(pid, 1)
+        }
+        i = i + 1
+    }
+    clusterSleepSec(3)
+    var j = 0
+    while j < count {
+        val pid2: int = clusterNodeInt(content, j, "pid")
+        if pid2 > 0 && orbit_os_kill_selfhost(pid2, 2) == 1 {
+            val ignoredF = orbit_os_kill_selfhost(pid2, 0)
+        }
+        j = j + 1
+    }
+    clusterSleepSec(2)
+    var survivors = 0
+    var survList = ""
+    var k = 0
+    while k < count {
+        val pid3: int = clusterNodeInt(content, k, "pid")
+        if pid3 > 0 && orbit_os_kill_selfhost(pid3, 2) == 1 {
+            survivors = survivors + 1
+            survList = survList + orbit_int_to_string_selfhost(k) + " "
+            print("  node " + orbit_int_to_string_selfhost(k) + " (pid " + orbit_int_to_string_selfhost(pid3) + "): still running.")
+        } else {
+            print("  node " + orbit_int_to_string_selfhost(k) + ": stopped.")
+        }
+        k = k + 1
+    }
+    if clusterIsWindows() {
+        val ignoredRm = orbit_os_exec_selfhost("del /F /Q \".orbit\\cluster.json\"")
+    } else {
+        val ignoredRm2 = orbit_os_exec_selfhost("rm -f .orbit/cluster.json")
+    }
+    val after = orbit_file_read_selfhost(".orbit/cluster.json")
+    if after != "" {
+        orbit_os_write_stderr_selfhost("cluster down: nodes stopped, but the state file could not be removed.\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.StateRemoveFailed\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    if survivors > 0 {
+        orbit_os_write_stderr_selfhost("cluster down: " + orbit_int_to_string_selfhost(survivors) + " node(s) still running (" + survList + ").\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.StopFailed\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    print("cluster down: all " + orbit_int_to_string_selfhost(count) + " nodes stopped, state removed.")
+}
+
+fn clusterLogs() {
+    val target = orbit_os_argv_selfhost(3)
+    if target == "" || clusterIsDigits(target) == false {
+        print("Usage: orbit cluster logs <node>")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    var logDir = ".orbit/logs"
+    val content = orbit_file_read_selfhost(".orbit/cluster.json")
+    if content != "" {
+        val ld = clusterFieldStr(content, "log_dir")
+        if ld != "" { logDir = ld }
+    }
+    val path = logDir + "/node-" + target + ".log"
+    val body = orbit_file_read_selfhost(path)
+    if body == "" {
+        orbit_os_write_stderr_selfhost("cluster logs: no log output in " + path + " (missing or empty).\n")
+        orbit_os_write_stderr_selfhost("\nERROR: cluster.NoLogs\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    print(body)
+}
+
+fn runCluster() {
+    val sub = orbit_os_argv_selfhost(2)
+    if sub == "" || sub == "help" || sub == "--help" || sub == "-h" {
+        clusterUsage()
+        if sub == "" { orbit_os_exit_selfhost(2) }
+        return
+    }
+    if sub == "up" {
+        clusterUp()
+        return
+    }
+    if sub == "status" {
+        clusterStatus()
+        return
+    }
+    if sub == "drain" {
+        clusterDrain()
+        return
+    }
+    if sub == "restart" {
+        clusterRestart()
+        return
+    }
+    if sub == "down" {
+        clusterDown()
+        return
+    }
+    if sub == "logs" {
+        clusterLogs()
+        return
+    }
+    print("Unknown cluster command: " + sub)
+    clusterUsage()
+    orbit_os_exit_selfhost(2)
+}

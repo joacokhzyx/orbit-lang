@@ -13,6 +13,7 @@ import "./fmt.orb"
 import "./frontend/frontend.orb"
 import "./pipeline.orb"
 import "./doctor.orb"
+import "./cluster.orb"
 
 fn frontendOutputPath() -> string {
     var i = 2
@@ -88,6 +89,9 @@ fn printHelp() {
     print("  doctor [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)")
     print("  frontend <input.orb> [-o output.tir]")
     print("  lextrace <file.orb>")
+    print("  cluster up --nodes N --port-base P [--log-dir D] [--service S]")
+    print("  cluster status|drain <node>|restart --rolling|down|logs <node>")
+    print("                           Single-host multiprocess orchestration (see docs/CLUSTER.md)")
     print("  --help, -h                 Show this help")
     print("  --version, -v              Show version")
 }
@@ -146,7 +150,7 @@ fn main() {
         return
     }
     if cmd == "--version" || cmd == "-v" {
-        print("orbit 0.1.0-rc.2")
+        print("orbit 0.1.0")
         return
     }
     if cmd == "run" {
@@ -165,6 +169,11 @@ fn main() {
     // doctor dispatch (agent)
     if cmd == "doctor" {
         runDoctor()
+        return
+    }
+    // cluster dispatch (agent)
+    if cmd == "cluster" {
+        runCluster()
         return
     }
     var outputPath = ""

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Frontend fuzzer (R1.2): the compiler must never crash natively.
 
-Contract: for ANY input file, `orbit build` exits 0 (accepted) or 1
-(clean diagnostics). Any other exit code (native crash, access
-violation, stack overflow) is a bug; the offending input is saved.
+Contract: for ANY input file, `orbit build` exits 0 (accepted), 1
+(clean diagnostics) or 2 (clean usage rejection). Any other exit code
+(native crash, access violation, stack overflow) is a bug; the
+offending input is saved.
 
 Mutations over the probe corpus: truncation, byte flips, deep nesting,
 quote injection, identifier soup, NUL bytes.
@@ -109,7 +110,7 @@ def main() -> int:
             rc = -999
         if rc == 0:
             accepted += 1
-        elif rc == 1:
+        elif rc == 1 or rc == 2:
             clean_rejects += 1
         else:
             crashes += 1

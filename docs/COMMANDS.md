@@ -13,6 +13,8 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
+| `orbit doctor [dir]` | Read-only project checks | `orbit doctor ./examples` |
+| `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
 | `orbit --help` | Display the command-line help | `orbit --help` |
 | `orbit --version` | Display the compiler version | `orbit --version` |
 
