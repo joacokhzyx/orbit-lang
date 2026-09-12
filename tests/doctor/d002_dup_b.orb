@@ -1,0 +1,3 @@
+route GET "/dup" {
+    return ok 200 "d"
+}

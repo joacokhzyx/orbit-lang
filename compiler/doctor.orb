@@ -318,8 +318,8 @@ fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
     while a < routes.len() {
         var b = a + 1
         while b < routes.len() {
-            val ra = routes.get(a)
-            val rb = routes.get(b)
+            val ra: DoctorRoute = routes.get(a)
+            val rb: DoctorRoute = routes.get(b)
             if ra.method == rb.method {
                 if ra.normPath == rb.normPath {
                     if ra.rawPath == rb.rawPath {
@@ -578,7 +578,7 @@ fn doctorUsedInText(files: list, sources: list, declFile: string, declLine: int,
 fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, sources: list) {
     var i = 0
     while i < decls.len() {
-        val d = decls.get(i)
+        val d: DoctorDecl = decls.get(i)
         var reportable = true
         if d.name == "main" { reportable = false }
         if d.isExtern { reportable = false }
