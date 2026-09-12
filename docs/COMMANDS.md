@@ -9,9 +9,12 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | Command | Purpose | Example |
 |---|---|---|
 | `orbit build <file>` | Compile an Orbit source file to an executable | `orbit build main.orb -o main` |
-| `orbit run <file>` | Build and execute an Orbit source file | `orbit run main.orb` |
-| `orbit dev <file>` | Run a source file in development mode with reload support where available | `orbit dev main.orb` |
+| `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
+| `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
 | `orbit --help` | Display the command-line help | `orbit --help` |
+| `orbit --version` | Display the compiler version | `orbit --version` |
+
+`orbit dev` (watch/reload) is not implemented yet. Calling it treats `dev` as a filename and fails — that error message is honest, not a silent stub.
 
 When Orbit was built locally and is not installed on `PATH`, call it by its path:
 

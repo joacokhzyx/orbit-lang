@@ -1,8 +1,11 @@
 // Orbit self-hosting compiler entry point.
 //
 // Subcommands supported:
-//   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
 //   - `build <input.orb> [-o output.exe]`: Standard build driver.
+//   - `run <input.orb>`: Build, then run it with inherited stdio.
+//   - `check <input.orb>`: Parse and typecheck only, no code emitted.
+//   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
+//   - `--help, -h` / `--version, -v`
 
 import "./extern.orb"
 import "./frontend/frontend.orb"
@@ -70,7 +73,84 @@ fn runFrontend() {
     }
 }
 
+fn printHelp() {
+    print("Usage: orbit <command> [options]")
+    print("")
+    print("Commands:")
+    print("  build <file.orb> [-o out]  Compile to a native executable")
+    print("  run <file.orb>             Build and run it (shares your terminal)")
+    print("  check <file.orb>           Parse and typecheck, no code emitted")
+    print("  frontend <input.orb> [-o output.tir]")
+    print("  lextrace <file.orb>")
+    print("  --help, -h                 Show this help")
+    print("  --version, -v              Show version")
+}
+
+fn runRun() {
+    val inputPath = orbit_os_argv_selfhost(2)
+    if inputPath == "" {
+        print("Usage: orbit run <file.orb>")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val source = orbit_file_read_selfhost(inputPath)
+    if source == "" {
+        print("Error: Could not read input file: " + inputPath)
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    var outputPath = inputPath + ".run"
+    val osName = orbit_os_env_selfhost("OS")
+    val winDir = orbit_os_env_selfhost("WINDIR")
+    if osName == "Windows_NT" || winDir != "" {
+        outputPath = outputPath + ".exe"
+    }
+    if compileSourceWithFile(source, inputPath, outputPath) == false {
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val code = orbit_os_spawn_selfhost("\"" + outputPath + "\"")
+    orbit_os_exit_selfhost(code)
+}
+
+fn runCheck() {
+    val inputPath = orbit_os_argv_selfhost(2)
+    if inputPath == "" {
+        print("Usage: orbit check <file.orb>")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val source = orbit_file_read_selfhost(inputPath)
+    if source == "" {
+        print("Error: Could not read input file: " + inputPath)
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    if checkSourceWithFile(source, inputPath) == false {
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    print("Checked " + inputPath + ": no errors.")
+}
+
 fn main() {
+    val cmd = orbit_os_argv_selfhost(1)
+    if cmd == "--help" || cmd == "-h" {
+        printHelp()
+        return
+    }
+    if cmd == "--version" || cmd == "-v" {
+        print("orbit 0.1.0-rc.2")
+        return
+    }
+    if cmd == "run" {
+        runRun()
+        return
+    }
+    if cmd == "check" {
+        runCheck()
+        return
+    }
     var outputPath = ""
     var inputPath = ""
     var i = 1

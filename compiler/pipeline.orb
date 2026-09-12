@@ -77,6 +77,51 @@ fn compileSource(source: string, outputPath: string) -> bool {
     return compileSourceWithFile(source, "", outputPath)
 }
 
+// Parse + resolve + typecheck only. No C is emitted and no C compiler
+// runs, so `orbit check` stays fast even on modest machines.
+fn checkSourceWithFile(source: string, inputPath: string) -> bool {
+    val parser = initParser(source)
+    val rawAST = parseProgram(parser)
+    if parser.diagnostics.len() > 0 {
+        val diag: ParserDiagnostic = parser.diagnostics.get(0)
+        if diag.code != "" {
+            val srcLine = getSourceLine(source, diag.line)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, "Check for missing brackets, quotes, or keywords before this token.", diag.kind)
+        } else {
+            var i = 0
+            while i < parser.diagnostics.len() {
+                val d: ParserDiagnostic = parser.diagnostics.get(i)
+                print("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message)
+                i = i + 1
+            }
+        }
+        return false
+    }
+
+    val resolver = initModuleResolver()
+    val ast = resolveModuleAST(resolver, rawAST, inputPath)
+    if resolver.errors.len() > 0 {
+        var ri = 0
+        while ri < resolver.errors.len() {
+            print("Import error: " + resolver.errors.get(ri))
+            ri = ri + 1
+        }
+        return false
+    }
+
+    val sema = initSema()
+    analyze(sema, ast)
+    if hasErrors(sema) {
+        var ei = 0
+        while ei < sema.errors.len() {
+            print("Semantic error: " + sema.errors.get(ei))
+            ei = ei + 1
+        }
+        return false
+    }
+    return true
+}
+
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
     val parser = initParser(source)
     val rawAST = parseProgram(parser)

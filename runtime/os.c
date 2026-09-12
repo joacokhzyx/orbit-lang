@@ -145,6 +145,22 @@ void orbit_os_exit(orbit_int code) {
     exit((int)code);
 }
 
+// Spawn a command with inherited stdio (for `orbit run`).
+// Unlike orbit_os_exec (popen capture, waits for EOF), this lets
+// long-running programs such as servers own the terminal.
+// Returns the child exit code, or 1 when it cannot be determined.
+orbit_int orbit_os_spawn(orbit_string command) {
+    if (!command) return 1;
+#ifdef _WIN32
+    return system(command);
+#else
+    int status = system(command);
+    if (status == -1) return 1;
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return 1;
+#endif
+}
+
 #ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
