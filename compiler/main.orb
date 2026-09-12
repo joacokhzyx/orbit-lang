@@ -51,7 +51,7 @@ fn runFrontend() {
     val inputPath = orbit_os_argv_selfhost(2)
     if inputPath == "" {
         print("Usage: orbit frontend <input.orb> [-o output.tir]")
-        orbit_os_exit_selfhost(1)
+        orbit_os_exit_selfhost(2)
         return
     }
 
@@ -209,7 +209,7 @@ fn main() {
 
     if inputPath == "" {
         print("Error: No input file specified.")
-        orbit_os_exit_selfhost(1)
+        orbit_os_exit_selfhost(2)
         return
     }
 
