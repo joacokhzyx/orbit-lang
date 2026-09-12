@@ -161,8 +161,11 @@ not measured is not exposed (no success/error split, no p50/p95/p99 yet).
 
 Every server records per-route handler cost automatically — no annotations.
 `/_ledger` serves a live table (loopback only), `/_ledger/data` the same as
-JSON. Columns: requests, mean ms, DB share. Milliseconds share the request
-log's approximate clock basis. Paths starting with `/_` are reserved for
+JSON. Columns: requests, mean ms, DB share, energy, source. Milliseconds share the request
+log's approximate clock basis. The energy column reads joules per request
+(estimated route share, see `docs/ENERGY.md`) where a power sensor exists,
+and a labeled CPU proxy in cycles where it does not — never converted.
+Paths starting with `/_` are reserved for
 runtime endpoints; do not define routes there.
 
 ## Compiler commands
