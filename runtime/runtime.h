@@ -56,6 +56,9 @@
 #include "hyperdrive.c"
 #include "selfhost.c"
 
+/* ── Energy sampler (Linux RAPL at 1 Hz; labeled CPU proxy elsewhere) ── */
+#include "energy.c"
+
 /* ── Cost ledger (per-route attribution, always on) ─────────────────── */
 #include "ledger.c"
 

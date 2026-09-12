@@ -69,10 +69,19 @@ void orbit_http_init(void) {
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
+    /* The energy sampler lives exactly as long as the server. The guard
+     * keeps translation units that include http.c without energy.c (such as
+     * the dispatch micro-benchmark shim) compiling unchanged. */
+#ifdef ORBIT_ENERGY_C
+    orbit_energy_start();
+#endif
 }
 
 /** @brief Shut down the HTTP layer (stops Winsock on Windows; no-op on POSIX). */
 void orbit_http_cleanup(void) {
+#ifdef ORBIT_ENERGY_C
+    orbit_energy_stop();
+#endif
 #ifdef _WIN32
     WSACleanup();
 #endif
