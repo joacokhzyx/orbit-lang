@@ -91,13 +91,13 @@ Or use the automated installer: `scripts/install.ps1` (Windows) / `scripts/insta
 ## Usage
 
 ```bash
-# Build an Orbit program to native executable
+# Check a file without emitting code
+orbit check main.orb
+
+# Build an Orbit program to a native executable
 orbit build main.orb
 
-# Run in hot-reload development mode
-orbit dev main.orb
-
-# Execute compiled executable directly
+# Build and run it (servers keep the terminal)
 orbit run main.orb
 ```
 

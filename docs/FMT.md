@@ -4,8 +4,8 @@ This document is the contract for `orbit fmt`. It records the de facto style
 inferred from the repository, rule by rule, with evidence. The formatter
 implements exactly what is written here.
 
-Corpus: `compiler/*.orb` (15 files), `compiler/frontend/*.orb` (3 files),
-`examples/*.orb` (5 files), `tests/suite/*.orb` (20 files). 43 files total.
+Corpus: `compiler/*.orb` (18 files), `compiler/frontend/*.orb` (3 files),
+`examples/*.orb` (5 files), `tests/suite/*.orb` (20 files). 46 files total.
 Counts below were measured over that corpus with strings and comments
 stripped, so stylish string contents (JSON payloads, URLs) do not pollute
 the numbers.
