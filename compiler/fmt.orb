@@ -1,0 +1,1023 @@
+// Orbit source formatter (`orbit fmt`).
+//
+// Token-based: the self-hosted lexer provides the token stream, comments are
+// collected by a small scanner in this file, and the emitter rewrites only
+// whitespace (indentation, intra-line spacing, line breaks). Tokens, string
+// and character literals, and comment text are preserved byte for byte, so
+// formatting cannot change what a program means or what C is generated.
+//
+// The style contract lives in docs/FMT.md. Validation accepts exactly what
+// `orbit check` accepts: anything else is reported and the file is left
+// untouched. Output is built fully in memory and written only on success.
+
+import "./token.orb"
+import "./lexer.orb"
+import "./pipeline.orb"
+
+model FmtComment {
+    line: int
+    col: int
+    endLine: int
+    text: string
+}
+
+model FmtState {
+    out: string
+    curLine: int
+    depth: int
+    parenDepth: int
+    brackDepth: int
+    firstOut: bool
+    commentSincePrev: bool
+    afterComment: bool
+    lastWasOpenBrace: bool
+    closedSingle: bool
+    closedEmpty: bool
+    prevTag: TokType
+    pprevTag: TokType
+    toks: list
+    comments: list
+    braces: list
+    ci: int
+    ti: int
+}
+
+fn fmtIsKeyword(tag: TokType) -> bool {
+    match tag {
+        TokType.KeywordIf => return true
+        TokType.KeywordElse => return true
+        TokType.KeywordFor => return true
+        TokType.KeywordIn => return true
+        TokType.KeywordWhile => return true
+        TokType.KeywordLoop => return true
+        TokType.KeywordBreak => return true
+        TokType.KeywordContinue => return true
+        TokType.KeywordReturn => return true
+        TokType.KeywordMatch => return true
+        TokType.KeywordType => return true
+        TokType.KeywordEnum => return true
+        TokType.KeywordUnion => return true
+        TokType.KeywordConst => return true
+        TokType.KeywordVal => return true
+        TokType.KeywordVar => return true
+        TokType.KeywordMut => return true
+        TokType.KeywordPrivate => return true
+        TokType.KeywordExtern => return true
+        TokType.KeywordEvery => return true
+        TokType.KeywordAsync => return true
+        TokType.KeywordFn => return true
+        TokType.KeywordModel => return true
+        TokType.KeywordRoute => return true
+        TokType.KeywordGet => return true
+        TokType.KeywordPost => return true
+        TokType.KeywordPut => return true
+        TokType.KeywordPatch => return true
+        TokType.KeywordDelete => return true
+        TokType.KeywordHead => return true
+        TokType.KeywordOptions => return true
+        TokType.KeywordErr => return true
+        TokType.KeywordOk => return true
+        TokType.KeywordWith => return true
+        TokType.KeywordUse => return true
+        TokType.KeywordImport => return true
+        TokType.KeywordTrait => return true
+        TokType.KeywordImpl => return true
+        TokType.KeywordTry => return true
+        TokType.KeywordCatch => return true
+        _ => return false
+    }
+}
+
+fn fmtIsWordish(tag: TokType) -> bool {
+    if tag == TokType.Identifier {
+        return true
+    }
+    if tag == TokType.StringLiteral {
+        return true
+    }
+    if tag == TokType.IntegerLiteral {
+        return true
+    }
+    if tag == TokType.FloatLiteral {
+        return true
+    }
+    if tag == TokType.CharLiteral {
+        return true
+    }
+    if tag == TokType.InterpStringLiteral {
+        return true
+    }
+    if fmtIsKeyword(tag) {
+        return true
+    }
+    return false
+}
+
+fn fmtIsParenSpacedKeyword(tag: TokType) -> bool {
+    if fmtIsKeyword(tag) == false {
+        return false
+    }
+    if tag == TokType.KeywordOk {
+        return false
+    }
+    if tag == TokType.KeywordErr {
+        return false
+    }
+    return true
+}
+
+fn fmtIsUnaryMinusContext(pptag: TokType) -> bool {
+    if pptag == TokType.EOF {
+        return true
+    }
+    if fmtIsWordish(pptag) {
+        return false
+    }
+    if pptag == TokType.CloseParen {
+        return false
+    }
+    if pptag == TokType.CloseBracket {
+        return false
+    }
+    if pptag == TokType.CloseBrace {
+        return false
+    }
+    return true
+}
+
+fn fmtTrailSpace(ptag: TokType, pptag: TokType) -> bool {
+    if ptag == TokType.OpenParen {
+        return false
+    }
+    if ptag == TokType.OpenBracket {
+        return false
+    }
+    if ptag == TokType.Dot {
+        return false
+    }
+    if ptag == TokType.Bang {
+        return false
+    }
+    if ptag == TokType.Ampersand {
+        return false
+    }
+    if ptag == TokType.At {
+        return false
+    }
+    if ptag == TokType.Minus {
+        if fmtIsUnaryMinusContext(pptag) {
+            return false
+        }
+        return true
+    }
+    if ptag == TokType.Plus {
+        return true
+    }
+    if ptag == TokType.Asterisk {
+        return true
+    }
+    if ptag == TokType.Slash {
+        return true
+    }
+    if ptag == TokType.Percent {
+        return true
+    }
+    if ptag == TokType.Equal {
+        return true
+    }
+    if ptag == TokType.DoubleEqual {
+        return true
+    }
+    if ptag == TokType.NotEqual {
+        return true
+    }
+    if ptag == TokType.Less {
+        return true
+    }
+    if ptag == TokType.LessEqual {
+        return true
+    }
+    if ptag == TokType.Greater {
+        return true
+    }
+    if ptag == TokType.GreaterEqual {
+        return true
+    }
+    if ptag == TokType.DoublePipe {
+        return true
+    }
+    if ptag == TokType.DoubleAmpersand {
+        return true
+    }
+    if ptag == TokType.Pipe {
+        return true
+    }
+    if ptag == TokType.Arrow {
+        return true
+    }
+    if ptag == TokType.FatArrow {
+        return true
+    }
+    if ptag == TokType.Comma {
+        return true
+    }
+    if ptag == TokType.SemiColon {
+        return true
+    }
+    if ptag == TokType.Colon {
+        return true
+    }
+    if ptag == TokType.OpenBrace {
+        return true
+    }
+    if ptag == TokType.CloseBrace {
+        return true
+    }
+    if ptag == TokType.CloseParen {
+        return true
+    }
+    if ptag == TokType.CloseBracket {
+        return true
+    }
+    if fmtIsWordish(ptag) {
+        return true
+    }
+    return false
+}
+
+fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
+    if ntag == TokType.OpenParen || ntag == TokType.OpenBracket {
+        if fmtTrailSpace(ptag, pptag) == false {
+            return false
+        }
+        if ntag == TokType.OpenParen {
+            if fmtIsParenSpacedKeyword(ptag) {
+                return true
+            }
+        } else {
+            if fmtIsKeyword(ptag) {
+                return true
+            }
+        }
+        if ptag == TokType.Plus || ptag == TokType.Minus || ptag == TokType.Asterisk || ptag == TokType.Slash || ptag == TokType.Percent {
+            return true
+        }
+        if ptag == TokType.DoubleEqual || ptag == TokType.NotEqual || ptag == TokType.Less || ptag == TokType.LessEqual {
+            return true
+        }
+        if ptag == TokType.Greater || ptag == TokType.GreaterEqual || ptag == TokType.DoublePipe || ptag == TokType.DoubleAmpersand {
+            return true
+        }
+        if ptag == TokType.Pipe || ptag == TokType.Arrow || ptag == TokType.FatArrow || ptag == TokType.Equal {
+            return true
+        }
+        if ptag == TokType.Comma || ptag == TokType.SemiColon || ptag == TokType.Colon {
+            return true
+        }
+        if ptag == TokType.OpenBrace || ptag == TokType.CloseBrace {
+            return true
+        }
+        return false
+    }
+    if ntag == TokType.CloseParen {
+        return false
+    }
+    if ntag == TokType.CloseBracket {
+        return false
+    }
+    if ntag == TokType.Dot {
+        return false
+    }
+    if ntag == TokType.Comma {
+        return false
+    }
+    if ntag == TokType.SemiColon {
+        return false
+    }
+    if ntag == TokType.Colon {
+        return false
+    }
+    return fmtTrailSpace(ptag, pptag)
+}
+
+fn fmtHonorNewline(ptag: TokType, ntag: TokType, parenDepth: int, brackDepth: int) -> bool {
+    if ntag == TokType.OpenBrace {
+        return false
+    }
+    if fmtIsWordish(ptag) {
+        return true
+    }
+    if ptag == TokType.CloseParen {
+        return true
+    }
+    if ptag == TokType.CloseBracket {
+        return true
+    }
+    if ptag == TokType.CloseBrace {
+        return true
+    }
+    if ptag == TokType.OpenBrace {
+        return true
+    }
+    if ptag == TokType.Comma || ptag == TokType.SemiColon {
+        if parenDepth == 0 && brackDepth == 0 {
+            return true
+        }
+        return false
+    }
+    return false
+}
+
+fn fmtIndentText(depth: int) -> string {
+    var out = ""
+    var i = 0
+    while i < depth {
+        out = out + "    "
+        i = i + 1
+    }
+    return out
+}
+
+fn fmtStripCR(text: string) -> string {
+    var out = ""
+    var i = 0
+    while i < text.len() {
+        val ch = text.at(i)
+        if ch != 13 {
+            out = out + text.slice(i, i + 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn fmtCollectTokens(source: string) -> list {
+    var toks = []
+    val lexer = initLexer(source)
+    val cap = source.len() + 8
+    var guard = 0
+    while true {
+        if guard >= cap {
+            break
+        }
+        guard = guard + 1
+        val tok = nextToken(lexer)
+        if tok.tag == TokType.EOF {
+            break
+        }
+        toks.push(tok)
+    }
+    return toks
+}
+
+fn fmtCollectComments(source: string) -> list {
+    var comments = []
+    var i = 0
+    if source.len() >= 3 {
+        if orbit_string_char_at_selfhost(source, 0) == 239 && orbit_string_char_at_selfhost(source, 1) == 187 && orbit_string_char_at_selfhost(source, 2) == 191 {
+            i = 3
+        }
+    }
+    var line = 1
+    var col = 1
+    while i < source.len() {
+        val c = orbit_string_char_at_selfhost(source, i)
+        if c == 34 {
+            i = i + 1
+            col = col + 1
+            var inStr = true
+            while inStr && i < source.len() {
+                val d = orbit_string_char_at_selfhost(source, i)
+                if d == 92 {
+                    i = i + 1
+                    col = col + 1
+                    if i < source.len() {
+                        val e = orbit_string_char_at_selfhost(source, i)
+                        if e == 10 {
+                            line = line + 1
+                            col = 1
+                        } else {
+                            col = col + 1
+                        }
+                        i = i + 1
+                    }
+                } else {
+                    if d == 34 {
+                        inStr = false
+                    }
+                    if d == 10 {
+                        line = line + 1
+                        col = 1
+                    } else {
+                        col = col + 1
+                    }
+                    i = i + 1
+                }
+            }
+        } else {
+            if c == 39 {
+                i = i + 1
+                col = col + 1
+                if i < source.len() {
+                    val d = orbit_string_char_at_selfhost(source, i)
+                    if d == 92 {
+                        i = i + 1
+                        col = col + 1
+                        if i < source.len() {
+                            val e = orbit_string_char_at_selfhost(source, i)
+                            if e == 110 || e == 116 || e == 114 || e == 48 || e == 92 || e == 39 || e == 34 {
+                                i = i + 1
+                                col = col + 1
+                            }
+                        }
+                    } else {
+                        if d == 10 {
+                            line = line + 1
+                            col = 1
+                            i = i + 1
+                        } else {
+                            if d != 39 {
+                                i = i + 1
+                                col = col + 1
+                            }
+                        }
+                    }
+                }
+                if i < source.len() {
+                    if orbit_string_char_at_selfhost(source, i) == 39 {
+                        i = i + 1
+                        col = col + 1
+                    }
+                }
+            } else {
+                if c == 47 {
+                    var hasNext = false
+                    var nc = 0
+                    if i + 1 < source.len() {
+                        hasNext = true
+                        nc = orbit_string_char_at_selfhost(source, i + 1)
+                    }
+                    if hasNext && nc == 47 {
+                        val startLine = line
+                        val startCol = col
+                        val startIx = i
+                        while i < source.len() {
+                            if orbit_string_char_at_selfhost(source, i) == 10 {
+                                break
+                            }
+                            i = i + 1
+                            col = col + 1
+                        }
+                        var text = source.slice(startIx, i)
+                        if text.len() > 0 {
+                            if text.at(text.len() - 1) == 13 {
+                                text = text.slice(0, text.len() - 1)
+                            }
+                        }
+                        comments.push(FmtComment(startLine, startCol, startLine, text))
+                    } else {
+                        if hasNext && nc == 42 {
+                            val startLine = line
+                            val startCol = col
+                            val startIx = i
+                            i = i + 2
+                            col = col + 2
+                            var depth = 1
+                            while i < source.len() && depth > 0 {
+                                val e0 = orbit_string_char_at_selfhost(source, i)
+                                var e1 = 0
+                                if i + 1 < source.len() {
+                                    e1 = orbit_string_char_at_selfhost(source, i + 1)
+                                }
+                                if e0 == 47 && e1 == 42 {
+                                    depth = depth + 1
+                                    i = i + 2
+                                    col = col + 2
+                                } else {
+                                    if e0 == 42 && e1 == 47 {
+                                        depth = depth - 1
+                                        i = i + 2
+                                        col = col + 2
+                                    } else {
+                                        if e0 == 10 {
+                                            line = line + 1
+                                            col = 1
+                                        } else {
+                                            col = col + 1
+                                        }
+                                        i = i + 1
+                                    }
+                                }
+                            }
+                            val rawText = source.slice(startIx, i)
+                            val text = fmtStripCR(rawText)
+                            comments.push(FmtComment(startLine, startCol, line, text))
+                        } else {
+                            if c == 10 {
+                                line = line + 1
+                                col = 1
+                            } else {
+                                col = col + 1
+                            }
+                            i = i + 1
+                        }
+                    }
+                } else {
+                    if c == 10 {
+                        line = line + 1
+                        col = 1
+                    } else {
+                        col = col + 1
+                    }
+                    i = i + 1
+                }
+            }
+        }
+    }
+    return comments
+}
+
+fn fmtEmitNL(st: FmtState, ind: int, blank: bool) {
+    st.out = st.out + "\n"
+    if blank {
+        st.out = st.out + "\n"
+    }
+    st.out = st.out + fmtIndentText(ind)
+}
+
+fn fmtEmitOneComment(st: FmtState, c: FmtComment) {
+    if st.firstOut {
+        st.out = st.out + c.text
+        st.firstOut = false
+        st.curLine = c.endLine
+        st.commentSincePrev = true
+        if c.endLine == c.line {
+            st.afterComment = true
+        } else {
+            st.afterComment = false
+        }
+        return
+    }
+    if c.line == st.curLine {
+        st.out = st.out + " " + c.text
+        st.curLine = c.endLine
+        st.commentSincePrev = true
+        if c.endLine == c.line {
+            st.afterComment = true
+        } else {
+            st.afterComment = false
+        }
+        return
+    }
+    var gap = c.line - st.curLine
+    if gap < 0 {
+        gap = 0
+    }
+    if gap >= 2 && st.lastWasOpenBrace == false {
+        fmtEmitNL(st, st.depth, true)
+    } else {
+        fmtEmitNL(st, st.depth, false)
+    }
+    st.out = st.out + c.text
+    st.curLine = c.endLine
+    st.commentSincePrev = true
+    st.afterComment = false
+}
+
+fn fmtEmitPending(st: FmtState, line: int, col: int) {
+    while st.ci < st.comments.len() {
+        val c: FmtComment = st.comments.get(st.ci)
+        if c.line > line {
+            break
+        }
+        if c.line == line && c.col >= col {
+            break
+        }
+        fmtEmitOneComment(st, c)
+        st.ci = st.ci + 1
+    }
+}
+
+fn fmtEmitToken(st: FmtState, tok: Token) {
+    val ntag = tok.tag
+    val nline = tok.line
+    var gap = nline - st.curLine
+    if gap < 0 {
+        gap = 0
+    }
+    var ptag = TokType.EOF
+    var pptag = TokType.EOF
+    if st.ti > 0 {
+        ptag = st.prevTag
+        pptag = st.pprevTag
+    }
+    if st.firstOut == false {
+        if st.ti == 0 {
+            if gap > 0 {
+                if gap >= 2 {
+                    fmtEmitNL(st, 0, true)
+                } else {
+                    fmtEmitNL(st, 0, false)
+                }
+            } else {
+                st.out = st.out + " "
+            }
+        } else {
+            if st.afterComment && gap == 0 {
+                if ntag == TokType.CloseBrace {
+                    st.out = st.out + " "
+                } else {
+                    if ntag == TokType.CloseParen || ntag == TokType.CloseBracket || ntag == TokType.Dot || ntag == TokType.Comma || ntag == TokType.SemiColon {
+                        st.out = st.out + ""
+                    } else {
+                        st.out = st.out + " "
+                    }
+                }
+            } else {
+                if ntag == TokType.OpenBrace {
+                    st.out = st.out + " "
+                } else {
+                    if ntag == TokType.CloseBrace {
+                        if ptag == TokType.OpenBrace && st.commentSincePrev == false {
+                            st.out = st.out + ""
+                        } else {
+                            if gap > 0 {
+                                var dd = st.depth - 1
+                                if dd < 0 {
+                                    dd = 0
+                                }
+                                fmtEmitNL(st, dd, false)
+                            } else {
+                                st.out = st.out + " "
+                            }
+                        }
+                    } else {
+                        if ntag == TokType.KeywordElse && ptag == TokType.CloseBrace {
+                            if st.commentSincePrev {
+                                fmtEmitNL(st, st.depth, false)
+                            } else {
+                                if st.closedEmpty {
+                                    st.out = st.out + " "
+                                } else {
+                                    if st.closedSingle {
+                                        fmtEmitNL(st, st.depth, false)
+                                    } else {
+                                        st.out = st.out + " "
+                                    }
+                                }
+                            }
+                        } else {
+                            if (ptag == TokType.Comma || ptag == TokType.SemiColon) && (ntag == TokType.CloseParen || ntag == TokType.CloseBracket) {
+                                st.out = st.out + ""
+                            } else {
+                                if ptag == TokType.Comma || ptag == TokType.SemiColon {
+                                    if st.parenDepth > 0 || st.brackDepth > 0 {
+                                        st.out = st.out + " "
+                                    } else {
+                                        if gap > 0 {
+                                            if gap >= 2 {
+                                                fmtEmitNL(st, st.depth, true)
+                                            } else {
+                                                fmtEmitNL(st, st.depth, false)
+                                            }
+                                        } else {
+                                            st.out = st.out + " "
+                                        }
+                                    }
+                                } else {
+                                    if fmtTableSpace(ptag, pptag, ntag) {
+                                        if gap > 0 && fmtHonorNewline(ptag, ntag, st.parenDepth, st.brackDepth) {
+                                            if gap >= 2 {
+                                                if ptag == TokType.OpenBrace {
+                                                    fmtEmitNL(st, st.depth, false)
+                                                } else {
+                                                    if ntag == TokType.CloseBrace {
+                                                        fmtEmitNL(st, st.depth, false)
+                                                    } else {
+                                                        fmtEmitNL(st, st.depth, true)
+                                                    }
+                                                }
+                                            } else {
+                                                fmtEmitNL(st, st.depth, false)
+                                            }
+                                        } else {
+                                            st.out = st.out + " "
+                                        }
+                                    } else {
+                                        st.out = st.out + ""
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    st.out = st.out + tok.text
+    st.firstOut = false
+    st.afterComment = false
+    st.commentSincePrev = false
+    st.pprevTag = st.prevTag
+    st.prevTag = ntag
+    st.curLine = nline
+    if ntag == TokType.OpenBrace {
+        st.depth = st.depth + 1
+        st.braces.push(tok)
+        st.lastWasOpenBrace = true
+    } else {
+        st.lastWasOpenBrace = false
+    }
+    if ntag == TokType.CloseBrace {
+        if st.braces.len() > 0 {
+            val openTok: Token = st.braces.get(st.braces.len() - 1)
+            st.braces.pop()
+            if openTok.line == nline {
+                st.closedSingle = true
+            } else {
+                st.closedSingle = false
+            }
+            if ptag == TokType.OpenBrace && st.commentSincePrev == false {
+                st.closedEmpty = true
+            } else {
+                st.closedEmpty = false
+            }
+        } else {
+            st.closedSingle = false
+            st.closedEmpty = false
+        }
+        st.depth = st.depth - 1
+        if st.depth < 0 {
+            st.depth = 0
+        }
+    }
+    if ntag == TokType.OpenParen {
+        st.parenDepth = st.parenDepth + 1
+    } else {
+        if ntag == TokType.CloseParen {
+            st.parenDepth = st.parenDepth - 1
+            if st.parenDepth < 0 {
+                st.parenDepth = 0
+            }
+        } else {
+            if ntag == TokType.OpenBracket {
+                st.brackDepth = st.brackDepth + 1
+            } else {
+                if ntag == TokType.CloseBracket {
+                    st.brackDepth = st.brackDepth - 1
+                    if st.brackDepth < 0 {
+                        st.brackDepth = 0
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn fmtEmitTokens(toks: list, comments: list) -> string {
+    val st = FmtState("", 1, 0, 0, 0, true, false, false, false, false, false, TokType.EOF, TokType.EOF, toks, comments, [], 0, 0)
+    while st.ti < st.toks.len() {
+        val tok: Token = st.toks.get(st.ti)
+        fmtEmitPending(st, tok.line, tok.col)
+        fmtEmitToken(st, tok)
+        st.ti = st.ti + 1
+    }
+    while st.ci < st.comments.len() {
+        val c: FmtComment = st.comments.get(st.ci)
+        fmtEmitOneComment(st, c)
+        st.ci = st.ci + 1
+    }
+    if st.out == "" {
+        return ""
+    }
+    val lastc = st.out.at(st.out.len() - 1)
+    if lastc == 10 {
+        return st.out
+    }
+    return st.out + "\n"
+}
+
+fn fmtFormatSource(source: string) -> string {
+    var bom = ""
+    if source.len() >= 3 {
+        if orbit_string_char_at_selfhost(source, 0) == 239 && orbit_string_char_at_selfhost(source, 1) == 187 && orbit_string_char_at_selfhost(source, 2) == 191 {
+            bom = source.slice(0, 3)
+        }
+    }
+    val toks = fmtCollectTokens(source)
+    val comments = fmtCollectComments(source)
+    val body = fmtEmitTokens(toks, comments)
+    return bom + body
+}
+
+fn fmtIsOrbSuffix(path: string) -> bool {
+    if path.len() < 4 {
+        return false
+    }
+    val tail = path.slice(path.len() - 4, path.len())
+    if tail == ".orb" {
+        return true
+    }
+    return false
+}
+
+fn fmtSplitLines(text: string) -> list {
+    var lines = []
+    var start = 0
+    var i = 0
+    while i < text.len() {
+        if orbit_string_char_at_selfhost(text, i) == 10 {
+            var line = text.slice(start, i)
+            if line.len() > 0 {
+                if line.at(line.len() - 1) == 13 {
+                    line = line.slice(0, line.len() - 1)
+                }
+            }
+            if line != "" {
+                lines.push(line)
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < text.len() {
+        var last = text.slice(start, text.len())
+        if last.len() > 0 {
+            if last.at(last.len() - 1) == 13 {
+                last = last.slice(0, last.len() - 1)
+            }
+        }
+        if last != "" {
+            lines.push(last)
+        }
+    }
+    return lines
+}
+
+fn fmtStripTrailingSlashes(dir: string) -> string {
+    var clean = dir
+    var stripping = true
+    while stripping {
+        if clean.len() == 0 {
+            stripping = false
+        } else {
+            val lastc = clean.at(clean.len() - 1)
+            if lastc == 47 || lastc == 92 {
+                clean = clean.slice(0, clean.len() - 1)
+            } else {
+                stripping = false
+            }
+        }
+    }
+    return clean
+}
+
+fn fmtListOrbFiles(dir: string) -> list {
+    var found = []
+    val clean = fmtStripTrailingSlashes(dir)
+    if clean == "" {
+        return found
+    }
+    val osName = orbit_os_env_selfhost("OS")
+    val winDir = orbit_os_env_selfhost("WINDIR")
+    var cmd = ""
+    if osName == "Windows_NT" || winDir != "" {
+        cmd = "cmd /c dir /s /b \"" + clean + "\\*.orb\" 2>nul | sort"
+    } else {
+        cmd = "find \"" + clean + "\" -type f -name \"*.orb\" -print 2>/dev/null | sort"
+    }
+    val listing = orbit_os_exec_selfhost(cmd)
+    if listing == "" {
+        return found
+    }
+    val lines = fmtSplitLines(listing)
+    var i = 0
+    while i < lines.len() {
+        val p: string = lines.get(i)
+        if fmtIsOrbSuffix(p) {
+            found.push(p)
+        }
+        i = i + 1
+    }
+    return found
+}
+
+fn fmtFormatFile(path: string) {
+    val source = orbit_file_read_selfhost(path)
+    if source == "" {
+        print("Error: Could not read input file: " + path)
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    if checkSourceWithFile(source, path) == false {
+        orbit_os_write_stderr_selfhost("fmt: cannot format " + path + ": input has errors; file left unchanged.\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val formatted = fmtFormatSource(source)
+    if formatted == source {
+        print("Already formatted " + path + ".")
+        return
+    }
+    if orbit_file_write_selfhost(path, formatted) == false {
+        print("Error: Could not write output file: " + path)
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    print("Formatted " + path + ".")
+}
+
+fn fmtCheckOne(path: string) -> bool {
+    val source = orbit_file_read_selfhost(path)
+    if source == "" {
+        print("Error: Could not read input file: " + path)
+        orbit_os_exit_selfhost(1)
+        return false
+    }
+    if checkSourceWithFile(source, path) == false {
+        orbit_os_write_stderr_selfhost("fmt: cannot format " + path + ": input has errors; file left unchanged.\n")
+        return false
+    }
+    val formatted = fmtFormatSource(source)
+    if formatted == source {
+        return true
+    }
+    return false
+}
+
+fn fmtRunCheck(target: string) {
+    val probe = orbit_file_read_selfhost(target)
+    if probe != "" {
+        if fmtCheckOne(target) == false {
+            print(target)
+            orbit_os_exit_selfhost(1)
+            return
+        }
+        return
+    }
+    val files = fmtListOrbFiles(target)
+    if files.len() == 0 {
+        print("Error: Could not read input path: " + target)
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    var bad = 0
+    var i = 0
+    while i < files.len() {
+        val p: string = files.get(i)
+        if fmtCheckOne(p) == false {
+            print(p)
+            bad = bad + 1
+        }
+        i = i + 1
+    }
+    if bad > 0 {
+        orbit_os_exit_selfhost(1)
+        return
+    }
+}
+
+fn fmtPrintUsage() {
+    print("Usage: orbit fmt <file.orb>")
+    print("       orbit fmt --check <file.orb|dir>")
+    print("       orbit fmt --help")
+}
+
+fn runFmt() {
+    val a1 = orbit_os_argv_selfhost(2)
+    if a1 == "" {
+        fmtPrintUsage()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if a1 == "--help" || a1 == "-h" {
+        fmtPrintUsage()
+        return
+    }
+    if a1 == "--check" {
+        val target = orbit_os_argv_selfhost(3)
+        if target == "" {
+            fmtPrintUsage()
+            orbit_os_exit_selfhost(2)
+            return
+        }
+        if orbit_os_argv_selfhost(4) != "" {
+            fmtPrintUsage()
+            orbit_os_exit_selfhost(2)
+            return
+        }
+        fmtRunCheck(target)
+        return
+    }
+    if a1.at(0) == 45 {
+        fmtPrintUsage()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if orbit_os_argv_selfhost(3) != "" {
+        fmtPrintUsage()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    fmtFormatFile(a1)
+}

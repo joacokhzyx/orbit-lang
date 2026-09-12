@@ -8,6 +8,7 @@
 //   - `--help, -h` / `--version, -v`
 
 import "./extern.orb"
+import "./fmt.orb"
 import "./frontend/frontend.orb"
 import "./pipeline.orb"
 
@@ -80,6 +81,8 @@ fn printHelp() {
     print("  build <file.orb> [-o out]  Compile to a native executable")
     print("  run <file.orb>             Build and run it (shares your terminal)")
     print("  check <file.orb>           Parse and typecheck, no code emitted")
+    print("  fmt <file.orb>             Format a file (writes only on success)")
+    print("  fmt --check <file|dir>     List files that need formatting")
     print("  frontend <input.orb> [-o output.tir]")
     print("  lextrace <file.orb>")
     print("  --help, -h                 Show this help")
@@ -149,6 +152,11 @@ fn main() {
     }
     if cmd == "check" {
         runCheck()
+        return
+    }
+    // fmt dispatch (agent)
+    if cmd == "fmt" {
+        runFmt()
         return
     }
     var outputPath = ""
