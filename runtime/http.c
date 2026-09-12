@@ -276,10 +276,14 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
         case 403: reason = "Forbidden"; break;
         case 404: reason = "Not Found"; break;
         case 405: reason = "Method Not Allowed"; break;
+        case 408: reason = "Request Timeout"; break;
         case 409: reason = "Conflict"; break;
+        case 413: reason = "Content Too Large"; break;
         case 422: reason = "Unprocessable Entity"; break;
         case 429: reason = "Too Many Requests"; break;
+        case 431: reason = "Request Header Fields Too Large"; break;
         case 500: reason = "Internal Server Error"; break;
+        case 501: reason = "Not Implemented"; break;
         case 502: reason = "Bad Gateway"; break;
         case 503: reason = "Service Unavailable"; break;
         default:  reason = "OK"; break;
