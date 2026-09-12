@@ -549,6 +549,7 @@ fn serverMainText(hasDb: bool, boostPct: string) -> string {
     out = out + "    if (num_workers <= 0) num_workers = ORBIT_CPU_COUNT();\n"
     out = out + "    if (num_workers <= 0) num_workers = 1;\n"
     out = out + "    if (num_workers > 64) num_workers = 64;\n"
+    out = out + "    orbit_system_set_workers(num_workers);\n"
     out = out + "\n"
     out = out + "    orbit_render_server_banner(port, num_workers, kynx_cfg.enabled, " + boostPct + ");\n"
     out = out + "#ifdef _WIN32\n"

@@ -22,7 +22,7 @@ fn cteInit() -> CTEState {
 fn isRuntimeFunction(name: string) -> bool {
     if name == "print" || name == "println" || name == "eprint" || name == "eprintln" { return true }
     if name == "orbit_print" || name == "orbit_println" || name == "orbit_string_concat" || name == "orbit_string_split" { return true }
-    if name == "orbit_file_read" || name == "orbit_file_write" || name == "orbit_os_exec" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_env" { return true }
+    if name == "orbit_file_read" || name == "orbit_file_write" || name == "orbit_os_exec" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_env" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" { return true }
     if name == "orbit_list_create" || name == "orbit_map_create" || name == "orbit_response_create" || name == "orbit_response_json" { return true }
     if name == "orbit_int_to_string" || name == "orbit_float_to_string" || name == "orbit_http_query_get" || name == "rand" { return true }
     if name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_db_query_get" { return true }

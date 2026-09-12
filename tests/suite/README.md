@@ -11,6 +11,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Strings | `strings_eq.orb`, `strings_concat.orb` |
 | Loops and control flow | `while_counter.orb`, `while_break.orb`, `nesting_legal.orb` |
 | Functions | `fn_recursive.orb` |
+| System telemetry builtins | `system_telemetry.orb` |
 | Imports and module resolution | `imports.orb`, `imports.support.orb` |
 | Result construction and returns | `result_values.orb` |
 | Result propagation | `result_try.orb` |

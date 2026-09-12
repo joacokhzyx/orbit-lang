@@ -1,21 +1,20 @@
 // Production Health & Observability Service example in Orbit.
 // Provides health probes, readiness probes, and metrics endpoints.
+// Every value below comes from live runtime counters (see system.* in
+// the language reference). What is not measured is not exposed.
 
 route GET "/health" {
     val uptime = system.uptime()
-    val latency = system.latency_ms()
-    val active_workers = system.active_workers()
-    return ok 200 "{\"status\":\"UP\",\"version\":\"0.1-rc.2\",\"uptime_seconds\":" + uptime + ",\"checks\":{\"database\":{\"status\":\"UP\",\"latency_ms\":" + latency + "},\"kynx_firewall\":{\"status\":\"UP\",\"mode\":\"active\"},\"worker_pool\":{\"status\":\"UP\",\"active_workers\":" + active_workers + "}}}"
+    return ok 200 "{\"status\":\"UP\",\"version\":\"0.1.0-rc.2\",\"uptime_seconds\":" + uptime + "}"
 }
 
 route GET "/ready" {
-    return ok 200 "{\"ready\":true,\"accepting_traffic\":true,\"drain_mode\":false}"
+    return ok 200 "{\"ready\":true,\"accepting_traffic\":true}"
 }
 
 route GET "/metrics" {
     val total = system.http_requests_total()
-    val success = system.http_requests_success()
-    val error = system.http_requests_error()
-    return ok 200 "{\"metrics\":{\"http_requests_total\":" + total + ",\"http_requests_success\":" + success + ",\"http_requests_error\":" + error + ",\"latency_p50_ms\":0.42,\"latency_p95_ms\":1.15,\"latency_p99_ms\":2.08,\"memory_allocated_kb\":512}}"
+    val latency = system.latency_avg_us()
+    val workers = system.active_workers()
+    return ok 200 "{\"metrics\":{\"http_requests_total\":" + total + ",\"latency_avg_us\":" + latency + ",\"active_workers\":" + workers + "}}"
 }
-

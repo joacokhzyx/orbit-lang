@@ -10,6 +10,7 @@
 
 #include "types.c"
 #include "arena.c"
+#include "performance.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -18,6 +19,8 @@
 #include <time.h>
 #ifdef _WIN32
 #  include <windows.h>
+#else
+#  include <unistd.h>
 #endif
 
 void orbit_print(const char* str) {
@@ -267,34 +270,63 @@ orbit_string orbit_file_upload_save(OrbitArena* arena, OrbitRequest* req, orbit_
     return saved_path;
 }
 
-/* ── System Telemetry & Process Primitives ─────────────────────────────────── */
+/* ── System Telemetry (real counters, no invented values) ────────────────────
+ * Every function below reads live process/runtime state. What is not
+ * measured (e.g. success/error split, p50/p99) is not exposed. */
 
+static uint64_t orbit_process_start_ns = 0;
+
+static uint64_t orbit_monotonic_ns(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER orbit_qpc_freq = {0};
+    if (orbit_qpc_freq.QuadPart == 0) QueryPerformanceFrequency(&orbit_qpc_freq);
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return (uint64_t)(t.QuadPart * 1000000000ULL / (uint64_t)orbit_qpc_freq.QuadPart);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+#endif
+}
+
+/* Workers configured at server startup (generated main calls the setter).
+ * While serving, every configured worker is alive; plain programs read 0. */
+static int orbit_configured_workers = 0;
+
+void orbit_system_set_workers(int n) {
+    orbit_configured_workers = n > 0 ? n : 0;
+}
+
+/* Seconds since process start. */
 orbit_int system_uptime(void) {
-    return 42;
+    if (orbit_process_start_ns == 0) orbit_process_start_ns = orbit_monotonic_ns();
+    return (orbit_int)((orbit_monotonic_ns() - orbit_process_start_ns) / 1000000000ULL);
 }
 
 orbit_int system_pid(void) {
 #ifdef _WIN32
     return (orbit_int)GetCurrentProcessId();
 #else
-    return 1000;
+    return (orbit_int)getpid();
 #endif
 }
 
 orbit_int system_active_workers(void) {
-    return 8;
+    return orbit_configured_workers;
 }
 
 orbit_int system_http_requests_total(void) {
-    return 1250;
+    return (orbit_int)orbit_perf_get_stats().request_count;
 }
 
-orbit_int system_http_requests_success(void) {
-    return 1248;
-}
-
-orbit_int system_http_requests_error(void) {
-    return 2;
+/* Mean request latency in microseconds. Same 2.5 GHz RDTSC basis as the
+ * per-request server log; approximate on other clock rates. Zero before
+ * the first completed request. */
+orbit_int system_latency_avg_us(void) {
+    OrbitPerfStats stats = orbit_perf_get_stats();
+    if (stats.request_count == 0) return 0;
+    return (orbit_int)((stats.total_cycles / stats.request_count) / 2500ULL);
 }
 
 orbit_int system_os_exec(orbit_string cmd) {

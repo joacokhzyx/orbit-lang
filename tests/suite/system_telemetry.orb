@@ -1,0 +1,25 @@
+// System telemetry builtins return live values, never invented ones.
+// expect-exit 0
+fn main() -> int {
+    val up = system.uptime()
+    if up < 0 {
+        return 1
+    }
+    val pid = system.pid()
+    if pid < 1 {
+        return 2
+    }
+    val total = system.http_requests_total()
+    if total < 0 {
+        return 3
+    }
+    val lat = system.latency_avg_us()
+    if lat < 0 {
+        return 4
+    }
+    val workers = system.active_workers()
+    if workers < 0 {
+        return 5
+    }
+    return 0
+}

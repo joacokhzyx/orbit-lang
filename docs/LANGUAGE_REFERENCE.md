@@ -144,6 +144,19 @@ The compiler recognizes standard modules including `crypto`, `jwt`, `http`,
 `file`, and `server`. Module organization and import ergonomics are not yet
 stable, so keep module boundaries small and pin the compiler version in CI.
 
+## System telemetry
+
+`system.*` calls read live runtime counters. Every value is measured; what is
+not measured is not exposed (no success/error split, no p50/p95/p99 yet).
+
+| Call | Returns | Source |
+|---|---|---|
+| `system.uptime()` | `int` seconds since process start | monotonic clock |
+| `system.pid()` | `int` process id | OS |
+| `system.active_workers()` | `int` workers configured at startup (`0` outside servers) | server startup |
+| `system.http_requests_total()` | `int` completed requests | request counter |
+| `system.latency_avg_us()` | `int` mean latency, microseconds (`0` before the first request) | RDTSC cycles on the same 2.5 GHz basis as the request log; approximate on other clocks |
+
 ## Compiler commands
 
 ```sh
