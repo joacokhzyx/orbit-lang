@@ -265,6 +265,24 @@ OrbitResponse* orbit_response_error(OrbitArena* arena, int status, const char* m
 
 /* â”€â”€ Send response to socket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/** @brief Append the decimal rendering of @p v (exact %d semantics, sign-safe) and return the new end. */
+static char* orbit_append_int(char* p, int v) {
+    uint32_t mag = (v < 0) ? (uint32_t)(-(v + 1)) + 1u : (uint32_t)v;
+    if (v < 0) *p++ = '-';
+    char tmp[10];
+    int n = 0;
+    if (mag == 0) {
+        *p++ = '0';
+        return p;
+    }
+    while (mag > 0) {
+        tmp[n++] = (char)('0' + mag % 10u);
+        mag /= 10u;
+    }
+    while (n > 0) *p++ = tmp[--n];
+    return p;
+}
+
 /** @brief Write @p resp (header + body) to @p client in a single fast-path send() syscall. */
 void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     if (!resp) return;
@@ -285,38 +303,62 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
 
     /* Resolve HTTP reason phrase for the status code */
     const char* reason;
+    size_t reason_len;
     switch (resp->status) {
-        case 200: reason = "OK"; break;
-        case 201: reason = "Created"; break;
-        case 204: reason = "No Content"; break;
-        case 301: reason = "Moved Permanently"; break;
-        case 302: reason = "Found"; break;
-        case 304: reason = "Not Modified"; break;
-        case 400: reason = "Bad Request"; break;
-        case 401: reason = "Unauthorized"; break;
-        case 403: reason = "Forbidden"; break;
-        case 404: reason = "Not Found"; break;
-        case 405: reason = "Method Not Allowed"; break;
-        case 409: reason = "Conflict"; break;
-        case 422: reason = "Unprocessable Entity"; break;
-        case 429: reason = "Too Many Requests"; break;
-        case 500: reason = "Internal Server Error"; break;
-        case 502: reason = "Bad Gateway"; break;
-        case 503: reason = "Service Unavailable"; break;
-        default:  reason = "OK"; break;
+        case 200: reason = "OK"; reason_len = 2; break;
+        case 201: reason = "Created"; reason_len = 7; break;
+        case 204: reason = "No Content"; reason_len = 10; break;
+        case 301: reason = "Moved Permanently"; reason_len = 17; break;
+        case 302: reason = "Found"; reason_len = 5; break;
+        case 304: reason = "Not Modified"; reason_len = 12; break;
+        case 400: reason = "Bad Request"; reason_len = 11; break;
+        case 401: reason = "Unauthorized"; reason_len = 12; break;
+        case 403: reason = "Forbidden"; reason_len = 9; break;
+        case 404: reason = "Not Found"; reason_len = 9; break;
+        case 405: reason = "Method Not Allowed"; reason_len = 18; break;
+        case 409: reason = "Conflict"; reason_len = 8; break;
+        case 422: reason = "Unprocessable Entity"; reason_len = 20; break;
+        case 429: reason = "Too Many Requests"; reason_len = 17; break;
+        case 500: reason = "Internal Server Error"; reason_len = 21; break;
+        case 502: reason = "Bad Gateway"; reason_len = 11; break;
+        case 503: reason = "Service Unavailable"; reason_len = 19; break;
+        default:  reason = "OK"; reason_len = 2; break;
     }
 
-    /* Ultra-Fast Header Building & Single-Syscall Direct Buffer Flush */
+    /* Manual header build: byte-identical to the previous snprintf shape
+     * (same status/reason/content-type/length bytes, same (int) length
+     * truncation), without varargs and format-string parsing per request.
+     * Pathological inputs fall back to the bounded snprintf shape. */
     char header[512];
-    int header_len = snprintf(header, sizeof(header),
-        "HTTP/1.1 %d %s\r\n"
-        "Server: Orbit\r\n"
-        "Content-Type: %s\r\n"
-        "Connection: keep-alive\r\n"
-        "Keep-Alive: timeout=30, max=1000\r\n"
-        "Content-Length: %d\r\n"
-        "\r\n",
-        resp->status, reason, ct, (int)body_len);
+    size_t ct_len = strlen(ct);
+    int header_len;
+    if (reason_len <= 32 && ct_len <= 128) {
+        static const char h1[] = "HTTP/1.1 ";
+        static const char h2[] = "\r\nServer: Orbit\r\nContent-Type: ";
+        static const char h3[] = "\r\nConnection: keep-alive\r\nKeep-Alive: timeout=30, max=1000\r\nContent-Length: ";
+        static const char h4[] = "\r\n\r\n";
+        char* h = header;
+        memcpy(h, h1, sizeof(h1) - 1); h += sizeof(h1) - 1;
+        h = orbit_append_int(h, resp->status);
+        *h++ = ' ';
+        memcpy(h, reason, reason_len); h += reason_len;
+        memcpy(h, h2, sizeof(h2) - 1); h += sizeof(h2) - 1;
+        memcpy(h, ct, ct_len); h += ct_len;
+        memcpy(h, h3, sizeof(h3) - 1); h += sizeof(h3) - 1;
+        h = orbit_append_int(h, (int)body_len);
+        memcpy(h, h4, sizeof(h4) - 1); h += sizeof(h4) - 1;
+        header_len = (int)(h - header);
+    } else {
+        header_len = snprintf(header, sizeof(header),
+            "HTTP/1.1 %d %s\r\n"
+            "Server: Orbit\r\n"
+            "Content-Type: %s\r\n"
+            "Connection: keep-alive\r\n"
+            "Keep-Alive: timeout=30, max=1000\r\n"
+            "Content-Length: %d\r\n"
+            "\r\n",
+            resp->status, reason, ct, (int)body_len);
+    }
 
     if (header_len > 0) {
         size_t total_len = (size_t)header_len + body_len;
