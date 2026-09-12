@@ -1,0 +1,54 @@
+// Blog API tutorial service.
+//
+// Run: orbit build examples/blog_api.orb -o blog_api
+//      ./blog_api 8080   (Windows: .\blog_api.exe 8080; copy
+//      runtime/vendor/win-x64/sqlite3.dll next to the exe first)
+//
+// Reads come from the seeded notes table, so GET works on a fresh
+// start with no setup. Writes are validated but not stored yet:
+// Model.create() returns false at runtime in 0.1.0, so POST answers
+// 201 with the accepted entry instead of pretending it was saved.
+// See docs/KNOWN_LIMITATIONS.md ("Model.create returns false").
+//
+// Auth here is a shared key in ?key=. req.bearer_token() exists in
+// the compiler but currently returns an empty reply at runtime, so
+// the tutorial does not use it. Same reference as above.
+
+model Note {
+    id: string
+    title: string
+    body: string
+    author_id: string
+    created_at: string
+    is_private: bool
+}
+
+route GET "/posts" {
+    val posts = Note.all()
+    return ok 200 posts
+}
+
+route GET "/posts/search" {
+    val author = req.query("author")
+    if (author == "") {
+        return ok 200 Note.all()
+    }
+    val found = Note.where("author_id = ?", author)
+    return ok 200 found
+}
+
+route POST "/posts" {
+    val key = req.query("key")
+    if (key != "dev-key-1") {
+        err 401 "a valid ?key= value is required to publish"
+    }
+    val payload = req.body()
+    if (payload == "" || payload == "{}") {
+        err 400 "post a JSON body with id, title, and body"
+    }
+    return ok 201 payload
+}
+
+route GET "/health" {
+    return ok 200 "{\"status\":\"UP\"}"
+}

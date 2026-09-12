@@ -1,0 +1,44 @@
+// File server tutorial service.
+//
+// Run: orbit build examples/file_server.orb -o file_server
+//      ./file_server 8080   (Windows: .\file_server.exe 8080;
+//      no database is used, so no sqlite3.dll is needed)
+//
+// Honest scope for 0.1.0: this service lists files, serves small
+// text content stored in its own listing, and accepts raw-body
+// uploads that it measures and echoes. Multipart parsing and disk
+// persistence are not implemented yet: req.file() returns a
+// placeholder path and saves nothing, so the tutorial does not
+// use it. See docs/KNOWN_LIMITATIONS.md ("no multipart uploads").
+
+route GET "/files" {
+    return ok 200 "{\"files\":[{\"name\":\"welcome.txt\",\"size\":29},{\"name\":\"notes.txt\",\"size\":41}]}"
+}
+
+route GET "/files/content" {
+    val name = req.query("name")
+    if (name == "welcome.txt") {
+        return ok 200 "Welcome to the Orbit file server."
+    }
+    if (name == "notes.txt") {
+        return ok 200 "Small texts served directly from routes."
+    }
+    err 404 "no such file"
+}
+
+route POST "/upload" {
+    val key = req.query("key")
+    if (key != "dev-key-1") {
+        err 401 "a valid ?key= value is required to upload"
+    }
+    val payload = req.body()
+    if (payload == "") {
+        err 400 "post the file content as the raw request body"
+    }
+    val size = payload.len()
+    return ok 201 "{\"received_bytes\":" + size + "}"
+}
+
+route GET "/health" {
+    return ok 200 "{\"status\":\"UP\"}"
+}
