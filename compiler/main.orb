@@ -4,6 +4,7 @@
 //   - `build <input.orb> [-o output.exe]`: Standard build driver.
 //   - `run <input.orb>`: Build, then run it with inherited stdio.
 //   - `check <input.orb>`: Parse and typecheck only, no code emitted.
+//   - `doctor [dir] [--fix]`: Read-only project checks, whitespace fixes with --fix.
 //   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
 //   - `--help, -h` / `--version, -v`
 
@@ -11,6 +12,7 @@ import "./extern.orb"
 import "./fmt.orb"
 import "./frontend/frontend.orb"
 import "./pipeline.orb"
+import "./doctor.orb"
 
 fn frontendOutputPath() -> string {
     var i = 2
@@ -83,6 +85,7 @@ fn printHelp() {
     print("  check <file.orb>           Parse and typecheck, no code emitted")
     print("  fmt <file.orb>             Format a file (writes only on success)")
     print("  fmt --check <file|dir>     List files that need formatting")
+    print("  doctor [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)")
     print("  frontend <input.orb> [-o output.tir]")
     print("  lextrace <file.orb>")
     print("  --help, -h                 Show this help")
@@ -157,6 +160,11 @@ fn main() {
     // fmt dispatch (agent)
     if cmd == "fmt" {
         runFmt()
+        return
+    }
+    // doctor dispatch (agent)
+    if cmd == "doctor" {
+        runDoctor()
         return
     }
     var outputPath = ""

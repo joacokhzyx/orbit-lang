@@ -75,6 +75,10 @@ bool orbit_file_write_selfhost(orbit_string path, orbit_string content) {
     return (orbit_file_write)(path, content);
 }
 
+OrbitList* orbit_file_list_dir_selfhost(orbit_string path) {
+    return (orbit_file_list_dir)(orbit_arena_get_global(), path);
+}
+
 // String/Int conversion helper
 orbit_string orbit_int_to_string_selfhost(orbit_int value) {
     return (orbit_int_to_string)(orbit_arena_get_global(), value);

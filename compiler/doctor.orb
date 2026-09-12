@@ -1,0 +1,872 @@
+import "./ast.orb"
+import "./parser.orb"
+import "./pipeline.orb"
+
+// orbit doctor: read-only project checks with optional whitespace fixes.
+//
+// Usage: orbit doctor [dir] [--fix]
+// Exit codes: 0 clean, 1 findings, 2 usage.
+//
+// Checks (each finding prints file:line, a code, and a one-line fix):
+//   D001  C toolchain resolution (ORBIT_CC -> CC -> gcc -> clang -> cc)
+//   D002  route conflicts incl. param normalization and wildcard coverage
+//   D003  unused private fns (high-confidence only)
+//   D004  unused models (high-confidence only)
+//   D005  system.* misuse (unknown member)
+//   D006  trailing whitespace (fixed by --fix)
+//   D007  missing final newline (fixed by --fix)
+//   D008  file does not pass the compiler's own checks
+//
+// --fix applies only D006/D007 whitespace tidies. Nothing semantic is
+// ever changed automatically.
+
+model DoctorStats {
+    findings: int
+    files: int
+}
+
+model DoctorDecl {
+    name: string
+    kind: string
+    file: string
+    line: int
+    isPrivate: bool
+    isExtern: bool
+}
+
+model DoctorRoute {
+    method: string
+    rawPath: string
+    normPath: string
+    file: string
+    line: int
+}
+
+model DoctorRouteLine {
+    isRoute: bool
+    method: string
+    path: string
+}
+
+fn doctorReport(stats: DoctorStats, file: string, line: int, code: string, message: string, fix: string) {
+    print(file + ":" + orbit_int_to_string_selfhost(line) + " [" + code + "] " + message + " fix: " + fix)
+    stats.findings = stats.findings + 1
+}
+
+fn doctorIsWordChar(c: int) -> bool {
+    if c >= 48 && c <= 57 { return true }
+    if c >= 65 && c <= 90 { return true }
+    if c >= 97 && c <= 122 { return true }
+    if c == 95 { return true }
+    return false
+}
+
+fn doctorStartsWith(s: string, prefix: string) -> bool {
+    val n = orbit_string_len(s)
+    val p = orbit_string_len(prefix)
+    if n < p { return false }
+    return orbit_string_slice(s, 0, p) == prefix
+}
+
+fn doctorEndsWithOrb(name: string) -> bool {
+    val n = orbit_string_len(name)
+    if n < 4 { return false }
+    return orbit_string_slice(name, n - 4, n) == ".orb"
+}
+
+fn doctorJoinPath(dir: string, name: string) -> string {
+    if dir == "" || dir == "." { return name }
+    return dir + "/" + name
+}
+
+fn doctorTrimLeft(s: string) -> string {
+    val n = orbit_string_len(s)
+    var i = 0
+    while i < n {
+        val c = orbit_string_char_at_selfhost(s, i)
+        if c == 32 || c == 9 {
+            i = i + 1
+        } else {
+            return orbit_string_slice(s, i, n)
+        }
+    }
+    return ""
+}
+
+fn doctorSplitLines(source: string) -> list {
+    var lines = []
+    var start = 0
+    var i = 0
+    val n = orbit_string_len(source)
+    while i < n {
+        if orbit_string_char_at_selfhost(source, i) == 10 {
+            lines.push(orbit_string_slice(source, start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        lines.push(orbit_string_slice(source, start, n))
+    }
+    return lines
+}
+
+fn doctorListContains(items: list, value: string) -> bool {
+    var i = 0
+    while i < items.len() {
+        if items.get(i) == value { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn doctorFirstLine(s: string) -> string {
+    val pos = orbit_string_indexOf(s, "\n")
+    if pos == -1 { return s }
+    return orbit_string_slice(s, 0, pos)
+}
+
+// Collect .orb files under root, recursing into subdirectories.
+// Needs only orbit_file_list_dir_selfhost: a path whose listing is
+// non-empty is treated as a directory, otherwise as a file.
+fn doctorCollectOrbFiles(root: string) -> list {
+    var files = []
+    if doctorEndsWithOrb(root) {
+        files.push(root)
+        return files
+    }
+    var dirs = []
+    dirs.push(root)
+    var di = 0
+    while di < dirs.len() {
+        val dir: string = dirs.get(di)
+        val entries = orbit_file_list_dir_selfhost(dir)
+        var ei = 0
+        while ei < entries.len() {
+            val e: string = entries.get(ei)
+            val full = doctorJoinPath(dir, e)
+            if doctorEndsWithOrb(e) {
+                files.push(full)
+            } else {
+                val sub = orbit_file_list_dir_selfhost(full)
+                if sub.len() > 0 {
+                    dirs.push(full)
+                }
+            }
+            ei = ei + 1
+        }
+        di = di + 1
+    }
+    return files
+}
+
+fn doctorProbeCompiler(cand: string, origin: string) -> bool {
+    val out = orbit_os_exec_selfhost(cand + " --version")
+    if out == "" { return false }
+    if doctorStartsWith(out, "[ERROR") { return false }
+    print("toolchain: found '" + cand + "' via " + origin + " (" + doctorFirstLine(out) + ").")
+    return true
+}
+
+// Resolution order mirrors the compiler's own C toolchain lookup:
+// ORBIT_CC first, then CC, then plain names off PATH.
+fn doctorCheckToolchain(stats: DoctorStats) {
+    val fromOrbit = orbit_os_env_selfhost("ORBIT_CC")
+    if fromOrbit != "" {
+        if doctorProbeCompiler(fromOrbit, "ORBIT_CC") { return }
+        doctorReport(stats, "toolchain", 1, "D001", "ORBIT_CC is set to '" + fromOrbit + "' but it did not answer '--version'.", "point ORBIT_CC at a working gcc, clang, or cc binary.")
+        return
+    }
+    val fromCC = orbit_os_env_selfhost("CC")
+    if fromCC != "" {
+        if doctorProbeCompiler(fromCC, "CC") { return }
+        doctorReport(stats, "toolchain", 1, "D001", "CC is set to '" + fromCC + "' but it did not answer '--version'.", "point CC at a working gcc, clang, or cc binary.")
+        return
+    }
+    if doctorProbeCompiler("gcc", "PATH") { return }
+    if doctorProbeCompiler("clang", "PATH") { return }
+    if doctorProbeCompiler("cc", "PATH") { return }
+    doctorReport(stats, "toolchain", 1, "D001", "no C compiler answered (tried ORBIT_CC, CC, gcc, clang, cc in that order).", "install gcc or clang and add it to PATH, or set ORBIT_CC to your compiler.")
+}
+
+fn doctorIsHttpMethod(method: string) -> bool {
+    if method == "GET" { return true }
+    if method == "POST" { return true }
+    if method == "PUT" { return true }
+    if method == "PATCH" { return true }
+    if method == "DELETE" { return true }
+    if method == "HEAD" { return true }
+    if method == "OPTIONS" { return true }
+    return false
+}
+
+// Text scan keeps exact line numbers (the AST route node carries none).
+fn doctorParseRouteLine(line: string) -> DoctorRouteLine {
+    var cut = line
+    val cpos = orbit_string_indexOf(line, "//")
+    if cpos != -1 { cut = orbit_string_slice(line, 0, cpos) }
+    val t = doctorTrimLeft(cut)
+    if doctorStartsWith(t, "route") == false { return DoctorRouteLine(false, "", "") }
+    if orbit_string_len(t) <= 5 { return DoctorRouteLine(false, "", "") }
+    val c5 = orbit_string_char_at_selfhost(t, 5)
+    if c5 != 32 && c5 != 9 { return DoctorRouteLine(false, "", "") }
+    val rest = doctorTrimLeft(orbit_string_slice(t, 5, orbit_string_len(t)))
+    var mi = 0
+    while mi < orbit_string_len(rest) {
+        val c = orbit_string_char_at_selfhost(rest, mi)
+        if c == 32 || c == 9 { break }
+        mi = mi + 1
+    }
+    val method = orbit_string_slice(rest, 0, mi)
+    if doctorIsHttpMethod(method) == false { return DoctorRouteLine(false, "", "") }
+    val rest2 = doctorTrimLeft(orbit_string_slice(rest, mi, orbit_string_len(rest)))
+    if orbit_string_len(rest2) < 2 { return DoctorRouteLine(false, "", "") }
+    if orbit_string_char_at_selfhost(rest2, 0) != 34 { return DoctorRouteLine(false, "", "") }
+    var path = ""
+    var qi = 1
+    val rn = orbit_string_len(rest2)
+    var found = false
+    while qi < rn {
+        val c = orbit_string_char_at_selfhost(rest2, qi)
+        if c == 92 {
+            if qi + 2 > rn { break }
+            path = path + orbit_string_slice(rest2, qi, qi + 2)
+            qi = qi + 2
+        } else {
+            if c == 34 {
+                found = true
+                break
+            }
+            path = path + orbit_string_slice(rest2, qi, qi + 1)
+            qi = qi + 1
+        }
+    }
+    if found == false { return DoctorRouteLine(false, "", "") }
+    return DoctorRouteLine(true, method, path)
+}
+
+fn doctorNormSegment(seg: string) -> string {
+    val n = orbit_string_len(seg)
+    if n == 0 { return seg }
+    val c0 = orbit_string_char_at_selfhost(seg, 0)
+    if c0 == 42 { return "*" }
+    if c0 == 58 { return ":param" }
+    if c0 == 123 {
+        if orbit_string_char_at_selfhost(seg, n - 1) == 125 { return ":param" }
+    }
+    return seg
+}
+
+// :id and {id} both become :param so GET /users/:id and
+// GET /users/{uuid} normalize to the same shape.
+fn doctorNormPath(path: string) -> string {
+    var out = ""
+    var start = 0
+    var i = 0
+    val n = orbit_string_len(path)
+    var first = true
+    while i <= n {
+        var isEnd = false
+        if i == n {
+            isEnd = true
+        } else {
+            if orbit_string_char_at_selfhost(path, i) == 47 { isEnd = true }
+        }
+        if isEnd {
+            val ns = doctorNormSegment(orbit_string_slice(path, start, i))
+            if first {
+                out = ns
+                first = false
+            } else {
+                out = out + "/" + ns
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn doctorRouteIsWildcard(norm: string) -> bool {
+    if norm == "*" { return true }
+    return orbit_string_indexOf(norm, "/*") != -1
+}
+
+fn doctorWildcardCovers(wild: string, specific: string) -> bool {
+    if wild == "*" { return true }
+    val pos = orbit_string_indexOf(wild, "/*")
+    if pos == -1 { return false }
+    val prefix = orbit_string_slice(wild, 0, pos)
+    if specific == prefix { return true }
+    return doctorStartsWith(specific, prefix + "/")
+}
+
+fn doctorCollectRoutes(file: string, source: string, routes: list) {
+    val lines = doctorSplitLines(source)
+    var i = 0
+    while i < lines.len() {
+        val rl = doctorParseRouteLine(lines.get(i))
+        if rl.isRoute {
+            routes.push(DoctorRoute(rl.method, rl.path, doctorNormPath(rl.path), file, i + 1))
+        }
+        i = i + 1
+    }
+}
+
+fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
+    var a = 0
+    while a < routes.len() {
+        var b = a + 1
+        while b < routes.len() {
+            val ra = routes.get(a)
+            val rb = routes.get(b)
+            if ra.method == rb.method {
+                if ra.normPath == rb.normPath {
+                    if ra.rawPath == rb.rawPath {
+                        doctorReport(stats, rb.file, rb.line, "D002", "duplicate route " + rb.method + " " + rb.rawPath + " (first seen at " + ra.file + ":" + orbit_int_to_string_selfhost(ra.line) + ").", "keep one handler and remove the other.")
+                    } else {
+                        doctorReport(stats, rb.file, rb.line, "D002", "route " + rb.method + " " + rb.rawPath + " collides with " + ra.file + ":" + orbit_int_to_string_selfhost(ra.line) + " (" + ra.method + " " + ra.rawPath + "); both normalize to " + rb.normPath + ".", "merge the handlers or give the paths distinct shapes.")
+                    }
+                } else {
+                    if doctorRouteIsWildcard(ra.normPath) {
+                        if doctorWildcardCovers(ra.normPath, rb.normPath) {
+                            doctorReport(stats, rb.file, rb.line, "D002", "route " + rb.method + " " + rb.rawPath + " is covered by wildcard " + ra.method + " " + ra.rawPath + " at " + ra.file + ":" + orbit_int_to_string_selfhost(ra.line) + ".", "order the specific route before the wildcard or narrow the wildcard.")
+                        }
+                    }
+                    if doctorRouteIsWildcard(rb.normPath) {
+                        if doctorWildcardCovers(rb.normPath, ra.normPath) {
+                            doctorReport(stats, ra.file, ra.line, "D002", "route " + ra.method + " " + ra.rawPath + " is covered by wildcard " + rb.method + " " + rb.rawPath + " at " + rb.file + ":" + orbit_int_to_string_selfhost(rb.line) + ".", "order the specific route before the wildcard or narrow the wildcard.")
+                        }
+                    }
+                }
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+}
+
+fn doctorFindDeclLine(source: string, keyword: string, name: string) -> int {
+    val lines = doctorSplitLines(source)
+    var i = 0
+    while i < lines.len() {
+        var rest = doctorTrimLeft(lines.get(i))
+        if doctorStartsWith(rest, "private ") {
+            rest = doctorTrimLeft(orbit_string_slice(rest, 8, orbit_string_len(rest)))
+        }
+        if doctorStartsWith(rest, "extern ") {
+            rest = doctorTrimLeft(orbit_string_slice(rest, 7, orbit_string_len(rest)))
+        }
+        if doctorStartsWith(rest, keyword) {
+            val after = orbit_string_slice(rest, orbit_string_len(keyword), orbit_string_len(rest))
+            if orbit_string_len(after) > 0 {
+                val c0 = orbit_string_char_at_selfhost(after, 0)
+                if c0 == 32 || c0 == 9 {
+                    val tail = doctorTrimLeft(after)
+                    if doctorStartsWith(tail, name) {
+                        if orbit_string_len(tail) == orbit_string_len(name) { return i + 1 }
+                        val ec = orbit_string_char_at_selfhost(tail, orbit_string_len(name))
+                        if doctorIsWordChar(ec) == false { return i + 1 }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+fn doctorCollectDecls(node: ASTNode, file: string, source: string, decls: list) {
+    match node {
+        ASTNode.Program(p) => {
+            var i = 0
+            while i < p.decls.len() {
+                doctorCollectDecls(p.decls.get(i), file, source, decls)
+                i = i + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => {
+            decls.push(DoctorDecl(f.name, "fn", file, doctorFindDeclLine(source, "fn", f.name), f.isPrivate, f.isExtern))
+        }
+        ASTNode.ModelDecl(m) => {
+            decls.push(DoctorDecl(m.name, "model", file, doctorFindDeclLine(source, "model", m.name), false, false))
+        }
+        _ => {}
+    }
+}
+
+// AST walk collecting every referenced name: identifier uses plus the
+// type names in annotations, so models used as types count as used.
+fn doctorWalkRefs(node: ASTNode, refs: list) {
+    match node {
+        ASTNode.Program(p) => {
+            var i = 0
+            while i < p.decls.len() {
+                doctorWalkRefs(p.decls.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => {
+            var i = 0
+            while i < f.paramTypes.len() {
+                refs.push(f.paramTypes.get(i))
+                i = i + 1
+            }
+            if f.returnType != "" { refs.push(f.returnType) }
+            doctorWalkRefs(f.body, refs)
+        }
+        ASTNode.RouteDecl(r) => { doctorWalkRefs(r.body, refs) }
+        ASTNode.ModelDecl(m) => {
+            var i = 0
+            while i < m.fields.len() {
+                doctorWalkRefs(m.fields.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.FieldDecl(fd) => {
+            if fd.fieldType != "" { refs.push(fd.fieldType) }
+        }
+        ASTNode.VarDecl(v) => {
+            if v.typeAnnotation != "" { refs.push(v.typeAnnotation) }
+            doctorWalkRefs(v.value, refs)
+        }
+        ASTNode.ConstDecl(c) => { doctorWalkRefs(c.value, refs) }
+        ASTNode.Block(b) => {
+            var i = 0
+            while i < b.statements.len() {
+                doctorWalkRefs(b.statements.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.If(n) => {
+            doctorWalkRefs(n.condition, refs)
+            doctorWalkRefs(n.thenBody, refs)
+            doctorWalkRefs(n.elseBody, refs)
+        }
+        ASTNode.While(n) => {
+            doctorWalkRefs(n.condition, refs)
+            doctorWalkRefs(n.body, refs)
+        }
+        ASTNode.For(n) => {
+            doctorWalkRefs(n.iterable, refs)
+            doctorWalkRefs(n.body, refs)
+        }
+        ASTNode.Return(n) => { doctorWalkRefs(n.expr, refs) }
+        ASTNode.ReturnOk(n) => { doctorWalkRefs(n.expr, refs) }
+        ASTNode.ReturnErr(n) => { doctorWalkRefs(n.expr, refs) }
+        ASTNode.Match(n) => {
+            doctorWalkRefs(n.expr, refs)
+            var i = 0
+            while i < n.cases.len() {
+                doctorWalkRefs(n.cases.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.MatchCase(n) => {
+            doctorWalkRefs(n.pattern, refs)
+            doctorWalkRefs(n.body, refs)
+        }
+        ASTNode.Try(n) => {
+            doctorWalkRefs(n.expr, refs)
+            doctorWalkRefs(n.catchBody, refs)
+        }
+        ASTNode.BinaryOp(n) => {
+            doctorWalkRefs(n.lhs, refs)
+            doctorWalkRefs(n.rhs, refs)
+        }
+        ASTNode.UnaryOp(n) => { doctorWalkRefs(n.operand, refs) }
+        ASTNode.Call(n) => {
+            doctorWalkRefs(n.callee, refs)
+            var i = 0
+            while i < n.args.len() {
+                doctorWalkRefs(n.args.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.MemberAccess(n) => { doctorWalkRefs(n.object, refs) }
+        ASTNode.IndexAccess(n) => {
+            doctorWalkRefs(n.object, refs)
+            doctorWalkRefs(n.index, refs)
+        }
+        ASTNode.ListLiteral(n) => {
+            var i = 0
+            while i < n.elements.len() {
+                doctorWalkRefs(n.elements.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.Assignment(n) => {
+            doctorWalkRefs(n.target, refs)
+            doctorWalkRefs(n.value, refs)
+        }
+        ASTNode.ExpressionStmt(n) => { doctorWalkRefs(n.expr, refs) }
+        ASTNode.TypeAnnotation(n) => { refs.push(n.token) }
+        ASTNode.ImplDecl(n) => {
+            refs.push(n.traitName)
+            refs.push(n.typeName)
+            var i = 0
+            while i < n.methods.len() {
+                doctorWalkRefs(n.methods.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.TraitDecl(n) => {
+            var i = 0
+            while i < n.methods.len() {
+                doctorWalkRefs(n.methods.get(i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.ScheduleDecl(n) => { doctorWalkRefs(n.handler, refs) }
+        ASTNode.ConfigDecl(n) => { doctorWalkRefs(n.value, refs) }
+        ASTNode.FieldInit(n) => { doctorWalkRefs(n.value, refs) }
+        ASTNode.Literal(n) => {
+            if n.valType == "identifier" { refs.push(n.text) }
+        }
+        _ => {}
+    }
+}
+
+fn doctorContainsWord(hay: string, word: string) -> bool {
+    val hn = orbit_string_len(hay)
+    val wn = orbit_string_len(word)
+    if wn == 0 { return false }
+    if hn < wn { return false }
+    var i = 0
+    while i + wn <= hn {
+        if orbit_string_slice(hay, i, i + wn) == word {
+            var leftOk = true
+            if i > 0 {
+                if doctorIsWordChar(orbit_string_char_at_selfhost(hay, i - 1)) { leftOk = false }
+            }
+            var rightOk = true
+            if i + wn < hn {
+                if doctorIsWordChar(orbit_string_char_at_selfhost(hay, i + wn)) { rightOk = false }
+            }
+            if leftOk && rightOk { return true }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Text safety net for positions the AST walk does not model: a name is
+// only reported when no whole-word use exists outside its own decl line.
+fn doctorUsedInText(files: list, sources: list, declFile: string, declLine: int, word: string) -> bool {
+    var i = 0
+    while i < files.len() {
+        val fp: string = files.get(i)
+        val src: string = sources.get(i)
+        if orbit_string_indexOf(src, word) != -1 {
+            val lines = doctorSplitLines(src)
+            var ln = 1
+            while ln <= lines.len() {
+                var isDeclLine = false
+                if fp == declFile && ln == declLine { isDeclLine = true }
+                if isDeclLine == false {
+                    val t: string = lines.get(ln - 1)
+                    if doctorContainsWord(t, word) { return true }
+                }
+                ln = ln + 1
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, sources: list) {
+    var i = 0
+    while i < decls.len() {
+        val d = decls.get(i)
+        var reportable = true
+        if d.name == "main" { reportable = false }
+        if d.isExtern { reportable = false }
+        if d.kind == "fn" && d.isPrivate == false { reportable = false }
+        if reportable {
+            if doctorListContains(refs, d.name) == false {
+                if doctorUsedInText(files, sources, d.file, d.line, d.name) == false {
+                    if d.kind == "fn" {
+                        doctorReport(stats, d.file, d.line, "D003", "private fn '" + d.name + "' is never called in the scanned files.", "call it, or remove it if it is no longer needed.")
+                    } else {
+                        doctorReport(stats, d.file, d.line, "D004", "model '" + d.name + "' is never referenced in the scanned files.", "use it, or remove it if it is no longer needed.")
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
+// Drop // comments and "..." spans so strings and comments never count
+// as system uses.
+fn doctorCodePart(line: string) -> string {
+    var cut = line
+    val cpos = orbit_string_indexOf(line, "//")
+    if cpos != -1 { cut = orbit_string_slice(line, 0, cpos) }
+    var out = ""
+    var i = 0
+    val n = orbit_string_len(cut)
+    var inStr = false
+    while i < n {
+        val c = orbit_string_char_at_selfhost(cut, i)
+        if inStr {
+            if c == 92 {
+                i = i + 2
+            } else {
+                if c == 34 { inStr = false }
+                i = i + 1
+            }
+        } else {
+            if c == 34 {
+                inStr = true
+                i = i + 1
+            } else {
+                out = out + orbit_string_slice(cut, i, i + 1)
+                i = i + 1
+            }
+        }
+    }
+    return out
+}
+
+fn doctorIsValidSystemMember(member: string) -> bool {
+    if member == "uptime" { return true }
+    if member == "pid" { return true }
+    if member == "active_workers" { return true }
+    if member == "http_requests_total" { return true }
+    if member == "latency_avg_us" { return true }
+    return false
+}
+
+fn doctorScanSystemLine(line: string) -> string {
+    var i = 0
+    val n = orbit_string_len(line)
+    while i + 7 <= n {
+        if orbit_string_slice(line, i, i + 7) == "system." {
+            var j = i + 7
+            var member = ""
+            while j < n {
+                val c = orbit_string_char_at_selfhost(line, j)
+                if doctorIsWordChar(c) {
+                    member = member + orbit_string_slice(line, j, j + 1)
+                    j = j + 1
+                } else {
+                    break
+                }
+            }
+            if member != "" {
+                if doctorIsValidSystemMember(member) == false { return member }
+            }
+            i = j
+        } else {
+            i = i + 1
+        }
+    }
+    return ""
+}
+
+fn doctorScanSystem(stats: DoctorStats, file: string, source: string) {
+    val lines = doctorSplitLines(source)
+    var i = 0
+    while i < lines.len() {
+        val bad = doctorScanSystemLine(doctorCodePart(lines.get(i)))
+        if bad != "" {
+            doctorReport(stats, file, i + 1, "D005", "unknown member 'system." + bad + "'. Valid members are: uptime, pid, active_workers, http_requests_total, latency_avg_us.", "use one of: uptime, pid, active_workers, http_requests_total, latency_avg_us.")
+        }
+        i = i + 1
+    }
+}
+
+fn doctorHasTrailingWs(line: string) -> bool {
+    var end = orbit_string_len(line)
+    if end == 0 { return false }
+    if orbit_string_char_at_selfhost(line, end - 1) == 13 { end = end - 1 }
+    if end == 0 { return false }
+    val c = orbit_string_char_at_selfhost(line, end - 1)
+    return c == 32 || c == 9
+}
+
+// Strips trailing spaces/tabs but keeps a trailing carriage return in
+// place, so CRLF files keep their line endings under --fix.
+fn doctorStripTrailingWs(line: string) -> string {
+    var end = orbit_string_len(line)
+    var cr = ""
+    if end > 0 && orbit_string_char_at_selfhost(line, end - 1) == 13 {
+        cr = orbit_string_slice(line, end - 1, end)
+        end = end - 1
+    }
+    while end > 0 {
+        val c = orbit_string_char_at_selfhost(line, end - 1)
+        if c == 32 || c == 9 {
+            end = end - 1
+        } else {
+            break
+        }
+    }
+    return orbit_string_slice(line, 0, end) + cr
+}
+
+fn doctorBuildFixedSource(source: string) -> string {
+    val lines = doctorSplitLines(source)
+    var out = ""
+    var i = 0
+    while i < lines.len() {
+        out = out + doctorStripTrailingWs(lines.get(i)) + "\n"
+        i = i + 1
+    }
+    return out
+}
+
+fn doctorScanStyle(stats: DoctorStats, file: string, source: string) {
+    val lines = doctorSplitLines(source)
+    var i = 0
+    while i < lines.len() {
+        if doctorHasTrailingWs(lines.get(i)) {
+            doctorReport(stats, file, i + 1, "D006", "trailing whitespace on this line.", "remove the trailing spaces or tabs (doctor --fix does this).")
+        }
+        i = i + 1
+    }
+    val n = orbit_string_len(source)
+    if n > 0 {
+        if orbit_string_char_at_selfhost(source, n - 1) != 10 {
+            doctorReport(stats, file, lines.len(), "D007", "file does not end with a newline.", "end the file with a single newline (doctor --fix does this).")
+        }
+    }
+}
+
+fn doctorPrintGates() {
+    print("gates: doctor never runs these itself; run them from the repository root:")
+    print("  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>")
+    print("  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>")
+    print("  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>")
+}
+
+fn doctorPrintHelp() {
+    print("Usage: orbit doctor [dir] [--fix]")
+    print("")
+    print("Scans .orb files under [dir] (default: the current directory) without changing them.")
+    print("  --fix   Tidies whitespace only: trailing-whitespace removal and a missing final newline.")
+    print("Nothing else is ever changed automatically.")
+    print("Exit codes: 0 clean, 1 findings, 2 usage.")
+}
+
+fn doctorUsage() {
+    print("Usage: orbit doctor [dir] [--fix]")
+    print("Run `orbit doctor --help` for details.")
+}
+
+fn doctorRun(dir: string, fixMode: bool) {
+    var stats = DoctorStats(0, 0)
+    var files = doctorCollectOrbFiles(dir)
+    if files.len() == 0 {
+        val probe = orbit_file_read_selfhost(dir)
+        if probe != "" {
+            files.push(dir)
+        }
+    }
+    if files.len() == 0 {
+        print("doctor: no .orb files found under \"" + dir + "\"; nothing to check.")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    if fixMode {
+        var fi = 0
+        while fi < files.len() {
+            val fp: string = files.get(fi)
+            val src = orbit_file_read_selfhost(fp)
+            if src != "" {
+                val fixed = doctorBuildFixedSource(src)
+                if fixed != src {
+                    if orbit_file_write_selfhost(fp, fixed) {
+                        print("fixed " + fp + ": whitespace tidied (trailing spaces removed, final newline ensured).")
+                    } else {
+                        doctorReport(stats, fp, 1, "D006", "whitespace fixes could not be written.", "check file permissions and run again.")
+                    }
+                }
+            }
+            fi = fi + 1
+        }
+    }
+    var sources = []
+    var fi2 = 0
+    while fi2 < files.len() {
+        val fp2: string = files.get(fi2)
+        sources.push(orbit_file_read_selfhost(fp2))
+        fi2 = fi2 + 1
+    }
+    stats.files = files.len()
+    doctorCheckToolchain(stats)
+    var routes = []
+    var decls = []
+    var refs = []
+    var i = 0
+    while i < files.len() {
+        val fp3: string = files.get(i)
+        val src3: string = sources.get(i)
+        if src3 == "" {
+            doctorReport(stats, fp3, 1, "D008", "file is empty or could not be read.", "add content, or drop the path from the scan.")
+        } else {
+            val ok = checkSourceWithFile(src3, fp3)
+            if ok == false {
+                doctorReport(stats, fp3, 1, "D008", "this file did not pass the compiler's own checks (see the error above).", "run `orbit check " + fp3 + "` and address the first error.")
+            }
+            doctorCollectRoutes(fp3, src3, routes)
+            doctorScanSystem(stats, fp3, src3)
+            doctorScanStyle(stats, fp3, src3)
+            val parser = initParser(src3)
+            val ast = parseProgram(parser)
+            if parser.diagnostics.len() == 0 {
+                doctorCollectDecls(ast, fp3, src3, decls)
+                doctorWalkRefs(ast, refs)
+            }
+        }
+        i = i + 1
+    }
+    doctorCheckRoutes(stats, routes)
+    doctorCheckUnused(stats, decls, refs, files, sources)
+    doctorPrintGates()
+    if stats.findings == 0 {
+        print("doctor: no findings in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+    } else {
+        print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+        orbit_os_exit_selfhost(1)
+    }
+}
+
+fn runDoctor() {
+    val a2 = orbit_os_argv_selfhost(2)
+    val a3 = orbit_os_argv_selfhost(3)
+    val a4 = orbit_os_argv_selfhost(4)
+    if a2 == "--help" || a2 == "-h" {
+        doctorPrintHelp()
+        return
+    }
+    var fixMode = false
+    if a2 == "--fix" { fixMode = true }
+    if a3 == "--fix" { fixMode = true }
+    var dir = "."
+    if a2 != "" && a2 != "--fix" { dir = a2 }
+    if a2 == "--fix" && a3 != "" && a3 != "--fix" { dir = a3 }
+    if a4 != "" {
+        doctorUsage()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if a2 != "" && a2 != "--fix" && doctorStartsWith(a2, "-") {
+        doctorUsage()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if a3 != "" && a3 != "--fix" && doctorStartsWith(a3, "-") {
+        doctorUsage()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if a2 == "--fix" && a3 == "--fix" {
+        doctorUsage()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    doctorRun(dir, fixMode)
+}
