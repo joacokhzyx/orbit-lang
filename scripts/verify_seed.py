@@ -67,7 +67,7 @@ PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "4DAC89F2F261A846BEB831CC15ADA27B8AEC11B40916FC5D9BEEE099537E16B8"
+PUBLISHED_C = "3FFF65E66A86B2F7213F2D793CE72FBAC9B01C770580BF62819FBB93AA4AADAB"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
