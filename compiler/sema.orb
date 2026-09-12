@@ -611,10 +611,10 @@ fn checkNode(sema: Sema, node: ASTNode) {
                 match decl {
                     ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, decl) }
                     ASTNode.RouteDecl(r) => { checkRouteBody(sema, decl) }
-                    ASTNode.ImplDecl(impl) => {
+                    ASTNode.ImplDecl(im) => {
                         var j = 0
-                        while j < impl.methods.len() {
-                            checkFunctionBody(sema, impl.methods.get(j))
+                        while j < im.methods.len() {
+                            checkFunctionBody(sema, im.methods.get(j))
                             j = j + 1
                         }
                     }
@@ -654,10 +654,10 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.MatchCase(mc) => {}
         ASTNode.GenericParam(gp) => {}
         ASTNode.TraitDecl(trd) => { declareSymbol(sema, trd.name, "type", false, false) }
-        ASTNode.ImplDecl(impl) => {
+        ASTNode.ImplDecl(im) => {
             var j = 0
-            while j < impl.methods.len() {
-                checkFunctionBody(sema, impl.methods.get(j))
+            while j < im.methods.len() {
+                checkFunctionBody(sema, im.methods.get(j))
                 j = j + 1
             }
         }

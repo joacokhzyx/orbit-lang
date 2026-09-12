@@ -119,6 +119,15 @@ fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) ->
                             } else {
                                 val subParser = initParser(subSource)
                                 val subAST = parseProgram(subParser)
+                                // Dependency diagnostics are fatal: silently
+                                // accepting broken imports once hid real
+                                // errors (e.g. keyword payloads) from builds.
+                                var di = 0
+                                while di < subParser.diagnostics.len() {
+                                    val dd: ParserDiagnostic = subParser.diagnostics.get(di)
+                                    resolver.errors.push(fullPath + ":" + orbit_int_to_string_selfhost(dd.line) + ": " + dd.message)
+                                    di = di + 1
+                                }
                                 val subResolved = resolveModuleAST(resolver, subAST, fullPath)
                                 match subResolved {
                                     ASTNode.Program(subProg) => {
