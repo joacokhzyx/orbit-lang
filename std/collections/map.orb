@@ -1,7 +1,7 @@
 // Orbit Sovereign Standard Library
 // std/collections/map.orb
 // Ordered map backed by parallel lists. Provides O(n) operations;
-// the high-performance hash map is in the C runtime (collections.c).
+// the hash map is in the C runtime (collections.c).
 
 model Map<K, V> {
     keys: list
