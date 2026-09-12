@@ -76,6 +76,8 @@ static bool orbit_db_valid_identifier(const char* name) {
 void orbit_db_init(const char* db_path) {
     sqlite3_open(db_path, &orbit_db_conn);
     if (orbit_db_conn) {
+        sqlite3_busy_timeout(orbit_db_conn, 5000);
+        sqlite3_exec(orbit_db_conn, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
         sqlite3_progress_handler(orbit_db_conn, 10, orbit_sqlite_progress_handler, NULL);
         const char* init_sql =
             "CREATE TABLE IF NOT EXISTS notes ("
