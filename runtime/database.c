@@ -471,8 +471,9 @@ bool orbit_db_add(orbit_collection col, const char* json_data) {
     if (ncols == 0) return false;
 
     /* "INSERT INTO <table> (c1,c2,...) VALUES (?,?,...);" */
-    size_t qlen = strlen("INSERT INTO  ( ) VALUES ();") + strlen(col.table_name) + 1;
-    for (int i = 0; i < ncols; i++) qlen += strlen(col_names[i]) + 2;
+    size_t qlen = strlen("INSERT INTO ") + strlen(col.table_name)
+        + strlen(" () VALUES ();") + 1;
+    for (int i = 0; i < ncols; i++) qlen += strlen(col_names[i]) + 4;
     char* query = (char*)malloc(qlen);
     if (!query) {
         for (int i = 0; i < ncols; i++) free((void*)col_names[i]);
