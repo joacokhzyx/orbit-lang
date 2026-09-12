@@ -114,6 +114,10 @@ def open_connection(host, port, timeout, src_ip=None):
 
 
 def worker(idx, args, stop_at, max_reqs, latencies, transport, status_counts, lock, req_counter):
+    """One keep-alive connection. In --requests mode each thread owns a fixed
+    quota (no shared counter), so per-connection counts are exact and
+    per-IP admission budgets stay predictable. Duration mode shares a
+    global counter instead."""
     req = (
         "%s %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n"
         "User-Agent: night_load/1.0\r\nAccept: */*\r\n\r\n"
@@ -126,19 +130,30 @@ def worker(idx, args, stop_at, max_reqs, latencies, transport, status_counts, lo
     src_ip = None
     if args.source_ips > 0:
         src_ip = "127.0.0.%d" % (2 + (idx % args.source_ips))
+    # Fixed quota in --requests mode; shared counter in duration mode.
+    quota = None
+    if args.requests > 0:
+        per, rem = divmod(args.requests, args.connections)
+        quota = per + (1 if idx < rem else 0)
     try:
         sock = open_connection(args.host, args.port, args.timeout, src_ip)
     except OSError:
         with lock:
-            transport[0] += max_reqs  # all assigned requests failed
+            transport[0] += quota if quota is not None else 1
         return
+    done = 0
     while True:
-        with lock:
-            if req_counter[0] >= max_reqs:
+        if quota is not None:
+            if done >= quota:
                 break
-            if stop_at is not None and time.monotonic() >= stop_at:
-                break
-            req_counter[0] += 1
+            done += 1
+        else:
+            with lock:
+                if req_counter[0] >= max_reqs:
+                    break
+                if stop_at is not None and time.monotonic() >= stop_at:
+                    break
+                req_counter[0] += 1
         t0 = time.perf_counter()
         try:
             sock.sendall(req)
