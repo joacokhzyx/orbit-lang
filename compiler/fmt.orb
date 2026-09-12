@@ -33,8 +33,12 @@ model FmtState {
     lastWasOpenBrace: bool
     closedSingle: bool
     closedEmpty: bool
-    prevTag: TokType
-    pprevTag: TokType
+    // int, not TokType: storing an unknown-typed register into an enum
+    // model field is a hard C error (void* has no enum conversion), while
+    // int fields accept it via the suppressed int-conversion path. Enum
+    // values round-trip through ints exactly; comparisons are unaffected.
+    prevTag: int
+    pprevTag: int
     toks: list
     comments: list
     braces: list
