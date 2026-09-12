@@ -8,9 +8,15 @@
  * (HTML, auto-refresh) and /_ledger/data (JSON). Loopback only.
  *
  * Honesty notes: cycles use the same 2.5 GHz RDTSC basis as the request
- * log, so milliseconds are approximate on other clocks. Energy in joules
- * is NOT reported here (no sensor wired yet); see the energy sampler
- * roadmap item. What is not measured is not shown.
+ * log, so milliseconds are approximate on other clocks. Per-route joules
+ * come from the energy sampler (runtime/energy.c): on Linux with a readable
+ * powercap sensor they are that route's cycle-share of the attributable
+ * package energy (an ESTIMATE, see docs/ENERGY.md); without a sensor every
+ * joule field reads 0 and the source column reads "cpu-proxy", meaning the
+ * cycle counters are a labeled proxy, never energy. What is not measured
+ * is not shown. Define ORBIT_NO_LEDGER to compile the enter/exit hooks to
+ * no-ops for overhead comparison; the JSON/HTML endpoints then report
+ * empty route lists.
  */
 #ifndef ORBIT_LEDGER_C
 #define ORBIT_LEDGER_C
@@ -79,6 +85,12 @@ static int orbit_ledger_claim(const char* method, const char* path) {
 
 /* Called by generated code around each handler. Returns the slot index. */
 static int orbit_ledger_enter(const char* method, const char* path) {
+#ifdef ORBIT_NO_LEDGER
+    (void)method;
+    (void)path;
+    orbit_ledger_tls_slot = -1;
+    return -1;
+#else
     int idx = orbit_ledger_find(method, path);
     if (idx < 0) {
         idx = orbit_ledger_claim(method, path);
@@ -90,9 +102,12 @@ static int orbit_ledger_enter(const char* method, const char* path) {
     }
     orbit_ledger_tls_slot = idx;
     return idx;
+#endif
 }
 
 static void orbit_ledger_exit(int idx, uint64_t cycles) {
+    /* Under ORBIT_NO_LEDGER, enter always returns -1, so this is a no-op
+     * store apart from clearing the thread-local slot. */
     if (idx >= 0 && idx < ORBIT_LEDGER_MAX) {
         orbit_perf_atomic_inc64(&orbit_ledger_table[idx].count);
         orbit_perf_atomic_add64(&orbit_ledger_table[idx].total_cycles, cycles);
@@ -129,14 +144,48 @@ static int orbit_ledger_is_loopback(orbit_socket_t s) {
     return 0;
 }
 
+/* Sum of handler cycles across used entries: denominator for joule shares. */
+static uint64_t orbit_ledger_sum_cycles(void) {
+    uint64_t sum = 0;
+    int i = 0;
+    while (i < ORBIT_LEDGER_MAX) {
+        if (orbit_ledger_table[i].used) sum += orbit_ledger_table[i].total_cycles;
+        i++;
+    }
+    return sum;
+}
+
+#ifdef ORBIT_ENERGY_C
+#define ORBIT_LEDGER_SOURCE() orbit_energy_source()
+#define ORBIT_LEDGER_ATTR_J() orbit_energy_attributable_joules()
+#define ORBIT_LEDGER_ROUTE_J(rc, tc) orbit_energy_route_joules((rc), (tc))
+#else
+/* Standalone TU without the sampler: labeled proxy, no joules. */
+#define ORBIT_LEDGER_SOURCE() ("cpu-proxy")
+#define ORBIT_LEDGER_ATTR_J() (0.0)
+#define ORBIT_LEDGER_ROUTE_J(rc, tc) ((void)(rc), (void)(tc), 0.0)
+#endif
+
+#define ORBIT_LEDGER_NOTE_METERED \
+    "cycles on 2.5 GHz RDTSC basis; ms approximate. " \
+    "Joules are the route cycle-share of attributable RAPL package energy (ESTIMATE, see docs/ENERGY.md)."
+#define ORBIT_LEDGER_NOTE_PROXY \
+    "cycles on 2.5 GHz RDTSC basis; ms approximate. " \
+    "No power sensor: joules read 0 and avg_cycles is a labeled CPU proxy, not energy."
+
 orbit_string orbit_ledger_json(OrbitArena* arena) {
-    char* buf = (char*)orbit_alloc(arena, 16384);
+    char* buf = (char*)orbit_alloc(arena, 32768);
+    const char* src = ORBIT_LEDGER_SOURCE();
+    const char* note = ORBIT_LEDGER_NOTE_PROXY;
+    uint64_t denom = 0;
     if (!buf) return "{\"routes\":[]}";
+    if (src[0] == 'r') note = ORBIT_LEDGER_NOTE_METERED; /* "rapl-estimate" */
+    denom = orbit_ledger_sum_cycles();
     size_t off = 0;
-    off += (size_t)snprintf(buf + off, 16384 - off, "{\"routes\":[");
+    off += (size_t)snprintf(buf + off, 32768 - off, "{\"routes\":[");
     int first = 1;
     int i = 0;
-    while (i < ORBIT_LEDGER_MAX && off < 15000) {
+    while (i < ORBIT_LEDGER_MAX && off < 31000) {
         if (orbit_ledger_table[i].used) {
             uint64_t n = orbit_ledger_table[i].count;
             uint64_t tot = orbit_ledger_table[i].total_cycles;
@@ -146,27 +195,39 @@ orbit_string orbit_ledger_json(OrbitArena* arena) {
             uint64_t ms_i = avg_c / 2500000ULL;
             uint64_t ms_f = ((avg_c % 2500000ULL) * 100ULL) / 2500000ULL;
             uint64_t share = tot > 0 ? (db * 100ULL) / tot : 0;
-            off += (size_t)snprintf(buf + off, 16384 - off,
-                "%s{\"method\":\"%s\",\"path\":\"%s\",\"req\":%llu,\"avg_ms\":%llu.%02llu,\"db_share\":%llu}",
+            double rj = ORBIT_LEDGER_ROUTE_J(tot, denom);
+            double jpr = n > 0 ? rj / (double)n : 0.0;
+            off += (size_t)snprintf(buf + off, 32768 - off,
+                "%s{\"method\":\"%s\",\"path\":\"%s\",\"req\":%llu,\"avg_ms\":%llu.%02llu,"
+                "\"db_share\":%llu,\"joules_total\":%.6f,\"joules_per_req\":%.6f,"
+                "\"avg_cycles\":%llu,\"energy_source\":\"%s\"}",
                 first ? "" : ",",
                 orbit_ledger_table[i].method, orbit_ledger_table[i].path,
                 (unsigned long long)n,
                 (unsigned long long)ms_i, (unsigned long long)ms_f,
-                (unsigned long long)share);
+                (unsigned long long)share,
+                rj, jpr,
+                (unsigned long long)avg_c,
+                src);
             first = 0;
         }
         i++;
     }
-    snprintf(buf + off, 16384 - off,
-        "],\"note\":\"cycles on 2.5 GHz RDTSC basis; ms approximate. Joules not measured yet.\"}");
+    snprintf(buf + off, 32768 - off,
+        "],\"energy_source\":\"%s\",\"energy_note\":\"%s\"}", src, note);
     return buf;
 }
 
 orbit_string orbit_ledger_html(OrbitArena* arena) {
-    char* buf = (char*)orbit_alloc(arena, 24576);
+    char* buf = (char*)orbit_alloc(arena, 32768);
+    const char* src = ORBIT_LEDGER_SOURCE();
+    const char* note = ORBIT_LEDGER_NOTE_PROXY;
+    uint64_t denom = 0;
     if (!buf) return "<html><body>ledger unavailable</body></html>";
+    if (src[0] == 'r') note = ORBIT_LEDGER_NOTE_METERED;
+    denom = orbit_ledger_sum_cycles();
     size_t off = 0;
-    off += (size_t)snprintf(buf + off, 24576 - off,
+    off += (size_t)snprintf(buf + off, 32768 - off,
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
         "<meta http-equiv=\"refresh\" content=\"2\">"
         "<title>Orbit ledger</title></head>"
@@ -174,9 +235,10 @@ orbit_string orbit_ledger_html(OrbitArena* arena) {
         "<h1>Cost ledger</h1>"
         "<p>Per-route handler cost. No annotations were written for this.</p>"
         "<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\">"
-        "<tr><th>Route</th><th>Req</th><th>Avg ms</th><th>DB share</th></tr>");
+        "<tr><th>Route</th><th>Req</th><th>Avg ms</th><th>DB share</th>"
+        "<th>Energy</th><th>Source</th></tr>");
     int i = 0;
-    while (i < ORBIT_LEDGER_MAX && off < 23000) {
+    while (i < ORBIT_LEDGER_MAX && off < 31000) {
         if (orbit_ledger_table[i].used) {
             uint64_t n = orbit_ledger_table[i].count;
             uint64_t tot = orbit_ledger_table[i].total_cycles;
@@ -185,19 +247,36 @@ orbit_string orbit_ledger_html(OrbitArena* arena) {
             uint64_t ms_i = avg_c / 2500000ULL;
             uint64_t ms_f = ((avg_c % 2500000ULL) * 100ULL) / 2500000ULL;
             uint64_t share = tot > 0 ? (db * 100ULL) / tot : 0;
-            off += (size_t)snprintf(buf + off, 24576 - off,
-                "<tr><td>%s %s</td><td>%llu</td><td>%llu.%02llu</td><td>%llu%%</td></tr>",
-                orbit_ledger_table[i].method, orbit_ledger_table[i].path,
-                (unsigned long long)n,
-                (unsigned long long)ms_i, (unsigned long long)ms_f,
-                (unsigned long long)share);
+            double rj = ORBIT_LEDGER_ROUTE_J(tot, denom);
+            double jpr = n > 0 ? rj / (double)n : 0.0;
+            if (src[0] == 'r') {
+                off += (size_t)snprintf(buf + off, 32768 - off,
+                    "<tr><td>%s %s</td><td>%llu</td><td>%llu.%02llu</td><td>%llu%%</td>"
+                    "<td>%.6f J/req (est.)</td><td>%s</td></tr>",
+                    orbit_ledger_table[i].method, orbit_ledger_table[i].path,
+                    (unsigned long long)n,
+                    (unsigned long long)ms_i, (unsigned long long)ms_f,
+                    (unsigned long long)share,
+                    jpr, src);
+            } else {
+                off += (size_t)snprintf(buf + off, 32768 - off,
+                    "<tr><td>%s %s</td><td>%llu</td><td>%llu.%02llu</td><td>%llu%%</td>"
+                    "<td>&mdash; (cpu proxy: %llu cycles/req)</td><td>%s</td></tr>",
+                    orbit_ledger_table[i].method, orbit_ledger_table[i].path,
+                    (unsigned long long)n,
+                    (unsigned long long)ms_i, (unsigned long long)ms_f,
+                    (unsigned long long)share,
+                    (unsigned long long)avg_c, src);
+            }
         }
         i++;
     }
-    snprintf(buf + off, 24576 - off,
+    snprintf(buf + off, 32768 - off,
         "</table>"
-        "<p><small>Cycles on 2.5 GHz RDTSC basis; ms approximate. Joules not measured yet.</small></p>"
-        "</body></html>");
+        "<p><small>%s Metered: RAPL package joules sampled at 1 Hz minus idle baseline. "
+        "Estimated: per-route split by cycle share. Proxy: cycle counters where no sensor exists; "
+        "never converted to joules.</small></p>"
+        "</body></html>", note);
     return buf;
 }
 
