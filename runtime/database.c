@@ -391,51 +391,40 @@ bool orbit_db_exists(orbit_collection col, const char* id) {
 static char* orbit_json_get_value(const char* json, const char* key) {
     if (!json || !key) return NULL;
 
-    /* Quoted string value: "key":"value" */
     size_t key_len = strlen(key);
-    size_t q_search_len = key_len + 4; /* "key":" */
-    char* q_search = (char*)malloc(q_search_len + 1);
-    if (!q_search) return NULL;
-    snprintf(q_search, q_search_len + 1, "\"%s\":\"", key);
-
-    const char* start = strstr(json, q_search);
-    if (start) {
-        start += q_search_len;
-        const char* end = strchr(start, '"');
-        if (end) {
-            size_t len = (size_t)(end - start);
-            char* res = (char*)malloc(len + 1);
-            if (res) {
-                memcpy(res, start, len);
-                res[len] = '\0';
-            }
-            free(q_search);
-            return res;
+    char* pat = (char*)malloc(key_len + 3);
+    if (!pat) return NULL;
+    snprintf(pat, key_len + 3, "\"%s\"", key);
+    const char* pos = strstr(json, pat);
+    free(pat);
+    if (!pos) return NULL;
+    pos += key_len + 2;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
+    if (*pos != ':') return NULL;
+    pos++;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
+    if (*pos == '"') {
+        pos++;
+        const char* end = strchr(pos, '"');
+        if (!end) return NULL;
+        size_t len = (size_t)(end - pos);
+        char* res = (char*)malloc(len + 1);
+        if (res) {
+            memcpy(res, pos, len);
+            res[len] = '\0';
         }
+        return res;
     }
-    free(q_search);
-
-    /* Bare value: "key":value */
-    size_t b_search_len = key_len + 3; /* "key": */
-    char* b_search = (char*)malloc(b_search_len + 1);
-    if (!b_search) return NULL;
-    snprintf(b_search, b_search_len + 1, "\"%s\":", key);
-
-    start = strstr(json, b_search);
-    if (!start) {
-        free(b_search);
-        return NULL;
-    }
-    start += b_search_len;
-    const char* end = start;
-    while (*end && *end != ',' && *end != '}' && *end != '\n') end++;
-    size_t len = (size_t)(end - start);
+    const char* end = pos;
+    while (*end && *end != ',' && *end != '}' && *end != ']' && *end != '\n') end++;
+    const char* trim = end;
+    while (trim > pos && (trim[-1] == ' ' || trim[-1] == '\t' || trim[-1] == '\r')) trim--;
+    size_t len = (size_t)(trim - pos);
     char* res = (char*)malloc(len + 1);
     if (res) {
-        memcpy(res, start, len);
+        memcpy(res, pos, len);
         res[len] = '\0';
     }
-    free(b_search);
     return res;
 }
 
@@ -565,25 +554,29 @@ bool orbit_is_empty(orbit_string s) {
 orbit_string orbit_json_get(OrbitArena* arena, orbit_string json, const char* key) {
     if (!json || !key) return "";
 
-    /* Build search pattern: "key":" */
     size_t key_len = strlen(key);
-    size_t search_len = key_len + 4; /* "key":" */
-    char* search = (char*)orbit_alloc(arena, search_len + 1);
-    if (!search) return "";
-    snprintf(search, search_len + 1, "\"%s\":\"", key);
+    char* pat = (char*)orbit_alloc(arena, key_len + 3);
+    if (!pat) return "";
+    snprintf(pat, key_len + 3, "\"%s\"", key);
 
-    const char* start = strstr(json, search);
-    if (!start) return "";
+    const char* pos = strstr(json, pat);
+    if (!pos) return "";
+    pos += key_len + 2;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
+    if (*pos != ':') return "";
+    pos++;
+    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
+    if (*pos == '"') pos++;
+    else return "";
 
-    start += search_len;
-    const char* end = strchr(start, '"');
+    const char* end = strchr(pos, '"');
     if (!end) return "";
 
-    size_t len = (size_t)(end - start);
+    size_t len = (size_t)(end - pos);
     char* res = (char*)orbit_alloc(arena, len + 1);
     if (!res) return "";
 
-    memcpy(res, start, len);
+    memcpy(res, pos, len);
     res[len] = '\0';
     return res;
 }
