@@ -9,113 +9,73 @@ I'm building Orbit to explore a simple idea: servers and APIs shouldn't need so 
 
 ![Orbit Banner](assets/orbit_banner.png)
 
-Orbit combines concise service declarations with a runtime written in C. The compiler emits C99, while the runtime handles HTTP requests, reclaims memory per request with arenas, talks to the database, and applies admission control through **Kynx** when you enable it.
-
 ---
 
-## Mission
+## 5 minutes: run a service
 
-Orbit tries to help software do more work with fewer resources. The long-term goal is to use less CPU time, less memory, and less energy to run servers and backend systems at scale.
+You need a C compiler, Python 3.10+, and git. Nothing else.
 
-It pursues that goal by making resource use visible and measurable: generated native code you can read, memory tied to each request, direct network handling, and benchmarks that compare throughput, latency, and resource use under the same conditions.
-
-Orbit isn't limited to web services. Development is centered on servers and APIs for now because they run all the time and consume resources at global scale. If they need less hardware and electricity for the same service, it matters.
-
-Energy efficiency here is an engineering target, not a slogan. I don't claim an improvement until it's measured with workload, hardware, OS, compiler, runtime config, and energy or resource data recorded. See [Resource and Energy Measurement](docs/ENERGY.md).
-
----
-
-## Key Features
-
-- **C code generation**: Orbit translates to C99 and compiles with your platform C toolchain.
-- **HTTP runtime**: parses requests, dispatches routes, and writes responses without needing a separate app server.
-- **Request protection**: Kynx can check admission and rate limits before a request reaches your handler.
-- **Request-scoped memory**: thread-local arenas group temporary allocations by request and reclaim them together when the request ends.
-- **Service-oriented syntax**: configure a service (`port 3000`, `cors "*"`), define routes (`route GET "/users" { ... }`), and describe models (`model User { ... }`) at the top level.
-
----
-
-## Quickstart Example
-
-This example combines HTTP configuration, a database model, request protection, and an authenticated route group:
-
-```orbit
-port 4000
-cors "*"
-database "sqlite:app.db"
-kynx rate_limit 100 per_minute
-
-model User {
-    id: Int
-    username: String
-    email: String
-}
-
-route GET "/health" {
-    return { status: "ok", uptime: 100 }
-}
-
-@auth {
-    route POST "/users" {
-        val user = User.create({ username: "alice", email: "alice@orbit.lang" })
-        return user
-    }
-}
-```
-
----
-
-## Installation & Build from Source
-
-For the full first run, read [Getting Started](docs/GETTING_STARTED.md). Platform details are in [Platform Support](docs/SUPPORT.md).
-
-### Prerequisites
-
-- **C Toolchain**: MSVC (Windows), GCC, or Clang
-- **Python 3.10+** (bootstrap and verification scripts)
-
-You don't need Zig or other toolchains. Orbit is self-hosting and bootstraps from committed C source (see [Sovereignty](docs/architecture/SOVEREIGNTY.md)).
-
-### Build Compiler
-
-```bash
+```sh
 git clone https://github.com/joacokhzyx/orbit-lang.git
-cd orbit
-python scripts/build_selfhost.py --out orbit.exe
+cd orbit-lang
+python scripts/build_selfhost.py --out orbit
+./orbit build examples/health_service.orb -o health_service
+./health_service 8080
+curl http://127.0.0.1:8080/health
 ```
 
-Or use the automated installer: `scripts/install.ps1` (Windows) / `scripts/install.sh` (Linux/macOS).
+```text
+{"status":"UP","version":"0.1.0-rc.2","uptime_seconds":0}
+```
 
----
+That's a real Orbit service: compiled to one binary, live
+telemetry at `/metrics`, per-route costs at `/_ledger`. On
+Windows use `.\orbit.exe` / `.\health_service.exe 8080`
+([details](docs/GETTING_STARTED.md)).
+
+## 30 minutes: learn the language
+
+The [Language Tour](docs/TOUR.md) walks you through functions,
+models, routes, SQLite reads, and telemetry — every snippet
+runnable, every output verified. Then pick a tutorial:
+
+- [Blog API with auth](docs/tutorials/blog-api.md) — runnable
+  example + expected outputs.
+- [File server + uploads](docs/tutorials/file-server.md) —
+  same deal, honest scope.
+- [Deploy a single binary](docs/tutorials/deploy-single-binary.md) —
+  Windows + Linux, plus one-box clustering.
+- [Troubleshooting](docs/tutorials/troubleshooting.md) —
+  ports, silent exits, slow first boots.
+
+## What 0.1.0 can't do yet
+
+Reads work; writes don't. Bearer auth, path parameters, and
+multipart uploads aren't there yet. The full list with
+workarounds is public: [Known Limitations](docs/KNOWN_LIMITATIONS.md).
+Twenty hard questions, answered plainly: [FAQ](docs/FAQ.md).
 
 ## Usage
 
-```bash
-# Build an Orbit program to native executable
-orbit build main.orb
-
-# Run in hot-reload development mode
-orbit dev main.orb
-
-# Execute compiled executable directly
-orbit run main.orb
+```sh
+orbit build main.orb -o main   # compile to a native executable
+orbit run main.orb             # build and run (shares your terminal)
+orbit check main.orb           # typecheck without emitting code
+orbit fmt main.orb             # format (writes only on success)
+orbit doctor ./examples        # read-only project checks
 ```
+
+Full reference: [Command Reference](docs/COMMANDS.md).
 
 ---
 
 ## Documentation
 
-- [Documentation Index](docs/README.md)
-- [Getting Started](docs/GETTING_STARTED.md)
-- [Command Reference](docs/COMMANDS.md)
-- [Platform Support](docs/SUPPORT.md)
-- [Versioning and Compatibility](docs/VERSIONING.md)
-- [Resource and Energy Measurement](docs/ENERGY.md)
-- [Release Artifacts](docs/RELEASES.md)
-- [Language Reference](docs/LANGUAGE_REFERENCE.md)
-- [Architecture Overview](docs/ARCHITECTURE.md)
-- [Project Roadmap](docs/ROADMAP.md)
-- [Server Examples](examples/README.md)
+- [Language Tour](docs/TOUR.md) · [Getting Started](docs/GETTING_STARTED.md) · [FAQ](docs/FAQ.md)
+- [Known Limitations](docs/KNOWN_LIMITATIONS.md) · [Changelog](docs/CHANGELOG.md) · [0.1.0 Release Notes](docs/RELEASE_NOTES_0_1_0.md)
+- [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Architecture](docs/ARCHITECTURE.md) · [Project Status](docs/STATUS.md) · [Roadmap](docs/ROADMAP.md)
+- [Migrations guide](docs/guides/migrations.md) · [Benchmark methodology](docs/guides/benchmark-methodology.md)
+- [Platform Support](docs/SUPPORT.md) · [Versioning](docs/VERSIONING.md) · [Energy Measurement](docs/ENERGY.md) · [Server Examples](examples/README.md)
 
 ---
 

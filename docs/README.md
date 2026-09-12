@@ -20,9 +20,24 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
 | How does the compiler pipeline work? | [Architecture Overview](ARCHITECTURE.md) |
 | How do I write Orbit programs? | [Language Reference](LANGUAGE_REFERENCE.md) and [Syntax Guide](SYNTAX_GUIDE.md) |
+| What can I build in 30 minutes? | [Language Tour](TOUR.md) — runnable snippets with expected outputs |
 | How does memory management work? | [Arena Design](ARENA.md) and [Orbit Arena](architecture/ORBIT_ARENA.md) |
 | How are HTTP protections implemented? | [Kynx](KYNX.md) |
 | What is experimental or still being researched? | [Superluminal](SUPERLUMINAL.md) |
+| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) — the honest list, with workarounds |
+| What changed? | [Changelog](CHANGELOG.md) and [0.1.0 Release Notes](RELEASE_NOTES_0_1_0.md) |
+| What do people ask? | [FAQ](FAQ.md) — twenty honest questions |
+
+## Tutorials and Guides
+
+| Question | Document |
+|---|---|
+| How do I build a blog API with auth? | [Blog API tutorial](tutorials/blog-api.md) + [`examples/blog_api.orb`](../examples/blog_api.orb) |
+| How do I serve files and accept uploads? | [File server tutorial](tutorials/file-server.md) + [`examples/file_server.orb`](../examples/file_server.orb) |
+| How do I ship one binary? | [Deploy tutorial](tutorials/deploy-single-binary.md) |
+| Something broke — now what? | [Troubleshooting](tutorials/troubleshooting.md) |
+| How do schemas evolve? | [Migrations guide](guides/migrations.md) — the honest story |
+| How do I measure honestly? | [Benchmark methodology](guides/benchmark-methodology.md) |
 
 ## Authority and Scope
 
