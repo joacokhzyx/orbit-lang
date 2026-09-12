@@ -92,6 +92,21 @@ static inline int orbit_accept_q_pop(OrbitAcceptQueue* q, orbit_socket_t* out) {
     return 1;
 }
 
+/* True when no sockets wait adoption. Used by the drain condition. */
+static inline int orbit_accept_q_empty(OrbitAcceptQueue* q) {
+    return q->head == __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE);
+}
+
+// ── Graceful shutdown ───────────────────────────────────────────────────
+// Set once by the generated server's signal handler (Ctrl-C / SIGTERM).
+// Workers finish adopted and queued connections, then exit; the acceptor
+// stops accepting. Each server binary is a single TU that #includes this
+// file, so all threads share one instance.
+static volatile int orbit_stop_flag = 0;
+
+static inline void orbit_request_stop(void) { orbit_stop_flag = 1; }
+static inline int orbit_stop_requested(void) { return orbit_stop_flag; }
+
 /* Loopback UDP wake socket pair (works identically on Windows and POSIX). */
 static inline int orbit_wake_recv_create(orbit_socket_t* recv_out, struct sockaddr_in* addr_out) {
     orbit_socket_t r = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -156,11 +171,13 @@ static void* orbit_acceptor_loop(void* arg) {
 #endif
     OrbitAcceptorCtx* ac = (OrbitAcceptorCtx*)arg;
     unsigned int rr = 0;
-    while (1) {
+    while (!orbit_stop_requested()) {
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(ac->server_sock, &readfds);
-        if (select((int)ac->server_sock + 1, &readfds, NULL, NULL, NULL) > 0 &&
+        /* Bounded wait: re-check the stop flag even with no traffic. */
+        struct timeval orbit_atv = {1, 0};
+        if (select((int)ac->server_sock + 1, &readfds, NULL, NULL, &orbit_atv) > 0 &&
             FD_ISSET(ac->server_sock, &readfds)) {
             for (;;) {
                 orbit_socket_t s = accept(ac->server_sock, NULL, NULL);
