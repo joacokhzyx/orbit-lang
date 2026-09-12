@@ -94,51 +94,72 @@ size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t ra
     const char* body_start = headers_end + 4;
 
     if (out_parse_error) *out_parse_error = 0;
-    /* R3.3: reject Transfer-Encoding: chunked (request-smuggling vector). */
-    {
-        const char* hs = raw;
-        while (hs < body_start) {
-            const char* le = memchr(hs, '\n', (size_t)(body_start - hs));
-            if (!le) break;
-            size_t ll = (size_t)(le - hs);
-            if (ll > 19 && ORBIT_STRNCASECMP(hs, "transfer-encoding:", 18) == 0) {
-                const char* v = hs + 18;
-                while (v < le && (*v == ' ' || *v == '\t')) v++;
-                if ((size_t)(le - v) >= 7 && ORBIT_STRNCASECMP(v, "chunked", 7) == 0) {
-                    if (out_parse_error) *out_parse_error = 1;
-                    if (out_req) *out_req = NULL;
-                    return raw_len; /* consume buffer; caller responds 501 and closes */
-                }
-            }
-            hs = le + 1;
-        }
-    }
-
-    // Resolve Content-Length from the raw header bytes BEFORE any in-place
-    // null termination below: strstr stops at the first '\0', and the
-    // method/path terminators precede the header block.
-    // Hardened scan: case-insensitive line walk (smuggling via unusual
-    // casings), negative values rejected, and multiple DIFFERENT values
-    // treated as ambiguous -> body ignored entirely.
+    /* Single-pass header scan: the Transfer-Encoding: chunked reject (R3.3,
+     * request-smuggling vector) and the Content-Length resolution share one
+     * line walk. First-byte dispatch selects the only two prefixes of
+     * interest; all other lines cost a single memchr. */
     size_t content_length = 0;
     {
         const char* hdr_scan = raw;
         long long cl_value = -1;
         int cl_seen = 0;
+        int te_chunked = 0;
         while (hdr_scan < body_start) {
             const char* line_end = memchr(hdr_scan, '\n', (size_t)(body_start - hdr_scan));
             if (!line_end) break;
             size_t line_len = (size_t)(line_end - hdr_scan);
-            if (line_len > 15 && ORBIT_STRNCASECMP(hdr_scan, "content-length:", 15) == 0) {
-                long long v = strtoll(hdr_scan + 15, NULL, 10);
-                if (!cl_seen) {
-                    cl_value = v;
-                    cl_seen = 1;
-                } else if (v != cl_value) {
-                    cl_seen = -1; /* conflicting lengths: ambiguous */
+            if (line_len > 15) {
+                char c0 = hdr_scan[0];
+                if ((c0 == 't' || c0 == 'T') && line_len > 19 &&
+                    ORBIT_STRNCASECMP(hdr_scan, "transfer-encoding:", 18) == 0) {
+                    const char* v = hdr_scan + 18;
+                    while (v < line_end && (*v == ' ' || *v == '\t')) v++;
+                    if ((size_t)(line_end - v) >= 7 && ORBIT_STRNCASECMP(v, "chunked", 7) == 0) {
+                        te_chunked = 1;
+                    }
+                } else if ((c0 == 'c' || c0 == 'C') &&
+                           ORBIT_STRNCASECMP(hdr_scan, "content-length:", 15) == 0) {
+                    /* Manual integer parse with strtoll-compatible results:
+                     * same leading-whitespace set, optional sign, digit run,
+                     * no-digits yields 0, saturation at LLONG_MAX. */
+                    const char* p = hdr_scan + 15;
+                    while (p < line_end && (*p == ' ' || *p == '\t' || *p == '\r' ||
+                                            *p == '\v' || *p == '\f')) p++;
+                    int neg = 0;
+                    if (p < line_end && (*p == '-' || *p == '+')) {
+                        neg = (*p == '-');
+                        p++;
+                    }
+                    unsigned long long acc = 0;
+                    int digits = 0;
+                    while (p < line_end && *p >= '0' && *p <= '9') {
+                        unsigned d = (unsigned)(*p - '0');
+                        if (acc > ((unsigned long long)0x7FFFFFFFFFFFFFFFULL - d) / 10ULL) {
+                            acc = (unsigned long long)0x7FFFFFFFFFFFFFFFULL;
+                            while (p < line_end && *p >= '0' && *p <= '9') p++;
+                            digits++;
+                            break;
+                        }
+                        acc = acc * 10ULL + d;
+                        p++;
+                        digits++;
+                    }
+                    long long v = (digits == 0) ? 0LL
+                        : (neg ? -(long long)acc : (long long)acc);
+                    if (!cl_seen) {
+                        cl_value = v;
+                        cl_seen = 1;
+                    } else if (v != cl_value) {
+                        cl_seen = -1; /* conflicting lengths: ambiguous */
+                    }
                 }
             }
             hdr_scan = line_end + 1;
+        }
+        if (te_chunked) {
+            if (out_parse_error) *out_parse_error = 1;
+            if (out_req) *out_req = NULL;
+            return raw_len; /* consume buffer; caller responds 501 and closes */
         }
         if (cl_seen == 1 && cl_value > 0) {
             content_length = (size_t)cl_value;
