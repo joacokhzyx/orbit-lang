@@ -301,17 +301,26 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
     }
     #endif
 
-    orbit_perf_record_requested_bytes(bytes);
     unsigned char* new_cursor = arena->cursor + aligned;
 
-    /* Fast path: fits inside currently committed space */
+    /* Fast path: fits inside currently committed space.
+     * Global telemetry uses plain increments here instead of atomic RMWs:
+     * four LOCK-prefixed ops per alloc dominate this path, and the counters
+     * are approximate under contention by design (same tolerance class as
+     * the existing racy min/max/peak updates above). Slow paths below keep
+     * the exact atomic helpers since they run rarely. */
     if (new_cursor <= arena->committed_end) {
         void* ptr = arena->cursor;
         arena->cursor = new_cursor;
         arena->alloc_count++;
         arena->requested_bytes += bytes;
         arena->aligned_bytes += aligned;
-        
+
+        orbit_perf_stats.arena_alloc_count++;
+        orbit_perf_stats.arena_requested_bytes += (uint64_t)bytes;
+        orbit_perf_stats.total_alloc_bytes += (uint64_t)aligned;
+        orbit_perf_stats.arena_aligned_bytes += (uint64_t)aligned;
+
         size_t current_used = (size_t)(arena->cursor - arena->base);
         if (current_used > arena->peak_used) {
             arena->peak_used = current_used;
@@ -319,12 +328,13 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
                 orbit_perf_stats.arena_peak_used_bytes = current_used;
             }
         }
-        
+
         arena->used = current_used;
 
-        orbit_perf_record_total_alloc(aligned);
         return ptr;
     }
+
+    orbit_perf_record_requested_bytes(bytes);
 
     /* Slow path: fits inside reservation, commit more pages */
     if (new_cursor <= arena->reserved_end) {
