@@ -502,7 +502,7 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
             }
             val paramName = parser.previousToken.text
             params.push(paramName)
-            
+
             var paramType = "unknown"
             if matchToken(parser, TokType.Colon) {
                 var isPointer = false
@@ -514,9 +514,9 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
                     paramType = "&" + paramType
                 }
             }
-            
+
             paramTypes.push(paramType)
-            
+
             if matchToken(parser, TokType.Comma) {
             } else {
                 parsingParams = false

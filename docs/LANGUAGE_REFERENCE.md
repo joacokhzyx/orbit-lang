@@ -168,12 +168,17 @@ runtime endpoints; do not define routes there.
 ## Compiler commands
 
 ```sh
-orbit build app.orb                # Default C target
-orbit build app.orb --backend=c     # Explicit C target
-orbit build app.orb --backend=native # Experimental x86_64 target, not stable yet
-orbit run app.orb                  # Compile and execute
-orbit test app.orb                 # Run test blocks
-orbit bootstrap                    # Multi-stage self-hosting bootstrap
+orbit build app.orb                # Compile to a native executable
+orbit run app.orb                  # Build and run it (servers keep the terminal)
+orbit check app.orb                # Parse and typecheck, no code emitted
+orbit fmt app.orb                  # Format a file (writes only on success)
+orbit doctor [dir]                 # Read-only project checks
+orbit cluster ...                  # Single-host orchestration (see CLUSTER.md)
+orbit --help                       # Display the command-line help
+orbit --version                    # Display the compiler version (0.1.0)
 ```
 
-`--backend=native` is research in progress. The C backend stays the supported path until native matches it on behavior and bootstrap checks. See [Project Status](STATUS.md).
+`orbit dev` (watch/reload), `orbit test`, `orbit bootstrap`, and
+`--backend=` flags are not implemented. Calling them treats the word as a
+filename and fails. See [Command Reference](COMMANDS.md) for the supported
+list and exit codes.

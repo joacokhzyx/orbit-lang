@@ -34,6 +34,39 @@ When Orbit was built locally and is not installed on `PATH`, call it by its path
 
 The exact options supported by a command are defined by the compiler returned by `orbit --help`.
 
+## Errors and exit codes
+
+One format everywhere: fact, then fix, then an optional tip. Headers stay
+plain so a tired dev can act without decoding anything.
+
+- Compiler diagnostics (parse/typecheck/codegen) print an error card to
+  stderr:
+  `error[code]: message` + `--> file:line:col` + the source line with
+  `^-- here` + `= help: hint`.
+- `orbit doctor` findings print one line to stdout:
+  `file:line [D00X] message fix: action`.
+- Operational failures (`orbit fmt`, `orbit cluster`, unreadable files,
+  failed spawns) print `orbit <cmd>: fact. Fix.` to stderr.
+- Usage errors print `Usage: ...` and exit 2.
+
+Exit codes: `0` clean, `1` clean failure (findings, unreadable file,
+compile error, failed health), `2` usage (missing or invalid flags,
+unknown subcommand). The fuzzer accepts 0, 1, and 2.
+
+| Command | 0 | 1 | 2 |
+|---|---|---|---|
+| `build` | emitted | unreadable input, parse/typecheck error, C write/compile failure | missing input file, bad flags |
+| `run` | child exit code | unreadable input, compile error | missing input file |
+| `check` | no errors | unreadable input, parse/typecheck error | missing input file |
+| `fmt` / `fmt --check` | formatted / clean | unreadable/unwritable file, input has errors, files need formatting | missing target, bad flags |
+| `doctor` | no findings | findings, no `.orb` files found | bad flags, too many args |
+| `cluster` | success (status reads state even with dead nodes) | compile/spawn/health/kill errors, unknown node, unreadable state, survivors after down | missing/invalid flags, unknown subcommand |
+| `frontend` | TIR written | unreadable input, diagnostics contain errors, write failed | missing input file |
+
+Colors and the server banner stay plain when `NO_COLOR` is set or
+`TERM=dumb`: no ANSI escapes, no gradient, no checkmarks. `/_ledger`
+and `/_pulse` HTML pages are not terminal output and are unaffected.
+
 ## Compiler Build and Verification
 
 These commands are for contributors and release maintainers:

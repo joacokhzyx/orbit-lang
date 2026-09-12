@@ -59,7 +59,7 @@ Twenty hard questions, answered plainly: [FAQ](docs/FAQ.md).
 
 ```sh
 orbit build main.orb -o main   # compile to a native executable
-orbit run main.orb             # build and run (shares your terminal)
+orbit run main.orb             # build and run (servers keep the terminal)
 orbit check main.orb           # typecheck without emitting code
 orbit fmt main.orb             # format (writes only on success)
 orbit doctor ./examples        # read-only project checks

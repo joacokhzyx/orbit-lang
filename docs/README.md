@@ -14,7 +14,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | How should resource and energy use be measured? | [Resource and Energy Measurement](ENERGY.md) |
 | How are releases packaged and verified? | [Release Artifacts](RELEASES.md) |
 | What is implemented today? | [Project Status](STATUS.md) |
-| What should we build next? | [Project Roadmap](ROADMAP.md) |
+| What is planned next? | [Project Roadmap](ROADMAP.md) |
 | What are the engineering invariants and quality gates? | [Engineering Contract](../ENGINEERING.md) |
 | How does the compiler bootstrap itself? | [Self-Hosting](architecture/SELF_HOSTING.md) |
 | What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
