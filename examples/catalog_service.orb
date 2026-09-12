@@ -1,5 +1,9 @@
 // Catalog Service API example in Orbit.
 // Uses native Model ORM methods and request query parameter access with SQLite database persistence.
+//
+// 0.1.0 limit (tracked in docs/KNOWN_LIMITATIONS.md): Product.create()
+// returns false at runtime, so POST /v1/catalog/items answers 400
+// today. Reads (all, filtered where) work against the seeded table.
 
 model Product {
     id: string

@@ -1,54 +1,70 @@
-// use orbit/validation
-
-port 3000
-cors "*"
-db "store.db"
-env "production"
+// Full-feature service example in current 0.1.0 syntax.
+//
+// This file used to demonstrate planned syntax (arrow routes,
+// decorators, typed fields, fetch, cache, schedules). That syntax
+// does not parse yet, so the example now shows what the 0.1.0
+// compiler actually runs: models, filtered queries, request bodies,
+// key-checked writes, and live system telemetry. Planned pieces
+// stay listed in docs/ROADMAP.md, not here.
+//
+// Run: orbit build examples/orbit_full_expansion.orb -o full
+//      ./full 8080   (Windows: .\full.exe 8080; copy
+//      runtime/vendor/win-x64/sqlite3.dll next to the exe first)
 
 model Product {
-    id: string primary
-    title: string
+    id: string
+    name: string
+    description: string
     price: float
     category: string
+    in_stock: bool
+    rating: float
 }
 
-model User {
-    email: Email
-    website: URL
-}
-
-type ProductInput {
+model Note {
+    id: string
     title: string
-    price: float
-    category: string
+    body: string
+    author_id: string
+    created_at: string
+    is_private: bool
 }
 
-route GET "/v1/catalog" => Product.all()
-
-route GET "/v1/external-rates" => {
-    val cached = cache.get("rates")
-    if (cached != null) return response.json(200, cached)
-
-    val rates = try fetch("https://api.exchangerates.io/latest") catch {
-    err 503 "{\"error\":\"service unavailable\"}"
-}
-cache.set("rates", rates, 300)
-return response.json(200, rates)
-}
-
-@auth {
-    route POST "/v1/upload-avatar" => {
-        val path = req.file("avatar").save("./uploads")
-        return response.json(200, "{\"url\":\"" + path + "\"}")
+route GET "/v1/catalog" {
+    val category = req.query("category")
+    if (category != "") {
+        val filtered = Product.where("category = ?", category)
+        return ok 200 filtered
     }
+    val all_products = Product.all()
+    return ok 200 all_products
 }
 
-@admin {
-    route POST "/v1/products" => {
-        val created = Product.create(req.body)
-        return response.json(201, created)
+route GET "/v1/notes" {
+    val notes = Note.all()
+    return ok 200 notes
+}
+
+route POST "/v1/products" {
+    val key = req.query("key")
+    if (key != "dev-key-1") {
+        err 401 "a valid ?key= value is required to publish"
     }
+    val payload = req.body()
+    if (payload == "" || payload == "{}") {
+        err 400 "post a JSON body with the product fields"
+    }
+    return ok 201 payload
 }
 
-every 12 hours => Product.all()
+route GET "/health" {
+    val uptime = system.uptime()
+    return ok 200 "{\"status\":\"UP\",\"uptime_seconds\":" + uptime + "}"
+}
 
+route GET "/metrics" {
+    val total = system.http_requests_total()
+    val latency = system.latency_avg_us()
+    val workers = system.active_workers()
+    return ok 200 "{\"metrics\":{\"http_requests_total\":" + total + ",\"latency_avg_us\":" + latency + ",\"active_workers\":" + workers + "}}"
+}
