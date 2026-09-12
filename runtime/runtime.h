@@ -56,6 +56,9 @@
 #include "hyperdrive.c"
 #include "selfhost.c"
 
+/* ── Cost ledger (per-route attribution, always on) ─────────────────── */
+#include "ledger.c"
+
 /* ── Data ───────────────────────────────────────────────────────────── */
 #ifndef ORBIT_CUSTOM_ROUTER
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed);

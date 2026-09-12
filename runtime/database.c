@@ -590,13 +590,19 @@ orbit_string orbit_json_get(OrbitArena* arena, orbit_string json, const char* ke
 orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
     orbit_collection col = { table_name, NULL };
-    return orbit_db_all(arena, col);
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_all(arena, col);
+    orbit_ledger_db_end(t0);
+    return r;
 }
 
 orbit_string orbit_db_query_where(OrbitArena* arena, const char* table_name, const char* condition) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
     orbit_collection col = { table_name, NULL };
-    return orbit_db_where(arena, col, condition);
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_where(arena, col, condition);
+    orbit_ledger_db_end(t0);
+    return r;
 }
 
 /** @brief Replace the first occurrence of @p needle in @p haystack with @p replacement (arena-allocated). */
@@ -643,25 +649,37 @@ orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, c
     sqlite3_free(escaped);
     if (!cond) return "[]";
     orbit_collection col = { table_name, NULL };
-    return orbit_db_where(arena, col, cond);
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_where(arena, col, cond);
+    orbit_ledger_db_end(t0);
+    return r;
 }
 
 orbit_string orbit_db_query_get(OrbitArena* arena, const char* table_name, const char* id) {
     if (!orbit_db_valid_identifier(table_name)) return NULL;
     orbit_collection col = { table_name, NULL };
-    return orbit_db_get(arena, col, id);
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_get(arena, col, id);
+    orbit_ledger_db_end(t0);
+    return r;
 }
 
 bool orbit_db_insert(const char* table_name, const char* json_data) {
     if (!orbit_db_valid_identifier(table_name)) return false;
     orbit_collection col = { table_name, NULL };
-    return orbit_db_add(col, json_data);
+    uint64_t t0 = orbit_ledger_db_begin();
+    bool r = orbit_db_add(col, json_data);
+    orbit_ledger_db_end(t0);
+    return r;
 }
 
 bool orbit_db_delete(const char* table_name, const char* id) {
     if (!orbit_db_valid_identifier(table_name)) return false;
     orbit_collection col = { table_name, NULL };
-    return orbit_db_del(col, id);
+    uint64_t t0 = orbit_ledger_db_begin();
+    bool r = orbit_db_del(col, id);
+    orbit_ledger_db_end(t0);
+    return r;
 }
 
 #endif

@@ -1151,7 +1151,10 @@ fn generateRouterBlock(backend: CBackend) -> string {
         if func.routeMethod != "" {
             out = out + "    case " + fnv1a64Hash(func.routeMethod, func.routePath) + "ULL: {\n"
             out = out + "        if (strcmp(req->path, \"" + func.routePath + "\") == 0 && strcmp(req->method, \"" + func.routeMethod + "\") == 0) {\n"
+            out = out + "            uint64_t _orbit_ls = orbit_rdtsc();\n"
+            out = out + "            int _orbit_lslot = orbit_ledger_enter(req->method, req->path);\n"
             out = out + "            OrbitResponse* res = " + sanitizeIdentifier(func.name) + "(arena, req);\n"
+            out = out + "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls);\n"
             out = out + "            orbit_send_response(client_sock, res);\n"
             out = out + "#if ORBIT_LOGS_ACTIVE\n"
             out = out + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);\n"

@@ -157,6 +157,14 @@ not measured is not exposed (no success/error split, no p50/p95/p99 yet).
 | `system.http_requests_total()` | `int` completed requests | request counter |
 | `system.latency_avg_us()` | `int` mean latency, microseconds (`0` before the first request) | RDTSC cycles on the same 2.5 GHz basis as the request log; approximate on other clocks |
 
+## Cost ledger
+
+Every server records per-route handler cost automatically — no annotations.
+`/_ledger` serves a live table (loopback only), `/_ledger/data` the same as
+JSON. Columns: requests, mean ms, DB share. Milliseconds share the request
+log's approximate clock basis. Paths starting with `/_` are reserved for
+runtime endpoints; do not define routes there.
+
 ## Compiler commands
 
 ```sh
