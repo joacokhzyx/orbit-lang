@@ -47,8 +47,56 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # -O0 keeps peak memory low on 4 GB machines; -DORBIT_WITH_EXEC enables the
 # compiler's own process spawning (its cc invocations) -- trusted infrastructure.
 SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
+# Low-memory profile: drop unwind tables and debug info so the multi-MB
+# compiler TU links with less peak commit. GCC/Clang only; MSVC-style
+# drivers (cl) do not accept these flags.
+LOWMEM_C_FLAGS = ["-g0", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables"]
+LOWMEM_AUTO_MB = 4096
 MAX_ITERATIONS = 4
 PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
+
+
+def avail_commit_mb():
+    """Available commit (physical + pagefile) in MB, or None when unknown."""
+    try:
+        import psutil  # type: ignore
+        return psutil.virtual_memory().available // (1 << 20)
+    except Exception:
+        pass
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return int((stat.ullAvailPhys + stat.ullAvailPageFile) >> 20)
+        except Exception:
+            return None
+    return None
+
+
+def lowmem_cc_flags(cc: str) -> list:
+    """Extra C flags for the low-memory profile (empty for non-GCC drivers)."""
+    low = cc.lower()
+    if "cl" in low.split() or low.strip() == "cl":
+        return []
+    if any(t in low for t in ("gcc", "clang", "cc")):
+        return list(LOWMEM_C_FLAGS)
+    return []
 
 
 def warn_low_memory() -> None:
@@ -112,6 +160,7 @@ def detect_cc() -> str:
 
 
 def run(argv, cwd=ROOT, env_extra=None, label=""):
+    import gc
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
@@ -120,12 +169,18 @@ def run(argv, cwd=ROOT, env_extra=None, label=""):
     out = (proc.stdout or "") + (proc.stderr or "")
     if out.strip():
         print(out.rstrip())
-    if proc.returncode != 0:
+    rc = proc.returncode
+    # Keep only the failure tail for the annotation, then release the
+    # subprocess buffers eagerly so long bootstrap chains stay lean.
+    tail = "\n".join(out.strip().splitlines()[-30:])
+    payload = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
+    del proc
+    del out
+    gc.collect()
+    if rc != 0:
         # Emit as a GitHub error annotation: check-run annotations are public
         # API-readable even when job logs require authentication.
-        tail = "\n".join(out.strip().splitlines()[-30:])
-        payload = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
-        print(f"::error::[{label}] rc={proc.returncode} :: {payload}")
+        print(f"::error::[{label}] rc={rc} :: {payload}")
         raise SystemExit(2)
 
 
@@ -185,6 +240,10 @@ def main() -> int:
                     help="replace the committed canonical C with the converged fixed point")
     ap.add_argument("--out", default=None, metavar="PATH",
                     help="copy the converged fixed-point compiler binary to PATH")
+    ap.add_argument("--low-mem", dest="low_mem", action="store_true", default=None,
+                    help="force the low-memory C profile (-g0, no unwind tables)")
+    ap.add_argument("--no-low-mem", dest="low_mem", action="store_false",
+                    help="disable the low-memory C profile")
     args = ap.parse_args()
 
     if args.promote and args.check_stale:
@@ -192,6 +251,11 @@ def main() -> int:
         return 1
 
     warn_low_memory()
+    if args.low_mem is None:
+        free_mb = avail_commit_mb()
+        args.low_mem = free_mb is not None and free_mb < LOWMEM_AUTO_MB
+        if args.low_mem:
+            print(f"[selfhost] low-memory profile auto-enabled ({free_mb} MB commit available).")
 
     if not os.path.isfile(CANONICAL_C):
         print(f"[selfhost] FAIL: {CANONICAL_C} missing. It is the committed root of trust;")
@@ -210,6 +274,11 @@ def main() -> int:
     exe = ".exe" if sys.platform == "win32" else ""
     cc = args.cc or detect_cc()
     cc_cmd = cc.split()
+    extra_cc_flags = lowmem_cc_flags(cc) if args.low_mem else []
+    if args.low_mem and not extra_cc_flags:
+        print("[selfhost] low-memory profile on (no extra C flags for this driver).")
+    elif extra_cc_flags:
+        print(f"[selfhost] low-memory C flags: {' '.join(extra_cc_flags)}")
     h_canonical = sha256(CANONICAL_C)
 
     print(f"[selfhost] repo root:    {ROOT}")
@@ -221,7 +290,7 @@ def main() -> int:
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"),
          "--entry", CANONICAL_C, "--out", amal], label="amalgamate canonical")
     seed_exe = os.path.join(work, "seed" + exe)
-    run([*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS], label="build seed from canonical C")
+    run([*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS], label="build seed from canonical C")
 
     # Iterate: current compiler builds the sources; repeat until C stabilises.
     prev_c_hash = None
@@ -235,7 +304,7 @@ def main() -> int:
         next_exe = os.path.join(work, f"iter{i}_exe" + exe)
         # Generated C is not amalgamated: it needs the runtime headers on the
         # include path (pipeline.orb does the same when building user programs).
-        run([*cc_cmd, *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
+        run([*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-I", os.path.join(ROOT, "runtime"),
              "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS],
             label=f"build iter{i} compiler from its own C")
         print(f"[selfhost] iteration {i}: {h_i}"

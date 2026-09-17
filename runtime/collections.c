@@ -454,6 +454,75 @@ static orbit_string orbit_string_concat(OrbitArena* arena, orbit_string a, orbit
     return buf;
 }
 
+// ─── Chunk Buffer (OrbitCBuf) ─────────────────────────────────────────────
+// Arena-backed append-only byte buffer. Replaces repeated `out = out + frag`
+// string concatenation (which copies the whole prefix per append and retains
+// every intermediate in the arena) with amortised O(1) appends into one
+// geometric buffer. The handle is an opaque pointer; Orbit sides carry it in
+// a `string`-typed local (never inspected, only passed back) because the
+// self-host `int` type is 32 bits and cannot hold a 64-bit address.
+typedef struct OrbitCBuf {
+    char* data;
+    size_t len;
+    size_t cap;
+    OrbitArena* arena;
+} OrbitCBuf;
+
+#ifndef ORBIT_CBUF_INIT_CAP
+#define ORBIT_CBUF_INIT_CAP (4194304u)
+#endif
+
+static OrbitCBuf* orbit_cbuf_create(OrbitArena* arena, size_t cap) {
+    OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
+    if (cap == 0) cap = ORBIT_CBUF_INIT_CAP;
+    OrbitCBuf* buf = (OrbitCBuf*)orbit_alloc(ar, sizeof(OrbitCBuf));
+    if (!buf) return NULL;
+    buf->data = (char*)orbit_alloc(ar, cap);
+    if (!buf->data) return NULL;
+    buf->len = 0;
+    buf->cap = cap;
+    buf->arena = ar;
+    return buf;
+}
+
+static bool orbit_cbuf_append(OrbitCBuf* buf, orbit_string s) {
+    size_t slen;
+    size_t need;
+    size_t ncap;
+    char* ndata;
+    if (!buf || !buf->data) return false;
+    if (!s) return true;
+    slen = strlen(s);
+    if (slen == 0) return true;
+    need = buf->len + slen;
+    if (need >= buf->cap) {
+        ncap = buf->cap ? buf->cap : 1024;
+        while (ncap <= need) ncap *= 2;
+        ndata = (char*)orbit_alloc(buf->arena, ncap);
+        if (!ndata) return false;
+        memcpy(ndata, buf->data, buf->len);
+        buf->data = ndata;
+        buf->cap = ncap;
+    }
+    memcpy(buf->data + buf->len, s, slen);
+    buf->len = need;
+    return true;
+}
+
+static orbit_string orbit_cbuf_build(OrbitCBuf* buf) {
+    char* ndata;
+    if (!buf || !buf->data) return "";
+    if (buf->len + 1 > buf->cap) {
+        ndata = (char*)orbit_alloc(buf->arena, buf->len + 1);
+        if (!ndata) return "";
+        memcpy(ndata, buf->data, buf->len);
+        buf->data = ndata;
+        buf->cap = buf->len + 1;
+    }
+    buf->data[buf->len] = '\0';
+    return buf->data;
+}
+
 static OrbitList* orbit_string_split(OrbitArena* arena, orbit_string s, orbit_string delim) {
     OrbitList* list = (OrbitList*)orbit_list_create(arena, sizeof(orbit_string), 4).value;
     if (!s || !delim || !arena) return list;

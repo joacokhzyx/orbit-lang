@@ -98,6 +98,25 @@ orbit_int orbit_string_char_at_selfhost(orbit_string s, orbit_int index) {
     return s ? (unsigned char)s[index] : 0;
 }
 
+// Chunk buffer for the self-hosted code generator. Handles ride in
+// `string`-typed Orbit locals (opaque pointers, never inspected as text)
+// because the self-host `int` type is 32 bits.
+orbit_string orbit_cbuf_create_selfhost(void) {
+    OrbitCBuf* buf = orbit_cbuf_create(orbit_arena_get_global(), ORBIT_CBUF_INIT_CAP);
+    if (!buf) return "";
+    return (orbit_string)(void*)buf;
+}
+
+void orbit_cbuf_append_selfhost(orbit_string buf, orbit_string s) {
+    if (!buf) return;
+    orbit_cbuf_append((OrbitCBuf*)(void*)buf, s);
+}
+
+orbit_string orbit_cbuf_build_selfhost(orbit_string buf) {
+    if (!buf) return "";
+    return orbit_cbuf_build((OrbitCBuf*)(void*)buf);
+}
+
 // Define macros to redirect the simple names to the selfhost versions
 // when compiling selfhost code
 #ifdef ORBIT_SELFHOST_BUILD
