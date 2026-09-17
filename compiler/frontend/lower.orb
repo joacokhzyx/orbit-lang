@@ -266,7 +266,7 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
                     ASTNode.VarDecl(varDecl) => {}
                     ASTNode.ImportStmt(imp) => {}
                     ASTNode.UseStmt(useStmt) => {}
-                    ASTNode.RouteDecl(route) => {}
+                    ASTNode.RouteDecl(rt) => {}
                     ASTNode.TraitDecl(traitDecl) => {}
                     ASTNode.ImplDecl(implDecl) => {}
                     ASTNode.Empty => {}

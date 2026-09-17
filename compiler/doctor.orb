@@ -807,8 +807,8 @@ fn doctorRun(dir: string, fixMode: bool) {
         if src3 == "" {
             doctorReport(stats, fp3, 1, "D008", "file is empty or could not be read.", "add content, or drop the path from the scan.")
         } else {
-            val ok = checkSourceWithFile(src3, fp3)
-            if ok == false {
+            val okRes = checkSourceWithFile(src3, fp3)
+            if okRes == false {
                 doctorReport(stats, fp3, 1, "D008", "this file did not pass the compiler's own checks (see the error above).", "run `orbit check " + fp3 + "` and address the first error.")
             }
             doctorCollectRoutes(fp3, src3, routes)
