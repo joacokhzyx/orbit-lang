@@ -19,3 +19,5 @@ extern fn orbit_os_write_stderr_selfhost(content: string)
 extern fn orbit_cbuf_create_selfhost() -> string
 extern fn orbit_cbuf_append_selfhost(buf: string, s: string)
 extern fn orbit_cbuf_build_selfhost(buf: string) -> string
+// Memory snapshot of the global arena (see ORBIT_MEM_REPORT).
+extern fn orbit_mem_report_selfhost() -> string

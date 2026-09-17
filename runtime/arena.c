@@ -578,6 +578,11 @@ uint64_t orbit_arena_alloc_count(const OrbitArena* arena) {
     return arena ? arena->alloc_count : 0;
 }
 
+/** @brief Return the high-water mark of used bytes since creation/reset. */
+size_t orbit_arena_peak_used(const OrbitArena* arena) {
+    return arena ? arena->peak_used : 0;
+}
+
 static OrbitArena* g_orbit_global_fallback_arena = NULL;
 
 OrbitArena* orbit_arena_get_global(void) {

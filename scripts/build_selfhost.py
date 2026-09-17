@@ -184,13 +184,14 @@ def run(argv, cwd=ROOT, env_extra=None, label=""):
         raise SystemExit(2)
 
 
-def orb_build(compiler, out_exe, work, cc, snapshot_path) -> str:
+def orb_build(compiler, out_exe, work, cc, snapshot_path, extra_cc_flags=None) -> str:
     """Compile compiler/main.orb with `compiler`; snapshot the intermediate C.
 
     The compiler's own final cc invocation is redundant here (we recompile the
     snapshot ourselves with known-good flags). If it fails -- e.g. because an
     older compiler bakes a stale runtime include path -- we continue as long
-    as the C was emitted.
+    as the C was emitted. extra_cc_flags reach the compiler's inner cc via
+    ORBIT_CCFLAGS_EXTRA (newer compilers; older ones ignore the variable).
     """
     tmp = os.path.join(work, "tmp_build")
     os.makedirs(tmp, exist_ok=True)
@@ -198,7 +199,8 @@ def orb_build(compiler, out_exe, work, cc, snapshot_path) -> str:
     if os.path.isfile(inter_c):
         os.remove(inter_c)
     env = dict(os.environ)
-    env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc})
+    env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc,
+                "ORBIT_CCFLAGS_EXTRA": " ".join(extra_cc_flags or [])})
     label = f"{os.path.basename(compiler)} build main.orb -> {out_exe}"
     print(f"[selfhost] {label}")
     proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out_exe)],
@@ -299,7 +301,8 @@ def main() -> int:
     final_exe = None
     for i in range(1, MAX_ITERATIONS + 1):
         c_i = orb_build(cur_exe, f"iter{i}" + exe, work, cc,
-                        os.path.join(work, f"iter{i}.selfhost.c"))
+                        os.path.join(work, f"iter{i}.selfhost.c"),
+                        extra_cc_flags)
         h_i = sha256(c_i)
         next_exe = os.path.join(work, f"iter{i}_exe" + exe)
         # Generated C is not amalgamated: it needs the runtime headers on the

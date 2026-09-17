@@ -73,6 +73,15 @@ fn reportErrorCard(code: string, message: string, file: string, line: int, col: 
     orbit_os_write_stderr_selfhost("\nERROR: " + kind + "\n")
 }
 
+// Phase memory report for ORBIT_MEM_REPORT=1. Zero cost when unset (one
+// getenv) and stderr-only, so build stdout and emitted artifacts are
+// untouched.
+fn reportMemStage(stage: string) {
+    if orbit_os_env_selfhost("ORBIT_MEM_REPORT") != "" {
+        orbit_os_write_stderr_selfhost("[mem] " + stage + " " + orbit_mem_report_selfhost() + "\n")
+    }
+}
+
 fn compileSource(source: string, outputPath: string) -> bool {
     return compileSourceWithFile(source, "", outputPath)
 }
@@ -141,6 +150,8 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         return false
     }
 
+    reportMemStage("parse")
+
     val resolver = initModuleResolver()
     val ast = resolveModuleAST(resolver, rawAST, inputPath)
     if resolver.errors.len() > 0 {
@@ -151,6 +162,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         }
         return false
     }
+    reportMemStage("resolve")
 
     val sema = initSema()
     analyze(sema, ast)
@@ -167,9 +179,11 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         }
         return false
     }
+    reportMemStage("sema")
 
     val builder = initIRBuilder()
     val irModule = buildAST(builder, ast)
+    reportMemStage("build")
 
     irModule.boostRaw = computeBoostRawPct(irModule)
 
@@ -181,6 +195,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
 
     val backend = initCBackend(irModule)
     val cCode = generateC(backend)
+    reportMemStage("codegen")
     val hasDb = moduleUsesDatabase(irModule)
 
     // Use a constant intermediate-C filename: clang embeds the C file path in
@@ -225,7 +240,14 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         }
     }
 
-    val compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I runtime -DORBIT_WITH_NET" + dbFlags + linkFlags + " 2>&1"
+    // Extra C flags from the environment (used by scripts/build_selfhost.py
+    // --low-mem). Inserted before the shell redirect so they reach the driver.
+    var compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I runtime -DORBIT_WITH_NET" + dbFlags + linkFlags
+    val ccExtra = orbit_os_env_selfhost("ORBIT_CCFLAGS_EXTRA")
+    if ccExtra != "" {
+        compCmd = compCmd + " " + ccExtra
+    }
+    compCmd = compCmd + " 2>&1"
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {

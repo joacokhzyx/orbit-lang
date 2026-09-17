@@ -117,6 +117,25 @@ orbit_string orbit_cbuf_build_selfhost(orbit_string buf) {
     return orbit_cbuf_build((OrbitCBuf*)(void*)buf);
 }
 
+// One-line memory snapshot of the global arena for the Phase-1 memory
+// report (enabled by ORBIT_MEM_REPORT=1). Allocation-free on the opt-out
+// path: a single getenv. Format: "used=12MB peak=34MB allocs=5678".
+orbit_string orbit_mem_report_selfhost(void) {
+    OrbitArena* a = orbit_arena_get_global();
+    uint64_t allocs;
+    char* out;
+    if (!a) return "";
+    allocs = orbit_arena_alloc_count(a);
+    if (allocs > 2147483647ull) allocs = 2147483647ull;
+    out = (char*)orbit_alloc(a, 96);
+    if (!out) return "";
+    snprintf(out, 96, "used=%uMB peak=%uMB allocs=%u",
+             (unsigned)(orbit_arena_used(a) >> 20),
+             (unsigned)(orbit_arena_peak_used(a) >> 20),
+             (unsigned)allocs);
+    return out;
+}
+
 // Define macros to redirect the simple names to the selfhost versions
 // when compiling selfhost code
 #ifdef ORBIT_SELFHOST_BUILD
