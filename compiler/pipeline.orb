@@ -131,6 +131,21 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
     return true
 }
 
+// Runtime headers travel with the compiler binary: prefer <bindir>/runtime
+// so `orbit build` (and `orbit cluster up`) work from any working
+// directory, falling back to the legacy relative "runtime" when the
+// binary's directory ships no headers.
+fn compilerRuntimeDir() -> string {
+    val selfDir = getDir(orbit_os_argv_selfhost(0))
+    if selfDir != "" {
+        val cand = selfDir + "/runtime"
+        if orbit_file_list_dir_selfhost(cand).len() > 0 {
+            return cand
+        }
+    }
+    return "runtime"
+}
+
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
@@ -230,19 +245,20 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         cCompiler = "cc"
     }
 
+    val rtDir = compilerRuntimeDir()
     var dbFlags = ""
     val isWindowsHost = osName == "Windows_NT" || winDir != ""
     if hasDb {
         if isWindowsHost {
-            dbFlags = " -DORBIT_WITH_DB -Iruntime/vendor runtime/vendor/win-x64/sqlite3.lib"
+            dbFlags = " -DORBIT_WITH_DB -I\"" + rtDir + "/vendor\" \"" + rtDir + "/vendor/win-x64/sqlite3.lib\""
         } else {
-            dbFlags = " -DORBIT_WITH_DB -Iruntime/vendor -lsqlite3"
+            dbFlags = " -DORBIT_WITH_DB -I\"" + rtDir + "/vendor\" -lsqlite3"
         }
     }
 
     // Extra C flags from the environment (used by scripts/build_selfhost.py
     // --low-mem). Inserted before the shell redirect so they reach the driver.
-    var compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I runtime -DORBIT_WITH_NET" + dbFlags + linkFlags
+    var compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
     val ccExtra = orbit_os_env_selfhost("ORBIT_CCFLAGS_EXTRA")
     if ccExtra != "" {
         compCmd = compCmd + " " + ccExtra

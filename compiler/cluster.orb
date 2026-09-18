@@ -68,6 +68,16 @@ fn clusterIsWindows() -> bool {
     return false
 }
 
+// Absolute path anchored at the current working directory. Nodes are
+// spawned by path, and on Windows CreateProcess resolves a relative image
+// against the binary's own directory before the working directory, so a
+// relative node path can silently start a stale binary from elsewhere.
+fn clusterAbsolutePath(p: string) -> string {
+    val cwd = orbit_os_cwd_selfhost()
+    if cwd == "" { return p }
+    return cwd + "/" + p
+}
+
 fn clusterNativePath(p: string) -> string {
     if clusterIsWindows() == false { return p }
     var out = ""
@@ -376,8 +386,9 @@ fn clusterUp() {
     }
     clusterEnsureDir(".orbit")
     clusterEnsureDir(logDir)
-    var binary = ".orbit/cluster-service"
-    if clusterIsWindows() { binary = binary + ".exe" }
+    var binaryRel = ".orbit/cluster-service"
+    if clusterIsWindows() { binaryRel = binaryRel + ".exe" }
+    val binary = clusterAbsolutePath(binaryRel)
     print("Compiling " + servicePath + " once...")
     if compileSourceWithFile(source, servicePath, binary) == false {
         orbit_os_exit_selfhost(1)

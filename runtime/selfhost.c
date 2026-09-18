@@ -50,6 +50,10 @@ orbit_string orbit_os_env_selfhost(orbit_string var_name) {
     return (orbit_os_env)(orbit_arena_get_global(), var_name);
 }
 
+orbit_string orbit_os_cwd_selfhost(void) {
+    return (orbit_os_cwd)(orbit_arena_get_global());
+}
+
 void orbit_os_exit_selfhost(orbit_int code) {
     (orbit_os_exit)(code);
 }

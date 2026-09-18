@@ -69,7 +69,11 @@ example:
 
 The layout is internal, not a public API. Do not hand-edit it while nodes
 are running. `port_base` records the base port; `draining` lists node ids
-with a pending graceful stop.
+with a pending graceful stop. `service` is stored as an absolute path so a
+node can never resolve to a stale same-named binary through the OS
+executable search order; the compiler likewise resolves its `runtime/`
+headers from its own location, so `up` works from any working directory
+inside a source checkout.
 
 ## Health definition
 
