@@ -111,10 +111,28 @@ int main(void) {
         free(mbuf);
     }
 
+    /* Header block copy for auth/header builtins: present with content,
+     * absent (NULL) only when the request carries no header lines. */
+    {
+        const char* raw = "GET /v1/notes/secured HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer tok_admin\r\n\r\n";
+        size_t rl = strlen(raw);
+        char* hbuf = (char*)malloc(rl + 1);
+        assert(hbuf != NULL);
+        memcpy(hbuf, raw, rl + 1);
+        OrbitRequest* rh = NULL;
+        assert(orbit_http_parse_request_ex(arena, hbuf, rl, &rh, NULL) == rl);
+        assert(rh != NULL);
+        assert(rh->headers != NULL);
+        assert(strstr(rh->headers, "Authorization: Bearer tok_admin") != NULL);
+        assert(rh->headers_len == strlen(rh->headers));
+        free(hbuf);
+    }
+
     orbit_arena_destroy(arena);
     free(buf);
 
     printf("http parse pipelined tests: PASSED\n");
     printf("http route match tests: PASSED\n");
+    printf("http header block tests: PASSED\n");
     return 0;
 }

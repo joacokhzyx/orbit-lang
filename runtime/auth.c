@@ -30,23 +30,26 @@ static bool orbit_auth_ci_prefix(const char* s, const char* prefix) {
 }
 
 void orbit_auth_init(void) {
+    /* The users table is owned by orbit_db_init (id, username, email,
+     * role_name plus seeds); redefining it here with a narrower shape used
+     * to be silently skipped by IF NOT EXISTS while role lookups against
+     * the missing `role` column failed. Only the sessions helpers that
+     * database.c does not provide are created here. */
     if (!orbit_db_conn) return;
     const char* schema =
-        "CREATE TABLE IF NOT EXISTS users ("
-        "  id   TEXT PRIMARY KEY,"
-        "  role TEXT NOT NULL DEFAULT 'user'"
-        ");"
         "CREATE TABLE IF NOT EXISTS sessions ("
         "  token      TEXT PRIMARY KEY,"
         "  user_id    TEXT NOT NULL,"
-        "  expires_at INTEGER NOT NULL DEFAULT 0" 
+        "  expires_at INTEGER NOT NULL DEFAULT 0"
         ");"
         "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);";
     sqlite3_exec(orbit_db_conn, schema, NULL, NULL, NULL);
 }
 
 orbit_string orbit_auth_bearer_token(OrbitArena* arena, const char* raw) {
-    if (!raw) return NULL;
+    /* Never NULL: callers feed the result straight into compares and
+     * concats, where NULL faults the worker. Absent means "". */
+    if (!raw) return "";
 
     const char* body_sep = strstr(raw, "\r\n\r\n");
     const char* limit = body_sep ? body_sep : raw + strlen(raw);
@@ -71,14 +74,14 @@ orbit_string orbit_auth_bearer_token(OrbitArena* arena, const char* raw) {
         if (!nl || nl >= limit) break;
         line = nl + 1;
     }
-    return NULL;
+    return "";
 }
 
 orbit_string orbit_auth_role(OrbitArena* arena, const char* token) {
     if (!orbit_db_conn || !token || !*token) return orbit_arena_strdup(arena, "");
 
     const char* sql =
-        "SELECT u.role FROM sessions s "
+        "SELECT u.role_name FROM sessions s "
         "JOIN users u ON u.id = s.user_id "
         "WHERE s.token = ?1 AND (s.expires_at = 0 OR s.expires_at > ?2) "
         "LIMIT 1;";

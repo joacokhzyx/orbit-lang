@@ -77,6 +77,17 @@ jobs:
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
           ./t_http_bin
 
+      - name: Auth unit gate (bearer/role/has_role)
+        shell: bash
+        run: |
+          CC="${{ matrix.cc }}"
+          CFLAGS="-O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB"
+          LDFLAGS=""
+          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDFLAGS="-lsqlite3"; fi
+          $CC $CFLAGS tests/auth/auth_harness.c -o t_auth_bin $LDFLAGS
+          if [ "${{ runner.os }}" = "Windows" ]; then export PATH="$PWD/runtime/vendor/win-x64:$PATH"; fi
+          ./t_auth_bin
+
       - name: Orbit test suite (language behavior)
         shell: bash
         run: |

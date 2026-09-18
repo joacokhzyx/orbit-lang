@@ -19,18 +19,15 @@ when a row was actually removed. Verified live with literal JSON
 and `req.body()` input, including round-trip reads
 (`examples/posts_crud.orb`).
 
-## Auth helpers: bearer_token returns an empty reply
+## Auth helpers work against the sessions table
 
-Any route that calls `req.bearer_token()` answers with an empty
-reply (curl reports `000`, no status, no body). This hits
-`examples/sqlite_notes.orb` (`GET /v1/notes/secured`). The same file
-links only when the program also uses a database operation — without
-one, the build fails with `implicit declaration of
-orbit_auth_bearer_token`. `req.has_role()` belongs to the same
-family and is unverified at runtime.
-
-Workaround: check a shared key from `req.query()` instead, as the
-tutorials do. Don't ship bearer-token auth on 0.1.0.
+`req.bearer_token()` extracts the token (never crashes on missing
+headers), `req.has_role("admin")` and `req.role()` resolve through
+`sessions` joined to `users.role_name`, with `expires_at` honored
+(`0` means never). Verified live on `examples/sqlite_notes.orb`:
+401 without token, 403 for non-admin deletes, 200 for admin.
+Using any auth helper links the database automatically; tokens
+themselves are rows you insert (see `tests/auth/auth_harness.c`).
 
 ## Path parameters match, values are raw
 

@@ -194,6 +194,24 @@ size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t ra
     if (!req) return 0;
     memset(req, 0, sizeof(OrbitRequest));
 
+    /* Header block copy for req->headers (auth/header builtins). Arena copy:
+     * the raw buffer is mutated in place below (method/path NULs) and reused
+     * across pipelined requests, so a slice would alias garbage. Stays NULL
+     * when the request carries no header lines. */
+    {
+        const char* line1 = memchr(raw, '\n', raw_len);
+        if (line1 && line1 + 1 < headers_end) {
+            size_t hlen = (size_t)(headers_end - (line1 + 1));
+            char* hcopy = (char*)orbit_alloc(arena, hlen + 1);
+            if (hcopy) {
+                memcpy(hcopy, line1 + 1, hlen);
+                hcopy[hlen] = '\0';
+                req->headers = hcopy;
+                req->headers_len = hlen;
+            }
+        }
+    }
+
     // Zero-Copy Slice Parsing: modify mutable byte stream in-place when safe
     char* mutable_raw = (char*)raw;
 

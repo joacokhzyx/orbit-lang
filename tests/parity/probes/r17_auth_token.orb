@@ -1,0 +1,14 @@
+route GET "/whoami" {
+    val token = req.bearer_token()
+    if token == "" {
+        err 401 "missing token"
+    }
+    return ok 200 "{\"token\":\"" + token + "\"}"
+}
+
+route GET "/admin" {
+    if (!req.has_role("admin")) {
+        err 403 "admin only"
+    }
+    return ok 200 "{\"admin\":true}"
+}

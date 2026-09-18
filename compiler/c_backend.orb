@@ -1308,7 +1308,8 @@ fn generateModelDDL(backend: CBackend) -> string {
 
 fn generateServerMain(backend: CBackend) -> string {
     val db = moduleUsesDatabase(backend.module)
-    return serverMainText(db, generateModelDDL(backend))
+    val auth = moduleUsesAuth(backend.module)
+    return serverMainText(db, auth, generateModelDDL(backend))
 }
 
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
@@ -3008,6 +3009,37 @@ fn isDbBuiltin(name: string) -> bool {
     return false
 }
 
+fn isAuthBuiltin(name: string) -> bool {
+    if name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_auth_has_role" { return true }
+    return false
+}
+
+fn moduleUsesAuth(module: IRModule) -> bool {
+    var fi = 0
+    while fi < module.functions.len() {
+        val f: IRFunction = module.functions.get(fi)
+        var ii = 0
+        while ii < f.instructions.len() {
+            val inst: IRInstruction = f.instructions.get(ii)
+            match inst.opcode {
+                IROpcode.call => {
+                    var cn = ""
+                    match inst.operand1 {
+                        IRValue.String(s) => { cn = s.value }
+                        IRValue.Sym(s) => { cn = s.value }
+                        _ => {}
+                    }
+                    if isAuthBuiltin(cn) { return true }
+                }
+                _ => {}
+            }
+            ii = ii + 1
+        }
+        fi = fi + 1
+    }
+    return false
+}
+
 fn moduleUsesDatabase(module: IRModule) -> bool {
     var fi = 0
     while fi < module.functions.len() {
@@ -3023,7 +3055,8 @@ fn moduleUsesDatabase(module: IRModule) -> bool {
                         IRValue.Sym(s) => { cn = s.value }
                         _ => {}
                     }
-                    if isDbBuiltin(cn) { return true }
+                    // Auth needs the sessions database, so it implies DB linkage.
+                    if isDbBuiltin(cn) || isAuthBuiltin(cn) { return true }
                 }
                 _ => {}
             }

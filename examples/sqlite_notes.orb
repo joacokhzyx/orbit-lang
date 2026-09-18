@@ -1,13 +1,9 @@
 // Secure Notes API example in Orbit.
 // Uses native Model ORM methods and native Auth role/token checks with SQLite persistence.
 //
-// 0.1.0 limits (tracked in docs/KNOWN_LIMITATIONS.md, not silent):
-// - GET /v1/notes/secured calls req.bearer_token(), which currently
-//   returns an empty reply at runtime. Reads without it work.
-// - DELETE /v1/notes/:id never matches: :param segments return the
-//   router's 404 in this build. Use ?id= query routes instead.
-// - Note.create()/Note.delete() return false at runtime, so the
-//   POST and DELETE handlers answer 400/404 today.
+// Authenticated reads need an Authorization: Bearer <token> header for a
+// row in sessions (see tests/auth/auth_harness.c for the token/role
+// matrix); DELETE additionally requires the admin role.
 
 model User {
     id: string
