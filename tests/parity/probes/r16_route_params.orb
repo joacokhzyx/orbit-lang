@@ -1,0 +1,8 @@
+route GET "/notes/:id" {
+    val id = req.param("id")
+    return ok 200 "{\"note\":\"" + id + "\"}"
+}
+
+route GET "/health" {
+    return ok 200 "{\"status\":\"UP\"}"
+}

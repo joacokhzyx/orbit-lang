@@ -1,0 +1,22 @@
+// Path-parameter service example in Orbit.
+// Segments like :id or {id} capture one non-empty path segment; "*" matches
+// one segment without capturing. Static routes win over param patterns
+// covering them; query strings keep working alongside.
+route GET "/notes/:id" {
+    val id = req.param("id")
+    return ok 200 "{\"note\":\"" + id + "\"}"
+}
+
+route DELETE "/notes/{id}" {
+    val id = req.param("id")
+    return ok 200 "{\"deleted\":\"" + id + "\"}"
+}
+
+route GET "/posts/search" {
+    return ok 200 "{\"static\":true}"
+}
+
+route GET "/posts/:id" {
+    val id = req.param("id")
+    return ok 200 "{\"post\":\"" + id + "\"}"
+}

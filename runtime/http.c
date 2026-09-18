@@ -37,6 +37,10 @@
 
 #ifndef ORBIT_HTTP_H
 #define ORBIT_HTTP_H
+/* Path-parameter slots filled by orbit_route_match (route_runtime patterns
+ * such as "/notes/:id"). The same fields exist on the fallback declaration
+ * in builtins.c; keep both in sync. */
+#define ORBIT_MAX_PATH_PARAMS 8
 typedef struct {
     char* method;
     char* path;
@@ -45,12 +49,17 @@ typedef struct {
     char* headers;
     size_t body_len;
     size_t headers_len;
+    char* param_names[ORBIT_MAX_PATH_PARAMS];
+    char* param_values[ORBIT_MAX_PATH_PARAMS];
+    int param_count;
 } OrbitRequest;
 #endif
 
 /** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
 size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error);
+/** @brief Match req path against a route pattern (":name", "{name}" and "*" segments). Fills path params; false leaves none. */
+bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern);
 
 
 typedef struct {
@@ -393,6 +402,85 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
 
 /* â”€â”€ Main Dispatch Hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/** @brief Match req->path against a route pattern and capture path params.
+ *
+ * Segments compare literally except `:name` / `{name}` (capture a non-empty
+ * segment under name) and `*` (match one non-empty segment, no capture).
+ * Empty segments are skipped on both sides, so a trailing slash is
+ * tolerated. Values are NOT percent-decoded. On success the captures land
+ * in req->param_names/values (arena copies, at most ORBIT_MAX_PATH_PARAMS,
+ * extras dropped); on any failure param_count is 0 so a previous attempt
+ * in a matcher chain can never leak into the next one.
+ */
+bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern) {
+    const char *pp, *qp;
+    int n = 0;
+    if (req) req->param_count = 0;
+    if (!req || !req->path || !req->method || !method || !pattern) return false;
+    if (strcmp(req->method, method) != 0) return false;
+    {
+        OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
+        pp = pattern;
+        qp = req->path;
+        for (;;) {
+            const char *pe, *qe;
+            size_t plen, qlen;
+            while (*pp == '/') pp++;
+            while (*qp == '/') qp++;
+            /* Reject embedded query strings defensively: the parser splits
+             * them into req->query, but a hand-built request may not. */
+            if (*qp == '?' || *qp == '#') qp = "";
+            if (*pp == '\0' && *qp == '\0') {
+                req->param_count = n;
+                return true;
+            }
+            if (*pp == '\0' || *qp == '\0') return false;
+            pe = pp;
+            while (*pe && *pe != '/') pe++;
+            qe = qp;
+            while (*qe && *qe != '/' && *qe != '?' && *qe != '#') qe++;
+            plen = (size_t)(pe - pp);
+            qlen = (size_t)(qe - qp);
+            if (qlen == 0) return false;
+            if (pp[0] == ':') {
+                if (plen < 2) return false;
+                if (n < ORBIT_MAX_PATH_PARAMS) {
+                    char* nm = (char*)orbit_alloc(ar, plen);
+                    char* vv = (char*)orbit_alloc(ar, qlen + 1);
+                    if (!nm || !vv) return false;
+                    memcpy(nm, pp + 1, plen - 1);
+                    nm[plen - 1] = '\0';
+                    memcpy(vv, qp, qlen);
+                    vv[qlen] = '\0';
+                    req->param_names[n] = nm;
+                    req->param_values[n] = vv;
+                }
+                n++;
+            } else if (plen >= 2 && pp[0] == '{' && pe[-1] == '}') {
+                if (plen == 2) return false;
+                if (n < ORBIT_MAX_PATH_PARAMS) {
+                    char* nm = (char*)orbit_alloc(ar, plen - 1);
+                    char* vv = (char*)orbit_alloc(ar, qlen + 1);
+                    if (!nm || !vv) return false;
+                    memcpy(nm, pp + 1, plen - 2);
+                    nm[plen - 2] = '\0';
+                    memcpy(vv, qp, qlen);
+                    vv[qlen] = '\0';
+                    req->param_names[n] = nm;
+                    req->param_values[n] = vv;
+                }
+                n++;
+            } else if (plen == 1 && pp[0] == '*') {
+                /* single-segment wildcard, not captured */
+            } else {
+                if (plen != qlen || memcmp(pp, qp, plen) != 0) return false;
+            }
+            pp = pe;
+            qp = qe;
+        }
+    }
+}
+
 #ifndef ORBIT_CUSTOM_ROUTER
 /** @brief Default request dispatcher: handles /_pulse routes internally and returns 404 for everything else.  Returns 1 to keep the connection alive, 0 to close. */
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
@@ -446,6 +534,7 @@ static bool header_name_match(const char* raw, const char* name, size_t name_len
     }
     return true;
 }
+
 
 /** @brief Look up a request header by name (case-insensitive). Returns empty string if not found. */
 orbit_string orbit_http_header_get(OrbitArena* arena, OrbitRequest* req, orbit_string name) {

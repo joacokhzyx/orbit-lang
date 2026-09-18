@@ -67,9 +67,54 @@ int main(void) {
     assert(r3->body == NULL);
     free(get);
 
+    /* Route patterns: parse a request, match, check captures. */
+    {
+        const char* raw = "GET /notes/abc-123 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        size_t rl = strlen(raw);
+        char* mbuf = (char*)malloc(rl + 1);
+        assert(mbuf != NULL);
+        memcpy(mbuf, raw, rl + 1);
+        OrbitRequest* rq = NULL;
+        assert(orbit_http_parse_request_ex(arena, mbuf, rl, &rq, NULL) == rl);
+        assert(rq != NULL);
+        /* :name capture + param_get + empty-name miss. */
+        assert(orbit_route_match(arena, rq, "GET", "/notes/:id") == true);
+        assert(rq->param_count == 1);
+        assert(strcmp(rq->param_names[0], "id") == 0);
+        assert(strcmp(rq->param_values[0], "abc-123") == 0);
+        assert(strcmp(orbit_http_param_get(arena, rq, "id"), "abc-123") == 0);
+        assert(strcmp(orbit_http_param_get(arena, rq, "nope"), "") == 0);
+        /* Wrong method / extra segment / missing segment. */
+        assert(orbit_route_match(arena, rq, "DELETE", "/notes/:id") == false);
+        assert(rq->param_count == 0);
+        assert(orbit_route_match(arena, rq, "GET", "/notes/:id/comments") == false);
+        assert(orbit_route_match(arena, rq, "GET", "/notes") == false);
+        /* {name} form, trailing slash tolerance, literal mismatch. */
+        assert(orbit_route_match(arena, rq, "GET", "/notes/{id}") == true);
+        assert(strcmp(orbit_http_param_get(arena, rq, "id"), "abc-123") == 0);
+        assert(orbit_route_match(arena, rq, "GET", "/notes/:id/") == true);
+        assert(orbit_route_match(arena, rq, "GET", "/users/:id") == false);
+        /* Static route still exact; wildcard matches one segment. */
+        assert(orbit_route_match(arena, rq, "GET", "/notes/abc-123") == true);
+        assert(rq->param_count == 0);
+        assert(orbit_route_match(arena, rq, "GET", "/notes/*") == true);
+        assert(orbit_route_match(arena, rq, "GET", "/*/*") == true);
+        assert(orbit_route_match(arena, rq, "GET", "/*") == false);
+        /* Multi-capture. */
+        assert(orbit_route_match(arena, rq, "GET", "/:a/:b") == true);
+        assert(rq->param_count == 2);
+        assert(strcmp(orbit_http_param_get(arena, rq, "a"), "notes") == 0);
+        assert(strcmp(orbit_http_param_get(arena, rq, "b"), "abc-123") == 0);
+        /* Empty segment never captures; degenerate patterns rejected. */
+        assert(orbit_route_match(arena, rq, "GET", "/notes/:") == false);
+        assert(orbit_route_match(arena, rq, "GET", "/notes/{}") == false);
+        free(mbuf);
+    }
+
     orbit_arena_destroy(arena);
     free(buf);
 
     printf("http parse pipelined tests: PASSED\n");
+    printf("http route match tests: PASSED\n");
     return 0;
 }

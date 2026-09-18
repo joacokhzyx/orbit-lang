@@ -1142,35 +1142,62 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
     return out
 }
 
+fn routeHasParams(path: string) -> bool {
+    if orbit_string_indexOf(path, "/:") != -1 { return true }
+    if orbit_string_indexOf(path, "/{") != -1 { return true }
+    if orbit_string_indexOf(path, "/*") != -1 { return true }
+    return false
+}
+
+fn generateRouteHandlerBody(backend: CBackend, func: IRFunction) -> string {
+    var body = ""
+    body = body + "            uint64_t _orbit_ls = orbit_rdtsc();\n"
+    body = body + "            int _orbit_lslot = orbit_ledger_enter(req->method, req->path);\n"
+    body = body + "            OrbitResponse* res = " + sanitizeIdentifier(func.name) + "(arena, req);\n"
+    body = body + "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls);\n"
+    body = body + "            orbit_send_response(client_sock, res);\n"
+    body = body + "#if ORBIT_LOGS_ACTIVE\n"
+    body = body + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);\n"
+    body = body + "#endif\n"
+    body = body + "#if ORBIT_KYNX_ACTIVE\n"
+    body = body + "            if (lease) orbit_kynx_lease_destroy(lease);\n"
+    body = body + "#endif\n"
+    body = body + "            orbit_perf_end_request(start);\n"
+    body = body + "            return keep_alive;\n"
+    return body
+}
+
 fn generateRouterBlock(backend: CBackend) -> string {
     var out = ""
     out = out + routerPreText()
     var i = 0
     while i < backend.module.functions.len() {
         val func: IRFunction = backend.module.functions.get(i)
-        if func.routeMethod != "" {
+        if func.routeMethod != "" && routeHasParams(func.routePath) == false {
             out = out + "    case " + fnv1a64Hash(func.routeMethod, func.routePath) + "ULL: {\n"
             out = out + "        if (strcmp(req->path, \"" + func.routePath + "\") == 0 && strcmp(req->method, \"" + func.routeMethod + "\") == 0) {\n"
-            out = out + "            uint64_t _orbit_ls = orbit_rdtsc();\n"
-            out = out + "            int _orbit_lslot = orbit_ledger_enter(req->method, req->path);\n"
-            out = out + "            OrbitResponse* res = " + sanitizeIdentifier(func.name) + "(arena, req);\n"
-            out = out + "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls);\n"
-            out = out + "            orbit_send_response(client_sock, res);\n"
-            out = out + "#if ORBIT_LOGS_ACTIVE\n"
-            out = out + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);\n"
-            out = out + "#endif\n"
-            out = out + "#if ORBIT_KYNX_ACTIVE\n"
-            out = out + "            if (lease) orbit_kynx_lease_destroy(lease);\n"
-            out = out + "#endif\n"
-            out = out + "            orbit_perf_end_request(start);\n"
-            out = out + "            return keep_alive;\n"
+            out = out + generateRouteHandlerBody(backend, func)
             out = out + "        }\n"
             out = out + "        break;\n"
             out = out + "    }\n"
         }
         i = i + 1
     }
-    out = out + routerTailText()
+    // Param routes cannot use the hash switch (their paths never equal the
+    // literal). They chain inside default, AFTER the static cases, so a
+    // static route always wins over a param pattern covering it.
+    var paramChain = ""
+    var pi = 0
+    while pi < backend.module.functions.len() {
+        val pfunc: IRFunction = backend.module.functions.get(pi)
+        if pfunc.routeMethod != "" && routeHasParams(pfunc.routePath) {
+            paramChain = paramChain + "        if (orbit_route_match(arena, req, \"" + pfunc.routeMethod + "\", \"" + pfunc.routePath + "\")) {\n"
+            paramChain = paramChain + generateRouteHandlerBody(backend, pfunc)
+            paramChain = paramChain + "        }\n"
+        }
+        pi = pi + 1
+    }
+    out = out + routerTailText(paramChain)
     return out
 }
 
@@ -2684,14 +2711,20 @@ fn storeCastFor(backend: CBackend, vn: string) -> string {
     if vType == "float" { return "(orbit_float)" }
     if vType == "int" || vType == "bool" || isEnumType(backend, vType) { return "(orbit_int)(uintptr_t)" }
     if vType == "result" || vType == "Result" || vType == "OrbitResult" { return "" }
-    val vlen = orbit_string_len(vn)
-    if vlen >= 2 {
-        val tail2 = orbit_string_slice(vn, vlen - 2, vlen)
-        if tail2 == "Id" || tail2 == "id" { return "(orbit_int)(uintptr_t)" }
-    }
-    if vn == "scopeId" { return "(orbit_int)(uintptr_t)" }
-    if vType == "unknown" || vType == "usize" || vType == "" { return "(uintptr_t)" }
     if vType == "string" || vType == "list" || vType == "map" || vType == "response" || vType == "tagged_union" || vType == "pointer" || vType == "mut_pointer" { return "(void*)" }
+    // Name heuristic last: vars ending in Id/id read as integers ONLY when
+    // nothing is known about them. A known string (e.g. `val id =
+    // req.param("id")`) must keep its pointer intact; the old order
+    // truncated it through orbit_int and crashed string use downstream.
+    if vType == "unknown" || vType == "usize" || vType == "" {
+        val vlen = orbit_string_len(vn)
+        if vlen >= 2 {
+            val tail2 = orbit_string_slice(vn, vlen - 2, vlen)
+            if tail2 == "Id" || tail2 == "id" { return "(orbit_int)(uintptr_t)" }
+        }
+        if vn == "scopeId" { return "(orbit_int)(uintptr_t)" }
+        return "(uintptr_t)"
+    }
     val cType = mapTypeToC(backend, vType)
     val clen = orbit_string_len(cType)
     if clen > 0 {

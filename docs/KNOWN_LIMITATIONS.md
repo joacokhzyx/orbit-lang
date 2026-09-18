@@ -34,16 +34,14 @@ family and is unverified at runtime.
 Workaround: check a shared key from `req.query()` instead, as the
 tutorials do. Don't ship bearer-token auth on 0.1.0.
 
-## Path parameters don't match
+## Path parameters match, values are raw
 
-Routes with `:id` or `{id}` segments parse but never match at
-runtime — the router answers its own `404 Not Found` and your
-handler never runs. Verified with GET and DELETE on a minimal
-service. This makes `DELETE /v1/notes/:id` in the notes example
-unreachable.
-
-Workaround: pass identifiers as query values (`DELETE /notes?id=`)
-until this entry changes.
+Routes with `:id` or `{id}` segments match at runtime and bind
+through `req.param("id")` (verified with GET and DELETE, including
+static-over-param precedence and trailing slashes). Two limits
+remain: captured values are not percent-decoded, and at most 8
+captures bind per request. Query values (`?id=`) keep working
+alongside.
 
 ## Custom tables aren't created
 

@@ -126,6 +126,19 @@ route GET "/private" {
 }
 ```
 
+Path segments starting with `:` or wrapped in `{...}` capture one
+non-empty segment, readable with `req.param("name")`; `*` matches one
+segment without capturing. A static route always wins over a param
+pattern covering the same path. Values are matched raw (no
+percent-decoding); a trailing slash is tolerated.
+
+```orbit
+route GET "/notes/:id" {
+    val id = req.param("id")
+    return ok 200 "{\"note\":\"" + id + "\"}"
+}
+```
+
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
 Their API surface is under active development. Check the runtime and examples
 before depending on a new helper in a public service.

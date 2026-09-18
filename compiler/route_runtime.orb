@@ -285,9 +285,12 @@ fn routerPreText() -> string {
     return out
 }
 
-fn routerTailText() -> string {
+fn routerTailText(paramChain: string) -> string {
     var out = ""
     out = out + "    default: {\n"
+    if paramChain != "" {
+        out = out + paramChain
+    }
     out = out + "        OrbitResponse* res = orbit_response_create(arena, 404, \"text/plain\", \"Not Found\");\n"
     out = out + "        orbit_send_response(client_sock, res);\n"
     out = out + "#if ORBIT_LOGS_ACTIVE\n"

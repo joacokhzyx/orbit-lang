@@ -106,6 +106,9 @@ orbit_int orbit_clock_ns(void) {
 /* Forward-declare OrbitRequest so builtins.c can reference it without
  * pulling in the entire HTTP stack (which has its own include guards). */
 #ifndef ORBIT_HTTP_H
+/* Fallback mirror of the http.c declaration (which also carries path-param
+ * slots); keep both in sync. */
+#define ORBIT_MAX_PATH_PARAMS 8
 typedef struct {
     char* method;
     char* path;
@@ -114,6 +117,9 @@ typedef struct {
     char* headers;
     size_t body_len;
     size_t headers_len;
+    char* param_names[ORBIT_MAX_PATH_PARAMS];
+    char* param_values[ORBIT_MAX_PATH_PARAMS];
+    int param_count;
 } OrbitRequest;
 #endif
 
@@ -149,10 +155,16 @@ orbit_string orbit_http_query_get(OrbitArena* arena, OrbitRequest* req, orbit_st
 }
 
 orbit_string orbit_http_param_get(OrbitArena* arena, OrbitRequest* req, orbit_string param_name) {
-    (void)param_name;
-    if (!req || !req->path) return "";
-    /* Return path segment or empty fallback */
-    return req->path;
+    int i;
+    (void)arena;
+    if (!req || !param_name) return "";
+    /* Path params captured by orbit_route_match during dispatch. */
+    for (i = 0; i < req->param_count && i < ORBIT_MAX_PATH_PARAMS; i++) {
+        if (req->param_names[i] && strcmp(req->param_names[i], param_name) == 0) {
+            return req->param_values[i] ? req->param_values[i] : "";
+        }
+    }
+    return "";
 }
 
 orbit_string orbit_http_body_get(OrbitArena* arena, OrbitRequest* req) {
