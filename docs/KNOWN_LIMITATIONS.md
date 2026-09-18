@@ -10,16 +10,14 @@ Tested on: `orbit 0.1.0` fixed-point build (Windows x86-64, gcc),
 September 2026. Linux paths are marked UNTESTED below where I
 couldn't run them.
 
-## Writes: Model.create returns false
+## Writes work; duplicates and missing tables fail honestly
 
-`Note.create()`, `Product.create()`, and `Post.create()` return
-`false` at runtime, with both literal JSON and `req.body()` input.
-The handler still responds — you'll see the `400` branch your code
-already has — but no row is stored. Reads are unaffected.
-
-Workaround: build read and validation flows now; treat writes as
-unavailable until this entry changes. The blog tutorial
-(`docs/tutorials/blog-api.md`) shows the pattern.
+`Model.create()` stores the row and returns `true`. It returns
+`false` when the `id` already exists (PRIMARY KEY) or the JSON
+payload has no usable fields. `Model.delete()` returns `true` only
+when a row was actually removed. Verified live with literal JSON
+and `req.body()` input, including round-trip reads
+(`examples/posts_crud.orb`).
 
 ## Auth helpers: bearer_token returns an empty reply
 
@@ -43,13 +41,15 @@ remain: captured values are not percent-decoded, and at most 8
 captures bind per request. Query values (`?id=`) keep working
 alongside.
 
-## Custom tables aren't created
+## Custom tables are created, not migrated
 
-On startup the runtime creates exactly four tables — `notes`,
-`products`, `users`, `sessions` — and seeds demo rows when
-`products` is empty. A model with any other name (for example
-`Post`) gets no table: `.all()` returns `[]` and `.create()`
-fails. Tutorials build on `Note` and `Product` for this reason.
+On startup the runtime creates the four built-in tables (`notes`,
+`products`, `users`, `sessions`, plus demo seeds) and one table
+per model in your program (`CREATE TABLE IF NOT EXISTS` from the
+model fields: `string`→`TEXT`, `int`/`bool`→`INTEGER`,
+`float`→`REAL`, an `id` field becomes the primary key). There is
+still no migration story: adding a field later does not alter an
+existing table (see `docs/guides/migrations.md`).
 
 ## Multipart uploads aren't implemented
 

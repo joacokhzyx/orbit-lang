@@ -177,7 +177,7 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, "}\n")
     }
     if hasRoutes {
-        orbit_cbuf_append_selfhost(cbTop, generateServerMain(moduleUsesDatabase(backend.module)))
+        orbit_cbuf_append_selfhost(cbTop, generateServerMain(backend))
     } else {
         orbit_cbuf_append_selfhost(cbTop, "extern char** _orbit_argv;\n")
         orbit_cbuf_append_selfhost(cbTop, "extern int _orbit_argc;\n\n")
@@ -1275,8 +1275,40 @@ fn computeBoostPct(backend: CBackend) -> float {
     return backend.module.boostRaw
 }
 
-fn generateServerMain(hasDb: bool) -> string {
-    return serverMainText(hasDb)
+fn orbitColumnType(t: string) -> string {
+    if t == "int" || t == "bool" { return "INTEGER" }
+    if t == "float" { return "REAL" }
+    return "TEXT"
+}
+
+// One CREATE TABLE IF NOT EXISTS per model, in declaration order, emitted
+// into server main right after orbit_db_init. Compiler-generated identifiers
+// only (model/field names are grammar-constrained); empty models are skipped.
+fn generateModelDDL(backend: CBackend) -> string {
+    var ddl = ""
+    var mi = 0
+    while mi < backend.module.models.len() {
+        val m: IRModelDecl = backend.module.models.get(mi)
+        if m.fields.len() > 0 {
+            var cols = ""
+            var fi = 0
+            while fi < m.fields.len() {
+                val f: IRModelField = m.fields.get(fi)
+                if fi > 0 { cols = cols + ", " }
+                cols = cols + f.name + " " + orbitColumnType(f.typeName)
+                if f.name == "id" { cols = cols + " PRIMARY KEY" }
+                fi = fi + 1
+            }
+            ddl = ddl + "    orbit_db_exec_ddl(\"CREATE TABLE IF NOT EXISTS " + modelTableName(m.name) + " (" + cols + ");\");\n"
+        }
+        mi = mi + 1
+    }
+    return ddl
+}
+
+fn generateServerMain(backend: CBackend) -> string {
+    val db = moduleUsesDatabase(backend.module)
+    return serverMainText(db, generateModelDDL(backend))
 }
 
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {

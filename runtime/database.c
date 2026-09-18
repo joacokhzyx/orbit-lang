@@ -122,6 +122,19 @@ void orbit_db_close(void) {
     }
 }
 
+/** @brief Execute compiler-generated schema DDL at startup (CREATE TABLE IF
+ * NOT EXISTS per model). The SQL text is assembled by the compiler from
+ * validated model/field identifiers, never from request input. */
+bool orbit_db_exec_ddl(const char* sql) {
+    char* msg = NULL;
+    int rc;
+    if (!sql || !*sql) return false;
+    if (!orbit_db_conn) return false;
+    rc = sqlite3_exec(orbit_db_conn, sql, NULL, NULL, &msg);
+    if (msg) sqlite3_free(msg);
+    return rc == SQLITE_OK;
+}
+
 /* ── Internal: build a dynamic query string in Arena ───────────────── */
 
 static char* orbit_db_build_query(OrbitArena* arena, const char* fmt, const char* table, const char* extra) {
@@ -539,7 +552,9 @@ bool orbit_db_del(orbit_collection col, const char* id) {
     }
 
     sqlite3_bind_text(stmt, 1, id, -1, SQLITE_STATIC);
-    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+    /* DONE alone is not enough: deleting zero rows still steps DONE. */
+    bool success = (sqlite3_step(stmt) == SQLITE_DONE)
+        && (sqlite3_changes(orbit_db_conn) > 0);
     sqlite3_finalize(stmt);
     free(query);
     return success;

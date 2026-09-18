@@ -127,10 +127,10 @@ Empty body with the key — caught by validation:
 ```
 
 One quirk I hit while testing: an empty POST body arrives as
-`"{}"`, not `""`, which is why the route checks both. And
-`Model.create()` returns `false` in 0.1.0, so the route echoes
-the accepted entry instead of claiming it was stored — persistent
-writes are tracked work, not silent behavior.
+`"{}"`, not `""`, which is why the route checks both. The route
+echoes the accepted entry instead of storing it; for persistent
+writes see `Model.create()` in `examples/posts_crud.orb`, which
+stores the row and answers `false` only on duplicate ids.
 
 ## What you practiced
 

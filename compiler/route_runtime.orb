@@ -309,7 +309,7 @@ fn routerTailText(paramChain: string) -> string {
     return out
 }
 
-fn serverMainText(hasDb: bool) -> string {
+fn serverMainText(hasDb: bool, modelDDL: string) -> string {
     var out = ""
     out = out + "#ifdef _WIN32\n"
     out = out + "static unsigned __stdcall orbit_worker_loop(void* arg) {\n"
@@ -496,6 +496,7 @@ fn serverMainText(hasDb: bool) -> string {
     out = out + "    orbit_http_init();\n"
     if hasDb {
         out = out + "    orbit_db_init(\"orbit.db\");\n"
+        out = out + modelDDL
     } else {
         out = out + "    \n"
     }

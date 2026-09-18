@@ -1,0 +1,43 @@
+// Posts CRUD example in Orbit: custom models get their table created
+// automatically at startup (CREATE TABLE IF NOT EXISTS from the model
+// fields), then support create/all/find/delete over HTTP.
+model Post {
+    id: string
+    title: string
+    body: string
+    views: int
+    rating: float
+    published: bool
+}
+
+route POST "/posts" {
+    val payload = req.body()
+    if payload == "" || payload == "{}" {
+        err 400 "post a JSON body with id and title"
+    }
+    val created = Post.create(payload)
+    if created {
+        return ok 201 payload
+    }
+    return ok 400 "{\"stored\":false}"
+}
+
+route GET "/posts" {
+    val posts = Post.all()
+    return ok 200 posts
+}
+
+route GET "/posts/:id" {
+    val id = req.param("id")
+    val found = Post.find(id)
+    return ok 200 found
+}
+
+route DELETE "/posts/:id" {
+    val id = req.param("id")
+    val gone = Post.delete(id)
+    if gone {
+        return ok 200 "{\"deleted\":\"" + id + "\"}"
+    }
+    return ok 404 "{\"deleted\":false}"
+}
