@@ -1532,12 +1532,11 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     var firstDualPathInstr = isDualPathFunction(backend, func)
     while i < func.instructions.len() {
         val instr: IRInstruction = func.instructions.get(i)
-        var line = generateInstruction(backend, instr)
         if firstDualPathInstr {
-            line = "    " + line
+            orbit_cbuf_append_selfhost(cbFn, "    ")
             firstDualPathInstr = false
         }
-        orbit_cbuf_append_selfhost(cbFn, line)
+        emitInstruction(backend, instr, cbFn)
         i = i + 1
     }
     if isRoute {
@@ -1643,14 +1642,18 @@ fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string 
     return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
 }
 
-fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
-    if instr == NULL { return "" }
+// Emits one instruction's C text straight into the caller's chunk buffer.
+// Named emit* (not generate*) to mark the void, buffer-appending contract.
+fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
+    if instr == NULL { return }
     match instr.opcode {
         IROpcode.nop => {
-            return ""
+            orbit_cbuf_append_selfhost(cb, "")
+            return
         }
         IROpcode.load_const => {
-            return generateRegAssign(backend, instr.dest, generateValue(backend, instr.operand1))
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, generateValue(backend, instr.operand1)))
+            return
         }
         IROpcode.load_var => {
             var valStr = ""
@@ -1670,7 +1673,8 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 }
             }
             if orbit_string_indexOf(valStr, "TAG_") != -1 {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n")
+                return
             }
             var vType = ""
             if vn != "" && backend != NULL && backend.currentFunction != NULL {
@@ -1691,77 +1695,99 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     val lf: IRFunction = backend.currentFunction
                     lf.registerTypes = setStrAt(lf.registerTypes, instr.dest, "float")
                 }
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_float)(" + valStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_float)(" + valStr + ");\n")
+                return
             }
             if lrT == "int" || lrT == "bool" || lrT == "orbit_int" || lrT == "orbit_bool" || lrT == "enumeration" || isEnumType(backend, lrT) {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n")
+                return
             }
             if lrT == "result" || lrT == "Result" || lrT == "OrbitResult" || vType == "result" || vType == "Result" || vType == "OrbitResult" {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + valStr + ";\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + valStr + ";\n")
+                return
             }
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (void*)(" + valStr + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (void*)(" + valStr + ");\n")
+            return
         }
         IROpcode.store_var => {
             val svName = generateValue(backend, instr.operand1)
-            return "    " + svName + " = " + storeCastFor(backend, svName) + "(" + generateValue(backend, instr.operand2) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    " + svName + " = " + storeCastFor(backend, svName) + "(" + generateValue(backend, instr.operand2) + ");\n")
+            return
         }
         IROpcode.decl_var => {
             val dvName = generateValue(backend, instr.operand1)
-            return "    " + dvName + " = " + storeCastFor(backend, dvName) + "(" + generateValue(backend, instr.operand2) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    " + dvName + " = " + storeCastFor(backend, dvName) + "(" + generateValue(backend, instr.operand2) + ");\n")
+            return
         }
         IROpcode.add => {
             if isStringOperand(backend, instr.operand1) || isStringOperand(backend, instr.operand2) {
                 val s1 = stringifyConcatOperand(backend, instr.operand1)
                 val s2 = stringifyConcatOperand(backend, instr.operand2)
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_string_concat(arena, " + s1 + ", " + s2 + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_string_concat(arena, " + s1 + ", " + s2 + ");\n")
+                return
             }
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") + (orbit_float)(" + generateValue(backend, instr.operand2) + ")")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") + (orbit_float)(" + generateValue(backend, instr.operand2) + ")"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") + (uintptr_t)(" + generateValue(backend, instr.operand2) + ")")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") + (uintptr_t)(" + generateValue(backend, instr.operand2) + ")"))
+            return
         }
         IROpcode.sub => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") - (orbit_float)(" + generateValue(backend, instr.operand2) + ")")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") - (orbit_float)(" + generateValue(backend, instr.operand2) + ")"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") - (uintptr_t)(" + generateValue(backend, instr.operand2) + ")")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") - (uintptr_t)(" + generateValue(backend, instr.operand2) + ")"))
+            return
         }
         IROpcode.mul => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") * (orbit_float)(" + generateValue(backend, instr.operand2) + ")")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") * (orbit_float)(" + generateValue(backend, instr.operand2) + ")"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") * (uintptr_t)(" + generateValue(backend, instr.operand2) + ")")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") * (uintptr_t)(" + generateValue(backend, instr.operand2) + ")"))
+            return
         }
         IROpcode.div => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") / (orbit_float)(" + generateValue(backend, instr.operand2) + ")")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(backend, instr.operand1) + ") / (orbit_float)(" + generateValue(backend, instr.operand2) + ")"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") / (uintptr_t)(" + generateValue(backend, instr.operand2) + ")")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") / (uintptr_t)(" + generateValue(backend, instr.operand2) + ")"))
+            return
         }
         IROpcode.mod => {
-            return generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") % (uintptr_t)(" + generateValue(backend, instr.operand2) + ")")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(backend, instr.operand1) + ") % (uintptr_t)(" + generateValue(backend, instr.operand2) + ")"))
+            return
         }
         IROpcode.eq => {
             val v1 = generateValue(backend, instr.operand1)
             val v2 = generateValue(backend, instr.operand2)
             if isStringOperand(backend, instr.operand1) && isStringOperand(backend, instr.operand2) {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = strcmp(" + v1 + ", " + v2 + ") == 0;\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = strcmp(" + v1 + ", " + v2 + ") == 0;\n")
+                return
             }
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "((orbit_float)(" + v1 + ") == (orbit_float)(" + v2 + "))")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((orbit_float)(" + v1 + ") == (orbit_float)(" + v2 + "))"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "((uintptr_t)(" + v1 + ") == (uintptr_t)(" + v2 + "))")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((uintptr_t)(" + v1 + ") == (uintptr_t)(" + v2 + "))"))
+            return
         }
         IROpcode.ne => {
             val v1 = generateValue(backend, instr.operand1)
             val v2 = generateValue(backend, instr.operand2)
             if isStringOperand(backend, instr.operand1) && isStringOperand(backend, instr.operand2) {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = strcmp(" + v1 + ", " + v2 + ") != 0;\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = strcmp(" + v1 + ", " + v2 + ") != 0;\n")
+                return
             }
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "((orbit_float)(" + v1 + ") != (orbit_float)(" + v2 + "))")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((orbit_float)(" + v1 + ") != (orbit_float)(" + v2 + "))"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "((uintptr_t)(" + v1 + ") != (uintptr_t)(" + v2 + "))")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((uintptr_t)(" + v1 + ") != (uintptr_t)(" + v2 + "))"))
+            return
         }
         // Relational operators MUST compare as signed. Orbit uses negative
         // sentinels everywhere -- the root scope's parentId is -1, findType()
@@ -1773,63 +1799,82 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
         // and ne above can keep using uintptr_t.
         IROpcode.lt => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") < (orbit_float)(" + generateValue(backend, instr.operand2) + "))")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") < (orbit_float)(" + generateValue(backend, instr.operand2) + "))"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") < (intptr_t)(" + generateValue(backend, instr.operand2) + "))")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") < (intptr_t)(" + generateValue(backend, instr.operand2) + "))"))
+            return
         }
         IROpcode.le => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") <= (orbit_float)(" + generateValue(backend, instr.operand2) + "))")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") <= (orbit_float)(" + generateValue(backend, instr.operand2) + "))"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") <= (intptr_t)(" + generateValue(backend, instr.operand2) + "))")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") <= (intptr_t)(" + generateValue(backend, instr.operand2) + "))"))
+            return
         }
         IROpcode.gt => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") > (orbit_float)(" + generateValue(backend, instr.operand2) + "))")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") > (orbit_float)(" + generateValue(backend, instr.operand2) + "))"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") > (intptr_t)(" + generateValue(backend, instr.operand2) + "))")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") > (intptr_t)(" + generateValue(backend, instr.operand2) + "))"))
+            return
         }
         IROpcode.ge => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" || operandDefType(backend, backend.currentFunction, instr.operand2) == "float" {
-                return generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") >= (orbit_float)(" + generateValue(backend, instr.operand2) + "))")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((orbit_float)(" + generateValue(backend, instr.operand1) + ") >= (orbit_float)(" + generateValue(backend, instr.operand2) + "))"))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") >= (intptr_t)(" + generateValue(backend, instr.operand2) + "))")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((intptr_t)(" + generateValue(backend, instr.operand1) + ") >= (intptr_t)(" + generateValue(backend, instr.operand2) + "))"))
+            return
         }
         IROpcode.and_op => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " && " + generateValue(backend, instr.operand2) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " && " + generateValue(backend, instr.operand2) + ");\n")
+            return
         }
         IROpcode.or_op => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " || " + generateValue(backend, instr.operand2) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + " || " + generateValue(backend, instr.operand2) + ");\n")
+            return
         }
         IROpcode.not_op => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = !" + generateValue(backend, instr.operand1) + ";\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = !" + generateValue(backend, instr.operand1) + ";\n")
+            return
         }
         IROpcode.neg => {
             if operandDefType(backend, backend.currentFunction, instr.operand1) == "float" {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = -(orbit_float)(" + generateValue(backend, instr.operand1) + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = -(orbit_float)(" + generateValue(backend, instr.operand1) + ");\n")
+                return
             }
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = -" + generateValue(backend, instr.operand1) + ";\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = -" + generateValue(backend, instr.operand1) + ";\n")
+            return
         }
         IROpcode.begin_block => {
-            return "    {\n"
+            orbit_cbuf_append_selfhost(cb, "    {\n")
+            return
         }
         IROpcode.end_block => {
-            return "    }\n"
+            orbit_cbuf_append_selfhost(cb, "    }\n")
+            return
         }
         IROpcode.label => {
             var lval = generateValue(backend, instr.operand1)
-            if listContainsStr(backend.refLabels, lval) == false { return "" }
-            return "label_" + lval + ":;\n"
+            if listContainsStr(backend.refLabels, lval) == false { return }
+            orbit_cbuf_append_selfhost(cb, "label_" + lval + ":;\n")
+            return
         }
         IROpcode.jump => {
-            return "    goto label_" + generateValue(backend, instr.operand1) + ";\n"
+            orbit_cbuf_append_selfhost(cb, "    goto label_" + generateValue(backend, instr.operand1) + ";\n")
+            return
         }
         IROpcode.jump_if_false => {
-            return "    if (!(" + generateValue(backend, instr.operand1) + ")) goto label_" + generateValue(backend, instr.operand2) + ";\n"
+            orbit_cbuf_append_selfhost(cb, "    if (!(" + generateValue(backend, instr.operand1) + ")) goto label_" + generateValue(backend, instr.operand2) + ";\n")
+            return
         }
         IROpcode.copy => {
             val valStr = generateValue(backend, instr.operand1)
-            return generateRegAssign(backend, instr.dest, valStr)
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, valStr))
+            return
         }
         IROpcode.arg => {
             if instr.dest != -1 {
@@ -1840,12 +1885,15 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 }
                 if pIdx < backend.currentFunction.params.len() {
                     val pName = backend.currentFunction.params.get(pIdx)
-                    return generateRegAssign(backend, instr.dest, pName)
+                    orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, pName))
+                    return
                 }
-                return ""
+                orbit_cbuf_append_selfhost(cb, "")
+                return
             }
             backend.callArgs.push(generateValue(backend, instr.operand1))
-            return ""
+            orbit_cbuf_append_selfhost(cb, "")
+            return
         }
         IROpcode.call => {
             var line = ""
@@ -1878,19 +1926,23 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     val argStr = backend.callArgs.get(0)
                     backend.callArgs.pop()
                     if isStringArg(backend, argStr) {
-                        return "    print(\"%s\", " + argStr + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    print(\"%s\", " + argStr + ");\n")
+                        return
                     } else {
-                        return "    printf(\"%lld\\n\", (long long)(" + argStr + "));\n"
+                        orbit_cbuf_append_selfhost(cb, "    printf(\"%lld\\n\", (long long)(" + argStr + "));\n")
+                        return
                     }
                 } else {
                     while backend.callArgs.len() > 0 {
                         backend.callArgs.pop()
                     }
-                    return "    /* print */\n"
+                    orbit_cbuf_append_selfhost(cb, "    /* print */\n")
+                    return
                 }
             }
             if calleeName == "ir_none" {
-                return generateRegAssign(backend, instr.dest, "ir_none()")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "ir_none()"))
+                return
             }
             var numArgs = 0
             match instr.operand2 {
@@ -1923,14 +1975,20 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     if isStringArg(backend, receiverStr) || isStringVar(backend, receiverStr) || isStringReg(backend, receiverStr) {
                         while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
                         val safeGet = "orbit_string_at((orbit_string)(" + receiverStr + "), (orbit_int)(uintptr_t)(" + idxStr + "))"
-                        if destNeeded { return generateRegAssign(backend, instr.dest, safeGet) }
-                        return "    " + safeGet + ";\n"
+                        if destNeeded {
+                            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, safeGet))
+                            return
+                        }
+                        orbit_cbuf_append_selfhost(cb, "    " + safeGet + ";\n")
+                        return
                     } else {
                         while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
                         if destNeeded {
-                            return "    { OrbitResult _lr = orbit_list_get((const OrbitList*)(" + receiverStr + "), (size_t)(uintptr_t)(" + idxStr + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n"
+                            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _lr = orbit_list_get((const OrbitList*)(" + receiverStr + "), (size_t)(uintptr_t)(" + idxStr + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n")
+                            return
                         }
-                        return "    orbit_list_get((const OrbitList*)(" + receiverStr + "), (size_t)(uintptr_t)(" + idxStr + "));\n"
+                        orbit_cbuf_append_selfhost(cb, "    orbit_list_get((const OrbitList*)(" + receiverStr + "), (size_t)(uintptr_t)(" + idxStr + "));\n")
+                        return
                     }
                 }
             }
@@ -1939,7 +1997,8 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     val receiverStr = backend.callArgs.get(startIdx)
                     val valStr = backend.callArgs.get(startIdx + 1)
                     while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
-                    return "    { void* _tmp = (void*)(uintptr_t)(" + valStr + "); orbit_list_push((OrbitList*)(" + receiverStr + "), &_tmp); }\n"
+                    orbit_cbuf_append_selfhost(cb, "    { void* _tmp = (void*)(uintptr_t)(" + valStr + "); orbit_list_push((OrbitList*)(" + receiverStr + "), &_tmp); }\n")
+                    return
                 }
             }
             if calleeName == "orbit_list_len" {
@@ -1948,12 +2007,20 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                     while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
                     if isStringArg(backend, receiverStr) || isStringVar(backend, receiverStr) || isStringReg(backend, receiverStr) {
                         val safeLen = "orbit_string_len((orbit_string)(" + receiverStr + "))"
-                        if destNeeded { return generateRegAssign(backend, instr.dest, safeLen) }
-                        return "    " + safeLen + ";\n"
+                        if destNeeded {
+                            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, safeLen))
+                            return
+                        }
+                        orbit_cbuf_append_selfhost(cb, "    " + safeLen + ";\n")
+                        return
                     } else {
                         val safeLen2 = "(orbit_int)orbit_list_len((const OrbitList*)(" + receiverStr + "))"
-                        if destNeeded { return generateRegAssign(backend, instr.dest, safeLen2) }
-                        return "    " + safeLen2 + ";\n"
+                        if destNeeded {
+                            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, safeLen2))
+                            return
+                        }
+                        orbit_cbuf_append_selfhost(cb, "    " + safeLen2 + ";\n")
+                        return
                     }
                 }
             }
@@ -2108,57 +2175,76 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
             }
             if destNeeded {
                 if isRouteRuntimeBuiltin(calleeName) {
-                    return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + callExpr + ";\n"
+                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + callExpr + ";\n")
+                    return
                 }
-                return generateRegAssign(backend, instr.dest, callExpr)
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, callExpr))
+                return
             }
-            return "    " + callExpr + ";\n"
+            orbit_cbuf_append_selfhost(cb, "    " + callExpr + ";\n")
+            return
         }
         IROpcode.ret => {
             match instr.operand1 {
                 IRValue.None => {
                     val rtype = backend.currentFunction.returnType
                     if rtype == "int" || rtype == "bool" {
-                        return "    return 0;\n"
+                        orbit_cbuf_append_selfhost(cb, "    return 0;\n")
+                        return
                     } else if isMainFuncName(backend.currentFunction.name) {
-                        return "    return 0;\n"
+                        orbit_cbuf_append_selfhost(cb, "    return 0;\n")
+                        return
                     } else if rtype == "float" {
-                        return "    return 0.0;\n"
+                        orbit_cbuf_append_selfhost(cb, "    return 0.0;\n")
+                        return
                     } else if rtype == "void" {
-                        return "    return;\n"
+                        orbit_cbuf_append_selfhost(cb, "    return;\n")
+                        return
                     } else if isEnumType(backend, rtype) {
-                        return "    return (" + mapTypeToC(backend, rtype) + ")0;\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (" + mapTypeToC(backend, rtype) + ")0;\n")
+                        return
                     } else {
-                        return "    return NULL;\n"
+                        orbit_cbuf_append_selfhost(cb, "    return NULL;\n")
+                        return
                     }
                 }
                 IRValue.Register(v) => {
                     val rtype = backend.currentFunction.returnType
                     if rtype == "result" || rtype == "Result" || rtype == "OrbitResult" {
-                        return "    return r_" + orbit_int_to_string_selfhost(v.value) + ";\n"
+                        orbit_cbuf_append_selfhost(cb, "    return r_" + orbit_int_to_string_selfhost(v.value) + ";\n")
+                        return
                     } else if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
-                        return "    return (orbit_int)(uintptr_t)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (orbit_int)(uintptr_t)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n")
+                        return
                     } else if rtype == "string" || rtype == "orbit_string" {
-                        return "    return (orbit_string)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (orbit_string)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n")
+                        return
                     } else if rtype == "float" || rtype == "orbit_float" {
-                        return "    return (orbit_float)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (orbit_float)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n")
+                        return
                     } else {
-                        return "    return (void*)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (void*)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n")
+                        return
                     }
                 }
                 _ => {
                     val rtype = backend.currentFunction.returnType
                     val valStr = generateValue(backend, instr.operand1)
                     if rtype == "result" || rtype == "Result" || rtype == "OrbitResult" {
-                        return "    return " + valStr + ";\n"
+                        orbit_cbuf_append_selfhost(cb, "    return " + valStr + ";\n")
+                        return
                     } else if rtype == "int" || rtype == "bool" || rtype == "orbit_int" || rtype == "orbit_bool" || isEnumType(backend, rtype) || isMainFuncName(backend.currentFunction.name) {
-                        return "    return (orbit_int)(uintptr_t)(" + valStr + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (orbit_int)(uintptr_t)(" + valStr + ");\n")
+                        return
                     } else if rtype == "string" || rtype == "orbit_string" {
-                        return "    return (orbit_string)(" + valStr + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (orbit_string)(" + valStr + ");\n")
+                        return
                     } else if rtype == "float" || rtype == "orbit_float" {
-                        return "    return (orbit_float)(" + valStr + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (orbit_float)(" + valStr + ");\n")
+                        return
                     } else {
-                        return "    return (void*)(" + valStr + ");\n"
+                        orbit_cbuf_append_selfhost(cb, "    return (void*)(" + valStr + ");\n")
+                        return
                     }
                 }
             }
@@ -2169,13 +2255,16 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 sizeVal = "sizeof(void*)"
             }
             if instr.dest != -1 {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_arena_alloc(arena, " + sizeVal + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_arena_alloc(arena, " + sizeVal + ");\n")
+                return
             } else {
-                return "    orbit_arena_alloc(arena, " + sizeVal + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    orbit_arena_alloc(arena, " + sizeVal + ");\n")
+                return
             }
         }
         IROpcode.free => {
-            return "    /* free - arena managed */\n"
+            orbit_cbuf_append_selfhost(cb, "    /* free - arena managed */\n")
+            return
         }
         IROpcode.load_field => {
             var fname = ""
@@ -2190,18 +2279,22 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 backend.strRegs.push(instr.dest)
             }
             if isStringOperand(backend, instr.operand1) {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_json_field(arena, " + generateValue(backend, instr.operand1) + ", \"" + fname + "\");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_json_field(arena, " + generateValue(backend, instr.operand1) + ", \"" + fname + "\");\n")
+                return
             }
             if owner == "" {
                 if fname == "length" || fname == "len" {
-                    return generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(backend, instr.operand1) + "))")
+                    orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(backend, instr.operand1) + "))"))
+                    return
                 }
                 owner = findFieldOwner(backend, fname)
             }
             if owner != "" {
-                return generateRegAssign(backend, instr.dest, "((" + owner + "*)" + generateValue(backend, instr.operand1) + ")->" + fname)
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((" + owner + "*)" + generateValue(backend, instr.operand1) + ")->" + fname))
+                return
             }
-            return generateRegAssign(backend, instr.dest, "((OrbitModel*)" + generateValue(backend, instr.operand1) + ")->" + fname)
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((OrbitModel*)" + generateValue(backend, instr.operand1) + ")->" + fname))
+            return
         }
         IROpcode.store_field => {
             var fname2 = ""
@@ -2226,91 +2319,117 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 }
             }
             if owner2 != "" {
-                return "    ((" + owner2 + "*)" + generateValue(backend, instr.operand1) + ")->" + fname2 + " = " + valCast + ";\n"
+                orbit_cbuf_append_selfhost(cb, "    ((" + owner2 + "*)" + generateValue(backend, instr.operand1) + ")->" + fname2 + " = " + valCast + ";\n")
+                return
             }
-            return "    ((OrbitModel*)" + generateValue(backend, instr.operand1) + ")->" + fname2 + " = " + valCast + ";\n"
+            orbit_cbuf_append_selfhost(cb, "    ((OrbitModel*)" + generateValue(backend, instr.operand1) + ")->" + fname2 + " = " + valCast + ";\n")
+            return
         }
         IROpcode.list_create => {
-            return "    { OrbitResult _lr = orbit_list_create(arena, sizeof(void*), " + generateValue(backend, instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? (OrbitList*)_lr.value : NULL; }\n"
+            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _lr = orbit_list_create(arena, sizeof(void*), " + generateValue(backend, instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? (OrbitList*)_lr.value : NULL; }\n")
+            return
         }
         IROpcode.list_push => {
             // Orbit lists use pointer-sized slots. Never pass the address of a
             // 32-bit register directly: orbit_list_push copies one full slot,
             // which otherwise reads past the stack variable for int/bool values.
             val stored = generateValue(backend, instr.operand2)
-            return "    { uintptr_t _tmp = (uintptr_t)(" + stored + "); orbit_list_push(" + generateValue(backend, instr.operand1) + ", &_tmp); }\n"
+            orbit_cbuf_append_selfhost(cb, "    { uintptr_t _tmp = (uintptr_t)(" + stored + "); orbit_list_push(" + generateValue(backend, instr.operand1) + ", &_tmp); }\n")
+            return
         }
         IROpcode.list_get => {
-            return "    { OrbitResult _lr = orbit_list_get(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n"
+            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _lr = orbit_list_get(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n")
+            return
         }
         IROpcode.list_set => {
-            return "    { void* _tmp = (void*)(uintptr_t)(" + generateValue(backend, instr.operand3) + "); orbit_list_set(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + "), &_tmp); }\n"
+            orbit_cbuf_append_selfhost(cb, "    { void* _tmp = (void*)(uintptr_t)(" + generateValue(backend, instr.operand3) + "); orbit_list_set(" + generateValue(backend, instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(backend, instr.operand2) + "), &_tmp); }\n")
+            return
         }
         IROpcode.list_len => {
             if isStringOperand(backend, instr.operand1) {
-                return generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(backend, instr.operand1) + "))")
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(backend, instr.operand1) + "))"))
+                return
             }
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)orbit_list_len((const OrbitList*)(" + generateValue(backend, instr.operand1) + "));\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)orbit_list_len((const OrbitList*)(" + generateValue(backend, instr.operand1) + "));\n")
+            return
         }
         IROpcode.list_pop => {
-            return "    { OrbitResult _pr = orbit_list_pop(" + generateValue(backend, instr.operand1) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _pr.ok ? *(void**)_pr.value : NULL; }\n"
+            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _pr = orbit_list_pop(" + generateValue(backend, instr.operand1) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _pr.ok ? *(void**)_pr.value : NULL; }\n")
+            return
         }
         IROpcode.map_create => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_create(" + generateValue(backend, instr.operand1) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_create(" + generateValue(backend, instr.operand1) + ");\n")
+            return
         }
         IROpcode.map_set => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_set(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_set(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n")
+            return
         }
         IROpcode.map_get => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_get(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_get(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n")
+            return
         }
         IROpcode.map_has => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_has(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_has(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n")
+            return
         }
         IROpcode.map_delete => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_delete(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_delete(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ");\n")
+            return
         }
         IROpcode.map_keys => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_keys(" + generateValue(backend, instr.operand1) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_map_keys(" + generateValue(backend, instr.operand1) + ");\n")
+            return
         }
         IROpcode.result_ok => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_ok(" + generateValue(backend, instr.operand1) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_ok(" + generateValue(backend, instr.operand1) + ");\n")
+            return
         }
         IROpcode.result_err => {
             match instr.operand2 {
                 IRValue.None => {
-                    return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err(" + generateValue(backend, instr.operand1) + ");\n"
+                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err(" + generateValue(backend, instr.operand1) + ");\n")
+                    return
                 }
                 _ => {
-                    return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err(" + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand1) + ");\n"
+                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err(" + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand1) + ");\n")
+                    return
                 }
             }
         }
         IROpcode.result_unwrap => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + ".value;\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + ".value;\n")
+            return
         }
         IROpcode.result_is_ok => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + ".ok;\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + ".ok;\n")
+            return
         }
         IROpcode.union_create => {
-            return "    { struct { int tag; void* data; }* _u = (struct { int tag; void* data; }*)orbit_alloc(arena, 16); _u->tag = (int)(uintptr_t)(" + generateValue(backend, instr.operand1) + "); _u->data = (void*)(uintptr_t)(" + generateValue(backend, instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _u; }\n"
+            orbit_cbuf_append_selfhost(cb, "    { struct { int tag; void* data; }* _u = (struct { int tag; void* data; }*)orbit_alloc(arena, 16); _u->tag = (int)(uintptr_t)(" + generateValue(backend, instr.operand1) + "); _u->data = (void*)(uintptr_t)(" + generateValue(backend, instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _u; }\n")
+            return
         }
         IROpcode.union_get_tag => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = ((struct { int tag; void* data; }*)(" + generateValue(backend, instr.operand1) + "))->tag;\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = ((struct { int tag; void* data; }*)(" + generateValue(backend, instr.operand1) + "))->tag;\n")
+            return
         }
         IROpcode.union_get_data => {
-            return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = ((struct { int tag; void* data; }*)(" + generateValue(backend, instr.operand1) + "))->data;\n"
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = ((struct { int tag; void* data; }*)(" + generateValue(backend, instr.operand1) + "))->data;\n")
+            return
         }
         IROpcode.switch_op => {
             val exprVal = generateValue(backend, instr.operand1)
             if exprVal != "" {
-                return "    switch (" + exprVal + ") {\n"
+                orbit_cbuf_append_selfhost(cb, "    switch (" + exprVal + ") {\n")
+                return
             } else {
-                return "    /* switch_op */\n"
+                orbit_cbuf_append_selfhost(cb, "    /* switch_op */\n")
+                return
             }
         }
         IROpcode.type_info => {
-            return "    /* type_info */\n"
+            orbit_cbuf_append_selfhost(cb, "    /* type_info */\n")
+            return
         }
         IROpcode.db_get => {
             val arg1 = generateValue(backend, instr.operand1)
@@ -2320,9 +2439,11 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 argsStr = argsStr + ", " + arg2
             }
             if instr.dest != -1 {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_get(" + argsStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_get(" + argsStr + ");\n")
+                return
             } else {
-                return "    orbit_db_get(" + argsStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    orbit_db_get(" + argsStr + ");\n")
+                return
             }
         }
         IROpcode.db_set => {
@@ -2337,17 +2458,21 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 argsStr = argsStr + ", " + arg3
             }
             if instr.dest != -1 {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_set(" + argsStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_set(" + argsStr + ");\n")
+                return
             } else {
-                return "    orbit_db_set(" + argsStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    orbit_db_set(" + argsStr + ");\n")
+                return
             }
         }
         IROpcode.db_all => {
             val arg1 = generateValue(backend, instr.operand1)
             if instr.dest != -1 {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_all(" + arg1 + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_all(" + arg1 + ");\n")
+                return
             } else {
-                return "    orbit_db_all(" + arg1 + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    orbit_db_all(" + arg1 + ");\n")
+                return
             }
         }
         IROpcode.db_where => {
@@ -2358,16 +2483,20 @@ fn generateInstruction(backend: CBackend, instr: IRInstruction) -> string {
                 argsStr = argsStr + ", " + arg2
             }
             if instr.dest != -1 {
-                return "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_where(" + argsStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_db_where(" + argsStr + ");\n")
+                return
             } else {
-                return "    orbit_db_where(" + argsStr + ");\n"
+                orbit_cbuf_append_selfhost(cb, "    orbit_db_where(" + argsStr + ");\n")
+                return
             }
         }
         IROpcode.http_response => {
-            return "    ORBIT_API_RESPONSE(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n"
+            orbit_cbuf_append_selfhost(cb, "    ORBIT_API_RESPONSE(" + generateValue(backend, instr.operand1) + ", " + generateValue(backend, instr.operand2) + ", " + generateValue(backend, instr.operand3) + ");\n")
+            return
         }
         _ => {
-            return "    /* Unknown opcode */\n"
+            orbit_cbuf_append_selfhost(cb, "    /* Unknown opcode */\n")
+            return
         }
     }
 }

@@ -468,8 +468,12 @@ typedef struct OrbitCBuf {
     OrbitArena* arena;
 } OrbitCBuf;
 
+// Small initial reserve on purpose: the arena commits pages as the cursor
+// advances, so an oversized reserve per buffer (one per generated function)
+// would charge hundreds of MB of commit for pages never touched. Growth
+// doubles and abandons at most ~1x the final size, once per buffer.
 #ifndef ORBIT_CBUF_INIT_CAP
-#define ORBIT_CBUF_INIT_CAP (4194304u)
+#define ORBIT_CBUF_INIT_CAP (65536u)
 #endif
 
 static OrbitCBuf* orbit_cbuf_create(OrbitArena* arena, size_t cap) {
