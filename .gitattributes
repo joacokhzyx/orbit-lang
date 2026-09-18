@@ -16,3 +16,8 @@ last_generated.c linguist-generated=true
 # Fixed-point canonical and parity goldens: byte-exact contracts, never EOL-converted.
 compiler/selfhost/*.exe.c -text
 tests/parity/golden/*.txt -text
+
+# Orbit sources: canonical form is LF (`orbit fmt` emits LF only). Checking
+# out with LF everywhere keeps `fmt --check` quiet on Windows, where
+# core.autocrlf would otherwise materialize every .orb file as CRLF.
+*.orb text eol=lf

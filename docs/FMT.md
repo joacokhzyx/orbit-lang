@@ -150,6 +150,11 @@ twenty files with one (or two) extra blank lines at end of file.
 - Output uses LF (`\n`) only, matching the committed canonical form (the
   working-tree CRLF comes from `core.autocrlf`). Tabs become indentation
   spaces; trailing whitespace is stripped; carriage returns are dropped.
+- On Windows checkouts, `.gitattributes` pins `*.orb` to `text eol=lf` so
+  fresh clones materialize LF files and `fmt --check` stays quiet. Files
+  already materialized as CRLF keep working (status stays clean) but are
+  listed by `--check` until re-materialized; reformatting them once
+  converts them to LF.
 - A UTF-8 BOM is preserved when present (one suite file relies on BOM
   tolerance); it is never added.
 - Comments are preserved verbatim and re-attached by position: same-line

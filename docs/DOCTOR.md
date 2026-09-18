@@ -36,6 +36,11 @@ Unused reports (`D003`/`D004`) are deliberately conservative. A name counts as u
 A few notes on scope:
 
 - Doctor scans `.orb` files under the given directory, recursing into subdirectories. Files and directories whose names start with a dot are skipped.
+- A scanned tree is treated as one project: routes and declarations in
+  different files are checked against each other. A directory of
+  independent services (like `examples/`) therefore reports cross-service
+  findings (e.g. two services both defining `GET /health`). Scan a single
+  service directory or file when that is what you mean.
 - If the path you pass ends in `.orb`, doctor treats it as a single file.
 - When a file does not parse, doctor still runs the text-based checks (routes, `system.*`, whitespace) on it and skips only the AST-based unused analysis for that file.
 
