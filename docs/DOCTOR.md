@@ -9,12 +9,24 @@ orbit doctor --fix            # scan, then tidy whitespace only
 orbit doctor --fix examples   # tidy whitespace under one tree
 orbit doctor --quiet examples # findings only, no summaries
 orbit doctor --format json examples  # findings as JSON on stdout
+orbit doctor --color always examples # force ANSI colors
 orbit doctor --help           # usage
 ```
 
 With `--format json`, stdout is a JSON array of
-`{file, line, code, message, fix}` objects and nothing else (exit
-codes unchanged), so editors and CI can parse it.
+`{file, line, code, severity, message, fix}` objects and nothing
+else (exit codes unchanged), so editors and CI can parse it.
+
+## Presentation
+
+Every finding carries a severity: `error` for `D001` (no toolchain)
+and `D008` (the file itself does not compile), `warning` for the
+rest. The text line reads `file:line severity [CODE] message fix:
+action`, with the location bolded, the severity red/yellow and the
+code cyan when colors are on. Paths print relative to the scanned
+directory when possible. Colors follow `--color always|never|auto`
+(`auto` honors `NO_COLOR` and `TERM`, and stays plain on consoles
+that do not advertise themselves); `--format json` never colors.
 
 Exit codes: `0` means clean, `1` means there are findings, `2` means the arguments were not understood.
 

@@ -102,6 +102,10 @@ orbit_int orbit_string_char_at_selfhost(orbit_string s, orbit_int index) {
     return s ? (unsigned char)s[index] : 0;
 }
 
+orbit_string orbit_string_from_char_selfhost(orbit_int code) {
+    return orbit_string_from_char(orbit_arena_get_global(), code);
+}
+
 // Chunk buffer for the self-hosted code generator. Handles ride in
 // `string`-typed Orbit locals (opaque pointers, never inspected as text)
 // because the self-host `int` type is 32 bits.

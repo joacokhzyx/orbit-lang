@@ -25,7 +25,72 @@ model DoctorStats {
     files: int
     jsonMode: bool
     quiet: bool
-    jsonItems: list
+    color: string
+    findItems: list
+}
+
+model DoctorFinding {
+    file: string
+    line: int
+    code: string
+    severity: string
+    message: string
+    fix: string
+}
+
+fn doctorSeverity(code: string) -> string {
+    if code == "D001" { return "error" }
+    if code == "D008" { return "error" }
+    return "warning"
+}
+
+fn doctorUseColor(stats: DoctorStats) -> bool {
+    if stats.color == "always" { return true }
+    if stats.color == "never" { return false }
+    if orbit_os_env_selfhost("NO_COLOR") != "" { return false }
+    val term = orbit_os_env_selfhost("TERM")
+    if term == "dumb" { return false }
+    if term == "" {
+        if orbit_os_env_selfhost("WT_SESSION") != "" { return true }
+        if orbit_os_env_selfhost("ConEmuANSI") == "ON" { return true }
+        return false
+    }
+    if orbit_string_indexOf(term, "color") != -1 { return true }
+    if orbit_string_indexOf(term, "256") != -1 { return true }
+    if orbit_string_indexOf(term, "xterm") != -1 { return true }
+    if orbit_string_indexOf(term, "ansi") != -1 { return true }
+    return false
+}
+
+fn doctorDisplayPath(dir: string, file: string) -> string {
+    if dir == "" || dir == "." { return file }
+    var prefix = dir
+    val last = orbit_string_char_at_selfhost(prefix, orbit_string_len(prefix) - 1)
+    if last != 47 && last != 92 {
+        prefix = prefix + "/"
+    }
+    if orbit_string_indexOf(file, prefix) == 0 {
+        return orbit_string_slice(file, orbit_string_len(prefix), orbit_string_len(file))
+    }
+    return file
+}
+
+fn doctorRenderText(stats: DoctorStats, dir: string, f: DoctorFinding) -> string {
+    val loc = doctorDisplayPath(dir, f.file) + ":" + orbit_int_to_string_selfhost(f.line)
+    if doctorUseColor(stats) == false {
+        return loc + " " + f.severity + " [" + f.code + "] " + f.message + " fix: " + f.fix
+    }
+    var sev = f.severity
+    if sev == "error" {
+        sev = "\x1b[31merror\x1b[0m"
+    } else {
+        sev = "\x1b[33mwarning\x1b[0m"
+    }
+    return "\x1b[1m" + loc + "\x1b[0m " + sev + " \x1b[36m[" + f.code + "]\x1b[0m " + f.message + " fix: " + f.fix
+}
+
+fn doctorRenderJson(f: DoctorFinding) -> string {
+    return "    {\"file\": \"" + doctorJsonEscape(f.file) + "\", \"line\": " + orbit_int_to_string_selfhost(f.line) + ", \"code\": \"" + f.code + "\", \"severity\": \"" + f.severity + "\", \"message\": \"" + doctorJsonEscape(f.message) + "\", \"fix\": \"" + doctorJsonEscape(f.fix) + "\"}"
 }
 
 fn doctorJsonEscape(s: string) -> string {
@@ -78,11 +143,7 @@ model DoctorRouteLine {
 
 fn doctorReport(stats: DoctorStats, file: string, line: int, code: string, message: string, fix: string) {
     stats.findings = stats.findings + 1
-    if stats.jsonMode {
-        stats.jsonItems.push("    {\"file\": \"" + doctorJsonEscape(file) + "\", \"line\": " + orbit_int_to_string_selfhost(line) + ", \"code\": \"" + code + "\", \"message\": \"" + doctorJsonEscape(message) + "\", \"fix\": \"" + doctorJsonEscape(fix) + "\"}")
-        return
-    }
-    print(file + ":" + orbit_int_to_string_selfhost(line) + " [" + code + "] " + message + " fix: " + fix)
+    stats.findItems.push(DoctorFinding(file, line, code, doctorSeverity(code), message, fix))
 }
 
 fn doctorIsWordChar(c: int) -> bool {
@@ -780,13 +841,14 @@ fn doctorPrintGates() {
 }
 
 fn doctorPrintHelp() {
-    print("Usage: orbit doctor [dir] [--fix] [--quiet] [--verbose] [--format json]")
+    print("Usage: orbit doctor [dir] [--fix] [--quiet] [--verbose] [--format json] [--color always|never|auto]")
     print("")
     print("Scans .orb files under [dir] (default: the current directory) without changing them.")
     print("  --fix   Tidies whitespace only: trailing-whitespace removal and a missing final newline.")
     print("  --quiet Only findings (and fixes); no summaries or gate list.")
     print("  --verbose Also prints the scan scope (file count).")
     print("  --format json  Findings as a JSON array on stdout (exit codes unchanged).")
+    print("  --color always|never|auto  ANSI colors (auto honors NO_COLOR/TERM).")
     print("Nothing else is ever changed automatically.")
     print("Exit codes: 0 clean, 1 findings, 2 usage.")
 }
@@ -795,8 +857,8 @@ fn doctorUsage() {
     orbit_os_write_stderr_selfhost("Usage: orbit doctor [dir] [--fix]\nRun `orbit doctor --help` for details.\n")
 }
 
-fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: bool) {
-    var stats = DoctorStats(0, 0, jsonMode, quiet, [])
+fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: bool, color: string) {
+    var stats = DoctorStats(0, 0, jsonMode, quiet, color, [])
     var files = doctorCollectOrbFiles(dir)
     if files.len() == 0 {
         val probe = orbit_file_read_selfhost(dir)
@@ -870,13 +932,33 @@ fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: b
     if jsonMode {
         print("[")
         var qi = 0
-        while qi < stats.jsonItems.len() {
-            var qline: string = stats.jsonItems.get(qi)
-            if qi < stats.jsonItems.len() - 1 { qline = qline + "," }
+        while qi < stats.findItems.len() {
+            val qf: DoctorFinding = stats.findItems.get(qi)
+            var qline = doctorRenderJson(qf)
+            if qi < stats.findItems.len() - 1 { qline = qline + "," }
             print(qline)
             qi = qi + 1
         }
         print("]")
+    } else {
+        var ti = 0
+        while ti < stats.findItems.len() {
+            val tf: DoctorFinding = stats.findItems.get(ti)
+            print(doctorRenderText(stats, dir, tf))
+            ti = ti + 1
+        }
+    }
+    var errCount = 0
+    var warnCount = 0
+    var si = 0
+    while si < stats.findItems.len() {
+        val sf: DoctorFinding = stats.findItems.get(si)
+        if sf.severity == "error" {
+            errCount = errCount + 1
+        } else {
+            warnCount = warnCount + 1
+        }
+        si = si + 1
     }
     if quiet == false && jsonMode == false {
         doctorPrintGates()
@@ -887,7 +969,7 @@ fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: b
         }
     } else {
         if quiet == false && jsonMode == false {
-            print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+            print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) (" + orbit_int_to_string_selfhost(errCount) + " error(s), " + orbit_int_to_string_selfhost(warnCount) + " warning(s)) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
         }
         orbit_os_exit_selfhost(1)
     }
@@ -900,6 +982,8 @@ fn runDoctor() {
     var verbose = false
     var jsonMode = false
     var seenFormat = false
+    var color = "auto"
+    var seenColor = false
     var dir = "."
     var dirSet = false
     var i = 2
@@ -938,6 +1022,22 @@ fn runDoctor() {
                 orbit_os_exit_selfhost(2)
                 return
             }
+        } else if a == "--color" {
+            if seenColor {
+                doctorUsage()
+                orbit_os_exit_selfhost(2)
+                return
+            }
+            seenColor = true
+            val cv = orbit_os_argv_selfhost(i + 1)
+            if cv == "always" || cv == "never" || cv == "auto" {
+                color = cv
+                i = i + 1
+            } else {
+                doctorUsage()
+                orbit_os_exit_selfhost(2)
+                return
+            }
         } else if doctorStartsWith(a, "-") {
             doctorUsage()
             orbit_os_exit_selfhost(2)
@@ -953,5 +1053,5 @@ fn runDoctor() {
         }
         i = i + 1
     }
-    doctorRun(dir, fixMode, quiet, verbose, jsonMode)
+    doctorRun(dir, fixMode, quiet, verbose, jsonMode, color)
 }

@@ -1640,6 +1640,8 @@ fn escapeString(s: string) -> string {
             out = out + "\\r"
         } else if c == "\t" {
             out = out + "\\t"
+        } else if orbit_string_char_at_selfhost(c, 0) == 27 {
+            out = out + "\\x1b"
         } else {
             out = out + c
         }
@@ -2182,7 +2184,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     } else {
                         callExpr = callExpr + "(orbit_float)(uintptr_t)(" + aStr + ")"
                     }
-                } else if calleeName == "isDigit" || calleeName == "isAlpha" || calleeName == "isAlphaNumeric" || calleeName == "orbit_int_to_string_selfhost" || calleeName == "orbit_int_to_string" || calleeName == "orbit_os_argv_selfhost" || calleeName == "orbit_os_exit_selfhost" {
+                } else if calleeName == "isDigit" || calleeName == "isAlpha" || calleeName == "isAlphaNumeric" || calleeName == "orbit_int_to_string_selfhost" || calleeName == "orbit_int_to_string" || calleeName == "orbit_os_argv_selfhost" || calleeName == "orbit_os_exit_selfhost" || calleeName == "orbit_string_from_char_selfhost" {
                     callExpr = callExpr + "(orbit_int)(uintptr_t)(" + aStr + ")"
                 } else if calleeName == "orbit_string_at" || calleeName == "orbit_string_char_at_selfhost" {
                     if argIdx == 0 {
@@ -2643,7 +2645,7 @@ fn isStringOperand(backend: CBackend, operand: IRValue) -> bool {
 fn feBuildTimeCallType(name: string) -> string {
     if name == "print" || name == "orbit_os_exit_selfhost" || name == "orbit_os_exit" || name == "orbit_os_destroy" || name == "orbit_os_reset" || name == "orbit_list_push" || name == "orbit_map_set" || name == "orbit_cbuf_append_selfhost" { return "void" }
     if name == "ok" || name == "err" { return "result" }
-    if name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" { return "string" }
+    if name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
     if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" { return "int" }
     if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
     if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list" }
@@ -2941,6 +2943,7 @@ fn isStringReturningFunction(name: string) -> bool {
     if name == "orbit_cbuf_build_selfhost" { return true }
     if name == "orbit_mem_report_selfhost" { return true }
     if name == "orbit_os_cwd_selfhost" { return true }
+    if name == "orbit_string_from_char_selfhost" { return true }
     if name == "orbit_os_argv_selfhost" { return true }
     if name == "orbit_os_env_selfhost" { return true }
     if name == "orbit_file_read_selfhost" { return true }

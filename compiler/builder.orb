@@ -2236,6 +2236,13 @@ fn buildTryExpr(builder: IRBuilder, t: TryNode) -> int {
     return unwrapReg
 }
 
+fn hexNibbleValue(code: int) -> int {
+    if code >= 48 && code <= 57 { return code - 48 }
+    if code >= 65 && code <= 70 { return code - 55 }
+    if code >= 97 && code <= 102 { return code - 87 }
+    return -1
+}
+
 fn unescapeString(s: string) -> string {
     if s.len() < 2 { return s }
     var inner = s.slice(1, s.len() - 1)
@@ -2251,8 +2258,28 @@ fn unescapeString(s: string) -> string {
                 else if next == "r" { out = out + "\r" }
                 else if next == "\"" { out = out + "\"" }
                 else if next == "\\" { out = out + "\\" }
-                else { out = out + "\\" + next }
-                i = i + 2
+                else if next == "x" {
+                    // \xHH byte escape (e.g. \x1b for ESC). Anything
+                    // malformed stays literal, exactly as before.
+                    var consumed = 2
+                    if i + 3 < inner.len() {
+                        val hi = hexNibbleValue(orbit_string_char_at_selfhost(inner, i + 2))
+                        val lo = hexNibbleValue(orbit_string_char_at_selfhost(inner, i + 3))
+                        if hi >= 0 && lo >= 0 && hi * 16 + lo > 0 {
+                            out = out + orbit_string_from_char_selfhost(hi * 16 + lo)
+                            consumed = 4
+                        } else {
+                            out = out + "\\" + next
+                        }
+                    } else {
+                        out = out + "\\" + next
+                    }
+                    i = i + consumed
+                }
+                else {
+                    out = out + "\\" + next
+                }
+                if next != "x" { i = i + 2 }
             } else {
                 out = out + c
                 i = i + 1

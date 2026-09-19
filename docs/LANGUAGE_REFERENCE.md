@@ -73,6 +73,10 @@ val service = { name: "api", healthy: true }
 print("${service.name} on ${ports[0]}")
 ```
 
+String literals support `\n`, `\t`, `\r`, `\"`, `\\`, and the byte
+escape `\xHH` with two hex digits (`"\x41"` is `"A"`, `"\x1b"` starts
+an ANSI sequence). Anything malformed stays literal.
+
 Collection APIs and their exact type coverage are still evolving. Keep business
 logic simple and cover it with application-level tests. If something you need isn't here, file an issue — I read everything.
 

@@ -58,6 +58,9 @@ CASES = [
     ("doctor-verbose", ["doctor", "--verbose", "cleandir"], 0, "out", "scanned", ""),
     ("doctor-json", ["doctor", "--format", "json", "files"], 1, "out", '"code"', ""),
     ("doctor-format-bad", ["doctor", "--format", "xml", "files"], 2, "err", "Usage:", ""),
+    ("doctor-color-always", ["doctor", "--color", "always", "files"], 1, "out", "\x1b[", ""),
+    ("doctor-color-never", ["doctor", "--color", "never", "files"], 1, "out", "warning [D006]", "\x1b["),
+    ("doctor-color-bad", ["doctor", "--color", "maybe", "files"], 2, "err", "Usage:", ""),
     ("cluster-noarg", ["cluster"], 2, "err", "Usage:", ""),
     ("cluster-help", ["cluster", "--help"], 0, "out", "Usage:", ""),
     ("cluster-bogus", ["cluster", "bogus"], 2, "err", "unknown command", ""),
@@ -87,7 +90,7 @@ def one(compiler, work, name, argv, exp_rc, stream, needle, absent=""):
         try:
             rows = _json.loads(out)
             ok_json = (isinstance(rows, list) and len(rows) >= 1 and
-                       all(set(r) == {"file", "line", "code", "message", "fix"} for r in rows))
+                       all(set(r) == {"file", "line", "code", "severity", "message", "fix"} for r in rows))
         except Exception:
             ok_json = False
     ok = (p.returncode == exp_rc) and ok_stream and ok_absent and ok_json

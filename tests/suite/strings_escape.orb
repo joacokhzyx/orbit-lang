@@ -1,0 +1,19 @@
+// expect-exit 0
+fn main() -> int {
+    val ab = "\x41\x42"
+    if ab != "AB" {
+        return 1
+    }
+    val esc = "\x1b[0m"
+    if esc.len() != 4 {
+        return 2
+    }
+    val kept = "\xZZ"
+    if kept != "\\xZZ" {
+        return 3
+    }
+    if kept.len() != 4 {
+        return 4
+    }
+    return 0
+}

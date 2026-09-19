@@ -435,6 +435,17 @@ orbit_string orbit_bool_to_string(OrbitArena* arena, orbit_bool value) {
     return value ? "true" : "false";
 }
 
+static orbit_string orbit_string_from_char(OrbitArena* arena, orbit_int code) {
+    OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
+    char* buf;
+    if (code < 1 || code > 255) return "";
+    buf = (char*)orbit_alloc(ar, 2);
+    if (!buf) return "";
+    buf[0] = (char)code;
+    buf[1] = '\0';
+    return buf;
+}
+
 static orbit_string orbit_string_concat(OrbitArena* arena, orbit_string a, orbit_string b) {
     OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
     if (!a) a = "";
