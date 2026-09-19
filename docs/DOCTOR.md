@@ -7,8 +7,14 @@ orbit doctor                  # scan the current directory
 orbit doctor examples         # scan one directory tree
 orbit doctor --fix            # scan, then tidy whitespace only
 orbit doctor --fix examples   # tidy whitespace under one tree
+orbit doctor --quiet examples # findings only, no summaries
+orbit doctor --format json examples  # findings as JSON on stdout
 orbit doctor --help           # usage
 ```
+
+With `--format json`, stdout is a JSON array of
+`{file, line, code, message, fix}` objects and nothing else (exit
+codes unchanged), so editors and CI can parse it.
 
 Exit codes: `0` means clean, `1` means there are findings, `2` means the arguments were not understood.
 

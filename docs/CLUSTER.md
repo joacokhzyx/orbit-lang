@@ -13,13 +13,16 @@ kept in `.orbit/cluster.json` (git-ignored); logs default to
 `.orbit/logs/node-<id>.log`.
 
 ```
-orbit cluster up --nodes N --port-base P [--log-dir D] [--service S]
+orbit cluster up --nodes N --port-base P [--log-dir D] [--service S] [--quiet] [--verbose]
 orbit cluster status
-orbit cluster drain <node>
-orbit cluster restart --rolling
-orbit cluster down
+orbit cluster drain <node> [--quiet]
+orbit cluster restart --rolling [--quiet] [--verbose]
+orbit cluster down [--quiet]
 orbit cluster logs <node>
 ```
+
+`--quiet` leaves errors (and the `status`/`logs` payloads) but silences
+progress lines; `--verbose` echoes spawned node commands.
 
 `up` compiles the service exactly once (via the existing
 `compileSourceWithFile` path) to `.orbit/cluster-service` (plus `.exe` on

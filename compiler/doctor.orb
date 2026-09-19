@@ -23,6 +23,34 @@ import "./pipeline.orb"
 model DoctorStats {
     findings: int
     files: int
+    jsonMode: bool
+    quiet: bool
+    jsonItems: list
+}
+
+fn doctorJsonEscape(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < orbit_string_len(s) {
+        val c = orbit_string_char_at_selfhost(s, i)
+        if c == 34 {
+            out = out + "\\\""
+        } else if c == 92 {
+            out = out + "\\\\"
+        } else if c == 10 {
+            out = out + "\\n"
+        } else if c == 13 {
+            out = out + "\\r"
+        } else if c == 9 {
+            out = out + "\\t"
+        } else if c < 32 {
+            out = out + "?"
+        } else {
+            out = out + orbit_string_slice(s, i, i + 1)
+        }
+        i = i + 1
+    }
+    return out
 }
 
 model DoctorDecl {
@@ -49,8 +77,12 @@ model DoctorRouteLine {
 }
 
 fn doctorReport(stats: DoctorStats, file: string, line: int, code: string, message: string, fix: string) {
-    print(file + ":" + orbit_int_to_string_selfhost(line) + " [" + code + "] " + message + " fix: " + fix)
     stats.findings = stats.findings + 1
+    if stats.jsonMode {
+        stats.jsonItems.push("    {\"file\": \"" + doctorJsonEscape(file) + "\", \"line\": " + orbit_int_to_string_selfhost(line) + ", \"code\": \"" + code + "\", \"message\": \"" + doctorJsonEscape(message) + "\", \"fix\": \"" + doctorJsonEscape(fix) + "\"}")
+        return
+    }
+    print(file + ":" + orbit_int_to_string_selfhost(line) + " [" + code + "] " + message + " fix: " + fix)
 }
 
 fn doctorIsWordChar(c: int) -> bool {
@@ -160,11 +192,16 @@ fn doctorCollectOrbFiles(root: string) -> list {
     return files
 }
 
-fn doctorProbeCompiler(cand: string, origin: string) -> bool {
+fn doctorProbeCompiler(stats: DoctorStats, cand: string, origin: string) -> bool {
     val out = orbit_os_exec_selfhost(cand + " --version")
     if out == "" { return false }
     if doctorStartsWith(out, "[ERROR") { return false }
-    print("toolchain: found '" + cand + "' via " + origin + " (" + doctorFirstLine(out) + ").")
+    // Machine output must stay parseable: the toolchain line is human
+    // chatter and stays out of --format json (quiet keeps it: it is the
+    // D001-family evidence line, not a summary).
+    if stats.jsonMode == false {
+        print("toolchain: found '" + cand + "' via " + origin + " (" + doctorFirstLine(out) + ").")
+    }
     return true
 }
 
@@ -173,19 +210,19 @@ fn doctorProbeCompiler(cand: string, origin: string) -> bool {
 fn doctorCheckToolchain(stats: DoctorStats) {
     val fromOrbit = orbit_os_env_selfhost("ORBIT_CC")
     if fromOrbit != "" {
-        if doctorProbeCompiler(fromOrbit, "ORBIT_CC") { return }
+        if doctorProbeCompiler(stats, fromOrbit, "ORBIT_CC") { return }
         doctorReport(stats, "toolchain", 1, "D001", "ORBIT_CC is set to '" + fromOrbit + "' but it did not answer '--version'.", "point ORBIT_CC at a working gcc, clang, or cc binary.")
         return
     }
     val fromCC = orbit_os_env_selfhost("CC")
     if fromCC != "" {
-        if doctorProbeCompiler(fromCC, "CC") { return }
+        if doctorProbeCompiler(stats, fromCC, "CC") { return }
         doctorReport(stats, "toolchain", 1, "D001", "CC is set to '" + fromCC + "' but it did not answer '--version'.", "point CC at a working gcc, clang, or cc binary.")
         return
     }
-    if doctorProbeCompiler("gcc", "PATH") { return }
-    if doctorProbeCompiler("clang", "PATH") { return }
-    if doctorProbeCompiler("cc", "PATH") { return }
+    if doctorProbeCompiler(stats, "gcc", "PATH") { return }
+    if doctorProbeCompiler(stats, "clang", "PATH") { return }
+    if doctorProbeCompiler(stats, "cc", "PATH") { return }
     doctorReport(stats, "toolchain", 1, "D001", "no C compiler answered (tried ORBIT_CC, CC, gcc, clang, cc in that order).", "install gcc or clang and add it to PATH, or set ORBIT_CC to your compiler.")
 }
 
@@ -743,10 +780,13 @@ fn doctorPrintGates() {
 }
 
 fn doctorPrintHelp() {
-    print("Usage: orbit doctor [dir] [--fix]")
+    print("Usage: orbit doctor [dir] [--fix] [--quiet] [--verbose] [--format json]")
     print("")
     print("Scans .orb files under [dir] (default: the current directory) without changing them.")
     print("  --fix   Tidies whitespace only: trailing-whitespace removal and a missing final newline.")
+    print("  --quiet Only findings (and fixes); no summaries or gate list.")
+    print("  --verbose Also prints the scan scope (file count).")
+    print("  --format json  Findings as a JSON array on stdout (exit codes unchanged).")
     print("Nothing else is ever changed automatically.")
     print("Exit codes: 0 clean, 1 findings, 2 usage.")
 }
@@ -755,8 +795,8 @@ fn doctorUsage() {
     orbit_os_write_stderr_selfhost("Usage: orbit doctor [dir] [--fix]\nRun `orbit doctor --help` for details.\n")
 }
 
-fn doctorRun(dir: string, fixMode: bool) {
-    var stats = DoctorStats(0, 0)
+fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: bool) {
+    var stats = DoctorStats(0, 0, jsonMode, quiet, [])
     var files = doctorCollectOrbFiles(dir)
     if files.len() == 0 {
         val probe = orbit_file_read_selfhost(dir)
@@ -824,48 +864,94 @@ fn doctorRun(dir: string, fixMode: bool) {
     }
     doctorCheckRoutes(stats, routes)
     doctorCheckUnused(stats, decls, refs, files, sources)
-    doctorPrintGates()
+    if verbose {
+        print("doctor: scanned " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+    }
+    if jsonMode {
+        print("[")
+        var qi = 0
+        while qi < stats.jsonItems.len() {
+            var qline: string = stats.jsonItems.get(qi)
+            if qi < stats.jsonItems.len() - 1 { qline = qline + "," }
+            print(qline)
+            qi = qi + 1
+        }
+        print("]")
+    }
+    if quiet == false && jsonMode == false {
+        doctorPrintGates()
+    }
     if stats.findings == 0 {
-        print("doctor: no findings in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+        if quiet == false && jsonMode == false {
+            print("doctor: no findings in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+        }
     } else {
-        print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+        if quiet == false && jsonMode == false {
+            print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+        }
         orbit_os_exit_selfhost(1)
     }
 }
 
 fn runDoctor() {
-    val a2 = orbit_os_argv_selfhost(2)
-    val a3 = orbit_os_argv_selfhost(3)
-    val a4 = orbit_os_argv_selfhost(4)
-    if a2 == "--help" || a2 == "-h" {
-        doctorPrintHelp()
-        return
-    }
     var fixMode = false
-    if a2 == "--fix" { fixMode = true }
-    if a3 == "--fix" { fixMode = true }
+    var seenFix = false
+    var quiet = false
+    var verbose = false
+    var jsonMode = false
+    var seenFormat = false
     var dir = "."
-    if a2 != "" && a2 != "--fix" { dir = a2 }
-    if a2 == "--fix" && a3 != "" && a3 != "--fix" { dir = a3 }
-    if a4 != "" {
-        doctorUsage()
-        orbit_os_exit_selfhost(2)
-        return
+    var dirSet = false
+    var i = 2
+    while true {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "" { break }
+        if a == "--help" || a == "-h" {
+            doctorPrintHelp()
+            return
+        }
+        if a == "--fix" {
+            if seenFix {
+                doctorUsage()
+                orbit_os_exit_selfhost(2)
+                return
+            }
+            seenFix = true
+            fixMode = true
+        } else if a == "--quiet" {
+            quiet = true
+        } else if a == "--verbose" {
+            verbose = true
+        } else if a == "--format" {
+            if seenFormat {
+                doctorUsage()
+                orbit_os_exit_selfhost(2)
+                return
+            }
+            seenFormat = true
+            val v = orbit_os_argv_selfhost(i + 1)
+            if v == "json" {
+                jsonMode = true
+                i = i + 1
+            } else {
+                doctorUsage()
+                orbit_os_exit_selfhost(2)
+                return
+            }
+        } else if doctorStartsWith(a, "-") {
+            doctorUsage()
+            orbit_os_exit_selfhost(2)
+            return
+        } else {
+            if dirSet {
+                doctorUsage()
+                orbit_os_exit_selfhost(2)
+                return
+            }
+            dirSet = true
+            dir = a
+        }
+        i = i + 1
     }
-    if a2 != "" && a2 != "--fix" && doctorStartsWith(a2, "-") {
-        doctorUsage()
-        orbit_os_exit_selfhost(2)
-        return
-    }
-    if a3 != "" && a3 != "--fix" && doctorStartsWith(a3, "-") {
-        doctorUsage()
-        orbit_os_exit_selfhost(2)
-        return
-    }
-    if a2 == "--fix" && a3 == "--fix" {
-        doctorUsage()
-        orbit_os_exit_selfhost(2)
-        return
-    }
-    doctorRun(dir, fixMode)
+    doctorRun(dir, fixMode, quiet, verbose, jsonMode)
 }

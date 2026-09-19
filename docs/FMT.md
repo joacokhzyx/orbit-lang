@@ -29,10 +29,12 @@ pipeline (`checkSourceWithFile`). Anything else is reported (same messages as
 - `orbit fmt <file.orb>` formats one file. The whole output is built in
   memory and written only on full success; a failure never leaves a partial
   file. Prints `Formatted <path>.`, or `Already formatted <path>.` when no
-  change was needed.
+  change was needed. `--quiet` silences both lines; single-file mode has
+  no `--verbose` output beyond them.
 - `orbit fmt --check <file.orb|dir>` prints the paths of files that need
   formatting (one per line, sorted) and exits 1. When everything is
-  formatted it prints nothing and exits 0. A directory is scanned
+  formatted it prints nothing and exits 0. `--verbose` adds a
+  `scanned N files, M need formatting` line. A directory is scanned
   recursively for `*.orb` files. Inputs that fail validation are listed and
   also get the usual diagnostics on stderr.
 - `orbit fmt --help` prints usage. Missing arguments or unknown flags print

@@ -906,7 +906,7 @@ fn fmtListOrbFiles(dir: string) -> list {
     return found
 }
 
-fn fmtFormatFile(path: string) {
+fn fmtFormatFile(path: string, quiet: bool) {
     val source = orbit_file_read_selfhost(path)
     if source == "" {
         orbit_os_write_stderr_selfhost("orbit fmt: could not read input file '" + path + "'.\n")
@@ -920,7 +920,9 @@ fn fmtFormatFile(path: string) {
     }
     val formatted = fmtFormatSource(source)
     if formatted == source {
-        print("Already formatted " + path + ".")
+        if quiet == false {
+            print("Already formatted " + path + ".")
+        }
         return
     }
     if orbit_file_write_selfhost(path, formatted) == false {
@@ -928,7 +930,9 @@ fn fmtFormatFile(path: string) {
         orbit_os_exit_selfhost(1)
         return
     }
-    print("Formatted " + path + ".")
+    if quiet == false {
+        print("Formatted " + path + ".")
+    }
 }
 
 fn fmtCheckOne(path: string) -> bool {
@@ -949,7 +953,7 @@ fn fmtCheckOne(path: string) -> bool {
     return false
 }
 
-fn fmtRunCheck(target: string) {
+fn fmtRunCheck(target: string, quiet: bool, verbose: bool) {
     val probe = orbit_file_read_selfhost(target)
     if probe != "" {
         if fmtCheckOne(target) == false {
@@ -975,6 +979,12 @@ fn fmtRunCheck(target: string) {
         }
         i = i + 1
     }
+    // The path list above is the payload and always prints. --quiet is
+    // accepted for uniformity (a clean check is already silent); --verbose
+    // adds the scan totals.
+    if verbose {
+        print("fmt: scanned " + orbit_int_to_string_selfhost(files.len()) + " files, " + orbit_int_to_string_selfhost(bad) + " need formatting.")
+    }
     if bad > 0 {
         orbit_os_exit_selfhost(1)
         return
@@ -982,50 +992,68 @@ fn fmtRunCheck(target: string) {
 }
 
 fn fmtPrintUsage() {
-    print("Usage: orbit fmt <file.orb>")
-    print("       orbit fmt --check <file.orb|dir>")
+    print("Usage: orbit fmt <file.orb> [--quiet]")
+    print("       orbit fmt --check <file.orb|dir> [--quiet] [--verbose]")
     print("       orbit fmt --help")
 }
 
 fn fmtPrintUsageErr() {
-    orbit_os_write_stderr_selfhost("Usage: orbit fmt <file.orb>\n       orbit fmt --check <file.orb|dir>\n       orbit fmt --help\n")
+    orbit_os_write_stderr_selfhost("Usage: orbit fmt <file.orb> [--quiet]\n       orbit fmt --check <file.orb|dir> [--quiet] [--verbose]\n       orbit fmt --help\n")
 }
 
 fn runFmt() {
-    val a1 = orbit_os_argv_selfhost(2)
-    if a1 == "" {
+    var fmtQuiet = false
+    var fmtVerbose = false
+    var p1 = ""
+    var p2 = ""
+    var fi = 2
+    while true {
+        val fa = orbit_os_argv_selfhost(fi)
+        if fa == "" { break }
+        if fa == "--quiet" { fmtQuiet = true }
+        else if fa == "--verbose" { fmtVerbose = true }
+        else if p1 == "" { p1 = fa }
+        else if p2 == "" { p2 = fa }
+        else {
+            fmtPrintUsageErr()
+            orbit_os_exit_selfhost(2)
+            return
+        }
+        fi = fi + 1
+    }
+    if p1 == "" {
         fmtPrintUsageErr()
         orbit_os_exit_selfhost(2)
         return
     }
-    if a1 == "--help" || a1 == "-h" {
+    if p1 == "--help" || p1 == "-h" {
         fmtPrintUsage()
         return
     }
-    if a1 == "--check" {
-        val target = orbit_os_argv_selfhost(3)
-        if target == "" {
+    if p1 == "--check" {
+        if p2 == "" {
             fmtPrintUsageErr()
             orbit_os_exit_selfhost(2)
             return
         }
-        if orbit_os_argv_selfhost(4) != "" {
-            fmtPrintUsageErr()
-            orbit_os_exit_selfhost(2)
-            return
-        }
-        fmtRunCheck(target)
+        fmtRunCheck(p2, fmtQuiet, fmtVerbose)
         return
     }
-    if a1.at(0) == 45 {
-        fmtPrintUsage()
+    if p1.at(0) == 45 {
+        fmtPrintUsageErr()
         orbit_os_exit_selfhost(2)
         return
     }
-    if orbit_os_argv_selfhost(3) != "" {
-        fmtPrintUsage()
+    if p2 != "" {
+        fmtPrintUsageErr()
         orbit_os_exit_selfhost(2)
         return
     }
-    fmtFormatFile(a1)
+    // Single-file mode has no verbose content beyond the result line.
+    if fmtVerbose {
+        fmtPrintUsageErr()
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    fmtFormatFile(p1, fmtQuiet)
 }

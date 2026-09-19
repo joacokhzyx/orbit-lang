@@ -83,7 +83,7 @@ fn reportMemStage(stage: string) {
 }
 
 fn compileSource(source: string, outputPath: string) -> bool {
-    return compileSourceWithFile(source, "", outputPath)
+    return compileSourceWithFile(source, "", outputPath, false)
 }
 
 // Parse + resolve + typecheck only. No C is emitted and no C compiler
@@ -146,7 +146,7 @@ fn compilerRuntimeDir() -> string {
     return "runtime"
 }
 
-fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) -> bool {
+fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool) -> bool {
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
     if parser.diagnostics.len() > 0 {
@@ -264,6 +264,9 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
         compCmd = compCmd + " " + ccExtra
     }
     compCmd = compCmd + " 2>&1"
+    if verbose {
+        print("cc " + compCmd)
+    }
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {
@@ -273,6 +276,9 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string) 
             orbit_os_write_stderr_selfhost(compOutput)
             return false
         }
+    }
+    if verbose {
+        print("wrote " + outputPath)
     }
     return true
 }

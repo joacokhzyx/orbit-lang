@@ -78,6 +78,14 @@ fn clusterAbsolutePath(p: string) -> string {
     return cwd + "/" + p
 }
 
+fn clusterQuiet() -> bool {
+    return clusterHasFlag("--quiet", 2)
+}
+
+fn clusterVerbose() -> bool {
+    return clusterHasFlag("--verbose", 2)
+}
+
 fn clusterNativePath(p: string) -> string {
     if clusterIsWindows() == false { return p }
     var out = ""
@@ -328,6 +336,8 @@ fn clusterUsage() {
     print("  restart --rolling        One node at a time, health-verified before the next")
     print("  down                     Stop all nodes, remove state (no orphans left)")
     print("  logs <node>              Print a node's log file")
+    print("  --quiet                  Only errors (status, logs and findings still print)")
+    print("  --verbose                Also echo spawned commands and scan totals")
     print("")
     print("Single host only. See docs/CLUSTER.md.")
 }
@@ -343,6 +353,8 @@ fn clusterUsageErr() {
     orbit_os_write_stderr_selfhost("  restart --rolling        One node at a time, health-verified before the next\n")
     orbit_os_write_stderr_selfhost("  down                     Stop all nodes, remove state (no orphans left)\n")
     orbit_os_write_stderr_selfhost("  logs <node>              Print a node's log file\n")
+    orbit_os_write_stderr_selfhost("  --quiet                  Only errors (status, logs and findings still print)\n")
+    orbit_os_write_stderr_selfhost("  --verbose                Also echo spawned commands and scan totals\n")
     orbit_os_write_stderr_selfhost("\n")
     orbit_os_write_stderr_selfhost("Single host only. See docs/CLUSTER.md.\n")
 }
@@ -404,8 +416,10 @@ fn clusterUp() {
     var binaryRel = ".orbit/cluster-service"
     if clusterIsWindows() { binaryRel = binaryRel + ".exe" }
     val binary = clusterAbsolutePath(binaryRel)
-    print("Compiling " + servicePath + " once...")
-    if compileSourceWithFile(source, servicePath, binary) == false {
+    if clusterQuiet() == false {
+        print("Compiling " + servicePath + " once...")
+    }
+    if compileSourceWithFile(source, servicePath, binary, clusterHasFlag("--verbose", 3)) == false {
         orbit_os_exit_selfhost(1)
         return
     }
@@ -418,6 +432,9 @@ fn clusterUp() {
         val port = portBase + i
         val log = runLogDir + "/node-" + orbit_int_to_string_selfhost(i) + ".log"
         val cmd = "\"" + runBin + "\" " + orbit_int_to_string_selfhost(port)
+        if clusterVerbose() {
+            print("spawn " + cmd)
+        }
         val pid = orbit_os_spawn_bg_selfhost(cmd, log)
         if pid <= 0 {
             orbit_os_write_stderr_selfhost("cluster up: failed to start node " + orbit_int_to_string_selfhost(i) + " on port " + orbit_int_to_string_selfhost(port) + ".\n")
@@ -455,12 +472,16 @@ fn clusterUp() {
         return
     }
     val lastPort = endPort - 1
-    print("cluster up: " + orbit_int_to_string_selfhost(nodeCount) + " nodes (" + binary + ", ports " + orbit_int_to_string_selfhost(portBase) + ".." + orbit_int_to_string_selfhost(lastPort) + ")")
+    if clusterQuiet() == false {
+        print("cluster up: " + orbit_int_to_string_selfhost(nodeCount) + " nodes (" + binary + ", ports " + orbit_int_to_string_selfhost(portBase) + ".." + orbit_int_to_string_selfhost(lastPort) + ")")
+    }
     var k = 0
     while k < nodeCount {
         val portK: int = ports.get(k)
         val pidK: int = pids.get(k)
-        print("  node " + orbit_int_to_string_selfhost(k) + ": port " + orbit_int_to_string_selfhost(portK) + " pid " + orbit_int_to_string_selfhost(pidK) + " alive")
+        if clusterQuiet() == false {
+            print("  node " + orbit_int_to_string_selfhost(k) + ": port " + orbit_int_to_string_selfhost(portK) + " pid " + orbit_int_to_string_selfhost(pidK) + " alive")
+        }
         k = k + 1
     }
 }
@@ -510,10 +531,14 @@ fn clusterDrain() {
         return
     }
     if clusterDrainingContains(content, id) {
-        print("node " + target + " is already draining.")
+        if clusterQuiet() == false {
+            print("node " + target + " is already draining.")
+        }
     }
     if orbit_os_kill_selfhost(pid, 2) != 1 {
-        print("node " + target + " (pid " + orbit_int_to_string_selfhost(pid) + ") is already stopped. Marking drained.")
+        if clusterQuiet() == false {
+            print("node " + target + " (pid " + orbit_int_to_string_selfhost(pid) + ") is already stopped. Marking drained.")
+        }
         val updGone = clusterAddDraining(content, id)
         if orbit_file_write_selfhost(".orbit/cluster.json", updGone) == false {
             orbit_os_write_stderr_selfhost("cluster drain: state file could not be updated.\n")
@@ -536,7 +561,9 @@ fn clusterDrain() {
         orbit_os_exit_selfhost(1)
         return
     }
-    print("draining node " + target + " (port " + orbit_int_to_string_selfhost(port) + ", pid " + orbit_int_to_string_selfhost(pid) + "): graceful stop requested, in-flight requests finish first.")
+    if clusterQuiet() == false {
+        print("draining node " + target + " (port " + orbit_int_to_string_selfhost(port) + ", pid " + orbit_int_to_string_selfhost(pid) + "): graceful stop requested, in-flight requests finish first.")
+    }
 }
 
 fn clusterRestart() {
@@ -562,12 +589,16 @@ fn clusterRestart() {
     val runBin = clusterNativePath(binary)
     val runLogDir = clusterNativePath(logDir)
     val count = clusterNodeCount(content)
-    print("rolling restart: " + orbit_int_to_string_selfhost(count) + " nodes, one at a time.")
+    if clusterQuiet() == false {
+        print("rolling restart: " + orbit_int_to_string_selfhost(count) + " nodes, one at a time.")
+    }
     var i = 0
     while i < count {
         content = orbit_file_read_selfhost(".orbit/cluster.json")
         if clusterDrainingContains(content, i) {
-            print("  node " + orbit_int_to_string_selfhost(i) + ": skipping (draining).")
+            if clusterQuiet() == false {
+                print("  node " + orbit_int_to_string_selfhost(i) + ": skipping (draining).")
+            }
         } else {
             val port = clusterNodeInt(content, i, "port")
             val pid = clusterNodeInt(content, i, "pid")
@@ -577,11 +608,15 @@ fn clusterRestart() {
                 orbit_os_exit_selfhost(1)
                 return
             }
-            print("  node " + orbit_int_to_string_selfhost(i) + ": stopping pid " + orbit_int_to_string_selfhost(pid) + " (port " + orbit_int_to_string_selfhost(port) + ")...")
+            if clusterQuiet() == false {
+                print("  node " + orbit_int_to_string_selfhost(i) + ": stopping pid " + orbit_int_to_string_selfhost(pid) + " (port " + orbit_int_to_string_selfhost(port) + ")...")
+            }
             if orbit_os_kill_selfhost(pid, 2) == 1 {
                 val ignoredStop = orbit_os_kill_selfhost(pid, 1)
                 if clusterWaitDead(pid, 10) == false {
-                    print("  node " + orbit_int_to_string_selfhost(i) + ": graceful stop timed out, forcing.")
+                    if clusterQuiet() == false {
+                        print("  node " + orbit_int_to_string_selfhost(i) + ": graceful stop timed out, forcing.")
+                    }
                     val ignoredForce = orbit_os_kill_selfhost(pid, 0)
                     if clusterWaitDead(pid, 5) == false {
                         orbit_os_write_stderr_selfhost("cluster restart: node " + orbit_int_to_string_selfhost(i) + " did not stop. Aborting; remaining nodes untouched.\n")
@@ -593,6 +628,9 @@ fn clusterRestart() {
             }
             val log = runLogDir + "/node-" + orbit_int_to_string_selfhost(i) + ".log"
             val cmd = "\"" + runBin + "\" " + orbit_int_to_string_selfhost(port)
+            if clusterVerbose() {
+                print("spawn " + cmd)
+            }
             val newPid = orbit_os_spawn_bg_selfhost(cmd, log)
             if newPid <= 0 {
                 orbit_os_write_stderr_selfhost("cluster restart: node " + orbit_int_to_string_selfhost(i) + " failed to start. Aborting; inspect " + log + ".\n")
@@ -615,11 +653,15 @@ fn clusterRestart() {
                 orbit_os_exit_selfhost(1)
                 return
             }
-            print("  node " + orbit_int_to_string_selfhost(i) + ": pid " + orbit_int_to_string_selfhost(pid) + " -> " + orbit_int_to_string_selfhost(newPid) + " healthy.")
+            if clusterQuiet() == false {
+                print("  node " + orbit_int_to_string_selfhost(i) + ": pid " + orbit_int_to_string_selfhost(pid) + " -> " + orbit_int_to_string_selfhost(newPid) + " healthy.")
+            }
         }
         i = i + 1
     }
-    print("rolling restart complete.")
+    if clusterQuiet() == false {
+        print("rolling restart complete.")
+    }
 }
 
 fn clusterDown() {
@@ -655,9 +697,13 @@ fn clusterDown() {
         if pid3 > 0 && orbit_os_kill_selfhost(pid3, 2) == 1 {
             survivors = survivors + 1
             survList = survList + orbit_int_to_string_selfhost(k) + " "
-            print("  node " + orbit_int_to_string_selfhost(k) + " (pid " + orbit_int_to_string_selfhost(pid3) + "): still running.")
+            if clusterQuiet() == false {
+                print("  node " + orbit_int_to_string_selfhost(k) + " (pid " + orbit_int_to_string_selfhost(pid3) + "): still running.")
+            }
         } else {
-            print("  node " + orbit_int_to_string_selfhost(k) + ": stopped.")
+            if clusterQuiet() == false {
+                print("  node " + orbit_int_to_string_selfhost(k) + ": stopped.")
+            }
         }
         k = k + 1
     }
@@ -679,7 +725,9 @@ fn clusterDown() {
         orbit_os_exit_selfhost(1)
         return
     }
-    print("cluster down: all " + orbit_int_to_string_selfhost(count) + " nodes stopped, state removed.")
+    if clusterQuiet() == false {
+        print("cluster down: all " + orbit_int_to_string_selfhost(count) + " nodes stopped, state removed.")
+    }
 }
 
 fn clusterLogs() {

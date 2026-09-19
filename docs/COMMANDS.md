@@ -14,6 +14,17 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
 | `orbit doctor [dir]` | Read-only project checks | `orbit doctor ./examples` |
+
+`build`, `run` and `check` accept `--quiet` (less success chatter; errors
+always print) and `--verbose` (echoes the C compiler invocation on build
+and run, the input size on check). `fmt` accepts `--quiet` (single-file
+mode) and `--verbose` (scan totals with `--check`). `doctor` accepts
+`--quiet`, `--verbose` (scan scope) and `--format json` (findings as a
+JSON array of `{file, line, code, message, fix}` on stdout; exit codes
+unchanged). `cluster up/down/drain/restart` accept `--quiet` (errors
+only); `up` and `restart` echo spawned commands with `--verbose`. The
+child program owns the terminal under `run`, so its output is never
+silenced.
 | `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
 | `orbit --help` | Display the command-line help | `orbit --help` |
 | `orbit --version` | Display the compiler version | `orbit --version` |
