@@ -109,7 +109,17 @@ fn read_value() -> int {
 ```
 
 The current handler can execute statements and return from the enclosing
-function. Binding the error payload to a named variable remains future work.
+function. Naming a variable after `catch` binds the error message string:
+
+```orbit
+fn read_value() -> int {
+    val value: int = try load_value() catch e {
+        print(e)
+        return 0
+    }
+    return value
+}
+```
 
 ## HTTP services
 

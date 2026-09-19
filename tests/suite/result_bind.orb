@@ -1,0 +1,16 @@
+// expect-exit 4
+fn make_failure() -> result {
+    val value: result = err("boom", 3)
+    return value
+}
+
+fn read_error() -> int {
+    val value: int = try make_failure() catch e {
+        return e.len()
+    }
+    return value
+}
+
+fn main() -> int {
+    return read_error()
+}

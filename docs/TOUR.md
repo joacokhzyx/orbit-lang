@@ -108,7 +108,8 @@ fn main() -> int {
 `ok()` and `err()` build `result` values in expressions — don't
 confuse them with the route forms `return ok 200 …` and
 `err 400 …` below. `try` unwraps or jumps to `catch`. Exit code:
-**42**. (Binding the error payload to a name is future work.)
+**42**. Naming a variable after `catch` binds the error message:
+`try load_value() catch e { print(e) }`.
 
 ## 6. Your first service (5 min)
 

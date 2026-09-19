@@ -560,7 +560,12 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             inferType(sema, tr.expr)
             match tr.catchBody {
                 ASTNode.Empty => {}
-                _ => { checkNode(sema, tr.catchBody) }
+                _ => {
+                    if tr.errName != "" {
+                        declareSymbol(sema, tr.errName, "string", false, false)
+                    }
+                    checkNode(sema, tr.catchBody)
+                }
             }
             return "unknown"
         }
@@ -648,7 +653,12 @@ fn checkNode(sema: Sema, node: ASTNode) {
             inferType(sema, tr.expr)
             match tr.catchBody {
                 ASTNode.Empty => {}
-                _ => { checkNode(sema, tr.catchBody) }
+                _ => {
+                    if tr.errName != "" {
+                        declareSymbol(sema, tr.errName, "string", false, false)
+                    }
+                    checkNode(sema, tr.catchBody)
+                }
             }
         }
         ASTNode.MatchCase(mc) => {}

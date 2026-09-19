@@ -61,6 +61,7 @@ union IROpcode {
     result_err,
     result_unwrap,
     result_is_ok,
+    result_unwrap_err,
 
     // Union opcodes
     union_create,

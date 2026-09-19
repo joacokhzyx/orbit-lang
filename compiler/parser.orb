@@ -235,10 +235,15 @@ fn parsePrimary(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.KeywordTry) {
         val expr = parseExpression(parser)
         var catchBody = ASTNode.Empty
+        var errName = ""
         if matchToken(parser, TokType.KeywordCatch) {
+            if check(parser, TokType.Identifier) {
+                matchToken(parser, TokType.Identifier)
+                errName = parser.previousToken.text
+            }
             catchBody = parseBlock(parser)
         }
-        return ASTNode.Try(TryNode(expr, catchBody))
+        return ASTNode.Try(TryNode(expr, catchBody, errName))
     }
     if matchToken(parser, TokType.OpenParen) {
         val expr = parseExpression(parser)

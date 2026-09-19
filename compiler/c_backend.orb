@@ -426,6 +426,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         IROpcode.or_op => { inf = "bool" }
                         IROpcode.not_op => { inf = "bool" }
                         IROpcode.result_is_ok => { inf = "bool" }
+                        IROpcode.result_unwrap_err => { inf = "string" }
                         IROpcode.map_has => { inf = "bool" }
                         IROpcode.copy => {
                             match inst.operand1 {
@@ -2459,6 +2460,10 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
         }
         IROpcode.result_unwrap => {
             orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(backend, instr.operand1) + ".value;\n")
+            return
+        }
+        IROpcode.result_unwrap_err => {
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (" + generateValue(backend, instr.operand1) + ").error_msg ? (" + generateValue(backend, instr.operand1) + ").error_msg : \"\";\n")
             return
         }
         IROpcode.result_is_ok => {
