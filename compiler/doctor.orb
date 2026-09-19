@@ -752,8 +752,7 @@ fn doctorPrintHelp() {
 }
 
 fn doctorUsage() {
-    print("Usage: orbit doctor [dir] [--fix]")
-    print("Run `orbit doctor --help` for details.")
+    orbit_os_write_stderr_selfhost("Usage: orbit doctor [dir] [--fix]\nRun `orbit doctor --help` for details.\n")
 }
 
 fn doctorRun(dir: string, fixMode: bool) {

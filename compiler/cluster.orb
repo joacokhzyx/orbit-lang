@@ -332,6 +332,21 @@ fn clusterUsage() {
     print("Single host only. See docs/CLUSTER.md.")
 }
 
+fn clusterUsageErr() {
+    orbit_os_write_stderr_selfhost("Usage: orbit cluster <command> [options]\n")
+    orbit_os_write_stderr_selfhost("\n")
+    orbit_os_write_stderr_selfhost("Commands:\n")
+    orbit_os_write_stderr_selfhost("  up --nodes N --port-base P [--log-dir D] [--service S]\n")
+    orbit_os_write_stderr_selfhost("                           Compile the service once, launch N nodes on ports P..P+N-1\n")
+    orbit_os_write_stderr_selfhost("  status                   Per-node health (alive/dead, draining flag)\n")
+    orbit_os_write_stderr_selfhost("  drain <node>             Graceful stop of one node (finish in-flight, no restart)\n")
+    orbit_os_write_stderr_selfhost("  restart --rolling        One node at a time, health-verified before the next\n")
+    orbit_os_write_stderr_selfhost("  down                     Stop all nodes, remove state (no orphans left)\n")
+    orbit_os_write_stderr_selfhost("  logs <node>              Print a node's log file\n")
+    orbit_os_write_stderr_selfhost("\n")
+    orbit_os_write_stderr_selfhost("Single host only. See docs/CLUSTER.md.\n")
+}
+
 fn clusterUp() {
     val nodesStr = clusterFlagValue("--nodes", 3)
     val portBaseStr = clusterFlagValue("--port-base", 3)
@@ -340,7 +355,7 @@ fn clusterUp() {
     if logDir == "" { logDir = ".orbit/logs" }
     if servicePath == "" { servicePath = "service.orb" }
     if nodesStr == "" || portBaseStr == "" {
-        print("Usage: orbit cluster up --nodes N --port-base P [--log-dir D] [--service S]")
+        orbit_os_write_stderr_selfhost("Usage: orbit cluster up --nodes N --port-base P [--log-dir D] [--service S]\n")
         orbit_os_exit_selfhost(2)
         return
     }
@@ -453,7 +468,7 @@ fn clusterUp() {
 fn clusterStatus() {
     val content = orbit_file_read_selfhost(".orbit/cluster.json")
     if content == "" {
-        print("cluster: down (no state file .orbit/cluster.json)")
+        print("cluster: no cluster is up (no state file .orbit/cluster.json)")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -475,14 +490,14 @@ fn clusterStatus() {
 fn clusterDrain() {
     val target = orbit_os_argv_selfhost(3)
     if target == "" || clusterIsDigits(target) == false {
-        print("Usage: orbit cluster drain <node>")
+        orbit_os_write_stderr_selfhost("Usage: orbit cluster drain <node>\n")
         orbit_os_exit_selfhost(2)
         return
     }
     val id = clusterParseInt(target)
     val content = orbit_file_read_selfhost(".orbit/cluster.json")
     if content == "" {
-        print("cluster: down (no state file .orbit/cluster.json)")
+        print("cluster: no cluster is up (no state file .orbit/cluster.json)")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -526,13 +541,13 @@ fn clusterDrain() {
 
 fn clusterRestart() {
     if clusterHasFlag("--rolling", 3) == false {
-        print("Usage: orbit cluster restart --rolling")
+        orbit_os_write_stderr_selfhost("Usage: orbit cluster restart --rolling\n")
         orbit_os_exit_selfhost(2)
         return
     }
     var content = orbit_file_read_selfhost(".orbit/cluster.json")
     if content == "" {
-        print("cluster: down (no state file .orbit/cluster.json)")
+        print("cluster: no cluster is up (no state file .orbit/cluster.json)")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -670,7 +685,7 @@ fn clusterDown() {
 fn clusterLogs() {
     val target = orbit_os_argv_selfhost(3)
     if target == "" || clusterIsDigits(target) == false {
-        print("Usage: orbit cluster logs <node>")
+        orbit_os_write_stderr_selfhost("Usage: orbit cluster logs <node>\n")
         orbit_os_exit_selfhost(2)
         return
     }
@@ -694,8 +709,12 @@ fn clusterLogs() {
 fn runCluster() {
     val sub = orbit_os_argv_selfhost(2)
     if sub == "" || sub == "help" || sub == "--help" || sub == "-h" {
+        if sub == "" {
+            clusterUsageErr()
+            orbit_os_exit_selfhost(2)
+            return
+        }
         clusterUsage()
-        if sub == "" { orbit_os_exit_selfhost(2) }
         return
     }
     if sub == "up" {
@@ -722,7 +741,7 @@ fn runCluster() {
         clusterLogs()
         return
     }
-    print("Unknown cluster command: " + sub)
-    clusterUsage()
+    orbit_os_write_stderr_selfhost("orbit cluster: unknown command '" + sub + "'.\n")
+    clusterUsageErr()
     orbit_os_exit_selfhost(2)
 }

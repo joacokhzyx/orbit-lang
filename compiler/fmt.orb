@@ -909,7 +909,7 @@ fn fmtListOrbFiles(dir: string) -> list {
 fn fmtFormatFile(path: string) {
     val source = orbit_file_read_selfhost(path)
     if source == "" {
-        print("Error: Could not read input file: " + path)
+        orbit_os_write_stderr_selfhost("orbit fmt: could not read input file '" + path + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -924,7 +924,7 @@ fn fmtFormatFile(path: string) {
         return
     }
     if orbit_file_write_selfhost(path, formatted) == false {
-        print("Error: Could not write output file: " + path)
+        orbit_os_write_stderr_selfhost("orbit fmt: could not write output file '" + path + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -934,7 +934,7 @@ fn fmtFormatFile(path: string) {
 fn fmtCheckOne(path: string) -> bool {
     val source = orbit_file_read_selfhost(path)
     if source == "" {
-        print("Error: Could not read input file: " + path)
+        orbit_os_write_stderr_selfhost("orbit fmt: could not read input file '" + path + "'.\n")
         orbit_os_exit_selfhost(1)
         return false
     }
@@ -961,7 +961,7 @@ fn fmtRunCheck(target: string) {
     }
     val files = fmtListOrbFiles(target)
     if files.len() == 0 {
-        print("Error: Could not read input path: " + target)
+        orbit_os_write_stderr_selfhost("orbit fmt: could not read input path '" + target + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -987,10 +987,14 @@ fn fmtPrintUsage() {
     print("       orbit fmt --help")
 }
 
+fn fmtPrintUsageErr() {
+    orbit_os_write_stderr_selfhost("Usage: orbit fmt <file.orb>\n       orbit fmt --check <file.orb|dir>\n       orbit fmt --help\n")
+}
+
 fn runFmt() {
     val a1 = orbit_os_argv_selfhost(2)
     if a1 == "" {
-        fmtPrintUsage()
+        fmtPrintUsageErr()
         orbit_os_exit_selfhost(2)
         return
     }
@@ -1001,12 +1005,12 @@ fn runFmt() {
     if a1 == "--check" {
         val target = orbit_os_argv_selfhost(3)
         if target == "" {
-            fmtPrintUsage()
+            fmtPrintUsageErr()
             orbit_os_exit_selfhost(2)
             return
         }
         if orbit_os_argv_selfhost(4) != "" {
-            fmtPrintUsage()
+            fmtPrintUsageErr()
             orbit_os_exit_selfhost(2)
             return
         }

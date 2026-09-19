@@ -46,8 +46,10 @@ plain so a tired dev can act without decoding anything.
 - `orbit doctor` findings print one line to stdout:
   `file:line [D00X] message fix: action`.
 - Operational failures (`orbit fmt`, `orbit cluster`, unreadable files,
-  failed spawns) print `orbit <cmd>: fact. Fix.` to stderr.
-- Usage errors print `Usage: ...` and exit 2.
+  failed spawns) print `orbit <cmd>: fact.` to stderr.
+- Usage errors print `Usage: ...` to stderr and exit 2. `--help` prints
+  the same text to stdout and exits 0. An unknown top-level command
+  prints usage to stderr and exits 2.
 
 Exit codes: `0` clean, `1` clean failure (findings, unreadable file,
 compile error, failed health), `2` usage (missing or invalid flags,

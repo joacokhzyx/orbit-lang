@@ -50,62 +50,105 @@ fn runLexTrace() {
 fn runFrontend() {
     val inputPath = orbit_os_argv_selfhost(2)
     if inputPath == "" {
-        print("Usage: orbit frontend <input.orb> [-o output.tir]")
+        orbit_os_write_stderr_selfhost("Usage: orbit frontend <input.orb> [-o output.tir]\n")
         orbit_os_exit_selfhost(2)
         return
     }
 
     val source = orbit_file_read_selfhost(inputPath)
     if source == "" {
-        print("Frontend failed: could not read input file: " + inputPath)
+        orbit_os_write_stderr_selfhost("orbit frontend: could not read input file '" + inputPath + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
 
     val output = compileFrontendSource(inputPath, source)
     if output == "" {
-        print("Frontend failed: no TIR emitted because diagnostics contain errors.")
+        orbit_os_write_stderr_selfhost("orbit frontend: no TIR emitted because diagnostics contain errors.\n")
         orbit_os_exit_selfhost(1)
         return
     }
 
     val outputPath = frontendOutputPath()
     if orbit_file_write_selfhost(outputPath, output) == false {
-        print("Unable to write TIR output.")
+        orbit_os_write_stderr_selfhost("orbit frontend: unable to write TIR output '" + outputPath + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
 }
 
+fn orbitVersion() -> string {
+    return "0.1.0-rc.2"
+}
+
+fn helpText() -> string {
+    var h = "Usage: orbit <command> [options]\n"
+    h = h + "\n"
+    h = h + "Commands:\n"
+    h = h + "  build <file.orb> [-o out]  Compile to a native executable\n"
+    h = h + "  run <file.orb>             Build and run it (shares your terminal)\n"
+    h = h + "  check <file.orb>           Parse and typecheck, no code emitted\n"
+    h = h + "  fmt <file.orb>             Format a file (writes only on success)\n"
+    h = h + "  fmt --check <file|dir>     List files that need formatting\n"
+    h = h + "  doctor [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)\n"
+    h = h + "  frontend <input.orb> [-o output.tir]\n"
+    h = h + "  cluster up --nodes N --port-base P [--log-dir D] [--service S]\n"
+    h = h + "  cluster status|drain <node>|restart --rolling|down|logs <node>\n"
+    h = h + "                           Single-host multiprocess orchestration (see docs/CLUSTER.md)\n"
+    h = h + "  --help, -h                 Show this help\n"
+    h = h + "  --version, -v              Show version\n"
+    h = h + "\n"
+    h = h + "Developer inspection: lextrace <file.orb>\n"
+    return h
+}
+
 fn printHelp() {
-    print("Usage: orbit <command> [options]")
-    print("")
-    print("Commands:")
-    print("  build <file.orb> [-o out]  Compile to a native executable")
-    print("  run <file.orb>             Build and run it (shares your terminal)")
-    print("  check <file.orb>           Parse and typecheck, no code emitted")
-    print("  fmt <file.orb>             Format a file (writes only on success)")
-    print("  fmt --check <file|dir>     List files that need formatting")
-    print("  doctor [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)")
-    print("  frontend <input.orb> [-o output.tir]")
-    print("  lextrace <file.orb>")
-    print("  cluster up --nodes N --port-base P [--log-dir D] [--service S]")
-    print("  cluster status|drain <node>|restart --rolling|down|logs <node>")
-    print("                           Single-host multiprocess orchestration (see docs/CLUSTER.md)")
-    print("  --help, -h                 Show this help")
-    print("  --version, -v              Show version")
+    print(helpText())
+}
+
+fn printHelpErr() {
+    orbit_os_write_stderr_selfhost(helpText())
+}
+
+fn isKnownCommand(cmd: string) -> bool {
+    if cmd == "build" || cmd == "run" || cmd == "check" { return true }
+    if cmd == "fmt" || cmd == "doctor" || cmd == "frontend" { return true }
+    if cmd == "lextrace" || cmd == "cluster" { return true }
+    if cmd == "--help" || cmd == "-h" || cmd == "--version" || cmd == "-v" { return true }
+    return false
+}
+
+fn endsWithOrb(path: string) -> bool {
+    val n = orbit_string_len(path)
+    if n < 4 { return false }
+    return orbit_string_slice(path, n - 4, n) == ".orb"
+}
+
+fn wantsHelp() -> bool {
+    var i = 2
+    while i <= 5 {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "--help" || a == "-h" { return true }
+        if a == "" { return false }
+        i = i + 1
+    }
+    return false
 }
 
 fn runRun() {
+    if wantsHelp() {
+        print("Usage: orbit run <file.orb>\n  Build and run it (shares your terminal)\n")
+        return
+    }
     val inputPath = orbit_os_argv_selfhost(2)
     if inputPath == "" {
-        print("Usage: orbit run <file.orb>")
+        orbit_os_write_stderr_selfhost("Usage: orbit run <file.orb>\n")
         orbit_os_exit_selfhost(2)
         return
     }
     val source = orbit_file_read_selfhost(inputPath)
     if source == "" {
-        print("Error: Could not read input file: " + inputPath)
+        orbit_os_write_stderr_selfhost("orbit run: could not read input file '" + inputPath + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -124,15 +167,19 @@ fn runRun() {
 }
 
 fn runCheck() {
+    if wantsHelp() {
+        print("Usage: orbit check <file.orb>\n  Parse and typecheck, no code emitted\n")
+        return
+    }
     val inputPath = orbit_os_argv_selfhost(2)
     if inputPath == "" {
-        print("Usage: orbit check <file.orb>")
+        orbit_os_write_stderr_selfhost("Usage: orbit check <file.orb>\n")
         orbit_os_exit_selfhost(2)
         return
     }
     val source = orbit_file_read_selfhost(inputPath)
     if source == "" {
-        print("Error: Could not read input file: " + inputPath)
+        orbit_os_write_stderr_selfhost("orbit check: could not read input file '" + inputPath + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -150,7 +197,25 @@ fn main() {
         return
     }
     if cmd == "--version" || cmd == "-v" {
-        print("orbit 0.1.0")
+        print("orbit " + orbitVersion())
+        return
+    }
+    if cmd != "" && isKnownCommand(cmd) == false {
+        if cmd.at(0) == 45 {
+            orbit_os_write_stderr_selfhost("Unknown option: " + cmd + "\n")
+            printHelpErr()
+            orbit_os_exit_selfhost(2)
+            return
+        }
+        if endsWithOrb(cmd) == false && orbit_file_read_selfhost(cmd) == "" {
+            orbit_os_write_stderr_selfhost("Unknown command: " + cmd + "\n")
+            printHelpErr()
+            orbit_os_exit_selfhost(2)
+            return
+        }
+    }
+    if cmd == "build" && wantsHelp() {
+        print("Usage: orbit build <file.orb> [-o out]\n  Compile to a native executable\n")
         return
     }
     if cmd == "run" {
@@ -208,7 +273,7 @@ fn main() {
     }
 
     if inputPath == "" {
-        print("Error: No input file specified.")
+        orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out]\n")
         orbit_os_exit_selfhost(2)
         return
     }
@@ -219,7 +284,7 @@ fn main() {
 
     val source = orbit_file_read_selfhost(inputPath)
     if source == "" {
-        print("Error: Could not read input file: " + inputPath)
+        orbit_os_write_stderr_selfhost("orbit build: could not read input file '" + inputPath + "'.\n")
         orbit_os_exit_selfhost(1)
         return
     }
