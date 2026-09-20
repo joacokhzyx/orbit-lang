@@ -242,11 +242,11 @@ fn nextToken(lexer: Lexer) -> Token {
 
     // Operators and delimiters
     if c == 123 { return Token(TokType.OpenBrace, "{", line, col) }
-        if c == 125 { return Token(TokType.CloseBrace, "}", line, col) }
+    if c == 125 { return Token(TokType.CloseBrace, "}", line, col) }
     if c == 40 { return Token(TokType.OpenParen, "(", line, col) }
     if c == 41 { return Token(TokType.CloseParen, ")", line, col) }
     if c == 91 { return Token(TokType.OpenBracket, "[", line, col) }
-        if c == 93 { return Token(TokType.CloseBracket, "]", line, col) }
+    if c == 93 { return Token(TokType.CloseBracket, "]", line, col) }
     if c == 44 { return Token(TokType.Comma, ",", line, col) }
     if c == 58 { return Token(TokType.Colon, ":", line, col) }
     if c == 46 { return Token(TokType.Dot, ".", line, col) }
@@ -323,5 +323,3 @@ fn nextToken(lexer: Lexer) -> Token {
     print("Lexer error: invalid character (code " + orbit_int_to_string_selfhost(c) + ")")
     return Token(TokType.Invalid, textFallback, line, col)
 }
-
-

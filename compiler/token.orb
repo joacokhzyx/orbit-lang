@@ -245,11 +245,11 @@ fn tokTypeToString(tag: TokType) -> string {
         TokType.FatArrow => return "=>"
         TokType.At => return "@"
         TokType.OpenBrace => return "{"
-            TokType.CloseBrace => return "}"
+        TokType.CloseBrace => return "}"
         TokType.OpenParen => return "("
         TokType.CloseParen => return ")"
         TokType.OpenBracket => return "["
-            TokType.CloseBracket => return "]"
+        TokType.CloseBracket => return "]"
         TokType.Colon => return ":"
         TokType.Dot => return "."
         TokType.Comma => return ","
@@ -261,4 +261,3 @@ fn tokTypeToString(tag: TokType) -> string {
 fn tokIsSymbol(tag: TokType) -> bool {
     return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon
 }
-

@@ -58,4 +58,3 @@ route DELETE "/v1/notes/:id" {
 route GET "/health" {
     return ok 200 "{\"status\":\"UP\",\"engine\":\"sqlite3\",\"database\":\"orbit.db\",\"pool_active\":true}"
 }
-

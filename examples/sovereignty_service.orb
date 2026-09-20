@@ -20,4 +20,3 @@ route GET "/v1/sovereign/status" {
 route GET "/v1/sovereign/health" {
     return ok 200 "{\"health\":\"UP\",\"zero_trust\":true}"
 }
-

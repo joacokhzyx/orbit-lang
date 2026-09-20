@@ -46,4 +46,3 @@ route POST "/v1/catalog/items" {
 route GET "/v1/catalog/missing" {
     err 404 "Catalog item not found in database"
 }
-

@@ -123,11 +123,11 @@ fn clusterSleepSec(sec: int) {
 }
 
 fn clusterIndexOfFrom(hay: string, needle: string, from: int) -> int {
-    if from < 0 { return -1 }
-    if from >= hay.len() { return -1 }
+    if from < 0 { return - 1 }
+    if from >= hay.len() { return - 1 }
     val tail = hay.slice(from, hay.len())
     val pos = orbit_string_indexOf(tail, needle)
-    if pos == -1 { return -1 }
+    if pos == -1 { return - 1 }
     return from + pos
 }
 
@@ -163,12 +163,12 @@ fn clusterNodeCount(content: string) -> int {
 fn clusterNodeInt(content: string, id: int, key: string) -> int {
     val idNeedle = "\"id\": " + orbit_int_to_string_selfhost(id) + ","
     val idPos = orbit_string_indexOf(content, idNeedle)
-    if idPos == -1 { return -1 }
+    if idPos == -1 { return - 1 }
     val keyNeedle = "\"" + key + "\": "
     val keyPos = clusterIndexOfFrom(content, keyNeedle, idPos)
-    if keyPos == -1 { return -1 }
+    if keyPos == -1 { return - 1 }
     val nextId = clusterIndexOfFrom(content, "\"id\": ", idPos + 1)
-    if nextId != -1 && keyPos > nextId { return -1 }
+    if nextId != -1 && keyPos > nextId { return - 1 }
     var i = keyPos + keyNeedle.len()
     var num = 0
     var found = false
@@ -183,7 +183,7 @@ fn clusterNodeInt(content: string, id: int, key: string) -> int {
         i = i + 1
     }
     if found { return num }
-    return -1
+    return - 1
 }
 
 fn clusterSetNodePid(content: string, id: int, pid: int) -> string {

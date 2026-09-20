@@ -224,4 +224,3 @@ model IRGlobal {
 fn initIRModule() -> IRModule {
     return IRModule([], [], [], [], 0.0)
 }
-

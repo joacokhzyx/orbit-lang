@@ -147,7 +147,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         }
         _ => {
             tirError(module, "E3001", "expression cannot be lowered to TIR", 0, 0)
-            return -1
+            return - 1
         }
     }
 }
@@ -166,7 +166,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         ASTNode.Return(ret) => {
             val value = lowerExpression(module, function, blockId, bindings, ret.expr)
             tirEmit(function, blockId, "return", "unit", tirValue(value))
-            return -1
+            return - 1
         }
         ASTNode.Block(block) => {
             var i = 0
@@ -279,4 +279,3 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
     }
     return module
 }
-

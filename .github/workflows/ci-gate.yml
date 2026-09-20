@@ -88,6 +88,31 @@ jobs:
           if [ "${{ runner.os }}" = "Windows" ]; then export PATH="$PWD/runtime/vendor/win-x64:$PATH"; fi
           ./t_auth_bin
 
+      - name: Formatter gate (checked-in form)
+        shell: bash
+        run: |
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          FP="${RUNNER_TEMP}/fixed_point${SUFFIX}"
+          "$FP" fmt --check compiler
+          "$FP" fmt --check tests/suite
+          for f in examples/*.orb; do
+            case "$f" in *orbit_full_expansion.orb) continue;; esac
+            "$FP" fmt --check "$f"
+          done
+
+      - name: Doctor gate (no findings on the behavior suite)
+        shell: bash
+        run: |
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "${RUNNER_TEMP}/fixed_point${SUFFIX}" doctor tests/suite
+
+      - name: CLI contract probe
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/cli_probe.py --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" --work "${RUNNER_TEMP}/cliwork"
+
       - name: Orbit test suite (language behavior)
         shell: bash
         run: |

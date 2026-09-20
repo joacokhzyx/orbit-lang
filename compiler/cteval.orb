@@ -118,7 +118,7 @@ fn indexOfReg(regs: list, r: int) -> int {
         }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn isUsed(used: list, r: int) -> bool {
@@ -201,7 +201,7 @@ fn findLabelIndex(instrs: list, target: int) -> int {
         }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn isNopOrControl(op: IROpcode) -> bool {
@@ -364,9 +364,9 @@ fn opIs(op: IROpcode, which: int) -> bool {
 
 fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) -> bool {
     if st.depth > 4096 { st.success = false
-    return false }
+        return false }
     if st.steps > 10000000 { st.success = false
-    return false }
+        return false }
     st.depth = st.depth + 1
 
     var regs = []
@@ -452,37 +452,37 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 5) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             regSet(regs, known, instr.dest, a + b)
             ip = ip + 1
         } else if opIs(instr.opcode, 6) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             regSet(regs, known, instr.dest, a - b)
             ip = ip + 1
         } else if opIs(instr.opcode, 7) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             regSet(regs, known, instr.dest, a * b)
             ip = ip + 1
         } else if opIs(instr.opcode, 8) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if b == 0 {
                 st.success = false
                 st.depth = st.depth - 1
@@ -493,10 +493,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 9) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if b == 0 {
                 st.success = false
                 st.depth = st.depth - 1
@@ -507,13 +507,13 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 10) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             regSet(regs, known, instr.dest, -a)
             ip = ip + 1
         } else if opIs(instr.opcode, 11) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a == 0 {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -523,10 +523,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 12) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a != 0 && b != 0 {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -536,10 +536,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 13) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a != 0 || b != 0 {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -549,10 +549,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 14) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a == b {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -562,10 +562,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 15) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a != b {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -575,10 +575,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 16) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a < b {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -588,10 +588,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 17) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a <= b {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -601,10 +601,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 18) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a > b {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -614,10 +614,10 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         } else if opIs(instr.opcode, 19) {
             val a = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if a >= b {
                 regSet(regs, known, instr.dest, 1)
             } else {
@@ -647,7 +647,7 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
             // jump_if_false
             val cond = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             if cond == 0 {
                 var target = -1
                 match instr.operand2 {
@@ -673,7 +673,7 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
             // arg
             val av = resolveValue(regs, known, instr.operand1, st)
             if !st.success { st.depth = st.depth - 1
-            return false }
+                return false }
             pending.push(av)
             ip = ip + 1
         } else if opIs(instr.opcode, 23) {

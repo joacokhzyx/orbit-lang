@@ -36,42 +36,42 @@ fn generateC(backend: CBackend) -> string {
     orbit_cbuf_append_selfhost(cbTop, generateRoutePreamble())
     orbit_cbuf_append_selfhost(cbTop, generateRouteTypeDecls(backend))
     if hasRoutes == false && moduleConstructsVariants(backend) {
-    orbit_cbuf_append_selfhost(cbTop, "#ifndef AST_VARIANTS_DEFINED\n")
-    orbit_cbuf_append_selfhost(cbTop, "#define AST_VARIANTS_DEFINED\n")
-    orbit_cbuf_append_selfhost(cbTop, "typedef struct OrbitASTVariantNode { int tag; void* data; } OrbitASTVariantNode;\n")
-    orbit_cbuf_append_selfhost(cbTop, "static inline OrbitASTVariantNode* orbit_create_variant(OrbitArena* a, int tag, void* data) {\n")
-    orbit_cbuf_append_selfhost(cbTop, "    OrbitASTVariantNode* n = (OrbitASTVariantNode*)orbit_alloc(a, sizeof(OrbitASTVariantNode));\n")
-    orbit_cbuf_append_selfhost(cbTop, "    n->tag = tag; n->data = data; return n;\n")
-    orbit_cbuf_append_selfhost(cbTop, "}\n")
-    // Variant constructor macros are generated from the module's union types.
-    // They must use the very same <Type>_TAG_<Variant> constants that pattern
-    // matching compares against (see the tag enum emitted further below and
-    // builder.orb's Type.Variant lowering). These macros used to be hardcoded
-    // for ASTNode only, with a 1-based numbering that skipped the payload-less
-    // variants, so constructors and matches disagreed and no other union type
-    // (IRValue, ...) got a constructor at all.
-    // The `__VA_ARGS__ + 0` form accepts both payload variants, e.g. Literal(n),
-    // and payload-less ones, e.g. Break(), which expands to a null payload.
-    var mvi = 0
-    while mvi < backend.module.types.len() {
-        val mvType: IRTypeDecl = backend.module.types.get(mvi)
-        if mvType.kind == "union_type" {
-            var mvv = 0
-            while mvv < mvType.variants.len() {
-                val mvName: string = mvType.variants.get(mvv)
-                orbit_cbuf_append_selfhost(cbTop, "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
-                mvv = mvv + 1
+        orbit_cbuf_append_selfhost(cbTop, "#ifndef AST_VARIANTS_DEFINED\n")
+        orbit_cbuf_append_selfhost(cbTop, "#define AST_VARIANTS_DEFINED\n")
+        orbit_cbuf_append_selfhost(cbTop, "typedef struct OrbitASTVariantNode { int tag; void* data; } OrbitASTVariantNode;\n")
+        orbit_cbuf_append_selfhost(cbTop, "static inline OrbitASTVariantNode* orbit_create_variant(OrbitArena* a, int tag, void* data) {\n")
+        orbit_cbuf_append_selfhost(cbTop, "    OrbitASTVariantNode* n = (OrbitASTVariantNode*)orbit_alloc(a, sizeof(OrbitASTVariantNode));\n")
+        orbit_cbuf_append_selfhost(cbTop, "    n->tag = tag; n->data = data; return n;\n")
+        orbit_cbuf_append_selfhost(cbTop, "}\n")
+        // Variant constructor macros are generated from the module's union types.
+        // They must use the very same <Type>_TAG_<Variant> constants that pattern
+        // matching compares against (see the tag enum emitted further below and
+        // builder.orb's Type.Variant lowering). These macros used to be hardcoded
+        // for ASTNode only, with a 1-based numbering that skipped the payload-less
+        // variants, so constructors and matches disagreed and no other union type
+        // (IRValue, ...) got a constructor at all.
+        // The `__VA_ARGS__ + 0` form accepts both payload variants, e.g. Literal(n),
+        // and payload-less ones, e.g. Break(), which expands to a null payload.
+        var mvi = 0
+        while mvi < backend.module.types.len() {
+            val mvType: IRTypeDecl = backend.module.types.get(mvi)
+            if mvType.kind == "union_type" {
+                var mvv = 0
+                while mvv < mvType.variants.len() {
+                    val mvName: string = mvType.variants.get(mvv)
+                    orbit_cbuf_append_selfhost(cbTop, "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
+                    mvv = mvv + 1
+                }
             }
+            mvi = mvi + 1
         }
-        mvi = mvi + 1
-    }
-    orbit_cbuf_append_selfhost(cbTop, "#endif\n\n")
-    orbit_cbuf_append_selfhost(cbTop, "static inline orbit_bool orbit_val_eq(void* a, void* b) {\n")
-    orbit_cbuf_append_selfhost(cbTop, "    if (a == b) return true;\n")
-    orbit_cbuf_append_selfhost(cbTop, "    if (!a || !b) return false;\n")
-    orbit_cbuf_append_selfhost(cbTop, "    if ((uintptr_t)a < 65536 || (uintptr_t)b < 65536) return false;\n")
-    orbit_cbuf_append_selfhost(cbTop, "    return strcmp((const char*)a, (const char*)b) == 0;\n")
-    orbit_cbuf_append_selfhost(cbTop, "}\n\n")
+        orbit_cbuf_append_selfhost(cbTop, "#endif\n\n")
+        orbit_cbuf_append_selfhost(cbTop, "static inline orbit_bool orbit_val_eq(void* a, void* b) {\n")
+        orbit_cbuf_append_selfhost(cbTop, "    if (a == b) return true;\n")
+        orbit_cbuf_append_selfhost(cbTop, "    if (!a || !b) return false;\n")
+        orbit_cbuf_append_selfhost(cbTop, "    if ((uintptr_t)a < 65536 || (uintptr_t)b < 65536) return false;\n")
+        orbit_cbuf_append_selfhost(cbTop, "    return strcmp((const char*)a, (const char*)b) == 0;\n")
+        orbit_cbuf_append_selfhost(cbTop, "}\n\n")
     }
     var fo = 0
     while fo < backend.module.models.len() {
@@ -631,7 +631,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                             }
                         }
                     }
-                                        IROpcode.add => {
+                    IROpcode.add => {
                         if isStringOperand(backend, inst.operand1) {
                             match inst.operand2 {
                                 IRValue.Register(reg) => {
@@ -946,7 +946,7 @@ fn fnv1a64Hash(method: string, path: string) -> string {
     val t2 = h2 * 435 + carry
     val r2 = t2 % 65536
     carry = t2 / 65536
-val t3 = h3 * 435 + carry
+    val t3 = h3 * 435 + carry
     val r3 = t3 % 65536
     val c0 = (h0 * 256) % 65536
     val c1 = h0 / 256
@@ -1235,15 +1235,15 @@ fn computeBoostRawPct(module: IRModule) -> float {
                 IROpcode.not_op => { alu = alu + 1 }
                 IROpcode.neg => { alu = alu + 1 }
                 IROpcode.load_var => { regAssign = regAssign + 1
-                memRead = memRead + 1 }
+                    memRead = memRead + 1 }
                 IROpcode.copy => { regAssign = regAssign + 1
-                memRead = memRead + 1 }
+                    memRead = memRead + 1 }
                 IROpcode.load_field => { regAssign = regAssign + 1
-                memRead = memRead + 2 }
+                    memRead = memRead + 2 }
                 IROpcode.store_var => { memWrite = memWrite + 1 }
                 IROpcode.decl_var => { memWrite = memWrite + 1 }
                 IROpcode.store_field => { memRead = memRead + 1
-                memWrite = memWrite + 2 }
+                    memWrite = memWrite + 2 }
                 IROpcode.load_const => {}
                 IROpcode.arg => { regAssign = regAssign + 1 }
                 IROpcode.call => { call = call + 1 }
@@ -1723,9 +1723,9 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             var vn = ""
             match instr.operand1 {
                 IRValue.String(s) => { valStr = s.value
-                vn = s.value }
+                    vn = s.value }
                 IRValue.Sym(s) => { valStr = s.value
-                vn = s.value }
+                    vn = s.value }
                 _ => { valStr = generateValue(backend, instr.operand1) }
             }
             var lrT = ""
@@ -2087,7 +2087,6 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     }
                 }
             }
-
 
             var callExpr = calleeName + "("
             val arenaFirst = functionNeedsArena(calleeName)
@@ -2979,7 +2978,7 @@ fn fieldRefDotPos(fieldRef: string) -> int {
         }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn fieldRefOwner(fieldRef: string) -> string {
@@ -3161,4 +3160,3 @@ fn dualPathQualifies(f: IRFunction) -> bool {
     }
     return false
 }
-

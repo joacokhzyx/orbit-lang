@@ -261,7 +261,7 @@ fn dotPosOf(s: string) -> int {
         }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn beforeDot(s: string) -> string {
@@ -551,7 +551,7 @@ fn findFunction(module: IRModule, name: string) -> int {
         }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
@@ -2166,7 +2166,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 jmp.operand1 = ir_label(endLabel)
                 ir_emit(builder.currentFunction, jmp)
             }
-            return -1
+            return - 1
         }
         ASTNode.Continue(c) => {
             val startLabels = builder.loopStartLabels
@@ -2176,10 +2176,10 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 jmp.operand1 = ir_label(startLabel)
                 ir_emit(builder.currentFunction, jmp)
             }
-            return -1
+            return - 1
         }
         _ => {
-            return -1
+            return - 1
         }
     }
 }
@@ -2240,7 +2240,7 @@ fn hexNibbleValue(code: int) -> int {
     if code >= 48 && code <= 57 { return code - 48 }
     if code >= 65 && code <= 70 { return code - 55 }
     if code >= 97 && code <= 102 { return code - 87 }
-    return -1
+    return - 1
 }
 
 fn unescapeString(s: string) -> string {
@@ -2275,8 +2275,7 @@ fn unescapeString(s: string) -> string {
                         out = out + "\\" + next
                     }
                     i = i + consumed
-                }
-                else {
+                } else {
                     out = out + "\\" + next
                 }
                 if next != "x" { i = i + 2 }
@@ -2299,13 +2298,13 @@ fn charCodeOf(s: string) -> int {
     if c0 != 92 { return c0 }
     if inner.len() < 2 { return 0 }
     val c1 = inner.at(1)
-    if c1 == 110 { return 10 }   // \n
-    if c1 == 116 { return 9 }    // \t
-    if c1 == 114 { return 13 }   // \r
-    if c1 == 48 { return 0 }     // \0
-    if c1 == 92 { return 92 }    // \\
-    if c1 == 39 { return 39 }    // \'
-    if c1 == 34 { return 34 }    // \"
+    if c1 == 110 { return 10 } // \n
+    if c1 == 116 { return 9 } // \t
+    if c1 == 114 { return 13 } // \r
+    if c1 == 48 { return 0 } // \0
+    if c1 == 92 { return 92 } // \\
+    if c1 == 39 { return 39 } // \'
+    if c1 == 34 { return 34 } // \"
     return c1
 }
 
@@ -2355,4 +2354,3 @@ fn modelFieldIsUnion(builder: IRBuilder, fieldName: string) -> bool {
     }
     return false
 }
-

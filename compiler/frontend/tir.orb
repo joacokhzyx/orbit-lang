@@ -175,4 +175,3 @@ fn tirCanonical(module: TirModule) -> string {
     }
     return output
 }
-

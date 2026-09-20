@@ -73,7 +73,7 @@ fn findType(sema: Sema, name: string) -> int {
         }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool) {
@@ -349,20 +349,20 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                             val cn = m.cases.get(k)
                             match cn {
                                 ASTNode.MatchCase(c) => {
-                            match c.pattern {
-                                ASTNode.MemberAccess(ma) => {
-                                    coveredVariants.push(ma.field)
-                                }
-                                ASTNode.Call(innerCall) => {
-                                    match innerCall.callee {
-                                        ASTNode.MemberAccess(ma2) => {
-                                            coveredVariants.push(ma2.field)
+                                    match c.pattern {
+                                        ASTNode.MemberAccess(ma) => {
+                                            coveredVariants.push(ma.field)
+                                        }
+                                        ASTNode.Call(innerCall) => {
+                                            match innerCall.callee {
+                                                ASTNode.MemberAccess(ma2) => {
+                                                    coveredVariants.push(ma2.field)
+                                                }
+                                                _ => {}
+                                            }
                                         }
                                         _ => {}
                                     }
-                                }
-                                _ => {}
-                            }
                                 }
                                 _ => {}
                             }
@@ -697,4 +697,3 @@ fn checkNode(sema: Sema, node: ASTNode) {
 fn analyze(sema: Sema, node: ASTNode) {
     checkNode(sema, node)
 }
-
