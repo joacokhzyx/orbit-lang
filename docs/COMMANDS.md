@@ -104,6 +104,7 @@ A compiler change is not complete until the relevant gates pass:
 2. The canonical C source is current when the change is intentional.
 3. The parity probes match their goldens.
 4. The behavior suite passes.
-5. Documentation and examples reflect the supported behavior.
+5. `fmt --check` is clean on `compiler`, `tests/suite` and `examples` (except the intentionally unparseable `orbit_full_expansion.orb`), `doctor` reports nothing on `tests/suite`, and `cli_probe.py` passes.
+6. Documentation and examples reflect the supported behavior.
 
 See [Platform Support](SUPPORT.md), [Getting Started](GETTING_STARTED.md), and the [Engineering Contract](../ENGINEERING.md) for platform-specific details and invariants.

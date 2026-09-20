@@ -31,11 +31,10 @@ path parameters — the list is below, with workarounds.
 
 Single-host cluster only; no joules on Windows; no p50/p99;
 Windows drain is kill; native backend experimental; DB
-migrations open. Plus, found while writing these notes:
-`Model.create()` returns `false`, `req.bearer_token()` answers
-empty, `:id` routes never match, `req.file()` saves nothing,
-custom tables aren't created. Each has a workaround in
-[Known Limitations](KNOWN_LIMITATIONS.md).
+migrations open. Since these notes were drafted, writes,
+bearer auth, path parameters, and custom tables all work
+(see [Known Limitations](KNOWN_LIMITATIONS.md) for the
+current list): `req.file()` still saves nothing.
 
 ## Verify it yourself
 

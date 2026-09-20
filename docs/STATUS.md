@@ -1,7 +1,7 @@
 # Orbit Project Status
 
-**Snapshot date:** 2026-09-12  
-**Repository revision:** `b73d00f` (`main`)
+**Snapshot date:** 2026-09-19  
+**Repository revision:** `25cfe6c` (`main`)
 
 This document is a dated project snapshot. It is intended to answer "what is true now?" without replacing the detailed engineering contract, language reference, or architecture records. Update it when a milestone changes the supported workflow or the status of a major workstream.
 
@@ -21,9 +21,12 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | C code generation | Primary backend | `compiler/c_backend.orb`, `runtime/` |
 | HTTP service runtime | Available for supported service features | `runtime/http.c`, `lib/net.orb`, examples |
 | Arena-based allocation | Available | `runtime/arena.c`, `runtime/arena_pool.c`, `docs/ARENA.md` |
-| Database integration | Available, with schema migration work still open | `runtime/database.c`, examples, `STAB-6` |
-| Behavior suite | 18 executable programs | `tests/suite/`, `tests/suite/README.md` |
-| Parity and stability probes | 25-probe documented gate | `tests/parity/`, `tests/parity/README.md` |
+| Database integration | Reads, writes and auto-created model tables; migrations still open | `runtime/database.c`, `examples/posts_crud.orb`, `STAB-6` |
+| Path parameters | `:id`/`{id}`/`*` match with capture, static routes win | `examples/params_service.orb` |
+| Bearer auth and roles | Token extraction, role lookup, expiry; `has_role` enforced | `examples/sqlite_notes.orb`, `tests/auth/` |
+| CLI consistency | Errors to stderr, per-command help, `--quiet`/`--verbose`, doctor JSON | `scripts/cli_probe.py` (35 cases) |
+| Behavior suite | 21 executable programs | `tests/suite/`, `tests/suite/README.md` |
+| Parity and stability probes | 29-probe documented gate | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension and syntax support | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |
 | Distributed cluster runtime | Not available as a public feature | Roadmap Phase 6 |
@@ -51,7 +54,7 @@ The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the sel
 **Priority:** P0  
 **Status:** active
 
-The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity surface. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion.
+The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity surface. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds run ~10 s with ~300 MB peaks after the codegen buffer work.
 
 Key work:
 

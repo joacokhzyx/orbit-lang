@@ -10,14 +10,15 @@ can't afford to lose, read the whole page before deploying.
 
 On startup, `orbit_db_init` opens `orbit.db` in the service's
 working directory and runs `CREATE TABLE IF NOT EXISTS` for
-exactly four tables: `notes`, `products`, `users`, `sessions`.
-When `products` is empty it inserts the demo seed rows. That's
-the entire schema story:
+the four built-in tables (`notes`, `products`, `users`,
+`sessions`); the compiler additionally emits one `CREATE TABLE
+IF NOT EXISTS` per model in your program, so a `Post` model gets
+a real table. When `products` is empty it inserts the demo seed
+rows. That's the current schema story:
 
-- New tables are never created for your models. A `Post` model
-  gets no table — reads return `[]`, writes fail.
-- Existing tables are never altered. Adding a field to a model
-  changes nothing on disk.
+- New tables are created from model fields, but existing tables
+  are never altered. Adding a field to a model changes nothing
+  on disk.
 - There is no version recorded anywhere. The database can't tell
   you which code created it.
 

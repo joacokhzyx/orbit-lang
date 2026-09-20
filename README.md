@@ -50,9 +50,10 @@ runnable, every output verified. Then pick a tutorial:
 
 ## What 0.1.0 can't do yet
 
-Reads work; writes don't. Bearer auth, path parameters, and
-multipart uploads aren't there yet. The full list with
-workarounds is public: [Known Limitations](docs/KNOWN_LIMITATIONS.md).
+Reads and writes work, with bearer auth and path parameters.
+Multipart uploads, DB migrations, and p50/p99 aren't there yet.
+The full list with workarounds is public:
+[Known Limitations](docs/KNOWN_LIMITATIONS.md).
 Twenty hard questions, answered plainly: [FAQ](docs/FAQ.md).
 
 ## Usage

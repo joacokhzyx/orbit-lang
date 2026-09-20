@@ -183,9 +183,9 @@ route GET "/by-author" {
 On first start the runtime creates `orbit.db` in the working
 directory and seeds demo rows, so `GET /notes` answers `200`
 immediately. The `?` placeholder keeps input parameterized —
-never build SQL by concatenating query values. (Writes via
-`Note.create()` return `false` in 0.1.0; see
-[Known Limitations](KNOWN_LIMITATIONS.md).)
+never build SQL by concatenating query values. Writes via
+`Note.create()` store the row and answer `true` (duplicates
+answer `false`); see [Known Limitations](KNOWN_LIMITATIONS.md).
 
 ## 9. Live telemetry (2 min)
 
