@@ -46,7 +46,17 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # use -O0.
 # -O0 keeps peak memory low on 4 GB machines; -DORBIT_WITH_EXEC enables the
 # compiler's own process spawning (its cc invocations) -- trusted infrastructure.
-SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
+# No blanket suppressions: generated C must compile warning-free under
+# -Wall on the supported toolchains. -Werror itself stays out of the
+# bootstrap path (exotic toolchains must never brick the build); it runs
+# as an explicit CI gate step instead (STAB-3).
+# The two -Wno-error= downgrades below are load-bearing, not cruft: GCC 14+
+# raises int-conversion / incompatible-pointer-types as ERRORS by default,
+# so without them any remaining instance bricks the bootstrap (and user
+# builds) instead of warning. They stay until the generated C is fully
+# -Werror clean, tracked by scripts/werror_gate.py.
+SUPPRESS_FLAGS = ["-O0", "-Wall", "-Wno-error=int-conversion",
+                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
 # Low-memory profile: drop unwind tables and debug info so the multi-MB
 # compiler TU links with less peak commit. GCC/Clang only; MSVC-style
 # drivers (cl) do not accept these flags.

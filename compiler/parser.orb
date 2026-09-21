@@ -554,6 +554,11 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
 }
 
 fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
+    // `private` is accepted on functions and consts only. Models ignore
+    // visibility today, so accepting the keyword would be a silent lie.
+    if isPrivate {
+        parserError(parser, "'private' is not supported on models yet.")
+    }
     if check(parser, TokType.Identifier) {
         advanceParser(parser)
     } else {
@@ -593,6 +598,9 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
 }
 
 fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
+    if isPrivate {
+        parserError(parser, "'private' is not supported on types yet.")
+    }
     consume(parser, TokType.Identifier, "Expected type name.")
     val name = parser.previousToken.text
 

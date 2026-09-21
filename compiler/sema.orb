@@ -125,16 +125,12 @@ fn lookupFunction(sema: Sema, name: string) -> string {
     return "unknown"
 }
 
-fn checkCompatibility(sema: Sema, expected: string, actual: string) -> bool {
+fn checkCompatibility(expected: string, actual: string) -> bool {
     if expected == "unknown" || actual == "unknown" { return true }
     if expected == actual { return true }
     if expected == "result" { return true }
     if expected == "response" { return true }
     return false
-}
-
-fn isTypeCompatible(sema: Sema, expected: string, actual: string) -> bool {
-    return checkCompatibility(sema, expected, actual)
 }
 
 fn pushScope(sema: Sema) {
@@ -413,7 +409,7 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                 }
                 _ => {
                     val actualType = inferType(sema, r.expr)
-                    if checkCompatibility(sema, expectedType, actualType) == false {
+                    if checkCompatibility(expectedType, actualType) == false {
                         reportError(sema, "Return type mismatch: expected " + expectedType + ", got " + actualType)
                     }
                 }
@@ -424,7 +420,16 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                 ASTNode.Empty => {
                     reportError(sema, "ok response must include a value")
                 }
-                _ => {}
+                _ => {
+                    // orbit_response_json takes a C string body: a known
+                    // non-string body (e.g. an int register) would compile
+                    // to an int-to-pointer conversion. Reject it here with
+                    // a proper diagnostic instead of broken C downstream.
+                    val bodyType = inferType(sema, r.expr)
+                    if checkCompatibility("string", bodyType) == false {
+                        reportError(sema, "ok response body must be a string, got " + bodyType)
+                    }
+                }
             }
         }
         ASTNode.ReturnErr(r) => {
@@ -432,7 +437,12 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                 ASTNode.Empty => {
                     reportError(sema, "err response must include a message")
                 }
-                _ => {}
+                _ => {
+                    val bodyType = inferType(sema, r.expr)
+                    if checkCompatibility("string", bodyType) == false {
+                        reportError(sema, "err response body must be a string, got " + bodyType)
+                    }
+                }
             }
         }
         _ => {}

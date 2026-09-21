@@ -82,10 +82,6 @@ fn reportMemStage(stage: string) {
     }
 }
 
-fn compileSource(source: string, outputPath: string) -> bool {
-    return compileSourceWithFile(source, "", outputPath, false)
-}
-
 // Parse + resolve + typecheck only. No C is emitted and no C compiler
 // runs, so `orbit check` stays fast even on modest machines.
 fn checkSourceWithFile(source: string, inputPath: string) -> bool {
@@ -258,7 +254,11 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 
     // Extra C flags from the environment (used by scripts/build_selfhost.py
     // --low-mem). Inserted before the shell redirect so they reach the driver.
-    var compCmd = cCompiler + " -s -w -O0 -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
+    // -Wall surfaces warnings; the two -Wno-error= downgrades keep user
+    // builds working on GCC 14+ (where those diagnostics are errors by
+    // default) for the remaining untyped-emission patterns. Full -Werror
+    // cleanliness is tracked by scripts/werror_gate.py (STAB-3).
+    var compCmd = cCompiler + " -s -O0 -Wall -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
     val ccExtra = orbit_os_env_selfhost("ORBIT_CCFLAGS_EXTRA")
     if ccExtra != "" {
         compCmd = compCmd + " " + ccExtra

@@ -59,7 +59,12 @@ MAIN_ORB = os.path.join("compiler", "main.orb")
 # irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
 # -O2 links. The compiler's own internal invocations (pipeline.orb) already
 # use -O0.
-SUPPRESS_FLAGS = ["-O0", "-w", "-Wno-int-conversion", "-Wno-incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
+# -Wno-error= downgrades are load-bearing on GCC 14+ (int-conversion and
+# incompatible-pointer-types are errors by default there); without them any
+# remaining instance bricks the seed build instead of warning. Full -Werror
+# cleanliness is tracked by scripts/werror_gate.py (STAB-3).
+SUPPRESS_FLAGS = ["-O0", "-Wall", "-Wno-error=int-conversion",
+                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
 PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
@@ -67,7 +72,7 @@ PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "E2B3C62484814AF43126162E88B4EC005C010CCA40CF7C40B9304848EF38CF5F"
+PUBLISHED_C = "DB9811A6757CC8513D87F686C9645015F1DE7CFFBC580C3B2F2010DCFF2E4562"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 

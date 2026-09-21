@@ -12,12 +12,15 @@
 #ifdef _MSC_VER
     #define ORBIT_INLINE __forceinline
     #define ORBIT_NOINLINE __declspec(noinline)
+    #define ORBIT_UNUSED
 #elif defined(__GNUC__) || defined(__clang__)
     #define ORBIT_INLINE static inline __attribute__((always_inline))
     #define ORBIT_NOINLINE __attribute__((noinline))
+    #define ORBIT_UNUSED __attribute__((unused))
 #else
     #define ORBIT_INLINE inline
     #define ORBIT_NOINLINE
+    #define ORBIT_UNUSED
 #endif
 
 #define ORBIT_HOT __attribute__((hot))

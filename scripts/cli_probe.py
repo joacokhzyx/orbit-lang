@@ -52,6 +52,7 @@ CASES = [
     ("fmt-missing", ["fmt", "nope.orb"], 1, "err", "orbit fmt:", ""),
     ("fmt-quiet", ["fmt", "--quiet", "files/case.orb"], 0, "out", "", "Formatted"),
     ("fmt-check-verbose", ["fmt", "--check", "files", "--verbose"], 1, "out", "scanned", ""),
+    ("fmt-check-quiet", ["fmt", "--check", "files", "--quiet"], 1, "out", "", "files/ws.orb"),
     ("doctor-help", ["doctor", "--help"], 0, "out", "Usage:", ""),
     ("doctor-badflag", ["doctor", "--bogus"], 2, "err", "Usage:", ""),
     ("doctor-quiet-clean", ["doctor", "--quiet", "cleandir"], 0, "out", "", "no findings"),

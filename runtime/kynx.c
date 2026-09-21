@@ -284,20 +284,11 @@ bool orbit_kynx_check(const char* ip_str) {
     __atomic_fetch_add(&orbit_kynx_total_checks, 1, __ATOMIC_RELAXED);
     uint32_t hash = kynx_hash_ip(&ip);
 
-    // ── Kynx 2.0: Bloom filter as NEGATIVE CACHE (k=4 hashes) ────────────
-    // Any clear bit PROVES the IP was never banned -> proceed at O(1).
-    // All-set only marks the IP SUSPECT; the authoritative shard table
-    // decides below, so innocent hash collisions are never blocked.
-    int maybe_banned = 1;
-    for (int j = 0; j < 4; j++) {
-        uint32_t idx = (hash + (uint32_t)(j * 0x9E3779B9u)) % 1024u;
-        uint64_t bit = 1ULL << ((hash + 61u * (uint32_t)j) & 63u);
-        if (((__atomic_load_n(&orbit_kynx_banned_bloom[idx], __ATOMIC_RELAXED)) & bit) == 0) {
-            maybe_banned = 0;
-            break;
-        }
-    }
-
+    /* NOTE: a bloom pre-check used to live here, but its result was never
+     * consumed: every request must still be counted in the shard table
+     * below (otherwise new IPs could never reach the ban threshold), so a
+     * negative-cache fast path would skip mandatory bookkeeping. The
+     * authoritative table lookup is the single decision point. */
     uint32_t shard_idx = hash % KYNX_SHARD_COUNT;
     OrbitKynxShard* shard = &orbit_kynx_shards[shard_idx];
 

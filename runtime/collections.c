@@ -300,7 +300,7 @@ ORBIT_INLINE size_t orbit_map_count(const OrbitMap* map) {
     return map ? map->count : 0;
 }
 
-static OrbitResult orbit_map_delete(OrbitMap* map, const char* key) {
+static ORBIT_UNUSED OrbitResult orbit_map_delete(OrbitMap* map, const char* key) {
     if (!map || !key) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "map_delete: null argument");
     }
@@ -342,7 +342,7 @@ static OrbitResult orbit_map_delete(OrbitMap* map, const char* key) {
 }
 
 /* Get all keys as a List<orbit_string> — useful for iteration */
-static OrbitResult orbit_map_keys(const OrbitMap* map, OrbitArena* arena) {
+static ORBIT_UNUSED OrbitResult orbit_map_keys(const OrbitMap* map, OrbitArena* arena) {
     if (!map || !arena) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "map_keys: null argument");
     }
@@ -366,14 +366,14 @@ ORBIT_INLINE orbit_int orbit_string_len(orbit_string s) {
     return s ? (orbit_int)strlen(s) : 0;
 }
 
-static orbit_int orbit_string_at(orbit_string s, orbit_int index) {
+static ORBIT_UNUSED orbit_int orbit_string_at(orbit_string s, orbit_int index) {
     if (!s) return 0;
     orbit_int len = (orbit_int)strlen(s);
     if (index < 0 || index >= len) return 0;
     return (unsigned char)s[index];
 }
 
-static orbit_string orbit_string_slice(OrbitArena* arena, orbit_string s, orbit_int start, orbit_int end) {
+static ORBIT_UNUSED orbit_string orbit_string_slice(OrbitArena* arena, orbit_string s, orbit_int start, orbit_int end) {
     if (!s) return "";
     OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
     orbit_int len = (orbit_int)strlen(s);
@@ -446,7 +446,7 @@ static orbit_string orbit_string_from_char(OrbitArena* arena, orbit_int code) {
     return buf;
 }
 
-static orbit_string orbit_string_concat(OrbitArena* arena, orbit_string a, orbit_string b) {
+static ORBIT_UNUSED orbit_string orbit_string_concat(OrbitArena* arena, orbit_string a, orbit_string b) {
     OrbitArena* ar = (arena && arena->base) ? arena : orbit_arena_get_global();
     if (!a) a = "";
     if (!b) b = "";
@@ -538,7 +538,7 @@ static orbit_string orbit_cbuf_build(OrbitCBuf* buf) {
     return buf->data;
 }
 
-static OrbitList* orbit_string_split(OrbitArena* arena, orbit_string s, orbit_string delim) {
+static ORBIT_UNUSED OrbitList* orbit_string_split(OrbitArena* arena, orbit_string s, orbit_string delim) {
     OrbitList* list = (OrbitList*)orbit_list_create(arena, sizeof(orbit_string), 4).value;
     if (!s || !delim || !arena) return list;
 
@@ -575,7 +575,7 @@ static OrbitList* orbit_string_split(OrbitArena* arena, orbit_string s, orbit_st
     return list;
 }
 
-static orbit_string orbit_string_replace(OrbitArena* arena, orbit_string s, orbit_string old_str, orbit_string new_str) {
+static ORBIT_UNUSED orbit_string orbit_string_replace(OrbitArena* arena, orbit_string s, orbit_string old_str, orbit_string new_str) {
     if (!s || !old_str || !new_str || !arena) return s;
 
     size_t old_len = strlen(old_str);

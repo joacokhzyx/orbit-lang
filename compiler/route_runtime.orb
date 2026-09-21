@@ -1,4 +1,4 @@
-fn routePreambleText() -> string {
+fn routePreambleText(hasRoutes: bool) -> string {
     var out = ""
     out = out + "#define ORBIT_CUSTOM_ROUTER\n"
     out = out + "#include \"socket_compat.h\"\n"
@@ -6,6 +6,7 @@ fn routePreambleText() -> string {
     out = out + "#include \"runtime.h\"\n"
     out = out + "#include <signal.h>\n"
     out = out + "\n"
+    if hasRoutes {
     out = out + "static void orbit_print_kynx_gradient(const char* text) {\n"
     out = out + "    size_t len = strlen(text);\n"
     out = out + "    if (len == 0) return;\n"
@@ -19,6 +20,7 @@ fn routePreambleText() -> string {
     out = out + "    printf(\"\\x1b[0m\");\n"
     out = out + "}\n"
     out = out + "\n"
+    }
     out = out + "static int orbit_color_enabled(void) {\n"
     out = out + "    const char* no_color = getenv(\"NO_COLOR\");\n"
     out = out + "    if (no_color != NULL && no_color[0] != 0) return 0;\n"
@@ -27,7 +29,10 @@ fn routePreambleText() -> string {
     out = out + "    return 1;\n"
     out = out + "}\n"
     out = out + "\n"
-    out = out + "static void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double ready_ms) {\n"
+    // The server banner is server-only: emitting it into plain programs
+    // leaves an unused static definition (a -Wall warning) for nothing.
+    if hasRoutes {
+        out = out + "static void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double ready_ms) {\n"
     out = out + "    if (orbit_color_enabled() == 0) {\n"
     out = out + "        printf(\"\\n  Orbit 0.1.0\\n\\n\");\n"
     out = out + "        printf(\"   - Local: http://localhost:%d\\n\", port);\n"
@@ -57,6 +62,7 @@ fn routePreambleText() -> string {
     out = out + "    fflush(stdout);\n"
     out = out + "}\n"
     out = out + "\n"
+    }
     out = out + "OrbitArena* arena = NULL;\n"
     out = out + "#ifdef _WIN32\n"
     out = out + "void __main(void) {}\n"
@@ -533,7 +539,11 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string) -> string {
     out = out + "    }\n"
     out = out + "\n"
     out = out + "    int reuse = 1;\n"
+    out = out + "#ifdef _WIN32\n"
+    out = out + "    setsockopt(server_sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char*)&reuse, sizeof(reuse));\n"
+    out = out + "#else\n"
     out = out + "    setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse));\n"
+    out = out + "#endif\n"
     out = out + "    int nodelay = 1;\n"
     out = out + "    setsockopt(server_sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay));\n"
     out = out + "#ifdef _WIN32\n"

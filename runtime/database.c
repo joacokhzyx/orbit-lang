@@ -16,6 +16,7 @@
 #include <string.h>
 #include "arena.c"
 #include "types.c"
+#include "inline.h"
 
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit Database — Arena-backed SQLite integration.
@@ -133,21 +134,6 @@ bool orbit_db_exec_ddl(const char* sql) {
     rc = sqlite3_exec(orbit_db_conn, sql, NULL, NULL, &msg);
     if (msg) sqlite3_free(msg);
     return rc == SQLITE_OK;
-}
-
-/* ── Internal: build a dynamic query string in Arena ───────────────── */
-
-static char* orbit_db_build_query(OrbitArena* arena, const char* fmt, const char* table, const char* extra) {
-    size_t fmt_len   = strlen(fmt);
-    size_t table_len = strlen(table);
-    size_t extra_len = extra ? strlen(extra) : 0;
-    size_t total     = fmt_len + table_len + extra_len + 64;
-
-    char* buf = (char*)orbit_alloc(arena, total);
-    if (!buf) return NULL;
-
-    snprintf(buf, total, fmt, table, extra ? extra : "");
-    return buf;
 }
 
 /* ── Internal: append a JSON-escaped string within [p, end). ──────────── */

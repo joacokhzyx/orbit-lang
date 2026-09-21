@@ -10,6 +10,7 @@
 #define ORBIT_THREAD_POOL_H
 
 #include "socket_compat.h"
+#include "inline.h"
 
 // ── Platform detection ────────────────────────────────────────────────
 #ifdef _WIN32
@@ -164,10 +165,12 @@ typedef struct {
     int num_workers;
 } OrbitAcceptorCtx;
 
+// Server-only entry point: plain programs link this TU without starting
+// listeners, so mark it used-unconditionally rather than warning there.
 #ifdef _WIN32
-static unsigned __stdcall orbit_acceptor_loop(void* arg) {
+static ORBIT_UNUSED unsigned __stdcall orbit_acceptor_loop(void* arg) {
 #else
-static void* orbit_acceptor_loop(void* arg) {
+static ORBIT_UNUSED void* orbit_acceptor_loop(void* arg) {
 #endif
     OrbitAcceptorCtx* ac = (OrbitAcceptorCtx*)arg;
     unsigned int rr = 0;

@@ -57,13 +57,15 @@ static uint64_t orbit_energy_start_ns = 0;
 static double orbit_energy_idle_w = 0.0;
 static int orbit_energy_cal_state = 0; /* 0 pending, 1 idle-calibrated, 2 loaded (gross) */
 static uint64_t orbit_energy_idle_req0 = 0;
-static double orbit_energy_idle_win_j = 0.0;
-static double orbit_energy_idle_win_s = 0.0;
-static unsigned int orbit_energy_idle_nsamples = 0;
 
 #if defined(__linux__) && !defined(_WIN32)
 static pthread_t orbit_energy_thread;
 static int orbit_energy_thread_live = 0;
+/* Idle-window accumulators live here because only the Linux sampler thread
+ * reads them; at file scope they would warn as set-but-unused elsewhere. */
+static double orbit_energy_idle_win_j = 0.0;
+static double orbit_energy_idle_win_s = 0.0;
+static unsigned int orbit_energy_idle_nsamples = 0;
 #endif
 
 static uint64_t orbit_energy_now_ns(void) {

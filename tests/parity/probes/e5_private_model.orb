@@ -1,0 +1,7 @@
+private model Secret {
+    id: string
+}
+
+fn main() -> int {
+    return 0
+}

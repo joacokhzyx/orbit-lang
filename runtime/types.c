@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "inline.h"
 
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit Type System — Phase 2: Type Resonance & Collections
@@ -91,7 +92,7 @@ static OrbitResult orbit_result_ok(void* value) {
 }
 
 /** @brief Construct a successful Result carrying an integer value encoded in the pointer slot. */
-static OrbitResult orbit_result_ok_int(orbit_int val) {
+static ORBIT_UNUSED OrbitResult orbit_result_ok_int(orbit_int val) {
     OrbitResult r;
     r.ok         = true;
     r.error_code = ORBIT_ERR_NONE;
@@ -134,7 +135,7 @@ typedef struct {
 } OrbitOption;
 
 /** @brief Construct an Option<T> that holds @p value. */
-static OrbitOption orbit_some(void* value) {
+static ORBIT_UNUSED OrbitOption orbit_some(void* value) {
     OrbitOption o;
     o.has_value = true;
     o.value     = value;
@@ -142,7 +143,7 @@ static OrbitOption orbit_some(void* value) {
 }
 
 /** @brief Construct an empty Option<T>. */
-static OrbitOption orbit_none(void) {
+static ORBIT_UNUSED OrbitOption orbit_none(void) {
     OrbitOption o;
     o.has_value = false;
     o.value     = NULL;
@@ -162,7 +163,7 @@ typedef struct {
 } OrbitSlice;
 
 /** @brief Construct an empty Slice with @p elem_size bytes per element. */
-static OrbitSlice orbit_slice_empty(size_t elem_size) {
+static ORBIT_UNUSED OrbitSlice orbit_slice_empty(size_t elem_size) {
     OrbitSlice s;
     s.data      = NULL;
     s.len       = 0;
@@ -171,7 +172,7 @@ static OrbitSlice orbit_slice_empty(size_t elem_size) {
 }
 
 /** @brief Return a pointer to the element at @p index in @p s, or an error Result if out of bounds. */
-static OrbitResult orbit_slice_get(const OrbitSlice* s, size_t index) {
+static ORBIT_UNUSED OrbitResult orbit_slice_get(const OrbitSlice* s, size_t index) {
     if (!s || !s->data) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "slice is null");
     }
@@ -243,7 +244,7 @@ typedef struct {
 } OrbitTaggedUnion;
 
 /** @brief Create an OrbitTaggedUnion with the given discriminant @p tag, payload @p data, and @p size. */
-static OrbitTaggedUnion orbit_tagged_union_create(int tag, void* data, size_t size) {
+static ORBIT_UNUSED OrbitTaggedUnion orbit_tagged_union_create(int tag, void* data, size_t size) {
     OrbitTaggedUnion u;
     u.tag       = tag;
     u.data      = data;
@@ -252,7 +253,7 @@ static OrbitTaggedUnion orbit_tagged_union_create(int tag, void* data, size_t si
 }
 
 /** @brief Retrieve the payload of @p u if its tag matches @p expected_tag; returns a type-mismatch error otherwise. */
-static OrbitResult orbit_tagged_union_get(const OrbitTaggedUnion* u, int expected_tag) {
+static ORBIT_UNUSED OrbitResult orbit_tagged_union_get(const OrbitTaggedUnion* u, int expected_tag) {
     if (!u) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "union is null");
     }

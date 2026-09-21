@@ -280,7 +280,7 @@ fn afterDot(s: string) -> string {
     return orbit_string_slice(s, d + 1, orbit_string_len(s))
 }
 
-fn listElementType(builder: IRBuilder, source: string) -> string {
+fn listElementType(source: string) -> string {
     val ownerType = beforeDot(source)
     val fieldName = afterDot(source)
     if ownerType == "IRModule" && fieldName == "functions" { return "IRFunction" }
@@ -351,7 +351,7 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
                     if ma.field == "get" {
                         val objType = resolveExprType(builder, ma.object)
                         if objType == "list" {
-                            val elemType = listElementType(builder, resolveListSource(builder, ma.object))
+                            val elemType = listElementType(resolveListSource(builder, ma.object))
                             if elemType != "unknown" {
                                 return elemType
                             }
@@ -432,18 +432,6 @@ fn fieldOwnerForObject(builder: IRBuilder, obj: ASTNode, fieldName: string) -> s
 
 fn checkTypeName(t: IRTypeDecl, typeName: string) -> bool {
     return t.name == typeName
-}
-
-fn resolveIRType(builder: IRBuilder, typeName: string) -> string {
-    var i = 0
-    while i < builder.module.types.len() {
-        val t = builder.module.types.get(i)
-        if checkTypeName(t, typeName) {
-            return typeName
-        }
-        i = i + 1
-    }
-    return typeName
 }
 
 fn isModelName(name: string) -> bool {
@@ -1358,15 +1346,6 @@ fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
     lblEnd.operand1 = ir_label(endLabel)
     ir_emit(builder.currentFunction, lblEnd)
     return resultReg
-}
-
-fn extractMemberAccessName(node: ASTNode) -> string {
-    match node {
-        ASTNode.MemberAccess(ma) => {
-            return ma.field
-        }
-        _ => { return "" }
-    }
 }
 
 fn isUnionTypeName(builder: IRBuilder, name: string) -> bool {
@@ -2331,26 +2310,3 @@ fn modelFieldIsString(builder: IRBuilder, fieldName: string) -> bool {
     return allString
 }
 
-fn modelFieldIsUnion(builder: IRBuilder, fieldName: string) -> bool {
-    var mi = 0
-    while mi < builder.module.models.len() {
-        val m: IRModelDecl = builder.module.models.get(mi)
-        var fi = 0
-        while fi < m.fields.len() {
-            val f: IRModelField = m.fields.get(fi)
-            if f.name == fieldName {
-                var ti = 0
-                while ti < builder.module.types.len() {
-                    val t: IRTypeDecl = builder.module.types.get(ti)
-                    if t.kind == "union_type" && t.name == f.typeName {
-                        return true
-                    }
-                    ti = ti + 1
-                }
-            }
-            fi = fi + 1
-        }
-        mi = mi + 1
-    }
-    return false
-}

@@ -102,11 +102,6 @@ fn ir_int(v: int) -> IRValue {
     return IRValue.Int(m)
 }
 
-fn ir_float(v: float) -> IRValue {
-    val m = IRValueFloat(v)
-    return IRValue.Float(m)
-}
-
 fn ir_string(v: string) -> IRValue {
     val m = IRValueString(v)
     return IRValue.String(m)

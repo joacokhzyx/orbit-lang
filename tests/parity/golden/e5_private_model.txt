@@ -1,0 +1,3 @@
+exit=1
+kind=DIAG
+Parser error at line 1: 'private' is not supported on models yet.

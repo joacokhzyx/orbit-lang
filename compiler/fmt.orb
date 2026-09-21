@@ -974,7 +974,10 @@ fn fmtRunCheck(target: string, quiet: bool, verbose: bool) {
     while i < files.len() {
         val p: string = files.get(i)
         if fmtCheckOne(p) == false {
-            print(p)
+            // grep -q semantics: --quiet reports through the exit code only.
+            if quiet == false {
+                print(p)
+            }
             bad = bad + 1
         }
         i = i + 1

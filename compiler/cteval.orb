@@ -154,7 +154,7 @@ fn regIsKnown(known: list, idx: int) -> bool {
     return false
 }
 
-fn regGet(regs: list, known: list, idx: int) -> int {
+fn regGet(regs: list, idx: int) -> int {
     if idx < 0 { return 0 }
     if idx >= regs.len() { return 0 }
     return getInt(regs, idx)
@@ -169,7 +169,7 @@ fn resolveValue(regs: list, known: list, v: IRValue, st: CTEState) -> int {
         }
         IRValue.Register(r) => {
             if regIsKnown(known, r.value) {
-                return regGet(regs, known, r.value)
+                return regGet(regs, r.value)
             }
             st.success = false
             return 0
