@@ -26,9 +26,11 @@
 #ifdef _WIN32
   #define orbit_perf_atomic_add64(ptr, val) InterlockedExchangeAdd64((volatile LONG64*)(ptr), (LONG64)(val))
   #define orbit_perf_atomic_inc64(ptr) InterlockedIncrement64((volatile LONG64*)(ptr))
+  #define orbit_perf_atomic_inc32(ptr) (uint32_t)InterlockedIncrement((volatile LONG*)(ptr))
 #else
   #define orbit_perf_atomic_add64(ptr, val) __sync_fetch_and_add((volatile uint64_t*)(ptr), (uint64_t)(val))
   #define orbit_perf_atomic_inc64(ptr) __sync_fetch_and_add((volatile uint64_t*)(ptr), 1)
+  #define orbit_perf_atomic_inc32(ptr) __sync_fetch_and_add((volatile uint32_t*)(ptr), 1)
 #endif
 
 typedef struct {
@@ -206,6 +208,12 @@ typedef struct {
     uint32_t route_id;
     uint32_t principal_id;
     uint32_t flags;
+    /* Energy attribution (Kynx 0.1 C4): snapshots at creation, ESTIMATE
+     * at destroy. Appended at the end so existing offsets never move. */
+    uint64_t start_cycles;        /* orbit_rdtsc() at lease creation */
+    uint64_t start_total_cycles;  /* perf total_cycles at creation (share basis) */
+    double   start_joules;        /* attributable package joules at creation */
+    double   joules;              /* attributed ESTIMATE, set at destroy (0 = proxy) */
 } OrbitKynxLease;
 
 extern ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease;

@@ -523,6 +523,14 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
             val p = unquoteString(r.path)
             val routeName = "route_" + m + "_" + p
             val func = initRouteFunction(routeName, m, p)
+            if r.has_limit {
+                func.routeHasLimit = true
+                func.routeLimitRate = r.limit_rate
+                func.routeLimitWindowMs = r.limit_window_ms
+                var b = r.limit_burst
+                if b <= 0 { b = r.limit_rate }
+                func.routeLimitBurst = b
+            }
             registerFunctionReturnType(builder, routeName, "response")
             builder.module.functions.push(func)
         }
@@ -689,6 +697,14 @@ fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
     val path = unquoteString(r.path)
     val routeName = "route_" + method + "_" + path
     val func = getOrCreateRouteFunction(builder, routeName, method, path)
+    if r.has_limit {
+        func.routeHasLimit = true
+        func.routeLimitRate = r.limit_rate
+        func.routeLimitWindowMs = r.limit_window_ms
+        var b = r.limit_burst
+        if b <= 0 { b = r.limit_rate }
+        func.routeLimitBurst = b
+    }
     val prevFunc = builder.currentFunction
     builder.currentFunction = func
     pushVariableScope(builder)
@@ -2309,4 +2325,3 @@ fn modelFieldIsString(builder: IRBuilder, fieldName: string) -> bool {
     if found == false { return false }
     return allString
 }
-

@@ -68,6 +68,10 @@ model RouteDeclNode {
     path: string
     decorators: list
     body: list
+    has_limit: bool
+    limit_rate: int
+    limit_window_ms: int
+    limit_burst: int
 }
 
 model TraitDeclNode {

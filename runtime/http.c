@@ -67,6 +67,8 @@ typedef struct {
     char*  body;
     size_t body_len;
     char*  content_type;
+    char*  extra_headers;      /* optional raw "Name: value\r\n" block (Retry-After…) */
+    size_t extra_headers_len;
 } OrbitResponse;
 
 // Forward declaration for Pulsar support
@@ -281,7 +283,36 @@ OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* 
     resp->content_type = (char*)content_type;
     resp->body = (char*)body;
     resp->body_len = body ? strlen(body) : 0;
+    resp->extra_headers = NULL;
+    resp->extra_headers_len = 0;
     return resp;
+}
+
+/** @brief Append one raw header line ("Name: value\r\n") to @p resp's header block. */
+void orbit_response_add_header(OrbitArena* arena, OrbitResponse* resp, const char* name, const char* value) {
+    if (!arena || !resp || !name || !value) return;
+    size_t name_len = strlen(name);
+    size_t value_len = strlen(value);
+    size_t line_len = name_len + 2 + value_len + 2; /* ": " + "\r\n" */
+    char* line = (char*)orbit_alloc(arena, line_len + 1);
+    if (!line) return;
+    memcpy(line, name, name_len);
+    memcpy(line + name_len, ": ", 2);
+    memcpy(line + name_len + 2, value, value_len);
+    memcpy(line + name_len + 2 + value_len, "\r\n", 2);
+    line[line_len] = '\0';
+    if (resp->extra_headers && resp->extra_headers_len > 0) {
+        size_t old = resp->extra_headers_len;
+        char* joined = (char*)orbit_alloc(arena, old + line_len + 1);
+        if (!joined) return;
+        memcpy(joined, resp->extra_headers, old);
+        memcpy(joined + old, line, line_len + 1);
+        resp->extra_headers = joined;
+        resp->extra_headers_len = old + line_len;
+    } else {
+        resp->extra_headers = line;
+        resp->extra_headers_len = line_len;
+    }
 }
 
 /** @brief Convenience wrapper: create a JSON response with Content-Type application/json. */
@@ -371,8 +402,9 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
      * Pathological inputs fall back to the bounded snprintf shape. */
     char header[512];
     size_t ct_len = strlen(ct);
+    size_t eh_len = resp->extra_headers ? resp->extra_headers_len : 0;
     int header_len;
-    if (reason_len <= 32 && ct_len <= 128) {
+    if (reason_len <= 32 && ct_len <= 128 && eh_len <= 128) {
         static const char h1[] = "HTTP/1.1 ";
         static const char h2[] = "\r\nServer: Orbit\r\nContent-Type: ";
         static const char h3[] = "\r\nConnection: keep-alive\r\nKeep-Alive: timeout=30, max=1000\r\nContent-Length: ";
@@ -384,7 +416,18 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
         memcpy(h, reason, reason_len); h += reason_len;
         memcpy(h, h2, sizeof(h2) - 1); h += sizeof(h2) - 1;
         memcpy(h, ct, ct_len); h += ct_len;
-        memcpy(h, h3, sizeof(h3) - 1); h += sizeof(h3) - 1;
+        if (eh_len > 0) {
+            /* With extra headers the Content-Type line needs its own
+             * terminator here, and h3's leading CRLF must be skipped:
+             * it only terminates Content-Type in the no-headers case.
+             * Both shapes stay byte-identical to the snprintf fallback. */
+            static const char h3e[] = "Connection: keep-alive\r\nKeep-Alive: timeout=30, max=1000\r\nContent-Length: ";
+            *h++ = '\r'; *h++ = '\n';
+            memcpy(h, resp->extra_headers, eh_len); h += eh_len;
+            memcpy(h, h3e, sizeof(h3e) - 1); h += sizeof(h3e) - 1;
+        } else {
+            memcpy(h, h3, sizeof(h3) - 1); h += sizeof(h3) - 1;
+        }
         h = orbit_append_int(h, (int)body_len);
         memcpy(h, h4, sizeof(h4) - 1); h += sizeof(h4) - 1;
         header_len = (int)(h - header);
@@ -393,11 +436,14 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
             "HTTP/1.1 %d %s\r\n"
             "Server: Orbit\r\n"
             "Content-Type: %s\r\n"
+            "%s"
             "Connection: keep-alive\r\n"
             "Keep-Alive: timeout=30, max=1000\r\n"
             "Content-Length: %d\r\n"
             "\r\n",
-            resp->status, reason, ct, (int)body_len);
+            resp->status, reason, ct,
+            resp->extra_headers ? resp->extra_headers : "",
+            (int)body_len);
     }
 
     if (header_len > 0) {
@@ -499,6 +545,45 @@ bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method,
     }
 }
 
+/* ── Header accessor (always available, custom router too) ─────────── */
+
+/** @brief Case-insensitive header name match helper. */
+static bool header_name_match(const char* raw, const char* name, size_t name_len) {
+    for (size_t i = 0; i < name_len; i++) {
+        char a = raw[i];
+        char b = name[i];
+        if (a >= 'A' && a <= 'Z') a += 32;
+        if (b >= 'A' && b <= 'Z') b += 32;
+        if (a != b) return false;
+    }
+    return true;
+}
+
+/** @brief Look up a request header by name (case-insensitive). Returns empty string if not found. */
+orbit_string orbit_http_header_get(OrbitArena* arena, OrbitRequest* req, orbit_string name) {
+    if (!req || !req->headers || !name) return "";
+    const char* raw = req->headers;
+    size_t name_len = strlen(name);
+    while (*raw) {
+        while (*raw == '\r' || *raw == '\n') { raw++; }
+        if (!*raw || (*raw == '\r' && *(raw + 1) == '\n')) break;
+        const char* colon = strchr(raw, ':');
+        if (!colon) break;
+        size_t hdr_len = (size_t)(colon - raw);
+        if (hdr_len == name_len && header_name_match(raw, name, name_len)) {
+            const char* val_start = colon + 1;
+            while (*val_start == ' ') val_start++;
+            const char* val_end = val_start;
+            while (*val_end && *val_end != '\r' && *val_end != '\n') val_end++;
+            return orbit_string_slice(arena, val_start, 0, (orbit_int)(val_end - val_start));
+        }
+        const char* eol = strstr(raw, "\r\n");
+        if (!eol) break;
+        raw = eol + 2;
+    }
+    return "";
+}
+
 #ifndef ORBIT_CUSTOM_ROUTER
 /** @brief Default request dispatcher: handles /_pulse routes internally and returns 404 for everything else.  Returns 1 to keep the connection alive, 0 to close. */
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
@@ -539,46 +624,6 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
     orbit_perf_end_request(start);
     return keep_alive;
 }
-/* â”€â”€ Header accessor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
-/** @brief Case-insensitive header name match helper. */
-static bool header_name_match(const char* raw, const char* name, size_t name_len) {
-    for (size_t i = 0; i < name_len; i++) {
-        char a = raw[i];
-        char b = name[i];
-        if (a >= 'A' && a <= 'Z') a += 32;
-        if (b >= 'A' && b <= 'Z') b += 32;
-        if (a != b) return false;
-    }
-    return true;
-}
-
-
-/** @brief Look up a request header by name (case-insensitive). Returns empty string if not found. */
-orbit_string orbit_http_header_get(OrbitArena* arena, OrbitRequest* req, orbit_string name) {
-    if (!req || !req->headers || !name) return "";
-    const char* raw = req->headers;
-    size_t name_len = strlen(name);
-    while (*raw) {
-        while (*raw == '\r' || *raw == '\n') { raw++; }
-        if (!*raw || (*raw == '\r' && *(raw + 1) == '\n')) break;
-        const char* colon = strchr(raw, ':');
-        if (!colon) break;
-        size_t hdr_len = (size_t)(colon - raw);
-        if (hdr_len == name_len && header_name_match(raw, name, name_len)) {
-            const char* val_start = colon + 1;
-            while (*val_start == ' ') val_start++;
-            const char* val_end = val_start;
-            while (*val_end && *val_end != '\r' && *val_end != '\n') val_end++;
-            return orbit_string_slice(arena, val_start, 0, (orbit_int)(val_end - val_start));
-        }
-        const char* eol = strstr(raw, "\r\n");
-        if (!eol) break;
-        raw = eol + 2;
-    }
-    return "";
-}
-
 #endif
 
 #endif

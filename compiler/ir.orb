@@ -146,14 +146,18 @@ model IRFunction {
     isExtern: bool
     routeMethod: string
     routePath: string
+    routeHasLimit: bool
+    routeLimitRate: int
+    routeLimitWindowMs: int
+    routeLimitBurst: int
 }
 
 fn initIRFunction(name: string) -> IRFunction {
-    return IRFunction(name, [], [], [], 0, [], "void", false, "", "")
+    return IRFunction(name, [], [], [], 0, [], "void", false, "", "", false, 0, 0, 0)
 }
 
 fn initRouteFunction(name: string, method: string, path: string) -> IRFunction {
-    return IRFunction(name, [], [], [], 0, [], "OrbitResponse*", false, method, path)
+    return IRFunction(name, [], [], [], 0, [], "OrbitResponse*", false, method, path, false, 0, 0, 0)
 }
 
 fn ir_alloc_register(func: IRFunction, typeName: string) -> int {

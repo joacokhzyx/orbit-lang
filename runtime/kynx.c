@@ -36,11 +36,12 @@
 /* ── Types ──────────────────────────────────────────────────────────── */
 
 typedef struct {
-    int   pool_size;           /* max tracked IPs */
-    int   rate_limit;          /* requests per window */
-    int   window_ms;           /* sliding window duration */
+    int   pool_size;           /* admission pool: state thresholds are fractions of this */
+    int   rate_limit;          /* tokens refilled per window_ms (sustained rps) */
+    int   window_ms;           /* refill period; also the violation/decay period */
+    int   burst;               /* bucket capacity in tokens; 0 = rate_limit */
     int   ban_threshold;       /* suspicion score to auto-ban */
-    int   score_increment;     /* suspicion added per violation */
+    int   score_increment;     /* suspicion added per violation window */
     int   score_decay;         /* suspicion removed per clean window */
     bool  enabled;
 } OrbitKynxConfig;
@@ -53,11 +54,18 @@ typedef struct {
     } addr;
 } OrbitKynxIP;
 
+/* Kynx 0.1: per-IP token bucket. tokens_milli is an integer milli-token
+ * count so the hot path stays integer-only at -O0. last_violation_ns spaces
+ * suspicion scoring to one unit per violation window: a single accidental
+ * burst is ONE violation (429s, score += increment), never a ban trigger.
+ * Sustained abuse across many windows is what reaches ban_threshold. */
 typedef struct {
     OrbitKynxIP ip;
-    uint64_t    last_request_ns;
+    uint64_t    last_refill_ns;
+    uint64_t    last_violation_ns;
+    uint64_t    last_score_decay_ns;
+    int64_t     tokens_milli;
     int32_t     suspicion_score;
-    int32_t     request_count;
     bool        is_banned;
     uint64_t    banned_at_ns;
 } OrbitKynxEntry;
@@ -94,6 +102,16 @@ static volatile OrbitKynxState orbit_kynx_state = KYNX_STATE_STABLE;
 static volatile bool           kynx_siege_active = false;
 
 ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease = NULL;
+/* Milliseconds until this thread's denied request may retry (Retry-After). */
+static ORBIT_THREAD_LOCAL int kynx_tls_retry_ms = 0;
+
+/* Trusted reverse proxies (env ORBIT_KYNX_TRUSTED_PROXIES at init, or
+ * orbit_kynx_add_trusted_proxy). Only a direct peer in this set may speak
+ * for an X-Forwarded-For client; nobody else's XFF is ever believed. */
+#define KYNX_MAX_TRUSTED_PROXIES 16
+typedef struct { OrbitKynxIP net; int prefix; } KynxTrustedNet;
+static KynxTrustedNet kynx_trusted[KYNX_MAX_TRUSTED_PROXIES];
+static int kynx_trusted_count = 0;
 
 /* ── Spinlock Helper with Adaptive Backoff ──────────────────────────── */
 
@@ -129,6 +147,14 @@ static inline void kynx_lock_release(OrbitKynxLock* lock) {
 /* ── Monotonic Clock ────────────────────────────────────────────────── */
 
 /** @brief Return the current monotonic time in nanoseconds. */
+#ifdef ORBIT_KYNX_TEST
+/* Deterministic clock for runtime/test_kynx.c: the test TU defines the
+ * global and steps it, so property tests are exact and fast. */
+extern uint64_t orbit_kynx_test_now_ns;
+uint64_t orbit_kynx_now_ns(void) {
+    return orbit_kynx_test_now_ns;
+}
+#else
 uint64_t orbit_kynx_now_ns(void) {
 #ifdef _WIN32
     static LARGE_INTEGER frequency;
@@ -146,6 +172,7 @@ uint64_t orbit_kynx_now_ns(void) {
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 #endif
 }
+#endif
 
 /* ── IP Parsing & Hashing ────────────────────────────────────────────── */
 
@@ -174,32 +201,83 @@ static inline bool kynx_fast_parse_ipv4(const char* str, uint32_t* out_v4) {
     return true;
 }
 
+/* Parse one "::"-free span of colon-separated hex groups (with an optional
+ * trailing dotted-quad) into bytes. Returns bytes written or -1. */
+static int kynx_parse_v6_span(const char* s, const char* end, uint8_t* dst) {
+    int written = 0;
+    const char* p = s;
+    while (p < end) {
+        const char* colon = (const char*)memchr(p, ':', (size_t)(end - p));
+        if (!colon) colon = end;
+        if (memchr(p, '.', (size_t)(colon - p)) != NULL) {
+            /* dotted-quad tail: only legal as the final element */
+            char tmp[16];
+            size_t n = (size_t)(end - p);
+            if (n == 0 || n >= sizeof(tmp) || colon != end) return -1;
+            memcpy(tmp, p, n);
+            tmp[n] = '\0';
+            uint32_t v4 = 0;
+            if (!kynx_fast_parse_ipv4(tmp, &v4)) return -1;
+            dst[written++] = (uint8_t)(v4 >> 24);
+            dst[written++] = (uint8_t)(v4 >> 16);
+            dst[written++] = (uint8_t)(v4 >> 8);
+            dst[written++] = (uint8_t)v4;
+            p = end;
+            break;
+        }
+        if (colon == p) return -1; /* empty group (stray "::" inside span) */
+        unsigned long val = 0;
+        for (const char* q = p; q < colon; q++) {
+            char c = *q;
+            int d;
+            if (c >= '0' && c <= '9') d = c - '0';
+            else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+            else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+            else return -1;
+            val = (val << 4) | (unsigned long)d;
+            if (val > 0xFFFFul) return -1;
+        }
+        if (written + 2 > 16) return -1;
+        dst[written++] = (uint8_t)(val >> 8);
+        dst[written++] = (uint8_t)(val & 0xFF);
+        p = colon;
+        if (p == end) break;
+        p++; /* skip the single separator colon */
+        if (p == end) return -1; /* trailing single colon */
+    }
+    return written;
+}
+
+/* Full IPv6 text form: head "::" tail. The zero run sits between the two
+ * spans, so "::1", "2001:db8::1" and the full 8-group form all compare
+ * equal. Rejects embedded "::" in the tail, zones ("%"), and junk. */
+static bool kynx_parse_ipv6(const char* str, uint8_t out[16]) {
+    memset(out, 0, 16);
+    if (!str || !*str) return false;
+    const char* sep = strstr(str, "::");
+    if (!sep) {
+        return kynx_parse_v6_span(str, str + strlen(str), out) == 16;
+    }
+    int hb = kynx_parse_v6_span(str, sep, out);
+    if (hb < 0 || hb > 14) return false;
+    const char* tail = sep + 2;
+    if (strstr(tail, "::") != NULL) return false; /* only one zero run */
+    int tb = 0;
+    if (*tail != '\0') {
+        uint8_t tailb[16] = {0};
+        tb = kynx_parse_v6_span(tail, tail + strlen(tail), tailb);
+        if (tb < 0 || hb + tb > 16) return false;
+        memcpy(out + 16 - tb, tailb, (size_t)tb);
+    }
+    return true;
+}
+
 static bool kynx_parse_ip(const char* ip_str, OrbitKynxIP* out_ip) {
     if (!ip_str) return false;
 
     if (strchr(ip_str, ':') != NULL) {
         out_ip->family = 6;
-        memset(out_ip->addr.v6, 0, 16);
-        const char* p = ip_str;
-        int i = 0;
-        while (*p && i < 8) {
-            if (*p == ':') {
-                p++;
-                if (*p == ':') {
-                    p++;
-                    break;
-                }
-                continue;
-            }
-            char* endptr;
-            unsigned long val = strtoul(p, &endptr, 16);
-            if (p == endptr) return false;
-            out_ip->addr.v6[i * 2] = (uint8_t)(val >> 8);
-            out_ip->addr.v6[i * 2 + 1] = (uint8_t)(val & 0xFF);
-            i++;
-            p = endptr;
-        }
-        return true;
+        return kynx_parse_ipv6(ip_str, out_ip->addr.v6);
     } else {
         out_ip->family = 4;
         return kynx_fast_parse_ipv4(ip_str, &out_ip->addr.v4);
@@ -229,6 +307,289 @@ static bool kynx_ip_eq(const OrbitKynxIP* a, const OrbitKynxIP* b) {
     }
 }
 
+/* ── Trusted Proxies / X-Forwarded-For ─────────────────────────────── */
+
+/** Register a trusted reverse proxy: "1.2.3.4", "10.0.0.0/8", "2001:db8::/32". */
+void orbit_kynx_add_trusted_proxy(const char* cidr) {
+    if (!cidr || !*cidr) return;
+    char buf[64];
+    size_t n = strlen(cidr);
+    if (n == 0 || n >= sizeof(buf)) return;
+    memcpy(buf, cidr, n + 1);
+    int prefix = -1;
+    char* slash = strchr(buf, '/');
+    if (slash) {
+        *slash = '\0';
+        prefix = atoi(slash + 1);
+        if (prefix < 0) return;
+    }
+    OrbitKynxIP net;
+    if (!kynx_parse_ip(buf, &net)) return;
+    int max = (net.family == 4) ? 32 : 128;
+    if (prefix < 0) prefix = max;
+    if (prefix > max) return;
+    if (kynx_trusted_count >= KYNX_MAX_TRUSTED_PROXIES) return;
+    for (int i = 0; i < kynx_trusted_count; i++) {
+        if (kynx_ip_eq(&kynx_trusted[i].net, &net) && kynx_trusted[i].prefix == prefix) return;
+    }
+    kynx_trusted[kynx_trusted_count].net = net;
+    kynx_trusted[kynx_trusted_count].prefix = prefix;
+    kynx_trusted_count++;
+}
+
+static bool kynx_ip_in_net(const OrbitKynxIP* ip, const KynxTrustedNet* net) {
+    if (ip->family != net->net.family) return false;
+    int total = (ip->family == 4) ? 32 : 128;
+    int prefix = net->prefix;
+    if (prefix < 0) prefix = 0;
+    if (prefix > total) prefix = total;
+    uint8_t a[16], b[16];
+    memset(a, 0, sizeof(a));
+    memset(b, 0, sizeof(b));
+    if (ip->family == 4) {
+        a[0] = (uint8_t)(ip->addr.v4 >> 24); a[1] = (uint8_t)(ip->addr.v4 >> 16);
+        a[2] = (uint8_t)(ip->addr.v4 >> 8);  a[3] = (uint8_t)ip->addr.v4;
+        b[0] = (uint8_t)(net->net.addr.v4 >> 24); b[1] = (uint8_t)(net->net.addr.v4 >> 16);
+        b[2] = (uint8_t)(net->net.addr.v4 >> 8);  b[3] = (uint8_t)net->net.addr.v4;
+    } else {
+        memcpy(a, ip->addr.v6, 16);
+        memcpy(b, net->net.addr.v6, 16);
+    }
+    int full = prefix / 8, rem = prefix % 8;
+    if (full > 0 && memcmp(a, b, (size_t)full) != 0) return false;
+    if (rem) {
+        uint8_t mask = (uint8_t)(0xFFu << (8 - rem));
+        if ((a[full] & mask) != (b[full] & mask)) return false;
+    }
+    return true;
+}
+
+bool orbit_kynx_is_trusted_proxy(const char* ip_str) {
+    if (!ip_str || kynx_trusted_count == 0) return false;
+    OrbitKynxIP ip;
+    if (!kynx_parse_ip(ip_str, &ip)) return false;
+    for (int i = 0; i < kynx_trusted_count; i++) {
+        if (kynx_ip_in_net(&ip, &kynx_trusted[i])) return true;
+    }
+    return false;
+}
+
+/** Resolve the effective client IP: XFF is believed ONLY when the direct
+ * peer is a registered trusted proxy; walk the comma list right-to-left and
+ * take the first non-trusted hop. Untrusted peers keep their own address. */
+void orbit_kynx_effective_ip(const char* peer, const char* xff, char* out, size_t out_len) {
+    if (!out || out_len == 0) return;
+    out[0] = '\0';
+    if (!peer) return;
+    size_t pn = strlen(peer);
+    if (pn >= out_len) pn = out_len - 1;
+    memcpy(out, peer, pn);
+    out[pn] = '\0';
+    if (!xff || !*xff || !orbit_kynx_is_trusted_proxy(peer)) return;
+
+    const char* p = xff + strlen(xff);
+    while (p > xff) {
+        const char* seg_end = p;
+        const char* seg_start = p;
+        while (seg_start > xff && *(seg_start - 1) != ',') seg_start--;
+        while (seg_start < seg_end && (*seg_start == ' ' || *seg_start == '\t')) seg_start++;
+        const char* e2 = seg_end;
+        while (e2 > seg_start && (e2[-1] == ' ' || e2[-1] == '\t')) e2--;
+        if (e2 > seg_start) {
+            char cand[64];
+            size_t cn = (size_t)(e2 - seg_start);
+            if (cn >= sizeof(cand)) cn = sizeof(cand) - 1;
+            memcpy(cand, seg_start, cn);
+            cand[cn] = '\0';
+            OrbitKynxIP cip;
+            if (kynx_parse_ip(cand, &cip) && !orbit_kynx_is_trusted_proxy(cand)) {
+                size_t wn = strlen(cand);
+                if (wn >= out_len) wn = out_len - 1;
+                memcpy(out, cand, wn);
+                out[wn] = '\0';
+                return;
+            }
+        }
+        if (seg_start <= xff) break;
+        p = seg_start - 1; /* step over the comma */
+    }
+    /* every hop trusted (or unparseable): keep the peer address */
+}
+
+/* ── Per-Route Rate Limits (Kynx 0.1 C3) ───────────────────────────── */
+
+typedef struct {
+    const char* method;
+    const char* path;
+    int rate;
+    int window_ms;
+    int burst;
+} OrbitKynxRouteLimit;
+
+#define KYNX_MAX_ROUTE_LIMITS 32
+static OrbitKynxRouteLimit kynx_route_limits[KYNX_MAX_ROUTE_LIMITS];
+static int kynx_route_limit_count = 0;
+
+void orbit_kynx_register_route_limit(const char* method, const char* path,
+                                     int rate, int window_ms, int burst) {
+    if (!method || !path || rate <= 0) return;
+    if (kynx_route_limit_count >= KYNX_MAX_ROUTE_LIMITS) return;
+    for (int i = 0; i < kynx_route_limit_count; i++) {
+        if (strcmp(kynx_route_limits[i].method, method) == 0 &&
+            strcmp(kynx_route_limits[i].path, path) == 0) {
+            return; /* already registered */
+        }
+    }
+    OrbitKynxRouteLimit* r = &kynx_route_limits[kynx_route_limit_count++];
+    r->method = method;
+    r->path = path;
+    r->rate = rate;
+    r->window_ms = (window_ms > 0) ? window_ms : 1000;
+    r->burst = (burst > 0) ? burst : rate;
+}
+
+/* Simple pattern match: ':' segment, '{...}' segment, or trailing '*' */
+static bool kynx_path_match(const char* pattern, const char* path) {
+    if (!pattern || !path) return false;
+    if (strcmp(pattern, path) == 0) return true;
+    const char* p = pattern;
+    const char* s = path;
+    while (*p && *s) {
+        if (p[0] == '*' && p[1] == '\0') return true;
+        if (p[0] == ':' || p[0] == '{') {
+            while (*p && *p != '/') p++;
+            while (*s && *s != '/') s++;
+            continue;
+        }
+        if (*p != *s) return false;
+        p++; s++;
+    }
+    if (*p == '*' && p[1] == '\0') return true;
+    return *p == '\0' && *s == '\0';
+}
+
+/* Per-route buckets: separate from global IP buckets so ban/score stay
+ * global (route_id 0 path is the original orbit_kynx_check) while rate
+ * limiting is per (ip, route). Zero-false-ban preserved: route deny only
+ * sets Retry-After, never scores unless the GLOBAL bucket also denied. */
+typedef struct {
+    OrbitKynxIP ip;
+    int route_idx;
+    uint64_t last_refill_ns;
+    int64_t tokens_milli;
+    bool used;
+} KynxRouteBucket;
+
+#define KYNX_ROUTE_BUCKET_SLOTS 1024
+static KynxRouteBucket kynx_route_buckets[KYNX_ROUTE_BUCKET_SLOTS];
+static OrbitKynxLock kynx_route_bucket_lock = {0};
+
+static void kynx_route_refill(KynxRouteBucket* b, int rate, int window_ms, uint64_t now) {
+    if (b->last_refill_ns == 0 || now <= b->last_refill_ns) {
+        b->last_refill_ns = now;
+        return;
+    }
+    uint64_t elapsed = now - b->last_refill_ns;
+    uint64_t max_el = (uint64_t)window_ms * 1000000ULL * 10ULL;
+    if (elapsed > max_el) elapsed = max_el;
+    b->last_refill_ns = now;
+    int64_t gained = (int64_t)((elapsed * (uint64_t)rate * 1000ULL) /
+                               ((uint64_t)window_ms * 1000000ULL));
+    b->tokens_milli += gained;
+    int64_t cap = (int64_t)(rate > 0 ? rate : 1) * 1000;
+    if (b->tokens_milli > cap) b->tokens_milli = cap;
+}
+
+static int kynx_route_retry_ms(const KynxRouteBucket* b, int rate, int window_ms) {
+    int64_t need = 1000 - b->tokens_milli;
+    if (need <= 0) return 1;
+    if (rate < 1) rate = 1;
+    if (window_ms < 1) window_ms = 1;
+    int64_t ms = (need * (int64_t)window_ms) / ((int64_t)rate * 1000);
+    if (ms < 1) ms = 1;
+    if (ms > window_ms) ms = window_ms;
+    return (int)ms;
+}
+
+bool orbit_kynx_check(const char* ip_str); /* defined below; the route gate falls back to it */
+bool orbit_kynx_check_route(const char* ip_str, const char* method, const char* path) {
+    kynx_tls_retry_ms = 0;
+    if (!__atomic_load_n(&orbit_kynx_config.enabled, __ATOMIC_RELAXED) || !ip_str)
+        return true;
+    if (!method || !path) return orbit_kynx_check(ip_str);
+
+    /* Find matching route limit (linear; few annotated routes). */
+    int route_idx = -1;
+    const OrbitKynxRouteLimit* lim = NULL;
+    for (int i = 0; i < kynx_route_limit_count; i++) {
+        if (strcmp(kynx_route_limits[i].method, method) != 0) continue;
+        if (kynx_path_match(kynx_route_limits[i].path, path)) {
+            route_idx = i;
+            lim = &kynx_route_limits[i];
+            break;
+        }
+    }
+    if (!lim) return orbit_kynx_check(ip_str); /* unannotated → global only */
+
+    OrbitKynxIP ip;
+    if (!kynx_parse_ip(ip_str, &ip)) return true;
+
+    uint64_t now = orbit_kynx_now_ns();
+    int rate = lim->rate;
+    int win = lim->window_ms;
+    int burst = lim->burst;
+    if (rate < 1) rate = 1;
+    if (win < 1) win = 1;
+    if (burst < 1) burst = rate;
+
+    /* Find/create route bucket for (ip, route_idx). */
+    kynx_lock_acquire(&kynx_route_bucket_lock);
+    KynxRouteBucket* b = NULL;
+    int free_slot = -1;
+    int oldest_slot = 0;
+    uint64_t oldest_time = now;
+    for (int i = 0; i < KYNX_ROUTE_BUCKET_SLOTS; i++) {
+        KynxRouteBucket* c = &kynx_route_buckets[i];
+        if (!c->used) {
+            if (free_slot < 0) free_slot = i;
+            continue;
+        }
+        if (c->route_idx == route_idx && kynx_ip_eq(&c->ip, &ip)) {
+            b = c;
+            break;
+        }
+        if (c->last_refill_ns < oldest_time) {
+            oldest_time = c->last_refill_ns;
+            oldest_slot = i;
+        }
+    }
+    if (!b) {
+        int slot = free_slot >= 0 ? free_slot : oldest_slot;
+        b = &kynx_route_buckets[slot];
+        memset(b, 0, sizeof(*b));
+        b->ip = ip;
+        b->route_idx = route_idx;
+        b->used = true;
+        b->last_refill_ns = now;
+        b->tokens_milli = (int64_t)burst * 1000 - 1000; /* spend insert */
+        if (b->tokens_milli < 0) b->tokens_milli = 0;
+        kynx_lock_release(&kynx_route_bucket_lock);
+        return orbit_kynx_check(ip_str); /* still run global gate */
+    }
+
+    kynx_route_refill(b, rate, win, now);
+    if (b->tokens_milli >= 1000) {
+        b->tokens_milli -= 1000;
+        kynx_lock_release(&kynx_route_bucket_lock);
+        return orbit_kynx_check(ip_str);
+    }
+    kynx_tls_retry_ms = kynx_route_retry_ms(b, rate, win);
+    __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
+    orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
+    kynx_lock_release(&kynx_route_bucket_lock);
+    return false; /* route rate deny: Retry-After only, NO score/ban */
+}
+
 /* ── Init / Cleanup ─────────────────────────────────────────────────── */
 
 /** @brief Initialise Kynx with @p config, zeroing all shard tables and counters. */
@@ -241,24 +602,99 @@ void orbit_kynx_init(OrbitKynxConfig config) {
     __atomic_store_n(&orbit_kynx_active_leases, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&orbit_kynx_state, KYNX_STATE_STABLE, __ATOMIC_SEQ_CST);
     __atomic_store_n(&kynx_siege_active, false, __ATOMIC_SEQ_CST);
+    /* Trusted proxies are deployment config: reload from env every init so
+     * reset() + init() sequences (tests) never inherit stale entries. */
+    kynx_trusted_count = 0;
+    {
+        const char* env = getenv("ORBIT_KYNX_TRUSTED_PROXIES");
+        if (env && *env) {
+            char list[512];
+            size_t en = strlen(env);
+            if (en >= sizeof(list)) en = sizeof(list) - 1;
+            memcpy(list, env, en);
+            list[en] = '\0';
+            char* tok = strtok(list, ",");
+            while (tok) {
+                while (*tok == ' ' || *tok == '\t') tok++;
+                char* tail = tok + strlen(tok);
+                while (tail > tok && (tail[-1] == ' ' || tail[-1] == '\t')) {
+                    tail--;
+                    *tail = '\0';
+                }
+                if (*tok) orbit_kynx_add_trusted_proxy(tok);
+                tok = strtok(NULL, ",");
+            }
+        }
+    }
 }
 
 /** @brief Wipe all shard tables (e.g., when the server is stopping). */
 void orbit_kynx_cleanup(void) {
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
+    memset(kynx_route_buckets, 0, sizeof(kynx_route_buckets));
 }
 
 /** @brief Reset all shard tables and global counters to their initial state. */
 void orbit_kynx_reset(void) {
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
+    memset(kynx_route_buckets, 0, sizeof(kynx_route_buckets));
+    kynx_route_limit_count = 0;
     __atomic_store_n(&orbit_kynx_total_checks, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&orbit_kynx_total_blocked, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&orbit_kynx_active_leases, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&orbit_kynx_state, KYNX_STATE_STABLE, __ATOMIC_SEQ_CST);
     __atomic_store_n(&kynx_siege_active, false, __ATOMIC_SEQ_CST);
+    kynx_trusted_count = 0;
 }
 
 /* ── Admission Control Core ─────────────────────────────────────────── */
+
+/* ── Token Bucket Internals ──────────────────────────────────────────── */
+
+static int kynx_effective_burst(void) {
+    int b = orbit_kynx_config.burst;
+    if (b <= 0) b = orbit_kynx_config.rate_limit;
+    if (b < 1) b = 1;
+    return b;
+}
+
+/* Refill the bucket for elapsed time up to @p now, clamped to capacity. */
+static void kynx_refill(OrbitKynxEntry* e, uint64_t now) {
+    int rate = orbit_kynx_config.rate_limit;
+    int win = orbit_kynx_config.window_ms;
+    if (rate < 1) rate = 1;
+    if (win < 1) win = 1;
+    int64_t cap_milli = (int64_t)kynx_effective_burst() * 1000;
+    if (e->last_refill_ns == 0 || now <= e->last_refill_ns) {
+        e->last_refill_ns = now;
+        return;
+    }
+    uint64_t elapsed = now - e->last_refill_ns;
+    /* Idle time beyond ~10 windows already fills the bucket; capping keeps
+     * the multiply bounded (no overflow on multi-day idles). */
+    uint64_t max_el = (uint64_t)win * 1000000ULL * 10ULL;
+    if (elapsed > max_el) elapsed = max_el;
+    e->last_refill_ns = now;
+    /* milli-tokens = elapsed_ns * rate * 1000 / window_ns */
+    int64_t gained = (int64_t)((elapsed * (uint64_t)rate * 1000ULL) /
+                               ((uint64_t)win * 1000000ULL));
+    e->tokens_milli += gained;
+    if (e->tokens_milli > cap_milli) e->tokens_milli = cap_milli;
+}
+
+/* ms until the bucket holds one full token (what Retry-After should say). */
+static int kynx_retry_after_ms(const OrbitKynxEntry* e) {
+    int64_t need = 1000 - e->tokens_milli;
+    if (need <= 0) return 1;
+    int rate = orbit_kynx_config.rate_limit;
+    int win = orbit_kynx_config.window_ms;
+    if (rate < 1) rate = 1;
+    if (win < 1) win = 1;
+    int64_t ms = (need * (int64_t)win) / ((int64_t)rate * 1000);
+    if (ms < 1) ms = 1;
+    if (ms > win) ms = win;
+    return (int)ms;
+}
 
 /** @brief Check whether the client at @p ip_str is allowed to proceed.  Returns true (allow) or false (block/ban). */
 /* Kynx 2.0: multi-hash Bloom maintenance (k=4, double-derived indexes).
@@ -276,6 +712,7 @@ static void kynx_bloom_apply(uint32_t hash, int set) {
 }
 
 bool orbit_kynx_check(const char* ip_str) {
+    kynx_tls_retry_ms = 0;
     if (!__atomic_load_n(&orbit_kynx_config.enabled, __ATOMIC_RELAXED) || !ip_str) return true;
 
     OrbitKynxIP ip;
@@ -312,12 +749,14 @@ bool orbit_kynx_check(const char* ip_str) {
         if (kynx_ip_eq(&e->ip, &ip)) {
             // Found IP
             if (e->is_banned) {
-                // Check if ban expired (e.g. 5 minutes)
+                // Check if ban expired (e.g., 5 minutes)
                 if (now - e->banned_at_ns > 300ULL * 1000000000ULL) {
                     e->is_banned = false;
                     e->suspicion_score /= 2;
                     kynx_bloom_apply(hash, 0);
                 } else {
+                    uint64_t left = 300ULL * 1000000000ULL - (now - e->banned_at_ns);
+                    kynx_tls_retry_ms = (int)(left / 1000000ULL);
                     __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
                     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
                     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
@@ -326,42 +765,53 @@ bool orbit_kynx_check(const char* ip_str) {
                 }
             }
 
-            uint64_t delta = now - e->last_request_ns;
-            if (delta < window_ns) {
-                e->request_count++;
-                if (e->request_count > orbit_kynx_config.rate_limit) {
-                    e->suspicion_score += orbit_kynx_config.score_increment;
-                    if (e->suspicion_score >= orbit_kynx_config.ban_threshold) {
-                        e->is_banned = true;
-                        e->banned_at_ns = now;
-                        kynx_bloom_apply(hash, 1);
-                        __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
-                        orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
-                        orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
-                        kynx_lock_release(&shard->lock);
-                        return false;
-                    }
-                }
-            } else {
-                // Decay
-                e->request_count = 1;
-                if (e->suspicion_score > 0) {
+            kynx_refill(e, now);
+
+            if (e->tokens_milli >= 1000) {
+                /* Clean admission: spend a token, decay suspicion at most
+                 * once per window so a legit client walks its score down. */
+                e->tokens_milli -= 1000;
+                if (e->suspicion_score > 0 &&
+                    now - e->last_score_decay_ns >= window_ns) {
                     e->suspicion_score -= orbit_kynx_config.score_decay;
                     if (e->suspicion_score < 0) e->suspicion_score = 0;
+                    e->last_score_decay_ns = now;
+                }
+                kynx_lock_release(&shard->lock);
+                return true;
+            }
+
+            /* Bucket empty: deny with Retry-After. Score at most one unit
+             * per violation window — sustained abuse is what bans, a single
+             * burst is not. */
+            kynx_tls_retry_ms = kynx_retry_after_ms(e);
+            if (now - e->last_violation_ns >= window_ns) {
+                e->suspicion_score += orbit_kynx_config.score_increment;
+                e->last_violation_ns = now;
+                if (e->suspicion_score >= orbit_kynx_config.ban_threshold) {
+                    e->is_banned = true;
+                    e->banned_at_ns = now;
+                    kynx_bloom_apply(hash, 1);
+                    __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
+                    orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
+                    orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_early_rejections);
+                    kynx_lock_release(&shard->lock);
+                    return false;
                 }
             }
-            e->last_request_ns = now;
+            __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
+            orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
             kynx_lock_release(&shard->lock);
-            return true;
+            return false;
         }
 
-        if (e->last_request_ns < oldest_time) {
-            oldest_time = e->last_request_ns;
+        if (e->last_refill_ns < oldest_time) {
+            oldest_time = e->last_refill_ns;
             oldest_slot = i;
         }
     }
 
-    // Insert new IP
+    // Insert new IP: bucket starts full (first-timers get the burst).
     int target_slot = free_slot;
     if (target_slot < 0) {
         // Table saturation - evict oldest entry
@@ -371,15 +821,19 @@ bool orbit_kynx_check(const char* ip_str) {
 
     OrbitKynxEntry* e = &shard->entries[target_slot];
     e->ip = ip;
-    e->last_request_ns = now;
-    e->request_count = 1;
+    e->last_refill_ns = now;
+    e->last_violation_ns = 0;
+    e->last_score_decay_ns = now;
+    /* Bucket starts full but this very request spends one token: the
+     * admitting check costs a token for new IPs too (burst exactly burst). */
+    e->tokens_milli = (int64_t)kynx_effective_burst() * 1000 - 1000;
     e->suspicion_score = 0;
     e->is_banned = false;
     e->banned_at_ns = 0;
 
     if (free_slot >= 0) {
         shard->count++;
-        orbit_perf_atomic_inc64((uint64_t*)&orbit_perf_stats.kynx_tracked_ips);
+        orbit_perf_atomic_inc32(&orbit_perf_stats.kynx_tracked_ips);
     }
 
     kynx_lock_release(&shard->lock);
@@ -398,21 +852,39 @@ static inline void kynx_transition_state(OrbitKynxState new_state) {
     }
 }
 
+/* Admission thresholds as fractions of the configured pool_size, with
+ * 75% hysteresis on release. pool_size <= 0 keeps the historical absolute
+ * scale (512); tiny pools clamp to the 16-scale so tiers stay ordered.
+ * pool=512 reproduces the legacy 32/128/512 - 24/96/384 exactly. */
+static inline void kynx_pool_thresholds(int* shaped, int* guarded, int* siege) {
+    int pool = orbit_kynx_config.pool_size;
+    if (pool <= 0) pool = 512;
+    if (pool < 16) pool = 16;
+    *shaped = pool / 16;
+    *guarded = pool / 4;
+    *siege = pool;
+    if (*shaped < 1) *shaped = 1;
+    if (*guarded <= *shaped) *guarded = *shaped + 1;
+    if (*siege <= *guarded) *siege = *guarded + 1;
+}
+
 static inline void kynx_update_admission_state(void) {
     int64_t active = __atomic_load_n(&orbit_kynx_active_leases, __ATOMIC_RELAXED);
     OrbitKynxState state = (OrbitKynxState)__atomic_load_n(&orbit_kynx_state, __ATOMIC_RELAXED);
+    int shaped, guarded, siege;
+    kynx_pool_thresholds(&shaped, &guarded, &siege);
 
-    // Hysteresis based transitions
+    // Hysteresis based transitions (release at 3/4 of each entry level)
     if (state == KYNX_STATE_STABLE) {
-        if (active > 32) kynx_transition_state(KYNX_STATE_SHAPED);
+        if (active > shaped) kynx_transition_state(KYNX_STATE_SHAPED);
     } else if (state == KYNX_STATE_SHAPED) {
-        if (active > 128) kynx_transition_state(KYNX_STATE_GUARDED);
-        else if (active <= 24) kynx_transition_state(KYNX_STATE_STABLE);
+        if (active > guarded) kynx_transition_state(KYNX_STATE_GUARDED);
+        else if (active <= (shaped * 3) / 4) kynx_transition_state(KYNX_STATE_STABLE);
     } else if (state == KYNX_STATE_GUARDED) {
-        if (active > 512) kynx_transition_state(KYNX_STATE_SIEGE);
-        else if (active <= 96) kynx_transition_state(KYNX_STATE_SHAPED);
+        if (active > siege) kynx_transition_state(KYNX_STATE_SIEGE);
+        else if (active <= (guarded * 3) / 4) kynx_transition_state(KYNX_STATE_SHAPED);
     } else if (state == KYNX_STATE_SIEGE) {
-        if (active <= 384) kynx_transition_state(KYNX_STATE_GUARDED);
+        if (active <= (siege * 3) / 4) kynx_transition_state(KYNX_STATE_GUARDED);
     }
 }
 
@@ -429,6 +901,12 @@ OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* 
     OrbitKynxLease* lease = (OrbitKynxLease*)orbit_alloc(arena, sizeof(OrbitKynxLease));
     if (!lease) return NULL;
     memset(lease, 0, sizeof(OrbitKynxLease));
+    /* Energy baseline (C4): cycles + attributable joules + completed-cycle
+     * counter, so destroy() can attribute this lease's share. */
+    lease->start_cycles = orbit_rdtsc();
+    lease->start_total_cycles = (uint64_t)__atomic_load_n(&orbit_perf_stats.total_cycles, __ATOMIC_RELAXED);
+    lease->start_joules = orbit_energy_attributable_joules();
+    lease->joules = 0.0;
 
     /* Default route budgets — tightened below based on admission state. */
     lease->deadline_ns    = orbit_kynx_now_ns() + 500ULL * 1000000ULL; /* 500 ms */
@@ -497,6 +975,26 @@ void orbit_kynx_lease_destroy(OrbitKynxLease* lease) {
     if (lease == current_lease) {
         current_lease = NULL;
     }
+    if (lease) {
+        /* Per-lease energy attribution (ESTIMATE, same family as the
+         * ledger's route split): package-joule delta over the lease
+         * lifetime times this lease's share of completed-request cycles
+         * in that window (own cycles included, so a lone request gets
+         * share 1). Clamped to [0, delta]. Without a sensor every
+         * accessor reads 0, so joules stays exactly 0 (cpu-proxy). */
+        uint64_t end_cycles = orbit_rdtsc();
+        uint64_t lease_cycles = (end_cycles >= lease->start_cycles)
+            ? (end_cycles - lease->start_cycles) : 0;
+        double dj = orbit_energy_attributable_joules() - lease->start_joules;
+        if (dj < 0.0) dj = 0.0;
+        uint64_t total_now = (uint64_t)__atomic_load_n(&orbit_perf_stats.total_cycles, __ATOMIC_RELAXED);
+        uint64_t delta_total = (total_now >= lease->start_total_cycles)
+            ? (total_now - lease->start_total_cycles) : 0;
+        uint64_t denom = delta_total + lease_cycles;
+        double share = (denom > 0) ? (double)lease_cycles / (double)denom : 0.0;
+        if (share > 1.0) share = 1.0;
+        lease->joules = dj * share;
+    }
     __atomic_fetch_sub(&orbit_kynx_active_leases, 1, __ATOMIC_SEQ_CST);
     kynx_update_admission_state();
 }
@@ -550,5 +1048,33 @@ uint64_t orbit_kynx_get_total_checks(void)  { return (uint64_t)__atomic_load_n(&
 uint64_t orbit_kynx_get_total_blocked(void) { return (uint64_t)__atomic_load_n(&orbit_kynx_total_blocked, __ATOMIC_RELAXED); }
 /** @brief Return whether Kynx is currently in siege mode. */
 bool     orbit_kynx_is_siege_mode(void)     { return __atomic_load_n(&kynx_siege_active, __ATOMIC_RELAXED); }
+/** @brief Suspicion score of @p ip_str; -1 when the IP is untracked. */
+int orbit_kynx_get_suspicion(const char* ip_str) {
+    if (!ip_str) return -1;
+    OrbitKynxIP ip;
+    if (!kynx_parse_ip(ip_str, &ip)) return -1;
+    uint32_t shard_idx = kynx_hash_ip(&ip) % KYNX_SHARD_COUNT;
+    OrbitKynxShard* shard = &orbit_kynx_shards[shard_idx];
+    int score = -1;
+    kynx_lock_acquire(&shard->lock);
+    for (int i = 0; i < KYNX_SLOTS_PER_SHARD; i++) {
+        if (shard->entries[i].ip.family != 0 && kynx_ip_eq(&shard->entries[i].ip, &ip)) {
+            score = shard->entries[i].suspicion_score;
+            break;
+        }
+    }
+    kynx_lock_release(&shard->lock);
+    return score;
+}
+/** @brief Retry-After advice (ms) for the last deny on this thread. */
+int orbit_kynx_last_retry_ms(void) { return kynx_tls_retry_ms; }
+/** @brief ESTIMATE of joules attributed to @p lease (0 without a sensor). */
+double orbit_kynx_lease_joules(const OrbitKynxLease* lease) { return lease ? lease->joules : 0.0; }
+/** @brief RDTSC cycles elapsed under @p lease (0 when the clock reads 0). */
+uint64_t orbit_kynx_lease_cycles(const OrbitKynxLease* lease) {
+    if (!lease) return 0;
+    uint64_t now = orbit_rdtsc();
+    return (now >= lease->start_cycles) ? (now - lease->start_cycles) : 0;
+}
 
 #endif

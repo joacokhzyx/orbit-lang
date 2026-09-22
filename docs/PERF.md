@@ -126,3 +126,30 @@ binaries were built with `gcc -O0 -w -DORBIT_WITH_NET -I runtime`.)
 - The `runtime/*.c`-only lane cannot touch the two largest costs
   (access log, Kynx policy/getpeername in generated code); those need
   the compiler lane.
+
+## Kynx 0.1 load gate (C6, same reference box)
+
+Service: `examples/blog_api.orb`, route `GET /health` annotated
+`limit 20 / s burst 20`, built with the fixed-point compiler and
+`gcc -O0 -DORBIT_WITH_NET`. Gate: `scripts/kynx_route_limit_gate.py`
+(needs the server already listening; run its three phases back to back).
+
+| Phase | Result |
+|---|---|
+| A healthy: 200 reqs @10 rps, 2 conns | 200/200, 0 errors, p50 0.13 ms, p95 ~0.22 ms, p99 ~0.29 ms |
+| B burst: 25 rapid sequential GETs | 21 x 200 + 4 x 429, `Retry-After: 1`, 429 bodies byte-exact |
+| C no-ban: 5 GETs 2 s after the burst | 5 x 200 (a ban would 429 for 5 minutes) |
+
+Phase B is isolated to the route bucket by construction (25 requests sit
+well under the global 50-burst, so any 429 is route-level). The gate runs
+`night_load.py` with `--warmup 0`: the standard 1 s unpaced warmup floods
+the shared loopback budgets and trips the (correct) 429 path before the
+measurement starts; the server itself is pre-started instead.
+
+Bug the gate caught: the manual response-header fast path (fix 3 above)
+omitted the CRLF after `Content-Type` whenever extra headers were present,
+so 429s went out as `Content-Type: text/plainRetry-After: 1` with the
+remaining headers spilling into the body. The `snprintf` fallback had it
+right; unit tests only covered header storage, never wire bytes. Fixed in
+`runtime/http.c` (both shapes now mirror the fallback) and verified on the
+wire: status + `Retry-After` + exact body.

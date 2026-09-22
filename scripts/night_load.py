@@ -135,6 +135,11 @@ def worker(idx, args, stop_at, max_reqs, latencies, transport, status_counts, lo
     if args.requests > 0:
         per, rem = divmod(args.requests, args.connections)
         quota = per + (1 if idx < rem else 0)
+    # Optional pacing: spread this connection's requests so the aggregate
+    # across all connections averages args.rps (0 = as fast as possible).
+    pace_interval = 0.0
+    if args.rps > 0:
+        pace_interval = args.connections / args.rps
     try:
         sock = open_connection(args.host, args.port, args.timeout, src_ip)
     except OSError:
@@ -173,6 +178,10 @@ def worker(idx, args, stop_at, max_reqs, latencies, transport, status_counts, lo
                 sock = open_connection(args.host, args.port, args.timeout, src_ip)
             except OSError:
                 break
+        if pace_interval > 0:
+            nap = pace_interval - (time.perf_counter() - t0)
+            if nap > 0:
+                time.sleep(nap)
     try:
         sock.close()
     except OSError:
@@ -197,6 +206,8 @@ def parse_args(argv):
     p.add_argument("--timeout", type=float, default=5.0)
     p.add_argument("--source-ips", type=int, default=0,
                    help="distinct 127.0.0.x sources (0 = OS default only)")
+    p.add_argument("--rps", type=float, default=0,
+                   help="target aggregate requests/sec, paced per connection (0 = as fast as possible)")
     p.add_argument("--warmup", type=float, default=1.0,
                    help="warmup seconds before measurement (connections reused)")
     p.add_argument("--json", default=None, help="write JSON report to file")

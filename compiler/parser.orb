@@ -710,8 +710,36 @@ fn parseRouteDecl(parser: Parser, decorators: list) -> ASTNode {
     }
     consume(parser, TokType.StringLiteral, "Expected path string.")
     val path = parser.previousToken.text
+    var hasLimit = false
+    var limitRate = 0
+    var limitWindow = 1000
+    var limitBurst = 0
+    if check(parser, TokType.Identifier) && parser.currentToken.text == "limit" {
+        advanceParser(parser)
+        consume(parser, TokType.IntegerLiteral, "Expected limit rate number.")
+        limitRate = parseIntSelfhost(parser.previousToken.text)
+        var windowMs = 1000
+        if check(parser, TokType.Slash) {
+            advanceParser(parser)
+            if check(parser, TokType.Identifier) {
+                advanceParser(parser)
+                val unit = parser.previousToken.text
+                if unit == "min" { windowMs = 60000 }
+                if unit == "sec" { windowMs = 1000 }
+                if unit == "s" { windowMs = 1000 }
+                if unit == "ms" { windowMs = 1 }
+            }
+        }
+        limitWindow = windowMs
+        if check(parser, TokType.Identifier) && parser.currentToken.text == "burst" {
+            advanceParser(parser)
+            consume(parser, TokType.IntegerLiteral, "Expected burst number.")
+            limitBurst = parseIntSelfhost(parser.previousToken.text)
+        }
+        hasLimit = true
+    }
     val body = parseBlock(parser)
-    return ASTNode.RouteDecl(RouteDeclNode(method, path, decorators, body))
+    return ASTNode.RouteDecl(RouteDeclNode(method, path, decorators, body, hasLimit, limitRate, limitWindow, limitBurst))
 }
 
 fn parseTraitDecl(parser: Parser, isPrivate: bool) -> ASTNode {

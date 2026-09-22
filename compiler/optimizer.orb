@@ -62,4 +62,3 @@ fn optimizeIRModule(module: IRModule) -> OptStats {
     }
     return OptStats(totalPatterns, totalFolds)
 }
-

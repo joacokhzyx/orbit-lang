@@ -49,6 +49,7 @@ route POST "/posts" {
     return ok 201 payload
 }
 
-route GET "/health" {
+// C6 load gate: 20 rps sustained, burst 20 (see scripts/kynx_route_limit_gate.py).
+route GET "/health" limit 20 / s burst 20 {
     return ok 200 "{\"status\":\"UP\"}"
 }

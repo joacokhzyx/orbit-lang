@@ -153,6 +153,22 @@ route GET "/notes/:id" {
 }
 ```
 
+Routes can carry a per-route rate annotation after the path, before the body:
+
+```orbit
+route GET "/heavy" limit 100/min burst 20 {
+    return ok 200 "{\"status\":\"ok\"}"
+}
+```
+
+`limit` takes a positive integer rate plus an optional `/unit` window:
+`min` is 60000 ms, `sec` and `s` are 1000 ms, `ms` is 1 ms; with no
+`/unit` the window is 1000 ms. `burst` is optional and sets the bucket
+capacity; when omitted (or zero) it defaults to the rate. The compiler
+rejects a `limit` whose rate is not `> 0`, whose window is not `> 0`, or
+whose burst is negative. Routes without `limit` fall back to the global
+gate only (see `docs/KYNX.md`).
+
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
 Their API surface is under active development. Check the runtime and examples
 before depending on a new helper in a public service.

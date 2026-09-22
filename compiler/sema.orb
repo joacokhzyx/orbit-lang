@@ -231,6 +231,17 @@ fn checkRouteBody(sema: Sema, node: ASTNode) {
             } else {
                 sema.seenRoutes.push(routeKey)
             }
+            if r.has_limit {
+                if r.limit_rate <= 0 {
+                    reportError(sema, "Route limit rate must be > 0: " + routeKey)
+                }
+                if r.limit_window_ms <= 0 {
+                    reportError(sema, "Route limit window must be > 0: " + routeKey)
+                }
+                if r.limit_burst < 0 {
+                    reportError(sema, "Route limit burst must be >= 0: " + routeKey)
+                }
+            }
             val prevReturn = sema.currentReturnType
             sema.currentReturnType = "response"
             pushScope(sema)
