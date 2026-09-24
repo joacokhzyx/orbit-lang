@@ -1,0 +1,15 @@
+// Wave 1 demo: string shaping, hashing, and assertions composed.
+import "std/string/string.orb"
+import "std/hash/hash.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    val name = trim("  orbit  ")
+    val upper = toUpper(name)
+    print(upper)
+    val digest = sha256Hex(upper)
+    print(digest)
+    if assertTrue(startsWith(upper, "ORBIT")) == false { return 1 }
+    if assertEqInt(digest.len(), 64) == false { return 2 }
+    return 0
+}

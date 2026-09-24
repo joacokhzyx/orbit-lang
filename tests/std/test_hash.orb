@@ -1,0 +1,17 @@
+// M3 contract tests: published SHA-256 vectors plus HMAC shape
+// properties (determinism, key/message avalanche). No exact HMAC
+// digest is asserted from memory; vectors below are the canonical
+// textbook ones ("" and "abc").
+import "std/hash/hash.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertEqStr(sha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") == false { return 1 }
+    if assertEqStr(sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == false { return 2 }
+    val h1 = hmacSha256("key", "data")
+    val h2 = hmacSha256("key", "data")
+    if assertEqStr(h1, h2) == false { return 3 }
+    if assertEqStr(hmacSha256("other", "data"), h1) { return 4 }
+    if assertEqStr(hmacSha256("key", "other"), h1) { return 5 }
+    return 0
+}

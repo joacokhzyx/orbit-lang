@@ -1,0 +1,12 @@
+// M4 dogfoods itself: intent-state assertions over the helpers.
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertTrue(1 == 1) == false { return 1 }
+    if assertTrue(1 == 2) { return 2 }
+    if assertEqInt(40 + 2, 42) == false { return 3 }
+    if assertEqInt(1, 2) { return 4 }
+    if assertEqStr("a" + "b", "ab") == false { return 5 }
+    if assertEqStr("a", "b") { return 6 }
+    return 0
+}

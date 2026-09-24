@@ -207,6 +207,27 @@ grows module by module, each with an example, tests under `tests/std/`,
 and docs. Until it covers your need, keep module boundaries small and
 pin the compiler version in CI.
 
+## Standard library (Wave 1)
+
+Shipped and tested under `tests/std/` (run with
+`test_suite.py --dir tests/std`):
+
+- `std/test/assert.orb`: `assertTrue`, `assertEqInt`, `assertEqStr`
+  for exit-code tests. No `assertErr`: try/catch on a result
+  parameter miscompiles today (STAB-9); use inline try/catch.
+- `std/string/string.orb`: `trim`, `startsWith`, `endsWith`, `join`,
+  `split`, `padLeft`, `padRight`, `toUpper`, `toLower` (byte-wise,
+  ASCII-only), `parseIntChecked` (canonical decimal only; returns
+  `result`, consume with inline try). Uses the `.to_int()` method
+  nowhere: it emits a missing helper (STAB-9); the extern
+  `orbit_string_to_int` is used instead.
+- `std/hash/hash.orb`: `sha256Hex`, `hmacSha256` (runtime bindings).
+  No `fnv1a32`: bitwise operators have no lexer tokens yet.
+
+Call fallible std functions with inline try on the call
+(`val n: int = try parseIntChecked(s) catch { ... }`); binding the
+result to an untyped `val` first miscompiles (STAB-9).
+
 ## System telemetry
 
 `system.*` calls read live runtime counters. Every value is measured; what is

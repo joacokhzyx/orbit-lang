@@ -1,0 +1,14 @@
+// Real hashing. sha256Hex and hmacSha256 bind the runtime crypto
+// (same extern pattern Jwt uses); fnv1a32 is deferred until the
+// language has bitwise operators (`^`, `<<`, `>>` have no lexer
+// tokens), so no weakened lookalike ships under its name.
+extern fn orbit_sha256_hex(str: string) -> string
+extern fn orbit_hmac_sha256_base64url(key: string, data: string) -> string
+
+fn sha256Hex(s: string) -> string {
+    return orbit_sha256_hex(s)
+}
+
+fn hmacSha256(key: string, data: string) -> string {
+    return orbit_hmac_sha256_base64url(key, data)
+}

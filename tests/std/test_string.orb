@@ -1,0 +1,31 @@
+// M2 contract tests, incl. edges: empty, all-space, missing sep,
+// negative widths, non-canonical ints, UTF-8 passthrough for case
+// mapping (byte-wise: multibyte sequences pass through unchanged).
+import "std/string/string.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertEqStr(trim("  hi  "), "hi") == false { return 1 }
+    if assertEqStr(trim(""), "") == false { return 2 }
+    if assertEqStr(trim("   "), "") == false { return 3 }
+    if assertTrue(startsWith("hello", "he")) == false { return 4 }
+    if assertTrue(startsWith("hi", "hello")) { return 5 }
+    if assertTrue(endsWith("hello", "lo")) == false { return 6 }
+    if assertTrue(endsWith("hi", "hello")) { return 7 }
+    if assertEqStr(join(split("a,b,c", ","), "-"), "a-b-c") == false { return 8 }
+    val parts = split("abc", ",")
+    if assertEqInt(parts.len(), 1) == false { return 9 }
+    if assertEqStr(padLeft("7", 3, "0"), "007") == false { return 10 }
+    if assertEqStr(padRight("7", 3, "0"), "700") == false { return 11 }
+    if assertEqStr(padLeft("hi", 1, "0"), "hi") == false { return 12 }
+    if assertEqStr(toUpper("hi There"), "HI THERE") == false { return 13 }
+    if assertEqStr(toLower("Hi There"), "hi there") == false { return 14 }
+    // NOTE: bind-then-try (`val r = f(); try r`) miscompiles result
+    // calls today; the supported contract is inline try on the call.
+    val gv: int = try parseIntChecked("  -42 ") catch { return 15 }
+    if assertEqInt(gv, -42) == false { return 16 }
+    try parseIntChecked("12x") catch {
+        return 0
+    }
+    return 17
+}

@@ -1,0 +1,151 @@
+// String utilities over builtin strings. Case conversion and trim
+// are pure Orbit (byte-wise; ASCII-only by construction) so no new
+// runtime binding was needed. parseIntChecked accepts only canonical
+// decimal form (optional leading '-', no spaces, no plus, no leading
+// zeros); anything else is an err.
+extern fn orbit_string_indexOf(s: string, sub: string) -> int
+extern fn orbit_int_to_string(value: int) -> string
+extern fn orbit_string_to_int(s: string) -> int
+extern fn orbit_string_from_char_selfhost(code: int) -> string
+
+fn startsWith(s: string, prefix: string) -> bool {
+    if prefix.len() > s.len() { return false }
+    return s.slice(0, prefix.len()) == prefix
+}
+
+fn endsWith(s: string, suffix: string) -> bool {
+    if suffix.len() > s.len() { return false }
+    return s.slice(s.len() - suffix.len(), s.len()) == suffix
+}
+
+fn isSpaceCode(c: int) -> bool {
+    if c == 32 { return true }
+    if c == 9 { return true }
+    if c == 10 { return true }
+    if c == 13 { return true }
+    return false
+}
+
+fn trim(s: string) -> string {
+    var start = 0
+    while start < s.len() {
+        if isSpaceCode(s.at(start)) == false { break }
+        start = start + 1
+    }
+    var end = s.len()
+    while end > start {
+        if isSpaceCode(s.at(end - 1)) == false { break }
+        end = end - 1
+    }
+    return s.slice(start, end)
+}
+
+fn toUpper(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val c = s.at(i)
+        if c >= 97 && c <= 122 {
+            out = out + orbit_string_from_char_selfhost(c - 32)
+        } else {
+            out = out + orbit_string_from_char_selfhost(c)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn toLower(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val c = s.at(i)
+        if c >= 65 && c <= 90 {
+            out = out + orbit_string_from_char_selfhost(c + 32)
+        } else {
+            out = out + orbit_string_from_char_selfhost(c)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn join(parts: list, sep: string) -> string {
+    var out = ""
+    var i = 0
+    while i < parts.len() {
+        if i != 0 {
+            out = out + sep
+        }
+        out = out + parts.get(i)
+        i = i + 1
+    }
+    return out
+}
+
+fn split(s: string, sep: string) -> list {
+    var parts = []
+    if sep == "" {
+        parts.push(s)
+        return parts
+    }
+    var rest = s
+    while true {
+        val idx = orbit_string_indexOf(rest, sep)
+        if idx == -1 { break }
+        parts.push(rest.slice(0, idx))
+        rest = rest.slice(idx + sep.len(), rest.len())
+    }
+    parts.push(rest)
+    return parts
+}
+
+fn padLeft(s: string, width: int, pad: string) -> string {
+    if pad == "" { return s }
+    var out = s
+    while out.len() < width {
+        out = pad + out
+    }
+    return out
+}
+
+fn padRight(s: string, width: int, pad: string) -> string {
+    if pad == "" { return s }
+    var out = s
+    while out.len() < width {
+        out = out + pad
+    }
+    return out
+}
+
+fn parseIntChecked(s: string) -> result {
+    val t = trim(s)
+    if t == "" {
+        return err("empty input", 1)
+    }
+    var i = 0
+    if t.at(0) == 45 {
+        i = 1
+    }
+    if i >= t.len() {
+        return err("not an integer", 2)
+    }
+    while i < t.len() {
+        val c = t.at(i)
+        if c < 48 || c > 57 {
+            return err("not an integer", 2)
+        }
+        i = i + 1
+    }
+    // NOTE: the `.to_int()` method emits a call to a C helper that
+    // does not exist in the runtime; the extern below does.
+    val n = orbit_string_to_int(t)
+    val back = orbit_int_to_string(n)
+    if back != t {
+        return err("not an integer", 2)
+    }
+    // NOTE: `return ok(n)` directly trips the "ok body must be a
+    // string" rule; assign through a typed binding instead.
+    val good: result = ok(n)
+    return good
+}

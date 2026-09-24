@@ -1,0 +1,15 @@
+// Assert helpers for exit-code tests: state intent instead of
+// spreading `if x { return N }` ladders. assertErr over results is
+// NOT provided: try/catch on a result parameter miscompiles today
+// (STAB); use inline try/catch for results.
+fn assertTrue(cond: bool) -> bool {
+    return cond
+}
+
+fn assertEqInt(got: int, want: int) -> bool {
+    return got == want
+}
+
+fn assertEqStr(got: string, want: string) -> bool {
+    return got == want
+}
