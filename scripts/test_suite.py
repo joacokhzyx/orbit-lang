@@ -41,6 +41,11 @@ def main() -> int:
         return 1
 
     work = tempfile.mkdtemp(prefix="orbit_suite_")
+    if os.name == "nt":
+        # DB tests link sqlite3.dll at runtime; the vendor dir must be
+        # visible to every built exe (same trick CI uses for auth_harness).
+        vendordll = os.path.join(ROOT, "runtime", "vendor", "win-x64")
+        os.environ["PATH"] = vendordll + os.pathsep + os.environ.get("PATH", "")
     env = dict(os.environ)
     noop_cc = "cmd /c exit 0" if os.name == "nt" else "true"
     if args.cc:

@@ -85,11 +85,26 @@ fn hasSideEffects(op: IROpcode) -> bool {
         IROpcode.store_field => { return true }
         IROpcode.free => { return true }
         IROpcode.db_set => { return true }
+        IROpcode.db_get => { return true }
+        IROpcode.db_all => { return true }
+        IROpcode.db_where => { return true }
+        IROpcode.http_response => { return true }
+        IROpcode.alloc => { return true }
+        IROpcode.load_field => { return true }
+        IROpcode.switch_op => { return true }
         IROpcode.list_push => { return true }
         IROpcode.list_pop => { return true }
         IROpcode.list_set => { return true }
         IROpcode.map_set => { return true }
         IROpcode.map_delete => { return true }
+        IROpcode.result_ok => { return true }
+        IROpcode.result_err => { return true }
+        IROpcode.result_unwrap => { return true }
+        IROpcode.result_is_ok => { return true }
+        IROpcode.result_unwrap_err => { return true }
+        IROpcode.union_create => { return true }
+        IROpcode.union_get_tag => { return true }
+        IROpcode.union_get_data => { return true }
         _ => { return false }
     }
 }
@@ -849,6 +864,21 @@ fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -
     val okEval = evalFunction(module, callee, args, st)
     if !okEval { return false }
     val resultVal = st.result
+
+    // Wave 0 STAB: no CFG exists, so a folded constant must not cross
+    // control flow. If any label/jump/jump_if_false follows the call,
+    // skip the fold entirely and keep the call: the unconditional
+    // nop below is only sound when every later use is substituted,
+    // which a barrier would prevent (stale register + deleted def).
+    // Calls and rets are NOT barriers: substitution of an already
+    // computed pure-int constant across them is sound, and the use
+    // inside `ret` must be substituted.
+    var ctlScan = callIdx + 1
+    while ctlScan < func.instructions.len() {
+        val s: IRInstruction = func.instructions.get(ctlScan)
+        if s.opcode == IROpcode.label || s.opcode == IROpcode.jump || s.opcode == IROpcode.jump_if_false { return false }
+        ctlScan = ctlScan + 1
+    }
 
     var use_i = callIdx + 1
     while use_i < func.instructions.len() {

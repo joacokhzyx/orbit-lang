@@ -1,0 +1,23 @@
+// Wave 0 STAB: peephole rules must pin BOTH operand types to int
+// literals. The backend overloads `add` on strings (concat) and
+// floats, so folding on operand-2 shape alone corrupts programs
+// (`"n=" + 0` used to fold to `"n="`). Every case below asserts the
+// VALUE, which only holds when the fold is sound or absent.
+fn main() -> int {
+    val sum = 40 + 2
+    if sum != 42 { return 1 }
+    val s = "a" + "b"
+    if s != "ab" { return 2 }
+    val t = "n=" + 0
+    if t != "n=0" { return 3 }
+    val u = 0 + 9
+    if u != 9 { return 4 }
+    val d = 10 - 0
+    if d != 10 { return 5 }
+    val m = 7 * 1
+    if m != 7 { return 6 }
+    val n = 5
+    if n != 5 { return 7 }
+    if n == "5" { return 8 }
+    return 0
+}

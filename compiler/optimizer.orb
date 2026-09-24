@@ -22,6 +22,18 @@ fn isOne(v: IRValue) -> bool {
     }
 }
 
+// Wave 0 STAB: every arithmetic rewrite below must pin BOTH operands to
+// int literals. The backend overloads `add` on strings
+// (orbit_string_concat) and floats, so folding on operand-2 shape alone
+// corrupts programs (`"n=" + 0` folded to `"n="`). Register operands
+// never fold here; use-def proofs arrive in Wave 1.
+fn isIntLit(v: IRValue) -> bool {
+    match v {
+        IRValue.Int(m) => return true
+        _ => return false
+    }
+}
+
 fn optimizeFunction(func: IRFunction) -> OptStats {
     var patterns = 0
     var folds = 0
@@ -29,17 +41,17 @@ fn optimizeFunction(func: IRFunction) -> OptStats {
     while i < func.instructions.len() {
         val instr: IRInstruction = func.instructions.get(i)
         if instr.opcode == IROpcode.add {
-            if isZero(instr.operand2) {
+            if isZero(instr.operand2) && isIntLit(instr.operand1) {
                 instr.opcode = IROpcode.copy
                 patterns = patterns + 1
             }
         } else if instr.opcode == IROpcode.sub {
-            if isZero(instr.operand2) {
+            if isZero(instr.operand2) && isIntLit(instr.operand1) {
                 instr.opcode = IROpcode.copy
                 patterns = patterns + 1
             }
         } else if instr.opcode == IROpcode.mul {
-            if isOne(instr.operand2) {
+            if isOne(instr.operand2) && isIntLit(instr.operand1) {
                 instr.opcode = IROpcode.copy
                 patterns = patterns + 1
             }

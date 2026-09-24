@@ -622,7 +622,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         if isStringOperand(backend, inst.operand1) {
                             match inst.operand2 {
                                 IRValue.Register(reg) => {
-                                    if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                    if regKnownScalar(func, reg.value) == false && reg.value >= 0 && reg.value < func.registerTypes.len() {
                                         func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
                                     }
                                 }
@@ -631,7 +631,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         } else if isStringOperand(backend, inst.operand2) {
                             match inst.operand1 {
                                 IRValue.Register(reg) => {
-                                    if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                    if regKnownScalar(func, reg.value) == false && reg.value >= 0 && reg.value < func.registerTypes.len() {
                                         func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
                                     }
                                 }
@@ -643,7 +643,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         if isStringOperand(backend, inst.operand1) {
                             match inst.operand2 {
                                 IRValue.Register(reg) => {
-                                    if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                    if regKnownScalar(func, reg.value) == false && reg.value >= 0 && reg.value < func.registerTypes.len() {
                                         func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
                                     }
                                 }
@@ -652,7 +652,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         } else if isStringOperand(backend, inst.operand2) {
                             match inst.operand1 {
                                 IRValue.Register(reg) => {
-                                    if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                    if regKnownScalar(func, reg.value) == false && reg.value >= 0 && reg.value < func.registerTypes.len() {
                                         func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
                                     }
                                 }
@@ -665,7 +665,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                             match inst.operand2 {
                                 IRValue.Register(reg) => {
                                     val opT = registerVarDefType(backend, func, reg.value)
-                                    if opT != "int" && opT != "float" && opT != "bool" && opT != "void" {
+                                    if regKnownScalar(func, reg.value) == false && opT != "int" && opT != "float" && opT != "bool" && opT != "void" {
                                         if reg.value >= 0 && reg.value < func.registerTypes.len() {
                                             func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
                                         }
@@ -677,7 +677,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                             match inst.operand1 {
                                 IRValue.Register(reg) => {
                                     val opT = registerVarDefType(backend, func, reg.value)
-                                    if opT != "int" && opT != "float" && opT != "bool" && opT != "void" {
+                                    if regKnownScalar(func, reg.value) == false && opT != "int" && opT != "float" && opT != "bool" && opT != "void" {
                                         if reg.value >= 0 && reg.value < func.registerTypes.len() {
                                             func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
                                         }
@@ -1247,75 +1247,6 @@ fn generateRouterBlock(backend: CBackend) -> string {
     }
     out = out + routerTailText(paramChain)
     return out
-}
-
-fn computeBoostRawPct(module: IRModule) -> float {
-    var before: float = 0.0
-    var after: float = 0.0
-    var fi = 0
-    while fi < module.functions.len() {
-        val f: IRFunction = module.functions.get(fi)
-        var alu = 0
-        var memRead = 0
-        var memWrite = 0
-        var branch = 0
-        var regAssign = 0
-        var label = 0
-        var call = 0
-        var ii = 0
-        while ii < f.instructions.len() {
-            val instr: IRInstruction = f.instructions.get(ii)
-            match instr.opcode {
-                IROpcode.add => { alu = alu + 1 }
-                IROpcode.sub => { alu = alu + 1 }
-                IROpcode.mul => { alu = alu + 1 }
-                IROpcode.div => { alu = alu + 1 }
-                IROpcode.mod => { alu = alu + 1 }
-                IROpcode.eq => { alu = alu + 1 }
-                IROpcode.ne => { alu = alu + 1 }
-                IROpcode.lt => { alu = alu + 1 }
-                IROpcode.le => { alu = alu + 1 }
-                IROpcode.gt => { alu = alu + 1 }
-                IROpcode.ge => { alu = alu + 1 }
-                IROpcode.and_op => { alu = alu + 1 }
-                IROpcode.or_op => { alu = alu + 1 }
-                IROpcode.not_op => { alu = alu + 1 }
-                IROpcode.neg => { alu = alu + 1 }
-                IROpcode.load_var => { regAssign = regAssign + 1
-                    memRead = memRead + 1 }
-                IROpcode.copy => { regAssign = regAssign + 1
-                    memRead = memRead + 1 }
-                IROpcode.load_field => { regAssign = regAssign + 1
-                    memRead = memRead + 2 }
-                IROpcode.store_var => { memWrite = memWrite + 1 }
-                IROpcode.decl_var => { memWrite = memWrite + 1 }
-                IROpcode.store_field => { memRead = memRead + 1
-                    memWrite = memWrite + 2 }
-                IROpcode.load_const => {}
-                IROpcode.arg => { regAssign = regAssign + 1 }
-                IROpcode.call => { call = call + 1 }
-                IROpcode.ret => { memWrite = memWrite + 1 }
-                IROpcode.jump => { branch = branch + 1 }
-                IROpcode.jump_if_false => { branch = branch + 2 }
-                IROpcode.label => { label = label + 1 }
-                IROpcode.begin_block => {}
-                IROpcode.end_block => {}
-                _ => { alu = alu + 1 }
-            }
-            ii = ii + 1
-        }
-        if dualPathQualifies(f) {
-            alu = alu + 1
-        }
-        val fTotal = alu * 1.0 + memRead * 3.0 + memWrite * 3.0 + branch * 10.0 + regAssign * 0.5 + label * 2.0 + call * 15.0
-        val fAfter = alu * 1.0 + memRead * 3.0 + memWrite * 3.0 + branch * 10.0 + regAssign * 0.5 + call * 15.0
-        before = before + fTotal
-        after = after + fAfter
-        fi = fi + 1
-    }
-    if after >= before { return 0.0 }
-    val pct = (1.0 - after / before) * 100.0
-    return pct
 }
 
 fn orbitColumnType(t: string) -> string {
@@ -2922,6 +2853,19 @@ fn registerVarDefType(backend: CBackend, func: IRFunction, regId: int) -> string
         di = di + 1
     }
     return "unknown"
+}
+
+// Wave 0 STAB: the string-propagation tattoos below consult
+// registerVarDefType, which answers "unknown" for constants defined by
+// load_const. A register the inference already proved int/float/bool
+// must never be re-tattooed "string" (it produced `(orbit_string)(0)`
+// nulls in mixed concat and strcmp crashes on tattooed int regs).
+fn regKnownScalar(func: IRFunction, regId: int) -> bool {
+    if regId >= 0 && regId < func.registerTypes.len() {
+        val t = func.registerTypes.get(regId)
+        if t == "int" || t == "float" || t == "bool" { return true }
+    }
+    return false
 }
 
 fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {

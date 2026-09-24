@@ -212,7 +212,6 @@ model IRModule {
     globals: list // list of IRGlobal
     models: list
     types: list
-    boostRaw: float
 }
 
 model IRGlobal {
@@ -221,5 +220,5 @@ model IRGlobal {
 }
 
 fn initIRModule() -> IRModule {
-    return IRModule([], [], [], [], 0.0)
+    return IRModule([], [], [], [])
 }

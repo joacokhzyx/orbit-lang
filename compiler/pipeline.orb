@@ -9,7 +9,7 @@ import "./cteval.orb"
 import "./c_backend.orb"
 
 fn cteEnabled() -> bool {
-    return true
+    return orbit_os_env_selfhost("ORBIT_NO_CTE") == ""
 }
 
 fn getSourceLine(source: string, lineNum: int) -> string {
@@ -273,12 +273,18 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val irModule = buildAST(builder, ast)
     reportMemStage("build")
 
-    irModule.boostRaw = computeBoostRawPct(irModule)
-
-    val optStats = optimizeIRModule(irModule)
+    // Wave 0 STAB: both optimization passes honor the same kill switch
+    // (ORBIT_NO_CTE=1 skips them and emits pre-pass IR), and their
+    // counters are reported instead of dropped.
+    var optPatterns = 0
     var cteFolds = 0
     if cteEnabled() {
+        val optStats = optimizeIRModule(irModule)
+        optPatterns = optStats.patterns_applied
         cteFolds = cteOptimize(irModule)
+    }
+    if verbose {
+        print("opt: " + orbit_int_to_string_selfhost(optPatterns) + " patterns, " + orbit_int_to_string_selfhost(cteFolds) + " folds")
     }
 
     val backend = initCBackend(irModule)
