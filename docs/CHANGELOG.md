@@ -19,6 +19,10 @@ Content and docs track; no compiler changes:
 - `orbit_full_expansion.orb` rewritten in supported 0.1.0
   syntax (the old file used unparsed planned syntax).
 - New runnable examples: `blog_api.orb`, `file_server.orb`.
+- Removed 7 unimportable std stubs/shadows (`list`, `map`,
+  `terminal`, `FileStream`, `Shimmer`, `Env`, `HttpParser`):
+  duplicates of builtins, hardcoded fakes, or unparseable as
+  written. Survivors documented under the Wave 0 std contract.
 - Honesty notes on `sqlite_notes.orb` (bearer routes,
   `:id` routes, writes) and `catalog_service.orb` (writes).
 
