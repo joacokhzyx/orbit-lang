@@ -1,0 +1,85 @@
+// Byte buffer over a string accumulator with an explicit read
+// cursor. Bytes are 1-255 (C strings cannot hold NUL), so there is
+// deliberately NO fixed-width binary framing: a 0x00 byte would
+// vanish. Lengths travel as decimal text instead (writeFrame).
+// No capacity reservation exists, so none is promised.
+// Shared C string externs (incl. from_char) live in
+// std/string/string.orb; redeclaring them collides on merge.
+import "std/string/string.orb"
+
+model Buffer {
+    data: string
+    pos: int
+}
+
+fn newBuffer() -> Buffer {
+    return Buffer("", 0)
+}
+
+fn appendByte(buf: Buffer, code: int) {
+    buf.data = buf.data + orbit_string_from_char_selfhost(code)
+}
+
+fn appendSlice(buf: Buffer, s: string) {
+    buf.data = buf.data + s
+}
+
+fn writeFrame(buf: Buffer, s: string) {
+    appendSlice(buf, orbit_int_to_string(s.len()))
+    appendSlice(buf, ":")
+    appendSlice(buf, s)
+}
+
+fn readFrame(buf: Buffer) -> string {
+    var end = buf.pos
+    while end < buf.data.len() {
+        if buf.data.at(end) == 58 { break }
+        end = end + 1
+    }
+    if end >= buf.data.len() { return "" }
+    val count = parseFrameLen(buf.data.slice(buf.pos, end))
+    if count < 0 { return "" }
+    val start = end + 1
+    if start + count > buf.data.len() { return "" }
+    val payload = buf.data.slice(start, start + count)
+    buf.pos = start + count
+    return payload
+}
+
+fn parseFrameLen(digits: string) -> int {
+    if digits == "" { return -1 }
+    var i = 0
+    var num = 0
+    while i < digits.len() {
+        val c = digits.at(i)
+        if c < 48 || c > 57 { return -1 }
+        num = num * 10 + (c - 48)
+        i = i + 1
+    }
+    return num
+}
+
+fn readAt(buf: Buffer, i: int) -> int {
+    if i < 0 { return -1 }
+    if i >= buf.data.len() { return -1 }
+    return buf.data.at(i)
+}
+
+fn sliceBuf(buf: Buffer, start: int, end: int) -> string {
+    return buf.data.slice(start, end)
+}
+
+fn availableRead(buf: Buffer) -> int {
+    return buf.data.len() - buf.pos
+}
+
+fn consume(buf: Buffer, n: int) -> string {
+    val s = buf.data.slice(buf.pos, buf.pos + n)
+    buf.pos = buf.pos + n
+    return s
+}
+
+fn clear(buf: Buffer) {
+    buf.data = ""
+    buf.pos = 0
+}

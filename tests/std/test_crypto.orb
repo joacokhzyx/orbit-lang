@@ -1,0 +1,30 @@
+// M11 contract tests: round-trip, expiry, wrong secret, tampered
+// payload, missing exp, nbf gating, multi-key rotation. Time travels
+// explicitly (fixed nowUnix values, no wall clock).
+import "std/sys/crypto/jwt.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    val payload = "{\"sub\":\"u1\",\"exp\":2000000000}"
+    val tok = signHs256(payload, "s3cr3t")
+    if assertTrue(verifyHs256(tok, "s3cr3t", 1000000000)) == false { return 1 }
+    if assertTrue(verifyHs256(tok, "s3cr3t", 2000000001)) { return 2 }
+    if assertTrue(verifyHs256(tok, "wrong", 1000000000)) { return 3 }
+    val cut = tok.slice(0, 10) + "X" + tok.slice(11, tok.len())
+    if assertTrue(verifyHs256(cut, "s3cr3t", 1000000000)) { return 11 }
+    if assertEqStr(decodePayload(tok), payload) == false { return 4 }
+    val noexp = signHs256("{\"sub\":\"u1\"}", "s3cr3t")
+    if assertTrue(verifyHs256(noexp, "s3cr3t", 1000000000)) { return 5 }
+    val future = signHs256("{\"sub\":\"u1\",\"exp\":2000000000,\"nbf\":1900000000}", "s3cr3t")
+    if assertTrue(verifyHs256(future, "s3cr3t", 1000000000)) { return 6 }
+    if assertTrue(verifyHs256(future, "s3cr3t", 1950000000)) == false { return 7 }
+    var keys = []
+    keys.push("old-key")
+    keys.push("s3cr3t")
+    if assertTrue(verifyWithKeys(tok, keys, 1000000000)) == false { return 8 }
+    var badkeys = []
+    badkeys.push("nope")
+    if assertTrue(verifyWithKeys(tok, badkeys, 1000000000)) { return 9 }
+    if assertEqInt(getExp(payload), 2000000000) == false { return 10 }
+    return 0
+}

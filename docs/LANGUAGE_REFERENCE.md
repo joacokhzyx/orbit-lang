@@ -253,6 +253,25 @@ result to an untyped `val` first miscompiles (STAB-9).
 - `std/log/log.orb`: `info`, `warn`, `error`, `debug(msg, enabled)`,
   `withReq`, `toJsonLine`. No globals: context travels explicitly.
 
+## Standard library (Wave 4)
+
+- `std/sys/crypto/jwt.orb`: `signHs256`, `verifyHs256` (HS256 only,
+  no `alg:none`; time travels explicitly as `nowUnix` because Orbit
+  has no wall clock), `decodePayload` (pure base64url decode),
+  `getExp`, `verifyWithKeys` for rotation. `exp` is required;
+  `nbf`, when present, must not be future; `iat` is carried, not
+  enforced.
+- `std/bytes/bytes.orb`: `newBuffer`, `appendByte`, `appendSlice`,
+  `writeFrame`/`readFrame` (decimal length prefix; malformed and
+  empty both read as empty), `readAt` (-1 out of range), `sliceBuf`,
+  `availableRead`, `consume`, `clear`. Bytes are 1-255 (C strings
+  cannot hold NUL), so there is deliberately no fixed-width binary
+  framing. Shared C externs live in `std/string/string.orb`;
+  redeclaring them in another module collides on merge.
+- Deferred honestly: `http_client` and raw sockets (the fetch helper
+  returns mock JSON; no socket API exists yet), `sync` pool (needs
+  closures), `fnv1a32` (needs bitwise operators).
+
 ## System telemetry
 
 `system.*` calls read live runtime counters. Every value is measured; what is

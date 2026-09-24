@@ -1,0 +1,18 @@
+// Wave 4 demo: sign a token, verify it against explicit time,
+// frame it length-prefixed, print the frame size.
+import "std/sys/crypto/jwt.orb"
+import "std/bytes/bytes.orb"
+import "std/string/string.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    val tok = signHs256("{\"sub\":\"demo\",\"exp\":2000000000}", "demo-secret")
+    if assertTrue(verifyHs256(tok, "demo-secret", 1000000000)) == false { return 1 }
+    var frame = newBuffer()
+    writeFrame(frame, tok)
+    print("framed token bytes:")
+    print(orbit_int_to_string(availableRead(frame)))
+    val back = readFrame(frame)
+    if assertEqStr(back, tok) == false { return 2 }
+    return 0
+}

@@ -1,11 +1,19 @@
 // Orbit Sovereign Cryptography - JWT Engine
-// std/sys/crypto/Jwt.orb
+// std/sys/crypto/jwt.orb
+//
+// HS256 only, no `alg:none`. Time travels explicitly: verification
+// takes nowUnix because Orbit has no wall clock; tests inject it,
+// services pass whatever epoch they agree on.
+
+// Shared C string externs live in std/string/string.orb (imported
+// below); redeclaring them here collides on merge (one definition
+// per program), so this module imports rather than repeats them.
+import "std/string/string.orb"
 
 extern fn orbit_base64url_encode_str(str: string) -> string
 extern fn orbit_sha256_hex(str: string) -> string
 extern fn orbit_hmac_sha256_base64url(key: string, data: string) -> string
-extern fn orbit_string_indexOf(s: string, sub: string) -> int
-extern fn orbit_string_len(s: string) -> int
+extern fn orbit_string_len(s: string) -> string
 extern fn orbit_string_slice(s: string, start: int, end: int) -> string
 extern fn orbit_streq(a: string, b: string) -> bool
 
@@ -44,4 +52,158 @@ fn verifyToken(tokenStr: string, secret: string) -> bool {
     val expectedSig = orbit_hmac_sha256_base64url(secret, unsignedToken)
 
     return orbit_streq(signature, expectedSig)
+}
+
+fn signHs256(payloadJson: string, secret: string) -> string {
+    return signToken(payloadJson, secret)
+}
+
+fn b64Val(c: int) -> int {
+    if c >= 48 && c <= 57 { return c - 48 + 52 }
+    if c >= 65 && c <= 90 { return c - 65 }
+    if c >= 97 && c <= 122 { return c - 97 + 26 }
+    if c == 45 { return 62 }
+    if c == 95 { return 63 }
+    return -1
+}
+
+fn decodeQuantum(out: string, c0: int, c1: int, c2: int, c3: int, n: int) -> string {
+    var r = out
+    r = r + orbit_string_from_char_selfhost(c0 * 4 + c1 / 16)
+    if n >= 3 {
+        r = r + orbit_string_from_char_selfhost((c1 % 16) * 16 + c2 / 4)
+    }
+    if n >= 4 {
+        r = r + orbit_string_from_char_selfhost((c2 % 4) * 64 + c3)
+    }
+    return r
+}
+
+fn decodePayload(tokenStr: string) -> string {
+    val first = splitSegment(tokenStr, 0)
+    val second = splitSegment(tokenStr, 1)
+    if first == "" { return "" }
+    if second == "" { return "" }
+    return b64Decode(second)
+}
+
+fn splitSegment(tokenStr: string, want: int) -> string {
+    val totalLen = orbit_string_len(tokenStr)
+    if want == 0 {
+        val dot = orbit_string_indexOf(tokenStr, ".")
+        if dot == -1 { return "" }
+        return orbit_string_slice(tokenStr, 0, dot)
+    }
+    val dot1 = orbit_string_indexOf(tokenStr, ".")
+    if dot1 == -1 { return "" }
+    val tail = orbit_string_slice(tokenStr, dot1 + 1, totalLen)
+    if want == 1 {
+        val dot2 = orbit_string_indexOf(tail, ".")
+        if dot2 == -1 { return tail }
+        return orbit_string_slice(tail, 0, dot2)
+    }
+    val dot2b = orbit_string_indexOf(tail, ".")
+    if dot2b == -1 { return "" }
+    return orbit_string_slice(tail, dot2b + 1, orbit_string_len(tail))
+}
+
+fn b64Decode(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i + 4 <= s.len() {
+        val c0 = b64Val(s.at(i))
+        val c1 = b64Val(s.at(i + 1))
+        val c2 = b64Val(s.at(i + 2))
+        val c3 = b64Val(s.at(i + 3))
+        if c0 == -1 { return "" }
+        if c1 == -1 { return "" }
+        if c2 == -1 { return "" }
+        if c3 == -1 { return "" }
+        out = decodeQuantum(out, c0, c1, c2, c3, 4)
+        i = i + 4
+    }
+    val rem = s.len() - i
+    if rem == 1 { return "" }
+    if rem >= 2 {
+        val c0 = b64Val(s.at(i))
+        val c1 = b64Val(s.at(i + 1))
+        if c0 == -1 { return "" }
+        if c1 == -1 { return "" }
+        if rem == 2 {
+            out = decodeQuantum(out, c0, c1, 0, 0, 2)
+        } else {
+            val c2 = b64Val(s.at(i + 2))
+            if c2 == -1 { return "" }
+            out = decodeQuantum(out, c0, c1, c2, 0, 3)
+        }
+    }
+    return out
+}
+
+fn scanJsonInt(payloadJson: string, key: string) -> int {
+    val at = orbit_string_indexOf(payloadJson, key)
+    if at == -1 { return -1 }
+    var i = at + key.len()
+    while i < payloadJson.len() {
+        val c = payloadJson.at(i)
+        if c == 45 {
+            i = i + 1
+            break
+        }
+        if c >= 48 && c <= 57 { break }
+        if c == 58 || c == 32 || c == 34 {
+            i = i + 1
+        } else {
+            return -1
+        }
+    }
+    var isNeg = false
+    if payloadJson.at(i - 1) == 45 { isNeg = true }
+    var num = 0
+    var digits = 0
+    while i < payloadJson.len() {
+        val c = payloadJson.at(i)
+        if c < 48 || c > 57 { break }
+        num = num * 10 + (c - 48)
+        digits = digits + 1
+        i = i + 1
+    }
+    if digits == 0 { return -1 }
+    if isNeg { return 0 - num }
+    return num
+}
+
+fn getExp(payloadJson: string) -> int {
+    return scanJsonInt(payloadJson, "\"exp\"")
+}
+
+fn verifyHs256(tokenStr: string, secret: string, nowUnix: int) -> bool {
+    val dot1 = orbit_string_indexOf(tokenStr, ".")
+    if dot1 == -1 { return false }
+    val totalLen = orbit_string_len(tokenStr)
+    val tail = orbit_string_slice(tokenStr, dot1 + 1, totalLen)
+    val dot2 = orbit_string_indexOf(tail, ".")
+    if dot2 == -1 { return false }
+    val actualDot2 = dot1 + 1 + dot2
+    val unsignedToken = orbit_string_slice(tokenStr, 0, actualDot2)
+    val signature = orbit_string_slice(tokenStr, actualDot2 + 1, totalLen)
+    val expectedSig = orbit_hmac_sha256_base64url(secret, unsignedToken)
+    if orbit_streq(signature, expectedSig) == false { return false }
+    val payload = decodePayload(tokenStr)
+    if payload == "" { return false }
+    val exp = getExp(payload)
+    if exp == -1 { return false }
+    if exp <= nowUnix { return false }
+    val nbf = scanJsonInt(payload, "\"nbf\"")
+    if nbf != -1 && nbf > nowUnix { return false }
+    return true
+}
+
+fn verifyWithKeys(tokenStr: string, secrets: list, nowUnix: int) -> bool {
+    var i = 0
+    while i < secrets.len() {
+        if verifyHs256(tokenStr, secrets.get(i), nowUnix) { return true }
+        i = i + 1
+    }
+    return false
 }

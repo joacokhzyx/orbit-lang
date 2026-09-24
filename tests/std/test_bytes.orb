@@ -1,0 +1,27 @@
+// M13 contract tests: decimal length-prefixed frame encode/decode
+// round-trip plus cursor, bounds, peek, and clear semantics.
+import "std/bytes/bytes.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    var frame = newBuffer()
+    writeFrame(frame, "abc")
+    writeFrame(frame, "")
+    writeFrame(frame, "defgh")
+    if assertEqInt(availableRead(frame), 14) == false { return 1 }
+    if assertEqStr(readFrame(frame), "abc") == false { return 2 }
+    if assertEqStr(readFrame(frame), "") == false { return 3 }
+    if assertEqStr(readFrame(frame), "defgh") == false { return 4 }
+    if assertEqInt(availableRead(frame), 0) == false { return 5 }
+    if assertEqStr(readFrame(frame), "") == false { return 6 }
+    var w = newBuffer()
+    appendByte(w, 65)
+    appendSlice(w, "BC")
+    if assertEqInt(readAt(w, 0), 65) == false { return 7 }
+    if assertEqInt(readAt(w, 2), 67) == false { return 8 }
+    if assertEqInt(readAt(w, 9), -1) == false { return 9 }
+    if assertEqStr(sliceBuf(w, 1, 3), "BC") == false { return 10 }
+    clear(w)
+    if assertEqInt(availableRead(w), 0) == false { return 11 }
+    return 0
+}
