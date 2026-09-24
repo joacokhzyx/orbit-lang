@@ -52,6 +52,45 @@ fn getDir(filePath: string) -> string {
     return filePath.slice(0, lastSlash)
 }
 
+// Wave 0 std: canonical `std/...` and `lib/...` imports resolve against
+// the std roots (compiler binary dir, its parent, then CWD), so std
+// works no matter where the importing file lives. Plain relative
+// imports keep the legacy base-dir-then-CWD order below.
+fn isStdPath(relPath: string) -> bool {
+    if relPath.len() >= 4 {
+        if relPath.slice(0, 4) == "std/" { return true }
+    }
+    if relPath.len() >= 4 {
+        if relPath.slice(0, 4) == "lib/" { return true }
+    }
+    return false
+}
+
+fn resolveStdPath(cleanRel: string) -> string {
+    var roots = []
+    val selfDir = getDir(orbit_os_argv_selfhost(0))
+    if selfDir != "" {
+        roots.push(selfDir)
+        val parent = getDir(selfDir)
+        if parent != "" {
+            roots.push(parent)
+        }
+    }
+    roots.push(".")
+    var ri = 0
+    while ri < roots.len() {
+        val r: string = roots.get(ri)
+        var candidate = cleanRel
+        if r != "." {
+            candidate = r + "/" + cleanRel
+        }
+        val content = orbit_file_read_selfhost(candidate)
+        if content != "" { return candidate }
+        ri = ri + 1
+    }
+    return cleanRel
+}
+
 fn resolveFilePath(baseDir: string, relPath: string) -> string {
     var cleanRel = stripQuotes(relPath)
     var base = baseDir
@@ -71,6 +110,9 @@ fn resolveFilePath(baseDir: string, relPath: string) -> string {
             }
         }
         resolving = false
+    }
+    if isStdPath(cleanRel) {
+        return resolveStdPath(cleanRel)
     }
     if base != "" {
         val candidate = base + "/" + cleanRel

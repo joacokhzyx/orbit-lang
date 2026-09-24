@@ -134,6 +134,14 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           exit $rc
 
+      - name: Orbit std suite (standard library)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/test_suite.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" --dir tests/std
+
       - name: Kynx route-limit live gate (blog_api + kynx_route_limit_gate.py)
         shell: bash
         run: |

@@ -1,0 +1,11 @@
+// Canonical std imports resolve via the std search path
+// (compiler binary dir, its parent, then the working directory;
+// run builds from the repository root).
+import "std/sys/term/color.orb"
+import "lib/arena.orb"
+
+fn main() -> int {
+    val line = wrapBold("orbit std imports work")
+    print(line)
+    return 0
+}

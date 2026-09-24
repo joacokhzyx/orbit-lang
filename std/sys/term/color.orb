@@ -10,12 +10,7 @@ model AnsiStyle {
 }
 
 fn createStyle() -> AnsiStyle {
-    return AnsiStyle {
-        bold: false,
-        italic: false,
-        underline: false,
-        dim: false
-    }
+    return AnsiStyle(false, false, false, false)
 }
 
 fn wrapBold(text: string) -> string {

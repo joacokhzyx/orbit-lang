@@ -186,9 +186,26 @@ from untrusted input; prefer the parameterized runtime operations where availabl
 
 ## Modules
 
-The compiler recognizes standard modules including `crypto`, `jwt`, `http`,
-`file`, and `server`. Module organization and import ergonomics are not yet
-stable, so keep module boundaries small and pin the compiler version in CI.
+Import by path. Relative imports resolve against the importing file,
+then the working directory:
+
+```orbit
+import "./helpers.orb"
+```
+
+Standard library imports use the canonical `std/...` (or `lib/...`)
+spelling and resolve against the std roots in order: the compiler
+binary's directory, its parent, then the working directory. Run
+builds from the repository root so `std/` resolves:
+
+```orbit
+import "std/sys/term/color.orb"
+```
+
+All `std` paths are lowercase (`std/<area>/<module>.orb`). The catalog
+grows module by module, each with an example, tests under `tests/std/`,
+and docs. Until it covers your need, keep module boundaries small and
+pin the compiler version in CI.
 
 ## System telemetry
 

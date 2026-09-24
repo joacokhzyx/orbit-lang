@@ -1,0 +1,15 @@
+// Wave 0 std smoke test: canonical `std/...` and `lib/...` imports
+// resolve, and the kept color helpers compute exact ANSI output
+// (exercises mixed int/string concat through an import boundary).
+import "std/sys/term/color.orb"
+import "lib/arena.orb"
+
+fn main() -> int {
+    val b = wrapBold("hi")
+    if b != "\x1b[1mhi\x1b[22m" { return 1 }
+    val c = wrapRgbForeground(255, 0, 0, "x")
+    if c != "\x1b[38;2;255;0;0mx\x1b[0m" { return 2 }
+    val a = initArena(1024)
+    if alloc(a, 100) != 0 { return 3 }
+    return 0
+}

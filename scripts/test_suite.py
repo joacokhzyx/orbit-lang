@@ -28,16 +28,23 @@ def main() -> int:
     ap.add_argument("--compiler", required=True)
     ap.add_argument("--cc", default=None)
     ap.add_argument("--timeout", type=int, default=60)
+    ap.add_argument("--dir", action="append", default=None,
+                    help="suite directory to run (repeatable; default: tests/suite)")
     out.add_quiet(ap)
     args = ap.parse_args()
     out.set_quiet(args.quiet)
 
-    tests = sorted(
-        f for f in os.listdir(SUITE)
-        if f.endswith(".orb") and not f.endswith(".support.orb")
-    )
+    suite_dirs = args.dir or [SUITE]
+    tests = []
+    for suite_dir in suite_dirs:
+        if not os.path.isdir(suite_dir):
+            out.fail(f"Failed suite: no such directory {suite_dir}")
+            return 1
+        for f in sorted(os.listdir(suite_dir)):
+            if f.endswith(".orb") and not f.endswith(".support.orb"):
+                tests.append(os.path.join(suite_dir, f))
     if not tests:
-        out.fail("Failed suite: no tests found in tests/suite")
+        out.fail("Failed suite: no tests found")
         return 1
 
     work = tempfile.mkdtemp(prefix="orbit_suite_")
@@ -56,14 +63,15 @@ def main() -> int:
     ok = 0
     failed = []
     exe_suffix = ".exe" if os.name == "nt" else ""
-    for tf in tests:
-        name = tf[:-4]
-        path = os.path.join(SUITE, tf)
+    for path in tests:
+        name = os.path.splitext(os.path.basename(path))[0]
+        if len(suite_dirs) > 1:
+            name = os.path.basename(os.path.dirname(path)) + "/" + name
         src = open(path, encoding="utf-8").read()
         m = re.search(r"^\s*//\s*expect-exit\s+(\d+)", src, re.M)
         expected = int(m.group(1)) if m else 0
 
-        out_exe = os.path.join(work, name + exe_suffix)
+        out_exe = os.path.join(work, name.replace("/", "_") + exe_suffix)
         try:
             proc = subprocess.run(
                 [args.compiler, "build", path, "-o", out_exe],
