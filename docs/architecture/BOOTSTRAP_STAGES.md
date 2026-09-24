@@ -45,5 +45,4 @@ The bootstrap **converges**: `stage1 -> stage2 -> stage3 -> stage4` all succeed,
 `stage3.exe.c` is byte-identical to `stage4.exe.c`. This was reached after fixing the
 seed's local-variable type inference (unknown-typed values such as list elements are now
 typed `uintptr_t` so pointers are not truncated through the 32-bit `orbit_int`), which
-was crashing `resolveModuleAST` with `0xC0000005`. See `HANDOFF-selfhost.md` for the full
-history and the runbook.
+was crashing `resolveModuleAST` with `0xC0000005`. See [Sovereignty](SOVEREIGNTY.md) for the supported flow.
