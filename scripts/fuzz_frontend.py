@@ -22,6 +22,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROBES = os.path.join(ROOT, "tests", "parity", "probes")
 CRASH_DIR = os.path.join(ROOT, "fuzz_crashes")
@@ -84,7 +87,7 @@ def main() -> int:
         if f.endswith(".orb"):
             corpus.append(open(os.path.join(PROBES, f), "rb").read())
     if not corpus:
-        print("[fuzz] FAIL: empty corpus")
+        out.fail("Failed fuzz: empty corpus (no .orb probes found)")
         return 1
 
     work = tempfile.mkdtemp(prefix="orbit_fuzz_")
@@ -116,10 +119,11 @@ def main() -> int:
             crashes += 1
             safe = os.path.join(CRASH_DIR, f"crash_rc{rc}_case{i}.orb")
             shutil.copyfile(inp, safe)
-            print(f"[fuzz] CRASH rc={rc} -> {safe}")
-    print(f"\n[fuzz] {args.iterations} iterations: accepted={accepted} "
-          f"clean-reject={clean_rejects} CRASHES={crashes}")
-    print(f"[fuzz] work dir: {work}")
+            out.fail(f"Failed: crash rc={rc}, saved {safe}")
+    out.say(f"Fuzzed {args.iterations} iterations: "
+            f"accepted={accepted} clean-reject={clean_rejects} crashes={crashes}")
+    out.say(f"work dir: {work}")
+    out.finish("fuzz", args.iterations - crashes, args.iterations)
     return 1 if crashes else 0
 
 

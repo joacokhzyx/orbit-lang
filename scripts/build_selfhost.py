@@ -35,6 +35,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 MAIN_ORB = os.path.join("compiler", "main.orb")
@@ -142,8 +145,9 @@ def warn_low_memory() -> None:
             except Exception:
                 return
     if free_mb is not None and free_mb < 2048:
-        print(f"[selfhost] WARNING: only ~{free_mb} MB commit available; LLVM/lld links of "
-              "the compiler TU may OOM. Close applications or expect slower retried builds.")
+        print(f"Warning: only ~{free_mb} MB commit available; LLVM/lld links of "
+              "the compiler TU may OOM. Close applications or expect slower retried builds.",
+              file=sys.stderr)
 
 
 def sha256(path: str) -> str:
@@ -165,7 +169,7 @@ def detect_cc() -> str:
     # as a C toolchain (never to build or verify the self-hosted chain).
     if shutil.which("zig"):
         return "zig cc"
-    print("[selfhost] FAIL: no C compiler found; set ORBIT_CC (gcc/clang/cc).")
+    out.fail("Failed: no C compiler found; set ORBIT_CC (gcc/clang/cc).")
     raise SystemExit(2)
 
 
@@ -174,23 +178,23 @@ def run(argv, cwd=ROOT, env_extra=None, label=""):
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
-    print(f"[selfhost] {label or ' '.join(argv)}")
+    out.say(f"Running {label or ' '.join(argv)}")
     proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
-    out = (proc.stdout or "") + (proc.stderr or "")
-    if out.strip():
-        print(out.rstrip())
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    if combined.strip():
+        print(combined.rstrip())
     rc = proc.returncode
     # Keep only the failure tail for the annotation, then release the
     # subprocess buffers eagerly so long bootstrap chains stay lean.
-    tail = "\n".join(out.strip().splitlines()[-30:])
-    payload = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
+    tail = "\n".join(combined.strip().splitlines()[-30:])
     del proc
-    del out
+    del combined
     gc.collect()
     if rc != 0:
         # Emit as a GitHub error annotation: check-run annotations are public
         # API-readable even when job logs require authentication.
-        print(f"::error::[{label}] rc={rc} :: {payload}")
+        out.ci_error(f"[{label}] rc={rc} :: {out.scrub_ci(tail)}")
+        out.fail(f"Failed {label} (rc={rc})")
         raise SystemExit(2)
 
 
@@ -212,15 +216,15 @@ def orb_build(compiler, out_exe, work, cc, snapshot_path, extra_cc_flags=None) -
     env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc,
                 "ORBIT_CCFLAGS_EXTRA": " ".join(extra_cc_flags or [])})
     label = f"{os.path.basename(compiler)} build main.orb -> {out_exe}"
-    print(f"[selfhost] {label}")
+    out.say(f"Building {label}")
     proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out_exe)],
                           cwd=ROOT, env=env)
     if proc.returncode != 0:
         if not os.path.isfile(inter_c):
-            print(f"[selfhost] FAILED ({proc.returncode}): {label} (no C emitted)")
+            out.fail(f"Failed ({proc.returncode}): {label} (no C emitted)")
             raise SystemExit(2)
-        print(f"[selfhost] note: compiler exited {proc.returncode} but emitted C "
-              "(stale baked-in flags?); continuing with our own cc invocation.")
+        out.say(f"note: compiler exited {proc.returncode} but emitted C "
+                "(stale baked-in flags?); continuing with our own cc invocation.")
     shutil.copyfile(inter_c, snapshot_path)
     return snapshot_path
 
@@ -234,11 +238,11 @@ def update_published_c(new_hash: str) -> None:
         content,
     )
     if n != 1:
-        print("[selfhost] WARN: could not update PUBLISHED_C in verify_seed.py")
+        print("Warning: could not update PUBLISHED_C in verify_seed.py", file=sys.stderr)
         return
     with open(VERIFY_SEED, "w", encoding="utf-8", newline="\n") as f:
         f.write(new_content)
-    print(f"[selfhost] updated PUBLISHED_C in verify_seed.py -> {new_hash.upper()}")
+    out.say(f"Updated PUBLISHED_C in verify_seed.py -> {new_hash.upper()}")
 
 
 def main() -> int:
@@ -256,10 +260,12 @@ def main() -> int:
                     help="force the low-memory C profile (-g0, no unwind tables)")
     ap.add_argument("--no-low-mem", dest="low_mem", action="store_false",
                     help="disable the low-memory C profile")
+    out.add_quiet(ap)
     args = ap.parse_args()
+    out.set_quiet(args.quiet)
 
     if args.promote and args.check_stale:
-        print("[selfhost] --promote and --check-stale are mutually exclusive.")
+        out.fail("Failed: --promote and --check-stale are mutually exclusive.")
         return 1
 
     warn_low_memory()
@@ -267,11 +273,11 @@ def main() -> int:
         free_mb = avail_commit_mb()
         args.low_mem = free_mb is not None and free_mb < LOWMEM_AUTO_MB
         if args.low_mem:
-            print(f"[selfhost] low-memory profile auto-enabled ({free_mb} MB commit available).")
+            out.say(f"Low-memory profile auto-enabled ({free_mb} MB commit available).")
 
     if not os.path.isfile(CANONICAL_C):
-        print(f"[selfhost] FAIL: {CANONICAL_C} missing. It is the committed root of trust;")
-        print("[selfhost] restore it from git or bootstrap once via the legacy Zig lineage.")
+        out.fail(f"Failed: {CANONICAL_C} missing. It is the committed root of trust.")
+        out.tip("restore it from git or bootstrap once via the legacy Zig lineage.")
         return 1
 
     if args.work:
@@ -288,14 +294,14 @@ def main() -> int:
     cc_cmd = cc.split()
     extra_cc_flags = lowmem_cc_flags(cc) if args.low_mem else []
     if args.low_mem and not extra_cc_flags:
-        print("[selfhost] low-memory profile on (no extra C flags for this driver).")
+        out.say("Low-memory profile on (no extra C flags for this driver).")
     elif extra_cc_flags:
-        print(f"[selfhost] low-memory C flags: {' '.join(extra_cc_flags)}")
+        out.say(f"Low-memory C flags: {' '.join(extra_cc_flags)}")
     h_canonical = sha256(CANONICAL_C)
 
-    print(f"[selfhost] repo root:    {ROOT}")
-    print(f"[selfhost] C compiler:   {cc}")
-    print(f"[selfhost] canonical C:  {h_canonical}  ({os.path.getsize(CANONICAL_C)} bytes)")
+    out.say(f"Bootstrapping from root:    {ROOT}")
+    out.say(f"Bootstrapping with compiler:   {cc}")
+    out.say(f"Canonical C:  {h_canonical}  ({os.path.getsize(CANONICAL_C)} bytes)")
 
     # Seed: canonical C -> amalgamate -> any C compiler -> working Orbit compiler.
     amal = os.path.join(work, "orbit_bootstrap.c")
@@ -320,8 +326,8 @@ def main() -> int:
         run([*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-I", os.path.join(ROOT, "runtime"),
              "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS],
             label=f"build iter{i} compiler from its own C")
-        print(f"[selfhost] iteration {i}: {h_i}"
-              + ("  (fixed point)" if h_i == prev_c_hash else ""))
+        out.say(f"Iteration {i}: {h_i}"
+                + ("  (fixed point)" if h_i == prev_c_hash else ""))
         if h_i == prev_c_hash:
             converged_c = c_i
             final_exe = next_exe
@@ -331,8 +337,8 @@ def main() -> int:
         final_exe = next_exe
 
     if converged_c is None:
-        print(f"[selfhost] FAIL: no fixed point after {MAX_ITERATIONS} iterations "
-              "(the chain oscillates or the compiler miscompiles its own source).")
+        out.fail(f"Failed: no fixed point after {MAX_ITERATIONS} iterations "
+                 "(the chain oscillates or the compiler miscompiles its own source).")
         return 1
 
     h_final = sha256(converged_c)
@@ -340,27 +346,27 @@ def main() -> int:
 
     if args.promote:
         shutil.copyfile(converged_c, CANONICAL_C)
-        print(f"[selfhost] PROMOTED new canonical C -> {CANONICAL_C}")
-        print(f"[selfhost] old: {h_canonical}")
-        print(f"[selfhost] new: {h_final}")
+        out.say(f"Promoted new canonical C -> {CANONICAL_C}")
+        out.say(f"old: {h_canonical}")
+        out.say(f"new: {h_final}")
         update_published_c(h_final)
     elif args.check_stale and stale:
-        print("[selfhost] FAIL: converged C != committed canonical (canonical is stale).")
-        print(f"[selfhost] converged: {h_final}")
-        print("[selfhost] refresh it with: python scripts/build_selfhost.py --promote")
+        out.fail("Failed: converged C != committed canonical (canonical is stale).")
+        out.say(f"converged: {h_final}")
+        out.tip("refresh it with: python scripts/build_selfhost.py --promote")
         return 1
     elif stale:
-        print("[selfhost] note: sources diverge from committed canonical "
-              "(expected while hacking on the compiler; promote when ready).")
+        out.say("note: sources diverge from committed canonical "
+                "(expected while hacking on the compiler; promote when ready).")
 
     if args.out:
         out_abs = os.path.abspath(args.out)
         os.makedirs(os.path.dirname(out_abs) or ".", exist_ok=True)
         shutil.copyfile(final_exe, out_abs)
-        print(f"[selfhost] fixed-point compiler copied to: {out_abs}")
+        out.say(f"Wrote fixed-point compiler to {out_abs}")
 
-    print(f"\n[selfhost] OK: Zig-free bootstrap converged ({'matches canonical' if not stale else 'diverged from canonical'}).")
-    print("[selfhost] follow-up: python scripts/verify_seed.py --cc \"" + cc + "\"")
+    print(f"Finished bootstrap: converged ({'matches canonical' if not stale else 'diverged from canonical'}).")
+    out.say("follow-up: python scripts/verify_seed.py --cc \"" + cc + "\"")
     return 0
 
 

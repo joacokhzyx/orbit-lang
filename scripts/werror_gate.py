@@ -8,6 +8,9 @@ Usage: python scripts/werror_gate.py [--compiler PATH] [--cc gcc] [--list]
 import argparse, os, subprocess, sys, tempfile
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = Path(__file__).resolve().parent.parent
 PROBES = [
     ("arith", "fn main() -> int {\n    return (6 * 7) + 1 - 1\n}", 42),
@@ -62,18 +65,20 @@ def main():
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args()
     if args.list:
-        for name, _ in PROBES:
-            print(name)
+        for probe in PROBES:
+            print(probe[0])
         return 0
     fails = 0
     for probe in PROBES:
         name, src, expect = probe[0], probe[1], probe[2]
         flags = probe[3] if len(probe) > 3 else ()
         name, status, detail = run_probe(args.compiler, args.cc, name, src, expect, flags)
-        print(f"[werror] {status:11} {name} {detail}", flush=True)
-        if status != "OK":
+        if status == "OK":
+            out.say(f"Checking {name} ... ok ({detail})")
+        else:
+            out.fail(f"Failed {name} [{status}]: {detail}")
             fails += 1
-    print(f"[werror] RESULT: {len(PROBES) - fails}/{len(PROBES)}")
+    out.finish("werror", len(PROBES) - fails, len(PROBES))
     return 1 if fails else 0
 
 if __name__ == "__main__":

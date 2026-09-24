@@ -16,6 +16,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUITE = os.path.join(ROOT, "tests", "suite")
 
@@ -25,14 +28,16 @@ def main() -> int:
     ap.add_argument("--compiler", required=True)
     ap.add_argument("--cc", default=None)
     ap.add_argument("--timeout", type=int, default=60)
+    out.add_quiet(ap)
     args = ap.parse_args()
+    out.set_quiet(args.quiet)
 
     tests = sorted(
         f for f in os.listdir(SUITE)
         if f.endswith(".orb") and not f.endswith(".support.orb")
     )
     if not tests:
-        print("[suite] FAIL: no tests found")
+        out.fail("Failed suite: no tests found in tests/suite")
         return 1
 
     work = tempfile.mkdtemp(prefix="orbit_suite_")
@@ -63,32 +68,33 @@ def main() -> int:
             build_rc = proc.returncode
         except subprocess.TimeoutExpired:
             failed.append(name)
-            print(f"[suite] TIMEOUT(build) {name}")
+            out.fail(f"Failed {name}: timed out building")
             continue
         if build_rc != 0:
             failed.append(name)
-            print(f"[suite] BUILD-FAIL {name}")
+            out.fail(f"Failed {name}: did not build (rc={build_rc})")
             tail = "\n".join((proc.stdout or "").strip().splitlines()[-8:])
-            if tail:
-                print("   " + tail.replace("\n", "\n   "))
+            for line in tail.splitlines():
+                print("  " + line, file=sys.stderr)
             payload = (tail or "(no output)").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1200]
-            print(f"::error::[suite build {name}] rc={build_rc} :: {payload}")
+            out.ci_error(f"[suite build {name}] rc={build_rc} :: {payload}")
             continue
 
         run = subprocess.run([out_exe], cwd=work, capture_output=True,
                              timeout=args.timeout)
         if run.returncode == expected:
             ok += 1
-            print(f"[suite] OK       {name:<24} exit={run.returncode}")
+            out.say(f"Testing {name} ... exit {run.returncode} as expected")
         else:
             failed.append(name)
-            print(f"[suite] WRONG-EXIT {name:<22} got={run.returncode} want={expected}")
+            out.fail(f"Failed {name}: got exit {run.returncode}, want {expected}")
 
     total = len(tests)
-    print(f"\n[suite] RESULT: {ok}/{total}")
+    out.finish("suite", ok, total)
     if failed:
         payload = ", ".join(failed).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1500]
-        print(f"::error::[orbit-suite] failed: {payload}")
+        out.fail("Failed: " + ", ".join(failed))
+        out.ci_error(f"[orbit-suite] failed: {payload}")
     return 0 if not failed else 1
 
 

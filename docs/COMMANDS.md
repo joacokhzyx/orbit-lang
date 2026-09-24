@@ -80,6 +80,29 @@ Colors and the server banner stay plain when `NO_COLOR` is set or
 `TERM=dumb`: no ANSI escapes, no gradient, no checkmarks. `/_ledger`
 and `/_pulse` HTML pages are not terminal output and are unaffected.
 
+## Script output conventions
+
+The Python gates in `scripts/` share one calm grammar (no `[tag]`
+prefixes, no colors, no emojis):
+
+- Steps read as actions: `Checking parity r1_route_only ... match`,
+  `Testing arith ... exit 0 as expected`, `Building seed ...`.
+- Failures print a fact to stderr, then a next step:
+  `Failed arith: got exit 3, want 0` followed by
+  `Tip: run ... to see why`.
+- Every tool closes the same way on stdout:
+  `Finished suite: 21/21 pass`.
+- `::error::` annotations print only on GitHub Actions
+  (`GITHUB_ACTIONS=true`); local runs stay clean.
+- Long tools (`build_selfhost`, `verify_seed`, `parity_selfhost`,
+  `test_suite`, `measure_selfhost`) accept `--quiet`: only failures
+  and the `Finished` line print.
+- Success lines pinned by `cli_probe.py` (`wrote`, `Checked`,
+  `Formatted`, `Usage:`, exit codes) never change shape.
+
+`scripts/preview_output.py` prints a visual specimen of the grammar
+for review; `scripts/orbit_output.py` implements it.
+
 ## Compiler Build and Verification
 
 These commands are for contributors and release maintainers:

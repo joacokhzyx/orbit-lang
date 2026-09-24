@@ -17,6 +17,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SETUP = {
@@ -77,30 +80,32 @@ def one(compiler, work, name, argv, exp_rc, stream, needle, absent=""):
     env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
     p = subprocess.run([compiler] + argv, cwd=work, capture_output=True,
                        text=True, errors="replace", env=env)
-    out, err = p.stdout or "", p.stderr or ""
+    so, se = p.stdout or "", p.stderr or ""
     if stream == "out":
-        ok_stream = (not needle) or (needle in out)
+        ok_stream = (not needle) or (needle in so)
     elif stream == "err":
-        ok_stream = (not needle) or (needle in err)
+        ok_stream = (not needle) or (needle in se)
     else:
-        ok_stream = (not needle) or (needle in (out + err))
-    ok_absent = (not absent) or (absent not in out and absent not in err)
+        ok_stream = (not needle) or (needle in (so + se))
+    ok_absent = (not absent) or (absent not in so and absent not in se)
     ok_json = True
     if name == "doctor-json" and p.returncode == 1:
         import json as _json
         try:
-            rows = _json.loads(out)
+            rows = _json.loads(so)
             ok_json = (isinstance(rows, list) and len(rows) >= 1 and
                        all(set(r) == {"file", "line", "code", "severity", "message", "fix"} for r in rows))
         except Exception:
             ok_json = False
     ok = (p.returncode == exp_rc) and ok_stream and ok_absent and ok_json
-    got_where = "out" if needle in out else ("err" if needle in err else "-")
-    print("%-22s rc=%d(exp %d) needle@%s %s" %
-          (name, p.returncode, exp_rc, got_where, "OK" if ok else "FAIL"))
-    if not ok:
-        print("  out: %r" % out.strip()[:200])
-        print("  err: %r" % err.strip()[:200])
+    if ok:
+        out.say(f"Probing {name} ... ok")
+    else:
+        out.fail(f"Failed {name}: rc={p.returncode} (want {exp_rc})")
+        if so.strip():
+            print("  out: %r" % so.strip()[:200], file=sys.stderr)
+        if se.strip():
+            print("  err: %r" % se.strip()[:200], file=sys.stderr)
     return ok
 
 
@@ -122,7 +127,7 @@ def main():
         absent = case[5] if len(case) > 5 else ""
         if one(args.compiler, work, name, argv, exp_rc, stream, needle, absent):
             ok += 1
-    print("RESULT: %d/%d" % (ok, len(CASES)))
+    out.finish("cli-probe", ok, len(CASES))
     return 0 if ok == len(CASES) else 1
 
 

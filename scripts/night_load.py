@@ -27,10 +27,14 @@ Exit codes: 0 ok, 2 usage error (matches DECISIONS.md).
 """
 import argparse
 import json
+import os
 import socket
 import sys
 import threading
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
 
 
 def percentile(sorted_vals, pct):
@@ -242,7 +246,7 @@ def warmup(args):
                 break
         sock.close()
     except OSError as e:
-        print("warmup: cannot connect to %s:%d (%s)" % (args.host, args.port, e),
+        print("Failed to connect to %s:%d (%s)" % (args.host, args.port, e),
               file=sys.stderr)
 
 
@@ -297,7 +301,7 @@ def main(argv=None):
         "p99_ms": round(p99, 3),
         "status_counts": {str(k): v for k, v in sorted(status_counts.items())},
     }
-    print("night_load: %s:%d %s x%d src_ips=%d" % (
+    out.say("Loading %s:%d %s x%d (source ips: %d) ..." % (
         args.host, args.port, args.path, args.connections, args.source_ips))
     print("  completed=%d ok_2xx=%d transport_errors=%d error_rate=%.3f%% elapsed=%.2fs" % (
         completed, ok_2xx, transport[0], err_rate * 100.0, elapsed))
@@ -316,5 +320,5 @@ if __name__ == "__main__":
     except SystemExit as e:
         raise
     except Exception as e:
-        print("night_load: failed: %s" % e, file=sys.stderr)
+        print("Failed: %s" % e, file=sys.stderr)
         sys.exit(1)

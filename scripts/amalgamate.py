@@ -81,7 +81,7 @@ def main() -> int:
         out = os.path.normpath(args[args.index("--out") + 1])
     amalgamate(entry, runtime_root, out)
     size = os.path.getsize(out)
-    print(f"wrote {out} ({size / 1e6:.1f} MB)")
+    print(f"Wrote {out} ({size / 1e6:.1f} MB)")
     return 0
 
 

@@ -28,6 +28,9 @@ import time
 import urllib.request
 import urllib.error
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NIGHT_LOAD = os.path.join(ROOT, "scripts", "night_load.py")
 
@@ -54,15 +57,20 @@ def phase_a(args):
     )
     print(proc.stdout.strip())
     if proc.returncode != 0:
-        print("[gate-A] FAIL: night_load rc=%d" % proc.returncode)
-        print((proc.stderr or "").strip()[-500:])
+        out.fail("Phase A failed: load run exited rc=%d" % proc.returncode)
+        print((proc.stderr or "").strip()[-500:], file=sys.stderr)
         return False
     with open(tmp, encoding="utf-8") as f:
         rep = json.load(f)
     ok = rep.get("completed") == 200 and rep.get("error_rate") == 0.0
-    print("[gate-A] completed=%s error_rate=%s status=%s -> %s" % (
-        rep.get("completed"), rep.get("error_rate"),
-        rep.get("status_counts"), "PASS" if ok else "FAIL"))
+    if ok:
+        out.say("Phase A passed: completed=%s error_rate=%s status=%s" % (
+            rep.get("completed"), rep.get("error_rate"),
+            rep.get("status_counts")))
+    else:
+        out.fail("Phase A failed: completed=%s error_rate=%s status=%s" % (
+            rep.get("completed"), rep.get("error_rate"),
+            rep.get("status_counts")))
     return ok
 
 
@@ -84,7 +92,7 @@ def phase_b(args):
             if body != b"429 Too Many Requests - Kynx admission control":
                 bad_body += 1
         else:
-            print("[gate-B] FAIL: unexpected status %r" % (status,))
+            out.fail("Phase B failed: unexpected status %r" % (status,))
             return False
     try:
         ra_s = int((retry_after or "").strip())
@@ -92,8 +100,12 @@ def phase_b(args):
         ra_s = -1
     ok = deny429 >= 1 and ok200 + deny429 == 25 and ra_s >= 1 and bad_body == 0
     elapsed = time.time() - t0
-    print("[gate-B] ok=%d denied=%d retry_after=%r bad_body=%d elapsed=%.2fs -> %s" % (
-        ok200, deny429, retry_after, bad_body, elapsed, "PASS" if ok else "FAIL"))
+    if ok:
+        out.say("Phase B passed: ok=%d denied=%d retry_after=%r elapsed=%.2fs" % (
+            ok200, deny429, retry_after, elapsed))
+    else:
+        out.fail("Phase B failed: ok=%d denied=%d retry_after=%r bad_body=%d elapsed=%.2fs" % (
+            ok200, deny429, retry_after, bad_body, elapsed))
     return ok
 
 
@@ -102,7 +114,10 @@ def phase_c(args):
     url = "http://%s:%d%s" % (args.host, args.port, args.burst_path)
     results = [get(url)[0] for _ in range(5)]
     ok = all(s == 200 for s in results)
-    print("[gate-C] post-burst statuses=%s -> %s" % (results, "PASS" if ok else "FAIL"))
+    if ok:
+        out.say("Phase C passed: post-burst statuses=%s" % (results,))
+    else:
+        out.fail("Phase C failed: post-burst statuses=%s" % (results,))
     return ok
 
 
@@ -119,8 +134,12 @@ def main(argv=None) -> int:
     a = phase_a(args)
     b = phase_b(args) if a else False
     c = phase_c(args) if b else False
-    print("[gate] RESULT: %s" % ("PASS" if (a and b and c) else "FAIL"))
-    return 0 if (a and b and c) else 1
+    passed = bool(a and b and c)
+    if passed:
+        print("Finished kynx gate: PASS")
+    else:
+        out.fail("Finished kynx gate: FAIL")
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

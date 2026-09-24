@@ -38,11 +38,13 @@ import argparse
 import hashlib
 import os
 import shutil
-import struct
 import subprocess
 import sys
 import tempfile
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -136,16 +138,15 @@ def run(argv, cwd, env_extra=None, label=""):
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
-    print(f"[verify] {label or ' '.join(argv)}")
+    out.say(f"Running {label or ' '.join(argv)}")
     proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
-    out = (proc.stdout or "") + (proc.stderr or "")
-    if out.strip():
-        print(out.rstrip())
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    if combined.strip():
+        print(combined.rstrip())
     if proc.returncode != 0:
-        tail = "\n".join(out.strip().splitlines()[-30:])
-        payload = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
-        print(f"::error::[{label or ' '.join(argv)}] rc={proc.returncode} :: {payload}")
-        print(f"[verify] FAILED ({proc.returncode}): {label or ' '.join(argv)}")
+        tail = "\n".join(combined.strip().splitlines()[-30:])
+        out.ci_error(f"[{label or ' '.join(argv)}] rc={proc.returncode} :: {out.scrub_ci(tail)}")
+        out.fail(f"Failed {label or ' '.join(argv)} (rc={proc.returncode})")
         raise SystemExit(2)
     return proc
 
@@ -161,11 +162,13 @@ def main() -> int:
     ap.add_argument("--cc", default=None, help="C compiler for the seed (default: auto-detect)")
     ap.add_argument("--refresh", action="store_true", help="also refresh dist/orbit_bootstrap.c and dist/orbit_seed")
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
+    out.add_quiet(ap)
     args = ap.parse_args()
+    out.set_quiet(args.quiet)
     warn_low_memory()
 
     if args.release and not args.bootstrap and not os.path.isfile(CANONICAL_C):
-        print("[verify] --release requires either --bootstrap or a committed canonical C.")
+        out.fail("Failed: --release requires either --bootstrap or a committed canonical C.")
         return 1
 
     if args.work:
@@ -181,29 +184,32 @@ def main() -> int:
 
     def check(name, ok, detail=""):
         checks.append((name, ok, detail))
-        print(f"[verify] {'PASS' if ok else 'FAIL'}  {name}  {detail}")
+        if ok:
+            out.say(f"Verified {name} ... ok  {detail}".rstrip())
+        else:
+            out.fail(f"Failed {name}: {detail}" if detail else f"Failed {name}")
 
     exe = ".exe" if sys.platform == "win32" else ""
     cc = args.cc or detect_cc()
     cc_cmd = cc.split()
-    print(f"[verify] repo root:  {ROOT}")
-    print(f"[verify] seed CC:    {cc}")
+    out.say(f"Verifying from root:  {ROOT}")
+    out.say(f"Verifying with seed CC:  {cc}")
 
     if os.path.isfile(CANONICAL_C):
         h_canon = sha256(CANONICAL_C)
         have_canon = True
-        print(f"[verify] canonical C:  {h_canon}  ({os.path.getsize(CANONICAL_C)} bytes)")
+        out.say(f"Canonical C:  {h_canon}  ({os.path.getsize(CANONICAL_C)} bytes)")
     else:
         h_canon = None
         have_canon = False
-        print("[verify] canonical C absent (clean checkout); will establish it from the Zig lineage with --bootstrap")
+        out.say("Canonical C absent (clean checkout); will establish it from the Zig lineage with --bootstrap")
 
     if args.bootstrap:
         if not os.path.isfile(args.driver):
-            print(f"[verify] FAIL: legacy Zig driver {args.driver} not found.")
-            print("[verify] The self-hosted chain no longer needs it; to refresh the")
-            print("[verify] canonical after compiler changes run:")
-            print("[verify]   python scripts/build_selfhost.py --promote")
+            out.fail(f"Failed: legacy Zig driver {args.driver} not found.")
+            out.say("The self-hosted chain no longer needs it; to refresh the")
+            out.say("canonical after compiler changes run:")
+            out.say("  python scripts/build_selfhost.py --promote")
             return 1
         # Reuse the chain's shared temp dir so the freshly built stages and the
         # seed chain embed the SAME C source path and are byte-comparable.
@@ -215,7 +221,7 @@ def main() -> int:
         if have_canon:
             check("bootstrap C == canonical stage3.exe.c", h_fresh == h_canon, f"fresh={h_fresh}")
             if h_fresh != h_canon:
-                print("[verify] canonical C is stale; update compiler/selfhost/stage3.exe.c from the fresh build before this gate passes.")
+                out.fail("Failed: canonical C is stale; update compiler/selfhost/stage3.exe.c from the fresh build before this gate passes.")
                 return 1
             seed_src_c = CANONICAL_C
         else:
@@ -225,10 +231,10 @@ def main() -> int:
             shutil.copyfile(fresh_c, CANONICAL_C)
             h_canon = h_fresh
             seed_src_c = CANONICAL_C
-            print(f"[verify] established canonical C: {h_fresh}")
+            out.say(f"Established canonical C: {h_fresh}")
     else:
         if not have_canon:
-            print("[verify] FAIL: canonical C missing; run with --bootstrap on a clean checkout.")
+            out.fail("Failed: canonical C missing; run with --bootstrap on a clean checkout.")
             return 1
         seed_src_c = CANONICAL_C
 
@@ -253,7 +259,7 @@ def main() -> int:
         for attempt in (1, 2):
             env = dict(os.environ)
             env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc})
-            print(f"[verify] {label}" + ("  (retry)" if attempt == 2 else ""))
+            out.say(f"Building {label}" + ("  (retry)" if attempt == 2 else ""))
             proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out)], cwd=ROOT, env=env)
             last_rc = proc.returncode
             if last_rc == 0:
@@ -266,9 +272,9 @@ def main() -> int:
             # memory pressure killing the linker), rebuild from the snapshot.
             c = os.path.join(tmp, "orbit_selfhost_build.c")
             if not os.path.isfile(c):
-                print(f"[verify] FAILED ({last_rc}): {label} (no C emitted)")
+                out.fail(f"Failed ({last_rc}): {label} (no C emitted)")
                 raise SystemExit(2)
-            print(f"[verify] note: {label} exited {last_rc} after emitting C; rebuilding with our own cc.")
+            out.say(f"note: {label} exited {last_rc} after emitting C; rebuilding with our own cc.")
         else:
             c = os.path.join(tmp, "orbit_selfhost_build.c")
         # Deterministic contract binaries: ALWAYS rebuild from the shared
@@ -290,7 +296,7 @@ def main() -> int:
     h_seed_c = sha256(seed_c)
     check("seed C fixed point (seed C == canonical C)", h_seed_c == h_canon, f"seed={h_seed_c}")
     if h_seed_c != h_canon:
-        print("[verify] the seed does not reproduce the canonical C; the fixed point is broken.")
+        out.fail("Failed: the seed does not reproduce the canonical C; the fixed point is broken.")
         return 1
 
     seed2 = os.path.join(work, "seed2" + exe)
@@ -312,9 +318,9 @@ def main() -> int:
               f"seed2={h_bins[1]} chain2={h_bins[2]} chain3={h_bins[3]}")
     else:
         ok_bins = h_bins[1] == h_bins[2] == h_bins[3]
-        print(f"[verify] note: binary fixed point {'PASS' if ok_bins else 'DIFFERS'} "
-              f"(informational for non-zig toolchain {cc})")
-        print(f"[verify]   seed2={h_bins[1]} chain2={h_bins[2]} chain3={h_bins[3]}")
+        out.say(f"note: binary fixed point {'PASS' if ok_bins else 'DIFFERS'} "
+                f"(informational for non-zig toolchain {cc})")
+        out.say(f"  seed2={h_bins[1]} chain2={h_bins[2]} chain3={h_bins[3]}")
 
     stages = [os.path.join(ROOT, "compiler", "selfhost", "stage2.exe"), os.path.join(ROOT, "compiler", "selfhost", "stage3.exe")]
     present = [s for s in stages if os.path.isfile(s)]
@@ -331,9 +337,9 @@ def main() -> int:
               + ("" if ok else " (informational without --bootstrap; paths differ)"))
 
     if h_seed_c.upper() == PUBLISHED_C:
-        print(f"[verify] note: seed C matches published contract {PUBLISHED_C}")
+        out.say(f"note: seed C matches published contract {PUBLISHED_C}")
     if h_bins[1].upper() == PUBLISHED_BIN:
-        print(f"[verify] note: chain binaries match published binary contract {PUBLISHED_BIN}")
+        out.say(f"note: chain binaries match published binary contract {PUBLISHED_BIN}")
     if args.release:
         check("published C contract (--release)", h_seed_c.upper() == PUBLISHED_C,
               f"seed={h_seed_c.upper()} published={PUBLISHED_C}")
@@ -351,19 +357,18 @@ def main() -> int:
         shutil.copyfile(chain3, args.emit_fixed_point)
         if os.name != "nt":
             os.chmod(args.emit_fixed_point, 0o755)
-        print(f"[verify] fixed-point compiler (seed chain, chain3) emitted: {args.emit_fixed_point}")
+        out.say(f"Wrote fixed-point compiler (seed chain, chain3) to {args.emit_fixed_point}")
 
     failed = [n for n, ok, _ in checks if not ok]
-    print(f"\n[verify] {len(checks) - len(failed)}/{len(checks)} checks passed"
-          + ("" if not failed else f", FAILED: {', '.join(failed)}"))
-    print("[verify] work dir: " + work)
+    out.finish("verify", len(checks) - len(failed), len(checks))
+    out.say("work dir: " + work)
     if failed:
         details = []
         for n, ok, d in checks:
             if not ok:
                 details.append(f"{n}: {d}")
-        payload = " | ".join(details).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3800]
-        print(f"::error::[verify checks] {payload}")
+        out.fail("Failed: " + " | ".join(details))
+        out.ci_error("[verify checks] " + out.scrub_ci(" | ".join(details)))
     return 1 if failed else 0
 
 

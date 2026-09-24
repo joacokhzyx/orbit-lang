@@ -31,6 +31,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROBES = os.path.join(ROOT, "tests", "parity", "probes")
 GOLDENS = os.path.join(ROOT, "tests", "parity", "golden")
@@ -88,11 +91,13 @@ def main() -> int:
     ap.add_argument("--update", action="store_true", help="regenerate goldens instead of comparing")
     ap.add_argument("--goldens", default=GOLDENS, help="golden directory")
     ap.add_argument("--work", default=None, help="work directory (default: temp)")
+    out.add_quiet(ap)
     args = ap.parse_args()
+    out.set_quiet(args.quiet)
 
     probes = sorted(f for f in os.listdir(PROBES) if f.endswith(".orb"))
     if not probes:
-        print("[parity] FAIL: no probes found")
+        out.fail("Failed parity: no probes found")
         return 1
 
     work = args.work or tempfile.mkdtemp(prefix="orbit_parity_")
@@ -110,19 +115,20 @@ def main() -> int:
         if args.update:
             with open(golden_path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(golden)
-            print(f"[parity] UPDATE {name:<24} {kind}")
+            out.say(f"Updated golden for {name} ({kind})")
             ok += 1
             continue
 
         if not os.path.isfile(golden_path):
             failed.append(name)
-            print(f"[parity] MISSING-GOLDEN {name}")
+            out.fail(f"Failed {name}: no golden recorded")
+            out.tip("run with --update to record it, then commit the golden")
             continue
         with open(golden_path, "r", encoding="utf-8", newline="") as f:
             expected = f.read().replace("\r\n", "\n")
         if expected == golden:
             ok += 1
-            print(f"[parity] OK       {name:<24} {kind}")
+            out.say(f"Checking {name} ... match ({kind})")
         else:
             failed.append(name)
             exp_lines = expected.split("\n")
@@ -132,13 +138,14 @@ def main() -> int:
                 if exp_lines[i] != got_lines[i]:
                     detail = f"(line {i+1}: expected '{exp_lines[i][:40]}' got '{got_lines[i][:40]}')"
                     break
-            print(f"[parity] DIFF     {name:<24} {detail}")
-            payload = f"golden={expected[:200]!r} got={golden[:200]!r}".replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-            print(f"::error::[parity {name}] {payload}")
+            out.fail(f"Failed {name}: mismatch {detail}")
+            payload = f"golden={expected[:200]!r} got={golden[:200]!r}"
+            out.ci_error(f"[parity {name}] {out.scrub_ci(payload, 3800)}")
 
     total = len(probes)
-    print(f"\n[parity] RESULT: {ok}/{total} match goldens"
-          + ("" if not failed else "; FAILED: " + ", ".join(failed)))
+    out.finish("parity", ok, total, "match goldens" if not failed else "")
+    if failed:
+        out.fail("Failed: " + ", ".join(failed))
     if failed and not args.update:
         # One consolidated annotation: survives even if per-probe commands
         # are dropped, and carries the expected/got payloads verbatim.
@@ -150,10 +157,10 @@ def main() -> int:
                 exp = open(gp, encoding="utf-8", newline="").read() if os.path.isfile(gp) else "<missing>"
                 rc, kind, payload = probe_outcome(args.compiler, os.path.join(PROBES, pf), name, work, args.cc or "")
                 parts.append(f"{name}: rc={rc} kind={kind} | GOLDEN={exp[:150]!r} | GOT={payload[:150]!r}")
-        blob = (" || ".join(parts)).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:3500]
-        print(f"::error::[parity diffs] {blob}")
+        blob = " || ".join(parts)
+        out.ci_error(f"[parity diffs] {out.scrub_ci(blob, 3500)}")
     if args.update:
-        print("[parity] goldens refreshed; commit them together with the compiler change.")
+        out.say("Goldens refreshed; commit them together with the compiler change.")
         return 0
     return 0 if not failed else 1
 
@@ -166,6 +173,6 @@ if __name__ == "__main__":
     except Exception:
         import traceback
         tb = traceback.format_exc()[-2500:]
-        print(tb)
-        print("::error::[parity crash] " + tb.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+        print(tb, file=sys.stderr)
+        out.ci_error("[parity crash] " + out.scrub_ci(tb, 2500))
         raise

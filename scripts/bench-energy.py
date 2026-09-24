@@ -28,6 +28,9 @@ import tempfile
 import time
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE_VERSION = 1
 
@@ -250,7 +253,7 @@ def cmd_save(args):
     try:
         samples = collect_samples(args.url, args.input, args.rounds, args.interval)
     except (OSError, ValueError) as e:
-        print("save: cannot read ledger: %s" % e, file=sys.stderr)
+        print("Failed save: cannot read ledger: %s" % e, file=sys.stderr)
         return 1
     routes, source = summarize(samples)
     baseline = {
@@ -272,9 +275,9 @@ def cmd_save(args):
             json.dump(baseline, f, indent=2)
             f.write("\n")
     except OSError as e:
-        print("save: cannot write %s: %s" % (args.out, e), file=sys.stderr)
+        print("Failed save: cannot write %s: %s" % (args.out, e), file=sys.stderr)
         return 1
-    print("saved %d route(s) from %d round(s) to %s (source: %s)"
+    print("Saved %d route(s) from %d round(s) to %s (source: %s)"
           % (len(routes), args.rounds, args.out, source))
     return 0
 
@@ -289,12 +292,12 @@ def cmd_compare(args):
         with open(args.baseline, encoding="utf-8") as f:
             baseline = json.load(f)
     except (OSError, ValueError) as e:
-        print("compare: cannot read baseline: %s" % e, file=sys.stderr)
+        print("Failed compare: cannot read baseline: %s" % e, file=sys.stderr)
         return 2
     try:
         samples = collect_samples(args.url, args.input, args.rounds, args.interval)
     except (OSError, ValueError) as e:
-        print("compare: cannot read current ledger: %s" % e, file=sys.stderr)
+        print("Failed compare: cannot read current ledger: %s" % e, file=sys.stderr)
         return 1
     current_routes, current_source = summarize(samples)
     base_routes = {
@@ -344,9 +347,10 @@ def cmd_compare(args):
             print("%-28s vanished since baseline" % key)
             failures += 1
     if failures:
-        print("compare: %d breach(es) beyond tolerance %.0f%%" % (failures, args.tolerance * 100))
+        print("Finished compare: FAIL, %d breach(es) beyond tolerance %.0f%%" % (failures, args.tolerance * 100),
+              file=sys.stderr)
         return 1
-    print("compare: all %d route(s) hold within tolerance %.0f%%"
+    print("Finished compare: PASS, all %d route(s) hold within tolerance %.0f%%"
           % (len(current_routes), args.tolerance * 100))
     return 0
 
@@ -372,11 +376,11 @@ def _which(name):
 def cmd_overhead(args):
     cc = _find_cc(args.cc)
     if not cc:
-        print("overhead: no C compiler found (tried gcc, cc, clang)", file=sys.stderr)
+        print("Failed overhead: no C compiler found (tried gcc, cc, clang)", file=sys.stderr)
         return 1
     src = os.path.join(REPO_ROOT, "scripts", "bench-ledger-overhead.c")
     if not os.path.isfile(src):
-        print("overhead: missing %s" % src, file=sys.stderr)
+        print("Failed overhead: missing %s" % src, file=sys.stderr)
         return 1
     tmp = tempfile.mkdtemp(prefix="orbit-ledger-bench-")
     results = {}
@@ -390,20 +394,20 @@ def cmd_overhead(args):
                 cmd += ["-lpthread", "-lrt"]
             built = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
             if built.returncode != 0:
-                print("overhead: compile failed (%s):\n%s" % (variant, built.stderr.strip()[-2000:]),
+                print("Failed overhead: compile failed (%s):\n%s" % (variant, built.stderr.strip()[-2000:]),
                       file=sys.stderr)
                 return 1
             runs = []
             for _ in range(args.rounds):
                 run = subprocess.run([exe], capture_output=True, text=True, timeout=180)
                 if run.returncode != 0:
-                    print("overhead: bench run failed (%s): %s" % (variant, run.stderr.strip()[-1000:]),
+                    print("Failed overhead: bench run failed (%s): %s" % (variant, run.stderr.strip()[-1000:]),
                           file=sys.stderr)
                     return 1
                 try:
                     runs.append(json.loads(run.stdout.strip()))
                 except ValueError:
-                    print("overhead: cannot parse bench output: %r" % run.stdout.strip()[-500:],
+                    print("Failed overhead: cannot parse bench output: %r" % run.stdout.strip()[-500:],
                           file=sys.stderr)
                     return 1
             results[variant] = runs
@@ -428,9 +432,10 @@ def cmd_overhead(args):
           "p50 on the reference box is ~125000 ns)" % (args.budget_ns, args.budget_ns * 50))
     delta_ns = summaries["default"][3]
     if delta_ns < args.budget_ns:
-        print("overhead: HOLD (delta %+.1f ns/req < %.0f ns/req)" % (delta_ns, args.budget_ns))
+        print("Finished overhead: HOLD (delta %+.1f ns/req < %.0f ns/req)" % (delta_ns, args.budget_ns))
         return 0
-    print("overhead: BREACH (delta %+.1f ns/req >= %.0f ns/req)" % (delta_ns, args.budget_ns))
+    print("Finished overhead: BREACH (delta %+.1f ns/req >= %.0f ns/req)" % (delta_ns, args.budget_ns),
+          file=sys.stderr)
     return 1
 
 
@@ -469,7 +474,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if getattr(args, "rounds", 1) < 1:
-        print("rounds must be >= 1", file=sys.stderr)
+        print("Failed: rounds must be >= 1", file=sys.stderr)
         return 2
     return args.fn(args)
 

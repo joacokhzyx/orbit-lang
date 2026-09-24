@@ -12,10 +12,15 @@ answered everything without exceeding its budget (documented via --strict).
 """
 
 import argparse
+import os
+import sys
 import threading
 import urllib.request
 import urllib.error
 from collections import Counter
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
 
 lock = Counter()
 
@@ -54,13 +59,17 @@ def main() -> int:
     for t in threads:
         t.join()
 
-    print("[kynx-probe] status distribution:", dict(lock))
+    out.say(f"Probed {args.requests} requests against "
+              f"{args.host}:{args.port}{args.path}: {dict(lock)}")
     got_429 = lock.get(429, 0)
     ok = got_429 > 0 or (not args.strict and sum(v for k, v in lock.items() if isinstance(k, int)) == args.requests)
     if got_429:
-        print(f"[kynx-probe] PASS: admission control engaged ({got_429} x 429)")
+        out.say(f"Finished burst probe: PASS, admission control engaged ({got_429} x 429)")
+    elif ok:
+        out.say("Finished burst probe: PASS, under budget so no 429 expected")
     else:
-        print("[kynx-probe] no 429 observed: either under budget or gate inactive")
+        out.fail("Finished burst probe: FAIL, no 429 observed "
+                 "(server may be under budget; raise --requests or drop --strict)")
     return 0 if ok else 1
 
 

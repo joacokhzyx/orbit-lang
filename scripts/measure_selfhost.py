@@ -38,6 +38,9 @@ import tempfile
 import threading
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_output as out
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 AMALGAMATE = os.path.join(ROOT, "scripts", "amalgamate.py")
@@ -352,7 +355,7 @@ def run_sampled(argv, cwd, env_extra=None, interval_ms=100, label=""):
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
-    print("[measure] %s" % (label or " ".join(argv[:4])), flush=True)
+    print("Running %s ..." % (label or " ".join(argv[:4])), flush=True)
     total_mb, avail_before = system_snapshot()
     t0 = time.time()
     proc = subprocess.Popen(argv, cwd=cwd, env=env,
@@ -470,15 +473,17 @@ def main():
                     help="permit cc/orbit subprocess phases (needs RAM)")
     ap.add_argument("--out-jsonl", default=None, help="JSONL output path")
     ap.add_argument("--out-md", default=None, help="markdown output path")
+    out.add_quiet(ap)
     args = ap.parse_args()
+    out.set_quiet(args.quiet)
 
     phases = [p.strip() for p in args.phases.split(",") if p.strip()]
     if phases == ["all"]:
         phases = ["static", "amalgamate", "seed-cc", "orbit-build", "iter-cc"]
     heavy = {"seed-cc", "orbit-build", "iter-cc"}
     if not args.allow_heavy and any(p in heavy for p in phases):
-        print("[measure] refusing heavy phases without --allow-heavy on this machine.")
-        print("[measure] run with --phases static,amalgamate or add --allow-heavy.")
+        out.fail("Failed measure: refusing heavy phases without --allow-heavy on this machine.")
+        out.tip("run with --phases static,amalgamate or add --allow-heavy.")
         return 2
 
     if args.work:
@@ -501,10 +506,10 @@ def main():
 
     records = []
     total_mb, avail_mb = system_snapshot()
-    print("[measure] root: %s" % ROOT)
-    print("[measure] cc: %s" % cc)
-    print("[measure] sys total=%s MB avail=%s MB" % (total_mb, avail_mb))
-    print("[measure] work: %s" % work)
+    out.say("Measuring from root: %s" % ROOT)
+    out.say("Measuring with cc: %s" % cc)
+    out.say("Machine: total=%s MB avail=%s MB" % (total_mb, avail_mb))
+    out.say("Work dir: %s" % work)
 
     def emit(rec):
         records.append(rec)
@@ -515,7 +520,7 @@ def main():
         rec = static_record()
         rec["cc"] = cc
         emit(rec)
-        print("[measure] static: orb=%d KB canon=%d KB runtime=%d KB out_concat=%d" % (
+        out.say("Measured static: orb=%d KB canon=%d KB runtime=%d KB out_concat=%d" % (
             rec["compiler_orb_bytes"] // 1024,
             rec["canonical_c_bytes"] // 1024,
             rec["runtime_bytes"] // 1024,
@@ -541,12 +546,13 @@ def main():
             pass
         emit(rec)
         if r["rc"] != 0:
-            print("[measure] amalgamate failed, stopping.")
+            out.fail("Failed measure: amalgamate failed, stopping.")
             write_markdown(out_md, read_all_records(out_jsonl), cc)
             return 2
     else:
         if os.path.isfile(amal) is False and any(p in heavy for p in phases):
-            print("[measure] need amalgamate output for heavy phases; add amalgamate to --phases.")
+            out.fail("Failed measure: need amalgamate output for heavy phases.")
+            out.tip("add amalgamate to --phases.")
             return 2
 
     seed_exe = os.path.join(work, "seed" + exe)
@@ -567,14 +573,15 @@ def main():
             rec["out_bytes"] = 0
         emit(rec)
         if r["rc"] != 0:
-            print("[measure] seed-cc failed, stopping.")
+            out.fail("Failed measure: seed-cc failed, stopping.")
             write_markdown(out_md, read_all_records(out_jsonl), cc)
             return 2
 
     iter_c = None
     if "orbit-build" in phases:
         if not os.path.isfile(seed_exe):
-            print("[measure] seed exe missing for orbit-build; add seed-cc to --phases.")
+            out.fail("Failed measure: seed exe missing for orbit-build.")
+            out.tip("add seed-cc to --phases.")
             return 2
         tmp = os.path.join(work, "tmp_build")
         os.makedirs(tmp, exist_ok=True)
@@ -600,7 +607,7 @@ def main():
             rec["out_bytes"] = 0
         emit(rec)
         if r["rc"] != 0 and rec["out_c_bytes"] == 0:
-            print("[measure] orbit-build failed with no C emitted, stopping.")
+            out.fail("Failed measure: orbit-build failed with no C emitted, stopping.")
             write_markdown(out_md, read_all_records(out_jsonl), cc)
             return 2
 
@@ -611,7 +618,8 @@ def main():
             if os.path.isfile(cand):
                 src = cand
         if src is None or not os.path.isfile(src):
-            print("[measure] no emitted C for iter-cc; add orbit-build to --phases.")
+            out.fail("Failed measure: no emitted C for iter-cc.")
+            out.tip("add orbit-build to --phases.")
             return 2
         out_exe = os.path.join(work, "iter1_rebuilt" + exe)
         r = run_sampled([*cc_cmd, *SUPPRESS_FLAGS, "-I",
@@ -631,12 +639,12 @@ def main():
             rec["out_bytes"] = 0
         emit(rec)
         if r["rc"] != 0:
-            print("[measure] iter-cc failed.")
+            out.fail("Failed measure: iter-cc failed.")
             write_markdown(out_md, read_all_records(out_jsonl), cc)
             return 2
 
     write_markdown(out_md, read_all_records(out_jsonl), cc)
-    print("[measure] wrote %s and %s" % (out_jsonl, out_md))
+    out.say("Wrote %s and %s" % (out_jsonl, out_md))
     return 0
 
 
