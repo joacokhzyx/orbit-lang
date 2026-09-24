@@ -26,11 +26,14 @@ This document describes measured behavior of what's in `runtime/kynx.c` and wire
 
 ## Honest design notes
 
-- **Bloom filter = negative cache, never authority.** Bans are recorded with
-  k=4 double-derived hashes; *any clear bit* proves "never banned" at O(1).
-  All-set only marks an IP *suspect*; the authoritative sharded table decides.
-  Innocent hash collisions therefore cannot be blocked (fixes the historical
-  single-bit false-positive lockout).
+- **Bloom filter = write-only ban index, never authority.** Bans are recorded with
+  k=4 double-derived hashes (set on ban, cleared on unban), but nothing reads
+  the filter on the hot path: every request must still be counted in the
+  authoritative sharded table (otherwise new IPs could never reach the ban
+  threshold), so a negative-cache fast path would skip mandatory bookkeeping
+  (see the NOTE at `orbit_kynx_check` in `runtime/kynx.c`). The sharded-table
+  lookup is the single decision point; the Bloom is maintained as a hook for
+  future tooling, not as a gate.
 - **Clock:** monotonic nanoseconds (`QPC` / `clock_gettime`), immune to wall jumps.
 - **Shards:** 1024 shards x 64 fixed slots, spinlock-guarded; oldest-eviction
   under saturation (telemetry counts saturations).

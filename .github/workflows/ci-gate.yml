@@ -134,6 +134,27 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           exit $rc
 
+      - name: Kynx route-limit live gate (blog_api + kynx_route_limit_gate.py)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          FP="${RUNNER_TEMP}/fixed_point${SUFFIX}"
+          SRV="${RUNNER_TEMP}/gate_srv${SUFFIX}"
+          if [ "${{ runner.os }}" = "Windows" ]; then cp runtime/vendor/win-x64/sqlite3.dll "${RUNNER_TEMP}/sqlite3.dll"; fi
+          ORBIT_CC="${{ matrix.cc }}" "$FP" build examples/blog_api.orb -o "$SRV"
+          PORT=4102
+          "$SRV" $PORT &
+          SRV_PID=$!
+          trap "kill $SRV_PID 2>/dev/null" EXIT
+          READY=0
+          for i in $(seq 1 30); do
+            if curl -sf "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" != "1" ]; then echo "gate server on port $PORT never became ready"; exit 1; fi
+          "$PY" scripts/kynx_route_limit_gate.py --port $PORT
+
   stress-gate:
     name: Self-host chain stress (flakiness detector)
     runs-on: ubuntu-latest
