@@ -3,11 +3,15 @@
 
     <orbit_fp> build examples/blog_api.orb -o blog_api_c6[.exe]
     ./blog_api_c6 4102
-    python scripts/kynx_route_limit_gate.py --port 4102
+    python scripts/kynx_route_limit_gate.py --port 4102 --burst-path /gate-burst
 
-Phase A (healthy): 200 requests @ ~10 rps via night_load.py -> zero errors.
-Phase B (burst): 25 rapid sequential GETs -> >=1 x 429 from the ROUTE bucket
+Phase A (healthy): 200 requests @ ~10 rps via night_load.py -> zero errors
+    (runs against --path, default /health).
+Phase B (burst): 25 rapid sequential GETs against --burst-path
+    (default: same as --path) -> >=1 x 429 from the ROUTE bucket
     (25 < global 50-burst, so any 429 is route-level) with Retry-After.
+    The fixture route /gate-burst carries limit 5/s burst 5, so the burst
+    only needs to complete within ~4 s to trip denies (it takes ~ms).
 Phase C (no ban): after 2 s, 5 sequential GETs -> all 200 (a ban would 429
     for 5 minutes).
 
@@ -63,11 +67,12 @@ def phase_a(args):
 
 
 def phase_b(args):
-    url = "http://%s:%d%s" % (args.host, args.port, args.path)
+    url = "http://%s:%d%s" % (args.host, args.port, args.burst_path)
     ok200 = 0
     deny429 = 0
     retry_after = None
     bad_body = 0
+    t0 = time.time()
     for _ in range(25):
         status, ra, body = get(url)
         if status == 200:
@@ -86,14 +91,15 @@ def phase_b(args):
     except ValueError:
         ra_s = -1
     ok = deny429 >= 1 and ok200 + deny429 == 25 and ra_s >= 1 and bad_body == 0
-    print("[gate-B] ok=%d denied=%d retry_after=%r bad_body=%d -> %s" % (
-        ok200, deny429, retry_after, bad_body, "PASS" if ok else "FAIL"))
+    elapsed = time.time() - t0
+    print("[gate-B] ok=%d denied=%d retry_after=%r bad_body=%d elapsed=%.2fs -> %s" % (
+        ok200, deny429, retry_after, bad_body, elapsed, "PASS" if ok else "FAIL"))
     return ok
 
 
 def phase_c(args):
     time.sleep(2.0)
-    url = "http://%s:%d%s" % (args.host, args.port, args.path)
+    url = "http://%s:%d%s" % (args.host, args.port, args.burst_path)
     results = [get(url)[0] for _ in range(5)]
     ok = all(s == 200 for s in results)
     print("[gate-C] post-burst statuses=%s -> %s" % (results, "PASS" if ok else "FAIL"))
@@ -105,7 +111,11 @@ def main(argv=None) -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=4102)
     ap.add_argument("--path", default="/health")
+    ap.add_argument("--burst-path", default=None,
+                    help="route for burst/no-ban phases (default: same as --path)")
     args = ap.parse_args(argv)
+    if not args.burst_path:
+        args.burst_path = args.path
     a = phase_a(args)
     b = phase_b(args) if a else False
     c = phase_c(args) if b else False

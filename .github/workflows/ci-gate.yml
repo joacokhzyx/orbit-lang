@@ -153,7 +153,7 @@ jobs:
             sleep 1
           done
           if [ "$READY" != "1" ]; then echo "gate server on port $PORT never became ready"; exit 1; fi
-          "$PY" scripts/kynx_route_limit_gate.py --port $PORT
+          "$PY" scripts/kynx_route_limit_gate.py --port $PORT --burst-path /gate-burst
 
   stress-gate:
     name: Self-host chain stress (flakiness detector)

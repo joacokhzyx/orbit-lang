@@ -53,3 +53,10 @@ route POST "/posts" {
 route GET "/health" limit 20 / s burst 20 {
     return ok 200 "{\"status\":\"UP\"}"
 }
+
+// C6 load gate burst probe: tiny bucket (5/s, burst 5) so 25 rapid
+// sequential requests always trip 429s, even on slow runners where
+// TCP setup lets a 20-token bucket refill between requests.
+route GET "/gate-burst" limit 5 / s burst 5 {
+    return ok 200 "{\"status\":\"burst-ok\"}"
+}

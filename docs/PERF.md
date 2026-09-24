@@ -130,17 +130,27 @@ binaries were built with `gcc -O0 -w -DORBIT_WITH_NET -I runtime`.)
 ## Kynx 0.1 load gate (C6, same reference box)
 
 Service: `examples/blog_api.orb`, route `GET /health` annotated
-`limit 20 / s burst 20`, built with the fixed-point compiler and
+`limit 20 / s burst 20` plus a dedicated burst probe route
+`GET /gate-burst` annotated `limit 5 / s burst 5`, built with the
+fixed-point compiler and
 `gcc -O0 -DORBIT_WITH_NET`. Gate: `scripts/kynx_route_limit_gate.py`
-(needs the server already listening; run its three phases back to back).
+(needs the server already listening; run its three phases back to back;
+pass `--burst-path /gate-burst` as CI does).
 
 | Phase | Result |
 |---|---|
-| A healthy: 200 reqs @10 rps, 2 conns | 200/200, 0 errors, p50 0.13 ms, p95 ~0.22 ms, p99 ~0.29 ms |
-| B burst: 25 rapid sequential GETs | 21 x 200 + 4 x 429, `Retry-After: 1`, 429 bodies byte-exact |
+| A healthy: 200 reqs @10 rps, 2 conns (`/health`) | 200/200, 0 errors, p50 0.13 ms, p95 ~0.22 ms, p99 ~0.29 ms |
+| B burst: 25 rapid sequential GETs (`/gate-burst`) | 5 x 200 + 20 x 429, `Retry-After: 1`, 429 bodies byte-exact |
 | C no-ban: 5 GETs 2 s after the burst | 5 x 200 (a ban would 429 for 5 minutes) |
 
-Phase B is isolated to the route bucket by construction (25 requests sit
+Phase B runs against the tiny 5-token bucket on purpose: 25 sequential
+fresh-connection GETs take ~0.2 s locally, which is uncomfortably close
+to the 0.25 s refill budget of the 20-token `/health` bucket - on a
+loaded Windows runner the same burst exceeds it and the phase flakes
+with zero denies. Against the 5-token bucket the burst would need to
+span 4 s to flake, so a failure now means the runner (not the timing)
+is at fault; the phase also logs its elapsed time. Phase B stays
+isolated to the route bucket by construction (25 requests sit
 well under the global 50-burst, so any 429 is route-level). The gate runs
 `night_load.py` with `--warmup 0`: the standard 1 s unpaced warmup floods
 the shared loopback budgets and trips the (correct) 429 path before the
