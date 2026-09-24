@@ -1,30 +1,33 @@
-// Orbit Sovereign Standard Library
-// std/sys/proc/Process.orb
-// Low-level OS process management, environment variables, and execution handles.
+// Process and environment, one home. Only bindings the runtime
+// really backs: pid, env access, exec status, exit. The old
+// executeCommand handle (hardcoded pid 1000) stays deleted until the
+// runtime returns real pids. Windows stop is TerminateProcess:
+// immediate, in-flight work lost (docs/KNOWN_LIMITATIONS.md).
+extern fn system_pid() -> int
+extern fn system_env(name: string) -> string
+extern fn system_os_exec(cmd: string) -> int
+extern fn orbit_os_exit_selfhost(code: int)
 
-model ProcessHandle {
-    pid: int
-    exit_code: int
-    is_running: bool
+fn pid() -> int {
+    return system_pid()
 }
 
-fn currentPid() -> int {
-    return system.pid()
+fn getEnv(name: string) -> string {
+    return system_env(name)
 }
 
-fn executeCommand(command_line: string) -> ProcessHandle {
-    val status = system.os_exec(command_line)
-    return ProcessHandle {
-        pid: 1000,
-        exit_code: status,
-        is_running: false
-    }
+fn getEnvOrDefault(name: string, dflt: string) -> string {
+    val v = system_env(name)
+    if v == "" { return dflt }
+    return v
 }
 
-fn getEnvVariable(var_name: string) -> string {
-    if (var_name == "") {
-        return ""
-    }
-    return system.env(var_name)
+fn execStatus(cmd: string) -> int {
+    return system_os_exec(cmd)
 }
 
+// NOTE: named exitProcess, not exit: user functions keep their names
+// in C, and this one must never shadow (or recurse through) libc.
+fn exitProcess(code: int) -> void {
+    orbit_os_exit_selfhost(code)
+}

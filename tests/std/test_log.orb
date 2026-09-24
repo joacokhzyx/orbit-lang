@@ -1,0 +1,15 @@
+// M10 contract tests: pure composers assert exact strings; the
+// printers run for coverage (output goes to stdout, unasserted).
+import "std/log/log.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertEqStr(withReq("r-1", "hi"), "[r-1] hi") == false { return 1 }
+    if assertEqStr(toJsonLine("info", "hi"), "{\"level\":\"info\",\"msg\":\"hi\"}") == false { return 2 }
+    info("boot")
+    warn("slow")
+    error("down")
+    debug("detail", false)
+    debug("detail", true)
+    return 0
+}

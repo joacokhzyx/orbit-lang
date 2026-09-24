@@ -1,0 +1,18 @@
+// M7 contract tests: deterministic gradient math plus a
+// supportsColor smoke call (its value depends on the environment,
+// so only the math is asserted).
+import "std/io/io.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    supportsColor()
+    val g = gradient("AB", "ff0000", "0000ff")
+    if assertEqStr(g, "\x1b[38;2;255;0;0mA\x1b[0m\x1b[38;2;0;0;255mB\x1b[0m") == false { return 1 }
+    val bad1 = gradient("hi", "zz", "0000ff")
+    if assertEqStr(bad1, "hi") == false { return 2 }
+    val bad2 = gradient("hi", "ff0000", "zz")
+    if assertEqStr(bad2, "hi") == false { return 3 }
+    val empty = gradient("", "ff0000", "0000ff")
+    if assertEqStr(empty, "") == false { return 4 }
+    return 0
+}

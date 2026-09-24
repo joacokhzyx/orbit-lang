@@ -228,6 +228,31 @@ Call fallible std functions with inline try on the call
 (`val n: int = try parseIntChecked(s) catch { ... }`); binding the
 result to an untyped `val` first miscompiles (STAB-9).
 
+## Standard library (Wave 2)
+
+- `std/collections/lists.orb`: `getOr`, `firstOr`, `lastOr`,
+  `containsStr`, `containsInt`, `indexOfStr`, `indexOfInt`, `reverse`
+  over builtin lists. Maps are out of scope (method lowering targets
+  lists today); higher-order helpers need closures the language lacks.
+- `std/fs/file.orb`: path-based `readAll` (returns `result`, consume
+  with inline try), `writeAll`, `append` (read-modify-write, never
+  atomic), `exists`, `removeFile`, `listDir`. No open handles, no
+  buffered streams.
+- `std/io/io.orb`: `supportsColor` (`NO_COLOR`/`TERM=dumb` honored),
+  `gradient` with a real hex parser (bad input returns the text
+  unchanged), styling in `std/sys/term/color.orb`. No `readLine`
+  (needs an arena-taking binding the compiler will not inject), no
+  `eprint` (no stderr builtin), no `println` (builtin `print`
+  already newlines).
+- `std/time/time.orb`: `uptimeSeconds`, `addSeconds`,
+  `elapsedSince`, `deadlineExceededSeconds`. Seconds only: no wall
+  clock, no sleep, no monotonic milliseconds (Orbit ints are 32-bit).
+- `std/sys/proc/process.orb`: `pid`, `getEnv`, `getEnvOrDefault`,
+  `execStatus` (verify shell codes per platform by hand),
+  `exitProcess` (named to never shadow libc `exit`).
+- `std/log/log.orb`: `info`, `warn`, `error`, `debug(msg, enabled)`,
+  `withReq`, `toJsonLine`. No globals: context travels explicitly.
+
 ## System telemetry
 
 `system.*` calls read live runtime counters. Every value is measured; what is

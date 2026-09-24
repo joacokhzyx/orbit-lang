@@ -1,0 +1,7 @@
+// expect-exit 3
+import "std/sys/proc/process.orb"
+
+fn main() -> int {
+    exitProcess(3)
+    return 0
+}

@@ -1,0 +1,12 @@
+// M9 contract tests: pid, env access, defaults. execStatus is
+// exercised manually (shell exit codes differ per platform); exit()
+// lives in test_process_exit.orb with expect-exit 3.
+import "std/sys/proc/process.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if pid() <= 0 { return 1 }
+    if getEnv("ORBIT_DEFINITELY_MISSING_VAR_XYZ") != "" { return 2 }
+    if assertEqStr(getEnvOrDefault("ORBIT_DEFINITELY_MISSING_VAR_XYZ", "dflt"), "dflt") == false { return 3 }
+    return 0
+}

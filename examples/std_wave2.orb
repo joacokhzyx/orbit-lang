@@ -1,0 +1,19 @@
+// Wave 2 demo: file round-trip, structured logging, uptime clock.
+import "std/fs/file.orb"
+import "std/log/log.orb"
+import "std/time/time.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    val t0 = uptimeSeconds()
+    info("wave2 demo start")
+    if writeAll("w2_demo.txt", "orbit") == false { return 1 }
+    val body: string = try readAll("w2_demo.txt") catch { return 2 }
+    val tagged = withReq("demo", body)
+    info(tagged)
+    removeFile("w2_demo.txt")
+    val doneLine = toJsonLine("done", "ok")
+    info(doneLine)
+    if assertTrue(elapsedSince(t0, uptimeSeconds()) >= 0) == false { return 3 }
+    return 0
+}

@@ -1,0 +1,22 @@
+// Clocks and durations in whole seconds. No nanosecond or wall
+// clock: Orbit ints are 32-bit, so a ns counter overflows on read,
+// and the runtime exposes no wall time or sleep. uptimeSeconds fits
+// 68 years; differences are exact inside one boot. monotonicMs and
+// sleepMs are omitted on purpose, not forgotten.
+extern fn system_uptime() -> int
+
+fn uptimeSeconds() -> int {
+    return system_uptime()
+}
+
+fn addSeconds(t: int, deltaSecs: int) -> int {
+    return t + deltaSecs
+}
+
+fn elapsedSince(startSecs: int, nowSecs: int) -> int {
+    return nowSecs - startSecs
+}
+
+fn deadlineExceededSeconds(nowSecs: int, deadlineSecs: int) -> bool {
+    return nowSecs >= deadlineSecs
+}

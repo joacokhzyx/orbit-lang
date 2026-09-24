@@ -1,19 +1,41 @@
-// Orbit Sovereign Standard Library
-// std/fs/file.orb
-// Basic file I/O operations.
+// Single honest file API: paths, never handles. Reads return
+// `result` (consume with inline try on the call); writes answer bool.
+// append is read-modify-write, never atomic: documented, not hidden.
+extern fn orbit_file_read(path: string) -> result
+extern fn orbit_file_write(path: string, content: string) -> bool
+extern fn orbit_file_exists(path: string) -> bool
+extern fn orbit_file_delete(path: string) -> bool
+extern fn orbit_file_list_dir(path: string) -> list
 
-model File {
-    handle: int
+fn readAll(path: string) -> result {
+    val content: string = try orbit_file_read(path) catch {
+        return err("cannot read file", 1)
+    }
+    val r: result = ok(content)
+    return r
 }
 
-fn open(path: string, mode: string) -> Result<File, int> {
-    // OS specific call
-    return Result.Ok(File{ handle: 0 });
+fn writeAll(path: string, content: string) -> bool {
+    return orbit_file_write(path, content)
 }
 
-fn write(file: File, data: string) -> Result<int, int> {
-    // OS specific write
-    // Returns Ok(bytes_written) on success, Err(error_code) on failure.
-    return Result.Ok(data.len());
+fn append(path: string, content: string) -> bool {
+    val current: string = try orbit_file_read(path) catch {
+        return orbit_file_write(path, content)
+    }
+    return orbit_file_write(path, current + content)
 }
 
+fn exists(path: string) -> bool {
+    return orbit_file_exists(path)
+}
+
+// NOTE: named removeFile, not remove: user functions keep their
+// names in C, and libc already owns remove().
+fn removeFile(path: string) -> bool {
+    return orbit_file_delete(path)
+}
+
+fn listDir(path: string) -> list {
+    return orbit_file_list_dir(path)
+}

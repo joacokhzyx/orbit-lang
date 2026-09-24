@@ -1,0 +1,14 @@
+// M8 contract tests: second-resolution clocks plus duration math.
+// No wall clock, no sleep, no milliseconds (int32 honesty notes in
+// std/time/time.orb).
+import "std/time/time.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if uptimeSeconds() < 0 { return 1 }
+    if assertEqInt(addSeconds(100, 20), 120) == false { return 2 }
+    if assertEqInt(elapsedSince(100, 130), 30) == false { return 3 }
+    if assertTrue(deadlineExceededSeconds(130, 120)) == false { return 4 }
+    if assertTrue(deadlineExceededSeconds(110, 120)) { return 5 }
+    return 0
+}

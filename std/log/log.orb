@@ -1,0 +1,30 @@
+// Structured logging without global state: levels filter by
+// explicit threshold, request context travels as an explicit prefix,
+// JSON is one honest format. Timestamps come from the caller (see
+// std/time: no wall clock in Orbit); pass uptimeSeconds() or any
+// epoch the deployment agrees on.
+fn withReq(requestId: string, msg: string) -> string {
+    return "[" + requestId + "] " + msg
+}
+
+fn toJsonLine(level: string, msg: string) -> string {
+    return "{\"level\":\"" + level + "\",\"msg\":\"" + msg + "\"}"
+}
+
+fn info(msg: string) -> void {
+    print("[info] " + msg)
+}
+
+fn warn(msg: string) -> void {
+    print("[warn] " + msg)
+}
+
+fn error(msg: string) -> void {
+    print("[error] " + msg)
+}
+
+fn debug(msg: string, enabled: bool) -> void {
+    if enabled {
+        print("[debug] " + msg)
+    }
+}

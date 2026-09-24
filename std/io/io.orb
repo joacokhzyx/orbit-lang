@@ -1,0 +1,66 @@
+// Console output home. Styling itself lives in
+// std/sys/term/color.orb (kept); this module adds printing,
+// capability detection, and one honest gradient with a real hex
+// parser. No readLine (needs an arena-taking input binding that the
+// compiler will not inject) and no eprint (no stderr builtin).
+// println is deliberately absent: builtin print already newlines.
+extern fn system_env(name: string) -> string
+
+fn supportsColor() -> bool {
+    if system_env("NO_COLOR") != "" { return false }
+    if system_env("TERM") == "dumb" { return false }
+    return true
+}
+
+fn hexVal(c: int) -> int {
+    if c >= 48 && c <= 57 { return c - 48 }
+    if c >= 65 && c <= 70 { return c - 55 }
+    if c >= 97 && c <= 102 { return c - 87 }
+    return -1
+}
+
+fn parseHexByte(s: string, pos: int) -> int {
+    if pos + 1 >= s.len() { return -1 }
+    val hi = hexVal(s.at(pos))
+    val lo = hexVal(s.at(pos + 1))
+    if hi == -1 { return -1 }
+    if lo == -1 { return -1 }
+    return hi * 16 + lo
+}
+
+extern fn orbit_string_from_char_selfhost(code: int) -> string
+
+fn gradient(text: string, from: string, to: string) -> string {
+    if from.len() != 6 { return text }
+    if to.len() != 6 { return text }
+    val r1 = parseHexByte(from, 0)
+    val g1 = parseHexByte(from, 2)
+    val b1 = parseHexByte(from, 4)
+    val r2 = parseHexByte(to, 0)
+    val g2 = parseHexByte(to, 2)
+    val b2 = parseHexByte(to, 4)
+    if r1 == -1 { return text }
+    if g1 == -1 { return text }
+    if b1 == -1 { return text }
+    if r2 == -1 { return text }
+    if g2 == -1 { return text }
+    if b2 == -1 { return text }
+    val n = text.len()
+    if n == 0 { return "" }
+    if n == 1 { return wrapRgb(text, r1, g1, b1) }
+    var out = ""
+    var i = 0
+    while i < n {
+        val r = r1 + (r2 - r1) * i / (n - 1)
+        val g = g1 + (g2 - g1) * i / (n - 1)
+        val b = b1 + (b2 - b1) * i / (n - 1)
+        val ch = orbit_string_from_char_selfhost(text.at(i))
+        out = out + wrapRgb(ch, r, g, b)
+        i = i + 1
+    }
+    return out
+}
+
+fn wrapRgb(text: string, r: int, g: int, b: int) -> string {
+    return "\x1b[38;2;" + r + ";" + g + ";" + b + "m" + text + "\x1b[0m"
+}

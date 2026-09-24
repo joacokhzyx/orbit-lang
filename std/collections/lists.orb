@@ -1,0 +1,62 @@
+// Functional layer over builtin lists. String-typed helpers only:
+// without generics, one typed family keeps the contract honest.
+// Maps are out of scope here (method lowering targets lists today).
+fn getOr(l: list, i: int, dflt: string) -> string {
+    if i < 0 { return dflt }
+    if i >= l.len() { return dflt }
+    return l.get(i)
+}
+
+fn firstOr(l: list, dflt: string) -> string {
+    return getOr(l, 0, dflt)
+}
+
+fn lastOr(l: list, dflt: string) -> string {
+    return getOr(l, l.len() - 1, dflt)
+}
+
+fn containsStr(l: list, v: string) -> bool {
+    var i = 0
+    while i < l.len() {
+        if l.get(i) == v { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn containsInt(l: list, v: int) -> bool {
+    var i = 0
+    while i < l.len() {
+        if l.get(i) == v { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn indexOfStr(l: list, v: string) -> int {
+    var i = 0
+    while i < l.len() {
+        if l.get(i) == v { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn indexOfInt(l: list, v: int) -> int {
+    var i = 0
+    while i < l.len() {
+        if l.get(i) == v { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn reverse(l: list) -> list {
+    var out = []
+    var i = l.len() - 1
+    while i >= 0 {
+        out.push(l.get(i))
+        i = i - 1
+    }
+    return out
+}
