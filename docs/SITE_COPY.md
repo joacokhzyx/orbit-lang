@@ -19,26 +19,26 @@ microservices. It compiles fast and needs little to run, so it
 stays fast even under load.
 
 **30-minute tour blurb:**
-You'll write, build, and run real code — functions, models,
+You'll write, build, and run real code - functions, models,
 routes, and a live service with measured telemetry. Every
 snippet shows its expected output, and anything unverified is
 marked instead of asserted. [Start the tour →]
 
 **Tutorials (cards):**
 
-- Blog API with auth — List posts, search by author, publish
+- Blog API with auth - List posts, search by author, publish
   through a key-checked route. Runnable example with expected
   outputs included.
-- File server and uploads — List files, serve content, accept
+- File server and uploads - List files, serve content, accept
   uploads with measured receipts. Honest scope: raw bodies,
   not multipart yet.
-- Deploy a single binary — From build to a running service on
+- Deploy a single binary - From build to a running service on
   Windows and Linux, plus two instances on one box.
-- Troubleshooting — Ports, silent exits, slow first boots, and
+- Troubleshooting - Ports, silent exits, slow first boots, and
   the failure branches your handlers should keep.
 
 **Limits strip (link to docs):**
-Orbit 0.1.0 reads well and writes poorly — persistent writes,
+Orbit 0.1.0 reads well and writes poorly - persistent writes,
 bearer auth, and path parameters aren't there yet. The full
 list, with workarounds, is public. [Read the limits →]
 
@@ -60,16 +60,16 @@ request), and less to believe (every claim ships with method,
 and limits ship next to features).
 
 Ecological is the result aimed for, never the slogan. I don't
-claim an improvement until it's measured — and I publish the
+claim an improvement until it's measured - and I publish the
 bad numbers too.
 
-**Proof strip (placeholders — fill with method links):**
+**Proof strip (placeholders - fill with method links):**
 `orbit run` with no giant dependencies / compiles in X on a
 modest laptop / N req/s with M memory + methodology link.
 
 **Founder note:**
 I created Orbit because I didn't have an exceptional machine. I
-needed a language that needs little. Built by Joaquín —
+needed a language that needs little. Built by Joaquín -
 Argentina. Early research.
 
 ---
@@ -82,7 +82,7 @@ Argentina. Early research.
 reconstructed memory, no marketing. Versions follow the
 compatibility policy; 0.x may still break things with notice.
 
-**0.1.0 (draft) — first versioned development release.**
+**0.1.0 (draft) - first versioned development release.**
 Does: self-hosted compiler, HTTP runtime with SQLite reads,
 run/check/fmt/doctor/cluster commands, live telemetry and
 cost ledger, runnable docs. Fixes: honest startup errors, live
@@ -90,17 +90,17 @@ logs, result try/catch. Still can't: persistent writes,
 bearer auth, path parameters, multipart uploads, migrations.
 [Release notes →] [Known limitations →]
 
-**0.1.0-rc.2 cycle — commands and hardening.**
+**0.1.0-rc.2 cycle - commands and hardening.**
 run/check/help, token-based fmt, doctor checks, single-host
 cluster v1, real system telemetry, cost ledger, graceful
 shutdown, Result handlers.
 
-**August — stabilization.**
-Behavior suite blocking in CI, Kynx 2.0 admission control,
+**August - stabilization.**
+Behavior suite blocking in CI, Kynx 0.1 admission control,
 runtime security fixes, Zig-free bootstrap, parity battery,
 release workflow.
 
-**July and earlier — bootstrap.**
+**July and earlier - bootstrap.**
 Self-hosting fixed point, HTTP runtime and arenas, SQLite
 integration, editors, benchmark scaffolding.
 
@@ -115,14 +115,14 @@ you're new, the tour runs your first program in 30 minutes.
 
 **Links (one line each):**
 
-- Tour — 30 minutes, runnable snippets, expected outputs.
-- Getting started — build the compiler, run a service.
-- Tutorials — blog API, file server, deploy, troubleshooting.
-- Guides — migrations (honest story), benchmark methodology.
-- FAQ — twenty questions, hard ones included.
-- Known limitations — what 0.1.0 can't do, with workarounds.
-- Language reference — the full contract.
-- Commands — every command with its contract.
-- Changelog / Release notes — what changed, plainly.
+- Tour - 30 minutes, runnable snippets, expected outputs.
+- Getting started - build the compiler, run a service.
+- Tutorials - blog API, file server, deploy, troubleshooting.
+- Guides - migrations (honest story), benchmark methodology.
+- FAQ - twenty questions, hard ones included.
+- Known limitations - what 0.1.0 can't do, with workarounds.
+- Language reference - the full contract.
+- Commands - every command with its contract.
+- Changelog / Release notes - what changed, plainly.
 
-**Footer (all pages):** Built by Joaquín — Argentina. Early research.
+**Footer (all pages):** Built by Joaquín - Argentina. Early research.

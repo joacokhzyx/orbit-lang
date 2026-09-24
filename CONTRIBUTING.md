@@ -1,6 +1,6 @@
 # Contributing to Orbit
 
-Thanks for your interest in Orbit. I'm building it to do more with less — less energy, less complexity, same speed — and I read every contribution.
+Thanks for your interest in Orbit. I'm building it to do more with less - less energy, less complexity, same speed - and I read every contribution.
 
 This guide covers how to propose changes, open pull requests, and keep quality high across the compiler and C runtime.
 
@@ -76,7 +76,7 @@ Diagnostics shape how Orbit feels at 3am, so they follow the brand rule: clear h
 - **No borders or emojis**: clean text, no decorative boxes or emojis.
 - **English suggestions**: write all hints and explanations in English with contractions where natural (`can't`, `doesn't`, `here's`).
 - **Header states fact + fix**: `Port 3000 is already in use. Change it in X.orb and try again.` Never hide the action behind metaphor. Orbital language stays out of headers.
-- **Body helps first, warms second**: add a tip with the exact next command. Example: `Tip: run `orbit ports` to see what's free. Small fix — you'll be running in seconds.` One warm line max, never cheesy, never blaming you.
+- **Body helps first, warms second**: add a tip with the exact next command. Example: `Tip: run `orbit ports` to see what's free. Small fix - you'll be running in seconds.` One warm line max, never cheesy, never blaming you.
 - **When Orbit broke it, own it**: no humor to deflect. Say what failed, give a workaround, and note the fix in progress.
 - **Verbose enough to act**: explain what happened and how to continue, rather than a cryptic code alone.
 - **Consistent color styling**: red for errors, yellow for warnings, cyan for line numbers.

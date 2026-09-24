@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide builds the self-hosted Orbit compiler, verifies the fixed point, and runs a first program. You don't need much — a C compiler and Python are enough.
+This guide builds the self-hosted Orbit compiler, verifies the fixed point, and runs a first program. You don't need much - a C compiler and Python are enough.
 
 ## 1. Prerequisites
 
@@ -120,7 +120,7 @@ python scripts/build_selfhost.py --cc clang --out orbit.exe
 ORBIT_CC=gcc python3 scripts/build_selfhost.py --cc gcc --out orbit
 ```
 
-Tip: run `clang --version` or `gcc --version` first to confirm it's on PATH. Small fix — you'll be building in seconds.
+Tip: run `clang --version` or `gcc --version` first to confirm it's on PATH. Small fix - you'll be building in seconds.
 
 ### The canonical C source is stale
 
@@ -132,4 +132,4 @@ python scripts/build_selfhost.py --promote
 
 ### A benchmark tool is missing
 
-That's fine — the compiler doesn't need the benchmark toolchain. See [Benchmarks](../benchmarks/README.md) for the optional dependencies and the commands for that suite.
+That's fine - the compiler doesn't need the benchmark toolchain. See [Benchmarks](../benchmarks/README.md) for the optional dependencies and the commands for that suite.

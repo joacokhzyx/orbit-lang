@@ -4,7 +4,7 @@
 [![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](../../docs/STATUS.md)
 ![Orbit Banner](banner.png)
 
-The official Visual Studio Code extension for **Orbit** — a statically typed language for APIs and microservices. It compiles fast and needs little to run, so it stays fast even under load.
+The official Visual Studio Code extension for **Orbit** - a statically typed language for APIs and microservices. It compiles fast and needs little to run, so it stays fast even under load.
 
 
 

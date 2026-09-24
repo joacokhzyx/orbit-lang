@@ -1,6 +1,6 @@
 # Orbit language reference
 
-Orbit source files use the `.orb` extension. This reference covers what the `0.1.0` compiler does today. The language is pre-1.0, so pin your dependency to a specific release candidate and expect gaps — I document limits alongside features.
+Orbit source files use the `.orb` extension. This reference covers what the `0.1.0` compiler does today. The language is pre-1.0, so pin your dependency to a specific release candidate and expect gaps - I document limits alongside features.
 
 ## Program structure and functions
 
@@ -78,7 +78,7 @@ escape `\xHH` with two hex digits (`"\x41"` is `"A"`, `"\x1b"` starts
 an ANSI sequence). Anything malformed stays literal.
 
 Collection APIs and their exact type coverage are still evolving. Keep business
-logic simple and cover it with application-level tests. If something you need isn't here, file an issue — I read everything.
+logic simple and cover it with application-level tests. If something you need isn't here, file an issue - I read everything.
 
 ## Result values
 
@@ -167,7 +167,10 @@ route GET "/heavy" limit 100/min burst 20 {
 capacity; when omitted (or zero) it defaults to the rate. The compiler
 rejects a `limit` whose rate is not `> 0`, whose window is not `> 0`, or
 whose burst is negative. Routes without `limit` fall back to the global
-gate only (see `docs/KYNX.md`).
+gate only (see `docs/KYNX.md`). The runtime keeps at most 32 annotated
+routes; a 33rd annotation is dropped at startup and counted in the
+`kynx_route_limit_drops` perf counter, while a repeated identical
+annotation is idempotent.
 
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
 Their API surface is under active development. Check the runtime and examples
@@ -202,12 +205,12 @@ not measured is not exposed (no success/error split, no p50/p95/p99 yet).
 
 ## Cost ledger
 
-Every server records per-route handler cost automatically — no annotations.
+Every server records per-route handler cost automatically - no annotations.
 `/_ledger` serves a live table (loopback only), `/_ledger/data` the same as
 JSON. Columns: requests, mean ms, DB share, energy, source. Milliseconds share the request
 log's approximate clock basis. The energy column reads joules per request
 (estimated route share, see `docs/ENERGY.md`) where a power sensor exists,
-and a labeled CPU proxy in cycles where it does not — never converted.
+and a labeled CPU proxy in cycles where it does not - never converted.
 Paths starting with `/_` are reserved for
 runtime endpoints; do not define routes there.
 

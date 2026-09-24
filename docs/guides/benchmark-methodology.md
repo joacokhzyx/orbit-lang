@@ -7,7 +7,7 @@ while testing for these docs.
 
 ## Rules (non-negotiable)
 
-1. Same workload, same machine, same config — or it's not a
+1. Same workload, same machine, same config - or it's not a
    comparison.
 2. Report the median of repeated runs plus the spread. One run
    is an anecdote.
@@ -18,7 +18,7 @@ while testing for these docs.
    memory next to requests per second.
 5. On Windows, report CPU time and memory as proxies and stop
    there. Never convert CPU time to joules with a universal
-   factor — processor power depends on hardware, frequency,
+   factor - processor power depends on hardware, frequency,
    and load. Joules need RAPL on Linux or a meter.
 6. Publish bad numbers too. A comparison without the runs that
    went badly is advertising.
@@ -70,7 +70,7 @@ CPU + memory on Linux (UNTESTED in this track):
 pidstat -p <pid> 1
 ```
 
-Energy on Linux with RAPL (UNTESTED in this track — needs a
+Energy on Linux with RAPL (UNTESTED in this track - needs a
 machine with the sensor and read access):
 
 ```sh
@@ -97,7 +97,7 @@ Real output from testing (3 requests in):
 {"routes":[{"method":"GET","path":"/v1/catalog","req":1,"avg_ms":0.51,"db_share":91}, …]}
 ```
 
-`latency_avg_us` is a mean over a coarse clock — useful for
+`latency_avg_us` is a mean over a coarse clock - useful for
 smoke checks, not for claims. There is no p50/p99 in 0.1.0.
 
 ## Traps I hit

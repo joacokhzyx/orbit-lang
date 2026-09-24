@@ -1,6 +1,6 @@
 # Language Behavior Suite
 
-This directory holds small programs that verify what the fixed-point compiler does. Each file defines `fn main() -> int`; the exit code is the assertion read by `scripts/test_suite.py`. Keep each test focused on one behavior — small files catch regressions faster.
+This directory holds small programs that verify what the fixed-point compiler does. Each file defines `fn main() -> int`; the exit code is the assertion read by `scripts/test_suite.py`. Keep each test focused on one behavior - small files catch regressions faster.
 
 ## Current Coverage
 

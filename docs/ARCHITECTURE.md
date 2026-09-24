@@ -101,18 +101,27 @@ See `docs/architecture/ORBIT_ARENA.md` for detailed design.
 ### Orbit Kynx (computational leases)
 File: `runtime/kynx.c`
 
-Each route handler gets a **lease** — a budget of CPU cycles and I/O operations.  
-If the handler exceeds its budget, Kynx rejects the request with HTTP 429 before writing the response.  
-In **siege mode** (burst of requests detected), all new leases are rejected until the server drains.
+Each route handler gets a **lease**: a budget of CPU time, arena memory,
+DB queries, and response size.
+If the handler exceeds its budget, Kynx rejects the request with HTTP 429 before writing the response.
+Under pressure the admission state machine (STABLE / SHAPED / GUARDED / SIEGE)
+tightens budgets; in **SIEGE** only critical routes (`/health`, `/auth`, `/`)
+keep an emergency budget and the rest are rejected. See [Kynx](KYNX.md).
 
 API surface (`runtime/kynx.c`):
 ```c
 void             orbit_kynx_init(OrbitKynxConfig config);
 bool             orbit_kynx_check(const char* ip_str);
+bool             orbit_kynx_check_route(const char* ip_str, const char* method, const char* path);
+void             orbit_kynx_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
+int              orbit_kynx_last_retry_ms(void);
 OrbitKynxLease*  orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
 bool             orbit_kynx_lease_check_limits(size_t additional_response_bytes);
 void             orbit_kynx_lease_destroy(OrbitKynxLease* lease);
+double           orbit_kynx_lease_joules(const OrbitKynxLease* lease);
+uint64_t         orbit_kynx_lease_cycles(const OrbitKynxLease* lease);
 bool             orbit_kynx_is_siege_mode(void);
+int              orbit_kynx_get_suspicion(const char* ip_str);
 uint64_t         orbit_kynx_get_total_checks(void);
 uint64_t         orbit_kynx_get_total_blocked(void);
 ```
@@ -152,7 +161,7 @@ Files: `src/terminal/`
 ### Orbit Atlas
 File: `src/atlas.zig`
 
-Reads `orbit.atlas` — the project config file (TOML-like).  
+Reads `orbit.atlas` - the project config file (TOML-like).  
 Provides: output name, watch mode, cache flag, anti-RE flags, SQLite inclusion.
 
 ---

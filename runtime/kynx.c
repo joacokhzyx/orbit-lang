@@ -43,6 +43,7 @@ typedef struct {
     int   ban_threshold;       /* suspicion score to auto-ban */
     int   score_increment;     /* suspicion added per violation window */
     int   score_decay;         /* suspicion removed per clean window */
+    int   ban_duration_s;      /* ban lifetime, seconds (<= 0 selects 300) */
     bool  enabled;
 } OrbitKynxConfig;
 
@@ -433,7 +434,12 @@ static int kynx_route_limit_count = 0;
 void orbit_kynx_register_route_limit(const char* method, const char* path,
                                      int rate, int window_ms, int burst) {
     if (!method || !path || rate <= 0) return;
-    if (kynx_route_limit_count >= KYNX_MAX_ROUTE_LIMITS) return;
+    if (kynx_route_limit_count >= KYNX_MAX_ROUTE_LIMITS) {
+        /* Table overflow is observable (see docs/KYNX.md); duplicates below
+         * stay silent because re-registering is idempotent. */
+        orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_route_limit_drops);
+        return;
+    }
     for (int i = 0; i < kynx_route_limit_count; i++) {
         if (strcmp(kynx_route_limits[i].method, method) == 0 &&
             strcmp(kynx_route_limits[i].path, path) == 0) {
@@ -480,9 +486,23 @@ typedef struct {
     bool used;
 } KynxRouteBucket;
 
-#define KYNX_ROUTE_BUCKET_SLOTS 1024
-static KynxRouteBucket kynx_route_buckets[KYNX_ROUTE_BUCKET_SLOTS];
-static OrbitKynxLock kynx_route_bucket_lock = {0};
+#define KYNX_ROUTE_SHARD_COUNT 16
+#define KYNX_ROUTE_SLOTS_PER_SHARD 64
+typedef struct {
+    KynxRouteBucket slots[KYNX_ROUTE_SLOTS_PER_SHARD];
+    OrbitKynxLock lock;
+} KynxRouteShard;
+
+/* Route buckets striped over per-shard locks: same 1024-slot capacity as a
+ * flat table (16 shards x 64 slots), but one hot (IP, route) pair no longer
+ * serializes every other route behind a single global lock. The shard mixes
+ * the IP hash with the route index so distinct routes spread evenly. */
+static KynxRouteShard kynx_route_shards[KYNX_ROUTE_SHARD_COUNT];
+
+static unsigned kynx_route_shard(const OrbitKynxIP* ip, int route_idx) {
+    return (kynx_hash_ip(ip) ^ (uint32_t)((uint32_t)route_idx * 0x9E3779B1u))
+        % KYNX_ROUTE_SHARD_COUNT;
+}
 
 static void kynx_route_refill(KynxRouteBucket* b, int rate, int window_ms, uint64_t now) {
     if (b->last_refill_ns == 0 || now <= b->last_refill_ns) {
@@ -542,14 +562,15 @@ bool orbit_kynx_check_route(const char* ip_str, const char* method, const char* 
     if (win < 1) win = 1;
     if (burst < 1) burst = rate;
 
-    /* Find/create route bucket for (ip, route_idx). */
-    kynx_lock_acquire(&kynx_route_bucket_lock);
+    /* Find/create route bucket for (ip, route_idx) within its shard. */
+    KynxRouteShard* rshard = &kynx_route_shards[kynx_route_shard(&ip, route_idx)];
+    kynx_lock_acquire(&rshard->lock);
     KynxRouteBucket* b = NULL;
     int free_slot = -1;
     int oldest_slot = 0;
     uint64_t oldest_time = now;
-    for (int i = 0; i < KYNX_ROUTE_BUCKET_SLOTS; i++) {
-        KynxRouteBucket* c = &kynx_route_buckets[i];
+    for (int i = 0; i < KYNX_ROUTE_SLOTS_PER_SHARD; i++) {
+        KynxRouteBucket* c = &rshard->slots[i];
         if (!c->used) {
             if (free_slot < 0) free_slot = i;
             continue;
@@ -565,7 +586,7 @@ bool orbit_kynx_check_route(const char* ip_str, const char* method, const char* 
     }
     if (!b) {
         int slot = free_slot >= 0 ? free_slot : oldest_slot;
-        b = &kynx_route_buckets[slot];
+        b = &rshard->slots[slot];
         memset(b, 0, sizeof(*b));
         b->ip = ip;
         b->route_idx = route_idx;
@@ -573,20 +594,20 @@ bool orbit_kynx_check_route(const char* ip_str, const char* method, const char* 
         b->last_refill_ns = now;
         b->tokens_milli = (int64_t)burst * 1000 - 1000; /* spend insert */
         if (b->tokens_milli < 0) b->tokens_milli = 0;
-        kynx_lock_release(&kynx_route_bucket_lock);
+        kynx_lock_release(&rshard->lock);
         return orbit_kynx_check(ip_str); /* still run global gate */
     }
 
     kynx_route_refill(b, rate, win, now);
     if (b->tokens_milli >= 1000) {
         b->tokens_milli -= 1000;
-        kynx_lock_release(&kynx_route_bucket_lock);
+        kynx_lock_release(&rshard->lock);
         return orbit_kynx_check(ip_str);
     }
     kynx_tls_retry_ms = kynx_route_retry_ms(b, rate, win);
     __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
-    kynx_lock_release(&kynx_route_bucket_lock);
+    kynx_lock_release(&rshard->lock);
     return false; /* route rate deny: Retry-After only, NO score/ban */
 }
 
@@ -631,13 +652,13 @@ void orbit_kynx_init(OrbitKynxConfig config) {
 /** @brief Wipe all shard tables (e.g., when the server is stopping). */
 void orbit_kynx_cleanup(void) {
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
-    memset(kynx_route_buckets, 0, sizeof(kynx_route_buckets));
+    memset(kynx_route_shards, 0, sizeof(kynx_route_shards));
 }
 
 /** @brief Reset all shard tables and global counters to their initial state. */
 void orbit_kynx_reset(void) {
     memset(orbit_kynx_shards, 0, sizeof(orbit_kynx_shards));
-    memset(kynx_route_buckets, 0, sizeof(kynx_route_buckets));
+    memset(kynx_route_shards, 0, sizeof(kynx_route_shards));
     kynx_route_limit_count = 0;
     __atomic_store_n(&orbit_kynx_total_checks, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&orbit_kynx_total_blocked, 0, __ATOMIC_SEQ_CST);
@@ -656,6 +677,14 @@ static int kynx_effective_burst(void) {
     if (b <= 0) b = orbit_kynx_config.rate_limit;
     if (b < 1) b = 1;
     return b;
+}
+
+/* Ban lifetime in nanoseconds; a non-positive config selects the 300 s
+ * default so generated servers (which leave the field zero) keep it. */
+static uint64_t kynx_ban_duration_ns(void) {
+    int s = orbit_kynx_config.ban_duration_s;
+    if (s <= 0) s = 300;
+    return (uint64_t)s * 1000000000ULL;
 }
 
 /* Refill the bucket for elapsed time up to @p now, clamped to capacity. */
@@ -697,7 +726,7 @@ static int kynx_retry_after_ms(const OrbitKynxEntry* e) {
 }
 
 /** @brief Check whether the client at @p ip_str is allowed to proceed.  Returns true (allow) or false (block/ban). */
-/* Kynx 2.0: multi-hash Bloom maintenance (k=4, double-derived indexes).
+/* Kynx 0.1: multi-hash Bloom maintenance (k=4, double-derived indexes).
  * The filter is a NEGATIVE CACHE over the ban set, never the authority. */
 static void kynx_bloom_apply(uint32_t hash, int set) {
     for (int j = 0; j < 4; j++) {
@@ -749,13 +778,13 @@ bool orbit_kynx_check(const char* ip_str) {
         if (kynx_ip_eq(&e->ip, &ip)) {
             // Found IP
             if (e->is_banned) {
-                // Check if ban expired (e.g., 5 minutes)
-                if (now - e->banned_at_ns > 300ULL * 1000000000ULL) {
+                // Check if ban expired (ban_duration_s, default 5 minutes)
+                if (now - e->banned_at_ns > kynx_ban_duration_ns()) {
                     e->is_banned = false;
                     e->suspicion_score /= 2;
                     kynx_bloom_apply(hash, 0);
                 } else {
-                    uint64_t left = 300ULL * 1000000000ULL - (now - e->banned_at_ns);
+                    uint64_t left = kynx_ban_duration_ns() - (now - e->banned_at_ns);
                     kynx_tls_retry_ms = (int)(left / 1000000ULL);
                     __atomic_fetch_add(&orbit_kynx_total_blocked, 1, __ATOMIC_RELAXED);
                     orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_blocks);
@@ -955,7 +984,10 @@ OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* 
         }
     }
 
-    /* Per-route overrides from the Atlas configuration. */
+    /* Built-in sample override (documented in docs/KYNX.md): a route
+     * literally named "/search" gets tighter budgets. Inert in the shipped
+     * examples (none uses that path); kept as a visible lease-budget sample
+     * until routes can declare their own budgets. */
     if (path) {
         if (strcmp(path, "/search") == 0) {
             lease->deadline_ns      = orbit_kynx_now_ns() + 250ULL * 1000000ULL; /* 250 ms */

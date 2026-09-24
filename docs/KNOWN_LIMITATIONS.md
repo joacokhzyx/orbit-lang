@@ -3,7 +3,7 @@
 This is the honest list. I keep it next to the docs that use these
 features so you don't discover them at midnight. Each entry says
 what happens today, how to work around it, and what would change it.
-Nothing here is a roadmap promise with a date — it's what I measured
+Nothing here is a roadmap promise with a date - it's what I measured
 on this build.
 
 Tested on: `orbit 0.1.0` fixed-point build (Windows x86-64, gcc),
@@ -67,7 +67,7 @@ rule below.
 ## No joules on Windows
 
 Energy is reported in joules only where sensors exist (Linux
-RAPL). On Windows the honest proxy is CPU time plus memory —
+RAPL). On Windows the honest proxy is CPU time plus memory -
 never converted to joules with a universal factor. The benchmark
 guide (`docs/guides/benchmark-methodology.md`) enforces this.
 
@@ -102,7 +102,7 @@ manual practice that works today.
 ## Two servers, one port: no error on Windows
 
 Starting two servers on the same port on Windows doesn't fail
-loudly in my test — both processes kept running and the port
+loudly in my test - both processes kept running and the port
 answered. Don't rely on a bind error to catch the mistake; check
 with `netstat -ano | findstr <port>` and stop the older process.
 UNTESTED on Linux.

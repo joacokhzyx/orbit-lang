@@ -175,9 +175,8 @@ static void test_ipv6_identity(void) {
     g_passed++;
 }
 
-/* T7: IPv4-mapped equality — ::ffff:10.0.0.9 and 10.0.0.9 are different
- * bytes under inet_ntop but must not corrupt state; each gets its own
- * bucket (documented: identity is the exact address string's bytes). */
+/* T7: Retry-After is monotone and honored - stepping forward half the
+ * advised wait still denies, stepping past it admits. */
 static void test_retry_monotone(void) {
     orbit_kynx_reset();
     orbit_kynx_init(make_cfg(2, 1000, 2, 200, 10, 1));
@@ -376,6 +375,50 @@ static void test_pool_fraction_states(void) {
     g_passed++;
 }
 
+/* T13: ban_duration_s overrides the 300 s default. With a 60 s ban the
+ * IP stays banned at 59 s and recovers past 60 s with a halved score
+ * (decayed once more by the admitting check). */
+static void test_custom_ban_duration(void) {
+    orbit_kynx_reset();
+    OrbitKynxConfig c = make_cfg(1, 1000, 1, 10, 10, 1);
+    c.ban_duration_s = 60;
+    orbit_kynx_init(c);
+    const char* ip = "10.0.0.13";
+    assert(orbit_kynx_check(ip) == true);
+    assert(orbit_kynx_check(ip) == false); /* +10 >= 10 -> ban */
+    assert(orbit_kynx_get_suspicion(ip) == 10);
+    step_ms(59000);
+    assert(orbit_kynx_check(ip) == false); /* still banned at 59 s */
+    step_ms(2000); /* 61 s total: past the ban */
+    assert(orbit_kynx_check(ip) == true);
+    assert(orbit_kynx_get_suspicion(ip) == 4); /* 10/2=5, then -1 decay */
+    printf("T13 custom ban duration honored: PASSED\n");
+    g_passed++;
+}
+
+/* T14: registering past the 32-limit table drops exactly the overflow and
+ * counts it in kynx_route_limit_drops; the first 32 stay enforced and the
+ * dropped one falls back to the global gate. */
+static void test_route_limit_overflow_counted(void) {
+    orbit_kynx_reset();
+    orbit_kynx_init(make_cfg(1000000, 1000, 1000000, 1000000, 10, 1));
+    static char t14_paths[33][32];
+    uint64_t base = orbit_perf_stats.kynx_route_limit_drops;
+    for (int i = 0; i < 33; i++) {
+        snprintf(t14_paths[i], sizeof(t14_paths[i]), "/overflow/%d", i);
+        orbit_kynx_register_route_limit("GET", t14_paths[i], 1, 1000, 1);
+    }
+    assert(orbit_perf_stats.kynx_route_limit_drops - base == 1);
+    /* First registration still enforced: 1-token bucket. */
+    assert(orbit_kynx_check_route("10.7.7.7", "GET", "/overflow/0") == true);
+    assert(orbit_kynx_check_route("10.7.7.7", "GET", "/overflow/0") == false);
+    /* The dropped 33rd falls back to the global (huge) gate. */
+    assert(orbit_kynx_check_route("10.7.7.7", "GET", "/overflow/32") == true);
+    assert(orbit_kynx_check_route("10.7.7.7", "GET", "/overflow/32") == true);
+    printf("T14 route-limit overflow counted: PASSED\n");
+    g_passed++;
+}
+
 int main(void) {
     test_legit_client_never_denied();
     test_burst_capacity_and_retry();
@@ -389,6 +432,8 @@ int main(void) {
     test_route_limit();
     test_lease_energy();
     test_pool_fraction_states();
-    printf("kynx 0.1 property tests: %d/12 PASSED\n", g_passed);
-    return g_passed == 12 ? 0 : 1;
+    test_custom_ban_duration();
+    test_route_limit_overflow_counted();
+    printf("kynx 0.1 property tests: %d/14 PASSED\n", g_passed);
+    return g_passed == 14 ? 0 : 1;
 }

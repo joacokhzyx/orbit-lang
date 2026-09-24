@@ -61,6 +61,7 @@ typedef struct {
     uint64_t kynx_db_step_budget_exhausted;
     uint64_t kynx_table_saturations;
     uint64_t kynx_state_transitions;
+    uint64_t kynx_route_limit_drops;
     
     // Database Stats
     uint64_t db_queries;

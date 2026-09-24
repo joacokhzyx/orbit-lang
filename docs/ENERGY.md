@@ -64,7 +64,7 @@ A useful comparison reports both absolute and normalized results, for example:
 
 Benchmark implementations live under `benchmarks/`. The benchmark README defines how to run the existing workloads. Future reports should add the machine and configuration record required above and shouldn't place unqualified performance claims in the project README.
 
-Energy efficiency stays a target until a repeatable suite shows evidence across representative workloads and supported platforms — including runs where numbers are bad. I publish those too.
+Energy efficiency stays a target until a repeatable suite shows evidence across representative workloads and supported platforms - including runs where numbers are bad. I publish those too.
 
 ## What Orbit meters today
 
@@ -130,8 +130,8 @@ breach, 2 usage.
 `scripts/bench-ledger-overhead.c` plus `bench-energy.py overhead` compile the
 same request-parse loop with and without `ORBIT_NO_LEDGER` (which compiles
 the enter/exit hooks to no-ops) and report the absolute per-request delta.
-The change under test adds no hot-path instructions — the delta measured is
-the pre-existing enter/exit cost — and the gate holds when that delta stays
+The change under test adds no hot-path instructions - the delta measured is
+the pre-existing enter/exit cost - and the gate holds when that delta stays
 under 1000 ns/req (under 2% of any request slower than 50 us). Parse-relative
 shares are reported as a noisy upper bound only: the 350 ns parse micro-loop
 jitters run to run, so it is not the gate denominator. A breach means the
@@ -170,7 +170,7 @@ next.
 3. Drive a fixed load (e.g. 2000 keep-alive requests), confirm per-route
    `joules_total` sums to approximately the attributable joules and
    `joules_per_req` is stable across repeats within the compare bands.
-4. `save` a baseline, re-run, `compare` — expect HOLD; then kill -9 the
+4. `save` a baseline, re-run, `compare` - expect HOLD; then kill -9 the
    server mid-load and confirm no sampler thread outlives the process
    (thread is joined on the normal path; abnormal death is OS-reaped).
 5. Report the machine record and raw ledger JSON alongside any claim.

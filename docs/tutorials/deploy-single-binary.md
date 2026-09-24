@@ -1,7 +1,7 @@
 # Tutorial: Deploy a Single Binary (Windows + Linux)
 
 Orbit compiles to one native executable. This tutorial takes
-`examples/health_service.orb` — no database, no setup — from
+`examples/health_service.orb` - no database, no setup - from
 build to a running service, on both platforms. Windows commands
 are verified on this machine; Linux commands follow the same
 documented path but are marked UNTESTED where I couldn't run
@@ -16,7 +16,7 @@ python scripts\build_selfhost.py --cc gcc --out orbit.exe
 .\orbit.exe build examples\health_service.orb -o health_service.exe
 ```
 
-Linux (UNTESTED here — same path CI uses):
+Linux (UNTESTED here - same path CI uses):
 
 ```sh
 python3 scripts/build_selfhost.py --cc gcc --out orbit
@@ -38,7 +38,7 @@ a minute.
 
 The SQLite row matters: database services (`catalog_service`,
 `sqlite_notes`, `blog_api`) exit silently on Windows when
-`sqlite3.dll` isn't next to the exe — no log, no message. I
+`sqlite3.dll` isn't next to the exe - no log, no message. I
 hit exactly that during testing. Non-DB services like
 `health_service` don't need it.
 
@@ -70,10 +70,10 @@ curl http://127.0.0.1:8080/health
 ```
 
 The port comes from the first argument. With no argument the
-service uses its default (3000). Pick the port per environment —
+service uses its default (3000). Pick the port per environment -
 an argument beats a config file here.
 
-## 4. Keep it running (UNTESTED — review before using)
+## 4. Keep it running (UNTESTED - review before using)
 
 Windows, Task Scheduler or a service wrapper of your choice;
 run from a dedicated writable directory so `orbit.db` (when
@@ -95,13 +95,13 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-I haven't run this unit — treat it as a starting point, not a
+I haven't run this unit - treat it as a starting point, not a
 tested recipe. `WorkingDirectory` matters because the database
 file is created in the working directory.
 
 ## 5. Two instances on one box (verified)
 
-`orbit cluster` runs N copies on this machine — no shared
+`orbit cluster` runs N copies on this machine - no shared
 state, no proxying, single host only. Verified end to end:
 
 ```powershell
@@ -139,4 +139,4 @@ cluster down: all 2 nodes stopped, state removed.
 State lives in `.orbit/` (git-ignored); logs stay in
 `.orbit/logs/` after `down`. One cluster per directory.
 `drain` and rolling restart are best-effort stops on Windows
-(drain is kill there) — see [Known Limitations](../KNOWN_LIMITATIONS.md).
+(drain is kill there) - see [Known Limitations](../KNOWN_LIMITATIONS.md).

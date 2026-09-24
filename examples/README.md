@@ -4,7 +4,7 @@ Service examples you can build and run. Each one shows a
 combination of HTTP, data access, auth, or runtime features.
 Every file below passes `orbit check` and `orbit build` with
 the `0.1.0` fixed-point compiler; run status is per-file and
-honest — limits point at [Known Limitations](../docs/KNOWN_LIMITATIONS.md),
+honest - limits point at [Known Limitations](../docs/KNOWN_LIMITATIONS.md),
 never at silence.
 
 ## Available Examples
@@ -15,7 +15,7 @@ never at silence.
 | [`file_server.orb`](file_server.orb) | File listing, content, raw-body uploads | None | check + build + run (all routes) |
 | [`catalog_service.orb`](catalog_service.orb) | Product catalog API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads verified; writes answer 400) |
 | [`health_service.orb`](health_service.orb) | Health, readiness, and metrics endpoints | None | check + build + run (`/health`, `/metrics` 200) |
-| [`sqlite_notes.orb`](sqlite_notes.orb) | Notes and user management API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads verified; auth, `:id`, writes limited — see below) |
+| [`sqlite_notes.orb`](sqlite_notes.orb) | Notes and user management API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads verified; auth, `:id`, writes limited - see below) |
 | [`orbit_full_expansion.orb`](orbit_full_expansion.orb) | Combined catalog, notes, telemetry, ledger | SQLite (`sqlite3.dll` on Windows) | check + build + run (filtered reads, metrics, `/_ledger/data`) |
 | [`sovereignty_service.orb`](sovereignty_service.orb) | System status and process telemetry API | None | check + build + run (both routes 200) |
 
@@ -99,7 +99,7 @@ Windows notes:
 
 - The service reads its port from the first argument
   (`.\blog_api.exe 8080`).
-- Database examples need `sqlite3.dll` next to the exe —
+- Database examples need `sqlite3.dll` next to the exe -
   without it they exit silently:
   `Copy-Item runtime\vendor\win-x64\sqlite3.dll .`
 - On first start the service creates `orbit.db` in the working

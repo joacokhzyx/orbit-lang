@@ -1,6 +1,6 @@
 # Changelog
 
-Every entry below comes from the git history — condensed to
+Every entry below comes from the git history - condensed to
 one line per change, grouped by what it was for. Nothing here
 is reconstructed from memory. (`git log --oneline` tells the
 full story; this page tells the short one.)
@@ -40,11 +40,11 @@ Developer commands and runtime hardening:
 - Result `try` propagation and `catch` handlers.
 - Docs: brand-voice pass, roadmap and operating guides.
 
-## August 2026 — stabilization
+## August 2026 - stabilization
 
 - Behavior suite grown to 13+ programs; suite gate blocking
   in CI again.
-- Kynx 2.0: real identity admission, honest Bloom filter
+- Kynx 0.1: real identity admission, honest Bloom filter
   (negative cache, never authority).
 - Runtime fixes: slowloris timeouts, exec opt-in, seed
   credential removed, chunked-encoding 501, strict
@@ -57,7 +57,7 @@ Developer commands and runtime hardening:
   fixed-point compiler (Windows + Linux).
 - Sovereignty runbook and disaster-recovery docs.
 
-## July 2026 and earlier — bootstrap
+## July 2026 and earlier - bootstrap
 
 - Self-hosted compiler pipeline (lexer → parser → sema →
   IR → C backend) reaching fixed-point convergence.
@@ -69,13 +69,13 @@ Developer commands and runtime hardening:
 - Benchmark suite scaffolding (compute + HTTP) across
   Go, Rust, C, C++, Node, Python.
 - Native x86-64 backend experiments (lowering, encoder,
-  register allocation) — still experimental.
+  register allocation) - still experimental.
 - Repository, CI, installer, and docs foundations
   (CHANGELOG, CONTRIBUTING, status, phases).
 
 ## Tags
 
-- `v0.1.0-rc.2`, `v0.1.0-rc.1`, `v0.1-rc.2` — release
+- `v0.1.0-rc.2`, `v0.1.0-rc.1`, `v0.1-rc.2` - release
   candidates.
-- `legacy-zig-seed` — the retired Zig seed lineage,
+- `legacy-zig-seed` - the retired Zig seed lineage,
   historical only.

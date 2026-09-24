@@ -1,7 +1,7 @@
 # Orbit Language Tour (30 minutes)
 
 You'll write, build, and run real Orbit code. Every snippet below
-was built and run with the `orbit 0.1.0` fixed-point compiler —
+was built and run with the `orbit 0.1.0` fixed-point compiler -
 expected outputs are printed with each step, and anything I
 couldn't verify is marked UNTESTED instead of asserted.
 
@@ -105,7 +105,7 @@ fn main() -> int {
 }
 ```
 
-`ok()` and `err()` build `result` values in expressions — don't
+`ok()` and `err()` build `result` values in expressions - don't
 confuse them with the route forms `return ok 200 …` and
 `err 400 …` below. `try` unwraps or jumps to `catch`. Exit code:
 **42**. Naming a variable after `catch` binds the error message:
@@ -120,7 +120,7 @@ route GET "/health" {
 }
 ```
 
-Build it and give it a port — the server reads its port from the
+Build it and give it a port - the server reads its port from the
 first argument:
 
 ```sh
@@ -136,7 +136,7 @@ Expected (from a real run of `examples/health_service.orb`):
 ```
 
 Stop it with Ctrl-C. On Windows, keep `sqlite3.dll` out of the
-picture here — this service uses no database, so it needs none.
+picture here - this service uses no database, so it needs none.
 
 ## 7. Query values and branching (4 min)
 
@@ -182,7 +182,7 @@ route GET "/by-author" {
 
 On first start the runtime creates `orbit.db` in the working
 directory and seeds demo rows, so `GET /notes` answers `200`
-immediately. The `?` placeholder keeps input parameterized —
+immediately. The `?` placeholder keeps input parameterized -
 never build SQL by concatenating query values. Writes via
 `Note.create()` store the row and answer `true` (duplicates
 answer `false`); see [Known Limitations](KNOWN_LIMITATIONS.md).
@@ -204,17 +204,17 @@ Real run after three requests:
 {"metrics":{"http_requests_total":3,"latency_avg_us":358,"active_workers":8}}
 ```
 
-Every value is measured. There's no p50/p99 yet — what isn't
+Every value is measured. There's no p50/p99 yet - what isn't
 measured isn't exposed. `/_ledger` and `/_ledger/data` add a
 per-route table (requests, mean ms, DB share) with no code.
 
 ## Where next (in order)
 
-1. [Blog API tutorial](tutorials/blog-api.md) — a full runnable
+1. [Blog API tutorial](tutorials/blog-api.md) - a full runnable
    service with key-checked writes and expected outputs.
-2. [File server tutorial](tutorials/file-server.md) — listing,
+2. [File server tutorial](tutorials/file-server.md) - listing,
    content, and raw-body uploads.
-3. [Troubleshooting](tutorials/troubleshooting.md) — ports,
+3. [Troubleshooting](tutorials/troubleshooting.md) - ports,
    sqlite3.dll, slow first boot, stale canonical.
-4. [FAQ](FAQ.md) — twenty honest questions, hard ones included.
-5. [Language Reference](LANGUAGE_REFERENCE.md) — the full contract.
+4. [FAQ](FAQ.md) - twenty honest questions, hard ones included.
+5. [Language Reference](LANGUAGE_REFERENCE.md) - the full contract.

@@ -69,23 +69,23 @@ Neither is required to build, verify, release, or install the compiler.
 
 ## Disaster recovery runbook
 
-Scenario 1 — canonical C corrupted or lost (`stage3.exe.c` broken/missing):
+Scenario 1 - canonical C corrupted or lost (`stage3.exe.c` broken/missing):
 
 1. `git checkout main -- compiler/selfhost/stage3.exe.c` (restore from history), OR
    download `orbit_bootstrap.c` from the latest GitHub Release and re-split it
    (it is the amalgamation; the canonical is its entry file).
 2. Validate: `python scripts/build_selfhost.py --cc <cc> --check-stale`
 3. If sources also moved past the restored canonical: converge forward instead
-   — `python scripts/build_selfhost.py --promote`, then parity refresh.
+   - `python scripts/build_selfhost.py --promote`, then parity refresh.
 
-Scenario 2 — fixed point broken by a bad commit:
+Scenario 2 - fixed point broken by a bad commit:
 
 1. Identify the last green commit: CI history or
    `git bisect run python scripts/build_selfhost.py --cc gcc --check-stale`.
 2. Either revert the offending commit, or fix forward:
    repair `compiler/*.orb`, then `--promote` + goldens refresh in ONE commit.
 
-Scenario 3 — total loss of trust in the chain (suspected seed poisoning):
+Scenario 3 - total loss of trust in the chain (suspected seed poisoning):
 
 1. Rebuild from scratch against a known-good tag:
    `git checkout <last-green-tag>` then repeat Scenario 1 step 2.

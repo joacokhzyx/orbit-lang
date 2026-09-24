@@ -1,7 +1,7 @@
 # Frequently Asked Questions
 
 Short answers, plain words. Where the answer is "not yet" or
-"I don't know," it says so — that's the point of this page.
+"I don't know," it says so - that's the point of this page.
 
 ## Basics
 
@@ -9,7 +9,7 @@ Short answers, plain words. Where the answer is "not yet" or
 A statically typed language for APIs and microservices. It
 compiles fast and needs little to run, so it stays fast even
 under load. I'm building it to test whether servers can do the
-same work with less energy — still measuring how far that goes.
+same work with less energy - still measuring how far that goes.
 
 **2. Is Orbit ready for production?**
 No. It's 0.1.0 pre-release research. Reads work, writes don't
@@ -19,10 +19,10 @@ bet a business on it.
 
 **3. What do I need to build it?**
 A C compiler (gcc, clang, or MSVC), Python 3.10+, and git.
-That's it — no giant dependencies. See [Getting Started](GETTING_STARTED.md).
+That's it - no giant dependencies. See [Getting Started](GETTING_STARTED.md).
 
 **4. How is this different from Go, Rust, or Node?**
-I don't compare against other languages with claims — only
+I don't compare against other languages with claims - only
 with same-machine, same-workload measurements, published with
 method. Those measurements don't exist yet in publishable form.
 What I can say structurally: Orbit compiles to readable C99,
@@ -31,7 +31,7 @@ resource use out of the box.
 
 **5. Is Orbit "green" / eco-friendly?**
 It's an engineering project whose result could be less energy
-per request — not an ecological identity. I don't claim energy
+per request - not an ecological identity. I don't claim energy
 savings until they're measured with hardware, workload, and
 method recorded. Anyone telling you otherwise about 0.1.0 is
 ahead of the data.
@@ -67,7 +67,7 @@ series may include documented breaking changes (see
 Unions and `async fn` exist in the reference; collection APIs,
 concurrency ergonomics, and module imports are still settling.
 Keep business logic simple, cover it with tests, and file an
-issue when you hit a wall — I read everything.
+issue when you hit a wall - I read everything.
 
 ## Running services
 
@@ -86,7 +86,7 @@ copying the file while the service is stopped.
 
 **14. How do I run two copies?**
 `orbit cluster up --nodes 2 --port-base 8100 --service
-service.orb` — single host only, no failover. Verified walkthrough:
+service.orb` - single host only, no failover. Verified walkthrough:
 [Deploy tutorial](tutorials/deploy-single-binary.md).
 
 **15. How do I know it's healthy?**
@@ -104,18 +104,18 @@ the numbers aren't. Ask again after someone runs it.
 **17. What does "stays fast under load" mean concretely?**
 Today: Kynx admission control sheds load (429s past budget)
 and per-request arenas bound memory growth. With numbers and
-method attached — otherwise it's just words, and words aren't
+method attached - otherwise it's just words, and words aren't
 benchmarks.
 
 **18. Can I measure energy per request?**
 On Linux with RAPL or a wall meter, yes, following the guide.
-On Windows, no joules — report CPU time and memory as labeled
+On Windows, no joules - report CPU time and memory as labeled
 proxies. My docs never convert one to the other.
 
 ## Project
 
 **19. Who builds Orbit, and why should I trust it?**
-I'm Joaquín, building solo in Argentina on modest hardware —
+I'm Joaquín, building solo in Argentina on modest hardware -
 which is the point: the constraint is the design brief. Trust
 comes from the verification gates (bootstrap, parity,
 behavior suite all in CI) and from publishing limits next to
@@ -123,7 +123,7 @@ features, not from my claims.
 
 **20. How can I help?**
 Run the [Tour](TOUR.md), file issues with repros (small `.orb`
-files plus expected vs actual), and grow the behavior suite —
+files plus expected vs actual), and grow the behavior suite -
 one focused test per behavior. Start with
 [Contributing](../CONTRIBUTING.md). Bug reports with failing
 examples help more than feature requests right now.

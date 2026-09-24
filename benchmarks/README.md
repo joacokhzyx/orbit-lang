@@ -62,7 +62,7 @@ Each language implements the same four tests in a standalone binary:
 | `sum` | sum 1..100,000,000 | raw integer throughput |
 
 Each test runs 3 times. The median wall-clock time is reported. Timer starts
-after argument parsing and stops before result formatting — startup cost is
+after argument parsing and stops before result formatting - startup cost is
 excluded.
 
 Compiled languages use highest optimization:
@@ -82,7 +82,7 @@ GET /fib?n=N   → 200  "<fib(N)>\n"  (iterative, mod 10^9+7, N capped at 10^6)
 
 Cross-language ranking runs through `zig build bench-http-dynamic`
 (`dynamic/run_dynamic_bench.py`). Orbit is built with `cwd=dynamic/` so the
-`dynamic/orbit.atlas` config applies — it pins `logs: disabled` + `kynx: disabled`,
+`dynamic/orbit.atlas` config applies - it pins `logs: disabled` + `kynx: disabled`,
 which compile the per-request log printf and the Kynx lease path out of the
 generated router (`ORBIT_LOGS_ACTIVE 0` / `ORBIT_KYNX_ACTIVE 0`). Without that
 config every worker serializes on the CRT stdout lock per request and the
@@ -114,8 +114,8 @@ Frameworks used:
 ### HTTP dispatch latency micro-benchmark
 
 `bench-http-dispatch` (`benchmarks/http_dispatch_latency.zig`) measures the
-per-request cost of the C runtime's HTTP parse/dispatch path —
-`orbit_http_parse_request()` in `src/runtime/http.c` — with no network I/O. It
+per-request cost of the C runtime's HTTP parse/dispatch path -
+`orbit_http_parse_request()` in `src/runtime/http.c` - with no network I/O. It
 links the C runtime directly through `benchmarks/http_dispatch_latency_shim.c`
 (`http.c` plus its arena/string-pool/pulse dependencies) and is always built
 in ReleaseFast: latency numbers from Debug builds are not meaningful.
@@ -173,7 +173,7 @@ Procedure:
 Orbit is pre-release software. This benchmark exists to establish
 a reproducible baseline for tracking improvements over time, not to claim
 equivalence with mature runtimes. I publish method, hardware, and variance
-alongside summaries — including runs where numbers are bad.
+alongside summaries - including runs where numbers are bad.
 
 Orbit C Target performance is bounded by the C compiler it targets. Orbit Native
 performance reflects the quality of the x86-64 code emitter, which is in

@@ -1,6 +1,6 @@
 # Release Artifacts
 
-Releases publish a fixed-point compiler and the source you need to verify its trust root. The workflow lives in `.github/workflows/release.yml`. If verification fails, the release fails — I don't publish what I can't reproduce.
+Releases publish a fixed-point compiler and the source you need to verify its trust root. The workflow lives in `.github/workflows/release.yml`. If verification fails, the release fails - I don't publish what I can't reproduce.
 
 ## Published Platforms
 

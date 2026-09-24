@@ -36,16 +36,16 @@ Windows use `.\orbit.exe` / `.\health_service.exe 8080`
 ## 30 minutes: learn the language
 
 The [Language Tour](docs/TOUR.md) walks you through functions,
-models, routes, SQLite reads, and telemetry — every snippet
+models, routes, SQLite reads, and telemetry - every snippet
 runnable, every output verified. Then pick a tutorial:
 
-- [Blog API with auth](docs/tutorials/blog-api.md) — runnable
+- [Blog API with auth](docs/tutorials/blog-api.md) - runnable
   example + expected outputs.
-- [File server + uploads](docs/tutorials/file-server.md) —
+- [File server + uploads](docs/tutorials/file-server.md) -
   same deal, honest scope.
-- [Deploy a single binary](docs/tutorials/deploy-single-binary.md) —
+- [Deploy a single binary](docs/tutorials/deploy-single-binary.md) -
   Windows + Linux, plus one-box clustering.
-- [Troubleshooting](docs/tutorials/troubleshooting.md) —
+- [Troubleshooting](docs/tutorials/troubleshooting.md) -
   ports, silent exits, slow first boots.
 
 ## What 0.1.0 can't do yet
@@ -96,7 +96,7 @@ tests/        Parity goldens and compiler test fixtures
 
 ## Contributing
 
-Thanks for your interest — I read everything. Please start with the [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request.
+Thanks for your interest - I read everything. Please start with the [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request.
 
 Run the verification gates before committing:
 
@@ -109,4 +109,4 @@ python scripts/verify_seed.py --cc "$CC"
 
 ## License
 
-Orbit is open source under the [MIT License](LICENSE). It's early research — I publish what works, what doesn't, and how I measured it.
+Orbit is open source under the [MIT License](LICENSE). It's early research - I publish what works, what doesn't, and how I measured it.

@@ -122,7 +122,7 @@ following a single-line block. Zero violations either way.
 - `(`/`)`/`[`/`]` have no inner spaces (`f(a, b)`, `[]`, `()`); `[` attaches
   to the previous token (`ports[0]`, one `return []` site keeps its space
   after the keyword). `(` attaches directly except after a keyword
-  (`if (x) {`, `return (x)`; 0 nospace `keyword(` sites) — but `ok` and `err`
+  (`if (x) {`, `return (x)`; 0 nospace `keyword(` sites) - but `ok` and `err`
   are call-like value keywords and attach (`ok(41)`, `err("msg", 7)`; 4
   sites, 0 spaced). After operators, `,`, `:`, `=>`, `->`, `{`, or `}` the
   space before `(`/`[` comes from the operator rule (`= (`, `, (`).

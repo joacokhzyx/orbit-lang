@@ -64,7 +64,7 @@ For allocations with a lifetime shorter than the request, checkpoints are suppor
 
 ## 6. String Interning & Concurrency
 * **Per-arena interning:** the pool lives inside `OrbitArena`.
-* **Low contention by design:** each thread borrows its own arena from the pool, so interning usually needs no locks. It isn't lock-free by magic — measure under your concurrency.
+* **Low contention by design:** each thread borrows its own arena from the pool, so interning usually needs no locks. It isn't lock-free by magic - measure under your concurrency.
 * **Epoch-safe use:** resetting clears the pool count. Don't hold pointers across resets.
 
 ---

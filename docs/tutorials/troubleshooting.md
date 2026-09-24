@@ -5,7 +5,7 @@ gives the symptom, the cause I found, and the fix that worked on
 `orbit 0.1.0` (Windows, September 2026). Linux notes are marked
 UNTESTED where I couldn't run them.
 
-## The port is taken — or is it?
+## The port is taken - or is it?
 
 **Symptom:** you start a second server on a busy port and… both
 keep running. On Windows I measured no loud bind error: two
@@ -26,7 +26,7 @@ Linux (UNTESTED): `ss -ltnp | grep 8080`, then `kill <pid>`.
 ## The DB service exits with no message (Windows)
 
 **Symptom:** `catalog_service.exe`, `sqlite_notes.exe`, or
-`blog_api.exe` starts and vanishes instantly — no banner, no
+`blog_api.exe` starts and vanishes instantly - no banner, no
 log, no error.
 
 **Cause:** `sqlite3.dll` isn't next to the exe. Windows loads
@@ -56,7 +56,7 @@ one-time work costs about 1.7 s on my machine. Later starts
 find the file ready.
 
 **Fix:** none needed. Don't benchmark cold starts against warm
-ones — and don't ship a benchmark without saying which you
+ones - and don't ship a benchmark without saying which you
 measured (see the benchmark guide).
 
 ## `orbit build` fails on `orbit_auth_bearer_token`
@@ -72,7 +72,7 @@ program uses a database operation (`-DORBIT_WITH_DB` path). A
 file that calls `req.bearer_token()` with no `Model.all()` /
 `where` / `create` anywhere won't link.
 
-**Fix:** this is a compiler gap, not your bug — and bearer
+**Fix:** this is a compiler gap, not your bug - and bearer
 routes return empty replies at runtime anyway in 0.1.0. Use a
 `?key=` check per the tutorials until the limitation entry
 changes.
@@ -82,7 +82,7 @@ changes.
 **Symptom:** `implicit declaration of function
 'orbit_http_header_get'` when calling `req.header(…)`.
 
-**Cause:** same family — the header helper isn't declared in
+**Cause:** same family - the header helper isn't declared in
 generated programs in this build.
 
 **Fix:** read what you need through `req.query()` or
@@ -103,18 +103,18 @@ your handler never runs. Same for `{id}` and for DELETE.
 ## `Model.create()` answers 400
 
 **Symptom:** your POST handler's `create()` branch never
-succeeds — literal JSON and `req.body()` alike return `false`.
+succeeds - literal JSON and `req.body()` alike return `false`.
 
 **Cause:** writes are broken at runtime in this build (cause
 still under investigation; reads are fine).
 
-**Fix:** keep the failure branch — it's real behavior — and
+**Fix:** keep the failure branch - it's real behavior - and
 design around reads plus validated echoes, as the tutorials do.
 Don't retry in a loop; it won't help.
 
 ## The canonical C source is stale
 
-**Symptom:** `build_selfhost.py --check-stale` fails — the
+**Symptom:** `build_selfhost.py --check-stale` fails - the
 converged output doesn't match the committed canonical source.
 
 **Cause:** someone changed `compiler/*.orb` without promoting,
@@ -129,7 +129,7 @@ python scripts/build_selfhost.py --promote
 
 Then run the full gate (bootstrap → parity → suite) before
 committing. Procedure per [Getting Started](../GETTING_STARTED.md);
-the promote step itself is UNTESTED in this track — I changed no
+the promote step itself is UNTESTED in this track - I changed no
 compiler code.
 
 ## curl prints `000` then the real code on POST
@@ -138,7 +138,7 @@ compiler code.
 `201`/`400`/`401` in some Windows runs.
 
 **Cause:** connection-close timing between curl and the server
-on requests with a body. The second line — with the body — is
+on requests with a body. The second line - with the body - is
 the authoritative one; the server log shows one request.
 
 **Fix:** compare against the server log line, not the first

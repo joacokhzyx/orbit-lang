@@ -29,7 +29,7 @@ silenced.
 | `orbit --help` | Display the command-line help | `orbit --help` |
 | `orbit --version` | Display the compiler version | `orbit --version` |
 
-`orbit dev` (watch/reload) is not implemented yet. Calling it treats `dev` as a filename and fails — that error message is honest, not a silent stub.
+`orbit dev` (watch/reload) is not implemented yet. Calling it treats `dev` as a filename and fails - that error message is honest, not a silent stub.
 
 When Orbit was built locally and is not installed on `PATH`, call it by its path:
 

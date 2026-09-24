@@ -8,7 +8,7 @@ from a real run on `orbit 0.1.0` (Windows, September 2026).
 ## Honest scope first
 
 Multipart parsing and disk persistence aren't implemented in
-0.1.0 — `req.file()` returns a placeholder path and saves
+0.1.0 - `req.file()` returns a placeholder path and saves
 nothing, so this tutorial doesn't use it. Uploads here are raw
 request bodies: the server measures what arrived and answers with
 the byte count. If you need real multipart uploads today, Orbit
@@ -89,7 +89,7 @@ curl "http://127.0.0.1:8080/files/content?name=nope.txt"
 404
 ```
 
-Upload twelve bytes (the count is exact — `"hello upload"`
+Upload twelve bytes (the count is exact - `"hello upload"`
 is 12 characters):
 
 ```sh
@@ -110,5 +110,5 @@ Without the key:
 ## What you practiced
 
 Static JSON responses, query-driven dispatch, raw-body reads,
-`.len()`, key-checked uploads with measured receipts — and where
+`.len()`, key-checked uploads with measured receipts - and where
 the current boundary sits between "received" and "stored".

@@ -52,28 +52,28 @@ G2+ remain open under Roadmap.
 
 ## Roadmap
 
-### G1 — correctness and measurement
+### G1 - correctness and measurement
 
 - Finish constant-result materialization.
 - Regression-test extern preservation, constant output, and recursive memoization.
 - Establish reproducible timing methodology and attribution.
 
-### G2 — architectural optimizer
+### G2 - architectural optimizer
 
 - Add explicit control-flow/effect representation and SSA where beneficial.
 - Introduce safe, proof-oriented rewrites and cost accounting.
 
-### G3 — optimization search
+### G3 - optimization search
 
 - Use e-graphs for equality saturation over local pure regions.
 - Add deterministic cost models for latency, throughput, memory, and code size.
 
-### G4 — algorithmic transformation research
+### G4 - algorithmic transformation research
 
 - Recognize bounded dynamic-programming and recursion patterns.
 - Produce only verified alternatives with fallbacks and differential tests.
 
-### G5 — learned guidance
+### G5 - learned guidance
 
 - Explore learned search guidance only after deterministic correctness and cost-model baselines exist.
 

@@ -2,7 +2,7 @@
 
 Arena is the epoch-based virtual-memory allocator for the Orbit runtime. It uses a region-based model backed directly by OS virtual memory (`VirtualAlloc` on Windows, `mmap` on POSIX).
 
-Arena tries to avoid garbage-collection pauses, pointer tracing, and heap fragmentation for request-scoped work by allocating with a bump pointer and resetting the whole region at once. The complexity targets below are design goals — I treat them as claims that need measurement on your hardware, not guarantees.
+Arena tries to avoid garbage-collection pauses, pointer tracing, and heap fragmentation for request-scoped work by allocating with a bump pointer and resetting the whole region at once. The complexity targets below are design goals - I treat them as claims that need measurement on your hardware, not guarantees.
 
 ---
 
@@ -56,7 +56,7 @@ When requesting memory of size $N$, the allocator rounds $N$ to the default 16-b
 
 $$\text{new\_cursor} = \text{align\_up}(\text{cursor} + N, 16)$$
 
-If $\text{new\_cursor} \le \text{committed\_end}$, allocation completes on the fast path without OS traps. The exact instruction count depends on toolchain and CPU — measure on your target rather than trusting a fixed number.
+If $\text{new\_cursor} \le \text{committed\_end}$, allocation completes on the fast path without OS traps. The exact instruction count depends on toolchain and CPU - measure on your target rather than trusting a fixed number.
 
 ### 2. Page Commit Path
 

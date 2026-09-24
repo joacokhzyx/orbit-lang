@@ -1,4 +1,4 @@
-# Kynx 2.0 — Admission Control
+# Kynx 0.1 - Admission Control
 
 Kynx is Orbit's in-process admission-control and computational-budget layer.
 This document describes measured behavior of what's in `runtime/kynx.c` and wired into every generated server (`compiler/route_runtime.orb`). If behavior and prose disagree, behavior wins and I fix the prose.
@@ -58,15 +58,23 @@ downward <=24/<=96/<=384. `/health`, `/auth`, `/` keep an emergency budget in SI
 ```c
 OrbitKynxConfig cfg = {
     .pool_size       = ...,  /* shard slot capacity          */
-    .rate_limit      = ...,  /* requests per window per IP   */
-    .window_ms       = ...,  /* sliding window length        */
+    .rate_limit      = ...,  /* tokens refilled per window   */
+    .window_ms       = ...,  /* refill period in ms          */
+    .burst           = ...,  /* bucket capacity (0 = rate)   */
     .ban_threshold   = ...,  /* suspicion score to auto-ban  */
-    .score_increment = ...,  /* per violation                */
+    .score_increment = ...,  /* per violation window         */
     .score_decay     = ...,  /* per clean window             */
+    .ban_duration_s  = ...,  /* ban lifetime, seconds (0 = 300) */
     .enabled         = 1,
 };
 orbit_kynx_init(cfg);
 ```
+
+Every `orbit build` service starts from the same generated defaults
+(`compiler/route_runtime.orb`): pool 512, rate 50 per 1000 ms window,
+burst 50, ban threshold 200, increment 10, decay 1, ban 300 s. A
+per-route `limit` annotation overrides rate/window/burst for that route
+only; the global gate keeps the defaults above.
 
 ## Runtime API
 
@@ -84,6 +92,9 @@ void             orbit_kynx_lease_destroy(OrbitKynxLease* lease);
 double           orbit_kynx_lease_joules(const OrbitKynxLease* lease);
 uint64_t         orbit_kynx_lease_cycles(const OrbitKynxLease* lease);
 bool             orbit_kynx_is_siege_mode(void);
+int              orbit_kynx_get_suspicion(const char* ip_str);
+uint64_t         orbit_kynx_get_total_checks(void);
+uint64_t         orbit_kynx_get_total_blocked(void);
 ```
 
 ## Verifying it yourself
@@ -96,6 +107,9 @@ python scripts/kynx_burst_probe.py                            # burst -> expect 
 
 `scripts/kynx_burst_probe.py` hammers a running server past its configured
 `rate_limit` and asserts that Kynx answers 429 once the window budget is spent.
+It is manual-only (needs a live server on a chosen port): the same burst
+behavior is covered automatically by `scripts/kynx_route_limit_gate.py`,
+which runs in CI (see `.github/workflows/ci-gate.yml`).
 
 ## Per-route limits
 
@@ -117,20 +131,33 @@ least one route is annotated with rate `> 0`, the compiler emits
 `orbit_kynx_register_route_limit(method, path, rate, window_ms, burst)`
 call per annotated route. Generated `main` calls it once, right after
 `orbit_kynx_init`. Enforcement is a single admission-gate call in
-`orbit_handle_request` —
+`orbit_handle_request`:
 `orbit_kynx_check_route(kynx_ip, req->method, req->path)`, one token per
 request; the route handler body does not check again.
 
-Runtime (`runtime/kynx.c`): at most 32 route limits are kept, and
-re-registering the same method+path pair is ignored. The method must
+Runtime (`runtime/kynx.c`): at most 32 route limits are kept; a 33rd
+registration is dropped and counted in `kynx_route_limit_drops`, and
+re-registering the same method+path pair is ignored as idempotent. The
+method must
 match exactly; the path matches `:param` and `{name}` segments (one
 segment each) plus a trailing `*`, and compares literally otherwise.
-Buckets (1024 slots) are per (IP, route) and separate from the global IP
-table; when full, the oldest entry is evicted. A route deny answers `429`
-with `Retry-After` only — it never raises the suspicion score or bans
+Buckets (1024 slots across 16 lock shards) are per (IP, route) and
+separate from the global IP
+table; when a shard is full, the oldest entry is evicted. A route deny answers `429`
+with `Retry-After` only - it never raises the suspicion score or bans
 (see `runtime/test_kynx.c` T10, which asserts suspicion stays 0).
 Paths without an annotation fall back to the global gate; an annotated
 route that passes its own bucket still passes through the global gate.
+
+## Built-in `/search` lease budget (intentional sample)
+
+`orbit_kynx_lease_create_for_route` carries one hardcoded override: a
+route literally named `/search` gets a 250 ms deadline, a 192 KB arena
+cap, a 1 MB response cap, and a 4-query / 50K-step DB budget
+(`runtime/kynx.c`). No example service uses that path today, so the
+override is inert in practice. It stays as a visible sample of what
+per-route lease budgets look like until routes can declare their own
+budgets; removing it changes no shipped behavior.
 
 ## Per-lease energy attribution
 
@@ -146,7 +173,7 @@ package-joule delta over the lease lifetime times the lease's share of
 completed-request cycles in that window (own cycles included, so a lone
 request gets share 1), clamped to `[0, delta]`. Without a power sensor
 every joules accessor reads exactly `0.0` and `orbit_energy_source()`
-reports `"cpu-proxy"` — cycles stay a proxy and are never converted to
+reports `"cpu-proxy"` - cycles stay a proxy and are never converted to
 joules. With a sensor the source is `"rapl-estimate"`.
 
 Read it with `orbit_kynx_lease_joules(lease)` (`0.0` for `NULL`) and

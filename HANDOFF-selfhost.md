@@ -83,48 +83,48 @@ interpretation guide is in section 4 and the bug history in section 6.
 
 Real pending work of the self-hosted compiler:
 
-1. **Debug print cleanup** — **DONE (2026-08-14).** Per-function/per-declaration and
+1. **Debug print cleanup** - **DONE (2026-08-14).** Per-function/per-declaration and
    progress prints were removed; error prints were converted into functional
    diagnostics (see section 5 for the current inventory).
 2. **Native backend** (`src/backend/`): enable `alloc`/`db_*`/`http_*` in
-   `capabilities.zig` and add `--emit=lir`; then **`load_field`/`store_field` — DONE
+   `capabilities.zig` and add `--emit=lir`; then **`load_field`/`store_field` - DONE
    (2026-08-14)** (model field offsets mirror the C backend's struct layout; see
    `src/backend/mir/model_layout.zig`, and note `std.Io.Threaded.global_single_threaded`
    uses the failing allocator so subprocess-spawning tests must create a dedicated
-   `Threaded` io with a real allocator), and **collections `list_*`/`map_*` — DONE
+   `Threaded` io with a real allocator), and **collections `list_*`/`map_*` - DONE
    (2026-08-15)** (10 opcodes lowered to the C runtime via `emitRuntimeCall`;
-   `map_delete`/`map_keys` are intentionally NOT implemented — the frontend never
+   `map_delete`/`map_keys` are intentionally NOT implemented - the frontend never
    emits them and the runtime declares them `static`; gotcha: a `mov_ri` with a
    `.symbol` operand materializes the symbol's ADDRESS, so arena/global loads must
    use the new `mov_rm_sym` opcode + `symbol_value` operand, i.e.
-   `mov reg, [orbit_global_arena]` — passing `&orbit_global_arena` to the runtime
+   `mov reg, [orbit_global_arena]` - passing `&orbit_global_arena` to the runtime
    made `orbit_alloc` read the zeroed `.bss` neighbours as `arena->cursor` and
-crash). **`result_*` — DONE (2026-08-15)** (4 opcodes: a `.result` register
+crash). **`result_*` - DONE (2026-08-15)** (4 opcodes: a `.result` register
     holds a pointer to an arena-allocated 24-byte `OrbitResult`
     `{ bool ok@0; int error_code@4; const char* error_msg@8; void* value@16 }`
-    built inline via `orbit_alloc` — no runtime calls needed; new encoder opcodes
+    built inline via `orbit_alloc` - no runtime calls needed; new encoder opcodes
     `mov_mr32` and `movzx_rm`; gotcha: the stack-based regalloc
     (`src/backend/lir/regalloc.zig`) only resolves virtual registers that appear
-    as `.reg` operands or `.dest`, NOT as mem base addresses — so result reads
+    as `.reg` operands or `.dest`, NOT as mem base addresses - so result reads
     must load the register's stack slot into a physical scratch first).
-    **`union_*` — DONE (2026-08-15)** (3 opcodes; a union register is a pointer
+    **`union_*` - DONE (2026-08-15)** (3 opcodes; a union register is a pointer
     to an arena-allocated 16-byte `{ int tag@0; union { void* data; } data@8; }`;
     tag constants like `Color_TAG_Blue` resolve to their variant index via a
     tag-name→index map built in `Backend.lower` from `ir_module.types` and
     passed into `Lowering`; gotcha: `emitObject` stringifies every `imm_str`
     operand into `__str_N` BEFORE lowering, so tag constants must be exempted
     from that rewrite or `mapOperand` never sees the original name; new encoder
-opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
-     bytes). **`float` SSE2 — DONE (2026-08-15)** (verified end-to-end by a
+opcode `mov_rm32` (32-bit load, zero-extends - the tag field is `int`, 4
+     bytes). **`float` SSE2 - DONE (2026-08-15)** (verified end-to-end by a
      native e2e test: float literals load via `.load_const`→`copy`, the
      lowering branches on `val_types == .float` for add/sub/mul/div
      (`addsd`/`subsd`/`mulsd`/`divsd` via `emitFloatLoadXmm`) and comparisons
      (`ucomisd` + `setcc` + `movzx`); float constants materialize their bit
      pattern directly into stack slots via `emitFloatConstToSlot`; float
      params arrive in XMM registers in the prologue; gotcha: the frontend's
-     raw `.copy` IR opcode is NOT mapped by the MIR builder — float (or any)
+     raw `.copy` IR opcode is NOT mapped by the MIR builder - float (or any)
      constant materialization from source uses `.load_const`, which maps to
-     MIR `copy`. **Float neg/mod/return — DONE (2026-08-15)** (the lowering
+     MIR `copy`. **Float neg/mod/return - DONE (2026-08-15)** (the lowering
      now covers float `.neg` (IEEE sign-bit flip via `xor` with
      `0x8000000000000000`), float `.mod` (calls `fmod` with XMM0/XMM1 args
      and reads the XMM0 result), float `.ret` (returns via XMM0) and float
@@ -133,7 +133,7 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      end-to-end by three native e2e tests, including a two-function program
      `fn scale(x: float) -> float` exercising XMM float args, the float
      prologue, and XMM0 returns).
-     **Sret calls — DONE (2026-08-15)** (generic `.call` to a C function
+     **Sret calls - DONE (2026-08-15)** (generic `.call` to a C function
      returning a 24-byte `OrbitResult` by value now emits the hidden sret
      pointer instead of just copying RAX: `MirType.result` and a new
      `sret_alloc` MIR opcode arena-allocate the buffer into the `.result`-
@@ -143,7 +143,7 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      `sret_alloc` before them when the call's dest register type is
      `.result`; verified end-to-end by a native e2e test calling a stub
      `OrbitResult orbit_stub_make(int)` through `result_is_ok`/`result_unwrap`).
-     **Models from source — DONE (2026-08-15)**
+     **Models from source - DONE (2026-08-15)**
      (the Zig IR frontend `src/ir/builder.zig` now emits `.alloc` +
      `.store_field` for model constructor calls like `User(id: 42, name:
      "hello")` instead of a broken generic `.call` to the model name; the
@@ -153,8 +153,8 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      `model_layout.zig` sizes/alignments; verified end-to-end by a native
      test that parses real source through Parser → Sema → IRBuilder →
      backend and returns a stored field).
-     **DB integration via arena calls — DONE (2026-08-15)** (the dead MIR
-     `.db_query` opcode is removed — it called nonexistent `orbit_db_query`;
+     **DB integration via arena calls - DONE (2026-08-15)** (the dead MIR
+     `.db_query` opcode is removed - it called nonexistent `orbit_db_query`;
      the frontend never emits `db_*` opcodes and model CRUD instead emits
      generic `.call`s to `orbit_db_query_all/where/get`, which take
      `(OrbitArena* arena, const char* table_name, ...)`. The MIR builder now
@@ -170,7 +170,7 @@ opcode `mov_rm32` (32-bit load, zero-extends — the tag field is `int`, 4
      orbit_global_arena && table == "users"`, and a full source-level test
      where `User.all()` → `.call orbit_db_query_all` → strcmp with `"OK"`
 returns 1).
-      **Real DB integration with bundled sqlite3 — DONE (2026-08-15)**: the
+      **Real DB integration with bundled sqlite3 - DONE (2026-08-15)**: the
       remaining gaps above are closed. `has_db` now uses
       `IRModule.usesDatabase()` (matches `db_*` opcodes OR `.call`s to
       `orbit_db_query_all/where/get/insert/delete`), so the C backend emits
@@ -178,13 +178,13 @@ returns 1).
       programs (via `runtime_loader.generateMainFunction`), and the native
       backend's C stub emits them too (stub write in `compileToBinary`).
       `src/runtime/vendor/` bundles SQLite 3.53.4 for win-x64: `sqlite3.h`
-      (declarations only — NOT the amalgamation source), `win-x64/sqlite3.dll`
+      (declarations only - NOT the amalgamation source), `win-x64/sqlite3.dll`
       and `win-x64/sqlite3.lib` (import lib regenerable via
       `zig dlltool -d sqlite3.def -D sqlite3.dll -l sqlite3.lib -m i386:x86-64`).
       `compileToBinary` adds `-DORBIT_WITH_DB`, `-I<vendor>`, and the bundled
       `.lib` (fallback `-lsqlite3`) to `zig cc` for the system linker, and
       copies `sqlite3.dll` next to the cache binary; `runExecuteMode` ships it
-      next to the real output via `shipSqlite3Dll` (only for DB builds — it
+      next to the real output via `shipSqlite3Dll` (only for DB builds - it
       copies from the cache dir where compileToBinary dropped it). The native
       PE linker already imports `sqlite3.dll` directly (pe_image.zig), so it
       needs no import lib. `getFunctionParamCount` in c_backend.zig now
@@ -199,18 +199,18 @@ returns 1).
       10/10 steps; both `--backend=c` and `--backend=native` compile a
       `model User` app whose `User.create()`+`User.all()` exits 1 and the
        seeded `u9/bob` row is persisted to `orbit.db`. **`file.read` arena arg
-       — DONE (2026-08-15)**: the `orbit_file_read` call is BOTH sret-returning
+       - DONE (2026-08-15)**: the `orbit_file_read` call is BOTH sret-returning
        (`.result` dest → 24-byte `OrbitResult`) and arena-requiring
        (`isArenaCallName`). The MIR builder emitted only `sret_alloc` because it
        used `else if` between the sret and arena branches, so the arena was never
        injected (`orbit_file_read` was called as `(buffer, filename)` with no
        arena). Fixed: the builder now emits `sret_alloc` AND `arena_arg` for the
        same call, and the lowering places the arena in ABI slot 1 (slot 0 when no
-       sret) — sret buffer slot 0, arena slot 1, explicit args at 2+. Verified by
+       sret) - sret buffer slot 0, arena slot 1, explicit args at 2+. Verified by
        a native e2e test that reads a real file through the real
        `orbit_file_read` (file.c is always linked via runtime.h) and unwraps the
        result.
-      **Native PE linker end-to-end — DONE (2026-08-15)**: `--backend=native
+      **Native PE linker end-to-end - DONE (2026-08-15)**: `--backend=native
       --linker=native` links the C stub + runtime + codegen object into a
       runnable exe without invoking Zig. Fixed in this session: (a)
       `ucrtbase.dll` does NOT export the `printf` family (`printf/fprintf/
@@ -231,9 +231,9 @@ returns 1).
       `--backend=c` unchanged; suite 44/46 → 46/46 (updated
       `link.resolve.undefined_symbol_errors` to the new invariant: undefined
       `orbit_*` runtime symbols are the hard-error case; everything else is a
-       DLL import). **Top-level code + `fn main` — DONE (2026-08-15)**: instead
+       DLL import). **Top-level code + `fn main` - DONE (2026-08-15)**: instead
        of the duplicate-symbol link error, the IR frontend now rejects the
-       combination with a clear diagnostic (`error.TopLevelWithMainFunction` —
+       combination with a clear diagnostic (`error.TopLevelWithMainFunction` -
        a program may not have both top-level executable statements and an
        explicit `fn main`, since both claim the single `orbit_main` entry).
 
@@ -292,13 +292,13 @@ The self-hosted compiler is now quiet on success and only reports errors. Remain
 prints (all functional):
 
 - **Error diagnostics** (kept, no debug prefix):
-  - `sema.orb` — `[sema error]`, `[sema ERROR] Duplicate symbol`.
-  - `pipeline.orb` — `Parser error at line`, `Import error:`, `Semantic error:`,
+  - `sema.orb` - `[sema error]`, `[sema ERROR] Duplicate symbol`.
+  - `pipeline.orb` - `Parser error at line`, `Import error:`, `Semantic error:`,
     `Error writing C file:`.
-  - `lexer.orb` — `Lexer error: invalid character (code N)`.
-  - `main.orb` — `Compilation FAILED`, bootstrap stage `FAILED`, frontend/usage errors.
-- **Subprocess relay** — `main.orb` relays the C compiler output via `print`.
-- **Functional tools** — `doctor.orb`, `compiler/selfhost/lexer_trace.orb`, and the
+  - `lexer.orb` - `Lexer error: invalid character (code N)`.
+  - `main.orb` - `Compilation FAILED`, bootstrap stage `FAILED`, frontend/usage errors.
+- **Subprocess relay** - `main.orb` relays the C compiler output via `print`.
+- **Functional tools** - `doctor.orb`, `compiler/selfhost/lexer_trace.orb`, and the
   `print` that `c_backend.orb` emits inside the generated C.
 
 After touching any `.orb` you must redo stage1 (seed) -> stage2 -> stage3 -> stage4

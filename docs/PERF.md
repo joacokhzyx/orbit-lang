@@ -58,15 +58,15 @@ hits are ~0.024 us but that path is idle for static routes.)
 
 ## Fixes (each: micro gain measured, end-to-end no regression)
 
-1. `runtime/http.c` — single-pass header scan with manual
+1. `runtime/http.c` - single-pass header scan with manual
    Content-Length parse (was: two line walks plus `strtoll`).
    Micro T1 490.8 -> 367.7 ns/op avg (**-25%**, A-B-A-B).
-2. `runtime/arena.c` — plain-counter telemetry on the alloc fast path
+2. `runtime/arena.c` - plain-counter telemetry on the alloc fast path
    (was: four atomic RMWs per alloc; slow paths keep exact atomics;
    same race-tolerant class as the existing min/max updates).
    Micro T2 38.8 -> 12.6 ns/op avg (**-68%**). 5000-alloc counter
    check reads back exact single-threaded.
-3. `runtime/http.c` — manual response header build (was: `snprintf`
+3. `runtime/http.c` - manual response header build (was: `snprintf`
    per request; single-send combining and `(int)` length truncation
    unchanged, pathological inputs keep the bounded `snprintf` fallback).
    Micro T9 538.9 -> 129.3 ns/op avg (**-76%**).
@@ -88,7 +88,7 @@ end-to-end regression anywhere; component gains are real and isolated.
 
 - Kynx repeat-hit fast path (per-shard last-IP cache, lock-free CAS
   accounting): micro T3b went 125 -> 154 ns/op (**+23%**) and inserts
-  457 -> 704 ns/op (**+54%**) — at `-O0` the probe costs more than the
+  457 -> 704 ns/op (**+54%**) - at `-O0` the probe costs more than the
   uncontended spinlock it skips. Dropped without committing; `kynx.c`
   is byte-identical to pristine.
 - String-pool short-circuit: interning does not run on the static-route

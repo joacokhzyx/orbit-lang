@@ -1,9 +1,9 @@
-# Orbit 0.1.0 — Release Notes (draft)
+# Orbit 0.1.0 - Release Notes (draft)
 
 Orbit 0.1.0 is available. It's the first versioned development
 release: a self-hosted compiler, an HTTP runtime with SQLite,
 and docs you can run. It still can't do writes, bearer auth, or
-path parameters — the list is below, with workarounds.
+path parameters - the list is below, with workarounds.
 
 ## What it does
 
@@ -15,13 +15,13 @@ path parameters — the list is below, with workarounds.
   `where`); seeds demo data on first start.
 - Ships `run`, `check`, `fmt`, `doctor`, and single-host
   `cluster` commands, each with a real contract.
-- Measures itself: `system.*` counters, `/metrics`, ledger —
+- Measures itself: `system.*` counters, `/metrics`, ledger -
   no invented numbers.
 
 ## What it fixes (since the rc cycle)
 
 - Startup errors say what happened instead of failing silent
-  (except the missing-DLL case — still silent, still tracked).
+  (except the missing-DLL case - still silent, still tracked).
 - Server logs flush live to files, so `cluster logs` follows
   reality.
 - `try`/`catch` around `result` values; struct bindings from
@@ -47,4 +47,4 @@ python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
 
 Then build a service from [Getting Started](GETTING_STARTED.md).
 If it breaks, file an issue with the `.orb` file and what you
-expected — I read everything.
+expected - I read everything.

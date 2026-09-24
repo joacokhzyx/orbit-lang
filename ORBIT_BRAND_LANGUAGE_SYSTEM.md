@@ -1,6 +1,6 @@
-# ORBIT — EDITORIAL & BRAND LANGUAGE SYSTEM
+# ORBIT - EDITORIAL & BRAND LANGUAGE SYSTEM
 
-Version 1.0 — Source of truth. From Joaquín, for Orbit.
+Version 1.0 - Source of truth. From Joaquín, for Orbit.
 Status: draft for review, not yet part of the public docs.
 
 This file is the operating system for how Orbit speaks. If a line could belong to a crypto startup, a cyberpunk tool, or a "blazingly fast" framework, it fails here.
@@ -26,7 +26,7 @@ Difference: the first can be checked. Less of what? Less energy, less complexity
 1. Scaling by adding consumption, compute, or parameters just because we can is bad engineering. It's clumsy.
 2. Software is physical. "Digital" does not mean clean. Every request costs energy, usually from non-renewable sources.
 3. No mainstream language was designed to be specifically efficient. They compete on benchmarks to show power, regardless of what they generate.
-4. Doing more with less is respect — for the machine, for energy, for people without exceptional hardware.
+4. Doing more with less is respect - for the machine, for energy, for people without exceptional hardware.
 5. Comfort is philosophical. If it needs giant dependencies to start a server, it's not elegant, even if it's fast.
 
 Orbit is not an ecological project that makes a language. Orbit is an engineering project whose natural result is ecological. Lead with engineering, let planet follow.
@@ -70,7 +70,7 @@ Strict rule for solo-author credibility:
 
 1. **I / Joaquín** for opinion, intention, doubt: I think / I'm building / I'm testing / I don't know yet.
 2. **Orbit** for technical fact: Orbit compiles to... / Port 3000 is already in use.
-3. **We — forbidden for now.** No fake team. No Enthropy Labs mention in Phase 1.
+3. **We - forbidden for now.** No fake team. No Enthropy Labs mention in Phase 1.
 
 Saying "we" with one author destroys trust. Saying "I" with modest hardware creates trust, because constraint proves principle.
 
@@ -135,9 +135,9 @@ User proposed "sustained superior performance" to replace "high-performance." Ju
 
 ## 13. Forbidden vocabulary
 
-Tier 1 — NEVER: obliterates, blazingly fast, game-changer, revolutionary, supercharge, disruptive, high-performance (naked), ultra-low latency (naked).
-Tier 2 — AVOID: next-gen, cutting-edge, world-class, seamless, unlock, elevate, power your, engineered for.
-Tier 3 — ONLY WITH NUMBER + METHOD: fast, faster, efficient, performant, scalable, throughput. Adjective must be followed by context.
+Tier 1 - NEVER: obliterates, blazingly fast, game-changer, revolutionary, supercharge, disruptive, high-performance (naked), ultra-low latency (naked).
+Tier 2 - AVOID: next-gen, cutting-edge, world-class, seamless, unlock, elevate, power your, engineered for.
+Tier 3 - ONLY WITH NUMBER + METHOD: fast, faster, efficient, performant, scalable, throughput. Adjective must be followed by context.
 
 Top 3 to ban forever: obliterates, revolutionary / game-changer, blazingly fast / supercharge.
 
@@ -156,7 +156,7 @@ Header (no metaphor):
 > Port 3000 is already in use. Change it in X.orb and try again.
 
 Body mix (helpful + warm):
-> Tip: run `orbit ports` to see what's free. Small fix — you'll be running in seconds.
+> Tip: run `orbit ports` to see what's free. Small fix - you'll be running in seconds.
 
 Rare orbital body, non-blocking only:
 > Adjust and relaunch.
@@ -213,7 +213,7 @@ Never hide with silence. Publish limits and "What Orbit is not yet." Publish bad
 
 ## 20. Competitive language
 
-Never name languages to claim superiority. Engineering critique, not moral denunciation. Say clumsy, wasteful, needs so much — not irresponsible polluters.
+Never name languages to claim superiority. Engineering critique, not moral denunciation. Say clumsy, wasteful, needs so much - not irresponsible polluters.
 
 Correct:
 > Many languages optimize for peak benchmark power. That often needs more memory and energy to stay fast. Orbit tries a different tradeoff.
@@ -223,7 +223,7 @@ Correct:
 Headline: Do more with less.
 Subhead: Orbit is a statically typed language for APIs and microservices. It compiles fast and needs little to run, so it stays fast even under load.
 Proof strip: orbit run with no giant deps / compiles in X on modest laptop / N req/s with M memory + link.
-Founder note in I-voice. No Enthropy Labs Phase 1. Footer: Built by Joaquín — Argentina. Early research.
+Founder note in I-voice. No Enthropy Labs Phase 1. Footer: Built by Joaquín - Argentina. Early research.
 
 ## 22. Documentation language
 
@@ -255,9 +255,9 @@ Formula: what it is + what it needs + what it stays + proof hint. 1-2 sentences,
 
 ## 28. CTA system
 
-1. Read the docs — primary, low pressure.
-2. Try Orbit — secondary.
-3. Star on GitHub — tertiary.
+1. Read the docs - primary, low pressure.
+2. Try Orbit - secondary.
+3. Star on GitHub - tertiary.
 Sentence case, no exclamation, no urgency.
 
 ## 29. Error and system language
@@ -266,7 +266,7 @@ Two layers:
 Header (always clear, no metaphor, no Oh!, no emoji): Fact + file + action.
 > Port 3000 is already in use. Change it in X.orb and try again.
 Body (optional, helpful first, warmth second, orbital max 5 words): Tip + warm line.
-> Tip: run `orbit ports` to see what's free. Small fix — you'll be running in seconds.
+> Tip: run `orbit ports` to see what's free. Small fix - you'll be running in seconds.
 Success: quiet confirmation + next step.
 When Orbit at fault: zero humor, own it, workaround, apologize for lost time.
 

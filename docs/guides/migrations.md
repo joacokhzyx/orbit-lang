@@ -31,11 +31,11 @@ rows. That's the current schema story:
 2. **One database file per service directory.** The file lives
    in the working directory, so a systemd `WorkingDirectory`
    or a deployment folder pins it. Never run two services
-   against one `orbit.db` — locking behavior there is
+   against one `orbit.db` - locking behavior there is
    UNTESTED, and silent corruption is the failure mode you
    won't see until restore time.
 3. **Back up the file, not the rows.** Stop the service
-   (Windows stop is immediate kill — plan for that), copy
+   (Windows stop is immediate kill - plan for that), copy
    `orbit.db`, start again. SQLite backup API integration is
    future work.
 4. **Schema change = new file + export/import.** To change
@@ -45,7 +45,7 @@ rows. That's the current schema story:
 5. **Seed data is demo data.** The built-in seed rows
    (`prod_101…`, `note_101…`) land in every fresh database.
    If they don't belong in production, delete them as part of
-   provisioning — and note that provisioning step in your own
+   provisioning - and note that provisioning step in your own
    runbook.
 
 ## What can go wrong
@@ -55,7 +55,7 @@ rows. That's the current schema story:
   branch, the client sees an empty reply. Always code the
   failure branch.
 - **Two writers, one file.** UNTESTED and explicitly out of
-  scope — concurrent writes from two processes against one
+  scope - concurrent writes from two processes against one
   `orbit.db` have no contract. One writer per file.
 - **Windows stop loses in-flight writes.** Stop is
   `TerminateProcess`. A write in flight when you stop the
@@ -69,5 +69,5 @@ order inside a transaction, a `down` path or a tested restore,
 and a check the service refuses to start on a newer-than-known
 schema. That's tracked work (see `STAB-6` in ENGINEERING.md),
 not a promise with a date. Until it lands, this page is the
-whole contract — I'd rather you be annoyed at the manual steps
+whole contract - I'd rather you be annoyed at the manual steps
 than surprised by a lost table.
