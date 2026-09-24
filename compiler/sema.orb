@@ -82,7 +82,6 @@ fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, is
     while i < scope.symbols.len() {
         val sym = scope.symbols.get(i)
         if sym.name == name {
-            print("[sema ERROR] Duplicate symbol: name='" + name + "' sym.name='" + sym.name + "' i=" + orbit_int_to_string_selfhost(i))
             reportError(sema, "Duplicate symbol: " + name)
             return
         }

@@ -400,7 +400,7 @@ fn clusterUp() {
     }
     val existing = orbit_file_read_selfhost(".orbit/cluster.json")
     if existing != "" {
-        print("cluster is already up (state file .orbit/cluster.json exists). Run `orbit cluster down` first.")
+        orbit_os_write_stderr_selfhost("cluster is already up (state file .orbit/cluster.json exists). Run `orbit cluster down` first.\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -461,13 +461,13 @@ fn clusterUp() {
     while j < nodeCount {
         val wantPid: int = pids.get(j)
         if clusterConfirmAlive(wantPid) == false {
-            print("node " + orbit_int_to_string_selfhost(j) + " (pid " + orbit_int_to_string_selfhost(wantPid) + ") did not become healthy. See " + logDir + "/node-" + orbit_int_to_string_selfhost(j) + ".log")
+            orbit_os_write_stderr_selfhost("node " + orbit_int_to_string_selfhost(j) + " (pid " + orbit_int_to_string_selfhost(wantPid) + ") did not become healthy. See " + logDir + "/node-" + orbit_int_to_string_selfhost(j) + ".log\n")
             bad = bad + 1
         }
         j = j + 1
     }
     if bad > 0 {
-        print("cluster up: " + orbit_int_to_string_selfhost(bad) + " of " + orbit_int_to_string_selfhost(nodeCount) + " nodes failed. Inspect the logs, then run `orbit cluster down` to clean up.")
+        orbit_os_write_stderr_selfhost("cluster up: " + orbit_int_to_string_selfhost(bad) + " of " + orbit_int_to_string_selfhost(nodeCount) + " nodes failed. Inspect the logs, then run `orbit cluster down` to clean up.\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -518,7 +518,7 @@ fn clusterDrain() {
     val id = clusterParseInt(target)
     val content = orbit_file_read_selfhost(".orbit/cluster.json")
     if content == "" {
-        print("cluster: no cluster is up (no state file .orbit/cluster.json)")
+        orbit_os_write_stderr_selfhost("cluster: no cluster is up (no state file .orbit/cluster.json)\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -574,7 +574,7 @@ fn clusterRestart() {
     }
     var content = orbit_file_read_selfhost(".orbit/cluster.json")
     if content == "" {
-        print("cluster: no cluster is up (no state file .orbit/cluster.json)")
+        orbit_os_write_stderr_selfhost("cluster: no cluster is up (no state file .orbit/cluster.json)\n")
         orbit_os_exit_selfhost(1)
         return
     }

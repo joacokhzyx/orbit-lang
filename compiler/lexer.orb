@@ -320,6 +320,6 @@ fn nextToken(lexer: Lexer) -> Token {
 
     // Default fallback
     val textFallback = lexer.source.slice(start, lexer.pos)
-    print("Lexer error: invalid character (code " + orbit_int_to_string_selfhost(c) + ")")
+    orbit_os_write_stderr_selfhost("Lexer error: invalid character (code " + orbit_int_to_string_selfhost(c) + ")\n")
     return Token(TokType.Invalid, textFallback, line, col)
 }

@@ -96,7 +96,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
             var i = 0
             while i < parser.diagnostics.len() {
                 val d: ParserDiagnostic = parser.diagnostics.get(i)
-                print("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message)
+                orbit_os_write_stderr_selfhost("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
                 i = i + 1
             }
         }
@@ -108,7 +108,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
     if resolver.errors.len() > 0 {
         var ri = 0
         while ri < resolver.errors.len() {
-            print("Import error: " + resolver.errors.get(ri))
+            orbit_os_write_stderr_selfhost("Import error: " + resolver.errors.get(ri) + "\n")
             ri = ri + 1
         }
         return false
@@ -142,6 +142,83 @@ fn compilerRuntimeDir() -> string {
     return "runtime"
 }
 
+fn splitBuildLines(source: string) -> list {
+    var lines = []
+    var start = 0
+    var i = 0
+    val n = orbit_string_len(source)
+    while i < n {
+        if orbit_string_char_at_selfhost(source, i) == 10 {
+            lines.push(orbit_string_slice(source, start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        lines.push(orbit_string_slice(source, start, n))
+    }
+    return lines
+}
+
+fn replaceBuildToken(haystack: string, needle: string, replacement: string) -> string {
+    if needle == "" { return haystack }
+    var out = ""
+    var rest = haystack
+    while true {
+        val idx = orbit_string_indexOf(rest, needle)
+        if idx < 0 { break }
+        out = out + orbit_string_slice(rest, 0, idx) + replacement
+        rest = orbit_string_slice(rest, idx + orbit_string_len(needle), orbit_string_len(rest))
+    }
+    return out + rest
+}
+
+// The C step failed after Orbit's own phases passed. Explain what
+// happened in Orbit terms, show the scrubbed C log truncated, and
+// point at the full log plus the next step. Never dump raw toolchain
+// paths or generated-code internals without framing.
+fn reportCStepFailure(inputPath: string, cPath: string, rtDir: string, tmpDir: string, compOutput: string, verbose: bool) {
+    var logPath = "orbit_build.cc.log"
+    if tmpDir != "" {
+        logPath = tmpDir + "/orbit_build.cc.log"
+    }
+    val logOk = orbit_file_write_selfhost(logPath, compOutput)
+    // Scrub machine paths: the C file path in both slash flavors
+    // (toolchains render whichever they were given), and the runtime
+    // dir only when it is a real path (a bare "runtime" would also
+    // rewrite prose that merely names it).
+    var clean = replaceBuildToken(compOutput, cPath, "<build>")
+    clean = replaceBuildToken(clean, replaceBuildToken(cPath, "/", "\\"), "<build>")
+    if orbit_string_indexOf(rtDir, "/") != -1 {
+        clean = replaceBuildToken(clean, rtDir, "<runtime>")
+    }
+    if orbit_string_indexOf(rtDir, "\\") != -1 {
+        clean = replaceBuildToken(clean, rtDir, "<runtime>")
+    }
+    val lines = splitBuildLines(clean)
+    var limit = 25
+    if verbose {
+        limit = lines.len()
+    }
+    orbit_os_write_stderr_selfhost("orbit build: couldn't finish the C step - this one is on me, not your code.\n")
+    orbit_os_write_stderr_selfhost("  Your program translated cleanly; the C compiler rejected my output:\n")
+    var shown = 0
+    var li = 0
+    while li < lines.len() {
+        if shown >= limit { break }
+        orbit_os_write_stderr_selfhost("  " + lines.get(li) + "\n")
+        shown = shown + 1
+        li = li + 1
+    }
+    if lines.len() > shown {
+        orbit_os_write_stderr_selfhost("  ... " + orbit_int_to_string_selfhost(lines.len() - shown) + " more lines (full log: " + logPath + ")\n")
+    }
+    if logOk == false {
+        orbit_os_write_stderr_selfhost("  (couldn't write the full log to " + logPath + ")\n")
+    }
+    orbit_os_write_stderr_selfhost("  Tip: run `orbit check " + inputPath + "` first - if that passes, file an issue with the .orb file and I'll read it.\n")
+}
+
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool) -> bool {
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
@@ -154,7 +231,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
             var i = 0
             while i < parser.diagnostics.len() {
                 val d: ParserDiagnostic = parser.diagnostics.get(i)
-                print("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message)
+                orbit_os_write_stderr_selfhost("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
                 i = i + 1
             }
         }
@@ -168,7 +245,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if resolver.errors.len() > 0 {
         var ri = 0
         while ri < resolver.errors.len() {
-            print("Import error: " + resolver.errors.get(ri))
+            orbit_os_write_stderr_selfhost("Import error: " + resolver.errors.get(ri) + "\n")
             ri = ri + 1
         }
         return false
@@ -184,7 +261,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         } else {
             var ei = 0
             while ei < sema.errors.len() {
-                print("Semantic error: " + sema.errors.get(ei))
+                orbit_os_write_stderr_selfhost("Semantic error: " + sema.errors.get(ei) + "\n")
                 ei = ei + 1
             }
         }
@@ -220,7 +297,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     }
 
     if orbit_file_write_selfhost(cPath, cCode) == false {
-        print("Error writing C file: " + cPath)
+        orbit_os_write_stderr_selfhost("orbit build: couldn't write the intermediate C file '" + cPath + "'.\n")
         return false
     }
 
@@ -272,8 +349,9 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {
             if compOutput.indexOf("not recognized") != -1 || compOutput.indexOf("not found") != -1 || compOutput.indexOf("no se reconoce") != -1 {
                 orbit_os_write_stderr_selfhost("C compiler '" + cCompiler + "' was not found. Set the ORBIT_CC environment variable to your C compiler (e.g. gcc, clang, cc).\n")
+                return false
             }
-            orbit_os_write_stderr_selfhost(compOutput)
+            reportCStepFailure(inputPath, cPath, rtDir, tmpDir, compOutput, verbose)
             return false
         }
     }

@@ -38,6 +38,7 @@ import argparse
 import hashlib
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -74,7 +75,7 @@ PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
 # error cards for parser/semantic failures + raw stderr writer + cmd raw
 # capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "F4782DC4FE826058DAE43BB548C778A78742514C75EF2CD581DE320B65CB5582"
+PUBLISHED_C = "916A175B71A1BE9E813998775784299FD195A9DB8B3365194887728029AAFC6C"
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
@@ -245,13 +246,13 @@ def main() -> int:
     run([*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS], ROOT, label="build seed")
     check("seed builds", os.path.isfile(seed_exe))
 
-    def orb_build(compiler, out, snapshot_c):
+    def orb_build(compiler, out_name, snapshot_c):
         # All builds write the intermediate C to the SAME path: clang embeds the
         # C source path in the binary, so a per-build directory would break the
         # binary fixed point even for identical code. Snapshot the C afterwards.
         tmp = os.path.join(work, "tmp_build")
         os.makedirs(tmp, exist_ok=True)
-        label = f"{os.path.basename(compiler)} -> {out}"
+        label = f"{os.path.basename(compiler)} -> {out_name}"
         # Windows real-time AV (Defender) briefly locks freshly linked
         # executables; running one immediately after linking can fail
         # spuriously. Retry once before giving up.
@@ -260,7 +261,7 @@ def main() -> int:
             env = dict(os.environ)
             env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc})
             out.say(f"Building {label}" + ("  (retry)" if attempt == 2 else ""))
-            proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out)], cwd=ROOT, env=env)
+            proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out_name)], cwd=ROOT, env=env)
             last_rc = proc.returncode
             if last_rc == 0:
                 break
@@ -287,8 +288,8 @@ def main() -> int:
         fixed_out = os.path.join(work, "fixed_point_build" + exe)
         run([*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
              "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS], ROOT,
-            env_extra={"TEMP": tmp, "TMP": tmp}, label=f"deterministic rebuild {out}")
-        shutil.move(fixed_out, os.path.join(work, out))
+            env_extra={"TEMP": tmp, "TMP": tmp}, label=f"deterministic rebuild {out_name}")
+        shutil.move(fixed_out, os.path.join(work, out_name))
         shutil.copyfile(c, snapshot_c)
         return snapshot_c
 
