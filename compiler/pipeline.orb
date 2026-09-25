@@ -278,13 +278,15 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     // counters are reported instead of dropped.
     var optPatterns = 0
     var cteFolds = 0
+    var optSpan = 0
     if cteEnabled() {
         val optStats = optimizeIRModule(irModule)
         optPatterns = optStats.patterns_applied
+        optSpan = optStats.span_saved
         cteFolds = cteOptimize(irModule)
     }
     if verbose {
-        print("opt: " + orbit_int_to_string_selfhost(optPatterns) + " patterns, " + orbit_int_to_string_selfhost(cteFolds) + " folds")
+        print("opt: " + orbit_int_to_string_selfhost(optPatterns) + " patterns, " + orbit_int_to_string_selfhost(cteFolds) + " folds, span " + orbit_int_to_string_selfhost(optSpan))
     }
 
     val backend = initCBackend(irModule)

@@ -6,6 +6,111 @@ import "./ir.orb"
 model OptStats {
     patterns_applied: int
     constant_folds: int
+    span_saved: int
+}
+
+// Wave 3: sink pure-constant temporaries toward their sole use to
+// shorten live ranges. Only load_const definitions move, only to a
+// single use, only over regions with no label/jump/jump_if_false.
+// Calls and rets are not barriers (constants survive them); alloc,
+// strings, responses, collections, calls, and computed values never
+// move. Motion relocates (single rebuild per motion); values never
+// change, so the fallback is the unmoved program itself.
+fn isMovableConst(op: IRValue) -> bool {
+    match op {
+        IRValue.Int(m) => return true
+        IRValue.Bool(b) => return true
+        IRValue.String(s) => return true
+        IRValue.Sym(s) => return true
+        _ => return false
+    }
+}
+
+fn countRegUses(func: IRFunction, reg: int) -> int {
+    var n = 0
+    var i = 0
+    while i < func.instructions.len() {
+        val ins: IRInstruction = func.instructions.get(i)
+        match ins.operand1 {
+            IRValue.Register(r) => {
+                if r.value == reg { n = n + 1 }
+            }
+            _ => {}
+        }
+        match ins.operand2 {
+            IRValue.Register(r) => {
+                if r.value == reg { n = n + 1 }
+            }
+            _ => {}
+        }
+        match ins.operand3 {
+            IRValue.Register(r) => {
+                if r.value == reg { n = n + 1 }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return n
+}
+
+fn moveInstrBefore(func: IRFunction, defIdx: int, useIdx: int) {
+    val def: IRInstruction = func.instructions.get(defIdx)
+    var rebuilt = []
+    var i = 0
+    while i < func.instructions.len() {
+        if i != defIdx {
+            if i == useIdx {
+                rebuilt.push(def)
+            }
+            rebuilt.push(func.instructions.get(i))
+        }
+        i = i + 1
+    }
+    func.instructions = rebuilt
+}
+
+// One motion per call: returns useIdx * 65536 + defIdx, or -1.
+fn sinkOne(func: IRFunction) -> int {
+    var ui = 0
+    while ui < func.instructions.len() {
+        val useInstr: IRInstruction = func.instructions.get(ui)
+        val ops = [useInstr.operand1, useInstr.operand2, useInstr.operand3]
+        var oi = 0
+        while oi < 3 {
+            val op: IRValue = ops.get(oi)
+            match op {
+                IRValue.Register(r) => {
+                    var defs = 0
+                    var defIdx = -1
+                    var i = 0
+                    while i < func.instructions.len() {
+                        val ins: IRInstruction = func.instructions.get(i)
+                        if ins.dest == r.value {
+                            defs = defs + 1
+                            defIdx = i
+                        }
+                        i = i + 1
+                    }
+                    if defs == 1 && defIdx >= 0 && defIdx < ui && ui - defIdx > 1 {
+                        val def: IRInstruction = func.instructions.get(defIdx)
+                        match def.opcode {
+                            IROpcode.load_const => {
+                                if isMovableConst(def.operand1) && countRegUses(func, r.value) == 1 && regionClear(func, defIdx, ui) {
+                                    return ui * 65536 + defIdx
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+            oi = oi + 1
+        }
+        ui = ui + 1
+    }
+    return -1
 }
 
 fn isZero(v: IRValue) -> bool {
@@ -317,19 +422,33 @@ fn optimizeFunction(func: IRFunction) -> OptStats {
         }
         i = i + 1
     }
-    return OptStats(patterns, folds)
+    var span = 0
+    var rounds = 0
+    while rounds < 256 {
+        val motion = sinkOne(func)
+        if motion < 0 { break }
+        val useIdx = motion / 65536
+        val defIdx = motion - useIdx * 65536
+        span = span + (useIdx - defIdx - 1)
+        moveInstrBefore(func, defIdx, useIdx)
+        patterns = patterns + 1
+        rounds = rounds + 1
+    }
+    return OptStats(patterns, folds, span)
 }
 
 fn optimizeIRModule(module: IRModule) -> OptStats {
     var totalPatterns = 0
     var totalFolds = 0
+    var totalSpan = 0
     var fi = 0
     while fi < module.functions.len() {
         val func: IRFunction = module.functions.get(fi)
         val stats = optimizeFunction(func)
         totalPatterns = totalPatterns + stats.patterns_applied
         totalFolds = totalFolds + stats.constant_folds
+        totalSpan = totalSpan + stats.span_saved
         fi = fi + 1
     }
-    return OptStats(totalPatterns, totalFolds)
+    return OptStats(totalPatterns, totalFolds, totalSpan)
 }

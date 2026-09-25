@@ -1,0 +1,39 @@
+// Wave 3: pure-temporary motion scope tests. Constant temporaries
+// may sink toward their sole use over clear regions; alloc,
+// strings, responses, collections, and calls never move. Every case
+// below asserts the VALUE, which holds whether motion fired or
+// (conservatively) did not. Both branches execute across the two
+// calls (differential all-branch coverage in one binary).
+model Item {
+    id: string
+}
+
+fn pick(flag: int) -> int {
+    val seven = 7
+    if flag == 1 {
+        return seven + 0
+    } else {
+        return seven + 1
+    }
+}
+
+fn guarded(flag: int) -> int {
+    val base = 100
+    if flag == 1 {
+        return base
+    }
+    return base + 2
+}
+
+fn main() -> int {
+    if pick(1) != 7 { return 1 }
+    if pick(0) != 8 { return 2 }
+    if guarded(1) != 100 { return 3 }
+    if guarded(0) != 102 { return 4 }
+    val ghost = Item.all()
+    val missing = Item.where("id = ?", "nope")
+    if ghost.len() != missing.len() { return 5 }
+    val s = "kept"
+    if s != "kept" { return 6 }
+    return 0
+}
