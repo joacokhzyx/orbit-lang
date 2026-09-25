@@ -11,6 +11,10 @@ model OptStats {
 fn isZero(v: IRValue) -> bool {
     match v {
         IRValue.Int(m) => return m.value == 0
+        IRValue.Sym(s) => {
+            if s.value == "0" { return true }
+            return false
+        }
         _ => return false
     }
 }
@@ -18,18 +22,218 @@ fn isZero(v: IRValue) -> bool {
 fn isOne(v: IRValue) -> bool {
     match v {
         IRValue.Int(m) => return m.value == 1
+        IRValue.Sym(s) => {
+            if s.value == "1" { return true }
+            return false
+        }
         _ => return false
     }
 }
 
+// Wave 1 shapes: the builder materializes integer, float, and bool
+// literals as Sym holding the literal TEXT (builder.orb buildExpr:
+// only strings, chars, and call args become typed values), so the
+// pins below accept strict decimal/bool text as well as typed
+// values. Anything else (names, tags, floats for int rules) vetoes.
+fn isDecLit(text: string) -> bool {
+    if text == "" { return false }
+    var i = 0
+    if text.at(0) == 45 {
+        i = 1
+    }
+    if i >= text.len() { return false }
+    while i < text.len() {
+        val c = text.at(i)
+        if c < 48 || c > 57 { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn parseDecLit(text: string) -> int {
+    var isNeg = false
+    var i = 0
+    if text.at(0) == 45 {
+        isNeg = true
+        i = 1
+    }
+    var num = 0
+    while i < text.len() {
+        num = num * 10 + (text.at(i) - 48)
+        i = i + 1
+    }
+    if isNeg { return 0 - num }
+    return num
+}
+
 // Wave 0 STAB: every arithmetic rewrite below must pin BOTH operands to
-// int literals. The backend overloads `add` on strings
-// (orbit_string_concat) and floats, so folding on operand-2 shape alone
-// corrupts programs (`"n=" + 0` folded to `"n="`). Register operands
-// never fold here; use-def proofs arrive in Wave 1.
+// int literals (typed values or strict-decimal symbols; the builder
+// materializes source literals as Sym text). The backend overloads
+// `add` on strings (orbit_string_concat) and floats, so folding on
+// operand-2 shape alone corrupts programs (`"n=" + 0` folded to
+// `"n="`). Register operands fold only through single-def use-def
+// proofs (Wave 1 below).
 fn isIntLit(v: IRValue) -> bool {
     match v {
         IRValue.Int(m) => return true
+        IRValue.Sym(s) => {
+            if isDecLit(s.value) { return true }
+            return false
+        }
+        _ => return false
+    }
+}
+
+fn isBoolLit(v: IRValue) -> bool {
+    match v {
+        IRValue.Bool(b) => return true
+        IRValue.Sym(s) => {
+            if s.value == "true" { return true }
+            if s.value == "false" { return true }
+            return false
+        }
+        _ => return false
+    }
+}
+
+// Wave 1: no CFG exists, so constant/copy knowledge dies at control
+// flow. A substitution is allowed only over regions with no label,
+// jump, or jump_if_false between definition and use. Calls and rets
+// are NOT barriers: an already-computed pure value survives them
+// (virtual registers are never clobbered), and the use inside `ret`
+// must be substituted for the fold to be complete.
+//
+// NOTE: opcode dispatch uses `match`, never `==`: `==` on union
+// values compares heap identity and never matches, which is why the
+// original rules silently never fired.
+fn isBarrierOp(op: IROpcode) -> bool {
+    match op {
+        IROpcode.label => return true
+        IROpcode.jump => return true
+        IROpcode.jump_if_false => return true
+        _ => return false
+    }
+}
+
+fn regionClear(func: IRFunction, fromIdx: int, toIdx: int) -> bool {
+    var i = fromIdx
+    while i < toIdx {
+        val ins: IRInstruction = func.instructions.get(i)
+        if isBarrierOp(ins.opcode) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+// Wave 1: resolve a Register operand to an int literal through
+// single-definition chains (load_const Int, copy forwarding, load_var
+// fed by one const store), depth-bounded. Anything else (including
+// multi-defined registers and unknown shapes) returns the operand
+// unchanged: no proof, no rewrite.
+fn resolveConstInt(func: IRFunction, operand: IRValue, useIdx: int, depth: int) -> IRValue {
+    match operand {
+        IRValue.Register(r) => {
+            if depth > 4 { return operand }
+            var defs = 0
+            var defIdx = -1
+            var i = 0
+            while i < func.instructions.len() {
+                val ins: IRInstruction = func.instructions.get(i)
+                if ins.dest == r.value {
+                    defs = defs + 1
+                    defIdx = i
+                }
+                i = i + 1
+            }
+            if defs != 1 { return operand }
+            if defIdx < 0 { return operand }
+            if defIdx >= useIdx { return operand }
+            val def: IRInstruction = func.instructions.get(defIdx)
+            match def.opcode {
+                IROpcode.load_const => {
+                    // Any constant shape flows through; the rules vet
+                    // what they can fold (int/bool literals, strict-dec
+                    // symbols). Region check keeps ordering sound.
+                    if regionClear(func, defIdx, useIdx) { return def.operand1 }
+                    return operand
+                }
+                IROpcode.copy => {
+                    val inner = resolveConstInt(func, def.operand1, defIdx, depth + 1)
+                    match inner {
+                        IRValue.Int(m) => {
+                            if regionClear(func, defIdx, useIdx) { return inner }
+                            return operand
+                        }
+                        _ => { return operand }
+                    }
+                }
+                IROpcode.load_var => {
+                    var vn = ""
+                    match def.operand1 {
+                        IRValue.Sym(s) => { vn = s.value }
+                        IRValue.String(s) => { vn = s.value }
+                        _ => {}
+                    }
+                    if vn != "" {
+                        var stores = 0
+                        var storeIdx = -1
+                        var stored: IRValue = operand
+                        var si = 0
+                        while si < func.instructions.len() {
+                            val sin: IRInstruction = func.instructions.get(si)
+                            match sin.opcode {
+                                IROpcode.store_var => {
+                                    var svn = ""
+                                    match sin.operand1 {
+                                        IRValue.Sym(s) => { svn = s.value }
+                                        IRValue.String(s) => { svn = s.value }
+                                        _ => {}
+                                    }
+                                    if svn == vn {
+                                        stores = stores + 1
+                                        storeIdx = si
+                                        stored = sin.operand2
+                                    }
+                                }
+                                _ => {}
+                            }
+                            si = si + 1
+                        }
+                        if stores == 1 && storeIdx >= 0 && storeIdx < useIdx {
+                            val innerVar = resolveConstInt(func, stored, storeIdx, depth + 1)
+                            match innerVar {
+                                IRValue.Int(m) => {
+                                    if regionClear(func, storeIdx, useIdx) { return innerVar }
+                                    return operand
+                                }
+                                _ => { return operand }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return operand
+        }
+        _ => { return operand }
+    }
+}
+
+fn intLitValue(v: IRValue) -> int {
+    match v {
+        IRValue.Int(m) => return m.value
+        IRValue.Sym(s) => return parseDecLit(s.value)
+        _ => return 0
+    }
+}
+
+fn boolLitValue(v: IRValue) -> bool {
+    match v {
+        IRValue.Bool(b) => return b.value
+        IRValue.Sym(s) => {
+            if s.value == "true" { return true }
+            return false
+        }
         _ => return false
     }
 }
@@ -40,21 +244,76 @@ fn optimizeFunction(func: IRFunction) -> OptStats {
     var i = 0
     while i < func.instructions.len() {
         val instr: IRInstruction = func.instructions.get(i)
-        if instr.opcode == IROpcode.add {
-            if isZero(instr.operand2) && isIntLit(instr.operand1) {
-                instr.opcode = IROpcode.copy
-                patterns = patterns + 1
+        // Opcode dispatch uses `match`: `==` on union values compares
+        // heap identity and never matches (see isBarrierOp above).
+        match instr.opcode {
+            IROpcode.add => {
+                val r1 = resolveConstInt(func, instr.operand1, i, 0)
+                val r2 = resolveConstInt(func, instr.operand2, i, 0)
+                // Folded constants normalize to typed Int values (never
+                // raw Sym text) so downstream type inference sees ints.
+                if isZero(r2) && isIntLit(r1) {
+                    instr.opcode = IROpcode.load_const
+                    instr.operand1 = ir_int(intLitValue(r1))
+                    patterns = patterns + 1
+                } else if isZero(r1) && isIntLit(r2) {
+                    instr.opcode = IROpcode.load_const
+                    instr.operand1 = ir_int(intLitValue(r2))
+                    patterns = patterns + 1
+                }
             }
-        } else if instr.opcode == IROpcode.sub {
-            if isZero(instr.operand2) && isIntLit(instr.operand1) {
-                instr.opcode = IROpcode.copy
-                patterns = patterns + 1
+            IROpcode.sub => {
+                val r1 = resolveConstInt(func, instr.operand1, i, 0)
+                val r2 = resolveConstInt(func, instr.operand2, i, 0)
+                if isZero(r2) && isIntLit(r1) {
+                    instr.opcode = IROpcode.load_const
+                    instr.operand1 = ir_int(intLitValue(r1))
+                    patterns = patterns + 1
+                }
             }
-        } else if instr.opcode == IROpcode.mul {
-            if isOne(instr.operand2) && isIntLit(instr.operand1) {
-                instr.opcode = IROpcode.copy
-                patterns = patterns + 1
+            IROpcode.mul => {
+                val r1 = resolveConstInt(func, instr.operand1, i, 0)
+                val r2 = resolveConstInt(func, instr.operand2, i, 0)
+                if isOne(r2) && isIntLit(r1) {
+                    instr.opcode = IROpcode.load_const
+                    instr.operand1 = ir_int(intLitValue(r1))
+                    patterns = patterns + 1
+                } else if isOne(r1) && isIntLit(r2) {
+                    instr.opcode = IROpcode.load_const
+                    instr.operand1 = ir_int(intLitValue(r2))
+                    patterns = patterns + 1
+                }
             }
+            IROpcode.div => {
+                val r1 = resolveConstInt(func, instr.operand1, i, 0)
+                val r2 = resolveConstInt(func, instr.operand2, i, 0)
+                if isOne(r2) && isIntLit(r1) {
+                    instr.opcode = IROpcode.load_const
+                    instr.operand1 = ir_int(intLitValue(r1))
+                    patterns = patterns + 1
+                }
+            }
+            IROpcode.neg => {
+                val r1 = resolveConstInt(func, instr.operand1, i, 0)
+                if isIntLit(r1) {
+                    instr.opcode = IROpcode.load_const
+                    instr.operand1 = ir_int(0 - intLitValue(r1))
+                    patterns = patterns + 1
+                }
+            }
+            IROpcode.not_op => {
+                val r1 = resolveConstInt(func, instr.operand1, i, 0)
+                if isBoolLit(r1) {
+                    instr.opcode = IROpcode.load_const
+                    if boolLitValue(r1) {
+                        instr.operand1 = ir_bool(false)
+                    } else {
+                        instr.operand1 = ir_bool(true)
+                    }
+                    patterns = patterns + 1
+                }
+            }
+            _ => {}
         }
         i = i + 1
     }

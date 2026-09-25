@@ -876,7 +876,12 @@ fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -
     var ctlScan = callIdx + 1
     while ctlScan < func.instructions.len() {
         val s: IRInstruction = func.instructions.get(ctlScan)
-        if s.opcode == IROpcode.label || s.opcode == IROpcode.jump || s.opcode == IROpcode.jump_if_false { return false }
+        match s.opcode {
+            IROpcode.label => { return false }
+            IROpcode.jump => { return false }
+            IROpcode.jump_if_false => { return false }
+            _ => {}
+        }
         ctlScan = ctlScan + 1
     }
 

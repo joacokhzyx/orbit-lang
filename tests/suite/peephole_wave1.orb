@@ -1,0 +1,29 @@
+// Wave 1: narrowed peephole rules fire only on proven int/bool
+// constants (literals or single-def chains over clear regions).
+// Every case asserts the VALUE, which holds whether the rule fired
+// or (conservatively) did not. Excluded on purpose: x*0, all div/mod
+// except x/1, all float/string shapes, cross-barrier motion.
+fn main() -> int {
+    if 0 + 9 != 9 { return 1 }
+    if 1 * 8 != 8 { return 2 }
+    if 9 - 0 != 9 { return 3 }
+    if 9 / 1 != 9 { return 4 }
+    if -(-5) != 5 { return 5 }
+    if !(!true) == false { return 6 }
+    if !(!false) { return 12 }
+    val k = 6
+    if k + 0 != 6 { return 7 }
+    val m = 4
+    if m * 1 != 4 { return 8 }
+    val f = 1.5 + 0.0
+    if f != 1.5 { return 9 }
+    if 9 % 1 != 0 { return 10 }
+    var v = 0
+    if 1 == 1 {
+        v = 7 + 0
+    } else {
+        v = 99
+    }
+    if v != 7 { return 11 }
+    return 0
+}
