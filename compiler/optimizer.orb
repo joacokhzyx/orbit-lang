@@ -110,7 +110,7 @@ fn sinkOne(func: IRFunction) -> int {
         }
         ui = ui + 1
     }
-    return -1
+    return - 1
 }
 
 fn isZero(v: IRValue) -> bool {
