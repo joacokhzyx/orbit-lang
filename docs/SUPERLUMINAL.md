@@ -121,6 +121,20 @@ for differential testing. Gate: `tests/parity/probes/sl_route_dispatch.orb`,
 `bench-energy.py` compare HOLD on client-observed latency, goldens with
 only the intended diff.
 
+Outcome (2026-09-24, measured, ship decision: NOT shipped): a
+method-grouped strcmp chain was implemented behind ORBIT_FORCE_GENERIC
+and measured A/B on this box (3 static routes, 2000 requests at 50
+rps x4 conns, 2 s warmup, 3 rounds each): specialized p50 median
+0.140 ms vs generic 0.141 ms (0.7%, inside any compare band), with a
+byte-identical differential across /, /health, /metrics, /notes/new,
+/notes/42, 404s, and trailing slashes. Dispatch shape is not the
+bottleneck (hash plus strcmp costs ~0.1% of a request); the emitter
+was reverted rather than landing an untested-by-CI path for zero
+gain. `tests/parity/probes/sl_route_dispatch.orb` stays as
+precedence and collision coverage on the generic path. Future
+dispatch-adjacent work belongs to the accept/parse/send paths, each
+with its own measurement first.
+
 ### Wave 3 - pure-temporary motion only
 
 Shorten live ranges of pure ALU/`copy`/`load_const` temporaries under a

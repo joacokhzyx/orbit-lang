@@ -1,0 +1,24 @@
+// Wave 2 dispatch probe: static GET table with an overlapping param
+// route. Static routes take the specialized shape (or the generic one
+// under ORBIT_FORCE_GENERIC=1); the param route always chains after
+// them, so static wins over covering patterns in both modes.
+route GET "/" {
+    return ok 200 "root"
+}
+
+route GET "/health" {
+    return ok 200 "up"
+}
+
+route GET "/metrics" {
+    return ok 200 "met"
+}
+
+route GET "/notes/new" {
+    return ok 200 "new-note"
+}
+
+route GET "/notes/:id" {
+    val id = req.param("id")
+    return ok 200 id
+}
