@@ -41,7 +41,12 @@ def run_probe(compiler, cc, name, src, expect, extra_flags=()):
             return (name, "NO-C", "orbit build left no orbit_selfhost_build.c in TEMP")
         exe = td / "app_checked.exe"
         link_flags = ["-lws2_32"] if os.name == "nt" else []
-        p2 = subprocess.run([cc, "-s", "-O0", "-Werror", "-I", str(ROOT / "runtime")]
+        # No -s here. It is a link-time strip for a binary this gate builds,
+        # runs and throws away, so it bought nothing, and it is not portable:
+        # gcc and clang-on-Linux accept it, but clang's Windows/MSVC driver
+        # rejects it outright, which under -Werror surfaced as
+        # "argument unused during compilation: '-s'" and failed all 9 probes.
+        p2 = subprocess.run([cc, "-O0", "-Werror", "-I", str(ROOT / "runtime")]
                             + list(extra_flags) + [str(c_file)] + link_flags + [
                              "-o", str(exe)], capture_output=True, text=True, errors="replace",
                             cwd=str(ROOT))
