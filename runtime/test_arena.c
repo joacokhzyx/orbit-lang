@@ -134,7 +134,10 @@ static void test_telemetry_bytes(void) {
 // 11. Size_t overflow protection
 static void test_size_t_overflow(void) {
     OrbitArena* arena = orbit_arena_create(65536);
-    void* ptr = orbit_alloc(arena, SIZE_MAX - 8);
+    // orbit_alloc_try, not orbit_alloc: exhaustion is loud by default and this
+    // test is specifically asserting the graceful NULL return, so it opts out
+    // of the aborting policy for this one call.
+    void* ptr = orbit_alloc_try(arena, SIZE_MAX - 8);
     assert(ptr == NULL); // Must gracefully fail
     orbit_arena_destroy(arena);
 }

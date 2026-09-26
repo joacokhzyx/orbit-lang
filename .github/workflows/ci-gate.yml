@@ -105,6 +105,12 @@ jobs:
           ./t_arena_bin
           $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_file.c -o t_file_bin $LDFLAGS
           ./t_file_bin
+          # test_oom observes the abort-on-exhaustion policy in a child
+          # process, so it needs fork/waitpid and is POSIX-only.
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_oom.c -o t_oom_bin $LDFLAGS
+            ./t_oom_bin
+          fi
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
           ./t_http_bin
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o t_kynx_bin $LDFLAGS

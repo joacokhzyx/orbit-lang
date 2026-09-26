@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #ifdef _WIN32
   #ifndef WIN32_LEAN_AND_MEAN
@@ -264,8 +265,63 @@ void orbit_arena_destroy(OrbitArena* arena) {
 
 /* ── Allocation ─────────────────────────────────────────────────────── */
 
-/** @brief Allocate @p bytes from @p arena with alignment guaranteed to ORBIT_ARENA_ALIGN. Returns NULL on OOM. */
-void* orbit_alloc(OrbitArena* arena, size_t bytes) {
+/*
+ * Allocation failure policy (FMT-1).
+ *
+ * orbit_alloc historically returned NULL when the arena was exhausted, and
+ * almost nothing looked: of 107 orbit_alloc call sites in the runtime, 5
+ * checked the result. The other 102 turned an allocation failure into a write
+ * through a null pointer -- undefined behaviour that usually faults far from
+ * the cause and can silently corrupt memory when it does not. orbit_string is
+ * a NUL-terminated const char*, so a NULL result is also indistinguishable
+ * from a legitimately empty string at most boundaries; that conflation is
+ * what let `orbit fmt` report success after reducing a source file to zero
+ * bytes (FMT-0).
+ *
+ * Failure is therefore loud by default. The default handler reports what was
+ * requested and what the arena held, then aborts, so the 102 unchecked sites
+ * become correct without being rewritten and the diagnostic names the arena
+ * instead of a fault address.
+ *
+ * A program that genuinely wants to recover installs its own handler with
+ * orbit_set_oom_handler, after which orbit_alloc returns NULL again and the
+ * caller is responsible. orbit_alloc_try is the per-call opt-out for code that
+ * must never abort, and is also what the handler-facing internals use.
+ *
+ * Only exhaustion reaches the handler. A NULL arena or a zero-byte request is
+ * an argument error, not an out-of-memory condition, and stays a quiet NULL so
+ * that argument validation (including orbit_file_write's, which FMT-0 pinned)
+ * keeps reporting false rather than aborting the process.
+ */
+typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);
+
+static void orbit_oom_abort_default(OrbitArena* arena, size_t bytes) {
+    fflush(stdout);
+    if (arena) {
+        fprintf(stderr,
+                "orbit: out of memory allocating %zu bytes; arena %p holds %zu of %zu bytes in %zu allocations\n",
+                bytes, (void*)arena, arena->used, arena->capacity, arena->alloc_count);
+    } else {
+        fprintf(stderr, "orbit: out of memory allocating %zu bytes\n", bytes);
+    }
+    fflush(stderr);
+    abort();
+}
+
+static OrbitOomHandler orbit_oom_handler = orbit_oom_abort_default;
+
+/** @brief Install @p handler for allocation failure, or pass NULL to restore the aborting default. */
+void orbit_set_oom_handler(OrbitOomHandler handler) {
+    orbit_oom_handler = handler ? handler : orbit_oom_abort_default;
+}
+
+/** @brief The handler that orbit_alloc would call on exhaustion. NULL means the aborting default. */
+OrbitOomHandler orbit_get_oom_handler(void) {
+    return orbit_oom_handler;
+}
+
+/** @brief Allocate @p bytes, reporting exhaustion to the handler instead of aborting. Returns NULL on OOM. */
+void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     if (!arena || bytes == 0) return NULL;
 
     /* Oracle fast path: O(1) TLS bump, zero atomics, zero bounds check overhead */
@@ -436,6 +492,18 @@ void* orbit_alloc(OrbitArena* arena, size_t bytes) {
     arena->aligned_bytes += aligned;
     
     orbit_perf_record_total_alloc(aligned);
+    return ptr;
+}
+
+/** @brief Allocate @p bytes from @p arena with alignment guaranteed to ORBIT_ARENA_ALIGN.
+ *
+ *  Reports exhaustion to the current OOM handler, which aborts by default.
+ *  Use orbit_alloc_try for a request that is allowed to come back NULL. */
+void* orbit_alloc(OrbitArena* arena, size_t bytes) {
+    void* ptr = orbit_alloc_try(arena, bytes);
+    if (!ptr && arena && bytes != 0) {
+        orbit_oom_handler(arena, bytes);
+    }
     return ptr;
 }
 
