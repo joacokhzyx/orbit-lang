@@ -614,6 +614,26 @@ bool orbit_kynx_check_route(const char* ip_str, const char* method, const char* 
 
 /* ── Init / Cleanup ─────────────────────────────────────────────────── */
 
+/** @brief Next comma-separated token in a mutable buffer, or NULL at the end.
+ *
+ *  Hand-rolled rather than strtok: MSVC deprecates strtok in favour of
+ *  strtok_s, whose signature needs a context pointer threaded through every
+ *  call, and this walks a single local buffer. Empty fields are returned as
+ *  empty tokens instead of being collapsed, which is what the caller below
+ *  already handles by skipping tokens whose first byte is NUL. */
+static char* kynx_next_csv_token(char** cursor) {
+    char* s = *cursor;
+    if (!s || *s == '\0') return NULL;
+    char* comma = strchr(s, ',');
+    if (comma) {
+        *comma = '\0';
+        *cursor = comma + 1;
+    } else {
+        *cursor = s + strlen(s);
+    }
+    return s;
+}
+
 /** @brief Initialise Kynx with @p config, zeroing all shard tables and counters. */
 void orbit_kynx_init(OrbitKynxConfig config) {
     orbit_kynx_config = config;
@@ -635,7 +655,8 @@ void orbit_kynx_init(OrbitKynxConfig config) {
             if (en >= sizeof(list)) en = sizeof(list) - 1;
             memcpy(list, env, en);
             list[en] = '\0';
-            char* tok = strtok(list, ",");
+            char* cursor = list;
+            char* tok = kynx_next_csv_token(&cursor);
             while (tok) {
                 while (*tok == ' ' || *tok == '\t') tok++;
                 char* tail = tok + strlen(tok);
@@ -644,7 +665,7 @@ void orbit_kynx_init(OrbitKynxConfig config) {
                     *tail = '\0';
                 }
                 if (*tok) orbit_kynx_add_trusted_proxy(tok);
-                tok = strtok(NULL, ",");
+                tok = kynx_next_csv_token(&cursor);
             }
         }
     }
