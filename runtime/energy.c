@@ -32,6 +32,7 @@
 #define ORBIT_ENERGY_C
 
 #include "performance.h"
+#include "crt_compat.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -82,7 +83,7 @@ static uint64_t orbit_energy_now_ns(void) {
 
 /* Read one unsigned counter from a sysfs file. Returns 1 on success. */
 static int orbit_energy_read_uj(const char* path, uint64_t* out) {
-    FILE* f = fopen(path, "r");
+    FILE* f = orbit_fopen(path, "r");
     char line[64];
     if (!f || !out) {
         if (f) fclose(f);
@@ -94,8 +95,11 @@ static int orbit_energy_read_uj(const char* path, uint64_t* out) {
     }
     fclose(f);
     {
-        unsigned long long v = 0ULL;
-        if (sscanf(line, "%llu", &v) != 1) return 0;
+        /* strtoull rather than sscanf("%llu"): not deprecated on MSVC, and
+         * "no digits consumed" is exactly what sscanf's != 1 was testing. */
+        char* end = NULL;
+        unsigned long long v = strtoull(line, &end, 10);
+        if (end == line) return 0;
         *out = (uint64_t)v;
         return 1;
     }

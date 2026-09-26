@@ -12,6 +12,7 @@
 #include "arena.c"
 #include "os.c"
 #include "file.c"
+#include "crt_compat.h"
 #include "collections.c"
 #include <stdlib.h>
 
@@ -63,7 +64,7 @@ orbit_string orbit_os_temp_dir_selfhost(void) {
     static const char* vars[] = {"TEMP", "TMPDIR", "TMP", NULL};
     OrbitArena* a = orbit_arena_get_global();
     for (int i = 0; vars[i] != NULL; i++) {
-        const char* v = getenv(vars[i]);
+        const char* v = orbit_env_get(vars[i]);
         if (v == NULL || v[0] == '\0') continue;
         size_t len = strlen(v);
         char* buf = (char*)orbit_alloc(a, len + 1);

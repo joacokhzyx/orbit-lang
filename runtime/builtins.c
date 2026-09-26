@@ -11,6 +11,7 @@
 #include "types.c"
 #include "arena.c"
 #include "performance.h"
+#include "crt_compat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -228,7 +229,7 @@ orbit_string orbit_http_client_fetch(OrbitArena* arena, orbit_string url) {
     /* High-speed C HTTP Client fetch stub returning mock JSON response */
     char* res = (char*)orbit_alloc(arena, 128);
     if (!res) return "{}";
-    strcpy(res, "{\"status\":\"ok\",\"fetched\":true}");
+    snprintf(res, 128, "{\"status\":\"ok\",\"fetched\":true}");
     return res;
 }
 
@@ -247,25 +248,28 @@ orbit_string orbit_cache_get(OrbitArena* arena, orbit_string key) {
         if (strcmp(g_orbit_cache[i].key, key) == 0) {
             char* buf = (char*)orbit_alloc(arena, strlen(g_orbit_cache[i].val) + 1);
             if (!buf) return "";
-            strcpy(buf, g_orbit_cache[i].val);
+            memcpy(buf, g_orbit_cache[i].val, strlen(g_orbit_cache[i].val) + 1);
             return buf;
         }
     }
     return "";
 }
 
+/* snprintf rather than strncpy: it always terminates, and strncpy(dst, src,
+ * sizeof(dst) - 1) left the final byte untouched, so overwriting a longer
+ * earlier value left a key or val with no NUL in it. */
 bool orbit_cache_set(orbit_string key, orbit_string val, int64_t ttl) {
     (void)ttl;
     if (!key || !val) return false;
     for (size_t i = 0; i < g_orbit_cache_count; i++) {
         if (strcmp(g_orbit_cache[i].key, key) == 0) {
-            strncpy(g_orbit_cache[i].val, val, sizeof(g_orbit_cache[i].val) - 1);
+            snprintf(g_orbit_cache[i].val, sizeof(g_orbit_cache[i].val), "%s", val);
             return true;
         }
     }
     if (g_orbit_cache_count < 64) {
-        strncpy(g_orbit_cache[g_orbit_cache_count].key, key, sizeof(g_orbit_cache[0].key) - 1);
-        strncpy(g_orbit_cache[g_orbit_cache_count].val, val, sizeof(g_orbit_cache[0].val) - 1);
+        snprintf(g_orbit_cache[g_orbit_cache_count].key, sizeof(g_orbit_cache[0].key), "%s", key);
+        snprintf(g_orbit_cache[g_orbit_cache_count].val, sizeof(g_orbit_cache[0].val), "%s", val);
         g_orbit_cache_count++;
         return true;
     }
@@ -354,7 +358,7 @@ orbit_int system_os_exec(orbit_string cmd) {
 
 orbit_string system_env(orbit_string name) {
     if (!name) return "";
-    char* val = getenv(name);
+    const char* val = orbit_env_get(name);
     return val ? val : "";
 }
 

@@ -29,6 +29,16 @@
 #include <string.h>
 #include <stdint.h>
 #include "socket_compat.h"
+#include "crt_compat.h"
+
+/* The C that the Orbit compiler emits calls getenv() in its generated colour
+ * preamble, and MSVC deprecates getenv, so a -Werror build on Windows fails
+ * there and only there. The call is redirected here instead of in the emitted
+ * text: sema already reserves the name getenv for user code (see sema.orb), so
+ * no Orbit-visible behaviour can change, and the emitted C stays byte-identical
+ * to what the committed parity goldens hash. Placed after crt_compat.h, whose
+ * own getenv() call in the non-MSVC branch is therefore already expanded. */
+#define getenv orbit_env_get
 
 /* ── Core types & Result<T,E> ──────────────────────────────────────── */
 #include "types.c"

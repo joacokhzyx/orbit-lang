@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "performance.h"
+#include "crt_compat.h"
 
 #ifdef _WIN32
   #include <windows.h>
@@ -627,7 +628,7 @@ void orbit_kynx_init(OrbitKynxConfig config) {
      * reset() + init() sequences (tests) never inherit stale entries. */
     kynx_trusted_count = 0;
     {
-        const char* env = getenv("ORBIT_KYNX_TRUSTED_PROXIES");
+        const char* env = orbit_env_get("ORBIT_KYNX_TRUSTED_PROXIES");
         if (env && *env) {
             char list[512];
             size_t en = strlen(env);

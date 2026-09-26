@@ -11,6 +11,7 @@
 
 #include "types.c"
 #include "arena.c"
+#include "crt_compat.h"
 #include <stdlib.h>
 #include <stdio.h>
 #ifdef _WIN32
@@ -54,7 +55,7 @@ orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name) {
     if (!var_name) return "";
     OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
     
-    char* val = getenv(var_name);
+    const char* val = orbit_env_get(var_name);
     if (!val) return "";
     
     size_t len = strlen(val);

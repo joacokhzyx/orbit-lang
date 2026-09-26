@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include "types.c"
 #include "arena.c"
+#include "crt_compat.h"
 
 /* ── Base64URL Encoding & Decoding ────────────────────────────────────────── */
 
@@ -132,7 +133,7 @@ orbit_string orbit_sha256_hex(OrbitArena* arena, const char* str) {
     orbit_sha256((const uint8_t*)str, strlen(str), hash);
     char* hex = (char*)orbit_alloc(a, 65);
     for (int i = 0; i < 32; i++) {
-        sprintf(hex + i * 2, "%02x", hash[i]);
+        snprintf(hex + i * 2, 3, "%02x", hash[i]);
     }
     hex[64] = '\0';
     return hex;

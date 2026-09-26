@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include "arena.c"
 #include "types.c"
+#include "crt_compat.h"
 #include "collections.c"
 
 #ifdef _WIN32
@@ -24,7 +25,7 @@
 #endif
 
 OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
-    FILE* f = fopen(filename, "rb");
+    FILE* f = orbit_fopen(filename, "rb");
     if (!f) return orbit_result_err(ORBIT_ERR_IO, "Failed to open file");
     
     fseek(f, 0, SEEK_END);
@@ -61,7 +62,7 @@ bool orbit_file_write(const char* filename, const char* content) {
 
     size_t len = strlen(content);
 
-    FILE* f = fopen(filename, "wb");
+    FILE* f = orbit_fopen(filename, "wb");
     if (!f) return false;
 
     if (len > 0) {
@@ -140,7 +141,7 @@ OrbitList* orbit_file_list_dir(OrbitArena* arena, const char* path) {
 }
 
 bool orbit_file_exists(const char* filename) {
-    FILE* f = fopen(filename, "rb");
+    FILE* f = orbit_fopen(filename, "rb");
     if (!f) return false;
     fclose(f);
     return true;

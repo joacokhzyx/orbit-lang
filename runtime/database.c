@@ -17,6 +17,7 @@
 #include "arena.c"
 #include "types.c"
 #include "inline.h"
+#include "crt_compat.h"
 
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit Database — Arena-backed SQLite integration.
@@ -451,7 +452,7 @@ bool orbit_db_add(orbit_collection col, const char* json_data) {
         if (name) {
             char* copy = (char*)malloc(strlen(name) + 1);
             if (copy) {
-                strcpy(copy, name);
+                memcpy(copy, name, strlen(name) + 1);
                 col_names[ncols] = copy;
                 ncols++;
             }
@@ -620,7 +621,8 @@ static char* orbit_replace_first(OrbitArena* arena, const char* haystack, const 
     if (!out) return NULL;
     memcpy(out, haystack, pre);
     memcpy(out + pre, replacement, repl_len);
-    strcpy(out + pre + repl_len, pos + needle_len);
+    /* The tail fits exactly: out_len - (pre + repl_len) == strlen(pos + needle_len) + 1 */
+    memcpy(out + pre + repl_len, pos + needle_len, strlen(pos + needle_len) + 1);
     return out;
 }
 

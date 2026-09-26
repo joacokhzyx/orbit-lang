@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include "crt_compat.h"
 #include <stdint.h>
 
 #include "runtime.h"
@@ -35,7 +36,7 @@ static const char* TEST_PATH = "test_file_tmp.bin";
 
 /** Read the whole file into buf. Returns the byte count, or -1 on error. */
 static long slurp(const char* path, char* buf, size_t cap) {
-    FILE* f = fopen(path, "rb");
+    FILE* f = orbit_fopen(path, "rb");
     if (!f) return -1;
     size_t n = fread(buf, 1, cap - 1, f);
     fclose(f);
@@ -69,7 +70,7 @@ static void test_large_content(void) {
 
     assert(orbit_file_write(TEST_PATH, big) == true);
 
-    FILE* f = fopen(TEST_PATH, "rb");
+    FILE* f = orbit_fopen(TEST_PATH, "rb");
     assert(f != NULL);
     char got[100001];
     size_t n = fread(got, 1, sizeof(got) - 1, f);
@@ -111,7 +112,7 @@ static void test_empty_write_is_legitimate(void) {
     assert(orbit_file_write(TEST_PATH, "x") == true);
     assert(orbit_file_write(TEST_PATH, "") == true);
 
-    FILE* f = fopen(TEST_PATH, "rb");
+    FILE* f = orbit_fopen(TEST_PATH, "rb");
     assert(f != NULL);
     int c = fgetc(f);
     fclose(f);
