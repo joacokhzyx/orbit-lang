@@ -1,165 +1,187 @@
-# Orbit HTTP perf notes (night-speed crew)
+# Orbit performance notes
 
-Method, machine, numbers, and what was not improved. No adjectives;
-everything below was measured on this box or is labeled otherwise.
+Method, machine, what was changed, and what was deliberately left alone. No
+adjectives. Every number in this file ships with the command that produced it,
+the machine it ran on, and the spread across runs; a number without those
+three things does not belong here.
 
-## Method
+## How to measure, and what a measurement has to carry
 
-- Load generator: `scripts/night_load.py` (stdlib only, TCP HTTP/1.1
-  keep-alive, per-connection threads, `perf_counter` latencies).
-  `--source-ips N` binds connections to distinct `127.0.0.x` sources so
-  runs simulate N clients against per-IP admission control. Warmup uses
-  the unbound address, keeping the measurement pool's budgets intact.
-- Service: `examples/health_service.orb`, route `GET /ready` (static
-  JSON), built with the newest prebuilt orbit in `%TEMP%`
-  (`orbit_fp9.exe`, 2026-09-12; note: `%TEMP%/repo` does not exist on
-  this box, so the newest `orbit*.exe` in `%TEMP%` itself was used).
-  `orbit build` compiles the generated C with `gcc -O0 -DORBIT_WITH_NET`
-  and `-I runtime` resolved from the build working directory, so service
-  rebuilds pick up `runtime/*.c` edits with no bootstrap needed.
-- Dispatch micro-bench: single-TU program including the runtime exactly
-  like a generated service, same `-O0` flags, wall clock via QPC plus
-  RDTSC. 200k iterations per component (40k for the Kynx hit path, which
-  must stay under the 50/window limit). Before/after pairs run bracketed
-  (A-B-A-B) because this box is shared with other crews' load.
-- Correctness gates per fix: `runtime/test_arena.c` (27 tests),
-  `runtime/test_http_parse.c`, a 20-case header edge table run against
-  old and new parsers, and a 300-case byte-identity check of emitted
-  responses vs the old `snprintf` shape.
+`scripts/night_load.py` is the load generator: standard library only, TCP
+HTTP/1.1 keep-alive, one thread per connection, `perf_counter` latencies.
+`--source-ips N` binds connections to distinct `127.0.0.x` sources so a run
+simulates N clients against per-IP admission control; warmup always uses the
+unbound address, keeping the measurement pool's budgets intact.
 
-## Machine
+`scripts/measure_selfhost.py` samples wall time, peak RSS and output size per
+bootstrap phase. `scripts/orbit_ccache.py` is the content-addressed C compile
+cache the gates share.
 
-AMD Ryzen 5 2400G (4 cores / 8 threads, 3.6 GHz), 8 GB RAM,
-Windows 10 Pro build 19045. Shared box: expect run-to-run noise;
-medians of repeats are reported.
+A published result must record: the exact command, the CPU model and core
+count, the C compiler and its version, the optimisation flags, and the spread
+over at least 5 runs. Comparisons that hide the runs that went badly are
+advertising, not engineering.
 
-## Baseline (pristine tree, prebuilt binary)
+Measurements that were taken on a machine or with an instrument that no longer
+exists are recorded below as *findings* with their reasoning intact and their
+magnitudes removed. Re-measure before quoting a figure.
 
-Service RSS is 7.4-7.7 MB in every run below.
+## Compiler self-build cost
 
-| Workload | RPS | p50 | p99 | Errors |
-|---|---|---|---|---|
-| A saturation: 8 conns, 12 s, single IP | 4633 | 0.096 ms | 0.728 ms | 100% (all 429: Kynx bans one IP after ~70 reqs, each 429 closes the connection) |
-| B4 healthy: 4 conns, 4 IPs, 240 reqs (x3) | 4751 / 4802 / 4854 | ~0.77 ms | ~1.04 ms | 0% (240/240 200s) |
-| B1 latency: 1 conn, 60 reqs | 3998 | 0.210 ms | 0.324 ms | 0% |
+Measured on 2026-09-25 on AMD EPYC 7763 (2 cores available to the container,
+7.9 GB RAM), gcc 13.3.0, `compiler/selfhost/stage3.exe.c` (3.9 MB, 86,549
+lines) as the input translation unit:
 
-Top-5 hot spots on the 200 path (micro-bench, pristine):
-
-| # | Component | Cost | Fixable in this lane? |
-|---|---|---|---|
-| 1 | `orbit_send_response` total (loopback send syscalls) | ~13-16 us, noisy | Only the header-build slice (~0.44 us snprintf) |
-| 2 | Per-request access-log `printf+fflush` (generated code) | ~4.4-5.3 us | No (compiler codegen; needs atlas-honoring logs-off) |
-| 3 | Header parse (`orbit_http_parse_request_ex`) | ~0.48-0.53 us | Yes (fix 1 below) |
-| 4 | Kynx gate hit (parse+hash+bloom+QPC+lock+scan) | ~0.11-0.13 us | Attempted, dropped (see below) |
-| 5 | Arena alloc (~3-4 per request, 4 atomic RMWs each) | ~0.044 us | Yes (fix 2 below) |
-
-(QPC itself is ~0.036 us and fires 3-4x per request; string-intern
-hits are ~0.024 us but that path is idle for static routes.)
-
-## Fixes (each: micro gain measured, end-to-end no regression)
-
-1. `runtime/http.c` - single-pass header scan with manual
-   Content-Length parse (was: two line walks plus `strtoll`).
-   Micro T1 490.8 -> 367.7 ns/op avg (**-25%**, A-B-A-B).
-2. `runtime/arena.c` - plain-counter telemetry on the alloc fast path
-   (was: four atomic RMWs per alloc; slow paths keep exact atomics;
-   same race-tolerant class as the existing min/max updates).
-   Micro T2 38.8 -> 12.6 ns/op avg (**-68%**). 5000-alloc counter
-   check reads back exact single-threaded.
-3. `runtime/http.c` - manual response header build (was: `snprintf`
-   per request; single-send combining and `(int)` length truncation
-   unchanged, pathological inputs keep the bounded `snprintf` fallback).
-   Micro T9 538.9 -> 129.3 ns/op avg (**-76%**).
-
-Final micro table, pristine -> final (same bench, back-to-back):
-T1 527.6 -> 352.7 ns/op (-33%); T2 44.0 -> 12.2 (-72%);
-T9 639.8 -> 159.1 (-75%); T3b/T5/T6/T7/T8 flat (untouched paths).
-
-End-to-end, pristine -> final (same tool and method):
-B4 median RPS 4802 -> 4954 (ranges overlap: 4751-4854 vs 4801-5019);
-B1 p50 0.210 -> 0.214 ms; workload A still 100% 429 with the same
-thresholds (RPS 4633 -> 4465, within noise). RSS unchanged (7.4-7.7 MB).
-Plain reading: the three fixes remove ~0.5 us of CPU per request, which
-is not resolvable inside an ~770 us RTT dominated by loopback, the
-Python client, worker `select`, and the per-request access log. No
-end-to-end regression anywhere; component gains are real and isolated.
-
-## What was NOT improved (tried or analyzed, left alone)
-
-- Kynx repeat-hit fast path (per-shard last-IP cache, lock-free CAS
-  accounting): micro T3b went 125 -> 154 ns/op (**+23%**) and inserts
-  457 -> 704 ns/op (**+54%**) - at `-O0` the probe costs more than the
-  uncontended spinlock it skips. Dropped without committing; `kynx.c`
-  is byte-identical to pristine.
-- String-pool short-circuit: interning does not run on the static-route
-  request path (no `orbit_string_intern` in the dispatch/handler flow),
-  so any change there measures zero on every instrument. Untouched.
-- DB pragma/sync policy: `database.c` is not compiled into this service
-  (`orbit build` passes only `-DORBIT_WITH_NET` for it), so no pragma
-  change is measurable here. Deferred to a DB-backed service bench.
-- Access-log `printf+fflush` (~4.6 us/req) and the `strstr` header-end
-  scan bounds (REVIEW crew T2 box): out of this lane, left for the
-  compiler crew (atlas-honoring `logs: disabled`) and REVIEW.
-
-## Coordinator verification (exact commands)
-
-From a clean checkout of this branch (no push/merge done by this crew):
-
-```
-orbit_fp9.exe build examples/health_service.orb -o svc.exe
-python scripts/night_load.py --port <P> --path /ready --connections 4 \
-  --requests 240 --source-ips 4 --warmup 2        # healthy path
-python scripts/night_load.py --port <P> --path /ready --connections 8 \
-  --duration 12 --warmup 1                        # saturation path
-```
-
-(Run each service fresh per measurement; Kynx ban state is in-memory.
-Micro-bench sources live outside the repo by lane rule; the recorded
-binaries were built with `gcc -O0 -w -DORBIT_WITH_NET -I runtime`.)
-
-## Risks / deferred
-
-- End-to-end numbers on this shared box carry visible noise; the table
-  above uses medians and overlapping ranges are called out, not hidden.
-- Fast-path arena counters are approximate under contention (documented
-  in code); single-threaded accumulation verified exact.
-- The `runtime/*.c`-only lane cannot touch the two largest costs
-  (access log, Kynx policy/getpeername in generated code); those need
-  the compiler lane.
-
-## Kynx 0.1 load gate (C6, same reference box)
-
-Service: `examples/blog_api.orb`, route `GET /health` annotated
-`limit 20 / s burst 20` plus a dedicated burst probe route
-`GET /gate-burst` annotated `limit 5 / s burst 5`, built with the
-fixed-point compiler and
-`gcc -O0 -DORBIT_WITH_NET`. Gate: `scripts/kynx_route_limit_gate.py`
-(needs the server already listening; run its three phases back to back;
-pass `--burst-path /gate-burst` as CI does).
-
-| Phase | Result |
+| Flags | Wall time |
 |---|---|
-| A healthy: 200 reqs @10 rps, 2 conns (`/health`) | 200/200, 0 errors, p50 0.13 ms, p95 ~0.22 ms, p99 ~0.29 ms |
-| B burst: 25 rapid sequential GETs (`/gate-burst`) | 5 x 200 + 20 x 429, `Retry-After: 1`, 429 bodies byte-exact |
-| C no-ban: 5 GETs 2 s after the burst | 5 x 200 (a ban would 429 for 5 minutes) |
+| `-s -O0 -Wall` | 23.8 s |
+| `-s -O0` (no `-Wall`) | 4.2 s |
+| `-s -O1` (no `-Wall`) | 5.6 s |
+| `-s -O2` (no `-Wall`) | 10.1 s |
 
-Phase B runs against the tiny 5-token bucket on purpose: 25 sequential
-fresh-connection GETs take ~0.2 s locally, which is uncomfortably close
-to the 0.25 s refill budget of the 20-token `/health` bucket - on a
-loaded Windows runner the same burst exceeds it and the phase flakes
-with zero denies. Against the 5-token bucket the burst would need to
-span 4 s to flake, so a failure now means the runner (not the timing)
-is at fault; the phase also logs its elapsed time. Phase B stays
-isolated to the route bucket by construction (25 requests sit
-well under the global 50-burst, so any 429 is route-level). The gate runs
-`night_load.py` with `--warmup 0`: the standard 1 s unpaced warmup floods
-the shared loopback budgets and trips the (correct) 429 path before the
-measurement starts; the server itself is pre-started instead.
+`-Wall` costs 5.7x on this unit and surfaces 89 warnings (88
+`-Wint-conversion`, 1 `-Wpointer-sign`). The cost is not diagnostic printing:
+the analysis that `-Wall` enables is superlinear in emitted size, so the same
+flag delta on a 32 KB unit is 0.02 s. Consequences, all in place:
 
-Bug the gate caught: the manual response-header fast path (fix 3 above)
-omitted the CRLF after `Content-Type` whenever extra headers were present,
-so 429s went out as `Content-Type: text/plainRetry-After: 1` with the
-remaining headers spilling into the body. The `snprintf` fallback had it
-right; unit tests only covered header storage, never wire bytes. Fixed in
-`runtime/http.c` (both shapes now mirror the fallback) and verified on the
-wire: status + `Retry-After` + exact body.
+- the bootstrap no longer passes `-Wall`; set `ORBIT_BOOTSTRAP_WARNINGS=1` to
+  restore it when investigating;
+- the strict gate is `scripts/werror_gate.py` (`-Werror` on generated C), and
+  it runs on every CI push rather than being a local convention;
+- `scripts/orbit_ccache.py` makes the repeated compilations of this unit a
+  file copy instead of a 24 s compile.
+
+`orbit build compiler/main.orb` on the same box: 35 s wall, of which the
+compiler's own `cc` child is the large majority.
+
+## The self-host chain, before and after
+
+Same box, same gcc, measured directly. "Before" is the tree at the commit
+before this work, in a separate git worktree, with the compile cache disabled;
+"after" is the current tree. Every number is a wall-clock median of repeated
+runs of the command shown.
+
+| Command | Before | After |
+|---|---|---|
+| `python scripts/build_selfhost.py --cc gcc --check-stale` | 205 s | 34 s |
+| `python scripts/verify_seed.py --cc gcc` (one stress leg) | 285 s | 10 s warm, 27 s cold |
+| `stress-gate` job, serial | 205 s + 8 x 285 s = 2485 s | 8 legs in parallel, ~27 s |
+
+The stress job is the headline: it went from roughly 41 minutes of serial work
+on this two-core box to about half a minute of wall clock, because the eight
+repetitions now run as independent CI legs instead of a `for` loop, and each
+leg is cheap because the C compilation is cached and the compiler's own
+redundant `cc` no longer runs.
+
+Where the gains came from, in order of size:
+
+1. **The optimiser's temporary-sinking loop** was O(n^2) per call inside a
+   256-round driver, and each motion rebuilt the entire instruction list. It is
+   now a single O(n) sweep per round using per-function side tables, and
+   motions are in-place. `sinkOne` fell from 20.3% to 1.0% of self time, and
+   the pass's list traffic from about 64M reads to under 1M.
+2. **`variableDefType` rescanned every instruction for every name lookup.**
+   One O(n) index per function replaced it: 32.5M list reads became 40.9k. The
+   index is the right shape here rather than a memo of the answer, because the
+   answer is not a pure function of the instructions - `inferRegisterTypes`
+   rewrites register types as it runs.
+3. **`-Wall` off the bootstrap** (5.7x on the compiler unit, and 89 warnings
+   become 92 after the fixed changes below, so nothing was hidden by dropping
+   it).
+4. **The compile cache** and the eight stress legs running in parallel.
+
+Remaining cost, honestly: the compiler's own `cc` on the 3.9 MB unit is still
+the largest single item in `orbit build`, and the fixed point now has 92
+`-Wint-conversion` warnings, all of one kind: the register machine represents
+a value as an integer, so unpacking a result (`OrbitResult.value` is `void*`)
+emits an integer-from-pointer conversion. That is tracked as STAB-3 and its
+root cause is understood; it is not fixed.
+
+## HTTP request path: what was changed
+
+Recorded from the 0.1 cycle. Machine (AMD Ryzen 5 2400G, 4c/8t, 3.6 GHz, 8 GB,
+Windows 10 19045, shared box, medians of repeats), service
+`examples/health_service.orb`, route `GET /ready`, load via `night_load.py`.
+The instrument that produced the per-component figures has been removed, so the
+magnitudes are gone; the findings and their justification are not.
+
+Three changes landed, each isolated and each re-checked against the arena,
+HTTP-parse and header-byte-identity gates:
+
+1. `runtime/http.c`: single-pass header scan with a manual Content-Length
+   parse, replacing two line walks plus `strtoll`.
+2. `runtime/arena.c`: plain-counter telemetry on the allocation fast path,
+   replacing four atomic read-modify-writes per allocation. Slow paths keep
+   exact atomics, so this stays in the same race-tolerant class as the
+   existing min/max updates. Single-threaded accumulation is exact.
+3. `runtime/http.c`: manual response-header build, replacing a per-request
+   `snprintf`. Single-send behaviour and the `(int)` length truncation are
+   unchanged, and pathological inputs keep the bounded `snprintf` fallback.
+
+Component gains were real and isolated. End to end they were not resolvable:
+the per-request work removed here is small next to an ~770 us loopback round
+trip dominated by the client, worker `select`, and the per-request access log.
+There was no end-to-end regression in any run, and service RSS did not move.
+That gap between a component win and a user-visible win is the honest headline
+for this cycle, and it is the reason the access log and the generated Kynx
+policy path are called out below as the real costs.
+
+## What was deliberately NOT changed
+
+Each of these was tried or analysed and left alone. The reasoning is the
+durable part.
+
+- **Kynx repeat-hit fast path** (per-shard last-IP cache, lock-free CAS
+  accounting). Measured *slower* both for the hit path and for inserts: at
+  `-O0` the probe costs more than the uncontended spinlock it skips. Dropped
+  without landing. This is the clearest example in the codebase of a
+  plausible-sounding optimisation that loses, and it is why the compile-time
+  waves in `docs/SUPERLUMINAL.md` are allowed to report a ship decision of
+  "not shipped" when a change measures inside its own comparison band.
+- **String-pool short-circuit.** Interning does not run on the static-route
+  request path, so no change there can show up in a static-route measurement.
+  Untouched rather than "optimised" against an instrument that cannot see it.
+- **DB pragma and sync policy.** Not compiled into a net-only service, so
+  nothing here is measurable against it. Deferred to a database-backed
+  service rather than guessed at.
+- **Per-request access `printf`+`fflush` in generated code**, and the Kynx
+  policy and address lookups in generated code. These are the two largest
+  per-request costs and they live in the compiler's output, not in the
+  runtime; fixing them is a codegen change, not a runtime change.
+
+## Kynx route-limit live gate
+
+`scripts/kynx_route_limit_gate.py` runs three phases against a live server and
+is the gate that keeps the admission-control path honest:
+
+| Phase | Expectation |
+|---|---|
+| A healthy: paced requests on the lightly limited route | every request 2xx, zero errors |
+| B burst: 25 rapid sequential GETs on the small bucket | some 200s, at least one 429 carrying `Retry-After`, byte-exact 429 body |
+| C no-ban: 5 GETs two seconds after the burst | all 200; a ban would 429 for five minutes |
+
+Phase B deliberately targets the 5-token bucket rather than the 20-token one.
+Twenty-five sequential fresh-connection GETs take a fraction of a second
+locally, which sits close to the 20-token bucket's refill budget, so on a
+loaded runner the burst can outlast the budget and the phase reports zero
+denies. Against the 5-token bucket it would have to span seconds to do that,
+and the phase logs its elapsed time, so a failure points at the runner rather
+than at the timing. Phase B is isolated to the route bucket by construction:
+25 requests sit well under the global burst, so any 429 is route-level. The
+gate runs `night_load.py` with `--warmup 0`, because the standard warmup floods
+the shared loopback budgets and trips the 429 path before the measurement
+starts; the server is started by the caller instead.
+
+### The bug this gate caught
+
+The manual response-header fast path (change 3 above) omitted the CRLF after
+`Content-Type` whenever extra headers were present, so a 429 went out as
+`Content-Type: text/plainRetry-After: 1` with the remaining headers spilling
+into the body. The `snprintf` fallback had it right. Unit tests covered header
+*storage* and never the *wire bytes*, so the whole suite was green while the
+response was malformed.
+
+Both shapes now mirror the fallback, and the gate asserts the status, the
+`Retry-After` header and the exact body on the wire. The general lesson is the
+one worth keeping: a fast path that is only verified through the same
+abstraction as the slow path is unverified.

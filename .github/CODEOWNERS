@@ -1,0 +1,28 @@
+# Code owners
+
+# Default owner for everything not matched below.
+* @joacokhzyx
+
+# The root of trust and the bootstrap. Any change here needs a fixed-point
+# verification and a reviewed canonical C diff.
+/compiler/selfhost/            @joacokhzyx
+/scripts/build_selfhost.py     @joacokhzyx
+/scripts/verify_seed.py        @joacokhzyx
+/scripts/orbit_ccache.py       @joacokhzyx
+/scripts/amalgamate.py         @joacokhzyx
+
+# The compiler front end and code generator. Changes here change the emitted C,
+# which invalidates the canonical and the parity goldens.
+/compiler/                     @joacokhzyx
+
+# The C runtime. Kept deliberately small and dependency-free.
+/runtime/                      @joacokhzyx
+
+# Gates. A change here decides what CI proves, so it is reviewed like the
+# compiler itself.
+/.github/workflows/            @joacokhzyx
+/tests/parity/                 @joacokhzyx
+
+# Documentation.
+/docs/                         @joacokhzyx
+/ENGINEERING.md                @joacokhzyx

@@ -1,36 +1,35 @@
 #!/usr/bin/env python3
-"""Verify the C bootstrap seed fixed point (STAB-1).
+"""Verify the C bootstrap fixed point (STAB-1).
 
-Reproduces the Phase S1 (SOVER-0) verification end-to-end in a hermetic work
-directory and reports whether the compiler's reproducibility contract still
-holds:
+Reproduces the verification end to end in a hermetic work directory and
+reports whether the compiler's reproducibility contract still holds:
 
   C fixed point    : the C emitted by the seed when it compiles
                      ``compiler/main.orb`` must be byte-identical to the
-                     canonical ``compiler/selfhost/stage3.exe.c``.
-  binary fixed pt  : the seed chain (seed2 -> chain2 -> chain3) must be
-                     byte-identical once the COFF link timestamps are zeroed.
+                     canonical ``compiler/selfhost/stage3.exe.c``, and so must
+                     the C emitted by every later stage of the chain.
+  binary fixed pt  : the seed chain (seed2 -> chain2 -> chain3) is additionally
+                     compared byte for byte once the COFF link timestamps are
+                     zeroed. This is toolchain-specific (linker, C compiler, PE
+                     layout) and therefore informational for gcc and clang; the
+                     reproducible cross-platform contract is the C source.
 
-With ``--bootstrap`` the committed canonical C is additionally cross-checked
-against the legacy Zig lineage (``zig-out/bin/orbit.exe bootstrap``, override
-with ``--driver``), so a drift in either lineage fails the run. This is now
-OPTIONAL: the primary gate is self-host-only -- canonical C + any C compiler.
+There is no second lineage to cross-check against. The committed canonical C
+IS the root of trust, and ``scripts/build_selfhost.py --promote`` is the only
+way to replace it after an intentional compiler change.
 
 ``--release`` enforces the published fixed-point C contract (``PUBLISHED_C``)
-as a hard check against the self-hosted rebuild; it works without ``--bootstrap``
-whenever the canonical C is present (it is committed since SOVER-1). The published
-binary hash stays informational because it is platform/toolchain specific (linker,
-C compiler, PE layout) -- the reproducible cross-platform contract is the C source.
+as a hard check against the self-hosted rebuild.
 
 ``--emit-fixed-point PATH`` copies the seed-chain fixed-point compiler
 (``chain3``, byte-identical to ``seed2``/``chain2``) to PATH. That binary is
-built entirely by the self-hosted seed chain (canonical C -> seed -> seed2 ->
-chain2 -> chain3); the Zig driver is never involved in producing it.
+built entirely by the self-hosted seed chain: canonical C -> seed -> seed2 ->
+chain2 -> chain3.
 
 Exit code 0 iff every hard check passes.
 
 Usage:
-    python scripts/verify_seed.py [--bootstrap] [--release] [--emit-fixed-point PATH]
+    python scripts/verify_seed.py [--release] [--emit-fixed-point PATH]
                                   [--work DIR] [--cc CC] [--refresh] [--keep]
 """
 
@@ -46,6 +45,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+import orbit_ccache
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -55,7 +55,6 @@ except Exception:
     def warn_low_memory() -> None:
         pass
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
-DRIVER = os.path.join(ROOT, "zig-out", "bin", "orbit.exe")
 MAIN_ORB = os.path.join("compiler", "main.orb")
 
 # -O0 keeps peak memory low: these builds run once per gate and speed is
@@ -65,17 +64,27 @@ MAIN_ORB = os.path.join("compiler", "main.orb")
 # -Wno-error= downgrades are load-bearing on GCC 14+ (int-conversion and
 # incompatible-pointer-types are errors by default there); without them any
 # remaining instance bricks the seed build instead of warning. Full -Werror
-# cleanliness is tracked by scripts/werror_gate.py (STAB-3).
-SUPPRESS_FLAGS = ["-O0", "-Wall", "-Wno-error=int-conversion",
-                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
+# cleanliness is tracked by scripts/werror_gate.py (STAB-3), which is the
+# strict gate and runs in CI.
+# -Wall is deliberately absent: on the 3.9 MB compiler unit it costs 23.8 s
+# against 3.7 s without it (5.7x, 2-core runner, gcc 13.3) and surfaces 89
+# warnings there, because the analysis it enables is superlinear in emitted
+# size. The fixed point is about emitted C bytes, not warnings; warnings are
+# werror_gate.py's job. Set ORBIT_BOOTSTRAP_WARNINGS=1 to restore it locally.
+SUPPRESS_FLAGS = ["-O0", "-Wno-error=int-conversion",
+                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"] + (
+    ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
 PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
 # binary hash is platform/toolchain specific and stays informational.
-# Regenerated 2026-08-20 from the W1.5 diagnostic-card parity fix (FE-style
-# error cards for parser/semantic failures + raw stderr writer + cmd raw
-# capture in the parity runner); chain3 == stage3.
-PUBLISHED_C = "4FFE7AFF38FA1486ECEB9B0B39F1DCD1AB28ECB6173E2652D60E55F3D55132F2"
+# PUBLISHED_C is rewritten automatically by scripts/build_selfhost.py --promote,
+# so it always matches the committed canonical. --release enforces it.
+PUBLISHED_C = "98A6DB81A6326817EA72C51739A186155F2E8E44D5F19CEB0C35696861CB01A0"
+# PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
+# for information and never asserted: PE timestamps, PDB paths, section order
+# and relocation layout all differ between linkers, so a mismatch here says
+# nothing about the reproducibility contract, which is the C source above.
 PUBLISHED_BIN = "868935A3B60A80B4FABB6819D3B0B0EB4EB99B4ABA92F30D7351440BF1EAF35E"
 
 
@@ -94,7 +103,7 @@ def detect_cc() -> str:
     for cand in ("gcc", "clang", "cc"):
         if shutil.which(cand):
             return cand
-    return "zig cc"
+    return "cc"
 
 
 def zero_pe_timestamp(path: str) -> bool:
@@ -153,11 +162,9 @@ def run(argv, cwd, env_extra=None, label=""):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Verify the C bootstrap seed fixed point")
-    ap.add_argument("--bootstrap", action="store_true", help="cross-check the canonical C against the legacy Zig lineage first")
-    ap.add_argument("--driver", default=DRIVER, metavar="PATH",
-                    help="legacy Zig driver used by --bootstrap (default: %(default)s)")
-    ap.add_argument("--release", action="store_true", help="enforce the published fixed-point C contract (requires --bootstrap)")
+    ap = argparse.ArgumentParser(description="Verify the C bootstrap fixed point")
+    ap.add_argument("--release", action="store_true",
+                    help="enforce the published fixed-point C contract (PUBLISHED_C)")
     ap.add_argument("--emit-fixed-point", default=None, metavar="PATH", help="copy the seed-chain fixed-point compiler (chain3) to PATH")
     ap.add_argument("--work", default=None, help="work directory (default: temp)")
     ap.add_argument("--cc", default=None, help="C compiler for the seed (default: auto-detect)")
@@ -167,10 +174,6 @@ def main() -> int:
     args = ap.parse_args()
     out.set_quiet(args.quiet)
     warn_low_memory()
-
-    if args.release and not args.bootstrap and not os.path.isfile(CANONICAL_C):
-        out.fail("Failed: --release requires either --bootstrap or a committed canonical C.")
-        return 1
 
     if args.work:
         work = os.path.abspath(args.work)
@@ -196,54 +199,22 @@ def main() -> int:
     out.say(f"Verifying from root:  {ROOT}")
     out.say(f"Verifying with seed CC:  {cc}")
 
-    if os.path.isfile(CANONICAL_C):
-        h_canon = sha256(CANONICAL_C)
-        have_canon = True
-        out.say(f"Canonical C:  {h_canon}  ({os.path.getsize(CANONICAL_C)} bytes)")
-    else:
-        h_canon = None
-        have_canon = False
-        out.say("Canonical C absent (clean checkout); will establish it from the Zig lineage with --bootstrap")
-
-    if args.bootstrap:
-        if not os.path.isfile(args.driver):
-            out.fail(f"Failed: legacy Zig driver {args.driver} not found.")
-            out.say("The self-hosted chain no longer needs it; to refresh the")
-            out.say("canonical after compiler changes run:")
-            out.say("  python scripts/build_selfhost.py --promote")
-            return 1
-        # Reuse the chain's shared temp dir so the freshly built stages and the
-        # seed chain embed the SAME C source path and are byte-comparable.
-        build_tmp = os.path.join(work, "tmp_build")
-        os.makedirs(build_tmp, exist_ok=True)
-        run([args.driver, "bootstrap"], ROOT, env_extra={"TEMP": build_tmp, "TMP": build_tmp}, label="bootstrap (legacy Zig lineage)")
-        fresh_c = os.path.join(build_tmp, "orbit_selfhost_build.c")
-        h_fresh = sha256(fresh_c)
-        if have_canon:
-            check("bootstrap C == canonical stage3.exe.c", h_fresh == h_canon, f"fresh={h_fresh}")
-            if h_fresh != h_canon:
-                out.fail("Failed: canonical C is stale; update compiler/selfhost/stage3.exe.c from the fresh build before this gate passes.")
-                return 1
-            seed_src_c = CANONICAL_C
-        else:
-            # Clean checkout: the fresh lineage C becomes the reproducibility
-            # contract. Persist it so later hermetic runs compare against it.
-            os.makedirs(os.path.dirname(CANONICAL_C), exist_ok=True)
-            shutil.copyfile(fresh_c, CANONICAL_C)
-            h_canon = h_fresh
-            seed_src_c = CANONICAL_C
-            out.say(f"Established canonical C: {h_fresh}")
-    else:
-        if not have_canon:
-            out.fail("Failed: canonical C missing; run with --bootstrap on a clean checkout.")
-            return 1
-        seed_src_c = CANONICAL_C
+    if not os.path.isfile(CANONICAL_C):
+        out.fail(f"Failed: {CANONICAL_C} is missing; it is the committed root of trust.")
+        out.say("Restore it from git. If the file was intentionally replaced,")
+        out.say("regenerate and promote it with:")
+        out.say("  python scripts/build_selfhost.py --promote")
+        return 1
+    h_canon = sha256(CANONICAL_C)
+    out.say(f"Canonical C:  {h_canon}  ({os.path.getsize(CANONICAL_C)} bytes)")
+    seed_src_c = CANONICAL_C
 
     amal = os.path.join(work, "orbit_bootstrap.c")
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"), "--entry", seed_src_c, "--out", amal], ROOT, label="amalgamate")
 
     seed_exe = os.path.join(work, "orbit_seed" + exe)
-    run([*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS], ROOT, label="build seed")
+    orbit_ccache.compile_cached(cc_cmd, [*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal,
+                                        *PLATFORM_LINK_FLAGS], [amal], log=out.say)
     check("seed builds", os.path.isfile(seed_exe))
 
     def orb_build(compiler, out_name, snapshot_c):
@@ -258,8 +229,12 @@ def main() -> int:
         # spuriously. Retry once before giving up.
         last_rc = None
         for attempt in (1, 2):
+            # The compiler emits the C and stops (ORBIT_SKIP_CC); this script
+            # compiles that C itself below with known-good flags. See the same
+            # comment in scripts/build_selfhost.py.
             env = dict(os.environ)
-            env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc})
+            env.update({"TEMP": tmp, "TMP": tmp, "TMPDIR": tmp, "ORBIT_CC": cc,
+                        "CC": cc, "ORBIT_SKIP_CC": "1", "ORBIT_WARNINGS": "0"})
             out.say(f"Building {label}" + ("  (retry)" if attempt == 2 else ""))
             proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out_name)], cwd=ROOT, env=env)
             last_rc = proc.returncode
@@ -286,14 +261,18 @@ def main() -> int:
         if os.path.abspath(c) != os.path.abspath(shared):
             shutil.copyfile(c, shared)
         fixed_out = os.path.join(work, "fixed_point_build" + exe)
-        run([*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
-             "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS], ROOT,
-            env_extra={"TEMP": tmp, "TMP": tmp}, label=f"deterministic rebuild {out_name}")
+        _, reused = orbit_ccache.compile_cached(
+            cc_cmd,
+            [*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
+             "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS],
+            [shared], log=out.say)
+        out.say(f"deterministic rebuild {out_name}"
+                + ("  (from cache)" if reused else ""))
         shutil.move(fixed_out, os.path.join(work, out_name))
         shutil.copyfile(c, snapshot_c)
-        return snapshot_c
+        return snapshot_c, reused
 
-    seed_c = orb_build(seed_exe, "seed2" + exe, os.path.join(work, "seed.selfhost.c"))
+    seed_c, seed_reused = orb_build(seed_exe, "seed2" + exe, os.path.join(work, "seed.selfhost.c"))
     h_seed_c = sha256(seed_c)
     check("seed C fixed point (seed C == canonical C)", h_seed_c == h_canon, f"seed={h_seed_c}")
     if h_seed_c != h_canon:
@@ -303,39 +282,44 @@ def main() -> int:
     seed2 = os.path.join(work, "seed2" + exe)
     chain2 = os.path.join(work, "chain2" + exe)
     chain3 = os.path.join(work, "chain3" + exe)
-    orb_build(seed2, "chain2" + exe, os.path.join(work, "chain2.selfhost.c"))
-    orb_build(chain2, "chain3" + exe, os.path.join(work, "chain3.selfhost.c"))
+    chain2_c, chain2_reused = orb_build(seed2, "chain2" + exe, os.path.join(work, "chain2.selfhost.c"))
+    chain3_c, chain3_reused = orb_build(chain2, "chain3" + exe, os.path.join(work, "chain3.selfhost.c"))
+
+    # Every stage must re-emit the canonical C, not just the first one. At a
+    # genuine fixed point all three are byte-identical; asserting it closes the
+    # hole where only stage one is compared and later stages drift silently.
+    h_chain2_c = sha256(chain2_c)
+    h_chain3_c = sha256(chain3_c)
+    check("chain2 C fixed point (chain2 C == canonical C)", h_chain2_c == h_canon,
+          f"chain2={h_chain2_c}")
+    check("chain3 C fixed point (chain3 C == canonical C)", h_chain3_c == h_canon,
+          f"chain3={h_chain3_c}")
 
     bins = [seed_exe, seed2, chain2, chain3]
     for b in bins:
         zero_pe_timestamp(b)
     h_bins = [sha256(b) for b in bins]
+    reused = {"seed2": seed_reused, "chain2": chain2_reused, "chain3": chain3_reused}
+    any_reused = any(reused.values())
     # Binary reproducibility is toolchain-specific by design (see module
-    # docstring): zig cc/clang strips deterministically, while MSVC-target
-    # linkers randomize more than timestamps/GUIDs (section order, relocs).
-    # Hard check only for proven-deterministic toolchains; warn otherwise.
-    if cc.startswith("zig"):
-        check("binary fixed point (seed2==chain2==chain3)", h_bins[1] == h_bins[2] == h_bins[3],
-              f"seed2={h_bins[1]} chain2={h_bins[2]} chain3={h_bins[3]}")
+    # docstring): some toolchains strip deterministically, while PE-target
+    # linkers randomize more than timestamps/GUIDs (section order, relocs), so
+    # this stays informational. A cache hit also makes the three contract
+    # binaries the same stored artifact by construction, so on a hit this
+    # reports reuse rather than claiming a pass.
+    if any_reused:
+        reused_names = ", ".join(sorted(n for n, v in reused.items() if v))
+        out.say("note: binary fixed point not evaluated (compile cache reused "
+                f"{reused_names}); the C fixed point above is unaffected and is "
+                "the cross-platform contract. Set ORBIT_CCACHE=0 to force it.")
+        for n, h in zip(("seed2", "chain2", "chain3"), h_bins[1:]):
+            out.say(f"  {n}={h}")
     else:
         ok_bins = h_bins[1] == h_bins[2] == h_bins[3]
         out.say(f"note: binary fixed point {'PASS' if ok_bins else 'DIFFERS'} "
-                f"(informational for non-zig toolchain {cc})")
-        out.say(f"  seed2={h_bins[1]} chain2={h_bins[2]} chain3={h_bins[3]}")
-
-    stages = [os.path.join(ROOT, "compiler", "selfhost", "stage2.exe"), os.path.join(ROOT, "compiler", "selfhost", "stage3.exe")]
-    present = [s for s in stages if os.path.isfile(s)]
-    if present:
-        for s in present:
-            zero_pe_timestamp(s)
-        h_stages = [sha256(s) for s in present]
-        # Only a hard check when --bootstrap rebuilt the stages into the SAME
-        # shared temp dir as the chain: clang embeds the C source path in the
-        # binary, so stale stages of unknown provenance can never be compared.
-        ok = all(h == h_bins[1] for h in h_stages)
-        check("chain == Zig-bootstrap stages", (ok if args.bootstrap else True),
-              " ".join(os.path.basename(s) + "=" + h for s, h in zip(present, h_stages))
-              + ("" if ok else " (informational without --bootstrap; paths differ)"))
+                f"(informational for toolchain {cc})")
+        for n, h in zip(("seed2", "chain2", "chain3"), h_bins[1:]):
+            out.say(f"  {n}={h}")
 
     if h_seed_c.upper() == PUBLISHED_C:
         out.say(f"note: seed C matches published contract {PUBLISHED_C}")
@@ -351,7 +335,12 @@ def main() -> int:
     if args.refresh:
         os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
         shutil.copyfile(amal, os.path.join(ROOT, "dist", "orbit_bootstrap.c"))
-        run([*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe), amal, *PLATFORM_LINK_FLAGS], ROOT, label="refresh dist/orbit_seed")
+        out.say("Refreshing dist/orbit_seed")
+        orbit_ccache.compile_cached(
+            cc_cmd,
+            [*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe),
+             amal, *PLATFORM_LINK_FLAGS],
+            [amal], log=out.say)
 
     if args.emit_fixed_point:
         os.makedirs(os.path.dirname(os.path.abspath(args.emit_fixed_point)), exist_ok=True)

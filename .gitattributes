@@ -5,7 +5,7 @@
 compiler/selfhost/*.exe.c linguist-generated=true
 
 # Third-party vendored code (SQLite amalgamation header + prebuilt libs).
-src/runtime/vendor/** linguist-vendored=true
+runtime/vendor/** linguist-vendored=true
 
 # Release artifacts (if ever force-added).
 dist/** linguist-generated=true

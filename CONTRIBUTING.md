@@ -21,8 +21,9 @@ To build and test Orbit locally, ensure you have the following installed:
 1. **C Compiler**: GCC, Clang, or MSVC (set `ORBIT_CC` if autodetection fails).
 2. **Python 3.10+** (required for the bootstrap/verification scripts).
 
-No Zig or any other toolchain vendor is involved: the compiler bootstraps
-itself from the committed canonical C (see [docs/architecture/SOVEREIGNTY.md](docs/architecture/SOVEREIGNTY.md)).
+No toolchain vendor is involved: a C compiler plus a stock `python3` are the
+whole dependency list. The compiler bootstraps itself from the committed
+canonical C (see [docs/architecture/SOVEREIGNTY.md](docs/architecture/SOVEREIGNTY.md)).
 
 ### Building from Source
 
@@ -40,34 +41,56 @@ Or run the full installer (`scripts/install.ps1` / `scripts/install.sh`).
 
 ## Running Tests & Gates
 
-Orbit's correctness contract is enforced by three Zig-free gates:
+Orbit's correctness contract is enforced by these gates:
 
 ```bash
 CC=gcc   # or clang / cc
-python scripts/build_selfhost.py --cc "$CC" --check-stale     # canonical is fresh
-python scripts/verify_seed.py --cc "$CC"                      # hermetic fixed point
+python scripts/build_selfhost.py --cc "$CC" --check-stale       # canonical is fresh
+python scripts/verify_seed.py --cc "$CC" --release              # hermetic fixed point
 python scripts/parity_selfhost.py --cc "$CC" \
-       --compiler /tmp/orbit_fp                               # 25-probe goldens
+       --compiler /tmp/orbit_fp                                 # 32 probe goldens
 ```
 
 For the parity gate, first emit the fixed-point compiler with
 `python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp`.
 
-Ensure all gates pass before submitting a pull request.
-
-### Running Marketing & Stress Benchmarks
-
-To execute the multi-language stress and performance benchmark suite:
+Then the gates that check behaviour and the strict warning contract:
 
 ```bash
-python benchmarks/marketing_suite/run_marketing_bench.py
+python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp           # 25/25
+python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp --dir tests/std  # 13/13
+python scripts/werror_gate.py --cc "$CC" --compiler /tmp/orbit_fp          # 9/9, -Werror on generated C
+python scripts/cli_probe.py --compiler /tmp/orbit_fp --work /tmp/cliprobe  # 36/36 CLI contract
+python scripts/routes_probe.py                                             # 72/72 route argument repair
+/tmp/orbit_fp fmt --check compiler && /tmp/orbit_fp fmt --check tests/suite
+/tmp/orbit_fp doctor tests/suite                                           # no findings
 ```
+
+The three C runtime unit tests are built directly:
+
+```bash
+cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o /tmp/ta && /tmp/ta
+cc -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o /tmp/th && /tmp/th
+cc -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o /tmp/tk && /tmp/tk
+```
+
+`scripts/werror_gate.py` is the strict warning gate. The bootstrap
+deliberately builds without `-Wall` because it costs 5.7x on the compiler's own
+multi-megabyte output unit; see [Performance notes](docs/PERF.md). Set
+`ORBIT_BOOTSTRAP_WARNINGS=1` to get warnings back while hacking.
+
+Every gate runs on a C compiler plus a stock `python3`. There is nothing to
+install.
+
+Ensure all gates pass before submitting a pull request.
 
 ---
 
 ## Coding Standards & Guidelines
 
-Orbit follows strict architectural and diagnostic conventions modeled after `ziglang/zig` and `rust-lang/rust`, written in a calmer voice: direct, no hype, no superiority.
+Orbit follows strict architectural and diagnostic conventions, written in a
+calmer voice than the projects it grew up around: direct, no hype, no
+superiority.
 
 ### 1. Diagnostic Formatting & Error Messages
 

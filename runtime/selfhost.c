@@ -13,6 +13,7 @@
 #include "os.c"
 #include "file.c"
 #include "collections.c"
+#include <stdlib.h>
 
 // Create wrapper functions with original names (no arena parameter)
 // These will be used when compiling the self-hosted compiler
@@ -54,12 +55,37 @@ orbit_string orbit_os_cwd_selfhost(void) {
     return (orbit_os_cwd)(orbit_arena_get_global());
 }
 
+// Per-user scratch directory for compiler intermediates, or "" when the
+// platform offers none. The compiler prefers $TEMP / $TMPDIR / $TMP and only
+// falls back to this, so a build never drops a multi-megabyte C file into the
+// user's working directory.
+orbit_string orbit_os_temp_dir_selfhost(void) {
+    static const char* vars[] = {"TEMP", "TMPDIR", "TMP", NULL};
+    OrbitArena* a = orbit_arena_get_global();
+    for (int i = 0; vars[i] != NULL; i++) {
+        const char* v = getenv(vars[i]);
+        if (v == NULL || v[0] == '\0') continue;
+        size_t len = strlen(v);
+        char* buf = (char*)orbit_alloc(a, len + 1);
+        if (!buf) return "";
+        memcpy(buf, v, len + 1);
+        return buf;
+    }
+#if defined(_WIN32)
+    /* No temp variable at all on Windows: report absence rather than guess a
+     * path, so the caller keeps its documented working-directory behaviour. */
+    return "";
+#else
+    return "/tmp";
+#endif
+}
+
 void orbit_os_exit_selfhost(orbit_int code) {
     (orbit_os_exit)(code);
 }
 
 // Raw stderr writer: emits bytes verbatim (LF line endings, no CRLF translation)
-// so self-host diagnostics are byte-identical to the Zig front-end's stderr.
+// so self-host diagnostics are byte-identical to whatever the compiler wrote.
 void orbit_os_write_stderr_selfhost(orbit_string content) {
     if (!content) return;
     size_t len = strlen(content);

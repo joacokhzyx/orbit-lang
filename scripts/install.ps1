@@ -1,5 +1,5 @@
 # Orbit Programming Language Automated Windows Installer
-# Installs the self-hosted Orbit compiler (Zig-free bootstrap), configures PATH,
+# Installs the self-hosted Orbit compiler, configures PATH,
 # and registers the VS Code extension.
 
 param (
@@ -32,7 +32,7 @@ if (Test-Path $FixedPoint) {
     Write-Host "[+] Selected released fixed-point compiler: $SourceExe" -ForegroundColor Green
 }
 else {
-    # 2b. Zig-free self-hosted bootstrap from the committed canonical C.
+    # 2b. Self-hosted bootstrap from the committed canonical C.
     #     Root of trust: compiler/selfhost/stage3.exe.c + any C compiler.
     if (-not (Test-Path "$RootDir\compiler\selfhost\stage3.exe.c")) {
         Write-Error "[ERROR] Canonical compiler C source not found at compiler\selfhost\stage3.exe.c."
@@ -40,9 +40,9 @@ else {
     $Py = Get-Command python -ErrorAction SilentlyContinue
     if (-not $Py) { $Py = Get-Command python3 -ErrorAction SilentlyContinue }
     if (-not $Py) {
-        Write-Error "[ERROR] Python is required to run the Zig-free bootstrap (scripts/build_selfhost.py)."
+        Write-Error "[ERROR] Python is required to run the bootstrap (scripts/build_selfhost.py)."
     }
-    Write-Host "[*] Building self-hosted fixed-point compiler (no Zig involved)..." -ForegroundColor Yellow
+    Write-Host "[*] Building self-hosted fixed-point compiler..." -ForegroundColor Yellow
     $buildArgs = @("$RootDir\scripts\build_selfhost.py", "--out", "$InstallDir\orbit.exe")
     if ($Cc) { $buildArgs += @("--cc", $Cc) }
     & $Py.Source @buildArgs

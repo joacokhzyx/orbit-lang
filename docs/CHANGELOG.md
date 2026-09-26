@@ -14,7 +14,7 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 Content and docs track; no compiler changes:
 
 - Language tour, tutorials (blog API, file server, deploy,
-  troubleshooting), and guides (migrations, benchmarks).
+  troubleshooting), and the migrations guide.
 - FAQ, known-limitations page, release notes, site copy pack.
 - `orbit_full_expansion.orb` rewritten in supported 0.1.0
   syntax (the old file used unparsed planned syntax).
@@ -54,8 +54,8 @@ Developer commands and runtime hardening:
   credential removed, chunked-encoding 501, strict
   single-placeholder queries, SQL identifier whitelist.
 - Parser: nesting limit (E0130), guaranteed forward progress.
-- Zig-free bootstrap as the primary path; Zig seed tree
-  removed; runtime moved to top-level `runtime/`.
+- Bootstrap from the committed canonical C as the only path; the
+  alternate seed tree removed; runtime moved to top-level `runtime/`.
 - 25-probe parity battery versioned; self-host stability
   gate; fixed-point verification; release workflow for the
   fixed-point compiler (Windows + Linux).
@@ -70,8 +70,6 @@ Developer commands and runtime hardening:
   JWT/crypto groundwork.
 - `orbit fmt`, `orbit doctor`, and `orbit init` first
   implementations; VS Code extension and syntax grammar.
-- Benchmark suite scaffolding (compute + HTTP) across
-  Go, Rust, C, C++, Node, Python.
 - Native x86-64 backend experiments (lowering, encoder,
   register allocation) - still experimental.
 - Repository, CI, installer, and docs foundations
@@ -81,5 +79,5 @@ Developer commands and runtime hardening:
 
 - `v0.1.0-rc.2`, `v0.1.0-rc.1`, `v0.1-rc.2` - release
   candidates.
-- `legacy-zig-seed` - the retired Zig seed lineage,
+- `legacy-seed` - the retired alternate seed lineage,
   historical only.

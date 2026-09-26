@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Orbit Programming Language Automated Linux & macOS Installer
-# Installs the self-hosted Orbit compiler (Zig-free bootstrap), configures PATH,
+# Installs the self-hosted Orbit compiler, configures PATH,
 # and registers the VS Code extension.
 
 set -e
@@ -25,7 +25,7 @@ if [ -f "$FIXED_POINT" ]; then
     echo "[+] Selected released fixed-point compiler: $SOURCE_EXE"
 fi
 
-# 1b. Zig-free self-hosted bootstrap from the committed canonical C.
+# 1b. Self-hosted bootstrap from the committed canonical C.
 #     Root of trust: compiler/selfhost/stage3.exe.c + any C compiler.
 if [ -z "$SOURCE_EXE" ]; then
     if [ ! -f "$ROOT_DIR/compiler/selfhost/stage3.exe.c" ]; then
@@ -34,10 +34,10 @@ if [ -z "$SOURCE_EXE" ]; then
     fi
     PY="$(command -v python3 || command -v python)"
     if [ -z "$PY" ]; then
-        echo "[ERROR] Python is required to run the Zig-free bootstrap (scripts/build_selfhost.py)." >&2
+        echo "[ERROR] Python is required to run the bootstrap (scripts/build_selfhost.py)." >&2
         exit 1
     fi
-    echo "[*] Building self-hosted fixed-point compiler (no Zig involved)..."
+    echo "[*] Building self-hosted fixed-point compiler..."
     BUILD_ARGS=("$ROOT_DIR/scripts/build_selfhost.py" --out "$INSTALL_DIR/orbit")
     if [ -n "$ORBIT_CC" ]; then
         BUILD_ARGS+=(--cc "$ORBIT_CC")

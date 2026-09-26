@@ -35,6 +35,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+from orbit_routes import RoutePathError, normalize_route_path
 
 
 def percentile(sorted_vals, pct):
@@ -224,6 +225,12 @@ def parse_args(argv):
         p.error("source-ips must be 0..250")
     if a.duration <= 0:
         p.error("duration must be > 0")
+    # Repair the route before any socket opens: under Git Bash a leading slash
+    # arrives as a Windows path (scripts/orbit_routes.py).
+    try:
+        a.path = normalize_route_path(a.path, what="--path")
+    except RoutePathError as e:
+        p.error(str(e))
     return a
 
 

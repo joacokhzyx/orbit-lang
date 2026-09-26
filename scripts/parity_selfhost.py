@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Self-host parity/stability gate (W2).
+"""Self-host stability gate.
 
-The original W1 battery proved byte-identity between the Zig FE lineage and
-the self-host lineage across 25 probes. With the Zig seed retired (SOVER-1),
-that contract becomes a STABILITY contract against committed goldens:
+The contract is stability against committed goldens:
 
     every probe compiled by the fixed-point self-host compiler must produce
     exactly the recorded outcome (generated-C hash or normalized diagnostics).
 
-Goldens were seeded from the W1-validated 25/25 state, so the historical
-assurance carries over. Intentional compiler changes require an explicit
-golden refresh (`--update`) committed alongside the change.
+There is no second implementation to compare against, so the goldens are the
+contract rather than a cross-check. An intentional compiler change requires an
+explicit golden refresh (`--update`) committed in the same commit as the
+canonical C, the sources and PUBLISHED_C.
 
 Probe outcomes:
   exit == 0  -> golden records the SHA-256 of the generated C

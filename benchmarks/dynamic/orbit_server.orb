@@ -1,3 +1,0 @@
-port 4100
-
-route GET "/" => "OK"

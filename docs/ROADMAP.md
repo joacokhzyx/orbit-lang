@@ -19,7 +19,7 @@ For the dated implementation snapshot, current verification commands, and active
 - Every phase ends with an executable gate, not only documentation.
 - Compiler source changes must preserve the fixed point or deliberately promote a new canonical C artifact.
 - New public features require an example, a test, and documentation.
-- Performance claims belong to reproducible benchmark reports with hardware and configuration recorded.
+- Performance claims belong to a reproducible command, with hardware and configuration recorded.
 - Large features remain out of the public CLI until their integration contract is implemented and tested.
 
 ## Phase 0: Project Clarity
@@ -31,7 +31,7 @@ For the dated implementation snapshot, current verification commands, and active
 Tasks:
 
 - Keep this roadmap separate from detailed engineering contracts.
-- Mark historical Zig-seed material as historical wherever it remains useful.
+- Delete historical seed material rather than annotating it, wherever it is no longer load-bearing.
 - Maintain a support matrix for Windows and Linux, including C compiler requirements.
 - Define the release and compatibility policy for the language and standard library. See [Versioning and Compatibility](VERSIONING.md). ✅
 - Document release artifacts and their verification. See [Release Artifacts](RELEASES.md). ✅
@@ -99,7 +99,7 @@ Tasks:
 - Add graceful shutdown, connection draining, timeouts, and configurable request limits.
 - Add structured logs, request identifiers, metrics, and latency percentiles.
 - Test malformed HTTP, slow clients, concurrent connections, cancellation, memory pressure, and SQLite concurrency.
-- Publish benchmark methodology, baselines, variance, and environment details.
+- Publish baselines, variance, and environment details for every number claimed.
 - Record CPU, memory, and energy methodology in [Resource and Energy Measurement](ENERGY.md).
 
 **Exit gate:** a service has documented operational behavior and repeatable tests for failure, load, and shutdown scenarios.

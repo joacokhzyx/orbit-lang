@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question, not a bug
+    url: https://github.com/joacokhzyx/orbit-lang/blob/main/docs/FAQ.md
+    about: Most usage questions are already answered here, with the reasons.
+  - name: Known limitations
+    url: https://github.com/joacokhzyx/orbit-lang/blob/main/docs/KNOWN_LIMITATIONS.md
+    about: Check here first; the list is kept honest and unembellished.
+  - name: How to build and verify
+    url: https://github.com/joacokhzyx/orbit-lang/blob/main/CONTRIBUTING.md
+    about: The gates, and what a green run requires.

@@ -702,9 +702,19 @@ fn doctorCodePart(line: string) -> string {
     var cut = line
     val cpos = orbit_string_indexOf(line, "//")
     if cpos != -1 { cut = orbit_string_slice(line, 0, cpos) }
-    var out = ""
-    var i = 0
     val n = orbit_string_len(cut)
+    // Only string literals get dropped, so a line with no quote is returned
+    // as-is instead of rebuilt one arena allocation per character. Lines
+    // that do have a quote are copied in runs, between the quotes.
+    var k = 0
+    var hasStr = false
+    while k < n {
+        if orbit_string_char_at_selfhost(cut, k) == 34 { hasStr = true }
+        k = k + 1
+    }
+    if hasStr == false { return cut }
+    val buf = orbit_cbuf_create_selfhost()
+    var i = 0
     var inStr = false
     while i < n {
         val c = orbit_string_char_at_selfhost(cut, i)
@@ -720,12 +730,15 @@ fn doctorCodePart(line: string) -> string {
                 inStr = true
                 i = i + 1
             } else {
-                out = out + orbit_string_slice(cut, i, i + 1)
-                i = i + 1
+                val start = i
+                while i < n && orbit_string_char_at_selfhost(cut, i) != 34 {
+                    i = i + 1
+                }
+                orbit_cbuf_append_selfhost(buf, orbit_string_slice(cut, start, i))
             }
         }
     }
-    return out
+    return orbit_cbuf_build_selfhost(buf)
 }
 
 fn doctorIsValidSystemMember(member: string) -> bool {
@@ -807,13 +820,16 @@ fn doctorStripTrailingWs(line: string) -> string {
 
 fn doctorBuildFixedSource(source: string) -> string {
     val lines = doctorSplitLines(source)
-    var out = ""
+    // Re-joining line by line with `out = out + line` was quadratic in the
+    // file size; the chunk buffer appends instead.
+    val buf = orbit_cbuf_create_selfhost()
     var i = 0
     while i < lines.len() {
-        out = out + doctorStripTrailingWs(lines.get(i)) + "\n"
+        orbit_cbuf_append_selfhost(buf, doctorStripTrailingWs(lines.get(i)))
+        orbit_cbuf_append_selfhost(buf, "\n")
         i = i + 1
     }
-    return out
+    return orbit_cbuf_build_selfhost(buf)
 }
 
 fn doctorScanStyle(stats: DoctorStats, file: string, source: string) {

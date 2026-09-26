@@ -37,7 +37,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | How do I ship one binary? | [Deploy tutorial](tutorials/deploy-single-binary.md) |
 | Something broke - now what? | [Troubleshooting](tutorials/troubleshooting.md) |
 | How do schemas evolve? | [Migrations guide](guides/migrations.md) - the honest story |
-| How do I measure honestly? | [Benchmark methodology](guides/benchmark-methodology.md) |
+| How do I measure honestly? | [Performance notes](PERF.md) - what was changed, what was tried and dropped, and why |
 
 ## Authority and Scope
 

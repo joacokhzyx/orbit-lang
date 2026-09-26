@@ -10,7 +10,7 @@ Install:
 - Python 3.10 or newer;
 - GCC, Clang, or MSVC.
 
-Platform details and optional benchmark tools are listed in [Platform Support](SUPPORT.md).
+Platform details are listed in [Platform Support](SUPPORT.md).
 
 ## 2. Build Orbit
 
@@ -130,6 +130,9 @@ The generated output doesn't match the committed canonical source. Run without `
 python scripts/build_selfhost.py --promote
 ```
 
-### A benchmark tool is missing
+### A gate script reports a missing tool
 
-That's fine - the compiler doesn't need the benchmark toolchain. See [Benchmarks](../benchmarks/README.md) for the optional dependencies and the commands for that suite.
+Every gate in this repository runs on a C compiler plus a stock `python3`.
+There is nothing to install: no package manager, no lockfile, no vendored
+toolchain. If a script claims a dependency is missing, that is a bug in the
+script, not a gap in your machine.

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Rebuild the self-hosted Orbit compiler WITHOUT any Zig dependency (SOVER-1).
+"""Rebuild the self-hosted Orbit compiler from the committed canonical C (SOVER-1).
 
 The root of trust is the committed canonical C source
 (``compiler/selfhost/stage3.exe.c``). Any conforming C compiler can turn it
 into a working Orbit compiler; that compiler rebuilds the sources from
 ``compiler/main.orb`` and the loop is repeated until the emitted C reaches a
-new fixed point. The Zig seed lineage is never invoked.
+new fixed point. No toolchain beyond a C compiler is involved at any point.
 
 Modes:
   default        Rebuild from the committed canonical C and verify that the
@@ -37,6 +37,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+import orbit_ccache
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
@@ -49,17 +50,26 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # use -O0.
 # -O0 keeps peak memory low on 4 GB machines; -DORBIT_WITH_EXEC enables the
 # compiler's own process spawning (its cc invocations) -- trusted infrastructure.
-# No blanket suppressions: generated C must compile warning-free under
-# -Wall on the supported toolchains. -Werror itself stays out of the
-# bootstrap path (exotic toolchains must never brick the build); it runs
-# as an explicit CI gate step instead (STAB-3).
+# No blanket suppressions: generated C must compile warning-free under -Werror
+# on the supported toolchains. -Werror itself stays out of the bootstrap path
+# (exotic toolchains must never brick the build); it runs as an explicit CI gate
+# step instead (STAB-3, scripts/werror_gate.py).
 # The two -Wno-error= downgrades below are load-bearing, not cruft: GCC 14+
 # raises int-conversion / incompatible-pointer-types as ERRORS by default,
 # so without them any remaining instance bricks the bootstrap (and user
 # builds) instead of warning. They stay until the generated C is fully
 # -Werror clean, tracked by scripts/werror_gate.py.
-SUPPRESS_FLAGS = ["-O0", "-Wall", "-Wno-error=int-conversion",
-                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"]
+# -Wall is deliberately NOT in the bootstrap flags. Measured on the 3.9 MB
+# compiler unit (2-core runner, gcc 13.3): -O0 -Wall costs 23.8 s against 3.7 s
+# without it, a 5.7x penalty, and it surfaces 89 warnings on a unit this size --
+# the analysis it enables is superlinear in emitted size. The bootstrap is a
+# verification harness that recompiles this unit dozens of times per gate;
+# warnings are the business of scripts/werror_gate.py, which is the strict gate
+# and runs in CI. Set ORBIT_BOOTSTRAP_WARNINGS=1 to restore -Wall locally.
+SUPPRESS_FLAGS = ["-O0", "-Wno-error=int-conversion",
+                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"] + (
+    ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
+
 # Low-memory profile: drop unwind tables and debug info so the multi-MB
 # compiler TU links with less peak commit. GCC/Clang only; MSVC-style
 # drivers (cl) do not accept these flags.
@@ -165,10 +175,6 @@ def detect_cc() -> str:
     for cand in ("gcc", "clang", "cc"):
         if shutil.which(cand):
             return cand
-    # Absolute last resort during the transition away from Zig: zig used purely
-    # as a C toolchain (never to build or verify the self-hosted chain).
-    if shutil.which("zig"):
-        return "zig cc"
     out.fail("Failed: no C compiler found; set ORBIT_CC (gcc/clang/cc).")
     raise SystemExit(2)
 
@@ -212,8 +218,14 @@ def orb_build(compiler, out_exe, work, cc, snapshot_path, extra_cc_flags=None) -
     inter_c = os.path.join(tmp, "orbit_selfhost_build.c")
     if os.path.isfile(inter_c):
         os.remove(inter_c)
+    # ORBIT_SKIP_CC: the compiler emits the C and stops. This script compiles
+    # that C itself right afterwards with known-good flags, so letting the
+    # compiler also run its own cc is a redundant compile of the same
+    # multi-megabyte unit. ORBIT_WARNINGS=0 drops -Wall from the compiler's
+    # internal invocation for the same reason the bootstrap flags do.
     env = dict(os.environ)
-    env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc,
+    env.update({"TEMP": tmp, "TMP": tmp, "TMPDIR": tmp, "ORBIT_CC": cc, "CC": cc,
+                "ORBIT_SKIP_CC": "1", "ORBIT_WARNINGS": "0",
                 "ORBIT_CCFLAGS_EXTRA": " ".join(extra_cc_flags or [])})
     label = f"{os.path.basename(compiler)} build main.orb -> {out_exe}"
     out.say(f"Building {label}")
@@ -246,7 +258,7 @@ def update_published_c(new_hash: str) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Zig-free self-hosted compiler bootstrap")
+    ap = argparse.ArgumentParser(description="self-hosted compiler bootstrap")
     ap.add_argument("--cc", default=None, help="C compiler (default: ORBIT_CC/gcc/clang/cc)")
     ap.add_argument("--work", default=None, help="work directory (default: temp)")
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
@@ -277,7 +289,7 @@ def main() -> int:
 
     if not os.path.isfile(CANONICAL_C):
         out.fail(f"Failed: {CANONICAL_C} missing. It is the committed root of trust.")
-        out.tip("restore it from git or bootstrap once via the legacy Zig lineage.")
+        out.tip("restore it from git; it is the committed root of trust.")
         return 1
 
     if args.work:
@@ -308,7 +320,10 @@ def main() -> int:
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"),
          "--entry", CANONICAL_C, "--out", amal], label="amalgamate canonical")
     seed_exe = os.path.join(work, "seed" + exe)
-    run([*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS], label="build seed from canonical C")
+    out.say("Building seed from canonical C")
+    orbit_ccache.compile_cached(cc_cmd,
+                                [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS],
+                                [amal], log=out.say)
 
     # Iterate: current compiler builds the sources; repeat until C stabilises.
     prev_c_hash = None
@@ -323,11 +338,15 @@ def main() -> int:
         next_exe = os.path.join(work, f"iter{i}_exe" + exe)
         # Generated C is not amalgamated: it needs the runtime headers on the
         # include path (pipeline.orb does the same when building user programs).
-        run([*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-I", os.path.join(ROOT, "runtime"),
+        out.say(f"Building iter{i} compiler from its own C")
+        _, reused = orbit_ccache.compile_cached(
+            cc_cmd,
+            [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-I", os.path.join(ROOT, "runtime"),
              "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS],
-            label=f"build iter{i} compiler from its own C")
+            [c_i], log=out.say)
         out.say(f"Iteration {i}: {h_i}"
-                + ("  (fixed point)" if h_i == prev_c_hash else ""))
+                + ("  (fixed point)" if h_i == prev_c_hash else "")
+                + ("  (cc from cache)" if reused else ""))
         if h_i == prev_c_hash:
             converged_c = c_i
             final_exe = next_exe

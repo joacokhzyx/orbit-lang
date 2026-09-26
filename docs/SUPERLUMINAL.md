@@ -11,11 +11,10 @@ The live baseline is three things: a pure-integer compile-time evaluator
 and a static label-count estimator (`computeBoostRawPct` at
 `compiler/c_backend.orb:1252-1319`, stored on `IRModule.boostRaw`).
 
-There is no memoization marker, no static-cache emission, and no
-`src/` tree: references to `src/superluminal/`, `src/tests.zig`, and
-`src/codegen/runtime_loader.zig` in earlier revisions of this document
-described the retired Zig lineage and are superseded below. No in-scope
-probe asserts large constant folds (`tests/suite/fn_recursive.orb`
+There is no memoization marker and no static-cache emission: references to
+files under the old `src/` tree in earlier revisions of this document
+described a source layout that no longer exists and are superseded below. No
+in-scope probe asserts large constant folds (`tests/suite/fn_recursive.orb`
 proves only `fact(5)`). The G1 gate below is **open** until the Wave 0
 and Wave 1 regression tests land.
 
@@ -118,7 +117,7 @@ peephole suite plus parity goldens showing only intended folds.
 Build-time dispatch for fully static route tables (no params, no DB,
 no request reads, no decorators or limits), with a force-generic flag
 for differential testing. Gate: `tests/parity/probes/sl_route_dispatch.orb`,
-`bench-energy.py` compare HOLD on client-observed latency, goldens with
+client-observed latency stays inside its comparison band, goldens with
 only the intended diff.
 
 Outcome (2026-09-24, measured, ship decision: NOT shipped): a
@@ -156,7 +155,7 @@ and never mentions G-phases; nothing here overrides that.
 ## Engineering principles
 
 - No mock optimization paths.
-- No performance statement without a benchmark, baseline, environment, and reproducible evidence.
+- No performance statement without the command that produced it, the baseline, the environment, and the spread across runs.
 - No transformation across unresolved side effects.
 - Preserve a semantically equivalent fallback whenever proof is incomplete.
 - Prefer correctness gates and regression tests over broad but unverified claims.

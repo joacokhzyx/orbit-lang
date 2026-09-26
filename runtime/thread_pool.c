@@ -127,7 +127,10 @@ static inline int orbit_wake_recv_create(orbit_socket_t* recv_out, struct sockad
         orbit_socket_close(r);
         return 0;
     }
-    int len = (int)sizeof(*addr_out);
+    /* getsockname takes socklen_t*, which is unsigned on every supported
+     * platform. An int* here is a signedness mismatch the compiler is right
+     * to flag. */
+    socklen_t len = (socklen_t)sizeof(*addr_out);
     if (getsockname(r, (struct sockaddr*)addr_out, &len) == ORBIT_SOCKET_ERROR) {
         orbit_socket_close(r);
         return 0;

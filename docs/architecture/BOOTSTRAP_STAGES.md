@@ -1,48 +1,95 @@
 # Bootstrap Stages and Verification
 
-This document details the bootstrap steps and the fixed-point check. The supported flow is Zig-free - any C compiler plus Python. Paths mentioning `src/codegen` or `zig cc` below are historical lineage; the current pipeline lives in `compiler/*.orb` with `runtime/`.
+What the bootstrap actually does, stage by stage, and what has to hold for a
+stage to be promotable. The supported flow needs a C compiler and a stock
+`python3`; nothing else.
 
-## Pipeline
+## The chain
 
-The bootstrap builds `compiler/main.orb` through successive stages; each stage is
-built by the previous one and compiles the same source again. In the hand-run flow
-each stage leaves its generated C beside it as `stageN.exe.c`:
+A stage is a working Orbit compiler. A stage is built by the previous stage,
+and both compile the same source (`compiler/main.orb`):
 
 ```
-stage 0  orbit (host compiler, Zig)  build compiler/main.orb  ->  stage1.exe
-stage 1  stage1.exe                  build compiler/main.orb  ->  stage2.exe
-stage 2  stage2.exe                  build compiler/main.orb  ->  stage3.exe
-stage 3  stage3.exe                  build compiler/main.orb  ->  stage4.exe
+seed    (canonical C, compiled by cc)
+  │  builds main.orb, emits C
+  ▼
+seed2   (compiled from the emitted C, by cc)
+  │  builds main.orb, emits C
+  ▼
+chain2
+  │  builds main.orb, emits C
+  ▼
+chain3
 ```
 
-Each stage emits C (`src/codegen/c_backend.zig`; self-hosted path via `compiler/c_backend.orb`)
-and compiles it with `zig cc -I runtime`; each stage leaves its generated C beside it
-as `stageN.exe.c`. The artifacts live under `compiler/selfhost/` and are git-ignored.
+A fixed point is reached when a stage's emitted C is byte-identical to the
+canonical: the compiler is now reproducing itself exactly. Because the same
+property must hold at every stage and not only the first, `verify_seed.py`
+asserts the emitted C of `seed2`, `chain2` **and** `chain3` against the
+canonical. A chain that converges at stage one and drifts afterwards is a real
+failure mode, and a gate that only compares the first stage cannot see it.
 
-## Fixed-Point Verification
+## What each stage does
 
-A fixed point is reached when a stage built by the previous one produces the same
-compiler as the next stage. In the hand-run flow this is checked by comparing the
-generated C byte-for-byte: `stage3.exe.c` must equal `stage4.exe.c` (both encode the
-same compiler, produced by stage2 and stage3 respectively).
+1. `scripts/amalgamate.py` inlines the project-local `#include "..."` graph
+   reachable from `compiler/selfhost/stage3.exe.c` into one self-contained C
+   file, each inlined file wrapped in its own include guard. System includes
+   are left alone.
+2. A C compiler turns that amalgamation into `seed`, with `-DORBIT_WITH_EXEC`
+   so the compiler can spawn its own `cc`. This is the only step that needs
+   anything beyond a C compiler and Python.
+3. `seed build compiler/main.orb` runs the front end (lexer, parser, resolver,
+   sema, builder, optimizer, compile-time evaluation) and the C backend,
+   writes one intermediate C file, and invokes `cc` on it. The intermediate
+   file always has the same name, because compilers embed the source path in
+   the binary and a per-stage name would break byte-comparability for
+   identical code.
+4. `verify_seed.py` recompiles that intermediate C itself with known-good
+   flags, and compares the emitted C bytes against the canonical.
 
-When `orbit bootstrap --max-stage 3 --verify` is used, the Zig driver compares
-`stage2.exe` and `stage3.exe` byte-for-byte (identical size and contents). Equality
-proves the compiler reached a fixed point.
+## Promotion between stages
 
-## Requirements for Stage Promotion
+1. **canonical -> seed**: the canonical C must compile with any conforming C
+   compiler. Nothing about Orbit is involved yet.
+2. **seed -> seed2**: `seed` must parse, typecheck, lower and emit C for
+   `compiler/main.orb`, and that C must be byte-identical to the canonical.
+3. **seed2 -> chain2 -> chain3**: each stage must rebuild the compiler without
+   any host toolchain, and each stage's emitted C must equal the canonical.
 
-1. **Stage 0 -> Stage 1**: the host compiler must parse, typecheck, and produce a working
-   stage1 binary from `compiler/main.orb`.
-2. **Stage 1 -> Stage 2**: stage1 must rebuild the compiler without the host.
-3. **Stage 2 -> Stage 3**: stage2 rebuilds the compiler; promotion requires
-   `stage2.exe == stage3.exe` byte-for-byte (or equivalently `stage3.exe.c == stage4.exe.c`
-   in the hand-run flow).
+## The current state
 
-## Current Status
+The chain converges and every stage's emitted C equals the canonical:
 
-The bootstrap **converges**: `stage1 -> stage2 -> stage3 -> stage4` all succeed, and
-`stage3.exe.c` is byte-identical to `stage4.exe.c`. This was reached after fixing the
-seed's local-variable type inference (unknown-typed values such as list elements are now
-typed `uintptr_t` so pointers are not truncated through the 32-bit `orbit_int`), which
-was crashing `resolveModuleAST` with `0xC0000005`. See [Sovereignty](SOVEREIGNTY.md) for the supported flow.
+```
+98a6db81a6326817ea72c51739a186155f2e8e44d5f19ceb0c35696861cb01a0
+```
+
+Getting here required fixing the seed's local-variable type inference:
+unknown-typed values such as list elements are typed `uintptr_t`, so pointers
+are not truncated through the 32-bit `orbit_int`. Before that, the seed
+crashed in `resolveModuleAST` with an access violation on the canonical route
+syntax and on every parse error.
+
+## Two things that will bite you
+
+**Do not let the intermediate C land in the working directory.** It is several
+megabytes, two concurrent builds in one directory race on it, and it litters a
+user's checkout. `compiler/pipeline.orb` resolves the temp directory from
+`TEMP` and `TMPDIR`.
+
+**Do not promote to "make the gate green".** A promote replaces the root of
+trust. If the sources and the canonical disagree, the sources are wrong until
+someone has decided they are not. See
+[Sovereignty](SOVEREIGNTY.md) for the recovery runbook.
+
+## Verifying by hand
+
+```sh
+python scripts/build_selfhost.py --cc gcc --check-stale
+python scripts/verify_seed.py --cc gcc
+python scripts/parity_selfhost.py --cc gcc --compiler /path/to/fixed_point
+```
+
+The first converges and checks for staleness, the second runs the chain in a
+hermetic directory and asserts all four checks, the third compiles 32 probes
+and compares them to the committed goldens.

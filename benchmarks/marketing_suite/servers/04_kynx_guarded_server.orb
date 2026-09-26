@@ -1,6 +1,0 @@
-port 4004
-cors "*"
-
-route GET "/protected" => {
-    return response.json(200, "{\"status\":\"guarded_by_kynx\"}")
-}

@@ -3,7 +3,7 @@
  * @brief Orbit built-in functions exposed to user programs.
  *
  * Provides cross-platform conversions and timing primitives used by
- * compute benchmarks and general-purpose Orbit programs.
+ * general-purpose Orbit programs.
  */
 #ifndef ORBIT_BUILTINS_C
 #define ORBIT_BUILTINS_C

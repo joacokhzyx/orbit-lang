@@ -53,7 +53,7 @@ never at silence.
 ### `health_service.orb`
 
    - Microservice Health & Observability API.
-   - Demonstrates runtime metric collection via `system.*()` functions (`uptime()`, `latency_ms()`, `active_workers()`, `http_requests_total()`) with dynamic JSON responses assembled via string concatenation.
+   - Demonstrates runtime metric collection via `system.*()` functions (`uptime()`, `latency_avg_us()`, `active_workers()`, `http_requests_total()`) with dynamic JSON responses assembled via string concatenation.
    - Routes: `GET /health`, `GET /ready`, `GET /metrics`.
 
 ### `sqlite_notes.orb`

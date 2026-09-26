@@ -1,6 +1,6 @@
 # Platform Support
 
-This page covers the supported paths for the current self-hosted compiler. It separates what you need from what's optional for benchmarks or historical checks.
+This page covers the supported paths for the current self-hosted compiler. It separates what you need from what is optional.
 
 ## Support Matrix
 
@@ -10,7 +10,7 @@ This page covers the supported paths for the current self-hosted compiler. It se
 | Linux x86-64 | GCC or Clang | Python 3.10+ | Supported | Supported |
 | macOS | Clang | Python 3.10+ | Supported by the POSIX scripts | Supported by the POSIX scripts |
 
-The primary compiler workflow does not require Zig. Zig is optional and is used by the benchmark harness and by the deprecated legacy seed lineage described in [Sovereignty](architecture/SOVEREIGNTY.md).
+The primary compiler workflow needs nothing but a C compiler and a stock `python3`.
 
 ## Required Tools
 
@@ -44,15 +44,11 @@ python3 scripts/build_selfhost.py --cc "$ORBIT_CC" --out orbit
 
 | Tool | Used for |
 |---|---|
-| Zig master | `benchmarks/` build harness and Zig C compiler commands |
-| Go | Go benchmark implementations and `hey` installation |
-| Rust and Cargo | Rust benchmark implementations |
-| Node.js 18+ | Node benchmark implementations |
-| `hey` | HTTP load generation |
-| `uvicorn` | Python HTTP benchmark implementation |
 | VS Code | Editor extension and syntax support |
+| `curl` | Readiness polling before a live gate, and manual request checks |
+| `python3` (standard library only) | Every gate script; no third-party packages are needed |
 
-Missing optional tools cause individual benchmark languages to be skipped where the harness supports graceful skipping. They are not required to build Orbit itself.
+None of these are required to build, verify, install or release Orbit. `scripts/night_load.py` and `scripts/measure_selfhost.py` are stdlib-only on purpose, so a measurement never depends on a package install.
 
 ## Database Notes
 
@@ -81,4 +77,4 @@ The installers prefer a released fixed-point binary when one is present. Otherwi
 
 ## Support Policy
 
-A platform is supported when its documented compiler path passes the self-host, fixed-point, parity, and behavior-suite gates in CI or in an equivalent local environment. Benchmark compatibility is separate from compiler support. Performance numbers are not portable guarantees; they must include the hardware, operating system, compiler, workload, and measurement procedure.
+A platform is supported when its documented compiler path passes the self-host, fixed-point, parity, and behavior-suite gates in CI or in an equivalent local environment. Performance numbers are not portable guarantees; they must carry the hardware, operating system, compiler, workload, and measurement procedure.

@@ -93,18 +93,23 @@ Instrumented metrics in `performance.h`:
 
 ---
 
-## 9. How to Execute Tests & Benchmarks
-### Run Correctness Suite
-To compile and run all correctness unit tests (including the 25 correctness assertions for memory virtual backend, checkpoints, alignments, and pools):
-```powershell
-zig test src/tests.zig
-# Or:
-zig build test
+## 9. How to Run the Arena Tests
+
+The arena invariants (virtual memory backend, checkpoints, alignment, pools,
+cross-request isolation) live in one C test program that CI already runs on
+every push. It is a single translation unit because the runtime is an
+amalgamation-by-include: it gets `runtime/` on the include path and nothing
+else.
+
+```sh
+# POSIX
+cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin
+./t_arena_bin
+
+# Windows (add the Winsock import library)
+cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin.exe -lws2_32
+.\t_arena_bin.exe
 ```
 
-### Run Performance Benchmarks
-To run the high-speed benchmark comparing different memory allocation patterns:
-```powershell
-zig cc -O3 -Iruntime runtime/benchmark_arena.c -o benchmark_arena.exe -lws2_32
-.\benchmark_arena.exe
-```
+Exit status 0 means every assertion held. The test prints one line per
+invariant, so a failure names the invariant rather than only the offset.

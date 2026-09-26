@@ -43,11 +43,11 @@ function findOrbitExecutable() {
             return localExe;
         }
 
-        const buildExe = os.platform() === 'win32'
-            ? path.join(rootPath, 'zig-out', 'bin', 'orbit.exe')
-            : path.join(rootPath, 'zig-out', 'bin', 'orbit');
-        if (fs.existsSync(buildExe)) {
-            return buildExe;
+        const distExe = os.platform() === 'win32'
+            ? path.join(rootPath, 'dist', 'orbit.exe')
+            : path.join(rootPath, 'dist', 'orbit');
+        if (fs.existsSync(distExe)) {
+            return distExe;
         }
     }
 

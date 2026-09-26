@@ -97,15 +97,17 @@ service.orb` - single host only, no failover. Verified walkthrough:
 ## Measuring
 
 **16. Is Orbit faster than X?**
-I don't know yet in any publishable sense. The methodology for
-finding out is written down ([Benchmark guide](guides/benchmark-methodology.md));
-the numbers aren't. Ask again after someone runs it.
+I don't know yet in any publishable sense. I have no
+cross-language measurement of Orbit against anything, so
+I am not going to imply one. Ask again after someone
+publishes a run with the hardware, the flags, the workload
+and the spread.
 
 **17. What does "stays fast under load" mean concretely?**
 Today: Kynx admission control sheds load (429s past budget)
 and per-request arenas bound memory growth. With numbers and
-method attached - otherwise it's just words, and words aren't
-benchmarks.
+method attached - otherwise it's just words, and words
+are not evidence.
 
 **18. Can I measure energy per request?**
 On Linux with RAPL or a wall meter, yes, following the guide.

@@ -299,7 +299,20 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     // output name (e.g. stage2.exe.c vs stage3.exe.c) would make the 3-stage
     // bootstrap fixed-point comparison fail even though the code is identical.
     var cPath = "orbit_selfhost_build.c"
-    val tmpDir = orbit_os_env_selfhost("TEMP")
+    // Honour every platform's temp variable, not just the Windows one, so a
+    // plain `orbit build` never littles a multi-megabyte C file into the
+    // user's working directory and two concurrent builds in one directory do
+    // not race on the same file.
+    var tmpDir = orbit_os_env_selfhost("TEMP")
+    if tmpDir == "" {
+        tmpDir = orbit_os_env_selfhost("TMPDIR")
+    }
+    if tmpDir == "" {
+        tmpDir = orbit_os_env_selfhost("TMP")
+    }
+    if tmpDir == "" {
+        tmpDir = orbit_os_temp_dir_selfhost()
+    }
     if tmpDir != "" {
         cPath = tmpDir + "/" + cPath
     }
@@ -326,6 +339,17 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         cCompiler = "cc"
     }
 
+    // ORBIT_SKIP_CC=1 emits the intermediate C and stops. The self-host
+    // bootstrap uses this: it needs the C to compare fixed points, and it
+    // compiles that C itself with known-good flags, so the compiler's own cc
+    // invocation is a redundant ~20 s compile of the same multi-megabyte unit.
+    // scripts/build_selfhost.py and scripts/verify_seed.py set it and tolerate
+    // the non-zero exit this returns.
+    if orbit_os_env_selfhost("ORBIT_SKIP_CC") != "" {
+        orbit_os_write_stderr_selfhost("orbit build: ORBIT_SKIP_CC set, wrote '" + cPath + "' without invoking the C compiler\n")
+        return true
+    }
+
     val rtDir = compilerRuntimeDir()
     var dbFlags = ""
     val isWindowsHost = osName == "Windows_NT" || winDir != ""
@@ -337,13 +361,22 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         }
     }
 
-    // Extra C flags from the environment (used by scripts/build_selfhost.py
-    // --low-mem). Inserted before the shell redirect so they reach the driver.
-    // -Wall surfaces warnings; the two -Wno-error= downgrades keep user
-    // builds working on GCC 14+ (where those diagnostics are errors by
-    // default) for the remaining untyped-emission patterns. Full -Werror
-    // cleanliness is tracked by scripts/werror_gate.py (STAB-3).
-    var compCmd = cCompiler + " -s -O0 -Wall -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
+    // Warning policy. -Wall is on by default so a human build surfaces
+    // diagnostics, but it is expensive on large outputs: measured on a
+    // multi-megabyte generated unit it costs 5.7x the compile time and the
+    // analysis it enables is superlinear in emitted size. ORBIT_WARNINGS=0
+    // turns it off, which is what the bootstrap sets; the strict gate is
+    // scripts/werror_gate.py (-Werror on generated C), run in CI.
+    // The two -Wno-error= downgrades stay: GCC 14+ raises
+    // int-conversion and incompatible-pointer-types as errors by default, so
+    // without them a remaining instance breaks a user build instead of
+    // warning. They go away when the emitted C is fully -Werror clean.
+    var warnFlags = " -Wall"
+    if orbit_os_env_selfhost("ORBIT_WARNINGS") == "0" {
+        warnFlags = ""
+    }
+    var compCmd = cCompiler + " -s -O0" + warnFlags + " -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
+
     val ccExtra = orbit_os_env_selfhost("ORBIT_CCFLAGS_EXTRA")
     if ccExtra != "" {
         compCmd = compCmd + " " + ccExtra

@@ -81,8 +81,8 @@ void orbit_http_init(void) {
     WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
     /* The energy sampler lives exactly as long as the server. The guard
-     * keeps translation units that include http.c without energy.c (such as
-     * the dispatch micro-benchmark shim) compiling unchanged. */
+     * keeps translation units that include http.c without energy.c -- the
+     * C unit tests, for instance -- compiling unchanged. */
 #ifdef ORBIT_ENERGY_C
     orbit_energy_start();
 #endif

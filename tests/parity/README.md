@@ -1,6 +1,8 @@
-# Parity / stability battery (W1 → W2)
+# Parity / stability battery
 
-W1 proved byte-identity between two compiler lineages (Zig FE vs self-host) across 25 probes. With the Zig seed retired, the contract is now stability against committed goldens (W2): every probe built by the fixed-point compiler must reproduce its recorded outcome exactly. No silent drift.
+The contract is stability against committed goldens: every probe built by the
+fixed-point compiler must reproduce its recorded outcome exactly. No silent
+drift.
 
 | Probe exit | Golden records |
 |---|---|
@@ -16,7 +18,7 @@ Naming:
 - `trivial*` minimal `fn main` programs (non-route preamble)
 - `stab2_probe` the full STAB-2 drift probe (routes + models + unions)
 
-The goldens were seeded from the W1-validated 25/25 state, so the historical
+The goldens were seeded from the original validated state, so the historical
 cross-lineage assurance carries over.
 
 ## Running
@@ -30,7 +32,7 @@ python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp
 python scripts/parity_selfhost.py --cc "$CC" --compiler /tmp/orbit_fp
 ```
 
-Exit code is `0` only when `25/25` probes match their goldens.
+Exit code is `0` only when all 32 probes match their goldens.
 
 ## After an intentional compiler change
 

@@ -55,9 +55,9 @@ tables, and seeds demo rows when `products` is empty. That
 one-time work costs about 1.7 s on my machine. Later starts
 find the file ready.
 
-**Fix:** none needed. Don't benchmark cold starts against warm
-ones - and don't ship a benchmark without saying which you
-measured (see the benchmark guide).
+**Fix:** none needed. Don't compare a cold start against a warm
+one, and don't publish a number without saying which of the two you
+measured (see [Performance notes](../PERF.md)).
 
 ## `orbit build` fails on `orbit_auth_bearer_token`
 

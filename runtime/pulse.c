@@ -14,6 +14,7 @@
 #include "kynx.c"
 #include "arena_pool.c"
 #include <stdio.h>
+#include <inttypes.h>
 
 /* ──────────────────────────────────────────────────────────────────────
  * Orbit Pulse — Real-time telemetry engine.
@@ -34,20 +35,24 @@ orbit_string orbit_pulse_get_stats_json(OrbitArena* arena) {
     
     // We are basically formatting a JSON string into the arena
     // In a real implementation we'd use a JSON builder, but a clean snprintf is fine for fixed schema
+    // PRIu64/PRIu32 (not %llu/%u) so the format always matches uint64_t/uint32_t:
+    // on LP64 targets uint64_t is `unsigned long`, which %llu does not match.
     char* buf = (char*)orbit_alloc(arena, 4096);
     snprintf(buf, 4096,
         "{"
-        "\"requests\":{\"total\":%llu,\"avg_cycles\":%llu,\"min\":%llu,\"max\":%llu},"
-        "\"memory\":{\"reuse\":%llu,\"alloc_mb\":%.2f,\"active_arenas\":%u},"
-        "\"security\":{\"blocks\":%llu,\"tracked_ips\":%u},"
-        "\"database\":{\"queries\":%llu,\"total_cycles\":%llu},"
-        "\"interning\":{\"hits\":%llu}"
+        "\"requests\":{\"total\":%" PRIu64 ",\"avg_cycles\":%" PRIu64 ",\"min\":%" PRIu64 ",\"max\":%" PRIu64 "},"
+        "\"memory\":{\"reuse\":%" PRIu64 ",\"alloc_mb\":%.2f,\"active_arenas\":%" PRIu32 "},"
+        "\"security\":{\"blocks\":%" PRIu64 ",\"tracked_ips\":%" PRIu32 "},"
+        "\"database\":{\"queries\":%" PRIu64 ",\"total_cycles\":%" PRIu64 "},"
+        "\"interning\":{\"hits\":%" PRIu64 "}"
         "}",
-        stats.request_count, avg_cycles, stats.min_cycles, stats.max_cycles,
-        stats.arena_reuse_count, (double)stats.total_alloc_bytes / (1024.0 * 1024.0), stats.active_arenas,
-        stats.kynx_blocks, stats.kynx_tracked_ips,
-        stats.db_queries, stats.db_total_cycles,
-        stats.string_intern_hits
+        (uint64_t)stats.request_count, (uint64_t)avg_cycles,
+        (uint64_t)stats.min_cycles, (uint64_t)stats.max_cycles,
+        (uint64_t)stats.arena_reuse_count, (double)stats.total_alloc_bytes / (1024.0 * 1024.0),
+        (uint32_t)stats.active_arenas,
+        (uint64_t)stats.kynx_blocks, (uint32_t)stats.kynx_tracked_ips,
+        (uint64_t)stats.db_queries, (uint64_t)stats.db_total_cycles,
+        (uint64_t)stats.string_intern_hits
     );
     
     return buf;

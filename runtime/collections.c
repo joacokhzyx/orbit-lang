@@ -410,9 +410,9 @@ orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
     int n = snprintf(tmp, sizeof(tmp), "%.15g", value);
     if (n <= 0) return "";
 
-    // Match Zig's `{d}` shortest round-trip formatting: find the smallest
-    // precision whose output parses back to the exact same double. Zig prints
-    // e.g. 1.758241758241763 (16 sig figs) where %.15g would drop a digit.
+    // Shortest round-trip formatting: find the smallest precision whose output
+    // parses back to the exact same double. A fixed %.15g would drop a digit
+    // (1.758241758241763 needs 16 significant figures).
     for (int prec = 1; prec <= 16; prec++) {
         n = snprintf(tmp, sizeof(tmp), "%.*g", prec, value);
         if (n <= 0) return "";

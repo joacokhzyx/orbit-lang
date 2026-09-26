@@ -12,7 +12,7 @@ programs can be linked and run without a system-installed SQLite.
 Regenerate the import library:
 
 ```
-zig dlltool -d sqlite3.def -D sqlite3.dll -l sqlite3.lib -m i386:x86-64
+llvm-dlltool -d sqlite3.def -D sqlite3.dll -l sqlite3.lib -m i386:x86-64
 ```
 
 SQLite is in the public domain (redistribution is unrestricted).

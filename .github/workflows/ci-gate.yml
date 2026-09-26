@@ -17,11 +17,21 @@ concurrency:
 
 jobs:
   # SOVER-1 primary gate: the compiler bootstraps itself from the committed
-  # canonical C using any C compiler. No Zig anywhere in this job.
+  # canonical C using any C compiler. No toolchain beyond cc and python3.
   selfhost-gate:
     name: Self-host fixed-point gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    # Git Bash on Windows runners is an MSYS2 host: without this, every
+    # argument that looks like an absolute POSIX path (`--burst-path /gate-burst`)
+    # is rewritten to `<Git install>/gate-burst` before a native program such as
+    # python.exe sees it, and the gate fails with "URL can't contain control
+    # characters". scripts/orbit_routes.py repairs such values as a second line
+    # of defence; this stops the rewrite at the source.
+    env:
+      MSYS2_ARG_CONV_EXCL: '*'
+      MSYS_NO_PATHCONV: 1
+      ORBIT_CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
       fail-fast: false
       matrix:
@@ -35,11 +45,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Content-addressed C compile cache (scripts/orbit_ccache.py). Every entry
+      # is keyed on the compiler identity, its version, the exact flags and the
+      # SHA-256 of every input, so a stale entry can only ever cause a miss,
+      # never a wrong artifact. Keyed on the canonical C because that is the
+      # input whose change should invalidate the cached compilations of it.
+      - name: Restore C compile cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-gcc-${{ runner.os }}-${{ hashFiles('compiler/selfhost/stage3.exe.c') }}
+          restore-keys: |
+            ccache-gcc-${{ runner.os }}-
+
       - name: Install SQLite development library (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
 
-      - name: Build and verify Zig-free bootstrap (STAB-0 / STAB-1)
+      - name: Route argument normalization probe
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/routes_probe.py
+
+      - name: Build and verify the self-host bootstrap (STAB-0 / STAB-1)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
@@ -58,7 +87,7 @@ jobs:
           "$PY" scripts/verify_seed.py --cc "${{ matrix.cc }}" \
             --emit-fixed-point "${RUNNER_TEMP}/fixed_point${SUFFIX}"
 
-      - name: Probe stability gate (25 goldens)
+      - name: Probe stability gate (32 goldens)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
@@ -89,6 +118,14 @@ jobs:
           $CC $CFLAGS tests/auth/auth_harness.c -o t_auth_bin $LDFLAGS
           if [ "${{ runner.os }}" = "Windows" ]; then export PATH="$PWD/runtime/vendor/win-x64:$PATH"; fi
           ./t_auth_bin
+
+      - name: Strict warning gate (-Werror on generated C)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/werror_gate.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
 
       - name: Formatter gate (checked-in form)
         shell: bash
@@ -163,26 +200,42 @@ jobs:
           if [ "$READY" != "1" ]; then echo "gate server on port $PORT never became ready"; exit 1; fi
           "$PY" scripts/kynx_route_limit_gate.py --port $PORT --burst-path /gate-burst
 
+  # Flakiness detector for the self-host chain. Each leg is an independent
+  # fixed-point run on its own runner, so the 8 repetitions run concurrently
+  # instead of serially: the flakiness being hunted is run-to-run variation, and
+  # a sequential loop additionally exposed the job to the 60-minute timeout.
+  # runs-on is a matrix leg rather than a loop over `seq`; fail-fast is off so
+  # one flaky leg does not hide the state of the other seven.
   stress-gate:
-    name: Self-host chain stress (flakiness detector)
+    name: Self-host chain stress (iteration ${{ matrix.iteration }})
+    needs: selfhost-gate
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
+    env:
+      ORBIT_CCACHE_DIR: ${{ github.workspace }}/.ccache
+    strategy:
+      fail-fast: false
+      matrix:
+        iteration: [1, 2, 3, 4, 5, 6, 7, 8]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Establish canonical contract
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/build_selfhost.py --cc gcc --check-stale
+      - name: Restore C compile cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-gcc-${{ runner.os }}-${{ hashFiles('compiler/selfhost/stage3.exe.c') }}
+          restore-keys: |
+            ccache-gcc-${{ runner.os }}-
 
-      - name: Stress the self-host chain (8 consecutive fixed-point runs)
+      - name: Install SQLite development library
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+
+      - name: Verify the fixed point on iteration ${{ matrix.iteration }}
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          for i in $(seq 1 8); do
-            echo "[stress] iteration $i"
-            "$PY" scripts/verify_seed.py --cc gcc || { echo "[stress] FAILED at iteration $i"; exit 1; }
-          done
-          echo "[stress] 8/8 iterations passed"
+          echo "[stress] iteration ${{ matrix.iteration }} of 8"
+          "$PY" scripts/verify_seed.py --cc gcc
+          echo "[stress] iteration ${{ matrix.iteration }} passed"

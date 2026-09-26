@@ -2,7 +2,8 @@
 
 `TIR` is the boundary between the self-hosted Orbit frontend and every code
 generator.  It is deliberately a language contract rather than an in-memory
-Zig API: a frontend must be able to emit it without linking or importing Zig.
+API of any particular implementation: a frontend must be able to emit it as
+text without linking against the frontend's own internals.
 
 ## Scope
 
@@ -49,10 +50,17 @@ frontend assigns ids monotonically, starting at zero for each id domain.
 5. Diagnostic order is source order, then emission order for diagnostics at
    the same source position.
 
-## Migration path
+## How TIR is produced today
 
-Stage 0 may use the Zig compiler solely to compile the Orbit frontend binary.
-That binary emits TIR.  The temporary Zig bridge reads TIR and adapts it to the
-existing C/native backend structures.  Removing that bridge is the backend
-milestone; it must not change this format or move parsing/type checking back
-into a backend.
+The committed canonical C is compiled by the platform's C compiler into the
+`seed` compiler, which is the only artifact in the chain Orbit did not produce.
+That compiler is a full Orbit front end: it lexes, parses, resolves, typechecks
+and lowers `compiler/main.orb` into IR, and `orbit frontend` emits the canonical
+Typed IR for inspection. Four fixtures under `tests/frontend/` pin the emitted
+form against the four `.tir` files in `tests/frontend/expected/`.
+
+The C backend consumes IR directly rather than round-tripping through a TIR
+file, which is a deliberate simplification: TIR is specified and pinned as the
+stable contract between front end and back end, and the in-process path is an
+implementation detail behind it. The format must not drift to accommodate a
+backend, and parsing and typechecking must never move back into a backend.

@@ -14,7 +14,7 @@ model OptStats {
 // single use, only over regions with no label/jump/jump_if_false.
 // Calls and rets are not barriers (constants survive them); alloc,
 // strings, responses, collections, calls, and computed values never
-// move. Motion relocates (single rebuild per motion); values never
+// move. Motion relocates one instruction in place; values never
 // change, so the fallback is the unmoved program itself.
 fn isMovableConst(op: IRValue) -> bool {
     match op {
@@ -26,91 +26,171 @@ fn isMovableConst(op: IRValue) -> bool {
     }
 }
 
-fn countRegUses(func: IRFunction, reg: int) -> int {
-    var n = 0
+// list.get yields an untyped slot, so integer tables are read through
+// this typed accessor (the same shape ceval.orb uses for its tables).
+fn sinkGetInt(l: list, i: int) -> int {
+    return l.get(i)
+}
+
+// The register an operand names, or -1 for every other shape. A
+// negative register number can never match a definition, because a
+// load_const always carries a real destination register, so dropping
+// those operands here cannot lose a motion the full rescan found.
+fn sinkRegSlot(op: IRValue) -> int {
+    match op {
+        IRValue.Register(r) => { return r.value }
+        _ => { return - 1 }
+    }
+}
+
+// Side tables are sized from the IR itself rather than from
+// registerCount, so every destination and every register operand this
+// function can name owns a slot whatever the builder allocated.
+fn sinkSlotCount(func: IRFunction) -> int {
+    var maxReg = -1
     var i = 0
     while i < func.instructions.len() {
         val ins: IRInstruction = func.instructions.get(i)
-        match ins.operand1 {
-            IRValue.Register(r) => {
-                if r.value == reg { n = n + 1 }
-            }
-            _ => {}
-        }
-        match ins.operand2 {
-            IRValue.Register(r) => {
-                if r.value == reg { n = n + 1 }
-            }
-            _ => {}
-        }
-        match ins.operand3 {
-            IRValue.Register(r) => {
-                if r.value == reg { n = n + 1 }
-            }
-            _ => {}
-        }
+        val r1 = sinkRegSlot(ins.operand1)
+        val r2 = sinkRegSlot(ins.operand2)
+        val r3 = sinkRegSlot(ins.operand3)
+        if ins.dest > maxReg { maxReg = ins.dest }
+        if r1 > maxReg { maxReg = r1 }
+        if r2 > maxReg { maxReg = r2 }
+        if r3 > maxReg { maxReg = r3 }
         i = i + 1
     }
-    return n
+    return maxReg + 1
 }
 
-fn moveInstrBefore(func: IRFunction, defIdx: int, useIdx: int) {
-    val def: IRInstruction = func.instructions.get(defIdx)
-    var rebuilt = []
+// Per-register proof, built once per function: a register qualifies
+// when it is defined exactly once, used exactly once, and its single
+// definition is a movable load_const. Motion only permutes existing
+// instructions, so none of those three facts can change while rounds
+// run; only the POSITION of the definition moves, and sinkOne
+// re-derives that per round.
+fn sinkBuildQual(func: IRFunction, slots: int) -> list {
+    var defCount = []
+    var useCount = []
+    var movable = []
+    var k = 0
+    while k < slots {
+        defCount.push(0)
+        useCount.push(0)
+        movable.push(0)
+        k = k + 1
+    }
     var i = 0
     while i < func.instructions.len() {
-        if i != defIdx {
-            if i == useIdx {
-                rebuilt.push(def)
+        val ins: IRInstruction = func.instructions.get(i)
+        val d = ins.dest
+        if d >= 0 {
+            if d < slots {
+                defCount[d] = sinkGetInt(defCount, d) + 1
+                match ins.opcode {
+                    IROpcode.load_const => {
+                        if isMovableConst(ins.operand1) { movable[d] = 1 }
+                    }
+                    _ => {}
+                }
             }
-            rebuilt.push(func.instructions.get(i))
+        }
+        val r1 = sinkRegSlot(ins.operand1)
+        val r2 = sinkRegSlot(ins.operand2)
+        val r3 = sinkRegSlot(ins.operand3)
+        if r1 >= 0 {
+            if r1 < slots { useCount[r1] = sinkGetInt(useCount, r1) + 1 }
+        }
+        if r2 >= 0 {
+            if r2 < slots { useCount[r2] = sinkGetInt(useCount, r2) + 1 }
+        }
+        if r3 >= 0 {
+            if r3 < slots { useCount[r3] = sinkGetInt(useCount, r3) + 1 }
         }
         i = i + 1
     }
-    func.instructions = rebuilt
+    var qual = []
+    k = 0
+    while k < slots {
+        qual.push(0)
+        k = k + 1
+    }
+    k = 0
+    while k < slots {
+        var good = 0
+        if sinkGetInt(defCount, k) == 1 {
+            if sinkGetInt(useCount, k) == 1 {
+                if sinkGetInt(movable, k) == 1 { good = 1 }
+            }
+        }
+        qual[k] = good
+        k = k + 1
+    }
+    return qual
+}
+
+// One operand of one instruction: the motion it proves, or -1.
+// lastBar is the newest barrier at an index below useIdx, so
+// lastBar < defIdx is exactly regionClear(defIdx, useIdx) with no
+// rescan of the region.
+fn sinkTryOperand(useIdx: int, op: IRValue, qual: list, lastDef: list, lastBar: int) -> int {
+    val reg = sinkRegSlot(op)
+    if reg < 0 { return - 1 }
+    if reg >= qual.len() { return - 1 }
+    if sinkGetInt(qual, reg) != 1 { return - 1 }
+    val defIdx = sinkGetInt(lastDef, reg)
+    if defIdx < 0 { return - 1 }
+    if defIdx >= useIdx { return - 1 }
+    if useIdx - defIdx <= 1 { return - 1 }
+    if lastBar >= defIdx { return - 1 }
+    return useIdx * 65536 + defIdx
 }
 
 // One motion per call: returns useIdx * 65536 + defIdx, or -1.
-fn sinkOne(func: IRFunction) -> int {
+// qual is the per-function proof; lastDef is rewritten here because
+// motion relocates definitions, so it is rebuilt every round. The
+// sweep is left to right: a definition recorded at this index still
+// counts against a use in the same instruction, and the barrier at
+// this index only arms the NEXT instruction, which is what
+// regionClear(defIdx, useIdx) asks for.
+fn sinkOne(func: IRFunction, qual: list, lastDef: list) -> int {
+    val slots = qual.len()
+    var k = 0
+    while k < slots {
+        lastDef[k] = -1
+        k = k + 1
+    }
     var ui = 0
+    var lastBar = -1
     while ui < func.instructions.len() {
-        val useInstr: IRInstruction = func.instructions.get(ui)
-        val ops = [useInstr.operand1, useInstr.operand2, useInstr.operand3]
-        var oi = 0
-        while oi < 3 {
-            val op: IRValue = ops.get(oi)
-            match op {
-                IRValue.Register(r) => {
-                    var defs = 0
-                    var defIdx = -1
-                    var i = 0
-                    while i < func.instructions.len() {
-                        val ins: IRInstruction = func.instructions.get(i)
-                        if ins.dest == r.value {
-                            defs = defs + 1
-                            defIdx = i
-                        }
-                        i = i + 1
-                    }
-                    if defs == 1 && defIdx >= 0 && defIdx < ui && ui - defIdx > 1 {
-                        val def: IRInstruction = func.instructions.get(defIdx)
-                        match def.opcode {
-                            IROpcode.load_const => {
-                                if isMovableConst(def.operand1) && countRegUses(func, r.value) == 1 && regionClear(func, defIdx, ui) {
-                                    return ui * 65536 + defIdx
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-            oi = oi + 1
+        val ins: IRInstruction = func.instructions.get(ui)
+        val d = ins.dest
+        if d >= 0 {
+            if d < slots { lastDef[d] = ui }
         }
+        val m1 = sinkTryOperand(ui, ins.operand1, qual, lastDef, lastBar)
+        if m1 >= 0 { return m1 }
+        val m2 = sinkTryOperand(ui, ins.operand2, qual, lastDef, lastBar)
+        if m2 >= 0 { return m2 }
+        val m3 = sinkTryOperand(ui, ins.operand3, qual, lastDef, lastBar)
+        if m3 >= 0 { return m3 }
+        if isBarrierOp(ins.opcode) { lastBar = ui }
         ui = ui + 1
     }
     return - 1
+}
+
+// Relocates one instruction in place: the definition lands directly
+// before its use, everything between shifts down by one slot, and the
+// element order matches the rebuild this replaces.
+fn moveInstrBefore(func: IRFunction, defIdx: int, useIdx: int) {
+    val def: IRInstruction = func.instructions.get(defIdx)
+    var i = defIdx
+    while i < useIdx - 1 {
+        func.instructions[i] = func.instructions.get(i + 1)
+        i = i + 1
+    }
+    func.instructions[useIdx - 1] = def
 }
 
 fn isZero(v: IRValue) -> bool {
@@ -424,8 +504,14 @@ fn optimizeFunction(func: IRFunction) -> OptStats {
     }
     var span = 0
     var rounds = 0
+    val slots = sinkSlotCount(func)
+    val qual = sinkBuildQual(func, slots)
+    var lastDef = []
+    while lastDef.len() < slots {
+        lastDef.push(-1)
+    }
     while rounds < 256 {
-        val motion = sinkOne(func)
+        val motion = sinkOne(func, qual, lastDef)
         if motion < 0 { break }
         val useIdx = motion / 65536
         val defIdx = motion - useIdx * 65536

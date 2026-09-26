@@ -30,6 +30,7 @@ import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+from orbit_routes import RoutePathError, normalize_route_path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NIGHT_LOAD = os.path.join(ROOT, "scripts", "night_load.py")
@@ -45,6 +46,10 @@ def get(url, timeout=5.0):
         return e.code, e.headers.get("Retry-After"), e.read()
     except Exception as e:
         return "err:%s" % e, None, b""
+
+
+def url_for(host, port, path):
+    return "http://%s:%d%s" % (host, port, normalize_route_path(path))
 
 
 def phase_a(args):
@@ -75,7 +80,7 @@ def phase_a(args):
 
 
 def phase_b(args):
-    url = "http://%s:%d%s" % (args.host, args.port, args.burst_path)
+    url = url_for(args.host, args.port, args.burst_path)
     ok200 = 0
     deny429 = 0
     retry_after = None
@@ -111,7 +116,7 @@ def phase_b(args):
 
 def phase_c(args):
     time.sleep(2.0)
-    url = "http://%s:%d%s" % (args.host, args.port, args.burst_path)
+    url = url_for(args.host, args.port, args.burst_path)
     results = [get(url)[0] for _ in range(5)]
     ok = all(s == 200 for s in results)
     if ok:
@@ -131,6 +136,14 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if not args.burst_path:
         args.burst_path = args.path
+    # Repair routes before anything opens a socket: under Git Bash a leading
+    # slash arrives as a Windows path (scripts/orbit_routes.py).
+    try:
+        args.path = normalize_route_path(args.path, what="--path")
+        args.burst_path = normalize_route_path(args.burst_path, what="--burst-path")
+    except RoutePathError as e:
+        out.fail("Failed: %s" % e)
+        return 2
     a = phase_a(args)
     b = phase_b(args) if a else False
     c = phase_c(args) if b else False

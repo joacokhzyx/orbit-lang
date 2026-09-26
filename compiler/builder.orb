@@ -1786,7 +1786,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     // Regular function call. Evaluate every argument first so a
                     // nested call (arg[i] is itself a call) cannot steal the
                     // pending .arg instructions of this call. Literals are
-                    // passed as constant operands (like the Zig frontend) so
+                    // passed as constant operands so
                     // the C backend inlines them; buildExpr would materialize
                     // them into load_const registers.
                     val argVals = []

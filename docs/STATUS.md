@@ -7,7 +7,7 @@ This document is a dated project snapshot. It is intended to answer "what is tru
 
 ## Executive Summary
 
-Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from committed canonical C without Zig.
+Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with any C compiler.
 
 The project is past the bootstrap proof-of-concept stage. Its mission is to help software do more work with fewer CPU cycles, less memory, and lower energy use. The next challenge is to make that goal measurable while tightening compiler parity, reducing unsafe type degradation in generated C, defining the public language contract, and making the runtime observable and operationally predictable.
 
@@ -16,7 +16,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Area | Current status | Evidence |
 |---|---|---|
 | Self-hosted compiler | Available | `compiler/*.orb`, `compiler/main.orb` |
-| Zig-free bootstrap | Available | `scripts/build_selfhost.py`, `scripts/verify_seed.py` |
+| Bootstrap from committed C | Available | `scripts/build_selfhost.py`, `scripts/verify_seed.py` |
 | Canonical C trust root | Committed and verified by the project workflow | `compiler/selfhost/stage3.exe.c` |
 | C code generation | Primary backend | `compiler/c_backend.orb`, `runtime/` |
 | HTTP service runtime | Available for supported service features | `runtime/http.c`, `lib/net.orb`, examples |
@@ -33,7 +33,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 
 ## Verification Workflow
 
-The supported development workflow is C compiler plus Python. Zig is not required for build, verification, installation, or release of the self-hosted compiler.
+The supported development workflow is a C compiler plus a stock `python3`. Nothing else is required for build, verification, installation, or release of the self-hosted compiler.
 
 From the repository root:
 
@@ -54,7 +54,7 @@ The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the sel
 **Priority:** P0  
 **Status:** active
 
-The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity surface. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds run ~10 s with ~300 MB peaks after the codegen buffer work.
+The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity surface. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds of `compiler/main.orb` run in about 35 s wall on a two-core box, and the self-host chain (`verify_seed.py`) in 10-27 s depending on cache state; see [PERF.md](PERF.md) for the measured before/after and the commands.
 
 Key work:
 

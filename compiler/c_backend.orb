@@ -13,10 +13,15 @@ model CBackend {
     declVars: list
     usedRegs: list
     refLabels: list
+    defIdxFunc: IRFunction
+    defIdxNames: list
+    defIdxInsts: list
+    defIdxRegInst: list
+    defIdxRegVerdict: list
 }
 
 fn initCBackend(module: IRModule) -> CBackend {
-    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [])
+    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [], initIRFunction(""), [], [], [], [])
 }
 
 fn listContainsStr(items: list, value: string) -> bool {
@@ -2680,13 +2685,80 @@ fn feBuildTimeCallType(name: string) -> string {
     return "unknown"
 }
 
-fn operandFeFirstPrescanType(func: IRFunction, op2: IRValue) -> string {
-    match op2 {
-        IRValue.Register(reg) => {
-            var di = 0
-            while di < func.instructions.len() {
-                val inst: IRInstruction = func.instructions.get(di)
-                if inst != NULL && inst.dest == reg.value {
+// Per-function instruction index behind variableDefType,
+// operandFeFirstPrescanType and registerVarDefType.
+//
+// All three used to rescan the whole instruction list of the function on
+// every call, and variableDefType nested the second scan inside the first
+// (one self-build: 61440 variableDefType calls, ~530 instructions walked
+// each). The index records the only two instruction-derived facts those
+// walks were looking for, once per emitted function:
+//   * defIdxNames/defIdxInsts: the FIRST decl_var/store_var instruction per
+//     variable name. Those walks returned on the first such instruction and
+//     skipped every other opcode, so "first instruction with this name whose
+//     opcode is decl_var/store_var" is exactly what the scan found.
+//   * defIdxRegInst/defIdxRegVerdict: the FIRST instruction defining each
+//     register, plus the answer operandFeFirstPrescanType produced for it:
+//     "unknown" when that instruction is a call the frontend cannot type
+//     (feBuildTimeCallType answers "unknown"/"void"), "" in every other case
+//     and for a register nothing defines.
+//
+// Invalidation: every entry is a pure function of func.instructions, which
+// codegen only reads (the optimizer passes run to completion before
+// generateC is entered and nothing mutates the IR afterwards), and the index
+// is rebuilt whenever the function it describes is not the one the caller
+// asked about. What is deliberately NOT cached is the type those queries
+// return: operandDefType still reads func.registerTypes on every call, and
+// inferRegisterTypes/emitInstruction rewrite registerTypes as they walk the
+// function, so a memoized type string would answer with a pre-mutation type
+// and change the emitted C.
+fn ensureDefIndex(backend: CBackend, func: IRFunction) {
+    if backend == NULL { return }
+    if backend.defIdxFunc == func { return }
+    backend.defIdxFunc = func
+    backend.defIdxNames = []
+    backend.defIdxInsts = []
+    backend.defIdxRegInst = []
+    backend.defIdxRegVerdict = []
+    if func == NULL { return }
+    var i = 0
+    while i < func.instructions.len() {
+        val inst: IRInstruction = func.instructions.get(i)
+        if inst != NULL {
+            var isDef = false
+            match inst.opcode {
+                IROpcode.decl_var => { isDef = true }
+                IROpcode.store_var => { isDef = true }
+                _ => {}
+            }
+            if isDef {
+                var cname = ""
+                match inst.operand1 {
+                    IRValue.Sym(s) => { cname = s.value }
+                    IRValue.String(s) => { cname = s.value }
+                    _ => {}
+                }
+                var seen = false
+                var j = 0
+                while j < backend.defIdxNames.len() {
+                    if backend.defIdxNames.get(j) == cname { seen = true }
+                    j = j + 1
+                }
+                if seen == false {
+                    backend.defIdxNames.push(cname)
+                    backend.defIdxInsts.push(inst)
+                }
+            }
+            val rd = inst.dest
+            if rd >= 0 {
+                while backend.defIdxRegInst.len() <= rd {
+                    backend.defIdxRegInst.push(NULL)
+                    backend.defIdxRegVerdict.push("")
+                }
+                val firstDef: IRInstruction = backend.defIdxRegInst.get(rd)
+                if firstDef == NULL {
+                    backend.defIdxRegInst[rd] = inst
+                    var verdict = ""
                     match inst.opcode {
                         IROpcode.call => {
                             var cn = ""
@@ -2697,14 +2769,54 @@ fn operandFeFirstPrescanType(func: IRFunction, op2: IRValue) -> string {
                             }
                             if cn != "" {
                                 val bt = feBuildTimeCallType(cn)
-                                if bt == "unknown" || bt == "void" { return "unknown" }
+                                if bt == "unknown" || bt == "void" { verdict = "unknown" }
                             }
                         }
                         _ => {}
                     }
-                    return ""
+                    backend.defIdxRegVerdict[rd] = verdict
                 }
-                di = di + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+// Position of the first decl_var/store_var for `vn` in the index, or -1.
+// A NULL backend cannot own an index and is answered "not found"; every
+// caller reaches this with a live backend (storeCastFor dereferences
+// backend.currentFunction to get there, and the two call sites that guard
+// against NULL do so before calling).
+fn defIndexForName(backend: CBackend, func: IRFunction, vn: string) -> int {
+    if backend == NULL { return - 1 }
+    ensureDefIndex(backend, func)
+    var j = 0
+    while j < backend.defIdxNames.len() {
+        if backend.defIdxNames.get(j) == vn { return j }
+        j = j + 1
+    }
+    return - 1
+}
+
+// First instruction defining `regId`, or NULL when the register has none.
+fn firstDefInstForReg(backend: CBackend, func: IRFunction, regId: int) -> IRInstruction {
+    if backend == NULL || regId < 0 { return NULL }
+    ensureDefIndex(backend, func)
+    if regId < backend.defIdxRegInst.len() {
+        return backend.defIdxRegInst.get(regId)
+    }
+    return NULL
+}
+
+fn operandFeFirstPrescanType(backend: CBackend, func: IRFunction, op2: IRValue) -> string {
+    match op2 {
+        IRValue.Register(reg) => {
+            val rv = reg.value
+            if rv >= 0 {
+                ensureDefIndex(backend, func)
+                if backend != NULL && rv < backend.defIdxRegVerdict.len() {
+                    return backend.defIdxRegVerdict.get(rv)
+                }
             }
         }
         _ => {}
@@ -2735,39 +2847,15 @@ fn isFloatArgReg(backend: CBackend, argStr: string) -> bool {
 }
 
 fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {
-    var di = 0
-    while di < func.instructions.len() {
-        val inst: IRInstruction = func.instructions.get(di)
-        if inst != NULL {
-            var cname = ""
-            match inst.operand1 {
-                IRValue.Sym(s) => { cname = s.value }
-                IRValue.String(s) => { cname = s.value }
-                _ => {}
-            }
-            if cname == vn {
-                match inst.opcode {
-                    IROpcode.decl_var => {
-                        val fb = operandFeFirstPrescanType(func, inst.operand2)
-                        if fb == "unknown" {
-                            if vn == "test_name" || vn == "msg" || vn == "message" || vn == "name" || vn == "path" || vn == "url" || vn == "cmd" { return "string" }
-                            return "usize"
-                        }
-                        return operandDefType(func, inst.operand2)
-                    }
-                    IROpcode.store_var => {
-                        val fb = operandFeFirstPrescanType(func, inst.operand2)
-                        if fb == "unknown" {
-                            if vn == "test_name" || vn == "msg" || vn == "message" || vn == "name" || vn == "path" || vn == "url" || vn == "cmd" { return "string" }
-                            return "usize"
-                        }
-                        return operandDefType(func, inst.operand2)
-                    }
-                    _ => {}
-                }
-            }
+    val di = defIndexForName(backend, func, vn)
+    if di >= 0 {
+        val inst: IRInstruction = backend.defIdxInsts.get(di)
+        val fb = operandFeFirstPrescanType(backend, func, inst.operand2)
+        if fb == "unknown" {
+            if vn == "test_name" || vn == "msg" || vn == "message" || vn == "name" || vn == "path" || vn == "url" || vn == "cmd" { return "string" }
+            return "usize"
         }
-        di = di + 1
+        return operandDefType(func, inst.operand2)
     }
     return "unknown"
 }
@@ -2828,29 +2916,24 @@ fn operandDefType(func: IRFunction, op2: IRValue) -> string {
 }
 
 fn registerVarDefType(backend: CBackend, func: IRFunction, regId: int) -> string {
-    var di = 0
-    while di < func.instructions.len() {
-        val inst: IRInstruction = func.instructions.get(di)
-        if inst != NULL && inst.dest == regId {
-            match inst.opcode {
-                IROpcode.load_var => {
-                    var vn = ""
-                    match inst.operand1 {
-                        IRValue.Sym(s) => { vn = s.value }
-                        IRValue.String(s) => { vn = s.value }
-                        _ => {}
-                    }
-                    if vn != "" {
-                        val t = variableDefType(backend, func, vn)
-                        if t != "unknown" { return t }
-                        if isStringVar(backend, vn) { return "string" }
-                    }
+    val inst = firstDefInstForReg(backend, func, regId)
+    if inst != NULL {
+        match inst.opcode {
+            IROpcode.load_var => {
+                var vn = ""
+                match inst.operand1 {
+                    IRValue.Sym(s) => { vn = s.value }
+                    IRValue.String(s) => { vn = s.value }
+                    _ => {}
                 }
-                _ => {}
+                if vn != "" {
+                    val t = variableDefType(backend, func, vn)
+                    if t != "unknown" { return t }
+                    if isStringVar(backend, vn) { return "string" }
+                }
             }
-            return "unknown"
+            _ => {}
         }
-        di = di + 1
     }
     return "unknown"
 }

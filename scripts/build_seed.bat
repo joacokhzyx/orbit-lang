@@ -9,7 +9,6 @@ rem   1. %%ORBIT_CC%%  environment override (e.g. set ORBIT_CC=gcc)
 rem   2. gcc
 rem   3. clang
 rem   4. cl  (MSVC)
-rem   5. zig cc  (bundled clang)
 setlocal
 
 set ROOT=%~dp0..
@@ -33,7 +32,6 @@ if defined ORBIT_CC (
   where gcc >nul 2>nul && set CC=gcc
   if not defined CC ( where clang >nul 2>nul && set CC=clang )
   if not defined CC ( where cl >nul 2>nul && set CC=cl )
-  if not defined CC ( where zig >nul 2>nul && set CC=zig)
 )
 
 if not defined CC (
@@ -42,9 +40,7 @@ if not defined CC (
 )
 
 echo [seed] compiler: %CC%
-if "%CC%"=="zig" (
-  zig cc -O2 -w -Wno-int-conversion -Wno-incompatible-pointer-types -o "%SEED_OUT%" "%SEED_SRC%" || exit /b 1
-) else if "%CC%"=="cl" (
+if "%CC%"=="cl" (
   cl /nologo /O2 /W0 /Fe"%SEED_OUT%" "%SEED_SRC%" || exit /b 1
 ) else (
   %CC% -O2 -w -Wno-int-conversion -Wno-incompatible-pointer-types -o "%SEED_OUT%" "%SEED_SRC%" || exit /b 1

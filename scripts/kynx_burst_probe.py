@@ -21,6 +21,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+from orbit_routes import RoutePathError, normalize_route_path
 
 lock = Counter()
 
@@ -47,6 +48,11 @@ def main() -> int:
     ap.add_argument("--strict", action="store_true",
                     help="fail if NO 429 observed even when budget not exhausted")
     args = ap.parse_args()
+    try:
+        args.path = normalize_route_path(args.path, what="--path")
+    except RoutePathError as e:
+        out.fail("Failed: %s" % e)
+        return 2
 
     threads = []
     for i in range(args.requests):

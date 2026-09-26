@@ -68,8 +68,8 @@ rule below.
 
 Energy is reported in joules only where sensors exist (Linux
 RAPL). On Windows the honest proxy is CPU time plus memory -
-never converted to joules with a universal factor. The benchmark
-guide (`docs/guides/benchmark-methodology.md`) enforces this.
+never converted to joules with a universal factor. The measurement
+record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 
 ## No p50/p99 yet
 

@@ -67,8 +67,6 @@ def detect_cc():
     for cand in ("gcc", "clang", "cc"):
         if shutil.which(cand):
             return cand
-    if shutil.which("zig"):
-        return "zig cc"
     return "gcc"
 
 
@@ -268,7 +266,7 @@ def _posix_child_pids(root_pid):
 
 
 def is_cc_name(exe_lower):
-    for token in ("cc1", "cc1plus", "gcc", "clang", "zig", "collect2", "ld", "as", "cl", "link"):
+    for token in ("cc1", "cc1plus", "gcc", "clang", "collect2", "ld", "as", "cl", "link"):
         if token in exe_lower:
             return True
     return False

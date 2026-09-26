@@ -100,7 +100,7 @@ uint64_t         orbit_kynx_get_total_blocked(void);
 ## Verifying it yourself
 
 ```sh
-python scripts/build_selfhost.py --cc gcc --out orbit_fp      # Zig-free build
+python scripts/build_selfhost.py --cc gcc --out orbit_fp
 ./orbit_fp build examples/catalog_service.orb -o srv && ./srv # port 3000
 python scripts/kynx_burst_probe.py                            # burst -> expect 429s
 ```

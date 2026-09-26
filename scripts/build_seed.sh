@@ -9,7 +9,6 @@
 #   2. gcc
 #   3. clang
 #   4. cc
-#   5. zig cc  (bundled clang)
 set -e
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -35,8 +34,6 @@ elif command -v clang >/dev/null 2>&1; then
   CC=clang
 elif command -v cc >/dev/null 2>&1; then
   CC=cc
-elif command -v zig >/dev/null 2>&1; then
-  CC="zig cc"
 fi
 
 if [ -z "$CC" ]; then

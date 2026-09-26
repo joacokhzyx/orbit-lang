@@ -332,27 +332,52 @@ fn fmtHonorNewline(ptag: TokType, ntag: TokType, parenDepth: int, brackDepth: in
     return false
 }
 
-fn fmtIndentText(depth: int) -> string {
-    var out = ""
+// Appends one indent level per depth straight into the emitter's chunk
+// buffer. No intermediate string, so this is O(depth) and allocates nothing
+// per level the way `out = out + "    "` did.
+fn fmtIndentAppend(buf: string, depth: int) {
     var i = 0
     while i < depth {
-        out = out + "    "
+        orbit_cbuf_append_selfhost(buf, "    ")
         i = i + 1
     }
-    return out
+}
+
+// Appends text to buf with every CR dropped, one append per run of
+// non-CR characters instead of one arena allocation per character.
+fn fmtStripCRInto(buf: string, text: string) {
+    val n = text.len()
+    var i = 0
+    while i < n {
+        if text.at(i) == 13 {
+            i = i + 1
+        } else {
+            val start = i
+            while i < n && text.at(i) != 13 {
+                i = i + 1
+            }
+            orbit_cbuf_append_selfhost(buf, text.slice(start, i))
+        }
+    }
 }
 
 fn fmtStripCR(text: string) -> string {
-    var out = ""
+    val n = text.len()
     var i = 0
-    while i < text.len() {
-        val ch = text.at(i)
-        if ch != 13 {
-            out = out + text.slice(i, i + 1)
+    var hasCR = false
+    while i < n {
+        if text.at(i) == 13 {
+            hasCR = true
+            break
         }
         i = i + 1
     }
-    return out
+    if hasCR == false {
+        return text
+    }
+    val buf = orbit_cbuf_create_selfhost()
+    fmtStripCRInto(buf, text)
+    return orbit_cbuf_build_selfhost(buf)
 }
 
 fn fmtCollectTokens(source: string) -> list {
@@ -542,16 +567,16 @@ fn fmtCollectComments(source: string) -> list {
 }
 
 fn fmtEmitNL(st: FmtState, ind: int, blank: bool) {
-    st.out = st.out + "\n"
+    orbit_cbuf_append_selfhost(st.out, "\n")
     if blank {
-        st.out = st.out + "\n"
+        orbit_cbuf_append_selfhost(st.out, "\n")
     }
-    st.out = st.out + fmtIndentText(ind)
+    fmtIndentAppend(st.out, ind)
 }
 
 fn fmtEmitOneComment(st: FmtState, c: FmtComment) {
     if st.firstOut {
-        st.out = st.out + c.text
+        orbit_cbuf_append_selfhost(st.out, c.text)
         st.firstOut = false
         st.curLine = c.endLine
         st.commentSincePrev = true
@@ -563,7 +588,8 @@ fn fmtEmitOneComment(st: FmtState, c: FmtComment) {
         return
     }
     if c.line == st.curLine {
-        st.out = st.out + " " + c.text
+        orbit_cbuf_append_selfhost(st.out, " ")
+        orbit_cbuf_append_selfhost(st.out, c.text)
         st.curLine = c.endLine
         st.commentSincePrev = true
         if c.endLine == c.line {
@@ -582,7 +608,7 @@ fn fmtEmitOneComment(st: FmtState, c: FmtComment) {
     } else {
         fmtEmitNL(st, st.depth, false)
     }
-    st.out = st.out + c.text
+    orbit_cbuf_append_selfhost(st.out, c.text)
     st.curLine = c.endLine
     st.commentSincePrev = true
     st.afterComment = false
@@ -624,26 +650,26 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
                     fmtEmitNL(st, 0, false)
                 }
             } else {
-                st.out = st.out + " "
+                orbit_cbuf_append_selfhost(st.out, " ")
             }
         } else {
             if st.afterComment && gap == 0 {
                 if ntag == TokType.CloseBrace {
-                    st.out = st.out + " "
+                    orbit_cbuf_append_selfhost(st.out, " ")
                 } else {
                     if ntag == TokType.CloseParen || ntag == TokType.CloseBracket || ntag == TokType.Dot || ntag == TokType.Comma || ntag == TokType.SemiColon {
-                        st.out = st.out + ""
+                        orbit_cbuf_append_selfhost(st.out, "")
                     } else {
-                        st.out = st.out + " "
+                        orbit_cbuf_append_selfhost(st.out, " ")
                     }
                 }
             } else {
                 if ntag == TokType.OpenBrace {
-                    st.out = st.out + " "
+                    orbit_cbuf_append_selfhost(st.out, " ")
                 } else {
                     if ntag == TokType.CloseBrace {
                         if ptag == TokType.OpenBrace && st.commentSincePrev == false {
-                            st.out = st.out + ""
+                            orbit_cbuf_append_selfhost(st.out, "")
                         } else {
                             if gap > 0 {
                                 var dd = st.depth - 1
@@ -652,7 +678,7 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
                                 }
                                 fmtEmitNL(st, dd, false)
                             } else {
-                                st.out = st.out + " "
+                                orbit_cbuf_append_selfhost(st.out, " ")
                             }
                         }
                     } else {
@@ -661,22 +687,22 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
                                 fmtEmitNL(st, st.depth, false)
                             } else {
                                 if st.closedEmpty {
-                                    st.out = st.out + " "
+                                    orbit_cbuf_append_selfhost(st.out, " ")
                                 } else {
                                     if st.closedSingle {
                                         fmtEmitNL(st, st.depth, false)
                                     } else {
-                                        st.out = st.out + " "
+                                        orbit_cbuf_append_selfhost(st.out, " ")
                                     }
                                 }
                             }
                         } else {
                             if (ptag == TokType.Comma || ptag == TokType.SemiColon) && (ntag == TokType.CloseParen || ntag == TokType.CloseBracket) {
-                                st.out = st.out + ""
+                                orbit_cbuf_append_selfhost(st.out, "")
                             } else {
                                 if ptag == TokType.Comma || ptag == TokType.SemiColon {
                                     if st.parenDepth > 0 || st.brackDepth > 0 {
-                                        st.out = st.out + " "
+                                        orbit_cbuf_append_selfhost(st.out, " ")
                                     } else {
                                         if gap > 0 {
                                             if gap >= 2 {
@@ -685,7 +711,7 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
                                                 fmtEmitNL(st, st.depth, false)
                                             }
                                         } else {
-                                            st.out = st.out + " "
+                                            orbit_cbuf_append_selfhost(st.out, " ")
                                         }
                                     }
                                 } else {
@@ -705,10 +731,10 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
                                                 fmtEmitNL(st, st.depth, false)
                                             }
                                         } else {
-                                            st.out = st.out + " "
+                                            orbit_cbuf_append_selfhost(st.out, " ")
                                         }
                                     } else {
-                                        st.out = st.out + ""
+                                        orbit_cbuf_append_selfhost(st.out, "")
                                     }
                                 }
                             }
@@ -718,7 +744,7 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
             }
         }
     }
-    st.out = st.out + tok.text
+    orbit_cbuf_append_selfhost(st.out, tok.text)
     st.firstOut = false
     st.afterComment = false
     st.commentSincePrev = false
@@ -779,7 +805,10 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
 }
 
 fn fmtEmitTokens(toks: list, comments: list) -> string {
-    val st = FmtState("", 1, 0, 0, 0, true, false, false, false, false, false, TokType.EOF, TokType.EOF, toks, comments, [], 0, 0)
+    // st.out carries a chunk-buffer handle, not text: the emitter only ever
+    // appends to it, and the real string is materialized once at the end.
+    val cbOut = orbit_cbuf_create_selfhost()
+    val st = FmtState(cbOut, 1, 0, 0, 0, true, false, false, false, false, false, TokType.EOF, TokType.EOF, toks, comments, [], 0, 0)
     while st.ti < st.toks.len() {
         val tok: Token = st.toks.get(st.ti)
         fmtEmitPending(st, tok.line, tok.col)
@@ -791,14 +820,15 @@ fn fmtEmitTokens(toks: list, comments: list) -> string {
         fmtEmitOneComment(st, c)
         st.ci = st.ci + 1
     }
-    if st.out == "" {
+    val out = orbit_cbuf_build_selfhost(st.out)
+    if out == "" {
         return ""
     }
-    val lastc = st.out.at(st.out.len() - 1)
+    val lastc = out.at(out.len() - 1)
     if lastc == 10 {
-        return st.out
+        return out
     }
-    return st.out + "\n"
+    return out + "\n"
 }
 
 fn fmtFormatSource(source: string) -> string {

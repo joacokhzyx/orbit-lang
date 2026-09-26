@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify self-host chain and emit the fixed-point compiler (SOVER-1, Zig-free)
+      - name: Verify self-host chain and emit the fixed-point compiler (SOVER-1)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
