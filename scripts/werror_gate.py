@@ -51,6 +51,11 @@ def run_probe(compiler, cc, name, src, expect, extra_flags=()):
                              "-o", str(exe)], capture_output=True, text=True, errors="replace",
                             cwd=str(ROOT))
         if p2.returncode != 0:
+            # TEMPORARY DIAGNOSTIC - revert
+            if os.environ.get("ORBIT_WERROR_FULL"):
+                print("=== FULL COMPILER OUTPUT for %s ===" % name)
+                print(p2.stdout + p2.stderr)
+                print("=== END FULL OUTPUT for %s ===" % name)
             return (name, "WERROR-FAIL", (p2.stdout + p2.stderr)[-600:])
         try:
             p3 = subprocess.run([str(exe)], capture_output=True, text=True, errors="replace",
