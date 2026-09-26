@@ -34,9 +34,9 @@ SETUP = {
     "fmt/messy.orb": "fn main( )->int{return 0}\n",
     # Whitespace only: no tokens, so normalising to empty is correct.
     "fmt/blank.orb": "   \n\n  \n",
-    # A function named after a C library symbol. `orbit check` reports this on
-    # stdout and `orbit build` on stderr, which is the current behaviour; the
-    # inconsistency is recorded as a debt row rather than changed here.
+    # A function named after a C library symbol. `orbit check` and `orbit build`
+    # both report this on stderr: diagnostics never go to stdout, so a script
+    # reading stdout sees only real output and artifacts (see DX-0).
     "reserved/read.orb": "fn read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return read(\"hi\")\n}\n",
     # The same program with a safe name, which must still build.
     "reserved/safe.orb": "fn orbit_read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return orbit_read(\"hi\")\n}\n",
@@ -45,7 +45,8 @@ SETUP = {
 CASES = [
     # (name, argv, exp_rc, stream, needle, absent)
     # stream: "out" (stdout), "err" (stderr), "any"; needle "" skips match.
-    # absent: text that must NOT appear on either stream ("" skips).
+    # absent: text that must NOT appear on either stream ("" skips), or scoped
+    #   to one stream as "out:<text>" / "err:<text>".
     ("help", ["--help"], 0, "out", "Usage:", ""),
     ("help-short", ["-h"], 0, "out", "Usage:", ""),
     ("version", ["--version"], 0, "out", "orbit 0.1.0-rc.2", ""),
@@ -86,12 +87,16 @@ CASES = [
     # the front end, with a diagnostic that names the collision and suggests a
     # rename. Previously this reached the C toolchain as "conflicting types for
     # 'read'" or a link error, with nothing in the Orbit output explaining it.
-    ("reserved-name-check", ["check", "reserved/read.orb"], 1, "out",
+    ("reserved-name-check", ["check", "reserved/read.orb"], 1, "err",
      "C library function name", ""),
     ("reserved-name-build", ["build", "reserved/read.orb", "-o", "r.exe"], 1, "err",
      "C library function name", ""),
-    ("reserved-name-suggests-rename", ["check", "reserved/read.orb"], 1, "out",
+    ("reserved-name-suggests-rename", ["check", "reserved/read.orb"], 1, "err",
      "orbit_read", ""),
+    # DX-0: stdout must stay clean when a check fails, so anything reading only
+    # stdout cannot mistake a failed check for a successful one.
+    ("check-failure-keeps-stdout-clean", ["check", "reserved/read.orb"], 1, "out",
+     "", "out:Semantic error"),
     ("reserved-name-safe-still-builds", ["build", "--quiet", "reserved/safe.orb", "-o", "s.exe"], 0, "out", "", "Semantic error"),
 ]
 
@@ -183,7 +188,15 @@ def one(compiler, work, name, argv, exp_rc, stream, needle, absent=""):
         ok_stream = (not needle) or (needle in se)
     else:
         ok_stream = (not needle) or (needle in (so + se))
-    ok_absent = (not absent) or (absent not in so and absent not in se)
+    # `absent` is scoped to one stream when written "out:<text>" / "err:<text>";
+    # bare text means it must not appear on either. This is what lets a case
+    # assert that stdout stays clean while the same text is on stderr.
+    if absent.startswith("out:"):
+        ok_absent = absent[4:] not in so
+    elif absent.startswith("err:"):
+        ok_absent = absent[4:] not in se
+    else:
+        ok_absent = (not absent) or (absent not in so and absent not in se)
     ok_json = True
     if name == "doctor-json" and p.returncode == 1:
         import json as _json

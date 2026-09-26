@@ -66530,12 +66530,12 @@ __attribute__((hot)) static orbit_bool checkSourceWithFile(orbit_string source, 
     __attribute__((unused)) orbit_int r_97 = 0;
     __attribute__((unused)) orbit_string r_98 = 0;
     __attribute__((unused)) orbit_string r_99 = 0;
-    __attribute__((unused)) void* r_100 = 0;
-    __attribute__((unused)) orbit_int r_101 = 0;
+    __attribute__((unused)) orbit_string r_100 = 0;
     __attribute__((unused)) orbit_int r_102 = 0;
     __attribute__((unused)) orbit_int r_103 = 0;
-    __attribute__((unused)) orbit_bool r_104 = 0;
+    __attribute__((unused)) orbit_int r_104 = 0;
     __attribute__((unused)) orbit_bool r_105 = 0;
+    __attribute__((unused)) orbit_bool r_106 = 0;
     __attribute__((unused)) uintptr_t parser;
     __attribute__((unused)) uintptr_t rawAST;
     __attribute__((unused)) uintptr_t diag;
@@ -66681,18 +66681,19 @@ label_4483:;
     r_97 = (orbit_int)(uintptr_t)(ei);
     { OrbitResult _lr = orbit_list_get(r_96, (size_t)(uintptr_t)(r_97)); r_98 = _lr.ok ? *(void**)_lr.value : NULL; }
     r_99 = orbit_string_concat(arena, "Semantic error: ", r_98);
-    print("%s", r_99);
-    r_101 = (orbit_int)(uintptr_t)(ei);
-    r_102 = (orbit_int)(uintptr_t)(1);
-    r_103 = (orbit_int)(uintptr_t)((uintptr_t)(r_101) + (uintptr_t)(r_102));
-    ei = (orbit_int)(uintptr_t)(r_103);
+    r_100 = orbit_string_concat(arena, r_99, "\n");
+    orbit_os_write_stderr_selfhost((orbit_string)(r_100));
+    r_102 = (orbit_int)(uintptr_t)(ei);
+    r_103 = (orbit_int)(uintptr_t)(1);
+    r_104 = (orbit_int)(uintptr_t)((uintptr_t)(r_102) + (uintptr_t)(r_103));
+    ei = (orbit_int)(uintptr_t)(r_104);
     goto label_4483;
 label_4484:;
-    r_104 = (orbit_int)(uintptr_t)(false);
-    return (orbit_int)(uintptr_t)(r_104);
-label_4481:;
-    r_105 = (orbit_int)(uintptr_t)(true);
+    r_105 = (orbit_int)(uintptr_t)(false);
     return (orbit_int)(uintptr_t)(r_105);
+label_4481:;
+    r_106 = (orbit_int)(uintptr_t)(true);
+    return (orbit_int)(uintptr_t)(r_106);
     return false;
 }
 

@@ -119,7 +119,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
     if hasErrors(sema) {
         var ei = 0
         while ei < sema.errors.len() {
-            print("Semantic error: " + sema.errors.get(ei))
+            orbit_os_write_stderr_selfhost("Semantic error: " + sema.errors.get(ei) + "\n")
             ei = ei + 1
         }
         return false
