@@ -583,6 +583,61 @@ fn checkReturn(sema: Sema, node: ASTNode) {
     }
 }
 
+// Only these can be interpolated. A model, list, map or result has no obvious
+// textual form, and guessing one is how a body ends up serving "[object]" or
+// garbage: better to refuse and let the author say what they mean.
+//
+// "unknown" is allowed through on purpose. Sema does not track the type of a
+// local bound to a literal, so `val n = 42` reads back as unknown, and
+// refusing it would make interpolation useless. It is not a hole: the backend
+// refines register types as it emits, and converts each value with the runtime
+// helper that matches the type it settled on.
+fn isInterpolatable(typeName: string) -> bool {
+    if typeName == "string" { return true }
+    if typeName == "int" { return true }
+    if typeName == "float" { return true }
+    if typeName == "bool" { return true }
+    if typeName == "unknown" { return true }
+    return false
+}
+
+fn isStringChunk(node: ASTNode) -> bool {
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "string_chunk" { return true }
+            return false
+        }
+        _ => { return false }
+    }
+}
+
+// Checking is separate from lowering on purpose. Sema runs first and knows the
+// types, so it is the only place that can say "cannot interpolate a model"; the
+// builder runs later, knows each value's register type, and picks the
+// conversion. Neither needs to wait for the other, and no AST rewriting is
+// needed to carry a type from one to the other.
+fn checkInterpolation(sema: Sema, node: ASTNode) -> bool {
+    match node {
+        ASTNode.Interp(ip) => {
+            var i = 0
+            var bad = 0
+            while i < ip.parts.len() {
+                val part = ip.parts.get(i)
+                if !isStringChunk(part) {
+                    val partType = inferType(sema, part)
+                    if !isInterpolatable(partType) {
+                        reportError(sema, "cannot interpolate a value of type '" + partType + "' in a string; only string, int, float and bool convert")
+                        bad = bad + 1
+                    }
+                }
+                i = i + 1
+            }
+            return bad == 0
+        }
+        _ => { return true }
+    }
+}
+
 fn inferType(sema: Sema, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(l) => {
@@ -598,6 +653,9 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             // A raw string is a string as far as the type system is concerned;
             // string_raw only exists to tell the lowering not to unescape it.
             if l.valType == "string_raw" { return "string" }
+            // Literal chunks of an interpolation are already their own ASTNode
+            // and are not reachable as a value, but keep them harmless.
+            if l.valType == "string_chunk" { return "string" }
             return l.valType
         }
         ASTNode.BinaryOp(b) => {
@@ -703,6 +761,10 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             }
             return "list"
         }
+        ASTNode.Interp(ip) => {
+            checkInterpolation(sema, node)
+            return "string"
+        }
         ASTNode.Try(tr) => {
             inferType(sema, tr.expr)
             match tr.catchBody {
@@ -781,6 +843,7 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.BinaryOp(b) => { inferType(sema, node) }
         ASTNode.UnaryOp(u) => { inferType(sema, node) }
         ASTNode.Literal(l) => {}
+        ASTNode.Interp(ip) => { checkInterpolation(sema, node) }
         ASTNode.Match(m) => { checkMatch(sema, node) }
         ASTNode.Call(c) => { inferType(sema, node) }
         ASTNode.MemberAccess(ma) => { inferType(sema, node) }

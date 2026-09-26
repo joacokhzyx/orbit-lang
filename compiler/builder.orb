@@ -1378,6 +1378,92 @@ fn isUnionTypeName(builder: IRBuilder, name: string) -> bool {
     return false
 }
 
+// ── String interpolation ──────────────────────────────────────────────
+//
+// "${...}" is a string with holes in it, and the whole feature is a chain of
+// string concatenations, because that is what the backend already emits for
+// `+` when one side is a string: stringifyConcatOperand converts the other
+// side with the runtime helper that matches its register type. So an
+// interpolated value is not converted here, only fed to `add` alongside a
+// string, which keeps interpolation and concatenation from drifting apart.
+//
+// One thing does need care: an interpolation that is a single expression and
+// no literal text, "${n}", would concatenate nothing and hand back whatever
+// type the expression had. Starting such a case from an empty string forces it
+// through the same string path, so the result is a string either way, and costs
+// one extra concat only in that case.
+
+// A literal chunk is not a value the program can name, so its text is resolved
+// here. isRaw decides whether that text is taken verbatim or unescaped first,
+// which is the only thing triple-quoting changes.
+fn interpChunkValue(node: ASTNode, isRaw: bool) -> string {
+    var text = ""
+    match node {
+        ASTNode.Literal(l) => { text = l.text }
+        _ => { return "" }
+    }
+    if isRaw { return text }
+    return unescapeStringBody(text)
+}
+
+fn isStringChunkNode(node: ASTNode) -> bool {
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "string_chunk" { return true }
+            return false
+        }
+        _ => { return false }
+    }
+}
+
+// A chunk becomes a string constant, which is a string register the backend
+// will concatenate without converting. An expression is built as-is and left
+// for `add` to stringify.
+fn buildInterpPart(builder: IRBuilder, node: ASTNode, isRaw: bool) -> int {
+    if !isStringChunkNode(node) { return buildExpr(builder, node) }
+    val chunkReg = ir_alloc_register(builder.currentFunction, "string")
+    val chunkInstr = ir_init_instr(IROpcode.load_const)
+    chunkInstr.dest = chunkReg
+    chunkInstr.operand1 = ir_string(interpChunkValue(node, isRaw))
+    ir_emit(builder.currentFunction, chunkInstr)
+    return chunkReg
+}
+
+fn buildInterpString(builder: IRBuilder, parts: list, isRaw: bool) -> int {
+    var acc = -1
+    var pi = 0
+    while pi < parts.len() {
+        val partReg = buildInterpPart(builder, parts.get(pi), isRaw)
+        if acc == -1 {
+            if isStringChunkNode(parts.get(pi)) {
+                acc = partReg
+            } else {
+                // A leading expression with no literal text in front of it:
+                // start from "" so the result is a string, not whatever type
+                // the expression happened to be.
+                acc = buildInterpPart(builder, ASTNode.Literal(LiteralNode("string_chunk", "")), isRaw)
+                val firstCat = ir_init_instr(IROpcode.add)
+                val firstReg = ir_alloc_register(builder.currentFunction, "string")
+                firstCat.dest = firstReg
+                firstCat.operand1 = ir_register(acc)
+                firstCat.operand2 = ir_register(partReg)
+                ir_emit(builder.currentFunction, firstCat)
+                acc = firstReg
+            }
+        } else {
+            val catReg = ir_alloc_register(builder.currentFunction, "string")
+            val catInstr = ir_init_instr(IROpcode.add)
+            catInstr.dest = catReg
+            catInstr.operand1 = ir_register(acc)
+            catInstr.operand2 = ir_register(partReg)
+            ir_emit(builder.currentFunction, catInstr)
+            acc = catReg
+        }
+        pi = pi + 1
+    }
+    return acc
+}
+
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     // Check if it's a method call (member access)
     match c.callee {
@@ -2072,6 +2158,9 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             // would have read the tag of a tag.
             return fieldReg
         }
+        ASTNode.Interp(ip) => {
+            return buildInterpString(builder, ip.parts, ip.isRaw)
+        }
         ASTNode.ListLiteral(ll) => {
             val elemCount = ll.elements.len()
             val listReg = ir_alloc_register(builder.currentFunction, "list")
@@ -2256,7 +2345,14 @@ fn rawStringValue(s: string) -> string {
 
 fn unescapeString(s: string) -> string {
     if s.len() < 2 { return s }
-    var inner = s.slice(1, s.len() - 1)
+    return unescapeStringBody(s.slice(1, s.len() - 1))
+}
+
+// The same rules as unescapeString, for text that is already just a body: a
+// chunk of an interpolated string, where the delimiters are elsewhere and
+// re-adding them would be wrong, since a chunk may legitimately end in a
+// backslash that would then escape the delimiter we made up.
+fn unescapeStringBody(inner: string) -> string {
     var out = ""
     var i = 0
     while i < inner.len() {

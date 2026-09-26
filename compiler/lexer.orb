@@ -39,6 +39,22 @@ fn isWhitespace(c: int) -> bool {
     return c == 32 || c == 9 || c == 13 || c == 10
 }
 
+// A "${" anywhere in a string literal body turns it into an interpolation.
+// The delimiters cannot contain "${", so scanning the whole token text is
+// enough, and nothing hides one: "\${" is a backslash followed by an
+// interpolation, not a literal "${". Deliberate, because the alternative is an
+// escape nobody remembers and a second thing to explain.
+fn hasInterpolation(text: string) -> bool {
+    var i = 0
+    while i + 1 < text.len() {
+        if orbit_string_char_at_selfhost(text, i) == 36 && orbit_string_char_at_selfhost(text, i + 1) == 123 { // '$' '{'
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fn isDigit(c: int) -> bool {
     return c >= 48 && c <= 57
 }
@@ -256,6 +272,9 @@ fn nextToken(lexer: Lexer) -> Token {
             }
             val rawText = lexer.source.slice(start, lexer.pos)
             if closed {
+                if hasInterpolation(rawText) {
+                    return Token(TokType.InterpStringLiteral, rawText, line, col)
+                }
                 return Token(TokType.RawStringLiteral, rawText, line, col)
             }
             return Token(TokType.Invalid, rawText, line, col)
@@ -271,6 +290,9 @@ fn nextToken(lexer: Lexer) -> Token {
             advance(lexer)
         }
         val textString = lexer.source.slice(start, lexer.pos)
+        if hasInterpolation(textString) {
+            return Token(TokType.InterpStringLiteral, textString, line, col)
+        }
         return Token(TokType.StringLiteral, textString, line, col)
     }
 

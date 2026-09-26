@@ -1,0 +1,62 @@
+// String interpolation: "${...}" inside a string literal, ordinary or
+// triple-quoted.
+//
+// The point of it is a JSON body with real values in it. Escaping handles the
+// quotes; interpolation handles the parts that are only known at runtime:
+//
+//     return ok 200 """{"uptime":${system.uptime()}}"""
+//
+// A hole is a string, an int, a float or a bool, and nothing else. A model or a
+// list has no obvious text, and printing a pointer's digits for it would be
+// worse than an error, so sema refuses those and says why.
+
+fn up() -> int {
+    return 7
+}
+
+// Each type, on its own and next to literal text.
+fn each_type() -> string {
+    val n = 42
+    val f = 1.5
+    val b = true
+    val s = "hola"
+    return "${n}|${f}|${b}|${s}|${up()}"
+}
+
+// A hole with no literal text in front of it is still a string, which is the
+// easy case to get wrong: "${n}" must not hand back the int.
+fn only_a_hole() -> string {
+    val n = 42
+    return "${n}"
+}
+
+// Triples are substituted inside a raw string too, and the raw part keeps its
+// backslashes and quotes exactly as written.
+fn raw_with_holes() -> string {
+    val n = 3
+    return """{"n":${n},"path":"C:\dir"}"""
+}
+
+// A "}" inside a string inside a hole must not close the hole early, which is
+// the whole reason the scanner tracks quotes instead of just counting braces.
+fn braces_inside() -> string {
+    val brace = "}"
+    return "[${brace}]"
+}
+
+fn main() -> int {
+    if each_type() != "42|1.5|true|hola|7" { return 1 }
+    if only_a_hole() != "42" { return 2 }
+    if raw_with_holes() != "{\"n\":3,\"path\":\"C:\\dir\"}" { return 3 }
+    if braces_inside() != "[}]" { return 6 }
+
+    // Concatenating an interpolated string is ordinary concatenation.
+    val joined = "pre-" + each_type()
+    if joined != "pre-42|1.5|true|hola|7" { return 4 }
+
+    // An ordinary string still processes escapes inside the literal parts,
+    // because only the holes are new: this one is a real tab.
+    val esc = "a\tb${1}"
+    if esc != "a\tb1" { return 5 }
+    return 0
+}

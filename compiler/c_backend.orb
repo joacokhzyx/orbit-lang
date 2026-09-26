@@ -703,27 +703,27 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
             if fInst != NULL && fInst.dest >= 0 && fInst.dest < func.registerTypes.len() {
                 match fInst.opcode {
                     IROpcode.add => {
-                        if operandDefType(func, fInst.operand1) == "float" || operandDefType(func, fInst.operand2) == "float" {
+                        if floatSpreads(func, fInst) {
                             func.registerTypes = setStrAt(func.registerTypes, fInst.dest, "float")
                         }
                     }
                     IROpcode.sub => {
-                        if operandDefType(func, fInst.operand1) == "float" || operandDefType(func, fInst.operand2) == "float" {
+                        if floatSpreads(func, fInst) {
                             func.registerTypes = setStrAt(func.registerTypes, fInst.dest, "float")
                         }
                     }
                     IROpcode.mul => {
-                        if operandDefType(func, fInst.operand1) == "float" || operandDefType(func, fInst.operand2) == "float" {
+                        if floatSpreads(func, fInst) {
                             func.registerTypes = setStrAt(func.registerTypes, fInst.dest, "float")
                         }
                     }
                     IROpcode.div => {
-                        if operandDefType(func, fInst.operand1) == "float" || operandDefType(func, fInst.operand2) == "float" {
+                        if floatSpreads(func, fInst) {
                             func.registerTypes = setStrAt(func.registerTypes, fInst.dest, "float")
                         }
                     }
                     IROpcode.neg => {
-                        if operandDefType(func, fInst.operand1) == "float" {
+                        if floatSpreads(func, fInst) {
                             func.registerTypes = setStrAt(func.registerTypes, fInst.dest, "float")
                         }
                     }
@@ -2927,6 +2927,41 @@ fn storeCastFor(backend: CBackend, vn: string) -> string {
         if last == "*" { return pointerStoreCast(backend, vn) }
     }
     return "(uintptr_t)"
+}
+
+// A float is contagious through arithmetic, but not through concatenation.
+// `add` doubles as string concatenation: the backend converts the non-string
+// side with stringifyConcatOperand and the result is a string. So an operand
+// that is a string, or a destination already known to be one, must not be
+// turned into a float here.
+//
+// Without this guard `"text: " + 1.5` declared its result orbit_float and then
+// assigned it a string, which the C compiler rejected; the fix makes both that
+// and string interpolation come out right.
+fn floatSpreads(func: IRFunction, inst: IRInstruction) -> bool {
+    if inst == NULL { return false }
+    if operandIsStringForFunc(func, inst.operand1) { return false }
+    if operandIsStringForFunc(func, inst.operand2) { return false }
+    if inst.dest >= 0 && inst.dest < func.registerTypes.len() {
+        if func.registerTypes.get(inst.dest) == "string" { return false }
+    }
+    return operandDefType(func, inst.operand1) == "float" || operandDefType(func, inst.operand2) == "float"
+}
+
+fn operandIsStringForFunc(func: IRFunction, op2: IRValue) -> bool {
+    match op2 {
+        IRValue.String(s) => {
+            if s.value.indexOf("TAG_") != -1 { return false }
+            return true
+        }
+        IRValue.Register(reg) => {
+            if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                return func.registerTypes.get(reg.value) == "string"
+            }
+        }
+        _ => {}
+    }
+    return false
 }
 
 fn operandDefType(func: IRFunction, op2: IRValue) -> string {

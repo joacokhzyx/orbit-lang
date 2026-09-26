@@ -85,6 +85,29 @@ Both forms are ordinary `string` values at runtime, so they concatenate and
 compare like anything else. An unterminated `"""` is reported as an error rather
 than silently swallowing the rest of the file.
 
+### Interpolation
+
+`${…}` inside a string is substituted, in both string forms. That is what
+handles the part of a body that is only known at runtime:
+
+```orbit
+val n = 3
+print("items: ${n}")
+return ok 200 """{"count":${n},"path":"C:\dir"}"""
+```
+
+Rules:
+
+- A hole may hold a **string, int, float or bool**. Anything else - a model, a
+  list, a map, a `result` - is a compile error rather than a guess, because
+  there is no text that is obviously right for it.
+- Braces nest and quotes are tracked, so `${ok("}")}` is an expression whose
+  argument is `}`, not a hole that ended early.
+- There is no escape for `$`. `\${` is a backslash followed by a hole.
+- `"${n}"` is a string, not the `int` it interpolates.
+- The result is an ordinary string and can be concatenated, compared or returned
+  like any other.
+
 ## Control flow
 
 Orbit supports `if` / `else`, `while`, an unconditional `loop`, and iteration
@@ -106,17 +129,26 @@ calls, member access, arrays, object literals, and string interpolation.
 
 ## Arrays and objects
 
-Array literals use brackets. Object literals use named fields.
+Array literals use brackets:
 
 ```orbit
 val ports = [8080, 8081]
-val service = { name: "api", healthy: true }
-print("${service.name} on ${ports[0]}")
+print("${ports[0]}")
 ```
 
-String literals support `\n`, `\t`, `\r`, `\"`, `\\`, and the byte
-escape `\xHH` with two hex digits (`"\x41"` is `"A"`, `"\x1b"` starts
-an ANSI sequence). Anything malformed stays literal.
+An ordinary string supports `\n`, `\t`, `\r`, `\"`, `\\`, and the byte escape
+`\xHH` with two hex digits (`"\x41"` is `"A"`, `"\x1b"` starts an ANSI
+sequence). Anything malformed stays literal.
+
+**Object literals do not exist yet.** `{ name: "api", healthy: true }` is a
+parse error in 0.1.0, and so is `${service.name}`. A named record is a
+[model](#variables-and-types), and the way to hand a JSON body back today is a
+[raw string with interpolation](#interpolation):
+
+```orbit
+val name = "api"
+return ok 200 """{"name":"${name}","port":${port}}"""
+```
 
 Collection APIs and their exact type coverage are still evolving. Keep business
 logic simple and cover it with application-level tests. If something you need isn't here, file an issue - I read everything.

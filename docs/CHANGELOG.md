@@ -13,6 +13,23 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **String interpolation**: `${…}` inside a string, ordinary or triple-quoted,
+  is substituted. Together with raw strings this is what lets a JSON body carry
+  real values without escaping: `ok 200 """{"count":${n}}"""`. A hole may hold a
+  string, int, float or bool; a model, list, map or `result` is a compile error
+  rather than a guess. Braces nest and quotes are tracked, so `${ok("}")}` is
+  not read as a hole that ended early. Pinned by
+  `tests/suite/interpolation.orb`, documented under
+  [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#interpolation).
+- `TokType.InterpStringLiteral` was already in the token enum with no producer
+  and no consumer, so `${...}` was documented but never built. It is built now.
+- `LANGUAGE_REFERENCE.md` claimed object literals (`{ name: "api" }`) and
+  field access (`${service.name}`) worked. Neither has ever compiled; the
+  section now says so and points at models and raw strings instead.
+- `"text: " + 1.5` produced C that the C compiler rejected: a pass that
+  propagates `float` through arithmetic also claimed the destination of an
+  `add`, and `add` is also string concatenation. A float no longer spreads
+  through a concatenation.
 - **Raw string literals**, triple-quoted like Python: `"""{"status":"ok"}"""`.
   No escapes are processed, so a JSON body no longer needs every quote doubled
   and a multi-line body can be written the way it is served. The first `"""`
