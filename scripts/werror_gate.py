@@ -52,7 +52,7 @@ def run_probe(compiler, cc, name, src, expect, extra_flags=()):
                             cwd=str(ROOT))
         if p2.returncode != 0:
             # TEMPORARY DIAGNOSTIC - revert
-            if os.environ.get("ORBIT_WERROR_FULL"):
+            if True:  # TEMPORARY DIAGNOSTIC - revert
                 print("=== FULL COMPILER OUTPUT for %s ===" % name)
                 print(p2.stdout + p2.stderr)
                 print("=== END FULL OUTPUT for %s ===" % name)
