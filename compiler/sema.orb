@@ -115,6 +115,45 @@ fn reservedCFunctionName(name: string) -> bool {
     return false
 }
 
+// The `orbit_` prefix belongs to the runtime, and reusing it fails in the most
+// confusing way available: `orbit check` passes, then the C compiler reports a
+// signature conflict against a runtime function the user never mentioned.
+// `fn orbit_string_concat(a: string, b: string)` is emitted as a definition of
+// `orbit_string_concat`, which the runtime already defines with an extra arena
+// parameter, so the error is "too many arguments to function" against a symbol
+// the program did not appear to call. `extern fn` is how the compiler itself
+// reaches the runtime, so declarations are exempt; only definitions collide.
+fn reservedRuntimePrefix(name: string) -> bool {
+    if name.len() < 6 { return false }
+    return name.slice(0, 6) == "orbit_"
+}
+
+// A `model` becomes a C struct under the user's own name, so a model named
+// after a C type or typedef collides with a declaration the program never
+// wrote. `model FILE` fails at C compile time with "conflicting types for
+// 'FILE'; have 'struct FILE'", which says nothing about the model. The runtime
+// prefix is excluded here too, because a model named `orbit_Foo` would
+// collide with a runtime type of that name just as a function would.
+fn reservedCTypeName(name: string) -> bool {
+    if reservedRuntimePrefix(name) { return true }
+    if name == "FILE" { return true }
+    if name == "size_t" { return true }
+    if name == "ssize_t" { return true }
+    if name == "ptrdiff_t" { return true }
+    if name == "intptr_t" { return true }
+    if name == "uintptr_t" { return true }
+    if name == "wchar_t" { return true }
+    if name == "time_t" { return true }
+    if name == "clock_t" { return true }
+    if name == "va_list" { return true }
+    if name == "fpos_t" { return true }
+    if name == "div_t" { return true }
+    if name == "ldiv_t" { return true }
+    if name == "sig_atomic_t" { return true }
+    if name == "jmp_buf" { return true }
+    return false
+}
+
 fn hasErrors(sema: Sema) -> bool {
     return sema.errors.len() > 0
 }
@@ -210,9 +249,18 @@ fn popScope(sema: Sema) {
     sema.currentScope = parentScope.parentId
 }
 
+fn checkModelName(sema: Sema, name: string) {
+    if reservedCTypeName(name) {
+        sema.currentFunction = name
+        reportError(sema, "'" + name + "' is a C type name and cannot be used as an Orbit model name; rename it (for example Orbit" + name + ")")
+        sema.currentFunction = ""
+    }
+}
+
 fn checkModelDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.ModelDecl(m) => {
+            checkModelName(sema, m.name)
             declareSymbol(sema, m.name, "model", false, false)
             var i = 0
             while i < m.fields.len() {
@@ -253,7 +301,11 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
             }
             if reservedCFunctionName(f.name) {
                 sema.currentFunction = f.name
-                reportError(sema, "'" + f.name + "' is a C library function name and cannot be used as an Orbit function name; rename it (for example orbit_" + f.name + ")")
+                reportError(sema, "'" + f.name + "' is a C library function name and cannot be used as an Orbit function name; rename it (for example user_" + f.name + ")")
+                sema.currentFunction = ""
+            } else if f.isExtern == false && reservedRuntimePrefix(f.name) {
+                sema.currentFunction = f.name
+                reportError(sema, "'" + f.name + "' starts with orbit_, which is reserved for the runtime; rename it (drop the prefix, or use a different one)")
                 sema.currentFunction = ""
             }
             declareSymbol(sema, f.name, returnType, false, true)
@@ -673,7 +725,7 @@ fn checkNode(sema: Sema, node: ASTNode) {
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
                 match decl {
-                    ASTNode.ModelDecl(m) => { declareSymbol(sema, m.name, "model", false, false) }
+                    ASTNode.ModelDecl(m) => { checkModelDecl(sema, decl) }
                     ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
                     _ => {}
                 }

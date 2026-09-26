@@ -39,7 +39,17 @@ SETUP = {
     # reading stdout sees only real output and artifacts (see DX-0).
     "reserved/read.orb": "fn read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return read(\"hi\")\n}\n",
     # The same program with a safe name, which must still build.
-    "reserved/safe.orb": "fn orbit_read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return orbit_read(\"hi\")\n}\n",
+    "reserved/safe.orb": "fn user_read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return user_read(\"hi\")\n}\n",
+    # `orbit_` is the runtime's prefix. Reusing it passed `orbit check` and
+    # then failed as a C signature conflict against a runtime function.
+    "reserved/prefix.orb": "fn orbit_my_helper(x: int) -> int {\n    return x + 1\n}\n\nfn main() -> int {\n    return orbit_my_helper(1)\n}\n",
+    # A model becomes a C struct under the user's name, so a C type name
+    # collided at C compile time with nothing pointing back at the model.
+    "reserved/model_c_type.orb": "model FILE {\n    x: int\n}\n\nfn main() -> int {\n    val f = FILE(1)\n    return f.x\n}\n",
+    # `extern fn` is how the compiler itself reaches the runtime, so the
+    # prefix reservation must not fire on declarations. Check-only: there is
+    # no such C symbol to link against.
+    "reserved/extern_prefix.orb": "extern fn orbit_absent_symbol(x: int) -> int\n\nfn main() -> int {\n    return 0\n}\n",
 }
 
 CASES = [
@@ -92,11 +102,17 @@ CASES = [
     ("reserved-name-build", ["build", "reserved/read.orb", "-o", "r.exe"], 1, "err",
      "C library function name", ""),
     ("reserved-name-suggests-rename", ["check", "reserved/read.orb"], 1, "err",
-     "orbit_read", ""),
+     "user_read", ""),
     # DX-0: stdout must stay clean when a check fails, so anything reading only
     # stdout cannot mistake a failed check for a successful one.
     ("check-failure-keeps-stdout-clean", ["check", "reserved/read.orb"], 1, "out",
      "", "out:Semantic error"),
+    ("orbit-prefix-rejected", ["check", "reserved/prefix.orb"], 1, "err",
+     "reserved for the runtime", ""),
+    ("c-type-model-rejected", ["check", "reserved/model_c_type.orb"], 1, "err",
+     "is a C type name", ""),
+    ("extern-prefix-allowed", ["check", "reserved/extern_prefix.orb"], 0, "out",
+     "no errors", "Semantic error"),
     ("reserved-name-safe-still-builds", ["build", "--quiet", "reserved/safe.orb", "-o", "s.exe"], 0, "out", "", "Semantic error"),
 ]
 
