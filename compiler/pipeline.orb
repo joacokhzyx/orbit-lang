@@ -367,15 +367,18 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     // analysis it enables is superlinear in emitted size. ORBIT_WARNINGS=0
     // turns it off, which is what the bootstrap sets; the strict gate is
     // scripts/werror_gate.py (-Werror on generated C), run in CI.
-    // The two -Wno-error= downgrades stay: GCC 14+ raises
-    // int-conversion and incompatible-pointer-types as errors by default, so
-    // without them a remaining instance breaks a user build instead of
-    // warning. They go away when the emitted C is fully -Werror clean.
+    // The -Wno-error=int-conversion and -Wno-error=incompatible-pointer-types
+    // downgrades that used to be here are gone. Both were needed on GCC 14+,
+    // which compiles them as errors by default, so one surviving instance
+    // would have broken a user build instead of warning. The emitted C is now
+    // clean for both classes on every program in examples/, tests/suite/ and
+    // tests/std/ and on the canonical unit, so a regression should fail loudly
+    // rather than be papered over.
     var warnFlags = " -Wall"
     if orbit_os_env_selfhost("ORBIT_WARNINGS") == "0" {
         warnFlags = ""
     }
-    var compCmd = cCompiler + " -s -O0" + warnFlags + " -Wno-error=int-conversion -Wno-error=incompatible-pointer-types " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
+    var compCmd = cCompiler + " -s -O0" + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
 
     val ccExtra = orbit_os_env_selfhost("ORBIT_CCFLAGS_EXTRA")
     if ccExtra != "" {

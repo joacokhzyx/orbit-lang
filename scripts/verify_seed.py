@@ -61,18 +61,17 @@ MAIN_ORB = os.path.join("compiler", "main.orb")
 # irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
 # -O2 links. The compiler's own internal invocations (pipeline.orb) already
 # use -O0.
-# -Wno-error= downgrades are load-bearing on GCC 14+ (int-conversion and
-# incompatible-pointer-types are errors by default there); without them any
-# remaining instance bricks the seed build instead of warning. Full -Werror
-# cleanliness is tracked by scripts/werror_gate.py (STAB-3), which is the
-# strict gate and runs in CI.
+# The -Wno-error=int-conversion / -Wno-error=incompatible-pointer-types
+# downgrades that used to be here are gone: the emitted C no longer produces
+# either diagnostic on any program in examples/, tests/suite/ or tests/std/, and
+# the canonical unit is -Wall clean. GCC 14+ treats both as errors, so keeping
+# the downgrades would only have hidden a regression. scripts/werror_gate.py
+# remains the strict gate.
 # -Wall is deliberately absent: on the 3.9 MB compiler unit it costs 23.8 s
-# against 3.7 s without it (5.7x, 2-core runner, gcc 13.3) and surfaces 89
-# warnings there, because the analysis it enables is superlinear in emitted
-# size. The fixed point is about emitted C bytes, not warnings; warnings are
-# werror_gate.py's job. Set ORBIT_BOOTSTRAP_WARNINGS=1 to restore it locally.
-SUPPRESS_FLAGS = ["-O0", "-Wno-error=int-conversion",
-                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"] + (
+# against 3.7 s without it (5.7x, 2-core runner, gcc 13.3). The fixed point is
+# about emitted C bytes, not warnings; warnings are werror_gate.py's job. Set
+# ORBIT_BOOTSTRAP_WARNINGS=1 to restore it locally.
+SUPPRESS_FLAGS = ["-O0", "-DORBIT_WITH_EXEC"] + (
     ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
 PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Published fixed-point contract for the current compiler source. The C hash is
@@ -80,7 +79,7 @@ PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by scripts/build_selfhost.py --promote,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "8C82116D815EFA114FD9AA1E2AC8ABE896C954D13207BDE775122A0CD1784467"
+PUBLISHED_C = "69DC8D88B9FC6C9A3657CB488162C960851A0986ADFBECACAE9A67E8E278DFFA"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says

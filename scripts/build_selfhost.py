@@ -66,8 +66,11 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # verification harness that recompiles this unit dozens of times per gate;
 # warnings are the business of scripts/werror_gate.py, which is the strict gate
 # and runs in CI. Set ORBIT_BOOTSTRAP_WARNINGS=1 to restore -Wall locally.
-SUPPRESS_FLAGS = ["-O0", "-Wno-error=int-conversion",
-                  "-Wno-error=incompatible-pointer-types", "-DORBIT_WITH_EXEC"] + (
+# No -Wno-error= downgrades: the emitted C is clean for both classes they used
+# to cover (int-conversion, incompatible-pointer-types) across the whole corpus,
+# so GCC 14+ compiling these as errors is no longer a hazard. A regression now
+# fails loudly here instead of being silently downgraded to a warning.
+SUPPRESS_FLAGS = ["-O0", "-DORBIT_WITH_EXEC"] + (
     ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
 
 # Low-memory profile: drop unwind tables and debug info so the multi-MB

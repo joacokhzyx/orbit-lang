@@ -1558,13 +1558,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
             }
             if hseen == false {
                 backend.declVars.push(hname)
-                val vType = variableDefType(backend, func, hname)
-                var cType = "uintptr_t"
-                if vType == "int" { cType = "orbit_int" }
-                else if vType == "string" { cType = "orbit_string" }
-                else if vType == "float" { cType = "orbit_float" }
-                else if vType == "bool" { cType = "orbit_bool" }
-                else if vType == "result" || vType == "Result" || vType == "OrbitResult" { cType = "OrbitResult" }
+                val cType = hoistedCType(backend, func, hname)
                 orbit_cbuf_append_selfhost(cbFn, "    __attribute__((unused)) " + cType + " " + hname + ";\n")
                 if orbit_string_len(hname) > 0 && hname.at(0) == 95 {
                     orbit_cbuf_append_selfhost(cbFn, "    (void)" + hname + ";\n")
@@ -2091,7 +2085,13 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
                 anyArg = true
                 val aStr = backend.callArgs.get(i)
-                if orbit_string_indexOf(aStr, "TAG_") != -1 {
+                if orbit_string_indexOf(aStr, "TAG_") != -1 && !isStringArg(backend, aStr) {
+                    // TAG_ marks an enum *constant* (TokType_TAG_OpenParen),
+                    // which is an integer. An argument already known to be a
+                    // string is not one, so it must fall through to the
+                    // type-directed path below: a `load_const` of a string
+                    // literal is a string, and truncating it to uintptr_t
+                    // hands a bare integer back to a string parameter.
                     callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
                 } else if isRouteRuntimeBuiltin(calleeName) {
                     callExpr = callExpr + aStr
@@ -2860,12 +2860,45 @@ fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {
     return "unknown"
 }
 
+// The C type a hoisted local is declared with. Pointer-typed locals are
+// deliberately declared `uintptr_t` and cast back at each use, so a
+// declaration that could not be resolved falls back to the integer type
+// rather than to `void*`: the emitter still needs the field owner's type
+// to lower `result.line` and friends.
+//
+// storeCastFor must consult this too. A store cast that disagrees with the
+// declaration is an implicit int/pointer conversion, which is exactly what
+// -Wint-conversion rejects.
+fn hoistedCType(backend: CBackend, func: IRFunction, vn: string) -> string {
+    val vType = variableDefType(backend, func, vn)
+    var cType = "uintptr_t"
+    if vType == "int" { cType = "orbit_int" }
+    else if vType == "string" { cType = "orbit_string" }
+    else if vType == "float" { cType = "orbit_float" }
+    else if vType == "bool" { cType = "orbit_bool" }
+    else if vType == "result" || vType == "Result" || vType == "OrbitResult" { cType = "OrbitResult" }
+    return cType
+}
+
+// The cast a store of a pointer-shaped value into `vn` needs. It has to
+// agree with the local's declared C type: a local hoisted as `uintptr_t`
+// (the representation for every pointer-typed local) needs the explicit
+// pointer-to-integer conversion, while a local declared as a real pointer
+// type takes `(void*)`. Handing a bare `(void*)` to a `uintptr_t` local is an
+// implicit int-from-pointer, which is what -Wint-conversion rejects.
+fn pointerStoreCast(backend: CBackend, vn: string) -> string {
+    if hoistedCType(backend, backend.currentFunction, vn) == "uintptr_t" { return "(uintptr_t)" }
+    return "(void*)"
+}
+
 fn storeCastFor(backend: CBackend, vn: string) -> string {
     val vType = variableDefType(backend, backend.currentFunction, vn)
     if vType == "float" { return "(orbit_float)" }
     if vType == "int" || vType == "bool" || isEnumType(backend, vType) { return "(orbit_int)(uintptr_t)" }
     if vType == "result" || vType == "Result" || vType == "OrbitResult" { return "" }
-    if vType == "string" || vType == "list" || vType == "map" || vType == "response" || vType == "tagged_union" || vType == "pointer" || vType == "mut_pointer" { return "(void*)" }
+    if vType == "string" || vType == "list" || vType == "map" || vType == "response" || vType == "tagged_union" || vType == "pointer" || vType == "mut_pointer" {
+        return pointerStoreCast(backend, vn)
+    }
     // Name heuristic last: vars ending in Id/id read as integers ONLY when
     // nothing is known about them. A known string (e.g. `val id =
     // req.param("id")`) must keep its pointer intact; the old order
@@ -2883,7 +2916,7 @@ fn storeCastFor(backend: CBackend, vn: string) -> string {
     val clen = orbit_string_len(cType)
     if clen > 0 {
         val last = orbit_string_slice(cType, clen - 1, clen)
-        if last == "*" { return "(void*)" }
+        if last == "*" { return pointerStoreCast(backend, vn) }
     }
     return "(uintptr_t)"
 }
