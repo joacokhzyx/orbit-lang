@@ -10,7 +10,17 @@
 #define ORBIT_INLINE_H
 
 #ifdef _MSC_VER
-    #define ORBIT_INLINE __forceinline
+    /* `static` is not optional here, and must lead: ORBIT_INLINE is used on
+     * definitions in .c files and in headers, and every branch has to agree on
+     * the linkage. Without it the MSVC/clang-cl path gave these functions
+     * external linkage while the file-static helpers they call (orbit_result_ok,
+     * orbit_result_err, orbit_perf_stats) stayed internal, which clang reports
+     * as "using static function/variable 'X' in an inline function with external
+     * linkage is a C2y extension" (-Wstatic-in-inline). That is a hard -Werror
+     * failure on Windows, where _MSC_VER is defined for clang itself, and it
+     * never shows up on gcc/Linux. Keep these three branches byte-identical in
+     * their linkage. */
+    #define ORBIT_INLINE static __forceinline
     #define ORBIT_NOINLINE __declspec(noinline)
     #define ORBIT_UNUSED
 #elif defined(__GNUC__) || defined(__clang__)
@@ -18,7 +28,7 @@
     #define ORBIT_NOINLINE __attribute__((noinline))
     #define ORBIT_UNUSED __attribute__((unused))
 #else
-    #define ORBIT_INLINE inline
+    #define ORBIT_INLINE static inline
     #define ORBIT_NOINLINE
     #define ORBIT_UNUSED
 #endif
