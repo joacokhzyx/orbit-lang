@@ -45,7 +45,74 @@ fn listContainsValue(items: list, value: string) -> bool {
 }
 
 fn reportError(sema: Sema, message: string) {
+    // Diagnostics raised outside a function body (a bad signature, for
+    // instance) have no enclosing name. An empty "[in ]" reads like a bug in
+    // the message, so omit the context instead of printing nothing.
+    if sema.currentFunction == "" {
+        sema.errors.push(message)
+        return
+    }
     sema.errors.push(message + " [in " + sema.currentFunction + "]")
+}
+
+// Function names the C backend cannot emit safely. A generated translation
+// unit has <stdio.h>, <stdlib.h>, <string.h>, <stdint.h> in scope, plus
+// <unistd.h>/<sys/socket.h> and friends on POSIX or <winsock2.h> on Windows,
+// and user functions are emitted under their own name (`static orbit_int
+// read(...)`). Naming a function after a C library symbol therefore produces
+// "conflicting types" from the C compiler, or a link error, and nothing in the
+// Orbit-level output explains why.
+//
+// The list is deliberately narrow: only symbols that are (a) plausible names
+// for a small user helper and (b) genuinely declared in that header set. A
+// user wanting a `read` helper should get one diagnostic naming the collision
+// and suggesting a rename, not a C toolchain message. The better long-term
+// answer is to mangle emitted user symbols so no name can ever collide; that
+// touches every call site in every program and is tracked as CODE-1.
+fn reservedCFunctionName(name: string) -> bool {
+    if name == "read" { return true }
+    if name == "write" { return true }
+    if name == "open" { return true }
+    if name == "close" { return true }
+    if name == "link" { return true }
+    if name == "unlink" { return true }
+    if name == "stat" { return true }
+    if name == "fstat" { return true }
+    if name == "access" { return true }
+    if name == "sleep" { return true }
+    if name == "usleep" { return true }
+    if name == "getpid" { return true }
+    if name == "getenv" { return true }
+    if name == "setenv" { return true }
+    if name == "system" { return true }
+    if name == "exit" { return true }
+    if name == "atexit" { return true }
+    if name == "abort" { return true }
+    if name == "malloc" { return true }
+    if name == "calloc" { return true }
+    if name == "realloc" { return true }
+    if name == "free" { return true }
+    if name == "index" { return true }
+    if name == "abs" { return true }
+    if name == "labs" { return true }
+    if name == "div" { return true }
+    if name == "remove" { return true }
+    if name == "rename" { return true }
+    if name == "tmpnam" { return true }
+    if name == "signal" { return true }
+    if name == "raise" { return true }
+    if name == "socket" { return true }
+    if name == "bind" { return true }
+    if name == "listen" { return true }
+    if name == "accept" { return true }
+    if name == "connect" { return true }
+    if name == "select" { return true }
+    if name == "htons" { return true }
+    if name == "htonl" { return true }
+    if name == "ntohs" { return true }
+    if name == "ntohl" { return true }
+    if name == "inet_addr" { return true }
+    return false
 }
 
 fn hasErrors(sema: Sema) -> bool {
@@ -183,6 +250,11 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
             var returnType = f.returnType
             if returnType == "" {
                 returnType = "void"
+            }
+            if reservedCFunctionName(f.name) {
+                sema.currentFunction = f.name
+                reportError(sema, "'" + f.name + "' is a C library function name and cannot be used as an Orbit function name; rename it (for example orbit_" + f.name + ")")
+                sema.currentFunction = ""
             }
             declareSymbol(sema, f.name, returnType, false, true)
         }

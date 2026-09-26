@@ -34,6 +34,12 @@ SETUP = {
     "fmt/messy.orb": "fn main( )->int{return 0}\n",
     # Whitespace only: no tokens, so normalising to empty is correct.
     "fmt/blank.orb": "   \n\n  \n",
+    # A function named after a C library symbol. `orbit check` reports this on
+    # stdout and `orbit build` on stderr, which is the current behaviour; the
+    # inconsistency is recorded as a debt row rather than changed here.
+    "reserved/read.orb": "fn read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return read(\"hi\")\n}\n",
+    # The same program with a safe name, which must still build.
+    "reserved/safe.orb": "fn orbit_read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return orbit_read(\"hi\")\n}\n",
 }
 
 CASES = [
@@ -76,6 +82,17 @@ CASES = [
     ("cluster-bogus", ["cluster", "bogus"], 2, "err", "unknown command", ""),
     ("cluster-status-nostate", ["cluster", "status"], 1, "out", "no state file", ""),
     ("frontend-noarg", ["frontend"], 2, "err", "Usage:", ""),
+    # A function name that collides with a C library symbol must be refused by
+    # the front end, with a diagnostic that names the collision and suggests a
+    # rename. Previously this reached the C toolchain as "conflicting types for
+    # 'read'" or a link error, with nothing in the Orbit output explaining it.
+    ("reserved-name-check", ["check", "reserved/read.orb"], 1, "out",
+     "C library function name", ""),
+    ("reserved-name-build", ["build", "reserved/read.orb", "-o", "r.exe"], 1, "err",
+     "C library function name", ""),
+    ("reserved-name-suggests-rename", ["check", "reserved/read.orb"], 1, "out",
+     "orbit_read", ""),
+    ("reserved-name-safe-still-builds", ["build", "--quiet", "reserved/safe.orb", "-o", "s.exe"], 0, "out", "", "Semantic error"),
 ]
 
 # Invariants that are about the tool's effect on disk rather than its exit
