@@ -1,0 +1,406 @@
+import "./lexer.orb"
+import "./parser.orb"
+import "./resolver.orb"
+import "./sema.orb"
+import "./builder.orb"
+import "./ir.orb"
+import "./optimizer.orb"
+import "./cteval.orb"
+import "./c_backend.orb"
+
+fn cteEnabled() -> bool {
+    return orbit_os_env_selfhost("ORBIT_NO_CTE") == ""
+}
+
+fn getSourceLine(source: string, lineNum: int) -> string {
+    if source == "" { return "" }
+    var curLine = 1
+    var start = 0
+    var i = 0
+    while i < orbit_string_len(source) {
+        if orbit_string_char_at_selfhost(source, i) == 10 {
+            if curLine == lineNum {
+                var slice = orbit_string_slice(source, start, i)
+                val sl = orbit_string_len(slice)
+                if sl > 0 && orbit_string_char_at_selfhost(slice, sl - 1) == 13 {
+                    slice = orbit_string_slice(slice, 0, sl - 1)
+                }
+                return slice
+            }
+            curLine = curLine + 1
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if curLine == lineNum {
+        var slice = orbit_string_slice(source, start, orbit_string_len(source))
+        val sl = orbit_string_len(slice)
+        if sl > 0 && orbit_string_char_at_selfhost(slice, sl - 1) == 13 {
+            slice = orbit_string_slice(slice, 0, sl - 1)
+        }
+        return slice
+    }
+    return ""
+}
+
+fn renderErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string) -> string {
+    var out = "\n"
+    out = out + "error[" + code + "]: " + message + "\n"
+    out = out + "  --> " + file + ":" + orbit_int_to_string_selfhost(line) + ":" + orbit_int_to_string_selfhost(col) + "\n"
+    out = out + "   |\n"
+    if sourceLine != "" {
+        var lineStr = orbit_int_to_string_selfhost(line)
+        if line < 10 {
+            lineStr = " " + lineStr
+        }
+        out = out + lineStr + " | " + sourceLine + "\n"
+        out = out + "   | "
+        var sp = 0
+        while sp < col - 1 {
+            out = out + " "
+            sp = sp + 1
+        }
+        out = out + "^-- here\n"
+        out = out + "   |\n"
+    }
+    out = out + "   = help: " + hint + "\n"
+    return out
+}
+
+fn reportErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, kind: string) {
+    val card = renderErrorCard(code, message, file, line, col, sourceLine, hint)
+    orbit_os_write_stderr_selfhost(card)
+    orbit_os_write_stderr_selfhost("\nERROR: " + kind + "\n")
+}
+
+// Phase memory report for ORBIT_MEM_REPORT=1. Zero cost when unset (one
+// getenv) and stderr-only, so build stdout and emitted artifacts are
+// untouched.
+fn reportMemStage(stage: string) {
+    if orbit_os_env_selfhost("ORBIT_MEM_REPORT") != "" {
+        orbit_os_write_stderr_selfhost("[mem] " + stage + " " + orbit_mem_report_selfhost() + "\n")
+    }
+}
+
+// Parse + resolve + typecheck only. No C is emitted and no C compiler
+// runs, so `orbit check` stays fast even on modest machines.
+fn checkSourceWithFile(source: string, inputPath: string) -> bool {
+    val parser = initParser(source)
+    val rawAST = parseProgram(parser)
+    if parser.diagnostics.len() > 0 {
+        val diag: ParserDiagnostic = parser.diagnostics.get(0)
+        if diag.code != "" {
+            val srcLine = getSourceLine(source, diag.line)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, "Check for missing brackets, quotes, or keywords before this token.", diag.kind)
+        } else {
+            var i = 0
+            while i < parser.diagnostics.len() {
+                val d: ParserDiagnostic = parser.diagnostics.get(i)
+                orbit_os_write_stderr_selfhost("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
+                i = i + 1
+            }
+        }
+        return false
+    }
+
+    val resolver = initModuleResolver()
+    val ast = resolveModuleAST(resolver, rawAST, inputPath)
+    if resolver.errors.len() > 0 {
+        var ri = 0
+        while ri < resolver.errors.len() {
+            orbit_os_write_stderr_selfhost("Import error: " + resolver.errors.get(ri) + "\n")
+            ri = ri + 1
+        }
+        return false
+    }
+
+    val sema = initSema()
+    analyze(sema, ast)
+    if hasErrors(sema) {
+        var ei = 0
+        while ei < sema.errors.len() {
+            orbit_os_write_stderr_selfhost("Semantic error: " + sema.errors.get(ei) + "\n")
+            ei = ei + 1
+        }
+        return false
+    }
+    return true
+}
+
+// Runtime headers travel with the compiler binary: prefer <bindir>/runtime
+// so `orbit build` (and `orbit cluster up`) work from any working
+// directory, falling back to the legacy relative "runtime" when the
+// binary's directory ships no headers.
+fn compilerRuntimeDir() -> string {
+    val selfDir = getDir(orbit_os_argv_selfhost(0))
+    if selfDir != "" {
+        val cand = selfDir + "/runtime"
+        if orbit_file_list_dir_selfhost(cand).len() > 0 {
+            return cand
+        }
+    }
+    return "runtime"
+}
+
+fn splitBuildLines(source: string) -> list {
+    var lines = []
+    var start = 0
+    var i = 0
+    val n = orbit_string_len(source)
+    while i < n {
+        if orbit_string_char_at_selfhost(source, i) == 10 {
+            lines.push(orbit_string_slice(source, start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        lines.push(orbit_string_slice(source, start, n))
+    }
+    return lines
+}
+
+fn replaceBuildToken(haystack: string, needle: string, replacement: string) -> string {
+    if needle == "" { return haystack }
+    var out = ""
+    var rest = haystack
+    while true {
+        val idx = orbit_string_indexOf(rest, needle)
+        if idx < 0 { break }
+        out = out + orbit_string_slice(rest, 0, idx) + replacement
+        rest = orbit_string_slice(rest, idx + orbit_string_len(needle), orbit_string_len(rest))
+    }
+    return out + rest
+}
+
+// The C step failed after Orbit's own phases passed. Explain what
+// happened in Orbit terms, show the scrubbed C log truncated, and
+// point at the full log plus the next step. Never dump raw toolchain
+// paths or generated-code internals without framing.
+fn reportCStepFailure(inputPath: string, cPath: string, rtDir: string, tmpDir: string, compOutput: string, verbose: bool) {
+    var logPath = "orbit_build.cc.log"
+    if tmpDir != "" {
+        logPath = tmpDir + "/orbit_build.cc.log"
+    }
+    val logOk = orbit_file_write_selfhost(logPath, compOutput)
+    // Scrub machine paths: the C file path in both slash flavors
+    // (toolchains render whichever they were given), and the runtime
+    // dir only when it is a real path (a bare "runtime" would also
+    // rewrite prose that merely names it).
+    var clean = replaceBuildToken(compOutput, cPath, "<build>")
+    clean = replaceBuildToken(clean, replaceBuildToken(cPath, "/", "\\"), "<build>")
+    if orbit_string_indexOf(rtDir, "/") != -1 {
+        clean = replaceBuildToken(clean, rtDir, "<runtime>")
+    }
+    if orbit_string_indexOf(rtDir, "\\") != -1 {
+        clean = replaceBuildToken(clean, rtDir, "<runtime>")
+    }
+    val lines = splitBuildLines(clean)
+    var limit = 25
+    if verbose {
+        limit = lines.len()
+    }
+    orbit_os_write_stderr_selfhost("orbit build: couldn't finish the C step - this one is on me, not your code.\n")
+    orbit_os_write_stderr_selfhost("  Your program translated cleanly; the C compiler rejected my output:\n")
+    var shown = 0
+    var li = 0
+    while li < lines.len() {
+        if shown >= limit { break }
+        orbit_os_write_stderr_selfhost("  " + lines.get(li) + "\n")
+        shown = shown + 1
+        li = li + 1
+    }
+    if lines.len() > shown {
+        orbit_os_write_stderr_selfhost("  ... " + orbit_int_to_string_selfhost(lines.len() - shown) + " more lines (full log: " + logPath + ")\n")
+    }
+    if logOk == false {
+        orbit_os_write_stderr_selfhost("  (couldn't write the full log to " + logPath + ")\n")
+    }
+    orbit_os_write_stderr_selfhost("  Tip: run `orbit check " + inputPath + "` first - if that passes, file an issue with the .orb file and I'll read it.\n")
+}
+
+fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool) -> bool {
+    val parser = initParser(source)
+    val rawAST = parseProgram(parser)
+    if parser.diagnostics.len() > 0 {
+        val diag: ParserDiagnostic = parser.diagnostics.get(0)
+        if diag.code != "" {
+            val srcLine = getSourceLine(source, diag.line)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, "Check for missing brackets, quotes, or keywords before this token.", diag.kind)
+        } else {
+            var i = 0
+            while i < parser.diagnostics.len() {
+                val d: ParserDiagnostic = parser.diagnostics.get(i)
+                orbit_os_write_stderr_selfhost("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
+                i = i + 1
+            }
+        }
+        return false
+    }
+
+    reportMemStage("parse")
+
+    val resolver = initModuleResolver()
+    val ast = resolveModuleAST(resolver, rawAST, inputPath)
+    if resolver.errors.len() > 0 {
+        var ri = 0
+        while ri < resolver.errors.len() {
+            orbit_os_write_stderr_selfhost("Import error: " + resolver.errors.get(ri) + "\n")
+            ri = ri + 1
+        }
+        return false
+    }
+    reportMemStage("resolve")
+
+    val sema = initSema()
+    analyze(sema, ast)
+    if hasErrors(sema) {
+        val firstErr = sema.errors.get(0)
+        if orbit_string_indexOf(firstErr, "Non-void function must return a value") != -1 {
+            reportErrorCard("return/missing-value", "Non-void function must return a value", "<unknown>", 1, 1, "", "Ensure type consistency and scope rules are satisfied.", "error.SemanticAnalysisFailed")
+        } else {
+            var ei = 0
+            while ei < sema.errors.len() {
+                orbit_os_write_stderr_selfhost("Semantic error: " + sema.errors.get(ei) + "\n")
+                ei = ei + 1
+            }
+        }
+        return false
+    }
+    reportMemStage("sema")
+
+    val builder = initIRBuilder()
+    val irModule = buildAST(builder, ast)
+    reportMemStage("build")
+
+    // Wave 0 STAB: both optimization passes honor the same kill switch
+    // (ORBIT_NO_CTE=1 skips them and emits pre-pass IR), and their
+    // counters are reported instead of dropped.
+    var optPatterns = 0
+    var cteFolds = 0
+    var optSpan = 0
+    if cteEnabled() {
+        val optStats = optimizeIRModule(irModule)
+        optPatterns = optStats.patterns_applied
+        optSpan = optStats.span_saved
+        cteFolds = cteOptimize(irModule)
+    }
+    if verbose {
+        print("opt: " + orbit_int_to_string_selfhost(optPatterns) + " patterns, " + orbit_int_to_string_selfhost(cteFolds) + " folds, span " + orbit_int_to_string_selfhost(optSpan))
+    }
+
+    val backend = initCBackend(irModule)
+    val cCode = generateC(backend)
+    reportMemStage("codegen")
+    val hasDb = moduleUsesDatabase(irModule)
+
+    // Use a constant intermediate-C filename: clang embeds the C file path in
+    // anonymous-struct names and type diagnostics, so a path derived from the
+    // output name (e.g. stage2.exe.c vs stage3.exe.c) would make the 3-stage
+    // bootstrap fixed-point comparison fail even though the code is identical.
+    var cPath = "orbit_selfhost_build.c"
+    // Honour every platform's temp variable, not just the Windows one, so a
+    // plain `orbit build` never littles a multi-megabyte C file into the
+    // user's working directory and two concurrent builds in one directory do
+    // not race on the same file.
+    var tmpDir = orbit_os_env_selfhost("TEMP")
+    if tmpDir == "" {
+        tmpDir = orbit_os_env_selfhost("TMPDIR")
+    }
+    if tmpDir == "" {
+        tmpDir = orbit_os_env_selfhost("TMP")
+    }
+    if tmpDir == "" {
+        tmpDir = orbit_os_temp_dir_selfhost()
+    }
+    if tmpDir != "" {
+        cPath = tmpDir + "/" + cPath
+    }
+
+    if orbit_file_write_selfhost(cPath, cCode) == false {
+        orbit_os_write_stderr_selfhost("orbit build: couldn't write the intermediate C file '" + cPath + "'.\n")
+        return false
+    }
+
+    var linkFlags = ""
+    val osName = orbit_os_env_selfhost("OS")
+    val winDir = orbit_os_env_selfhost("WINDIR")
+    if osName == "Windows_NT" || winDir != "" {
+        linkFlags = " -lws2_32"
+    }
+
+    // Sovereignty: the compiler never assumes a specific toolchain vendor.
+    // Resolution order: ORBIT_CC -> CC -> POSIX "cc" convention.
+    var cCompiler = orbit_os_env_selfhost("ORBIT_CC")
+    if cCompiler == "" {
+        cCompiler = orbit_os_env_selfhost("CC")
+    }
+    if cCompiler == "" {
+        cCompiler = "cc"
+    }
+
+    // ORBIT_SKIP_CC=1 emits the intermediate C and stops. The self-host
+    // bootstrap uses this: it needs the C to compare fixed points, and it
+    // compiles that C itself with known-good flags, so the compiler's own cc
+    // invocation is a redundant ~20 s compile of the same multi-megabyte unit.
+    // scripts/build_selfhost.py and scripts/verify_seed.py set it and tolerate
+    // the non-zero exit this returns.
+    if orbit_os_env_selfhost("ORBIT_SKIP_CC") != "" {
+        orbit_os_write_stderr_selfhost("orbit build: ORBIT_SKIP_CC set, wrote '" + cPath + "' without invoking the C compiler\n")
+        return true
+    }
+
+    val rtDir = compilerRuntimeDir()
+    var dbFlags = ""
+    val isWindowsHost = osName == "Windows_NT" || winDir != ""
+    if hasDb {
+        if isWindowsHost {
+            dbFlags = " -DORBIT_WITH_DB -I\"" + rtDir + "/vendor\" \"" + rtDir + "/vendor/win-x64/sqlite3.lib\""
+        } else {
+            dbFlags = " -DORBIT_WITH_DB -I\"" + rtDir + "/vendor\" -lsqlite3"
+        }
+    }
+
+    // Warning policy. -Wall is on by default so a human build surfaces
+    // diagnostics, but it is expensive on large outputs: measured on a
+    // multi-megabyte generated unit it costs 5.7x the compile time and the
+    // analysis it enables is superlinear in emitted size. ORBIT_WARNINGS=0
+    // turns it off, which is what the bootstrap sets; the strict gate is
+    // scripts/werror_gate.py (-Werror on generated C), run in CI.
+    // The -Wno-error=int-conversion and -Wno-error=incompatible-pointer-types
+    // downgrades that used to be here are gone. Both were needed on GCC 14+,
+    // which compiles them as errors by default, so one surviving instance
+    // would have broken a user build instead of warning. The emitted C is now
+    // clean for both classes on every program in examples/, tests/suite/ and
+    // tests/std/ and on the canonical unit, so a regression should fail loudly
+    // rather than be papered over.
+    var warnFlags = " -Wall"
+    if orbit_os_env_selfhost("ORBIT_WARNINGS") == "0" {
+        warnFlags = ""
+    }
+    var compCmd = cCompiler + " -s -O0" + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
+
+    val ccExtra = orbit_os_env_selfhost("ORBIT_CCFLAGS_EXTRA")
+    if ccExtra != "" {
+        compCmd = compCmd + " " + ccExtra
+    }
+    compCmd = compCmd + " 2>&1"
+    if verbose {
+        print("cc " + compCmd)
+    }
+    val compOutput = orbit_os_exec_selfhost(compCmd)
+    if compOutput != "" {
+        if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {
+            if compOutput.indexOf("not recognized") != -1 || compOutput.indexOf("not found") != -1 || compOutput.indexOf("no se reconoce") != -1 {
+                orbit_os_write_stderr_selfhost("C compiler '" + cCompiler + "' was not found. Set the ORBIT_CC environment variable to your C compiler (e.g. gcc, clang, cc).\n")
+                return false
+            }
+            reportCStepFailure(inputPath, cPath, rtDir, tmpDir, compOutput, verbose)
+            return false
+        }
+    }
+    if verbose {
+        print("wrote " + outputPath)
+    }
+    return true
+}

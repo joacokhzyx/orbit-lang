@@ -44,6 +44,47 @@ enum Role { Admin, Member }
 type UserId = string
 ```
 
+### Strings
+
+An ordinary `"…"` string processes escapes, so `\"` is a quote, `\n` a newline,
+`\t` a tab, `\\` a backslash and `\xHH` a byte.
+
+A **raw string**, triple-quoted like Python, processes nothing at all:
+
+```orbit
+return """{"status":"ok","count":42}"""
+```
+
+That is the form to reach for when the payload is JSON, because it removes the
+escaping that makes JSON unreadable. Compare:
+
+```orbit
+return "{\"status\":\"ok\",\"count\":42}"   // every quote doubled
+return """{"status":"ok","count":42}"""     // none of them
+```
+
+Three rules, and that is all there is:
+
+- **The first `"""` after the opening one closes the literal.** So a single
+  quote inside is ordinary content: `"""a"b"""` is `a"b`.
+- **No escapes exist.** A backslash is a backslash, so a Windows path needs no
+  doubling: `"""C:\Users\orbit"""`. The only thing that cannot appear inside is
+  a literal `"""`, which no JSON or prose needs; split the string or use an
+  ordinary `"…"` for that.
+- **Newlines are kept**, which is what makes a multi-line body readable and
+  served the way it is written:
+
+```orbit
+return """{
+  "items": [{"id": 1}, {"id": 2}],
+  "total": 2
+}"""
+```
+
+Both forms are ordinary `string` values at runtime, so they concatenate and
+compare like anything else. An unterminated `"""` is reported as an error rather
+than silently swallowing the rest of the file.
+
 ## Control flow
 
 Orbit supports `if` / `else`, `while`, an unconditional `loop`, and iteration

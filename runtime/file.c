@@ -20,19 +20,49 @@
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
+#  include <sys/stat.h>
 #else
 #  include <dirent.h>
+#  include <sys/stat.h>
 #endif
 
 OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
     FILE* f = orbit_fopen(filename, "rb");
     if (!f) return orbit_result_err(ORBIT_ERR_IO, "Failed to open file");
-    
+
+    /* A directory opens successfully in read mode on POSIX, and ftell on such a
+     * handle reports LONG_MAX. `size + 1` then overflows to a negative long,
+     * which becomes SIZE_MAX/2+1 as a size_t, and the allocation below asks for
+     * 2^63 bytes. This was harmless by accident: the allocation used to fail,
+     * the NULL came back as ORBIT_ERR_OUT_OF_MEMORY, and callers that probe a
+     * path with orbit_file_read before deciding whether it is a directory
+     * (`orbit fmt <dir>` does exactly that) read that as "not a file" and
+     * carried on. Once allocation failure became loud (FMT-1) the same path
+     * aborted the process, so the directory is rejected up front instead. */
+    {
+        int is_dir = 0;
+#ifdef _WIN32
+        struct _stat st;
+        if (_fstat(_fileno(f), &st) == 0 && (st.st_mode & _S_IFDIR)) is_dir = 1;
+#else
+        struct stat st;
+        if (fstat(fileno(f), &st) == 0 && S_ISDIR(st.st_mode)) is_dir = 1;
+#endif
+        if (is_dir) {
+            fclose(f);
+            return orbit_result_err(ORBIT_ERR_IO, "Path is a directory, not a file");
+        }
+    }
+
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
-    
-    char* content = orbit_alloc(arena, size + 1);
+    if (size < 0) {
+        fclose(f);
+        return orbit_result_err(ORBIT_ERR_IO, "Failed to determine file size");
+    }
+
+    char* content = orbit_alloc(arena, (size_t)size + 1);
     if (!content) {
         fclose(f);
         return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "Failed to allocate memory");

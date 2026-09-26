@@ -177,6 +177,86 @@ fn nextToken(lexer: Lexer) -> Token {
         return Token(TokType.EOF, "", line, col)
     }
 
+    // Raw string: r"...", r#"..."#, r##"..."##, following the same rule Rust
+    // uses, because it is the form that takes escaping out of JSON payloads
+    // without changing what an ordinary string means. Nothing inside is
+    // escape-processed: a backslash is a backslash, so a Windows path needs no
+    // doubling, and a newline inside the literal stays a newline in the value,
+    // which is what makes a multi-line JSON body readable.
+    //
+    // Only an 'r' immediately followed by '"' or '#' opens one, so identifiers
+    // that merely start with r (return, result, r) and a variable named r that
+    // is spaced away from a string are both unaffected.
+    if c == 114 { // 'r'
+        val afterR = peek(lexer)
+        if afterR == 34 || afterR == 35 { // '"' or '#'
+            var hashes = 0
+            while peek(lexer) == 35 { // '#'
+                hashes = hashes + 1
+                advance(lexer)
+            }
+            if peek(lexer) == 34 { // '"'
+                advance(lexer)
+                val bodyStart = lexer.pos
+                var scan = bodyStart
+                var closed = false
+                while scan < lexer.sourceLen {
+                    if orbit_string_char_at_selfhost(lexer.source, scan) == 34 { // '"'
+                        // A terminator is a quote followed by exactly `hashes`
+                        // hashes. Anything shorter is content, not the end.
+                        var j = scan + 1
+                        var matched = true
+                        var h = 0
+                        while h < hashes {
+                            if j >= lexer.sourceLen {
+                                matched = false
+                            } else {
+                                if orbit_string_char_at_selfhost(lexer.source, j) == 35 { // '#'
+                                    j = j + 1
+                                } else {
+                                    matched = false
+                                }
+                            }
+                            h = h + 1
+                        }
+                        if matched {
+                            lexer.pos = j
+                            closed = true
+                            break
+                        }
+                    }
+                    scan = scan + 1
+                }
+                if !closed {
+                    // Unterminated: consume the rest of the file and report it,
+                    // rather than silently treating the remainder as a string.
+                    lexer.pos = lexer.sourceLen
+                }
+                // Newlines inside the literal still have to advance the counters
+                // or every later token gets the wrong line.
+                var nl = bodyStart
+                while nl < lexer.pos {
+                    if orbit_string_char_at_selfhost(lexer.source, nl) == 10 { // '\n'
+                        lexer.line = lexer.line + 1
+                        lexer.col = 1
+                    } else {
+                        lexer.col = lexer.col + 1
+                    }
+                    nl = nl + 1
+                }
+                val rawText = lexer.source.slice(start, lexer.pos)
+                if closed {
+                    return Token(TokType.RawStringLiteral, rawText, line, col)
+                }
+                return Token(TokType.Invalid, rawText, line, col)
+            }
+            // 'r' followed by '#' but no opening quote: not a raw string after
+            // all, so rewind and let the identifier path re-read from `start`.
+            lexer.pos = start
+            lexer.col = col
+        }
+    }
+
     if isAlpha(c) {
         while isAlphaNumeric(peek(lexer)) {
             advance(lexer)
@@ -208,59 +288,7 @@ fn nextToken(lexer: Lexer) -> Token {
         return Token(tagDigit, textDigit, line, col)
     }
 
-    // Raw string, triple-quoted like Python: """...""". Nothing inside is
-    // escape-processed, which is what takes the escaping out of a JSON body:
-    // every quote in {"status":"ok"} is just a quote, a Windows path needs no
-    // doubling, and a newline inside the literal stays a newline in the value,
-    // so a multi-line body can be written the way it is served.
-    //
-    // There are no escapes at all. The first """ after the opening one closes
-    // the literal, exactly as Python does, so the only thing that cannot appear
-    // inside is a literal """, which no JSON or prose needs. A single quote is
-    // ordinary content: """a"b""" is a"b.
     if c == 34 { // '"'
-        if peek(lexer) == 34 && peekNext(lexer) == 34 {
-            advance(lexer)
-            advance(lexer)
-            val bodyStart = lexer.pos
-            var scan = bodyStart
-            var closed = false
-            while scan + 2 < lexer.sourceLen {
-                if orbit_string_char_at_selfhost(lexer.source, scan) == 34 {
-                    if orbit_string_char_at_selfhost(lexer.source, scan + 1) == 34 {
-                        if orbit_string_char_at_selfhost(lexer.source, scan + 2) == 34 {
-                            lexer.pos = scan + 3
-                            closed = true
-                            break
-                        }
-                    }
-                }
-                scan = scan + 1
-            }
-            if !closed {
-                // Unterminated: consume the rest and report it, rather than
-                // silently treating the remainder of the file as a string.
-                lexer.pos = lexer.sourceLen
-            }
-            // Newlines inside the literal still have to advance the counters or
-            // every later token gets the wrong line.
-            var nl = bodyStart
-            while nl < lexer.pos {
-                if orbit_string_char_at_selfhost(lexer.source, nl) == 10 { // '\n'
-                    lexer.line = lexer.line + 1
-                    lexer.col = 1
-                } else {
-                    lexer.col = lexer.col + 1
-                }
-                nl = nl + 1
-            }
-            val rawText = lexer.source.slice(start, lexer.pos)
-            if closed {
-                return Token(TokType.RawStringLiteral, rawText, line, col)
-            }
-            return Token(TokType.Invalid, rawText, line, col)
-        }
-
         while lexer.pos < lexer.sourceLen && peek(lexer) != 34 {
             if peek(lexer) == 92 { // '\\'
                 advance(lexer)

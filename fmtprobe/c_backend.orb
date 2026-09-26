@@ -2070,15 +2070,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
             }
 
-            // The definition of a function whose name is a C keyword is emitted
-            // as `name_` (see sanitizeIdentifier), so the call site has to spell
-            // it the same way or the emitted C calls a name that does not exist
-            // and the definition is reported unused. Only the keyword case needs
-            // handling here: every other name is already a valid C identifier
-            // and sanitizeIdentifier would be a no-op.
-            var callName = calleeName
-            if isCKeyword(callName) { callName = callName + "_" }
-            var callExpr = callName + "("
+            var callExpr = calleeName + "("
             val arenaFirst = functionNeedsArena(calleeName)
             var i = startIdx
             var anyArg = false

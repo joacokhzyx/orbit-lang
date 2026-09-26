@@ -1,0 +1,30 @@
+// Public frontend entry point.
+//
+// Backends receive the text returned by `compileFrontendSource`; they never
+// call parser or semantic helpers directly.
+
+import "../parser.orb"
+import "./lower.orb"
+import "./tir.orb"
+
+fn appendParserDiagnostics(module: TirModule, diagnostics: list) {
+    var i = 0
+    while i < diagnostics.len() {
+        val diagnostic: ParserDiagnostic = diagnostics.get(i)
+        tirError(module, "E1000", diagnostic.message, diagnostic.line, diagnostic.column)
+        i = i + 1
+    }
+}
+
+fn compileFrontendModule(moduleName: string, source: string) -> TirModule {
+    val parser = initParser(source)
+    val root = parseProgram(parser)
+    val module = lowerProgramToTir(moduleName, root)
+    appendParserDiagnostics(module, parser.diagnostics)
+    return module
+}
+
+fn compileFrontendSource(moduleName: string, source: string) -> string {
+    val module = compileFrontendModule(moduleName, source)
+    return tirCanonical(module)
+}

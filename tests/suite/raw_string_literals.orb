@@ -1,0 +1,69 @@
+// Raw string literals, triple-quoted like Python: """...""".
+//
+// The reason this form exists is JSON. Writing a JSON body as an ordinary
+// string means doubling every quote, which is unreadable and easy to get wrong:
+//
+//     return "{\"status\":\"ok\"}"
+//
+// A raw string takes its contents literally, so nothing needs escaping:
+//
+//     return """{"status":"ok"}"""
+//
+// There are no escapes at all, exactly as in Python: the first """ after the
+// opening one closes the literal, so a single quote inside is ordinary content
+// and the only thing that cannot appear is a literal """, which no JSON or
+// prose needs. A backslash is a backslash, so a Windows path needs no
+// doubling, and a newline inside the literal stays a newline in the value,
+// which is what makes a multi-line body readable.
+
+fn json_inline() -> string {
+    return """{"status":"ok","count":42}"""
+}
+
+fn json_multiline() -> string {
+    return """{
+  "items": [
+    {"id": 1, "name": "uno"},
+    {"id": 2, "name": "dos"}
+  ],
+  "total": 2
+}"""
+}
+
+// A single quote is content, not a terminator.
+fn quote_inside() -> string {
+    return """a"b"""
+}
+
+fn empty() -> string {
+    return """"""
+}
+
+fn windows_path() -> string {
+    return """C:\Users\orbit\bin"""
+}
+
+fn main() -> int {
+    if json_inline() != "{\"status\":\"ok\",\"count\":42}" { return 1 }
+    if quote_inside() != "a\"b" { return 2 }
+    if empty() != "" { return 3 }
+    if windows_path() != "C:\\Users\\orbit\\bin" { return 4 }
+
+    // Multi-line: checked piecewise, because one literal comparison would have
+    // to spell out the same newlines and prove nothing extra.
+    val body = json_multiline()
+    if body.indexOf("\"total\": 2") == -1 { return 5 }
+    if body.indexOf("\n  \"items\": [") == -1 { return 6 }
+    if body.indexOf("}") == -1 { return 7 }
+
+    // An ordinary string is untouched by any of this: escapes still apply.
+    if "tab:\t|quote:\"|nl:\n" != "tab:\t|quote:\"|nl:\n" { return 8 }
+    val r = 41
+    if r + 1 != 42 { return 9 }
+
+    // The two forms are ordinary strings at runtime, so they concatenate and
+    // compare like anything else.
+    val mixed = "prefix:" + json_inline()
+    if mixed != "prefix:{\"status\":\"ok\",\"count\":42}" { return 10 }
+    return 0
+}

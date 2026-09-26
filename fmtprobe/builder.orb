@@ -2245,13 +2245,23 @@ fn literalStringValue(l: LiteralNode) -> string {
     return unescapeString(l.text)
 }
 
-// Strip the """ delimiters from a raw string literal and return everything
-// between them untouched. A backslash stays two characters and a newline stays
-// a newline, which is the whole point of the form. The lexer guarantees both
-// ends, so this only has to take three characters off each side.
+// Strip the r, the hashes and the quotes from a raw string literal, and return
+// everything in between untouched. \\ stays two characters and a newline
+// stays a newline, which is the whole point of the form.
 fn rawStringValue(s: string) -> string {
-    if s.len() < 6 { return "" }
-    return s.slice(3, s.len() - 3)
+    var i = 0
+    // leading 'r'
+    if i < s.len() && s.at(i) == 114 { i = i + 1 }
+    // any number of '#'
+    while i < s.len() && s.at(i) == 35 { i = i + 1 }
+    // opening '"'
+    if i < s.len() && s.at(i) == 34 { i = i + 1 }
+    var close = s.len()
+    // closing '"' followed by the same number of '#'
+    var j = close - 1
+    while j >= i && s.at(j) == 35 { j = j - 1 }
+    if j >= i && s.at(j) == 34 { close = j }
+    return s.slice(i, close)
 }
 
 fn unescapeString(s: string) -> string {

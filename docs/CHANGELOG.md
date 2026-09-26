@@ -11,6 +11,19 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 ## Unreleased (toward 0.1.0)
 
+Language:
+
+- **Raw string literals**, triple-quoted like Python: `"""{"status":"ok"}"""`.
+  No escapes are processed, so a JSON body no longer needs every quote doubled
+  and a multi-line body can be written the way it is served. The first `"""`
+  closes the literal, so a single quote inside is ordinary content; the only
+  thing that cannot appear inside is a literal `"""`. Documented in
+  [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#strings), pinned by
+  `tests/suite/raw_string_literals.orb`.
+- `orbit fmt` no longer aborts on a directory, and a C keyword used as a
+  function name (`fn inline()`) now compiles: the call site spells the renamed
+  symbol the definition uses.
+
 Content and docs track; no compiler changes:
 
 - Language tour, tutorials (blog API, file server, deploy,

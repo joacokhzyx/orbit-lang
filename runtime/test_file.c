@@ -133,7 +133,25 @@ static void test_read_missing_file(void) {
     orbit_arena_destroy(arena);
 }
 
-// 6. Read back what we wrote, through the same API a compiler would use.
+// 6. Reading a directory must fail, and must fail without asking for 2^63
+// bytes. A directory opens fine in read mode on POSIX and ftell reports
+// LONG_MAX on it, so `size + 1` overflowed into a huge size_t. That used to be
+// survivable only because the allocation failed and the NULL was reported as
+// out-of-memory; once allocation failure became loud (FMT-1) it aborted. Code
+// that probes a path to find out whether it is a directory -- `orbit fmt <dir>`
+// does exactly that -- depends on this returning an error promptly.
+static void test_read_directory_fails_cleanly(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    assert(arena != NULL);
+
+    OrbitResult r = orbit_file_read(arena, ".");
+    assert(r.ok == false);
+    assert(r.error_msg != NULL);
+
+    orbit_arena_destroy(arena);
+}
+
+// 7. Read back what we wrote, through the same API a compiler would use.
 static void test_read_write_interop(void) {
     OrbitArena* arena = orbit_arena_create(65536);
     assert(arena != NULL);
@@ -167,7 +185,8 @@ int main(void) {
     RUN_TEST(test_refused_write_preserves_file);
     RUN_TEST(test_empty_write_is_legitimate);
     RUN_TEST(test_read_missing_file);
+    RUN_TEST(test_read_directory_fails_cleanly);
     RUN_TEST(test_read_write_interop);
-    printf("All 6 Orbit runtime file-IO tests PASSED successfully!\n");
+    printf("All 7 Orbit runtime file-IO tests PASSED successfully!\n");
     return 0;
 }
