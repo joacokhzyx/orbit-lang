@@ -844,6 +844,22 @@ fn fmtFormatSource(source: string) -> string {
     return bom + body
 }
 
+// True when the source holds nothing but whitespace (a byte-order mark counts
+// as content, since it survives formatting). Such a file legitimately formats
+// to an empty file; anything else must never format to empty.
+fn fmtSourceIsBlank(source: string) -> bool {
+    var i = 0
+    val n = source.len()
+    while i < n {
+        val c = source.at(i)
+        if c != 32 && c != 9 && c != 10 && c != 13 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
 fn fmtIsOrbSuffix(path: string) -> bool {
     if path.len() < 4 {
         return false
@@ -949,6 +965,14 @@ fn fmtFormatFile(path: string, quiet: bool) {
         return
     }
     val formatted = fmtFormatSource(source)
+    // A whitespace-only file legitimately formats to an empty file. A file
+    // with any real content must never become empty: that means the formatter
+    // failed, and writing it would destroy the source while reporting success.
+    if formatted == "" && fmtSourceIsBlank(source) == false {
+        orbit_os_write_stderr_selfhost("orbit fmt: refusing to write an empty result over '" + path + "'; file left unchanged. This is a compiler bug.\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
     if formatted == source {
         if quiet == false {
             print("Already formatted " + path + ".")

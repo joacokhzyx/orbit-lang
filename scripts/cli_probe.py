@@ -28,6 +28,12 @@ SETUP = {
     "files/ws.orb": "fn main() -> int {\n    return 0   \n}\n",
     "cleandir/clean.orb": "fn main() -> int {\n    return 0\n}\n",
     "tiny.orb": "fn main() -> int {\n    return 0\n}\n",
+    # Unparseable on purpose: `orbit fmt` must refuse it and leave it alone.
+    "fmt/broken.orb": "fn main() -> int {\n    val =\n}\n",
+    # Parseable but badly formatted: `orbit fmt` must rewrite it.
+    "fmt/messy.orb": "fn main( )->int{return 0}\n",
+    # Whitespace only: no tokens, so normalising to empty is correct.
+    "fmt/blank.orb": "   \n\n  \n",
 }
 
 CASES = [
@@ -71,6 +77,79 @@ CASES = [
     ("cluster-status-nostate", ["cluster", "status"], 1, "out", "no state file", ""),
     ("frontend-noarg", ["frontend"], 2, "err", "Usage:", ""),
 ]
+
+# Invariants that are about the tool's effect on disk rather than its exit
+# code. These run after the CASES table because each one needs a post-condition
+# on a file, not just a stream check.
+#
+# fmt-no-clobber-* guard the worst failure mode in the CLI: `orbit fmt` opening
+# its input for writing truncates it before anything can fail, so any internal
+# error after that point used to leave a 0-byte source file behind a success
+# message. The contract is that a file is either rewritten completely or left
+# byte-identical.
+#
+# outcome is one of:
+#   "unchanged"  the file must be byte-identical afterwards
+#   "rewritten"  the file must change, and must not end up empty
+#   "emptied"    the file must become empty, which is only correct for a source
+#                that holds no tokens at all
+INVARIANTS = [
+    ("fmt-no-clobber-parse-error",
+     ["fmt", "fmt/broken.orb"], "fmt/broken.orb", 1, "left unchanged", "unchanged"),
+    ("fmt-no-clobber-parse-error-quiet",
+     ["fmt", "--quiet", "fmt/broken.orb"], "fmt/broken.orb", 1, "", "unchanged"),
+    ("fmt-no-clobber-formats-ok",
+     ["fmt", "fmt/messy.orb"], "fmt/messy.orb", 0, "Formatted", "rewritten"),
+    # A whitespace-only file normalising to an empty file is intended, not data
+    # loss: it has no tokens. Pinned so the distinction in fmtSourceIsBlank
+    # cannot be quietly inverted.
+    ("fmt-blank-normalises-to-empty",
+     ["fmt", "fmt/blank.orb"], "fmt/blank.orb", 0, "Formatted", "emptied"),
+]
+
+
+def invariants(compiler, work):
+    """Post-conditions on files the tool touched. Returns (ok, total)."""
+    env = dict(os.environ)
+    env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
+    ok = 0
+    for name, argv, rel, exp_rc, needle, outcome in INVARIANTS:
+        target = os.path.join(work, rel)
+        with open(target, "rb") as f:
+            before = f.read()
+        p = subprocess.run([compiler] + argv, cwd=work, capture_output=True,
+                           text=True, errors="replace", env=env)
+        so, se = p.stdout or "", p.stderr or ""
+        combined = so + se
+        with open(target, "rb") as f:
+            after = f.read()
+        problems = []
+        if p.returncode != exp_rc:
+            problems.append("rc=%s (want %s)" % (p.returncode, exp_rc))
+        if needle and needle not in combined:
+            problems.append("missing %r" % needle)
+        if outcome == "unchanged" and after != before:
+            if after == b"" and before != b"":
+                problems.append("FILE EMPTIED (was %d bytes)" % len(before))
+            else:
+                problems.append("file changed but should not have")
+        elif outcome == "rewritten":
+            if after == b"" and before != b"":
+                problems.append("FILE EMPTIED (was %d bytes)" % len(before))
+            elif after == before:
+                problems.append("file unchanged but should have been formatted")
+        elif outcome == "emptied" and after != b"":
+            problems.append("file should have normalised to empty, got %d bytes" % len(after))
+        if problems:
+            out.fail("Failed %s: %s" % (name, "; ".join(problems)))
+            if so.strip():
+                print("  out: %r" % so.strip()[:200], file=sys.stderr)
+            if se.strip():
+                print("  err: %r" % se.strip()[:200], file=sys.stderr)
+        else:
+            out.say("Probing %s ... ok" % name)
+            ok += 1
+    return ok, len(INVARIANTS)
 
 
 def one(compiler, work, name, argv, exp_rc, stream, needle, absent=""):
@@ -127,8 +206,11 @@ def main():
         absent = case[5] if len(case) > 5 else ""
         if one(args.compiler, work, name, argv, exp_rc, stream, needle, absent):
             ok += 1
-    out.finish("cli-probe", ok, len(CASES))
-    return 0 if ok == len(CASES) else 1
+    inv_ok, inv_total = invariants(args.compiler, work)
+    ok += inv_ok
+    total = len(CASES) + inv_total
+    out.finish("cli-probe", ok, total)
+    return 0 if ok == total else 1
 
 
 if __name__ == "__main__":

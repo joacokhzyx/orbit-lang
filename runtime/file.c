@@ -43,12 +43,42 @@ OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
     return orbit_result_ok(content);
 }
 
+/* Write `content` to `filename`, replacing it.
+ *
+ * `fopen(..., "wb")` truncates the target the moment it succeeds, so every
+ * failure after that point has already destroyed whatever was there. The write
+ * is therefore verified, not assumed: a short write (out of space, out of
+ * handles, a NULL buffer) returns false, and the caller can report it. The
+ * previous version returned true unconditionally, which let `orbit fmt` replace
+ * a source file with a 0-byte file and still report success.
+ *
+ * Writing an empty string is a legitimate request and is honoured; deciding
+ * that an empty result is not acceptable belongs to the caller.
+ */
 bool orbit_file_write(const char* filename, const char* content) {
+    if (!filename) return false;
+    if (!content) return false;
+
+    size_t len = strlen(content);
+
     FILE* f = fopen(filename, "wb");
     if (!f) return false;
-    
-    fprintf(f, "%s", content);
-    fclose(f);
+
+    if (len > 0) {
+        size_t written = fwrite(content, 1, len, f);
+        if (written != len) {
+            fclose(f);
+            return false;
+        }
+    }
+
+    /* A failed flush means the bytes may never have reached the file, so it
+     * counts as a failed write even though fwrite said otherwise. */
+    if (fflush(f) != 0) {
+        fclose(f);
+        return false;
+    }
+    if (fclose(f) != 0) return false;
     return true;
 }
 

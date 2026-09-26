@@ -95,7 +95,7 @@ jobs:
           "$PY" scripts/parity_selfhost.py --cc "${{ matrix.cc }}" \
             --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
 
-      - name: Runtime C tests (arena + http + kynx)
+      - name: Runtime C tests (arena + file + http + kynx)
         shell: bash
         run: |
           CC="${{ matrix.cc }}"
@@ -103,6 +103,8 @@ jobs:
           if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32"; fi
           $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin $LDFLAGS
           ./t_arena_bin
+          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_file.c -o t_file_bin $LDFLAGS
+          ./t_file_bin
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
           ./t_http_bin
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o t_kynx_bin $LDFLAGS
