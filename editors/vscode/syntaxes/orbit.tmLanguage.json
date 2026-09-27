@@ -5,10 +5,11 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#annotations" },
-    { "include": "#directives" },
-    { "include": "#http-methods" },
+    { "include": "#config-keys" },
     { "include": "#keywords-control" },
     { "include": "#keywords-declaration" },
+    { "include": "#keywords-result" },
+    { "include": "#http-methods" },
     { "include": "#types" },
     { "include": "#constants" },
     { "include": "#strings" },
@@ -24,13 +25,21 @@
           "match": "//.*$"
         },
         {
+          "name": "comment.block.documentation.orbit",
+          "begin": "/\\*\\*(?!/)",
+          "end": "\\*/",
+          "patterns": [{ "include": "#comments" }]
+        },
+        {
           "name": "comment.block.orbit",
           "begin": "/\\*",
-          "end": "\\*/"
+          "end": "\\*/",
+          "patterns": [{ "include": "#comments" }]
         }
       ]
     },
     "annotations": {
+      "comment": "Decorators: @name before a declaration or a field. The parser accepts any identifier here, so this highlights whatever is written rather than a fixed list.",
       "patterns": [
         {
           "name": "entity.name.tag.annotation.orbit",
@@ -38,43 +47,57 @@
         }
       ]
     },
-    "directives": {
+    "config-keys": {
+      "comment": "compiler/parser.orb matches exactly these four before it tries anything else. `database` is not one of them, and there is no `kynx`/`rate_limit` declaration: the config value is parsed and then dropped, so these are syntax, not settings.",
       "patterns": [
         {
-          "name": "keyword.other.directive.orbit",
-          "match": "\\b(port|cors|db|env|database|kynx|rate_limit|per_minute|per_second)\\b"
+          "name": "keyword.other.config.orbit",
+          "match": "(?<=^|\\n)\\s*(port|cors|db|env)(?=\\s)"
         }
       ]
     },
     "http-methods": {
+      "comment": "Route methods, lexed as keywords by compiler/lexer.orb matchKeyword.",
       "patterns": [
         {
           "name": "keyword.operator.http-method.orbit",
-          "match": "\\b(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\\b"
+          "match": "\\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\\b"
         }
       ]
     },
     "keywords-control": {
+      "comment": "compiler/lexer.orb matchKeyword, control half.",
       "patterns": [
         {
           "name": "keyword.control.orbit",
-          "match": "\\b(if|else|match|while|for|in|return|try|break|continue|import|use|export|as|rescue|catch)\\b"
+          "match": "\\b(if|else|for|in|while|loop|break|continue|return|match|try|catch)\\b"
         }
       ]
     },
     "keywords-declaration": {
+      "comment": "compiler/lexer.orb matchKeyword, declaration half. `mut` is the mutable-binding modifier, not a type.",
       "patterns": [
         {
           "name": "keyword.declaration.orbit",
-          "match": "\\b(model|route|val|var|fn|async|private|extern|pub|type|enum|union|trait|impl|schedule|every|const|struct)\\b"
+          "match": "\\b(fn|val|var|mut|const|private|extern|async|model|route|type|enum|union|trait|impl|every|import|use)\\b"
+        }
+      ]
+    },
+    "keywords-result": {
+      "comment": "ok/err/with belong to the result type; without this they read as ordinary identifiers.",
+      "patterns": [
+        {
+          "name": "keyword.operator.result.orbit",
+          "match": "\\b(ok|err|with)\\b"
         }
       ]
     },
     "types": {
+      "comment": "The names compiler/c_backend.orb mapTypeToC knows. A capitalised spelling is accepted and falls through to `void*`, so `Int` and `Any` are not types - see docs/ARCHITECTURE.md.",
       "patterns": [
         {
           "name": "storage.type.orbit",
-          "match": "\\b(int|float|string|bool|list|map|void|Int|Float|String|Boolean|List|Map|Void|Any|DateTime)\\b"
+          "match": "\\b(int|float|string|bool|void|list|map|object|result|response|List|Map|Result|Response)\\b"
         }
       ]
     },
@@ -89,23 +112,48 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.triple.orbit",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [{ "include": "#interpolation" }]
+        },
+        {
           "name": "string.quoted.double.orbit",
           "begin": "\"",
           "end": "\"",
           "patterns": [
+            { "include": "#interpolation" },
             {
               "name": "constant.character.escape.orbit",
-              "match": "\\\\."
+              "match": "\\\\(x[0-9A-Fa-f]{2}|[nrt\\\\\"'])"
             }
           ]
+        },
+        {
+          "name": "constant.character.escape.char.orbit",
+          "match": "'(\\\\(x[0-9A-Fa-f]{2}|[nrt\\\\\"'])|[^\\\\'])'"
+        }
+      ]
+    },
+    "interpolation": {
+      "patterns": [
+        {
+          "name": "meta.embedded.expression.orbit",
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "patterns": [{ "include": "source.orbit" }]
         }
       ]
     },
     "numbers": {
       "patterns": [
         {
-          "name": "constant.numeric.orbit",
-          "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+          "name": "constant.numeric.hex.orbit",
+          "match": "\\b0[xX][0-9A-Fa-f](_?[0-9A-Fa-f])*\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.orbit",
+          "match": "\\b[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?([eE][-+]?[0-9]+)?\\b"
         }
       ]
     },

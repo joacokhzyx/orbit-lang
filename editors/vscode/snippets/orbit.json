@@ -1,52 +1,71 @@
 {
-  "Server Port": {
-    "prefix": "port",
-    "body": ["port ${1:4000}"],
-    "description": "Server listening port directive"
-  },
-  "CORS Directive": {
-    "prefix": "cors",
-    "body": ["cors \"${1:*}\""],
-    "description": "Cross-Origin Resource Sharing configuration"
-  },
-  "Database Directive": {
-    "prefix": "database",
-    "body": ["database \"sqlite:${1:app.db}\""],
-    "description": "Database connection URI"
-  },
-  "Kynx Defense Directive": {
-    "prefix": "kynx",
-    "body": ["kynx rate_limit ${1:100} ${2|per_minute,per_second|}"],
-    "description": "Kynx Bloom filter rate limiter protection"
+  "Main entry point": {
+    "prefix": "fnmain",
+    "body": [
+      "fn main() -> int {",
+      "\treturn 0",
+      "}"
+    ],
+    "description": "A main that returns an int exit code"
   },
   "ORM Model": {
     "prefix": "model",
     "body": [
       "model ${1:User} {",
-      "    id: Int",
-      "    ${2:username}: String",
+      "    id: string",
+      "    ${2:username}: string",
       "}"
     ],
-    "description": "Data Entity ORM Model"
+    "description": "A model. Its table is created at startup; field types are string, int, float or bool."
   },
   "HTTP Route": {
     "prefix": "route",
     "body": [
-      "route ${1|GET,POST,PUT,DELETE|} \"${2:/path}\" {",
-      "    return { ${3:status: \"ok\"} }",
+      "route ${1|GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS|} \"${2:/path}\" {",
+      "    return ok { ${3:status}: \"ok\" }",
       "}"
     ],
-    "description": "HTTP Route Handler"
+    "description": "A route handler. Return ok/err, a string, or an object literal."
   },
-  "Auth Group": {
-    "prefix": "@auth",
+  "Result error": {
+    "prefix": "err",
+    "body": ["err ${1:400} \"${2:message}\""],
+    "description": "Return a failed result from a handler"
+  },
+  "Object literal": {
+    "prefix": "obj",
     "body": [
-      "@auth {",
-      "    route ${1|GET,POST|} \"${2:/protected}\" {",
-      "        return { ${3:status: \"authenticated\"} }",
+      "{",
+      "    ${1:status}: \"ok\",",
+      "    ${2:count}: ${3:0}",
+      "}"
+    ],
+    "description": "A value, not text. Fields may be string, int, float, bool or another object."
+  },
+  "Path parameter": {
+    "prefix": "param",
+    "body": ["req.param(\"${1:id}\")"],
+    "description": "Read a captured :id or {id} segment"
+  },
+  "Raw string": {
+    "prefix": "raw",
+    "body": ["\"\"\"${1:body}\"\"\""],
+    "description": "A triple-quoted string with no escape processing; ${holes} still interpolate"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:subject} {",
+      "    ${2:Variant}(${3:payload}) => {",
+      "        ${4:print(payload)}",
       "    }",
       "}"
     ],
-    "description": "Authenticated Route Group"
+    "description": "One arm of a match. An arm is Variant(binding) => { ... }; name a real variant of the union or result you are matching."
+  },
+  "Standard library import": {
+    "prefix": "import",
+    "body": ["import \"std/${1:string/string}.orb\""],
+    "description": "A std import. It resolves against the compiler binary's directory, its parent, then the working directory."
   }
 }

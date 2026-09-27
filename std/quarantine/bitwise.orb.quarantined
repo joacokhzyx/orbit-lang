@@ -1,0 +1,72 @@
+// QUARANTINED: not implemented, not loadable, on purpose.
+// Was std/sys/bytes/bitwise.orb. See std/quarantine/README.md for why
+// it is not a .orb file.
+//
+// MISSING LANGUAGE FEATURE: bitwise operators. Not one of the five
+// below is available in an expression, and three of them are not even
+// tokens the lexer produces.
+//
+//   $ for op in '&' '|' '^' '<<' '>>' '~' ; do
+//       printf 'fn main() { val c = 12 %s 10  print(c) }\n' "$op" > /tmp/b.orb
+//       orbit check /tmp/b.orb
+//     done
+//   &    -> error[E0301]: unexpected token 'Ampersand'
+//   |    -> error[E0301]: unexpected token 'Pipe'
+//   <<   -> error[E0301]: unexpected token 'Less'
+//   >>   -> error[E0301]: unexpected token 'Greater'
+//   ^    -> Lexer error: invalid character (code 94)
+//   ~    -> Lexer error: invalid character (code 126)
+//
+// `Ampersand` and `Pipe` exist as tokens (compiler/lexer.orb) but only
+// in type position: `&T` is a pointer field (compiler/parser.orb:783)
+// and `A | B` is a sum type (compiler/parser.orb:852). The binary
+// operator table has no entry for either. `<<` and `>>` lex as two
+// separate `Less`/`Greater` tokens. `^` and `~` are invalid characters
+// in the lexer itself, so they are not a parser gap.
+//
+// Reimplementing these in Orbit is not possible either: every one of
+// them is a C operator, and Orbit has no operator-overload mechanism
+// to reach them through, so there is no arithmetic identity that
+// recovers `a ^ b` from `+`, `*`, `/` and `%`.
+//
+// This is the same blocker that keeps `fnv1a32` out of
+// std/hash/hash.orb (see its header) and that the language reference
+// records as "bitwise operators have no lexer tokens yet"
+// (docs/LANGUAGE_REFERENCE.md:382, 432). Nothing should be named after
+// one of these operators until the operator table has the entry.
+//
+// The `val` parameter names below are a second, separate defect: `val`
+// is a keyword, so these functions would not parse even if the
+// operators existed. They are left as written because fixing the
+// names would make the file look more finished than it is.
+//
+// This file is kept as the specification of the wanted feature, NOT
+// as a working module. It is not imported by anything and it is not
+// covered by tests/std/.
+//
+// LIFT THE QUARANTINE WHEN: `a & b`, `a | b`, `a ^ b`, `a << n` and
+// `a >> n` all typecheck as integer expressions and the `val`
+// parameters are renamed. Then rename this back to
+// std/sys/bytes/bitwise.orb, give it a test under tests/std/ that
+// checks a published vector (12 & 10 == 8, 12 | 10 == 14,
+// 12 ^ 10 == 6, 1 << 10 == 1024), and ask the docs agent for a
+// LANGUAGE_REFERENCE entry.
+fn bitAnd(a: int, b: int) -> int {
+    return a & b
+}
+
+fn bitOr(a: int, b: int) -> int {
+    return a | b
+}
+
+fn bitXor(a: int, b: int) -> int {
+    return a ^ b
+}
+
+fn shiftLeft(val: int, amount: int) -> int {
+    return val << amount
+}
+
+fn shiftRight(val: int, amount: int) -> int {
+    return val >> amount
+}

@@ -1,0 +1,55 @@
+// QUARANTINED: not implemented, not loadable, on purpose.
+// Was std/core/option.orb. See std/quarantine/README.md for why it is
+// not a .orb file.
+//
+// MISSING LANGUAGE FEATURE: a generic tagged union. Two things are
+// missing, and the first one hides the second.
+//
+//   1. The parser has no generic parameter list on `union`.
+//      parseTypeDecl calls parseGenericParams for `fn`, `model` and
+//      `trait` (compiler/parser.orb:690, 769, 946) but not on the
+//      `union` and `enum` arms (compiler/parser.orb:812-850), so
+//      `union Option<T>` stops at the `<`.
+//         $ printf 'import "std/core/option.orb"\nfn main() { print("ok") }\n' > /tmp/i.orb
+//         $ orbit check /tmp/i.orb
+//         Import error: std/core/option.orb:5: Expected '{' after 'union'.
+//         Import error: std/core/option.orb:5: Expected variant name.
+//
+//   2. Even with [T] instead of <T>, there is no monomorphisation, so
+//      a type parameter would be nonsense rather than merely
+//      unparseable. The payload type is a bare identifier
+//      (compiler/parser.orb:840), so `T` would reach codegen as a
+//      type name and be emitted verbatim:
+//         model Box[T] { v: T }
+//         fn main() { val b: Box = Box { v: 7 }  print(b.v) }
+//         orbit check  -> no errors
+//         orbit run    -> <build>:74:5: error: unknown type name 'T'
+//                          74 |     T* v;
+//      `orbit check` accepts a generic model and `orbit build` then
+//      hands the C compiler a `T` that does not exist. That is a
+//      compiler bug in its own right (filed as F-0005); it also means
+//      the honest spelling for a payload-carrying union today is a
+//      concrete payload type per variant, e.g.
+//         union OptInt { SomeInt(int)  NoInt }
+//
+// This file is kept as the specification of the wanted feature, NOT
+// as a working module. It is not imported by anything and it is not
+// covered by tests/std/. Deleting it would lose the only written
+// record that Orbit wants Option; shipping it as-is would be a file
+// that claims a type the language cannot express.
+//
+// Note the asymmetry with `result`: that one already exists, as a
+// builtin type with `ok`/`err` constructors (compiler/sema.orb:236,
+// compiler/lexer.orb:199-200). std/core/result.orb was an unparseable
+// shadow of a working builtin and was deleted; this one is the only
+// trace of a feature that does not exist yet.
+//
+// LIFT THE QUARANTINE WHEN: the parser accepts a type parameter list
+// on `union` AND codegen substitutes the argument at each use
+// (`Option<int>` yielding distinct C for `Option<string>`). Then
+// rename this back to std/core/option.orb, give it a test under
+// tests/std/, and ask the docs agent for a LANGUAGE_REFERENCE entry.
+union Option<T> {
+    Some(T),
+    None
+}
