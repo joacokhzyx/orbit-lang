@@ -93,3 +93,159 @@ loudly in my test - both processes kept running and the port
 answered. Don't rely on a bind error to catch the mistake; check
 with `netstat -ano | findstr <port>` and stop the older process.
 UNTESTED on Linux.
+
+## An object literal cannot be a `-> model` return type
+
+`inferType` returns the literal string `"object"` for an object
+literal (`compiler/sema.orb:980`), and the return check compares
+that name against the declared one. A model name is not `"object"`,
+so the comparison fails and you get a mismatch naming a type that
+was never in your source:
+
+```orbit
+model Point { x: int, y: int }
+fn make() -> Point { return { x: 1, y: 2 } }
+// Semantic error: Return type mismatch: expected Point, got object
+```
+
+The literal itself is fine - the feature landed, and `orbit check`
+accepts it as a model field, as a local, and as a `response` body.
+Only the `-> model` annotation is unreachable. Workaround: build
+the model with its constructor and return that, or return the
+literal from a function typed `-> response`. (Reading a value back
+out of an object with `.get()` is a separate miscompile - see
+"a list slot has no element type" below, and
+[LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#maps).)
+
+## A generic model typechecks, then emits C that does not compile
+
+`model Box[T] { v: T }` passes `orbit check` with no errors and then
+fails in the C step:
+
+```console
+$ orbit build gen.orb -o gen
+  <build>:74:5: error: unknown type name 'T'
+  <build>:77:63: error: unknown type name 'T'
+  <build>:91:29: error: unknown type name 'T'
+```
+
+`T` reaches the emitter as an ordinary type name, `mapTypeToC` has
+no case for it, and the backend helpfully casts it to `void*` in
+register declarations while emitting a bare `T*` in the struct and
+the constructor. There is no monomorphisation, so a generic type
+parameter is a name with nothing behind it. This is the same root
+cause as the quarantined `std/quarantine/option.orb.quarantined`:
+`Option<T>` cannot be written until this can.
+
+## `orbit fmt` splits a negative literal after `return`
+
+`return -1` comes back as `return - 1`:
+
+```console
+$ printf 'fn main() -> int {\n    return -1\n}\n' > t.orb
+$ orbit fmt t.orb && grep return t.orb
+    return - 1
+```
+
+It is specific to `return`. `val x = -1`, `print(-1)`, `f(-1)` and
+`3 * -1` are all left alone, and so is `return - 1` if you write it
+that way already — the formatter is idempotent, it just disagrees
+with you about the first pass. It still compiles and still returns
+-1, so this is cosmetic. It is listed because the formatter is
+treated as authoritative by `fmt --check`, and applying it has
+therefore spread `- 1` through 15 sites across 5 files (`std/io/io.orb`,
+`std/bytes/bytes.orb`, `std/sys/crypto/jwt.orb`,
+`std/collections/lists.orb` and `lib/arena.orb`). Fixing
+`compiler/fmt.orb` will need a re-run of `fmt` over those trees.
+
+## A list slot has no element type, so nothing can check it
+
+`OrbitList` is `{ void* data; size_t len, capacity, elem_size; ... }`
+(`runtime/types.c:195-201`). One pointer per element, and nothing
+records what it points at. This is the single most load-bearing gap
+in the language - it is why an unannotated binding is assumed to be
+a string, and it is why the `std/collections/lists.orb` helpers
+cannot protect you:
+
+| program | result |
+|---|---|
+| `getOr([1,2,3], 0, "d")` bound to a `string` | **segfault** |
+| `indexOfStr([[1,2],[3,4]], "x")` | `-1`, silently |
+| `[10,20,30].at(0)` | the low byte of the `data` pointer - 48, 144 and 0 in three programs differing only in what else they allocated |
+| an object `{ "a": 1 }`, with `.get("a")` bound to an `int` | segfault |
+
+`orbit check` reports no errors for any row. A method call directly on a
+literal does not parse (`Expected ')' after arguments`), so each of these needs
+the value bound to a `val` first — which is what I did. Use `.get(i)`, not
+`.at(i)`, and treat a list's contents as something only you know.
+
+## 30.5% of instructions are `unknown`, and 46.6% of those are silent
+
+`scripts/unknown_census.py`, run over 92 files and 35,814
+instructions on this build:
+
+| | count | share |
+|---|---|---|
+| instructions the front end types `unknown` | 10,940 | **30.5%** |
+| ...with no diagnostic at all | 5,102 | **46.6% of the unknown** |
+| ...of those, opcode `call` | 2,697 | |
+| ...of those, opcode `member` | 2,405 | |
+
+The silent half is the honest number. E2001/E2002/E2003 account for
+the rest to the unit - their counts equal the unknown `load` /
+binary / unary counts exactly - so 5,102 is measured, not
+estimated. Those are `call` and `member` expressions: the two
+places where the front end does not know it has failed, and the same
+name-and-shape classification as the list problem above.
+
+Separately, E3001 "expression cannot be lowered to TIR" fires 4,048
+times. That is a whole class of expression the front end gives up
+on, and it is not in the unknown total because there is no
+instruction to type. Worst file by share: `compiler/parser.orb` at
+49.7% (2,146 of 4,316).
+
+Run `python scripts/unknown_census.py --compiler <orbit> --json`
+for the per-file breakdown. It is wired into CI as a **report-only**
+step with `continue-on-error: true`, output to the job summary, and
+must never become a gate: the number is a measurement, not a
+threshold.
+
+## Two of the six frontend fixtures do not build
+
+`scripts/frontend_gate.py` runs six fixtures. Four pass. Two -
+`tests/frontend/syntax_error.orb` and `tests/frontend/unresolved_type.orb`
+- cannot build, so **their contracts have never been checked at
+all**. `orbit check` is clean on them; the C step fails, because
+`import compiler/frontend/frontend.orb` reaches `compiler/parser.orb`
+then `compiler/lexer.orb`, and the lexer calls
+`orbit_os_write_stderr_selfhost` without importing
+`compiler/extern.orb`:
+
+```console
+  <build>:4920:20: error: invalid use of void expression
+  <build>:9810:31: warning: implicit declaration of function 'parseIntSelfhost'
+```
+
+The second one is a third missing import, in `compiler/builder.orb:199`.
+Both are in the compiler zone, not the docs one. The four TIR
+goldens that do run all pass, so the gap is coverage, not
+correctness. [ENGINEERING.md](../ENGINEERING.md) step 6b records it
+so the gate's 4/6 is not mistaken for a passing 6.
+
+## `lib/net.orb` does not build
+
+It type-checks and then the generated C is rejected: the module
+declares `extern fn syscall(n, a1, a2, a3)`, which collides with
+the real `syscall` in `runtime/socket_compat.h`.
+
+```console
+  <build>:121:18: error: conflicting types for 'syscall'
+  <build>:121:18: error: static orbit_int syscall(...);   // ours
+     41 | #include <sys/syscall.h>                            // glibc's
+```
+
+Its event loop is `while running { ... running = false }`. It is a
+design sketch and is documented as one; it is not a working wrapper,
+and there is no socket API in the language or the runtime.
+`docs/ARCHITECTURE.md` says the same.
+

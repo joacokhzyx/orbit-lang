@@ -499,6 +499,26 @@ python scripts/parity_selfhost.py --cc "$CC" --compiler /tmp/orbit_fp
 # 6. [CI] -Werror over generated C.
 python scripts/werror_gate.py --cc "$CC" --compiler /tmp/orbit_fp
 
+# 6a. [CI] Negative corpus: every program in tests/negative/ must FAIL to
+#        compile, with the diagnostic text its header names. 22 programs, one
+#        per defect class. The gate also fails when a diagnostic IMPROVES, so
+#        the wording of every rejection is pinned - a better error message is a
+#        red build until the header is updated. A program the compiler wrongly
+#        accepts declares `known-defect: <ref>` and the gate asserts the bug is
+#        STILL there, so nothing improves silently. The summary prints how many
+#        are outstanding.
+python scripts/negative_gate.py --compiler /tmp/orbit_fp
+
+# 6b. [CI] `orbit frontend` against tests/frontend/expected/. This had NO CI
+#        coverage at all until now: the only thing that mentioned it was one
+#        usage-string case in cli_probe.py. Four TIR goldens, six fixtures.
+#        Known: two of the six fixtures (syntax_error, unresolved_type) do not
+#        build - importing compiler/frontend/frontend.orb reaches
+#        compiler/lexer.orb, which calls orbit_os_write_stderr_selfhost without
+#        importing compiler/extern.orb. `orbit check` is clean; gcc rejects the
+#        C. F-0004.
+python scripts/frontend_gate.py --cc "$CC" --compiler /tmp/orbit_fp
+
 # 7. Frontend fuzzing. Local; not a CI gate.
 python scripts/fuzz_frontend.py --compiler /tmp/orbit_fp
 
@@ -506,9 +526,10 @@ python scripts/fuzz_frontend.py --compiler /tmp/orbit_fp
 #        2 usage error).
 python scripts/cli_probe.py --compiler /tmp/orbit_fp --work /tmp/orbit_cli
 
-# 9. Frontend canonical TIR, 4 expectations in tests/frontend/expected/.
-#    (/tmp/orbit_fp frontend tests/frontend/frontend_pipeline.orb -o out.tir
-#     then diff against tests/frontend/expected/frontend_pipeline.tir)
+# 9. Superseded by step 6b, which runs the same diff as a gate. The manual
+#    one-liner, for when you want it without the other five fixtures:
+#    /tmp/orbit_fp frontend tests/frontend/frontend_pipeline.orb -o out.tir
+#    then diff against tests/frontend/expected/frontend_pipeline.tir
 
 # 10. [CI] Formatter and doctor on the checked-in form.
 /tmp/orbit_fp fmt --check compiler
@@ -528,6 +549,13 @@ $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB \
 ORBIT_CC="$CC" /tmp/orbit_fp build examples/blog_api.orb -o /tmp/gate_srv
 /tmp/gate_srv 4102 &
 python scripts/kynx_route_limit_gate.py --port 4102 --burst-path /gate-burst
+
+# 14. [CI, REPORT ONLY] Unknown-type census. `continue-on-error: true` and its
+#     output goes to the job summary, not to a red X. It counts how much of the
+#     corpus the front end types as `unknown`, which is the number that
+#     "make unknown an error" has to be scoped against - a measurement to be
+#     read, not a threshold to be enforced. Never gate on it.
+python scripts/unknown_census.py --cc "$CC" --compiler /tmp/orbit_fp
 ```
 
 After an intentional compiler change, step 5 becomes `parity_selfhost.py ... --update`. Review the golden diff before committing it, and commit the canonical, the goldens, and the `.orb` sources together.

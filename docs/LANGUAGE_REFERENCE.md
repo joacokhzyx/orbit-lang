@@ -44,6 +44,47 @@ enum Role { Admin, Member }
 type UserId = string
 ```
 
+The six lowercase names are the only type names the compiler knows: `int`,
+`float`, `string`, `bool`, `void`, and `list`/`map`/`object`/`result`/`response`
+as container and result spellings. `List`, `Map`, `Result` and `Response` are
+accepted capitalised and are real. **Any other capitalised spelling is not a
+type at all.** `mapTypeToC` sees a name that starts uppercase, is not one of
+those four, and hands it through as `Name*` — so `val n: Int = 1` type-checks
+cleanly and then gcc rejects the generated C with `unknown type name 'Int'`.
+The same happens for `Float`, `String`, `Bool`, `Void`, `Any` and `DateTime`.
+The one way it slips through is if you never use the binding: an unused local
+is never declared in the C, so the bad type never gets written down.
+
+Binary literals are not supported: `0b101` is the number `0` followed by junk,
+silently. Neither are exponents — `1.5e2` is `1.5` followed by junk and
+evaluates to `1`, and `2.5E3` declares a variable named `E3` whose type the C
+compiler has never heard of. Hex (`0x1F`) and digit separators (`1_000`) do
+work.
+
+### Annotate your bindings
+
+**An Orbit value is one machine word with no tag on it.** The compiler picks the
+C cast from the static type alone, and a binding you did not annotate is assumed
+to be a string wherever it crosses a `string` boundary. Nothing checks it at
+runtime, because there is nothing to check:
+
+```orbit
+fn takesStr(s: string) -> int { return s.len() }
+fn g() -> int { return 11 }
+
+fn main() -> int {
+    print(takesStr(g()))   // orbit check: no errors. Run: segfault.
+    return 0
+}
+```
+
+Annotate the binding, or annotate the parameter's caller, and the mistake
+disappears. The same gap is why `print` truncates a `float`: `print(1.5)` gives
+`1`, and `1.5 + 2.0` gives `3`.
+
+The mechanism, the emitted C, and the other places it bites are written up in
+[the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag).
+
 ### Strings
 
 An ordinary `"…"` string processes escapes, so `\"` is a quote, `\n` a newline,
@@ -182,7 +223,10 @@ What to know:
 
 - **Fields may be string, int, float, bool or another object.** A list or a map
   is a compile error, not a guess: there is no value type to store, and
-  keeping the pointer would write a pointer's digits into the response.
+  keeping the pointer would write a pointer's digits into the response. If you
+  need a list in a response body, interpolate it into a raw string - and read
+  [Arrays: elements and accessors](#arrays-elements-and-accessors) first, so
+  you know what a list actually holds.
 - **Key order is the order you wrote**, not a hash order, so a response body is
   byte-for-byte what the source says.
 - **Everything inside is escaped on the way out**, which is the thing a
@@ -215,8 +259,73 @@ with the runtime helper that matches the type the compiler settled on, the same
 way a `${...}` hole is. That is a fallback, not a licence: prefer a string, a
 raw string, or an object literal, whose shape you wrote down.
 
-Collection APIs and their exact type coverage are still evolving. Keep business
-logic simple and cover it with application-level tests. If something you need isn't here, file an issue - I read everything.
+## Arrays: elements and accessors
+
+The runtime calls an array a `list`, and the type name is `list`. This section
+is the whole of collection semantics today: what a slot holds, which accessor
+reads it, and what happens at the edges.
+
+A list holds `void*`. Not "a string, an int, or a model" - one pointer-sized
+slot per element, whatever the element was:
+
+```c
+/* what a list literal compiles to */
+{ OrbitResult _lr = orbit_list_create(arena, sizeof(void*), 3);
+  r_0 = _lr.ok ? (OrbitList*)_lr.value : NULL; }
+```
+
+`OrbitList` is `{ void* data; size_t len, capacity, elem_size; OrbitArena* }`
+(`runtime/types.c:195-201`). Nothing in the type records what a slot points at.
+
+**`.get(i)` works, and it is the accessor to use.** It emits
+`orbit_list_get`, which is bounds-checked:
+
+```orbit
+val xs = [10, 20, 30]
+val n: int = xs.get(1)          // 20
+
+val words = ["alpha", "beta", "gamma"]
+print(words.get(2))             // gamma
+```
+
+Past the end, `orbit_list_get` returns an error and the generated code
+assigns `NULL`, so you get a null pointer rather than an element:
+
+```orbit
+print(words.get(99))            // (null)
+```
+
+**`.at(i)` does not read an element.** It is classified as a *string* access
+and compiles to `orbit_string_at((orbit_string)list, i)` - a byte read at an
+offset into the list struct. It type-checks clean, which is the problem. Note
+that a method call directly on a literal does not parse, so bind the list
+first; the results are the same either way:
+
+| expression | result |
+|---|---|
+| `[10,20,30].at(0)` | the low byte of the list's `data` pointer - I measured 48, 144 and 0 in three programs that differ only in what else they allocated |
+| `["a","b"].at(1)` and above | `0` |
+| `["a","b"].at(0)` bound to a `string` | segfault |
+| `"hello".at(0)` | `104` - correct, this is what `.at` is for |
+
+`.at()` on a **string** is the intended use and works: it returns the byte
+value at that index, and `0` past the end. On a list it is a silent
+miscompile. Use `.get()`.
+
+### Maps
+
+A map literal does not build a map. `{ "a": 1 }` emits
+`orbit_object_create(arena)`, and `.get()` on that object still emits
+`orbit_list_get` - the key is passed where an index belongs:
+
+```orbit
+val m = { "a": 1, "b": 2 }
+val v: int = m.get("a")   // orbit check: no errors. Run: segfault.
+```
+
+`orbit check` accepts all of this without a murmur. There is no map type in
+the emitter's table beyond the name, and [known limitations](KNOWN_LIMITATIONS.md)
+records it.
 
 ## Result values
 
@@ -363,6 +472,10 @@ grows module by module, each with an example, tests under `tests/std/`,
 and docs. Until it covers your need, keep module boundaries small and
 pin the compiler version in CI.
 
+**Read [Writing a library others can import](LIBRARIES.md) before you publish
+one.** The import namespace is global, a name may be declared only once across
+the whole import graph, and `private` does not restrict anything.
+
 ## Standard library (Wave 1)
 
 Shipped and tested under `tests/std/` (run with
@@ -379,7 +492,12 @@ Shipped and tested under `tests/std/` (run with
   nowhere: it emits a missing helper (STAB-9); the extern
   `orbit_string_to_int` is used instead.
 - `std/hash/hash.orb`: `sha256Hex`, `hmacSha256` (runtime bindings).
-  No `fnv1a32`: bitwise operators have no lexer tokens yet.
+  No `fnv1a32`: bitwise operators have no lexer tokens yet. There used
+  to be an `std/sys/crypto/hash.orb` claiming to provide it, and it is
+  gone: its `fnv1aHash` was `1469598103 + data.len()`, so
+  `fnv1aHash("hello") == fnv1aHash("hellp")` was true, and
+  `generateKynxToken` derived a security token from the *length* of the
+  seed. Real FNV-1a of `"hello"` is 1335831723.
 
 Bind a fallible std result to a `val` if you need to use it twice, or
 pass it straight to a function that takes a `result`; both are
@@ -387,12 +505,26 @@ supported. What is not supported is `return ok(expr)` directly in a
 function returning `result`: the parser reads `ok` after `return` as
 the route response form (STAB-9), so assign it first.
 
+`result` is a **builtin type**, not a std module. `ok` and `err` are
+lexer keywords (`compiler/lexer.orb:199-200`) and the type name is one
+of the six the backend knows. A `std/core/result.orb` used to shadow
+it and did not parse; it is gone. If you were told to `import` it, you
+were told about a file that never worked.
+
 ## Standard library (Wave 2)
 
 - `std/collections/lists.orb`: `getOr`, `firstOr`, `lastOr`,
   `containsStr`, `containsInt`, `indexOfStr`, `indexOfInt`, `reverse`
   over builtin lists. Maps are out of scope (method lowering targets
   lists today); higher-order helpers need closures the language lacks.
+  **The element type is yours, not the compiler's.** There is no list
+  element type in the language, so nothing checks what a slot holds, and
+  these helpers cannot: they are written for string slots and the `*Str`
+  family will not tell you otherwise. `getOr` on a list of ints
+  segfaults, and `indexOfStr` on a list of lists returns `-1` without a
+  word - both verified by running them. The int helpers
+  (`containsInt`, `indexOfInt`) have the same exposure in the other
+  direction. `orbit check` reports no errors for any of it.
 - `std/fs/file.orb`: path-based `readAll` (returns `result`, consume
   with inline try), `writeAll`, `append` (read-modify-write, never
   atomic), `exists`, `removeFile`, `listDir`. No open handles, no
@@ -402,10 +534,16 @@ the route response form (STAB-9), so assign it first.
   unchanged), styling in `std/sys/term/color.orb`. No `readLine`
   (needs an arena-taking binding the compiler will not inject), no
   `eprint` (no stderr builtin), no `println` (builtin `print`
-  already newlines).
+  already newlines). It imports the owner of `system_env`
+  (`std/sys/proc/process.orb`) and delegates to
+  `wrapRgbForeground`; its own old `wrapRgb` is gone, because two
+  functions with the same body and reversed argument orders is a trap.
 - `std/time/time.orb`: `uptimeSeconds`, `addSeconds`,
   `elapsedSince`, `deadlineExceededSeconds`. Seconds only: no wall
   clock, no sleep, no monotonic milliseconds (Orbit ints are 32-bit).
+  `uptimeSeconds()` and the builtin `system.uptime()` are the same
+  counter read through the same extern - there is one clock, not two,
+  so do not go reconciling them.
 - `std/sys/proc/process.orb`: `pid`, `getEnv`, `getEnvOrDefault`,
   `execStatus` (verify shell codes per platform by hand),
   `exitProcess` (named to never shadow libc `exit`).
@@ -419,17 +557,45 @@ the route response form (STAB-9), so assign it first.
   has no wall clock), `decodePayload` (pure base64url decode),
   `getExp`, `verifyWithKeys` for rotation. `exp` is required;
   `nbf`, when present, must not be future; `iat` is carried, not
-  enforced.
+  enforced. The SHA-256 and HMAC bindings are **borrowed from
+  `std/hash/hash.orb`**, which owns them; redeclaring them here is a
+  `Duplicate symbol` the moment both are in one import graph.
 - `std/bytes/bytes.orb`: `newBuffer`, `appendByte`, `appendSlice`,
   `writeFrame`/`readFrame` (decimal length prefix; malformed and
   empty both read as empty), `readAt` (-1 out of range), `sliceBuf`,
   `availableRead`, `consume`, `clear`. Bytes are 1-255 (C strings
   cannot hold NUL), so there is deliberately no fixed-width binary
   framing. Shared C externs live in `std/string/string.orb`;
-  redeclaring them in another module collides on merge.
-- Deferred honestly: `http_client` and raw sockets (the fetch helper
-  returns mock JSON; no socket API exists yet), `sync` pool (needs
-  closures), `fnv1a32` (needs bitwise operators).
+  redeclaring them in another module collides on merge. **`readAt`
+  returns the byte, and `-1` out of range — module-wide rule, not one
+  function's quirk.** There was a second `readAt` in
+  `std/sys/bytes/buffer.orb` that returned `1`/`0` and never returned
+  the byte; that file is gone. If you are adding a module, this is the
+  contract, and a second `readAt` cannot exist anyway.
+- Deferred honestly, and **not present in the tree**: `http_client` and raw
+  sockets (there is no socket API in the language or the runtime — the
+  `std/sys/net/socket.orb` that claimed one is gone), a `sync` pool
+  (needs closures; `std/sys/io/io_threading.orb` is gone), `fnv1a32` (needs
+  bitwise operators).
+
+## `std/quarantine/`: specified, not implemented
+
+Two things Orbit does not have are written down as
+`std/quarantine/*.orb.quarantined` rather than shipped as a working-looking
+module that is not. The convention and the reasoning are in
+`std/quarantine/README.md`; the short version is that `.orb` means "loadable
+source", so a file the parser cannot read must not carry that extension — it
+would break `fmt --check` on every run and could only ever be imported to
+produce a parse error.
+
+| module | missing |
+|---|---|
+| `option.orb.quarantined` | a generic tagged union. The parser has no type parameter list on `union`, and there is no monomorphisation, so there is no way to build a parameterised `Option<T>` |
+| `bitwise.orb.quarantined` | bitwise operators. `^` and `~` are invalid characters in the lexer; `&` and `\|` lex as tokens but are not binary operators; `<<` and `>>` lex as two tokens each |
+
+Nothing imports these. If you are looking for `Option` or for `^`, this is
+where the design is, and both entries name the exact language feature that
+would let them land.
 
 ## System telemetry
 

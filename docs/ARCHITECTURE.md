@@ -126,6 +126,67 @@ contract; the driver itself only passes `-Wall`.
 `ORBIT_CCFLAGS_EXTRA` is the escape hatch the bootstrap uses for its own
 low-memory profile.
 
+Note that the include path is the literal relative string `runtime`, not an
+absolute one baked in at build time. `orbit build` therefore only finds the
+runtime headers when the **working directory** contains a `runtime/`
+directory. Run the compiler from the repository root, or from a directory where
+you have arranged one, or the C step fails with
+`fatal error: socket_compat.h: No such file or directory`. This is the same
+family of assumption as the `std/` lookup described in
+[Libraries](LIBRARIES.md): the tree layout is part of the contract, and nothing
+checks it at install time.
+
+### The value model: one machine word, no tag
+
+Every value the backend materialises is a register holding a single machine
+word. There is no tag, no header, no type byte, and no boxing. A register is
+declared `orbit_int` or `void*` - sometimes `orbit_float` - and every
+conversion between them goes through a cast on a `uintptr_t`:
+
+```c
+r_2 = (orbit_int)(uintptr_t)(takesStr((orbit_string)(r_1)));
+```
+
+Three things follow, and all three are user-visible.
+
+**The C cast comes from the static type alone.** `mapTypeToC`
+(`compiler/c_backend.orb:264`) turns an Orbit type name into a C type, and the
+callee's declared parameter type is what decides the cast at a call site. The
+runtime is never asked whether the word it was handed is of that type, because
+there is nothing to ask. A function parameter declared `s: string` produces
+`takesStr((orbit_string)(r_1))` no matter what produced `r_1`.
+
+**An unannotated binding is assumed to be a string.** Sema does not track the
+type of a local bound to a literal, so `val v = f()` reads back as `unknown` and
+is allowed through on purpose (`isInterpolatable`,
+`compiler/sema.orb:732`, which returns true for `unknown` and says why in the
+comment above it). Where the backend then has to guess, it guesses
+string. Passing such a binding to a `string` parameter compiles cleanly and
+dereferences an integer as a pointer:
+
+```orbit
+fn takesStr(s: string) -> int { return s.len() }
+fn g() -> int { return 11 }
+fn main() -> int { print(takesStr(g()))  return 0 }
+```
+
+`orbit check` reports no errors and the program segfaults. With a `float` in
+the same position the mistake is louder, because the cast is a C-level
+inconvertible and the build stops: `error: cannot convert to a pointer type`.
+Both failures are the same missing runtime tag. Annotating the binding and the
+argument types is the whole workaround.
+
+**`print` has no float form.** `print` on a value the backend settled on as
+`float` emits `printf("%lld\n", (long long)(r))` - the value is a correct
+`orbit_float`, and the fraction is thrown away by the format string. Verified:
+`val a = 1.5` then `print(a)` prints `1`; `a + 2.0` prints `3`. There is no
+`%f` path and no float overload of `print` in the emitter.
+
+The honest summary for a user: **annotate your bindings, and treat a value that
+crosses a `string` boundary as the one place the compiler will not help you.**
+`docs/KNOWN_LIMITATIONS.md` records what this costs; `docs/LIBRARIES.md`
+covers the other place the same missing types bite, at import boundaries.
+
 ---
 
 ## Self-Hosting Chain
@@ -165,18 +226,26 @@ for what each stage is.
 File: `runtime/arena.c`
 
 The arena reserves a large virtual address window at startup and commits pages on
-demand.
-Every HTTP request runs inside an **epoch**, bracketed by checkpoint/rewind:
+demand. Allocation is a monotonically growing bump pointer; there is no
+per-object free.
 
-```c
-OrbitArenaCheckpoint mark = orbit_arena_checkpoint(arena);  // mark start
-  /* allocate request-scoped objects */
-orbit_arena_rewind(arena, mark);                            // bulk-free everything in O(1)
-```
+**Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
+generated connection loop calls `orbit_arena_reset(thread_arena)` before every
+`orbit_handle_request` (`compiler/route_runtime.orb:453`), so each request
+starts from a reset arena. `orbit_arena_reset` is not O(1) and not a rewind: it
+releases the chained overflow segments and decommits every page past the hot
+retention watermark (`runtime/arena.c:526`).
 
-Internally: a monotonically growing bump pointer; rewind resets the pointer to the
-checkpoint mark.
-`orbit_arena_reset(arena)` returns the arena to a pristine state.
+`orbit_arena_checkpoint` and `orbit_arena_rewind` do exist
+(`runtime/arena.c:582,592`) and a rewind *is* an O(1) bump-pointer restore, but
+nothing in the tree calls them outside `runtime/arena.c` and
+`runtime/test_arena.c`. I checked: their only other references are the counter
+fields in `runtime/performance.h` and the prose in
+[architecture/ORBIT_ARENA.md](architecture/ORBIT_ARENA.md), so
+`arena_checkpoint_count` and `arena_rewind_count` are always zero in a real
+server. Treat the checkpoint API as available to hand-written C, not as the
+mechanism the HTTP path is using.
+
 `runtime/arena_pool.c` keeps a pool of arenas so a worker borrows one per request
 instead of creating it.
 See [architecture/ORBIT_ARENA.md](architecture/ORBIT_ARENA.md) and [ARENA.md](ARENA.md).
@@ -340,10 +409,24 @@ contention is on the queue and not on a shared stdout lock.
 
 | Path | Role |
 |---|---|
-| `std/` | Orbit standard library modules: `test/assert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes`, `core`, `fs`, `hash`, `io`, `log`, `sys`, `time` |
-| `lib/arena.orb` | Thin wrapper over the arena runtime externs |
-| `lib/net.orb` | Thin wrapper over the network runtime externs |
+| `std/` | Orbit standard library. 12 modules, all of which compile and merge into one program: `test/assert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb` |
+| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` (no generic unions) and `bitwise` (no bitwise operators) |
+| `lib/arena.orb` | A counted region and a bound, not an allocator. `alloc` returns an offset; nothing it returns is dereferenceable |
+| `lib/net.orb` | **Does not build.** It type-checks and then the generated C fails: the module declares `extern fn syscall(...)`, which collides with the real `syscall` in `runtime/socket_compat.h`. Its event loop is a `while running { running = false }`. Treat it as a design sketch, not a wrapper |
 | `lib/sys/linux.orb`, `lib/sys/windows.orb` | Platform-specific extern wrappers |
+
+`std/` used to be 20 modules, 13 of which compiled. Six were removed rather
+than repaired, because each was a function that returned a value and was not
+computing it - `fnv1aHash` was `1469598103 + data.len()`, so
+`fnv1aHash("hello") == fnv1aHash("hellp")` was true. Two more were quarantined
+above. What is left is 12 of 12, pinned by `tests/std/test_imports.orb`, which
+imports all twelve into one program and passes. That test exists because five
+`extern fn` conflicts made modules mutually exclusive: four C symbols were
+declared by two modules each, and the transitive one hurt most -
+`std/bytes/bytes.orb` and `std/sys/crypto/jwt.orb` both import
+`std/string/string.orb`, so a program that used byte framing *and* JWT could
+not exist. The rule is now one definition per program: the dependent module
+imports the owner.
 
 ### Gates and tooling (`scripts/`, Python 3, standard library only)
 

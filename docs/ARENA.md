@@ -115,6 +115,41 @@ typedef struct {
 
 ---
 
+## What "epoch" means in practice, and what `lib/arena.orb` is not
+
+Two claims get conflated, so here they are separated.
+
+**The C runtime arena is a real allocator.** Everything above is
+about `runtime/arena.c`, and it does allocate dereferenceable memory
+by bump pointer. The word "allocator" is correct for it.
+
+**The request boundary is a whole-arena reset, not a checkpoint.**
+The generated connection loop calls `orbit_arena_reset(thread_arena)`
+before every `orbit_handle_request` (`compiler/route_runtime.orb:453`).
+`orbit_arena_checkpoint` and `orbit_arena_rewind` both exist
+(`runtime/arena.c:582,592`) and a rewind *is* an $O(1)$ bump-pointer
+restore, but nothing in the tree calls them outside `arena.c` itself
+and `runtime/test_arena.c`. I grepped for it. So
+`arena_checkpoint_count` and `arena_rewind_count` in
+`runtime/performance.h` are always zero in a running server, and
+`orbit_arena_reset` is not the $O(1)$ rewind the table above could
+imply: it releases the chained overflow segments and decommits every
+page past the hot retention watermark
+(`runtime/arena.c:526`). Treat the checkpoint API as available to
+hand-written C, not as the mechanism serving requests.
+
+**`lib/arena.orb` is neither.** It is not an allocator and does not
+pretend to be one any more. There is no pointer arithmetic in Orbit
+and no `mmap`/`VirtualAlloc` binding, so its `buffer` is a string that
+is never read and its `alloc` returns an **offset into a logical
+region, not an address**. Nothing you get back is dereferenceable.
+What the module actually provides is a bound — `alloc` returns -1
+rather than growing past `capacity` — and the $O(1)$ reset. That is
+all it claims, and this page should agree with the comment at the top
+of that file rather than with the word "allocator".
+
+---
+
 ## Performance & Complexity Invariants
 
 | Operation | Time Complexity | Space Overhead | OS Traps |

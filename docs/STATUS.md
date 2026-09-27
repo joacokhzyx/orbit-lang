@@ -19,7 +19,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Bootstrap from committed C | Available | `scripts/build_selfhost.py`, `scripts/verify_seed.py` |
 | Canonical C trust root | Committed and verified by the project workflow | `compiler/selfhost/stage3.exe.c` |
 | C code generation | Primary backend | `compiler/c_backend.orb`, `runtime/` |
-| HTTP service runtime | Available for supported service features | `runtime/http.c`, `lib/net.orb`, examples |
+| HTTP service runtime | Available for supported service features | `runtime/http.c`, `compiler/route_runtime.orb`, examples |
 | Arena-based allocation | Available | `runtime/arena.c`, `runtime/arena_pool.c`, `docs/ARENA.md` |
 | Database integration | Reads, writes and auto-created model tables; migrations still open | `runtime/database.c`, `examples/posts_crud.orb`, `STAB-6` |
 | Path parameters | `:id`/`{id}`/`*` match with capture, static routes win | `examples/params_service.orb` |
@@ -27,9 +27,12 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | CLI consistency | Errors to stderr, per-command help, `--quiet`/`--verbose`, doctor JSON | `scripts/cli_probe.py` |
 | Behavior suite | Executable programs, one behavior each | `tests/suite/`, `tests/suite/README.md` |
 | Parity and stability probes | Documented gate against committed goldens | `tests/parity/`, `tests/parity/README.md` |
-| Editor integration | VS Code extension and syntax support | `editors/vscode/` |
+| Editor integration | VS Code extension: highlighting, and `orbit check` diagnostics on save. No language server - `orbit` has no `lsp` subcommand. | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
+| `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `compiler/parser.orb:1023`, `compiler/route_runtime.orb:544` |
+| Standard library | **12 modules, 12 of 12 compile and merge into one program.** Was 20 with 13 compiling. Six were deleted because each was a function that returned a value and was not computing it; two are quarantined as `*.orb.quarantined` | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
+| Sockets / threads / bitwise / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
 
 ## Verification Workflow
 
@@ -43,9 +46,22 @@ python scripts/verify_seed.py --cc <gcc-or-clang>
 python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
 python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
 python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+python scripts/negative_gate.py --compiler <path-to-orbit>
+python scripts/frontend_gate.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+python scripts/unknown_census.py --cc <gcc-or-clang> --compiler <path-to-orbit>   # report only
 ```
 
-The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite.
+The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite, plus three gates added in September 2026:
+
+| gate | what it is | today |
+|---|---|---|
+| `scripts/negative_gate.py` | 25 programs in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names | 25/25, with **11 known defects the compiler still accepts** declared as ratchets — the gate fails if one starts being rejected |
+| `scripts/frontend_gate.py` | `orbit frontend` against `tests/frontend/expected/`. `orbit frontend` previously had **no** CI coverage at all | **4/6.** Two fixtures cannot build (`compiler/lexer.orb` calls `orbit_os_write_stderr_selfhost` without importing `compiler/extern.orb`), so their contracts have never been checked |
+| `scripts/unknown_census.py` | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | report only: **30.5%** of 35,814 instructions, **46.6%** of those with no diagnostic at all |
+
+The census number is the honest measure of how far the type system has to
+go, and it is a measurement rather than a threshold: see
+[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
 ## Active Workstreams
 

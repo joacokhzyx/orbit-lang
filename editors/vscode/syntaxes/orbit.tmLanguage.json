@@ -93,7 +93,7 @@
       ]
     },
     "types": {
-      "comment": "The names compiler/c_backend.orb mapTypeToC knows. A capitalised spelling is accepted and falls through to `void*`, so `Int` and `Any` are not types - see docs/ARCHITECTURE.md.",
+      "comment": "The names compiler/c_backend.orb mapTypeToC knows. `List`/`Map`/`Result`/`Response` really are types. A capitalised name it does NOT know - `Int`, `String`, `Any`, `DateTime` - becomes `Name*` in the emitted C, so it type-checks and then gcc says `unknown type name 'Int'`. The word is still a type-looking word here because that is how it reads, but see docs/LANGUAGE_REFERENCE.md.",
       "patterns": [
         {
           "name": "storage.type.orbit",
@@ -146,6 +146,7 @@
       ]
     },
     "numbers": {
+      "comment": "Decimal, digit separators, and one optional fractional part - which is all the lexer reads (compiler/lexer.orb isDigit branch: 0x hex, then digits with `_`, then `.` + a digit). There is NO exponent: `1.5e2` is the number 1 followed by junk and prints 1, and `2.5E3` declares a variable called E3 whose type is unknown to the C compiler. Highlighting the exponent here would teach a form the language cannot parse.",
       "patterns": [
         {
           "name": "constant.numeric.hex.orbit",
@@ -153,7 +154,7 @@
         },
         {
           "name": "constant.numeric.decimal.orbit",
-          "match": "\\b[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?([eE][-+]?[0-9]+)?\\b"
+          "match": "\\b[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?\\b"
         }
       ]
     },

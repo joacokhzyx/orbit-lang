@@ -20,6 +20,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
 | How does the compiler pipeline work? | [Architecture Overview](ARCHITECTURE.md) |
 | How do I write Orbit programs? | [Language Reference](LANGUAGE_REFERENCE.md) and [Syntax Guide](SYNTAX_GUIDE.md) |
+| How do I write a library others can import? | [Writing a library](LIBRARIES.md) - the flat namespace, the `private` truth, and the `std/` install trap |
 | What can I build in 30 minutes? | [Language Tour](TOUR.md) - runnable snippets with expected outputs |
 | How does memory management work? | [Arena Design](ARENA.md) and [Orbit Arena](architecture/ORBIT_ARENA.md) |
 | How are HTTP protections implemented? | [Kynx](KYNX.md) |
