@@ -270,6 +270,7 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     if orbitType == "void" { return "void" }
     if orbitType == "list" || orbitType == "List" || orbitType == "OrbitList*" { return "OrbitList*" }
     if orbitType == "map" || orbitType == "Map" || orbitType == "OrbitMap*" { return "OrbitMap*" }
+    if orbitType == "object" || orbitType == "OrbitObject*" { return "OrbitObject*" }
     if orbitType == "result" || orbitType == "Result" || orbitType == "OrbitResult" { return "OrbitResult" }
     if orbitType == "response" || orbitType == "Response" || orbitType == "OrbitResponse*" { return "OrbitResponse*" }
     if isEnumType(backend, orbitType) { return orbitType }
@@ -696,6 +697,40 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                 }
             }
             pi = pi + 1
+        }
+        // Object field reads, typed before the declarations are emitted.
+        //
+        // This has to happen in this pass and not while emitting: the register
+        // declarations are written from registerTypes, so a type discovered
+        // during emission is one statement too late -- the assignment would be
+        // typed and the declaration would not, and the C compiler rejects the
+        // pair. The builder allocates the register "unknown" because it cannot
+        // know an object's shape, and an unknown register is declared void*.
+        var ofi = 0
+        while ofi < func.instructions.len() {
+            val oInst: IRInstruction = func.instructions.get(ofi)
+            if oInst != NULL {
+                var isLoadField = false
+                match oInst.opcode {
+                    IROpcode.load_field => { isLoadField = true }
+                    _ => {}
+                }
+                if isLoadField && operandDefType(func, oInst.operand1) == "object" {
+                    var oFieldName = ""
+                    match oInst.operand2 {
+                        IRValue.String(fs2) => { oFieldName = fs2.value }
+                        IRValue.Sym(fs2) => { oFieldName = fs2.value }
+                        _ => {}
+                    }
+                    if oFieldName != "" && oInst.dest >= 0 && oInst.dest < func.registerTypes.len() {
+                        val gotType = objectGetterReturnType(objectFieldGetter(func, oInst.operand1, oFieldName))
+                        if gotType != "" {
+                            func.registerTypes = setStrAt(func.registerTypes, oInst.dest, gotType)
+                        }
+                    }
+                }
+            }
+            ofi = ofi + 1
         }
         var fpi = 0
         while fpi < func.instructions.len() {
@@ -2102,6 +2137,24 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     // literal is a string, and truncating it to uintptr_t
                     // hands a bare integer back to a string parameter.
                     callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
+                } else if isObjectFieldSetter(calleeName) {
+                    // The typed setters take real values, not pointers:
+                    // (void*)(uintptr_t)(x) is a legal argument for an int or
+                    // a string but not for a double, so the cast has to follow
+                    // the kind being stored.
+                    if argIdx == 0 {
+                        callExpr = callExpr + "(OrbitObject*)(" + aStr + ")"
+                    } else if argIdx == 1 {
+                        callExpr = callExpr + "(const char*)(" + aStr + ")"
+                    } else if calleeName == "orbit_object_set_float" {
+                        callExpr = callExpr + "(orbit_float)(" + aStr + ")"
+                    } else if calleeName == "orbit_object_set_int" {
+                        callExpr = callExpr + "(orbit_int)(" + aStr + ")"
+                    } else if calleeName == "orbit_object_set_bool" {
+                        callExpr = callExpr + "(orbit_bool)(" + aStr + ")"
+                    } else {
+                        callExpr = callExpr + "(const char*)(" + aStr + ")"
+                    }
                 } else if isRouteRuntimeBuiltin(calleeName) {
                     callExpr = callExpr + aStr
                 } else if calleeName == "check" || calleeName == "matchToken" || calleeName == "consume" {
@@ -2381,6 +2434,22 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // result pointer as an integer downstream.
             if fname == "length" || fname == "len" {
                 orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(instr.operand1) + "))"))
+                return
+            }
+            // An object's field is a lookup, not a struct member. This has to
+            // come first: left to the model path, `o.n` emitted
+            // `((OrbitModel*)o)->n`, which is a compile error at best and the
+            // wrong bytes at worst, since findFieldOwner answers from a
+            // module-wide name table that any model can populate.
+            if operandDefType(backend.currentFunction, instr.operand1) == "object" {
+                val getter = objectFieldGetter(backend.currentFunction, instr.operand1, fname)
+                // Reading a nested object has to leave the result known to be
+                // an object, or `a.b.c` stops at `a.b` and the next `.` is
+                // looked up on a register nothing has a type for.
+                // The getter name was chosen by objectFieldGetter and the
+                // destination's type was recorded by the pass that runs before
+                // the declarations; here it is only the call itself.
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, getter + "(" + generateValue(instr.operand1) + ", \"" + fname + "\")"))
                 return
             }
             if isStringOperand(backend, instr.operand1) {
@@ -2684,8 +2753,10 @@ fn isStringOperand(backend: CBackend, operand: IRValue) -> bool {
 
 fn feBuildTimeCallType(name: string) -> string {
     if name == "print" || name == "orbit_os_exit_selfhost" || name == "orbit_os_exit" || name == "orbit_os_destroy" || name == "orbit_os_reset" || name == "orbit_list_push" || name == "orbit_map_set" || name == "orbit_cbuf_append_selfhost" { return "void" }
+    if name == "orbit_object_create" { return "object" }
+    if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" { return "void" }
     if name == "ok" || name == "err" { return "result" }
-    if name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
+    if name == "orbit_object_to_json" || name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
     if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" { return "int" }
     if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
     if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list" }
@@ -3069,6 +3140,7 @@ fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {
 
 fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
     if name == "orbit_list_set" { return true }
+    if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" { return true }
     var fi = 0
     while fi < backend.module.functions.len() {
         val f: IRFunction = backend.module.functions.get(fi)
@@ -3093,6 +3165,11 @@ fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
 fn functionNeedsArena(name: string) -> bool {
     if name == "orbit_file_read" || name == "orbit_file_list_dir" { return true }
     if name == "orbit_list_create" || name == "orbit_map_create" { return true }
+    if name == "orbit_object_create" { return true }
+    if name == "orbit_object_to_json" { return true }
+    // Deliberately not here: the orbit_object_set* family takes the object as
+    // its first parameter, not an arena. It reaches the arena through the
+    // object, so prepending one gave every field write four arguments.
     if name == "orbit_response_create" || name == "orbit_response_json" || name == "orbit_response_error" { return true }
     if name == "orbit_string_slice" || name == "orbit_string_split" || name == "orbit_string_replace" || name == "orbit_string_concat" { return true }
     if name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_argv" { return true }
@@ -3103,6 +3180,112 @@ fn functionNeedsArena(name: string) -> bool {
     if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" { return true }
     if name == "orbit_http_client_fetch" || name == "orbit_cache_get" || name == "orbit_file_upload_save" { return true }
     if name == "orbit_base64url_encode_str" || name == "orbit_sha256_hex" || name == "orbit_hmac_sha256_base64url" { return true }
+    return false
+}
+
+// Which getter a field read needs depends on what was stored under that key,
+// and the write is usually in the same function: an object literal builds
+// itself in place, so `{ a: 1 }` above the read is right there in the
+// instruction list.
+//
+// The register cannot be used to identify the object. Every read of a variable
+// loads it into a fresh register, so `o.ratio` reads through a different
+// register than the literal was built in, and comparing register ids matches
+// nothing. The field name is what identifies the write.
+//
+// A key stored with two different kinds in one function -- `{a: 1}` and
+// `{a: "x"}` -- has no single answer, so it falls back to the raw getter
+// rather than picking the first one seen.
+fn objectFieldGetter(func: IRFunction, objOperand: IRValue, fieldName: string) -> string {
+    var kind = ""
+    var conflict = false
+    var i = 0
+    while i < func.instructions.len() {
+        val inst: IRInstruction = func.instructions.get(i)
+        var isCall = false
+        if inst != NULL {
+            match inst.opcode {
+                IROpcode.call => { isCall = true }
+                _ => {}
+            }
+        }
+        if isCall {
+            var callee = ""
+            match inst.operand1 {
+                IRValue.String(cs) => { callee = cs.value }
+                _ => {}
+            }
+            if isObjectFieldSetter(callee) && setterKeyIs(func, i, fieldName) {
+                val found = ""
+                if callee == "orbit_object_set_int" { found = "int" }
+                if callee == "orbit_object_set_float" { found = "float" }
+                if callee == "orbit_object_set_bool" { found = "bool" }
+                if callee == "orbit_object_set_object" { found = "object" }
+                if callee == "orbit_object_set_string" { found = "string" }
+                if kind == "" { kind = found }
+                if kind != found { conflict = true }
+            }
+        }
+        i = i + 1
+    }
+    if conflict { return "orbit_object_get_raw" }
+    if kind == "int" { return "orbit_object_get_int" }
+    if kind == "float" { return "orbit_object_get_float" }
+    if kind == "bool" { return "orbit_object_get_bool" }
+    if kind == "object" { return "orbit_object_get_object" }
+    if kind == "string" { return "orbit_object_get_string" }
+    return "orbit_object_get_raw"
+}
+
+// Does the call at callIdx store fieldName? A setter is emitted as three arg
+// instructions immediately before the call: the object, the key, the value.
+// Walking back over them is more reliable than tracking a stack, which the
+// backend does not keep per call site.
+fn setterKeyIs(func: IRFunction, callIdx: int, fieldName: string) -> bool {
+    var key = ""
+    var found = 0
+    var i = callIdx - 1
+    // Backwards from the call the args arrive value first, then the key, then
+    // the object, which is the reverse of the order they were pushed.
+    while i >= 0 && found < 3 {
+        val prev: IRInstruction = func.instructions.get(i)
+        var isArg = false
+        if prev != NULL {
+            match prev.opcode {
+                IROpcode.arg => { isArg = true }
+                _ => {}
+            }
+        }
+        if isArg {
+            if found == 1 {
+                match prev.operand1 {
+                    IRValue.String(ks) => { key = ks.value }
+                    IRValue.Sym(ks) => { key = ks.value }
+                    _ => {}
+                }
+            }
+            found = found + 1
+        }
+        i = i - 1
+    }
+    return key == fieldName
+}
+
+fn objectGetterReturnType(getter: string) -> string {
+    if getter == "orbit_object_get_int" { return "int" }
+    if getter == "orbit_object_get_float" { return "float" }
+    if getter == "orbit_object_get_bool" { return "bool" }
+    if getter == "orbit_object_get_string" { return "string" }
+    if getter == "orbit_object_get_object" { return "object" }
+    return ""
+}
+
+fn isObjectFieldSetter(name: string) -> bool {
+    if name == "orbit_object_set_int" { return true }
+    if name == "orbit_object_set_float" { return true }
+    if name == "orbit_object_set_bool" { return true }
+    if name == "orbit_object_set_string" { return true }
+    if name == "orbit_object_set_object" { return true }
     return false
 }
 

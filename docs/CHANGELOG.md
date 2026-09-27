@@ -13,6 +13,18 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **Object literals**: `return ok { status: "UP", uptime_seconds: ... }`. A
+  real value, not a JSON string builder: read a field off it, nest one in
+  another, pass it to a function. Backed by a new `OrbitObject` in
+  `runtime/json.c` - an insertion-ordered record carrying its own type tag -
+  because a generated struct per literal could not be named in a signature and
+  its field lookups would collide with the module-wide model field table.
+  Key order is source order, so response bodies and the parity goldens stay
+  deterministic, and every string inside is escaped on the way out. Fields may
+  be string, int, float, bool or object; a list or map is a compile error
+  rather than a stored pointer. Pinned by `tests/suite/object_literals.orb`.
+  Not yet: reading a field of an object a function returned, and reading back a
+  dashed quoted key.
 - **Integer literals**: `0x` hexadecimal (`0xFF`, `0xff`, `0xAbCdEf`) and `_` as a
   digit separator (`1_000_000`). Neither existed: `0xFF` lexed as the integer
   `0` with `xFF` dropped, and `1_000_000` lexed as `1`. Both compiled clean, ran,

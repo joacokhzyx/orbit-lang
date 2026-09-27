@@ -142,6 +142,14 @@ model InterpNode {
     isRaw: bool
 }
 
+// An object literal: { key: value, ... }. Fields are FieldInitNodes, which
+// already existed for another purpose and fit exactly. The point of the
+// literal is that it is a real value -- readable, nestable, passable -- and
+// not just text assembled for a response.
+model ObjectLiteralNode {
+    fields: list
+}
+
 model BlockNode {
     statements: list
 }
@@ -232,4 +240,4 @@ model BreakNode {}
 
 model ContinueNode {}
 
-type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | Empty
+type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | Empty

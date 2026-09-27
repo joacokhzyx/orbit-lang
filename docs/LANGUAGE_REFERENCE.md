@@ -142,8 +142,8 @@ while sum < 10 {
 ```
 
 Expressions support arithmetic, comparisons, `&&`, `||`, unary `!` and `-`,
-calls, member access, arrays, and string interpolation. Object literals are not
-available yet; see [Arrays and objects](#arrays-and-objects).
+calls, member access, arrays, [object literals](#object-literals), and string
+interpolation.
 
 ## Arrays and objects
 
@@ -158,14 +158,53 @@ An ordinary string supports `\n`, `\t`, `\r`, `\"`, `\\`, and the byte escape
 `\xHH` with two hex digits (`"\x41"` is `"A"`, `"\x1b"` starts an ANSI
 sequence). Anything malformed stays literal.
 
-**Object literals do not exist yet.** `{ name: "api", healthy: true }` is a
-parse error in 0.1.0, and so is `${service.name}`. A named record is a
-[model](#variables-and-types), and the way to hand a JSON body back today is a
-[raw string with interpolation](#interpolation):
+### Object literals
 
 ```orbit
-val name = "api"
-return ok 200 """{"name":"${name}","port":${port}}"""
+return ok {
+    status: "UP"
+    uptime_seconds: system.uptime()
+}
+```
+
+An object literal is a **value**, not text. Read a field off it, nest one
+inside another, hand it to a function - it is a `model` whose shape the
+compiler learns from the source instead of from a declaration.
+
+```orbit
+val o = { name: "api", port: 8080, healthy: true }
+if o.port == 8080 { ... }
+val inner = { deep: { deeper: 7 } }
+if inner.deep.deeper == 7 { ... }
+```
+
+What to know:
+
+- **Fields may be string, int, float, bool or another object.** A list or a map
+  is a compile error, not a guess: there is no value type to store, and
+  keeping the pointer would write a pointer's digits into the response.
+- **Key order is the order you wrote**, not a hash order, so a response body is
+  byte-for-byte what the source says.
+- **Everything inside is escaped on the way out**, which is the thing a
+  hand-written JSON string cannot promise.
+- A key may be a keyword - `{ ok: true }` is fine - or a quoted string, so
+  `"content-type"` works as a key. Reading a dashed key back with
+  `h."content-type"` is not supported yet: the name comes back from the parser
+  with the dash turned into an underscore, so the lookup misses.
+- A field's type is learned from the writes **in the same function**, so read a
+  field of an object that a function returned as part of a literal you can see.
+- `{}` is a valid empty object.
+- Separators are optional: one field per line, as above, or commas.
+
+A named record with a fixed shape is still a [model](#variables-and-types).
+Use a model when the fields are known up front and you want them checked; use
+an object literal for a response body whose keys are data.
+
+For a body that is mostly static text, a [raw string with
+interpolation](#interpolation) is still shorter:
+
+```orbit
+return ok 200 """{"name":"api","port":${port}}"""
 ```
 
 Collection APIs and their exact type coverage are still evolving. Keep business

@@ -234,7 +234,10 @@ fn isKeywordToken(tag: TokType) -> bool {
 // downstream, never by tag, so accept an Identifier or any keyword here.
 fn consumeMemberName(parser: Parser, message: string) {
     val t = parser.currentToken.tag
-    if t == TokType.Identifier || isKeywordToken(t) {
+    // ok and err are contextual: ordinary identifiers except after `return`.
+    // As a member name they are ordinary field names, and `x.ok` is how you
+    // read one back.
+    if t == TokType.Identifier || isKeywordToken(t) || t == TokType.KeywordOk || t == TokType.KeywordErr {
         advanceParser(parser)
     } else {
         parserError(parser, message)
@@ -281,7 +284,16 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
             result = ASTNode.Call(CallNode(result, args))
         } else {
             if matchToken(parser, TokType.Dot) {
-                consumeMemberName(parser, "Expected member name after '.'.")
+                // A quoted key is a real key: `headers."content-type"` is how a
+                // field with a dash in it is read back, not a novelty.
+                if check(parser, TokType.StringLiteral) {
+                    val quoted = parser.currentToken.text
+                    advanceParser(parser)
+                    val qmember = quoted.slice(1, quoted.len() - 1)
+                    result = ASTNode.MemberAccess(MemberAccessNode(result, qmember))
+                } else {
+                    consumeMemberName(parser, "Expected member name after '.'.")
+                }
                 val member = parser.previousToken.text
                 result = ASTNode.MemberAccess(MemberAccessNode(result, member))
             } else {
@@ -383,8 +395,81 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         consume(parser, TokType.CloseBracket, "Expected ']' after list literal.")
         return ASTNode.ListLiteral(ListLiteralNode(elements))
     }
+    if matchToken(parser, TokType.OpenBrace) {
+        return parsePostfix(parser, parseObjectLiteralBody(parser))
+    }
 
     parserUnexpectedToken(parser, "error.UnexpectedToken")
+    if isAtEnd(parser) == false {
+        advanceParser(parser)
+    }
+    return ASTNode.Empty
+}
+
+// The body of an object literal, with the "{" already consumed. Returns the
+// literal, or an expression if what follows the brace is not a key after all,
+// so a brace that meant something else still reaches a real diagnostic instead
+// of being reported as a malformed field.
+fn parseObjectLiteralBody(parser: Parser) -> ASTNode {
+    val fields = []
+    val firstTag = parser.currentToken.tag
+    if isObjectKeyStart(parser) == false {
+        return parseObjectLiteralFallback(parser, firstTag)
+    }
+    while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
+        val key = consumeObjectKey(parser)
+        consume(parser, TokType.Colon, "Expected ':' after an object key.")
+        val value = parseExpression(parser)
+        fields.push(ASTNode.FieldInit(FieldInitNode(key, value)))
+        // A comma is optional, so a body can be written one field per line the
+        // way a model body is. A trailing comma before "}" is allowed too.
+        matchToken(parser, TokType.Comma)
+    }
+    consume(parser, TokType.CloseBrace, "Expected '}' after an object literal.")
+    return ASTNode.ObjectLiteral(ObjectLiteralNode(fields))
+}
+
+// A key may be a bare name or a quoted string. The quoted form is not
+// decoration: `content-type` and `x-request-id` are ordinary JSON keys and
+// cannot be written bare.
+fn isObjectKeyStart(parser: Parser) -> bool {
+    val tag = parser.currentToken.tag
+    if tag == TokType.StringLiteral { return true }
+    if tag == TokType.Identifier { return true }
+    if isKeywordToken(tag) { return true }
+    // ok and err are contextual keywords -- ordinary identifiers everywhere
+    // except after `return` -- so isKeywordToken does not list them. As object
+    // keys they are not rare: `ok` and `err` are two of the most common
+    // boolean fields anyone serialises.
+    if tag == TokType.KeywordOk { return true }
+    if tag == TokType.KeywordErr { return true }
+    return false
+}
+
+fn consumeObjectKey(parser: Parser) -> string {
+    if matchToken(parser, TokType.StringLiteral) {
+        return unquoteObjectKey(parser.previousToken.text)
+    }
+    if check(parser, TokType.Identifier) || isKeywordToken(parser.currentToken.tag) || parser.currentToken.tag == TokType.KeywordOk || parser.currentToken.tag == TokType.KeywordErr {
+        val name = parser.currentToken.text
+        advanceParser(parser)
+        return name
+    }
+    parserUnexpectedToken(parser, "error.ExpectedObjectKey")
+    val fallback = parser.currentToken.text
+    if isAtEnd(parser) == false {
+        advanceParser(parser)
+    }
+    return fallback
+}
+
+fn unquoteObjectKey(literal: string) -> string {
+    if literal.len() < 2 { return literal }
+    return literal.slice(1, literal.len() - 1)
+}
+
+fn parseObjectLiteralFallback(parser: Parser, firstTag: TokType) -> ASTNode {
+    parser.diagnostics.push(ParserDiagnostic("unexpected '{' in an expression", parser.currentToken.line, parser.currentToken.col, "E0301", "error.UnexpectedBrace"))
     if isAtEnd(parser) == false {
         advanceParser(parser)
     }

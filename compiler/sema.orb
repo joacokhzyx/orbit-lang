@@ -560,8 +560,10 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     // to an int-to-pointer conversion. Reject it here with
                     // a proper diagnostic instead of broken C downstream.
                     val bodyType = inferType(sema, r.expr)
-                    if checkCompatibility("string", bodyType) == false {
-                        reportError(sema, "ok response body must be a string, got " + bodyType)
+                    // An object is the other thing a body can legitimately be:
+                    // the runtime serializes it to JSON on the way out.
+                    if bodyType != "object" && checkCompatibility("string", bodyType) == false {
+                        reportError(sema, "ok response body must be a string or an object, got " + bodyType)
                     }
                 }
             }
@@ -800,6 +802,27 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             checkInterpolation(sema, node)
             return "string"
         }
+        ASTNode.ObjectLiteral(ol) => {
+            var i = 0
+            while i < ol.fields.len() {
+                val field: ASTNode = ol.fields.get(i)
+                match field {
+                    ASTNode.FieldInit(fi) => {
+                        val fieldType = inferType(sema, fi.value)
+                        // A list or a map has no value type to store, and the
+                        // alternative -- keeping the pointer and calling it a
+                        // string -- writes a pointer's digits into the JSON
+                        // body. Refuse it until there is a real answer.
+                        if fieldType == "list" || fieldType == "map" {
+                            reportError(sema, "an object field cannot hold a " + fieldType + " yet: { " + fi.name + ": ... }")
+                        }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            return "object"
+        }
         ASTNode.Try(tr) => {
             inferType(sema, tr.expr)
             match tr.catchBody {
@@ -879,6 +902,7 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.UnaryOp(u) => { inferType(sema, node) }
         ASTNode.Literal(l) => {}
         ASTNode.Interp(ip) => { checkInterpolation(sema, node) }
+        ASTNode.ObjectLiteral(ol) => { inferType(sema, node) }
         ASTNode.Match(m) => { checkMatch(sema, node) }
         ASTNode.Call(c) => { inferType(sema, node) }
         ASTNode.MemberAccess(ma) => { inferType(sema, node) }

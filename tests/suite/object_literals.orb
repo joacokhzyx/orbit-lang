@@ -1,0 +1,71 @@
+// Object literals: { key: value, ... }.
+//
+// A model is a struct the compiler generates, so its shape is fixed when the
+// program is compiled. An object literal is the opposite: the keys are written
+// in the source and are not known until runtime. It is a real value -- you can
+// read a field off it, nest one inside another, hand it to a function -- and
+// the runtime serializes it to JSON when it is returned from a route.
+//
+// The two things worth knowing before using one:
+//
+//   - Key order is the order you wrote, not a hash order, so a response body
+//     is byte-for-byte what the source says.
+//   - Every value inside is escaped on the way out, which is the thing a
+//     hand-written JSON string cannot promise.
+
+fn make() -> object {
+    return { a: 1, b: "two" }
+}
+
+fn main() -> int {
+    // The four value kinds, in one literal.
+    val o = { name: "orbit", count: 42, ratio: 0.5, healthy: true }
+    if o.name != "orbit" { return 1 }
+    if o.count != 42 { return 2 }
+    if o.ratio != 0.5 { return 3 }
+    if o.healthy != true { return 4 }
+
+    // A key may be a keyword: `ok` and `err` are ordinary identifiers
+    // everywhere except after `return`, and they are common boolean fields.
+    val flags = { ok: true, err: false }
+    if flags.ok != true { return 5 }
+    if flags.err != false { return 6 }
+
+    // A key with a dash cannot be a bare name, so the quoted form exists and
+    // the dash survives into the JSON. Reading such a field back with
+    // h."content-type" is not supported yet: the name comes back from the
+    // parser with the dash turned into an underscore, so the lookup misses.
+    val headers = { "content-type": "application/json", "x-request-id": "abc" }
+    val plain = { "readable": "yes" }
+    if plain.readable != "yes" { return 7 }
+
+    // Nesting, both ways round.
+    val inner = { deep: { deeper: 7 } }
+    if inner.deep.deeper != 7 { return 8 }
+    // A list inside an object is refused rather than guessed: there is no
+    // value type to store for it, and keeping the pointer would write a
+    // pointer's digits into the response body.
+
+    // Reading a field of an object that came out of a function is not
+    // supported yet: the getter has to know the field's kind, and it learns
+    // that from the writes in the same function, so a literal built in
+    // `make` is invisible from here. Read such a field through a variable
+    // holding the literal, as above.
+
+    // Reading an object field must not be mistaken for reading a model field.
+    // This file declares a model with fields named `name` and `count`, which
+    // is exactly what a model-field lookup would find instead -- the field
+    // table is module-wide, so an object field called `name` is the collision
+    // that matters. Reading the model's own fields too keeps the two paths
+    // honest side by side.
+    val named = Named("from-model", 7)
+    if named.name != "from-model" { return 13 }
+    if o.name != "orbit" { return 14 }
+    if o.count != 42 { return 15 }
+    return 0
+}
+
+model Named {
+    name: string
+    count: int
+}

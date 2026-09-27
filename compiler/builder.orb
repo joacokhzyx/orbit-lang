@@ -317,6 +317,7 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
             }
             return "unknown"
         }
+        ASTNode.ObjectLiteral(ol) => { return "object" }
         ASTNode.MemberAccess(ma) => {
             val objType = resolveExprType(builder, ma.object)
             if objType != "unknown" && modelHasField(builder, objType, ma.field) {
@@ -941,11 +942,23 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             if r.status != "" {
                 statusCode = parseIntSelfhost(r.status)
             }
+            // The body is built first, before the status argument is pushed.
+            // Arguments are a flat stack the backend drains in order, and a
+            // call emitted while the list is half built would be handed
+            // whatever happened to be on top of it.
+            val bodyValue = buildCallArgValue(builder, r.expr)
             val arg1 = ir_init_instr(IROpcode.arg)
             arg1.operand1 = ir_int(statusCode)
             ir_emit(builder.currentFunction, arg1)
             val arg2 = ir_init_instr(IROpcode.arg)
-            arg2.operand1 = buildCallArgValue(builder, r.expr)
+            // An object is a value, not text: serialize it here so the response
+            // is a JSON string, and so every string inside it gets escaped.
+            if isObjectValue(builder, bodyValue) {
+                val jsonReg = emitObjectToJson(builder, bodyValue)
+                arg2.operand1 = ir_register(jsonReg)
+            } else {
+                arg2.operand1 = bodyValue
+            }
             ir_emit(builder.currentFunction, arg2)
             val resReg = ir_alloc_register(builder.currentFunction, "response")
             val callInstr = ir_init_instr(IROpcode.call)
@@ -1935,6 +1948,96 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     return 0
 }
 
+// The two helpers below ask "is this value an object?" from the register type
+// the builder itself allocated. That is authoritative about what the C side
+// will see, unlike the string heuristics in the backend, which guess from the
+// shape of the emitted text.
+fn isObjectValue(builder: IRBuilder, value: IRValue) -> bool {
+    match value {
+        IRValue.Register(r) => {
+            if r.value < 0 { return false }
+            if r.value < builder.currentFunction.registerTypes.len() {
+                return builder.currentFunction.registerTypes.get(r.value) == "object"
+            }
+        }
+        _ => {}
+    }
+    return false
+}
+
+fn emitObjectToJson(builder: IRBuilder, value: IRValue) -> int {
+    val selfArg = ir_init_instr(IROpcode.arg)
+    selfArg.operand1 = value
+    ir_emit(builder.currentFunction, selfArg)
+    val jsonReg = ir_alloc_register(builder.currentFunction, "string")
+    val callInstr = ir_init_instr(IROpcode.call)
+    callInstr.dest = jsonReg
+    callInstr.operand1 = ir_string("orbit_object_to_json")
+    callInstr.operand2 = ir_int(1)
+    ir_emit(builder.currentFunction, callInstr)
+    return jsonReg
+}
+
+// An object literal lowers to a create followed by one set per field, in
+// source order, which is what makes the JSON come out in the order it was
+// written. The value is built before the key so a field whose value is itself
+// a call cannot swallow the key argument.
+fn buildObjectLiteral(builder: IRBuilder, node: ASTNode) -> int {
+    val objectReg = ir_alloc_register(builder.currentFunction, "object")
+    val createInstr = ir_init_instr(IROpcode.call)
+    createInstr.dest = objectReg
+    createInstr.operand1 = ir_string("orbit_object_create")
+    createInstr.operand2 = ir_int(0)
+    ir_emit(builder.currentFunction, createInstr)
+    match node {
+        ASTNode.ObjectLiteral(ol) => {
+            var i = 0
+            while i < ol.fields.len() {
+                val field: ASTNode = ol.fields.get(i)
+                match field {
+                    ASTNode.FieldInit(fi) => {
+                        val valueReg = buildExpr(builder, fi.value)
+                        val setter = objectFieldSetter(builder, valueReg)
+                        val argSelf = ir_init_instr(IROpcode.arg)
+                        argSelf.operand1 = ir_register(objectReg)
+                        ir_emit(builder.currentFunction, argSelf)
+                        val argKey = ir_init_instr(IROpcode.arg)
+                        argKey.operand1 = ir_string(fi.name)
+                        ir_emit(builder.currentFunction, argKey)
+                        val argValue = ir_init_instr(IROpcode.arg)
+                        argValue.operand1 = ir_register(valueReg)
+                        ir_emit(builder.currentFunction, argValue)
+                        val setInstr = ir_init_instr(IROpcode.call)
+                        setInstr.operand1 = ir_string(setter)
+                        setInstr.operand2 = ir_int(3)
+                        ir_emit(builder.currentFunction, setInstr)
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return objectReg
+}
+
+// One setter per value type, named for it, so the runtime never has to guess
+// and the C call is typed. A register whose type is not known falls back to
+// the string setter, which is what the rest of the compiler does for an
+// unidentifiable value.
+fn objectFieldSetter(builder: IRBuilder, valueReg: int) -> string {
+    if valueReg < 0 || valueReg >= builder.currentFunction.registerTypes.len() {
+        return "orbit_object_set_string"
+    }
+    val t = builder.currentFunction.registerTypes.get(valueReg)
+    if t == "int" { return "orbit_object_set_int" }
+    if t == "float" { return "orbit_object_set_float" }
+    if t == "bool" { return "orbit_object_set_bool" }
+    if t == "object" { return "orbit_object_set_object" }
+    return "orbit_object_set_string"
+}
+
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(lit) => {
@@ -2177,6 +2280,9 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         }
         ASTNode.Interp(ip) => {
             return buildInterpString(builder, ip.parts, ip.isRaw)
+        }
+        ASTNode.ObjectLiteral(ol) => {
+            return buildObjectLiteral(builder, node)
         }
         ASTNode.ListLiteral(ll) => {
             val elemCount = ll.elements.len()
