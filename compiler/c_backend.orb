@@ -2007,9 +2007,10 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             if expCount > 0 && numArgs < expCount {
                 numArgs = expCount
             }
-            if numArgs == 0 {
-                numArgs = backend.callArgs.len()
-            }
+            // No fallback: operand2 is the arity the builder recorded, and a
+            // zero means zero. Guessing "everything still pending" for a
+            // genuine zero-argument call made it consume its neighbours'
+            // arguments, silently, in the middle of building an argument list.
             var startIdx = backend.callArgs.len() - numArgs
             if startIdx < 0 { startIdx = 0 }
 

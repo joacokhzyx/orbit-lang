@@ -716,6 +716,24 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                         if member == "keys" { return "list" }
                         if member == "delete" { return "void" }
                     }
+                    // system.uptime() and friends: the callee is a member
+                    // access, so its type has to come from the member-access
+                    // rules rather than from the string/list/map tables here.
+                    val callObjName = ""
+                    match ma.object {
+                        ASTNode.Literal(ol) => {
+                            if ol.valType == "identifier" { callObjName = ol.text }
+                        }
+                        _ => {}
+                    }
+                    if callObjName == "system" {
+                        if member == "env" { return "string" }
+                        if member == "uptime" { return "int" }
+                        if member == "pid" { return "int" }
+                        if member == "active_workers" { return "int" }
+                        if member == "http_requests_total" { return "int" }
+                        if member == "latency_avg_us" { return "int" }
+                    }
                 }
                 _ => {}
             }
@@ -727,8 +745,20 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             if objType == "string" && member == "length" { return "int" }
             val objName = ""
             match ma.object {
-                ASTNode.Literal(l) => { if l.valType == "identifier" { /* objName = l.text */ } }
+                ASTNode.Literal(l) => { if l.valType == "identifier" { objName = l.text } }
                 _ => {}
+            }
+            // The system.* builtins, so their type is known rather than
+            // unknown. An unknown type is compatible with everything, which is
+            // how `ok 200 system.uptime()` reached the C backend and passed an
+            // int where a string pointer belongs.
+            if objName == "system" {
+                if member == "env" { return "string" }
+                if member == "uptime" { return "int" }
+                if member == "pid" { return "int" }
+                if member == "active_workers" { return "int" }
+                if member == "http_requests_total" { return "int" }
+                if member == "latency_avg_us" { return "int" }
             }
             return "unknown"
         }

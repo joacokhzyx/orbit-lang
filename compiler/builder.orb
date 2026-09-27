@@ -1766,6 +1766,12 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val resReg = ir_alloc_register(builder.currentFunction, "bool")
                 callInstr.dest = resReg
                 callInstr.operand1 = ir_string("orbit_string_contains")
+                // Arity is not optional metadata. The backend reads it to know
+                // how many of the pending arguments belong to this call, and
+                // left at zero it swept up every argument still in flight --
+                // which is how `ok 200 system.uptime()` emitted
+                // `system_uptime((void*)(uintptr_t)(200))`.
+                callInstr.operand2 = ir_int(2)
                 ir_emit(builder.currentFunction, callInstr)
                 return resReg
             }
