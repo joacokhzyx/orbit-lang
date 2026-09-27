@@ -1,0 +1,46 @@
+// Number <-> text, and the char constructor the case-mapping helpers
+// are built on. These bindings used to be private externs inside
+// std/string/string.orb, which meant the only way for a second module
+// to reach them was to import all of std/string or to redeclare them
+// and take a "Duplicate symbol" error. They are declared here so there
+// is exactly one owner.
+//
+// THERE IS NO FLOAT CONVERSION, and the reason is a compiler defect
+// rather than a missing runtime function. orbit_string_to_float
+// (runtime/builtins.c:74) is reachable -- declare it extern and it
+// links -- but nothing can observe its result:
+//
+//   fn doubleIt(x: float) -> float { return x + x }
+//   fn main() -> int { if doubleIt(1.5) == 3.0 { print("y") } else { print("n") }  return 0 }
+//   orbit run -> n
+//
+// The backend passes float arguments through uintptr_t, so 1.5 reaches
+// the callee as 1, and a local bound to a call's return value is
+// declared `uintptr_t` rather than `orbit_float` (F-0016). print() of
+// a float emits `printf("%lld", (long long)x)`. orbit_string_to_float
+// is also a bare atof: it answers 0.0 for "abc" and 1.5 for "1.5abc",
+// with no way to tell a parse failure from a zero. Fixing the
+// argument cast is core work; until then, this module refuses to ship a
+// float parser that cannot be printed, compared or parsed back.
+extern fn orbit_int_to_string(value: int) -> string
+extern fn orbit_string_to_int(s: string) -> int
+extern fn orbit_string_from_char_selfhost(code: int) -> string
+
+fn intToString(value: int) -> string {
+    return orbit_int_to_string(value)
+}
+
+// One character from its byte value. Codes outside 32..126 are
+// rejected rather than substituted: a NUL or a lone continuation byte
+// vanishes inside an Orbit string, so a silent answer here is data
+// loss, not a value.
+fn charFromCode(code: int) -> string {
+    if code < 32 { return "" }
+    if code > 126 { return "" }
+    return orbit_string_from_char_selfhost(code)
+}
+
+// NOTE: no stringToInt. orbit_string_to_int is a bare atoi, so "12x"
+// answers 12 and "abc" answers 0, and there is no way to tell a parse
+// failure from a legitimate zero. std/string/string.orb's
+// parseIntChecked is the checked spelling; use that.

@@ -1,6 +1,13 @@
 // M2 contract tests, incl. edges: empty, all-space, missing sep,
 // negative widths, non-canonical ints, UTF-8 passthrough for case
 // mapping (byte-wise: multibyte sequences pass through unchanged).
+//
+// startsWith/endsWith/contains/indexOf/replace are the runtime's, not a
+// second Orbit implementation: the externs are at runtime/collections.c
+// :621/:629/:637/:645/:578 and the backend prepends the arena for all
+// five already. The cases below are the ones a hand-written
+// implementation gets wrong, so they are the reason the externs are
+// preferred over another dialect.
 import "std/string/string.orb"
 import "std/test/assert.orb"
 
@@ -27,5 +34,64 @@ fn main() -> int {
     try parseIntChecked("12x") catch {
         return 0
     }
+
+    // contains / indexOf. indexOf is a byte offset and -1 is "absent",
+    // which is not the same as 0: the first test below is the one a
+    // `!= 0` mistake would fail.
+    if assertTrue(contains("hello", "ell")) == false { return 18 }
+    if assertTrue(contains("hello", "h")) == false { return 19 }
+    if assertTrue(contains("hello", "z")) { return 20 }
+    if assertTrue(contains("hello", "")) == false { return 21 }
+    if assertEqInt(indexOf("hello", "h"), 0) == false { return 22 }
+    if assertEqInt(indexOf("hello", "o"), 4) == false { return 23 }
+    if assertEqInt(indexOf("hello", "z"), -1) == false { return 24 }
+    if assertEqInt(indexOf("hello", ""), 0) == false { return 25 }
+    if assertEqInt(indexOf("", "a"), -1) == false { return 26 }
+    // startsWith/endsWith on the degenerate widths, where the C guard
+    // `plen > slen` is the whole answer.
+    if assertTrue(startsWith("", "")) == false { return 27 }
+    if assertTrue(endsWith("", "")) == false { return 28 }
+    if assertTrue(startsWith("", "x")) { return 29 }
+    if assertTrue(endsWith("", "x")) { return 30 }
+
+    // replace. The middle case is the one that matters: a replacement
+    // SHORTER than the needle shrinks the buffer, and that is where a
+    // length computation done in the wrong signedness returns "".
+    if assertEqStr(replace("a-b-c", "-", "+"), "a+b+c") == false { return 31 }
+    if assertEqStr(replace("hello world", "world", ""), "hello ") == false { return 32 }
+    if assertEqStr(replace("hello", "l", ""), "heo") == false { return 33 }
+    if assertEqStr(replace("a-b-c", "-", "=="), "a==b==c") == false { return 34 }
+    if assertEqStr(replace("aaa", "a", ""), "") == false { return 35 }
+    if assertEqStr(replace("aaaa", "aa", "b"), "bb") == false { return 36 }
+    // No occurrence: the input comes back, same pointer or not.
+    if assertEqStr(replace("abc", "z", "y"), "abc") == false { return 37 }
+    if assertEqStr(replace("abc", "z", ""), "abc") == false { return 38 }
+    // An empty needle is not a wildcard. It matches nothing.
+    if assertEqStr(replace("abc", "", "y"), "abc") == false { return 39 }
+    if assertEqStr(replace("", "", "y"), "") == false { return 40 }
+    if assertEqStr(replace("", "a", "y"), "") == false { return 41 }
+    // Replacement is literal, not a pattern or a group reference.
+    if assertEqStr(replace("a.c", ".", "X"), "aXc") == false { return 42 }
+    if assertEqStr(replace("a.c", ".", "\\0"), "a\\0c") == false { return 43 }
+    if assertEqStr(replace("a.c", ".", "$&"), "a$&c") == false { return 44 }
+    // The result is an independent string: the input is untouched.
+    val src = "keep-me"
+    val out = replace(src, "keep", "KEEP")
+    if assertEqStr(src, "keep-me") == false { return 45 }
+    if assertEqStr(out, "KEEP-me") == false { return 46 }
+    // Multibyte input. The lexer has no \u escape (F-0011), so the two
+    // high bytes of a real UTF-8 "e-acute" are built from the
+    // unrestricted char binding rather than written as a literal. These
+    // are the cases where a byte-wise implementation that indexes by
+    // character instead of by byte would corrupt the sequence.
+    val hiByte = orbit_string_from_char_selfhost(195)
+    val loByte = orbit_string_from_char_selfhost(169)
+    val cafe = "caf" + hiByte + loByte + "au"
+    if assertEqInt(cafe.len(), 7) == false { return 47 }
+    if assertEqStr(replace(cafe, "au", "AU"), "caf" + hiByte + loByte + "AU") == false { return 48 }
+    if assertEqStr(replace(cafe, "z", "Y"), cafe) == false { return 49 }
+    if assertEqStr(toUpper(cafe), "CAF" + hiByte + loByte + "AU") == false { return 50 }
+    if assertEqInt(indexOf(cafe, "au"), 5) == false { return 51 }
+    if assertTrue(contains(cafe, "f" + hiByte)) == false { return 52 }
     return 17
 }

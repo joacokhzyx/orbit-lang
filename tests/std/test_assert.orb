@@ -1,5 +1,13 @@
 // M4 dogfoods itself: intent-state assertions over the helpers.
+//
+// The *Msg forms are checked on BOTH paths. Asserting only the passing
+// case would leave the interesting half untested, and the failing half
+// is the reason they exist: it is what turns "exit 1" into a line that
+// names the assertion, the expected value and the actual one. Each
+// deliberately-failing call below is labelled "expected failure" so
+// the output is not mistaken for a real one when reading a run.
 import "std/test/assert.orb"
+import "std/convert/convert.orb"
 
 fn main() -> int {
     if assertTrue(1 == 1) == false { return 1 }
@@ -8,5 +16,27 @@ fn main() -> int {
     if assertEqInt(1, 2) { return 4 }
     if assertEqStr("a" + "b", "ab") == false { return 5 }
     if assertEqStr("a", "b") { return 6 }
+
+    // --- the *Msg forms on the passing path: no output at all ---------
+    if assertTrueMsg(1 == 1, "truth") == false { return 7 }
+    if assertEqIntMsg(42, 42, "equal ints") == false { return 8 }
+    if assertEqStrMsg("ab", "ab", "equal strings") == false { return 9 }
+
+    // --- and on the failing path: they still answer the same bool ----
+    // The bool is unchanged so a caller can keep using them as a
+    // condition; the difference is that the reason is now on screen.
+    if assertTrueMsg(1 == 2, "expected failure: truth") { return 10 }
+    if assertEqIntMsg(1, 2, "expected failure: ints") { return 11 }
+    if assertEqIntMsg(2147483647, -2147483648, "expected failure: int extremes") { return 12 }
+    if assertEqStrMsg("a", "b", "expected failure: strings") { return 13 }
+    if assertEqStrMsg("", "x", "expected failure: empty got") { return 14 }
+
+    // The message is built by concatenation, because print takes exactly
+    // one argument: `print("a", "b", 1)` compiles and prints nothing.
+    // intToString is the only way an int gets into a message, and it
+    // comes from std/convert/convert.orb, which owns that binding.
+    if assertEqStrMsg(intToString(-1), "-2", "expected failure: negative") { return 15 }
+
+    if failFastHere("a deliberate stop", 16) != 16 { return 17 }
     return 0
 }

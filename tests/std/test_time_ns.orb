@@ -1,0 +1,131 @@
+// Sub-second timing. The whole reason std/time/time.orb grew a
+// nanosecond clock: system.uptime() is whole seconds, so a benchmark
+// that runs for 400 ms reads 0 before and 0 after and the difference
+// is 0 -- a wrong answer, not a missing one. The first block below is
+// the regression for exactly that.
+//
+// The discriminating assertion is not "the delta is >= 0" -- a clock
+// that always answered 0 would pass that. It is that a ten-times-longer
+// loop yields a strictly larger delta. A constant or zero clock cannot
+// pass, and neither can a whole-second one.
+//
+// The cap and the wrap guard are pinned too, because both are
+// arithmetic on a 32-bit int and neither is visible at the call site.
+import "std/time/time.orb"
+import "std/test/assert.orb"
+
+// Exact, and pinned below at sizes where the sum still fits in an
+// int32. This is the "the loop really ran" witness.
+fn spin(iters: int) -> int {
+    var acc = 0
+    var i = 0
+    while i < iters {
+        acc = acc + i
+        i = i + 1
+    }
+    return acc
+}
+
+// The timing workload. Its result is not asserted: what is asserted is
+// how long it took, and a loop that did not run would be caught by the
+// small-versus-large comparison rather than by this return value.
+fn burn(iters: int) -> int {
+    var acc = 1
+    var i = 0
+    while i < iters {
+        acc = acc + i
+        i = i + 1
+    }
+    return acc
+}
+
+fn main() -> int {
+    // The loop is real, checked where the answer is checkable.
+    if assertEqIntMsg(spin(0), 0, "spin(0)") == false { return 1 }
+    if assertEqIntMsg(spin(100), 4950, "spin(100)") == false { return 2 }
+    if assertEqIntMsg(spin(1000), 499500, "spin(1000)") == false { return 3 }
+
+    // --- the bug this clock exists to fix -----------------------------
+    val secsBefore = uptimeSeconds()
+    val t0 = tickNs()
+    burn(200000)
+    val small = sinceNs(t0)
+    val ms = sinceMs(t0)
+    val t1 = tickNs()
+    burn(2000000)
+    val large = sinceNs(t1)
+    val secsAfter = uptimeSeconds()
+
+    if assertTrueMsg(small >= 0, "a short span reported a wrap") == false { return 4 }
+    if assertTrueMsg(large >= 0, "a long span reported a wrap") == false { return 5 }
+    if assertTrueMsg(large > small, "ten times the work did not take measurably longer") == false { return 6 }
+    if assertTrueMsg(small > 0, "200k iterations measured as zero nanoseconds") == false { return 7 }
+
+    // sinceMs is the same delta truncated to milliseconds, so it cannot
+    // exceed the nanosecond reading of the same span (one extra
+    // millisecond of slack for the two being separate calls). Compared
+    // as a quotient, not as `ms * 1000000`, so a long span cannot
+    // overflow the comparison itself.
+    if assertTrueMsg(ms >= 0, "sinceMs reported a wrap") == false { return 8 }
+    if assertTrueMsg(ms <= small / 1000000 + 1, "sinceMs exceeded the nanosecond reading") == false { return 9 }
+
+    // The old clock is what this replaces. Asserted as "does not move
+    // by more than a second across the whole loop" rather than "is 0",
+    // so the test does not depend on how fast the machine is.
+    if assertTrueMsg(secsAfter - secsBefore <= 1, "uptimeSeconds cannot resolve a sub-second span") == false { return 10 }
+
+    // Two back-to-back readings differ by less than the whole span,
+    // which is what makes a rate computable.
+    val a = tickNs()
+    val b = tickNs()
+    val ab = sinceNsBetween(a, b)
+    if assertTrueMsg(ab >= 0, "two back-to-back readings wrapped") == false { return 11 }
+    if assertTrueMsg(ab <= large, "a back-to-back delta exceeded the whole span") == false { return 12 }
+
+    // --- the wrap guard ----------------------------------------------
+    // sinceNsBetween is pure arithmetic, so its contract is pinned
+    // exactly here rather than waited for on a real clock: the test
+    // must not depend on how long the machine has been up, which
+    // decides the sign of a raw tickNs() reading.
+    if assertEqIntMsg(sinceNsBetween(100, 250), 150, "delta") == false { return 13 }
+    if assertEqIntMsg(sinceNsBetween(100, 100), 0, "a zero span is a real zero") == false { return 14 }
+    if assertEqIntMsg(sinceNsBetween(0, 2147483647), 2147483647, "just under the cap") == false { return 15 }
+    if assertEqIntMsg(sinceNsBetween(0, 2147483648), -1, "exactly at the cap reports a wrap") == false { return 16 }
+    if assertEqIntMsg(sinceNsBetween(2147483648, 0), -1, "a backwards reading reports a wrap") == false { return 17 }
+
+    // --- a long span, accumulated in chunks --------------------------
+    // The honest way to measure more than the cap: keep each chunk's end
+    // reading as the next chunk's start. This is the loop a benchmark
+    // over a large corpus has to run, written down here so the pattern
+    // is not rediscovered as a silent 71-minute wrap.
+    var total = 0
+    var chunks = 0
+    var skipped = 0
+    var chunkStart = tickNs()
+    var round = 0
+    while round < 6 {
+        burn(1000000)
+        val chunkEnd = tickNs()
+        val d = sinceNsBetween(chunkStart, chunkEnd)
+        if d >= 0 {
+            total = total + d
+            chunks = chunks + 1
+        } else {
+            // Too long: drop the chunk rather than adding a wrapped
+            // number, and take a fresh reading.
+            chunkStart = tickNs()
+            skipped = skipped + 1
+        }
+        chunkStart = chunkEnd
+        round = round + 1
+    }
+    if assertTrueMsg(skipped == 0, "a 1M-iteration chunk exceeded the 2.15 s cap") == false { return 18 }
+    if assertEqIntMsg(chunks, 6, "every chunk was measured") == false { return 19 }
+    // Six 1M chunks are 6M iterations against the 2M of `large` above.
+    // At roughly 6 ns an iteration that is about 35 ms against 7 ms, so
+    // the margin is 5x and this does not depend on the machine being
+    // fast -- only on it not being so slow that 1M iterations reaches
+    // the 2.15 s cap, which is 300x the headroom here.
+    if assertTrueMsg(total > large, "six chunks of 1M did not outlast one span of 2M") == false { return 20 }
+    return 0
+}

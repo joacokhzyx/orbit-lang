@@ -1,0 +1,31 @@
+// std/convert/convert.orb contract: the bindings that let a program put
+// a number on screen at all, and the deliberate absences.
+import "std/convert/convert.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertEqStrMsg(intToString(0), "0", "zero") == false { return 1 }
+    if assertEqStrMsg(intToString(42), "42", "forty-two") == false { return 2 }
+    if assertEqStrMsg(intToString(-7), "-7", "negative") == false { return 3 }
+    if assertEqStrMsg(intToString(2147483647), "2147483647", "int32 max") == false { return 4 }
+    if assertEqStrMsg(intToString(-2147483648), "-2147483648", "int32 min") == false { return 5 }
+
+    if assertEqStrMsg(charFromCode(65), "A", "A") == false { return 6 }
+    if assertEqStrMsg(charFromCode(32), " ", "space") == false { return 7 }
+    if assertEqStrMsg(charFromCode(126), "~", "tilde") == false { return 8 }
+    // The range check is the point of the wrapper: a NUL or a lone
+    // continuation byte vanishes inside an Orbit string, so "" is the
+    // only honest answer and a substituted character would be worse.
+    if assertEqStrMsg(charFromCode(0), "", "NUL is refused") == false { return 9 }
+    if assertEqStrMsg(charFromCode(31), "", "control char is refused") == false { return 10 }
+    if assertEqStrMsg(charFromCode(127), "", "DEL is refused") == false { return 11 }
+    if assertEqStrMsg(charFromCode(200), "", "high byte is refused") == false { return 12 }
+    if assertEqStrMsg(charFromCode(-1), "", "negative is refused") == false { return 13 }
+
+    // Round trip: text -> int -> text, which is the only use of
+    // orbit_string_to_int that is honest (parseIntChecked in
+    // std/string/string.orb is the checked spelling and is the one
+    // callers should reach for; the bare atoi cannot report failure).
+    if assertEqStrMsg(intToString(1234567), "1234567", "round trip") == false { return 14 }
+    return 0
+}

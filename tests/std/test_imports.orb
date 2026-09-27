@@ -11,6 +11,15 @@
 //   system_env                       std/sys/proc/process.orb:7  +  std/io/io.orb:7
 //   orbit_sha256_hex                 std/hash/hash.orb:5  +  std/sys/crypto/jwt.orb:14
 //   orbit_hmac_sha256_base64url      std/hash/hash.orb:6  +  std/sys/crypto/jwt.orb:15
+//   orbit_int_to_string              std/string/string.orb:7  +  std/test/assert.orb
+//   orbit_string_to_int              std/string/string.orb:8  +  std/convert/convert.orb
+//
+// The last two are the pair that a new std/convert/convert.orb had to
+// settle in wave 2: number<->text bindings were private externs inside
+// std/string/string.orb, so the assert helpers could not report an
+// expected/actual pair without either importing all of std/string or
+// redeclaring orbit_int_to_string and taking a "Duplicate symbol"
+// error. convert.orb is now the single owner and both modules import it.
 //
 // The transitive one hurt most: std/bytes/bytes.orb and
 // std/sys/crypto/jwt.orb each import std/string/string.orb, so adding
@@ -27,6 +36,7 @@
 // call into each, so a future redeclaration cannot pass by being
 // unused.
 import "std/test/assert.orb"
+import "std/convert/convert.orb"
 import "std/string/string.orb"
 import "std/collections/lists.orb"
 import "std/bytes/bytes.orb"
@@ -43,6 +53,15 @@ fn main() -> int {
     // string.orb, reached directly and through three importers
     if assertEqStr(trim("  hi  "), "hi") == false { return 1 }
     if assertTrue(startsWith("prefix-x", "prefix-")) == false { return 2 }
+
+    // convert.orb, the owner of orbit_int_to_string. If it were declared
+    // twice this program would not get past `check` at all.
+    if assertEqStr(intToString(1234), "1234") == false { return 17 }
+    if assertEqStr(charFromCode(65), "A") == false { return 18 }
+
+    // string.orb's replace over the runtime binding, in a program that
+    // also pulls in eleven other modules
+    if assertEqStr(replace("a-b-c-d", "-", "+"), "a+b+c+d") == false { return 19 }
 
     // collections.orb
     if assertEqStr(getOr(["a", "b"], 0, "z"), "a") == false { return 3 }

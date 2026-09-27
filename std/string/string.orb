@@ -1,21 +1,69 @@
-// String utilities over builtin strings. Case conversion and trim
-// are pure Orbit (byte-wise; ASCII-only by construction) so no new
-// runtime binding was needed. parseIntChecked accepts only canonical
-// decimal form (optional leading '-', no spaces, no plus, no leading
-// zeros); anything else is an err.
+// String utilities over builtin strings.
+//
+// Where the runtime already has the function, this module is a thin
+// extern rather than a second implementation. The C versions reached
+// here take no arena and need no compiler change:
+//
+//   orbit_string_starts_with  runtime/collections.c:621
+//   orbit_string_ends_with    runtime/collections.c:629
+//   orbit_string_contains     runtime/collections.c:637
+//   orbit_string_indexOf      runtime/collections.c:642
+//   orbit_string_replace      runtime/collections.c:578
+//
+// Three siblings are NOT used, and the reason is the same in all three
+// cases: their C signature starts with an OrbitArena* that the backend
+// does not prepend for them (compiler/c_backend.orb:3246
+// functionNeedsArena), so the emitted call is one argument short and
+// the C step fails. Filed as F-0014; the pure-Orbit bodies below stay
+// until the table learns the names.
+//
+//   orbit_string_to_upper     runtime/collections.c:648
+//   orbit_string_to_lower     runtime/collections.c:661
+//   orbit_string_trim         runtime/collections.c:674
+//
+// orbit_string_split (runtime/collections.c:541) is reachable and is
+// deliberately not used either: it builds its OrbitList inside the
+// runtime, and `.len()` on a runtime-built list is emitted as
+// orbit_string_len on a list pointer, which answers 1 for a 3-element
+// split (F-0002). The Orbit-built list below measures correctly.
+//
+// parseIntChecked accepts only canonical decimal form (optional leading
+// '-', no spaces, no plus, no leading zeros); anything else is an err.
+//
+// The numeric bindings come from std/convert/convert.orb, which owns
+// them; redeclaring one here is a "Duplicate symbol" build error.
+import "std/convert/convert.orb"
+
 extern fn orbit_string_indexOf(s: string, sub: string) -> int
-extern fn orbit_int_to_string(value: int) -> string
-extern fn orbit_string_to_int(s: string) -> int
-extern fn orbit_string_from_char_selfhost(code: int) -> string
+extern fn orbit_string_contains(s: string, sub: string) -> bool
+extern fn orbit_string_starts_with(s: string, prefix: string) -> bool
+extern fn orbit_string_ends_with(s: string, suffix: string) -> bool
+extern fn orbit_string_replace(s: string, oldPart: string, newPart: string) -> string
 
 fn startsWith(s: string, prefix: string) -> bool {
-    if prefix.len() > s.len() { return false }
-    return s.slice(0, prefix.len()) == prefix
+    return orbit_string_starts_with(s, prefix)
 }
 
 fn endsWith(s: string, suffix: string) -> bool {
-    if suffix.len() > s.len() { return false }
-    return s.slice(s.len() - suffix.len(), s.len()) == suffix
+    return orbit_string_ends_with(s, suffix)
+}
+
+fn contains(s: string, sub: string) -> bool {
+    return orbit_string_contains(s, sub)
+}
+
+// Byte offset of the first occurrence of sub, or -1. Already backed by
+// the runtime; this only gives it a name callers do not have to know.
+fn indexOf(s: string, sub: string) -> int {
+    return orbit_string_indexOf(s, sub)
+}
+
+// Replaces every non-overlapping occurrence of oldPart. An empty
+// oldPart is not a wildcard: it matches nothing and s comes back
+// unchanged, which is what the runtime does (collections.c:582) and
+// what a caller replacing a variable needle wants.
+fn replace(s: string, oldPart: string, newPart: string) -> string {
+    return orbit_string_replace(s, oldPart, newPart)
 }
 
 fn isSpaceCode(c: int) -> bool {
@@ -26,6 +74,19 @@ fn isSpaceCode(c: int) -> bool {
     return false
 }
 
+// The three helpers below stay in Orbit only because the runtime
+// versions cannot be called yet; see the header. The C trio is
+// byte-wise over the same ASCII range, so the contract they already
+// document (multibyte sequences pass through unchanged) holds either
+// way.
+//
+// toUpper/toLower go through the UNRESTRICTED char binding from
+// std/convert/convert.orb rather than its charFromCode wrapper, on
+// purpose: charFromCode refuses codes outside 32..126, and a UTF-8
+// continuation byte is above 126, so routing case mapping through it
+// would silently delete every multibyte character. The wrapper is for
+// callers who want the range check, not for code that has to preserve
+// bytes.
 fn trim(s: string) -> string {
     var start = 0
     while start < s.len() {

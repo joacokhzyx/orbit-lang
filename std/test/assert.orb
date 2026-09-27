@@ -2,6 +2,33 @@
 // spreading `if x { return N }` ladders. assertErr over results is
 // NOT provided: try/catch on a result parameter miscompiles today
 // (STAB); use inline try/catch for results.
+//
+// The plain assertTrue/assertEqInt/assertEqStr only answer bool, so a
+// failing test reports nothing but a non-zero exit code and a reader
+// has to go and find which of forty `return N` lines fired. The
+// *Msg forms below print what was expected, what was actually
+// produced, and the caller's own label before answering false, so the
+// failing assertion names itself.
+//
+// There is no file:line and there cannot be one from this side: the
+// runtime exposes no __FILE__/__LINE__ equivalent (grep runtime/ for
+// them returns nothing), and nothing in the language reads the current
+// position. The label argument is the substitute, so pass one that
+// says what was being checked, not which line it is on. That is also
+// why the *Msg forms print to stdout with print(): print takes exactly
+// one argument -- `print("a", "b", 1)` compiles and prints nothing --
+// so a message is built by concatenation.
+//
+// Existing callers keep working: the *Msg forms return the same bool
+// the plain ones do and change no control flow, they only add output
+// on the failing path. Do not use them as the condition of an `if`
+// whose failure is expected; a deliberately-failing assert should say
+// so in its label.
+//
+// orbit_int_to_string is declared by std/convert/convert.orb, which
+// owns it; redeclaring it here is a "Duplicate symbol" build error.
+import "std/convert/convert.orb"
+
 fn assertTrue(cond: bool) -> bool {
     return cond
 }
@@ -12,4 +39,34 @@ fn assertEqInt(got: int, want: int) -> bool {
 
 fn assertEqStr(got: string, want: string) -> bool {
     return got == want
+}
+
+fn assertTrueMsg(cond: bool, what: string) -> bool {
+    if cond == false {
+        print("assert: " + what + " -- expected true")
+    }
+    return cond
+}
+
+fn assertEqIntMsg(got: int, want: int, what: string) -> bool {
+    if got != want {
+        print("assert: " + what + " -- got " + orbit_int_to_string(got) + ", want " + orbit_int_to_string(want))
+    }
+    return got == want
+}
+
+fn assertEqStrMsg(got: string, want: string, what: string) -> bool {
+    if got != want {
+        print("assert: " + what + " -- got \"" + got + "\", want \"" + want + "\"")
+    }
+    return got == want
+}
+
+// Stops the first failing assertion instead of reporting all of them,
+// for a test where a later failure would be a consequence of the first
+// and would only add noise. Returns the number to hand back from main
+// so the caller can `return failFastHere("first check", 4)`.
+fn failFastHere(what: string, code: int) -> int {
+    print("assert: " + what + " -- stopping here")
+    return code
 }

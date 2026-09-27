@@ -1,18 +1,44 @@
-// Clocks and durations in whole seconds. No nanosecond or wall
-// clock: Orbit ints are 32-bit, so a ns counter overflows on read,
-// and the runtime exposes no wall time or sleep. uptimeSeconds fits
-// 68 years; differences are exact inside one boot. monotonicMs and
-// sleepMs are omitted on purpose, not forgotten.
+// Clocks and durations. Two of them, and they answer different
+// questions:
 //
-// `uptimeSeconds()` and the builtin `system.uptime()` read the SAME
-// counter through the same `system_uptime` extern. They are not two
-// clocks and they do not disagree; there is no collision to reconcile.
-// Prefer `system.uptime()` in new code (no import needed) and treat
-// `uptimeSeconds()` as the spelling for code that already imports this
-// module, e.g. as the timestamp std/log/log.orb expects. Do not mix
-// them as if they were different sources, and note that neither is a
-// wall clock: a token signed with it expires in 68 years.
+//   uptimeSeconds() / system.uptime()  whole seconds since process
+//                                      start. 68 years before an
+//                                      int32 overflow, exact.
+//   tickNs() / sinceNs() / sinceMs()   sub-second spans, from the
+//                                      monotonic clock at
+//                                      runtime/builtins.c:295.
+//
+// The second one exists because the first one cannot time anything
+// short: a benchmark that runs for 400 ms reads 0 seconds before and
+// 0 seconds after, and the difference is 0, which is a wrong answer
+// rather than a missing one. orbit_monotonic_ns is a `static` in the
+// runtime and no Orbit program could name it; the extern below is the
+// whole reason this module grew.
+//
+// WHAT THE NS CLOCK IS NOT, read before using it:
+//
+//   * The absolute value is meaningless. orbit_monotonic_ns counts
+//     nanoseconds from an unspecified epoch since boot in a uint64_t
+//     and the backend truncates it into Orbit's 32-bit int, so
+//     tickNs() is `ns mod 2^32` read as signed: on a machine up for
+//     more than ~71 minutes it is a large negative number. Only
+//     DIFFERENCES are meaningful.
+//   * A difference is exact while the true span is under 2^31 ns
+//     (~2.15 s). Past that the subtraction wraps. sinceNs and sinceMs
+//     answer -1 rather than a wrapped number, so the first ~2 s of
+//     overrun is reported as an error instead of as a plausible lie.
+//     Past 2^32 ns (~4.29 s) even the guard is fooled, because the
+//     wrapped difference can land back in the positive range.
+//   * A span longer than the cap is measurable in chunks: read the
+//     clock every couple of seconds and add the deltas with
+//     sinceNsBetween. See tests/std/test_time_ns.orb.
+//
+// There is still no wall clock and no sleep in this module: the
+// runtime exposes neither, and uptimeSeconds is a process-relative
+// monotonic count, not a date, so a token stamped with it is good for
+// 68 years.
 extern fn system_uptime() -> int
+extern fn orbit_monotonic_ns() -> int
 
 fn uptimeSeconds() -> int {
     return system_uptime()
@@ -28,4 +54,35 @@ fn elapsedSince(startSecs: int, nowSecs: int) -> int {
 
 fn deadlineExceededSeconds(nowSecs: int, deadlineSecs: int) -> bool {
     return nowSecs >= deadlineSecs
+}
+
+// Start a measurement. Keep the value; pass it to sinceNs/sinceMs.
+fn tickNs() -> int {
+    return orbit_monotonic_ns()
+}
+
+// Nanoseconds elapsed since a tickNs(). -1 means the span reached the
+// 2^31 ns cap and the subtraction wrapped; take a new reading and
+// accumulate with sinceNsBetween instead of believing this number.
+fn sinceNs(startNs: int) -> int {
+    return sinceNsBetween(startNs, tickNs())
+}
+
+// Whole milliseconds elapsed since a tickNs(), truncated down. -1 has
+// the same meaning as in sinceNs. A span shorter than 1 ms answers 0,
+// which is a real zero: the sub-millisecond part is not measurable
+// through a 32-bit counter read at millisecond scale.
+fn sinceMs(startNs: int) -> int {
+    val ns = sinceNs(startNs)
+    if ns < 0 { return - 1 }
+    return ns / 1000000
+}
+
+// The delta between two readings, for accumulating a long span in
+// chunks. Both arguments come from tickNs(). -1 if they wrapped, which
+// for a span over the cap means the chunk was too long: shorten it.
+fn sinceNsBetween(startNs: int, endNs: int) -> int {
+    val delta = endNs - startNs
+    if delta < 0 { return - 1 }
+    return delta
 }
