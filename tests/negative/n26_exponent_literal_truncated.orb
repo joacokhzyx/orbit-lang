@@ -1,0 +1,15 @@
+// case: exponent-literal-truncated
+// what: the lexer has no exponent branch at all (`compiler/lexer.orb:253-290`
+//      reads 0x, then digits with `_`, then `.` plus one digit, and stops), so
+//      `1e2` is the integer 1 followed by an identifier `e2` that nothing
+//      declares and nothing reads. The identifier is dropped: `orbit check` is
+//      clean, the program builds, and it prints 1 where the source says 100.
+//      A wrong value with no diagnostic anywhere is the worst shape there is.
+//      FINDINGS F-0011.
+// known-defect: F-0011
+// wrong-value: 1
+fn main() -> int {
+    val v = 1e2
+    print(v)
+    return 0
+}

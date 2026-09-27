@@ -30,6 +30,11 @@ the way it is actually meant to be exercised:
          TIR. There is nothing to diff, so the gate asserts the suppression and
          the message the fixture prints.
 
+One table in this file is a ratchet: KNOWN_UNBUILDABLE, the two fixtures that
+cannot be built at all because of F-0004. The gate requires them to keep
+failing, so the fix for F-0004 shows up here as a red run rather than as a
+golden nobody has ever diffed against real output.
+
 Usage:
     python scripts/frontend_gate.py [--compiler PATH] [--cc CC] [--list]
                                     [--emit-only] [--quiet]
@@ -311,6 +316,11 @@ def main():
     if KNOWN_UNBUILDABLE:
         out.say("Known-unbuildable fixtures, asserted still broken: %s"
                 % ", ".join(sorted(KNOWN_UNBUILDABLE)))
+        out.say("A ratchet is not a waiver: a known-unbuildable fixture is asserted to "
+                "STAY broken, so the F-0004 fix fails this gate instead of passing "
+                "quietly. When one starts building, that is the good news -- move it out "
+                "of KNOWN_UNBUILDABLE and check its .tir against real output, because "
+                "until then its golden has never been checked in either direction.")
     out.finish("frontend", ok, total)
     if fails:
         out.tip("the front end is the core zone: file the difference, do not "

@@ -1,0 +1,20 @@
+// case: capitalised-type-parameter
+// what: `Float` is not a type either (n30 is the local-binding half), and here
+//      the program IS rejected -- so this is the one place in the family where
+//      a diagnostic exists, and it points at the wrong thing. Nothing is wrong
+//      with the return statement; what is wrong is the parameter annotation
+//      that the front end accepted and then carried as a type name. The
+//      rejection only happens because the bogus name later reaches the return
+//      check and mismatches `float`, and the message names the return.
+//
+//      It is pinned deliberately, and the pin is wrong on purpose: the header
+//      asserts the misleading text, so the day someone teaches the front end
+//      that an unknown type name is an error at the annotation, this gate fails
+//      and the diagnostic has to be re-declared. FINDINGS F-0011.
+// expect-error: expected float, got Float
+fn f(x: Float) -> float { return x }
+
+fn main() -> int {
+    print(f(1.5))
+    return 0
+}

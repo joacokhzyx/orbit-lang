@@ -1,0 +1,20 @@
+// case: at-out-of-range
+// what: an index past the end of a string is not a character. `orbit_string_at`
+//      (`runtime/collections.c:369-373`) answers 0 for `index >= len`, which is
+//      indistinguishable from the character NUL, and the front end has both the
+//      receiver and the index and raises nothing. Measured: `s.at(99)` over
+//      "hello" prints 0. The receiver here is a real string, so this isolates
+//      the missing bounds check from n31's receiver-type bug: with the receiver
+//      correct, an in-range index is right and an out-of-range one is silently
+//      zero.
+//
+//      Nothing in std/ depends on this being 0 -- `getOr` guards with
+//      `i >= l.len()` before it calls `get` -- so it can be made an error
+//      without a coordinated std change. FINDINGS F-0014.
+// known-defect: F-0014
+// wrong-value: 0
+fn main() -> int {
+    val s = "hello"
+    print(s.at(99))
+    return 0
+}

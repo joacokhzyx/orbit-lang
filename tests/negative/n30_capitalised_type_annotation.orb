@@ -1,0 +1,26 @@
+// case: capitalised-type-annotation
+// what: `Int` is not a type. `mapTypeToC` has cases for int, float, string,
+//      bool, void, list, map, result and response, and for any other name whose
+//      first character is upper case it answers `sanitizeIdentifier(name) + "*"`
+//      (`compiler/c_backend.orb:264`, case test at :293-300). So the annotation
+//      is accepted, carried through the whole pipeline as a string, and written
+//      into the C as `Int* r_0` -- and the C step is what reports it. The front
+//      end that has the annotation in front of it says nothing.
+//
+//      The part that hides this: it only fails if the binding is READ. Delete
+//      the `print` and the identical program builds and runs, because an unused
+//      local is never declared in the generated C, so the invented type is
+//      never written down. Verified both ways:
+//
+//        val n: Int = 1  print(n)  -> check clean, gcc: unknown type name 'Int'
+//        val n: Int = 1             -> check clean, builds, runs
+//
+//      That is why this reads as "works" in a test and breaks in an
+//      application. FINDINGS F-0011.
+// known-defect: F-0011
+// cc-rejects: unknown type name
+fn main() -> int {
+    val n: Int = 1
+    print(n)
+    return 0
+}

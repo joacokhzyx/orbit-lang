@@ -1,0 +1,25 @@
+// case: call-argument-type-unchecked
+// what: `takesInt` is declared `fn takesInt(x: int)`, and it is called with a
+//      string. The front end knows the parameter type and the argument type and
+//      checks neither, so the string's address arrives in an int register and
+//      the program prints it: -619324952 on one run, 1436322280 on the next.
+//      The number is a heap address, so nothing is pinned about its VALUE --
+//      what is pinned is that the call is still accepted, because the day it
+//      stops being accepted this case fires.
+//
+//      This is n14 (a model constructor given the wrong argument types) at the
+//      primitive level, and it is the shape that costs the most: an int where a
+//      string was meant is a garbage number, not a crash, so it propagates.
+//      Two neighbours measured the same day, same root:
+//
+//        fn f(a: A) -> int   called as f(B(3))  -> prints 3, accepted
+//        var n = 0  n = "a string"             -> SIGSEGV, check clean
+//
+//      FINDINGS F-0015.
+// known-defect: F-0015
+fn takesInt(x: int) -> int { return x + 1 }
+
+fn main() -> int {
+    print(takesInt("a string"))
+    return 0
+}

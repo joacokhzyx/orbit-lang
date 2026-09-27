@@ -1,0 +1,19 @@
+// case: negative-operand-division
+// what: integer `/` and `%` are emitted with both operands cast to uintptr_t
+//      (`compiler/c_backend.orb:1838` and `:1843`), so a negative dividend or
+//      divisor is divided as a 64-bit unsigned number and only the low 32 bits
+//      survive, because `orbit_int` is 32-bit. Nothing about this is a small
+//      error: (0-7)/2 prints -4 where C prints -3, (0-7)%2 prints 1 where C
+//      prints -1, and (0-7)/3 prints 1431655763 where C prints -2. A billion
+//      is not a plausible answer to a division of small numbers, which is what
+//      makes it easy to miss in review and impossible to miss in production.
+//      The front end has both operand types here and still emits an unsigned
+//      division, so this is codegen, not D2's name resolution.
+//      FINDINGS F-0014.
+// known-defect: F-0014
+// wrong-value: -4\n1
+fn main() -> int {
+    print((0 - 7) / 2)
+    print((0 - 7) % 2)
+    return 0
+}

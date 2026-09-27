@@ -1,0 +1,18 @@
+// case: exponent-capitalised-type
+// what: the same missing exponent branch, one letter apart, and the two
+//      spellings fail differently. `2.5E3` is the float 2.5 followed by the
+//      identifier `E3`; because the name is capitalised, `mapTypeToC`
+//      (`compiler/c_backend.orb:264`, case test at :293-300) answers `E3*`
+//      instead of `void*` and that C type is written into the output. So the
+//      register does hold 2.5, the program is one C type away from running, and
+//      the C step is what stops it -- with the error pointing at a C type
+//      rather than at the literal. `2.5e3` (lower case) is the silent half and
+//      is n26's shape: it prints 2. Both halves must be fixed together.
+//      FINDINGS F-0011.
+// known-defect: F-0011
+// cc-rejects: unknown type name
+fn main() -> int {
+    val v = 2.5E3
+    print(v)
+    return 0
+}

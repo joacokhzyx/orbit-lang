@@ -1,0 +1,17 @@
+// case: int-literal-out-of-range
+// what: an integer literal is folded by `parseIntSelfhost`
+//      (`compiler/builder.orb:199-221`), which accumulates `result * base +
+//      digit` into an `int` and never checks the range. So a literal that does
+//      not fit in the declared `int` is not an error, it is a different number:
+//      2147483648 prints -2147483648 and 4294967296 prints 0. gcc rejects
+//      `2147483648` for the same reason ("integer constant is so large that it
+//      is unsigned"), and Python and C# reject it outright. A literal is not a
+//      runtime value, so there is no later point at which this can be caught.
+//      FINDINGS F-0014.
+// known-defect: F-0014
+// wrong-value: -2147483648\n0
+fn main() -> int {
+    print(2147483648)
+    print(4294967296)
+    return 0
+}
