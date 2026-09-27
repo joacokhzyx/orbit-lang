@@ -23,6 +23,15 @@ PROBES = [
      ("-DORBIT_WITH_NET",)),
     ("bool_logic", "fn main() -> int {\n    if 1 < 2 && 2 < 3 {\n        return 5\n    }\n    return 6\n}", 5),
     ("model_ctor", "model Rect {\n    width: int\n    height: int\n}\nfn main() -> int {\n    val r = Rect(3, 4)\n    return r.width + r.height\n}", 7),
+    # A response body reaches orbit_response_json as a `const char*`. Sema can
+    # only reject a body whose type it can prove, so an expression inferring as
+    # `unknown` used to arrive as a bare register and hand an int to a pointer
+    # parameter -- the int-to-pointer conversion this gate exists to catch, and
+    # a segfault on the first request. A mismatched arithmetic expression is the
+    # shape no type rule can pin down, which is why the fix converts by the
+    # register type the backend settled on instead of by what sema guessed.
+    ("response_body_unknown_type", "fn body() -> response {\n    return ok 200 1 + true\n}\nfn main() -> int {\n    body()\n    return 0\n}", 0,
+     ("-DORBIT_WITH_NET",)),
 ]
 
 def run_probe(compiler, cc, name, src, expect, extra_flags=()):

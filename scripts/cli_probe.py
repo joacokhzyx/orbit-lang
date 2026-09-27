@@ -13,6 +13,7 @@ errors go to stderr with an `orbit <cmd>:` prefix; --help exits 0.
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -114,6 +115,28 @@ CASES = [
     ("extern-prefix-allowed", ["check", "reserved/extern_prefix.orb"], 0, "out",
      "no errors", "Semantic error"),
     ("reserved-name-safe-still-builds", ["build", "--quiet", "reserved/safe.orb", "-o", "s.exe"], 0, "out", "", "Semantic error"),
+    # A C toolchain that is not installed is the one build failure the compiler
+    # may diagnose itself, and it has to keep saying so: the wording is what
+    # tells the user to set ORBIT_CC instead of filing a bug.
+    ("cc-absent-names-the-toolchain",
+     ["build", "tiny.orb", "-o", "x.exe"], 1, "err", "was not found", "",
+     {"ORBIT_CC": "orbit-no-such-c-compiler"}),
+]
+
+# The not-found wording is not unique to a missing toolchain: clang reports a
+# missing include as `'<header>' file not found`, so substring-matching the
+# compiler's output turned a wrong -I path into "your C compiler was not
+# found" and hid the real error behind a fix that could not help. Only clang
+# phrases it that way -- gcc says "No such file or directory" -- so the case is
+# skipped where clang is absent rather than asserted against the wrong wording.
+#
+# The probe runs in an empty work directory, so the runtime include path does
+# not resolve there and the C step fails on socket_compat.h for any compiler.
+TOOLCHAIN_CASES = [
+    ("cc-include-failure-is-not-a-missing-toolchain",
+     ["build", "tiny.orb", "-o", "y.exe"], 1, "err",
+     "the C compiler rejected my output", "was not found",
+     {"ORBIT_CC": "clang", "ORBIT_CCFLAGS_EXTRA": ""}),
 ]
 
 # Invariants that are about the tool's effect on disk rather than its exit
@@ -190,11 +213,12 @@ def invariants(compiler, work):
     return ok, len(INVARIANTS)
 
 
-def one(compiler, work, name, argv, exp_rc, stream, needle, absent=""):
+def one(compiler, work, name, argv, exp_rc, stream, needle, absent="", env_extra=None):
     env = dict(os.environ)
     # Build cases need the runtime headers; the probe binary lives in a
     # temp dir, so point the inner cc at the repo runtime explicitly.
     env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
+    env.update(env_extra or {})
     p = subprocess.run([compiler] + argv, cwd=work, capture_output=True,
                        text=True, errors="replace", env=env)
     so, se = p.stdout or "", p.stderr or ""
@@ -247,14 +271,24 @@ def main():
         with open(dest, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
     ok = 0
+    total = len(CASES)
     for case in CASES:
         name, argv, exp_rc, stream, needle = case[:5]
         absent = case[5] if len(case) > 5 else ""
-        if one(args.compiler, work, name, argv, exp_rc, stream, needle, absent):
+        env_extra = case[6] if len(case) > 6 else None
+        if one(args.compiler, work, name, argv, exp_rc, stream, needle, absent, env_extra):
             ok += 1
+    if shutil.which("clang"):
+        for case in TOOLCHAIN_CASES:
+            name, argv, exp_rc, stream, needle, absent, env_extra = case
+            if one(args.compiler, work, name, argv, exp_rc, stream, needle, absent, env_extra):
+                ok += 1
+            total += 1
+    else:
+        out.say("Skipping clang toolchain cases: clang is not installed")
     inv_ok, inv_total = invariants(args.compiler, work)
     ok += inv_ok
-    total = len(CASES) + inv_total
+    total += inv_total
     out.finish("cli-probe", ok, total)
     return 0 if ok == total else 1
 

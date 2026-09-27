@@ -1,0 +1,56 @@
+// expect-exit 0
+// Binding a result-returning call to a val, with and without the annotation.
+// Both are the same value; before the fix neither survived the C step, because
+// the local was hoisted as the integer slot every other value passes through
+// and a result is a struct.
+fn make_success() -> result {
+    val value: result = ok(41)
+    return value
+}
+
+fn make_failure() -> result {
+    val value: result = err("invalid input", 7)
+    return value
+}
+
+fn read_bound() -> int {
+    val bound = make_success()
+    val value: int = try bound catch {
+        return 0 - 1
+    }
+    return value
+}
+
+fn read_annotated() -> int {
+    val bound: result = make_success()
+    val value: int = try bound catch {
+        return 0 - 1
+    }
+    return value
+}
+
+fn read_bound_failure() -> int {
+    val bound = make_failure()
+    val value: int = try bound catch e {
+        return e.len()
+    }
+    return value
+}
+
+// A result passed as an argument travels the same way, and the cast every
+// other argument gets is a pointer cast: an OrbitResult is a struct.
+fn unwrap(r: result) -> int {
+    val value: int = try r catch {
+        return 0 - 1
+    }
+    return value
+}
+
+fn main() -> int {
+    if read_bound() != 41 { return 1 }
+    if read_annotated() != 41 { return 2 }
+    if read_bound_failure() != 13 { return 3 }
+    val bound = make_success()
+    if unwrap(bound) != 41 { return 4 }
+    return 0
+}

@@ -207,6 +207,14 @@ interpolation](#interpolation) is still shorter:
 return ok 200 """{"name":"api","port":${port}}"""
 ```
 
+A body is a string or an object. A body the compiler can type as an `int`, a
+`float` or a `bool` is refused with a diagnostic, because a C string parameter
+cannot take it. A body it cannot type at all - an index, a call it has no
+signature for, an expression whose operands do not agree - is converted to text
+with the runtime helper that matches the type the compiler settled on, the same
+way a `${...}` hole is. That is a fallback, not a licence: prefer a string, a
+raw string, or an object literal, whose shape you wrote down.
+
 Collection APIs and their exact type coverage are still evolving. Keep business
 logic simple and cover it with application-level tests. If something you need isn't here, file an issue - I read everything.
 
@@ -229,7 +237,25 @@ fn reject_value() -> result {
 
 The expression constructors are distinct from the HTTP response forms
 `return ok 200 payload` and `err 400 message` used inside routes. Result values
-can be constructed and returned by the current compiler. A `try` expression
+can be constructed and returned by the current compiler. A `result` is an
+ordinary value: it can be bound to a `val`, with or without an annotation, and
+passed to a function as an argument.
+
+```orbit
+fn unwrap(r: result) -> int {
+    val value: int = try r catch {
+        return 0
+    }
+    return value
+}
+
+fn read_twice() -> int {
+    val bound = load_value()
+    return unwrap(bound) + unwrap(load_value())
+}
+```
+
+A `try` expression
 propagates an error from a `result` value to the current function and yields the
 successful value. A `catch` block handles the failed branch:
 
@@ -343,8 +369,9 @@ Shipped and tested under `tests/std/` (run with
 `test_suite.py --dir tests/std`):
 
 - `std/test/assert.orb`: `assertTrue`, `assertEqInt`, `assertEqStr`
-  for exit-code tests. No `assertErr`: try/catch on a result
-  parameter miscompiles today (STAB-9); use inline try/catch.
+  for exit-code tests. No `assertErr`: a result passed as an
+  argument works, and try/catch on a result parameter works
+  inline, but the pair is not yet exercised (STAB-9).
 - `std/string/string.orb`: `trim`, `startsWith`, `endsWith`, `join`,
   `split`, `padLeft`, `padRight`, `toUpper`, `toLower` (byte-wise,
   ASCII-only), `parseIntChecked` (canonical decimal only; returns
@@ -354,9 +381,11 @@ Shipped and tested under `tests/std/` (run with
 - `std/hash/hash.orb`: `sha256Hex`, `hmacSha256` (runtime bindings).
   No `fnv1a32`: bitwise operators have no lexer tokens yet.
 
-Call fallible std functions with inline try on the call
-(`val n: int = try parseIntChecked(s) catch { ... }`); binding the
-result to an untyped `val` first miscompiles (STAB-9).
+Bind a fallible std result to a `val` if you need to use it twice, or
+pass it straight to a function that takes a `result`; both are
+supported. What is not supported is `return ok(expr)` directly in a
+function returning `result`: the parser reads `ok` after `return` as
+the route response form (STAB-9), so assign it first.
 
 ## Standard library (Wave 2)
 

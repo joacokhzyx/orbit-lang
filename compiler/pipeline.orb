@@ -173,6 +173,58 @@ fn replaceBuildToken(haystack: string, needle: string, replacement: string) -> s
     return out + rest
 }
 
+// Did the shell fail to exec the C compiler, as opposed to the C compiler
+// starting and rejecting what we handed it? The two need different
+// diagnostics, and the shell's wording is not distinctive enough to search for
+// on its own: `sh: 1: gcc: not found` and clang's `'socket_compat.h' file not
+// found` both contain "not found", so a bare substring test read a wrong
+// -I/runtime path as a missing toolchain and told the user to set ORBIT_CC for
+// a compiler that was sitting right there.
+//
+// What separates them is the compiler's own name. The shell names the program
+// it could not run, immediately before the wording and on the same line, and no
+// compiler diagnostic does: for a missing include the driver prints the header
+// it wanted, never itself. So the test is positional -- take the text between
+// the start of that line and the wording, and require the quoted-or-colon
+// suffixed name in it. A substring search for the name would be no better than
+// the one it replaces, since the default compiler is "cc" and half of C
+// contains those two letters.
+//
+// The wordings cover the shells a build can run under: POSIX sh and bash differ
+// ("gcc: not found" vs "gcc: command not found"), and cmd.exe has its own pair,
+// one English and one Spanish, with single quotes in the first and double
+// quotes in the second.
+fn ccToolchainMissing(cCompiler: string, compOutput: string) -> bool {
+    if cCompiler == "" || compOutput == "" { return false }
+    // ORBIT_CC may name a wrapper with arguments ("ccache gcc"); only the
+    // program appears in the shell's message.
+    var name = cCompiler
+    val sp = orbit_string_indexOf(name, " ")
+    if sp > 0 {
+        name = orbit_string_slice(name, 0, sp)
+    }
+    if namesToolchainBefore(compOutput, name, "not found") { return true }
+    if namesToolchainBefore(compOutput, name, "not recognized") { return true }
+    if namesToolchainBefore(compOutput, name, "no se reconoce") { return true }
+    return false
+}
+
+// Does `ccName` appear, in one of the forms a shell quotes it, in the part of
+// `compOutput` that precedes the first `wording` on its own line?
+fn namesToolchainBefore(compOutput: string, ccName: string, wording: string) -> bool {
+    val at = orbit_string_indexOf(compOutput, wording)
+    if at == -1 { return false }
+    var lineStart = at
+    while lineStart > 0 && orbit_string_char_at_selfhost(compOutput, lineStart - 1) != 10 {
+        lineStart = lineStart - 1
+    }
+    val head = orbit_string_slice(compOutput, lineStart, at)
+    if orbit_string_indexOf(head, ccName + ":") != -1 { return true }
+    if orbit_string_indexOf(head, "'" + ccName + "'") != -1 { return true }
+    if orbit_string_indexOf(head, "\"" + ccName + "\"") != -1 { return true }
+    return false
+}
+
 // The C step failed after Orbit's own phases passed. Explain what
 // happened in Orbit terms, show the scrubbed C log truncated, and
 // point at the full log plus the next step. Never dump raw toolchain
@@ -391,7 +443,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {
-            if compOutput.indexOf("not recognized") != -1 || compOutput.indexOf("not found") != -1 || compOutput.indexOf("no se reconoce") != -1 {
+            if ccToolchainMissing(cCompiler, compOutput) {
                 orbit_os_write_stderr_selfhost("C compiler '" + cCompiler + "' was not found. Set the ORBIT_CC environment variable to your C compiler (e.g. gcc, clang, cc).\n")
                 return false
             }

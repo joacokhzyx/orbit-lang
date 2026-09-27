@@ -16,7 +16,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Result construction and returns | `result_values.orb` |
 | Result propagation | `result_try.orb` |
 | Result handling | `result_catch.orb` |
-| Error payload binding | `result_bind.orb` |
+| Result bound to a val or passed as an argument | `result_bind.orb`, `result_binding.orb` |
 | Models and mutation | `model_fields.orb`, `model_two_fields.orb`, `model_mutation.orb` |
 | Integer literals (hex, separators) | `integer_literals.orb` |
 | Raw strings, triple-quoted | `raw_string_literals.orb` |

@@ -2156,7 +2156,13 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                         callExpr = callExpr + "(const char*)(" + aStr + ")"
                     }
                 } else if isRouteRuntimeBuiltin(calleeName) {
-                    callExpr = callExpr + aStr
+                    // The body of a response is the one argument here that is
+                    // a `const char*` in C and a bare value in Orbit.
+                    if argIdx == 1 && (calleeName == "orbit_response_json" || calleeName == "orbit_response_error") {
+                        callExpr = callExpr + responseBodyArg(backend, aStr)
+                    } else {
+                        callExpr = callExpr + aStr
+                    }
                 } else if calleeName == "check" || calleeName == "matchToken" || calleeName == "consume" {
                     if argIdx == 1 {
                         callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
@@ -2285,6 +2291,15 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     // models, lists and unknown callees keep the void* form.
                     var argCast = "(void*)(uintptr_t)(" + aStr + ")"
                     if backend != NULL {
+                        // A result is the one value that is neither a scalar
+                        // nor a pointer, so it cannot travel through the
+                        // integer slot the cast above is: (void*)(uintptr_t)
+                        // of an OrbitResult is the C error "incompatible type
+                        // for argument". The register type identifies those
+                        // arguments even where the callee is unknown.
+                        if isResultRegisterType(backend.currentFunction, argRegId(aStr)) {
+                            argCast = aStr
+                        }
                         var ci = 0
                         while ci < backend.module.functions.len() {
                             val cf: IRFunction = backend.module.functions.get(ci)
@@ -2297,6 +2312,8 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                                         argCast = "(orbit_string)(" + aStr + ")"
                                     } else if pt == "float" {
                                         argCast = "(orbit_float)(uintptr_t)(" + aStr + ")"
+                                    } else if pt == "result" {
+                                        argCast = aStr
                                     } else if isEnumType(backend, pt) {
                                         argCast = "(orbit_int)(uintptr_t)(" + aStr + ")"
                                     }
@@ -2765,6 +2782,24 @@ fn feBuildTimeCallType(name: string) -> string {
     return "unknown"
 }
 
+// Is this register holding an OrbitResult? A hoisted local is declared
+// uintptr_t -- the integer slot every pointer-typed value is cast through --
+// and that slot holds every other lowered type, because they are all scalars
+// or all pointers. `result` is the one exception: OrbitResult is a struct, so
+// a result local has to be declared with its own type or the store is the C
+// error "aggregate value used where an integer was expected".
+//
+// The answer comes from func.registerTypes, which inferRegisterTypes has
+// already finished filling in by the time anything asks. The builder put the
+// callee's return type there, so a `-> result` function's result is known even
+// when the callee is a user function feBuildTimeCallType has never heard of.
+fn isResultRegisterType(func: IRFunction, regId: int) -> bool {
+    if func == NULL || regId < 0 { return false }
+    if regId >= func.registerTypes.len() { return false }
+    val t = func.registerTypes.get(regId)
+    return t == "result" || t == "Result" || t == "OrbitResult"
+}
+
 // Per-function instruction index behind variableDefType,
 // operandFeFirstPrescanType and registerVarDefType.
 //
@@ -2849,7 +2884,19 @@ fn ensureDefIndex(backend: CBackend, func: IRFunction) {
                             }
                             if cn != "" {
                                 val bt = feBuildTimeCallType(cn)
-                                if bt == "unknown" || bt == "void" { verdict = "unknown" }
+                                // "unknown" here means "the FE table has no
+                                // answer, so do not guess a type for the local
+                                // this register feeds". A result is the case
+                                // where refusing to guess is what breaks: the
+                                // table lists `ok`/`err` but not the user's own
+                                // `-> result` function, so binding one to a val
+                                // hoisted it as uintptr_t and the store became an
+                                // aggregate-to-integer C error. The register
+                                // type the builder already assigned answers it
+                                // properly, so let that stand.
+                                if (bt == "unknown" || bt == "void") && isResultRegisterType(func, rd) == false {
+                                    verdict = "unknown"
+                                }
                             }
                         }
                         _ => {}
@@ -2904,26 +2951,60 @@ fn operandFeFirstPrescanType(backend: CBackend, func: IRFunction, op2: IRValue) 
     return ""
 }
 
-fn isFloatArgReg(backend: CBackend, argStr: string) -> bool {
-    val alen = orbit_string_len(argStr)
-    if alen < 3 { return false }
-    if orbit_string_slice(argStr, 0, 2) != "r_" { return false }
-    var ai = 2
+// The register an emitted argument names, or -1 when it is not a bare
+// register reference. The backend only ever writes a register as `r_<n>`, so
+// the text is enough -- the same shape test isFloatArgReg was already doing.
+fn argRegId(argStr: string) -> int {
+    if argStr.len() < 3 { return - 1 }
+    if argStr.slice(0, 2) != "r_" { return - 1 }
     var regNum = 0
-    while ai < alen {
+    var ai = 2
+    while ai < argStr.len() {
         val ach = argStr.at(ai)
-        if ach < 48 || ach > 57 { return false }
+        if ach < 48 || ach > 57 { return - 1 }
         regNum = regNum * 10 + (ach - 48)
         ai = ai + 1
     }
+    return regNum
+}
+
+fn isFloatArgReg(backend: CBackend, argStr: string) -> bool {
+    val regNum = argRegId(argStr)
+    if regNum < 0 { return false }
     if backend != NULL && backend.currentFunction != NULL {
         val af: IRFunction = backend.currentFunction
-        if regNum >= 0 && regNum < af.registerTypes.len() {
+        if regNum < af.registerTypes.len() {
             val at = af.registerTypes.get(regNum)
             if at == "float" || at == "orbit_float" { return true }
         }
     }
     return false
+}
+
+// A response body is a `const char*` in C, and sema already refuses a body
+// whose type it can prove is an int, a float or a bool. It cannot refuse what
+// it cannot type: an expression that infers as `unknown` -- mismatched
+// arithmetic operands, an index, a call it has no signature for -- satisfies
+// checkCompatibility("string", "unknown") and arrives here as a bare register.
+// Handing that to a pointer parameter is the int-to-pointer conversion the C
+// compiler diagnoses, and if it slips through it segfaults serving the first
+// request.
+//
+// The conversion belongs here, where the type is known: inferRegisterTypes has
+// filled func.registerTypes in before any instruction is emitted, and only a
+// value it says is a scalar can be wrapped. A string, a pointer, and anything
+// still unknown go through untouched, exactly as before -- assuming the
+// opposite for those would corrupt the bodies that are already correct.
+fn responseBodyArg(backend: CBackend, argStr: string) -> string {
+    if backend == NULL || backend.currentFunction == NULL { return argStr }
+    val f: IRFunction = backend.currentFunction
+    val regNum = argRegId(argStr)
+    if regNum < 0 || regNum >= f.registerTypes.len() { return argStr }
+    val t = f.registerTypes.get(regNum)
+    if t == "int" { return "orbit_int_to_string(arena, (orbit_int)(uintptr_t)(" + argStr + "))" }
+    if t == "float" || t == "orbit_float" { return "orbit_float_to_string(arena, (orbit_float)(" + argStr + "))" }
+    if t == "bool" || t == "orbit_bool" { return "orbit_bool_to_string(arena, (orbit_bool)(uintptr_t)(" + argStr + "))" }
+    return argStr
 }
 
 fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {

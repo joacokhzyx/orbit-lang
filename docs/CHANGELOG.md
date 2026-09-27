@@ -72,6 +72,35 @@ Language:
 - `orbit fmt` no longer aborts on a directory, and a C keyword used as a
   function name (`fn inline()`) now compiles: the call site spells the renamed
   symbol the definition uses.
+- **A `result` can be bound to a `val` and passed as an argument.** `result` is
+  a struct in C and the register machinery carries values as `uintptr_t`, so a
+  local holding one was hoisted as that integer slot and the store became the C
+  error `aggregate value used where an integer was expected` - `orbit check`
+  passed and only the C step failed. Every call the frontend type table does not
+  know, which is every call to a user function, was treated as untypable, and
+  that verdict discarded the register type the builder had already taken from
+  the callee's return type. The type now stands. Pinned by
+  `tests/suite/result_binding.orb`.
+- A response body the compiler cannot type no longer reaches C as a bare
+  register. `ok 200 1 + true` satisfies `checkCompatibility("string",
+  "unknown")`, and `orbit_response_json` then took an `orbit_int` where a
+  `const char*` belongs: `check` passed, `build` succeeded, and the first
+  request segfaulted. A body the backend has settled on as a scalar is now
+  converted with the runtime helper for that type, the same one an interpolated
+  value uses. A body it has settled on as a string, a pointer, or still unknown
+  is passed untouched, so nothing that already worked changed. Pinned by the
+  `response_body_unknown_type` probe in `scripts/werror_gate.py`, which the
+  pre-fix output fails on `-Werror=int-conversion`.
+- A missing C toolchain is no longer confused with a C compiler that rejected
+  our output. The test for "the compiler is not installed" was a substring
+  search for `not found` over the compiler's own diagnostics, and clang reports
+  a missing include as `'socket_compat.h' file not found` - so a build outside
+  the repository, where the runtime include path does not resolve, was told to
+  set `ORBIT_CC` for a compiler that was installed and working. The wording is
+  now matched together with the compiler's own name on the same line, which is
+  what a shell prints and no compiler diagnostic does. The genuine case is
+  unaffected, wrappers and all. Pinned by `cc-include-failure-is-not-a-missing-
+  toolchain` and `cc-absent-names-the-toolchain` in `scripts/cli_probe.py`.
 
 Content and docs track; no compiler changes:
 
