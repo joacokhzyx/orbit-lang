@@ -1,0 +1,7 @@
+// case: int-annotation-from-string
+// what: a declared `int` initialised from a string literal must not compile.
+// expect-error: expected int, got string
+fn main() -> int {
+    val v: int = "a string"
+    return v
+}

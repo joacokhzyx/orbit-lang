@@ -1,0 +1,6 @@
+// case: missing-brace
+// what: an unclosed function body must not parse. The same recovery path as
+//      n19, reached from the block rather than from a literal.
+// expect-error: Expected '}' after block
+fn main() -> int {
+    return 0

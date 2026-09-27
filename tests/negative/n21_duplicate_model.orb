@@ -1,0 +1,9 @@
+// case: duplicate-model
+// what: two models with the same name must not compile; the second one becomes
+//      a C struct of the same name.
+// expect-error: Duplicate symbol
+model P { x: int }
+
+model P { y: int }
+
+fn main() -> int { return 0 }

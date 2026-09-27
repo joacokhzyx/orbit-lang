@@ -1,0 +1,7 @@
+// case: call-wrong-arity
+// what: `add` takes two parameters. Calling it with three arguments must not
+//      compile; today the extra argument is dropped and the call is emitted.
+// known-defect: arity
+fn add(a: int, b: int) -> int { return a + b }
+
+fn main() -> int { return add(1, 2, 3) }

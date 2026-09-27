@@ -1,0 +1,14 @@
+// case: model-ctor-wrong-types
+// what: `Point(x: int, y: int)` must not be constructible from a string and a
+//      bool. This is the constructor half of member/argument checking, and it
+//      is how a string reaches a register the backend will treat as an int.
+// known-defect: call-target
+model Point {
+    x: int
+    y: int
+}
+
+fn main() -> int {
+    val p = Point("a", true)
+    return p.x
+}

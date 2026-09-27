@@ -1,0 +1,12 @@
+// case: model-ctor-wrong-arity
+// what: `Point` has two fields, so the constructor takes two arguments.
+// known-defect: arity
+model Point {
+    x: int
+    y: int
+}
+
+fn main() -> int {
+    val p = Point(1)
+    return p.x
+}

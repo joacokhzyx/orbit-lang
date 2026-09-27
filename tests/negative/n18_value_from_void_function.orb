@@ -1,0 +1,12 @@
+// case: value-from-void-function
+// what: a function with no declared return type returns void. `return 5` must
+//      not compile.
+// expect-error: expected void, got int
+fn helper() {
+    return 5
+}
+
+fn main() -> int {
+    helper()
+    return 0
+}

@@ -1,0 +1,9 @@
+// case: undeclared-identifier
+// what: `print(undeclaredThing)` names a symbol that does not exist. It must
+//      not compile; today it checks clean and prints whatever the register
+//      holds, which is a live stack address.
+// known-defect: name-resolution
+fn main() -> int {
+    print(undeclaredThing)
+    return 0
+}

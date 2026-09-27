@@ -1,0 +1,6 @@
+// case: return-type-mismatch
+// what: a function declared `-> int` must not return a string.
+// expect-error: expected int, got string
+fn answer() -> int { return "not an int" }
+
+fn main() -> int { return answer() }

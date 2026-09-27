@@ -1,0 +1,8 @@
+// case: list-into-int-annotation
+// what: a list is not an int. The annotation is the only type information the
+//      binding has, so this must not compile.
+// expect-error: expected int, got list
+fn main() -> int {
+    val v: int = [1, 2, 3]
+    return v
+}

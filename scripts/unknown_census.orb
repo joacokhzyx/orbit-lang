@@ -1,0 +1,155 @@
+// Unknown-type census probe: counts what the front end could not type.
+//
+// This is a CENSUS, not a gate. It reports how much of the corpus the front end
+// types as `unknown` so that "make `unknown` detectable" can be scoped against
+// a number instead of a guess. It never fails anything; the driver
+// `scripts/unknown_census.py` aggregates the lines printed here.
+//
+// A value is `unknown` when the front end has no type for it. Every type rule
+// downstream of that point is skipped, which is why `unknown` is contagious
+// and why a large share of emitted bytes are `(void*)(uintptr_t)` casts. The
+// counts below are per file:
+//
+//     FILE <path>
+//     FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
+//     OP <opcode> <count>        -- only opcodes whose result is `unknown`
+//     CODE <diagnostic code> <count>
+//
+// The two imports below are load-bearing and neither is obvious.
+//
+// `compiler/extern.orb` declares the runtime functions the lexer and the
+// parser call. Neither file imports it, so without this import the front end
+// cannot resolve `orbit_os_write_stderr_selfhost`, the emitter gives that call
+// an `unknown` result, and gcc rejects the generated C with "invalid use of
+// void expression". That is FINDINGS F-0004, and it is also the argument for
+// this census: the probe is itself a program the compiler cannot fully type.
+//
+// `parseIntSelfhost` is declared in `compiler/builder.orb` and called from
+// `parseRouteDecl` in `compiler/parser.orb`, again with no import between
+// them. The emitted C references an undefined symbol, so the definition below
+// is a link-time stub for a function this probe never calls.
+//
+// Every `.get()` out of a list of models below carries an explicit type
+// annotation, and it has to: an unannotated `list.get` of a model leaves the
+// value `unknown`, and a member read on an `unknown` receiver resolves the
+// wrong field. `instruction.typeName` read that way returns the opcode, which
+// would have reported zero `unknown` types for the whole corpus.
+
+import "../compiler/extern.orb"
+import "../compiler/frontend/frontend.orb"
+
+fn parseIntSelfhost(s: string) -> int { return 0 }
+
+fn findOpcodes(opcodes: list, opcode: string) -> int {
+    var i = 0
+    while i < opcodes.len() {
+        if opcodes.get(i) == opcode { return i }
+        i = i + 1
+    }
+    return - 1
+}
+
+fn bump(counts: list, index: int) -> list {
+    var out = []
+    var i = 0
+    while i < counts.len() {
+        if i == index { out.push(counts.get(i) + 1) }
+        else { out.push(counts.get(i)) }
+        i = i + 1
+    }
+    return out
+}
+
+fn censusOf(path: string) {
+    val source = orbit_file_read_selfhost(path)
+    if source == "" {
+        print("FILE " + path)
+        print("UNREADABLE")
+        return
+    }
+    val parser = initParser(source)
+    val root = parseProgram(parser)
+    val module: TirModule = lowerProgramToTir(path, root)
+    appendParserDiagnostics(module, parser.diagnostics)
+
+    var functions = 0
+    var returnUnknown = 0
+    var paramUnknown = 0
+    var instrs = 0
+    var instrUnknown = 0
+    var opcodes = []
+    var counts = []
+
+    var f = 0
+    while f < module.functions.len() {
+        val function: TirFunction = module.functions.get(f)
+        functions = functions + 1
+        if function.returnType == "unknown" { returnUnknown = returnUnknown + 1 }
+        var p = 0
+        while p < function.parameters.len() {
+            val parameter: TirParameter = function.parameters.get(p)
+            if parameter.typeName == "unknown" { paramUnknown = paramUnknown + 1 }
+            p = p + 1
+        }
+        var n = 0
+        while n < function.instructions.len() {
+            val instruction: TirInstruction = function.instructions.get(n)
+            instrs = instrs + 1
+            if instruction.typeName == "unknown" {
+                instrUnknown = instrUnknown + 1
+                val at = findOpcodes(opcodes, instruction.opcode)
+                if at < 0 {
+                    opcodes.push(instruction.opcode)
+                    counts = bump(counts, at)
+                    counts.push(1)
+                } else { counts = bump(counts, at) }
+            }
+            n = n + 1
+        }
+        f = f + 1
+    }
+
+    var diagnostics = 0
+    var diagCodes = []
+    var diagCounts = []
+    var d = 0
+    while d < module.diagnostics.len() {
+        val diagnostic: TirDiagnostic = module.diagnostics.get(d)
+        diagnostics = diagnostics + 1
+        val at = findOpcodes(diagCodes, diagnostic.code)
+        if at < 0 {
+            diagCodes.push(diagnostic.code)
+            diagCounts = bump(diagCounts, at)
+            diagCounts.push(1)
+        } else { diagCounts = bump(diagCounts, at) }
+        d = d + 1
+    }
+
+    print("FILE " + path)
+    print("FN " + orbit_int_to_string_selfhost(functions)
+    + " RETUNK " + orbit_int_to_string_selfhost(returnUnknown)
+    + " PARAMUNK " + orbit_int_to_string_selfhost(paramUnknown)
+    + " INSTR " + orbit_int_to_string_selfhost(instrs)
+    + " INSTRUNK " + orbit_int_to_string_selfhost(instrUnknown)
+    + " DIAG " + orbit_int_to_string_selfhost(diagnostics))
+    var k = 0
+    while k < opcodes.len() {
+        print("OP " + opcodes.get(k) + " " + orbit_int_to_string_selfhost(counts.get(k)))
+        k = k + 1
+    }
+    var e = 0
+    while e < diagCodes.len() {
+        print("CODE " + diagCodes.get(e) + " " + orbit_int_to_string_selfhost(diagCounts.get(e)))
+        e = e + 1
+    }
+}
+
+fn main() -> int {
+    val argc = orbit_os_argc_selfhost()
+    var i = 1
+    while i < argc {
+        censusOf(orbit_os_argv_selfhost(i))
+        i = i + 1
+    }
+    return 0
+}

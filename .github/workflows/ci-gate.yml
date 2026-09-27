@@ -135,6 +135,31 @@ jobs:
           "$PY" scripts/werror_gate.py --cc "${{ matrix.cc }}" \
             --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
 
+      # Every program here must FAIL to compile. Until this existed the repo
+      # had no test asserting a type error at all, which is how three audit
+      # rounds in a row found defects every gate passed: a union match missing
+      # a variant, `.at()` on a list of ints, `print(undeclaredThing)`. All
+      # three compile clean. The gate also fails when a diagnostic IMPROVES, so
+      # the wording of every rejection is pinned.
+      - name: Negative-compilation gate (programs that must not compile)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/negative_gate.py \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+
+      # `orbit frontend` had no CI coverage at all: the only thing that
+      # mentioned it was one usage-string case in cli_probe.py. These are the
+      # four canonical TIR expectations from tests/frontend/expected/.
+      - name: Frontend TIR gate (orbit frontend vs tests/frontend/expected/)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/frontend_gate.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+
       - name: Formatter gate (checked-in form)
         shell: bash
         run: |
@@ -207,6 +232,28 @@ jobs:
           done
           if [ "$READY" != "1" ]; then echo "gate server on port $PORT never became ready"; exit 1; fi
           "$PY" scripts/kynx_route_limit_gate.py --port $PORT --burst-path /gate-burst
+
+      # REPORT ONLY, not a gate. Counts how much of the corpus the front end
+      # types as `unknown`, which is the number "make unknown an error" has to
+      # be scoped against. It never fails the build -- `continue-on-error` is
+      # not decoration, it is the contract -- so its output goes to the job
+      # summary where it is read rather than to a red X nobody investigates.
+      - name: Unknown-type census (report only, never fails the build)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/unknown_census.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > census.log 2>&1 || true
+          cat census.log
+          {
+            echo "### unknown-type census (report only)"
+            echo '```'
+            cat census.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
   # Flakiness detector for the self-host chain. Each leg is an independent
   # fixed-point run on its own runner, so the 8 repetitions run concurrently

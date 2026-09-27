@@ -1,0 +1,9 @@
+// case: unterminated-string
+// what: a string literal with no closing quote must not lex. The parser
+//      recovers by treating the rest of the file as the literal, so the shape
+//      of this diagnostic is the only thing pinning the recovery.
+// expect-error: Parser error
+fn main() -> int {
+    val s = "oops
+    return 0
+}

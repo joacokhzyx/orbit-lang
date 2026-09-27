@@ -1,0 +1,12 @@
+// case: model-value-returned-as-int
+// what: a declared `int` return must not be satisfied by a model value.
+// expect-error: expected int, got Point
+model Point {
+    x: int
+    y: int
+}
+
+fn main() -> int {
+    val p = Point(1, 2)
+    return p
+}

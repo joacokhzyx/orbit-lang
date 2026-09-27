@@ -1,0 +1,8 @@
+// case: call-non-function
+// what: an int is not callable. `n()` must not compile; today it is emitted as
+//      a call through a register holding 5.
+// known-defect: call-target
+fn main() -> int {
+    val n = 5
+    return n()
+}

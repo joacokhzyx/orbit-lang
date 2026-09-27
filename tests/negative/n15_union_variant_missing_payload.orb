@@ -1,0 +1,9 @@
+// case: union-variant-missing-payload
+// what: `Square` carries an int and declares no field called `radius`.
+// known-defect: member-resolution
+union Shape { Circle(int)  Square(int) }
+
+fn main() -> int {
+    val s = Square(3)
+    return s.radius
+}

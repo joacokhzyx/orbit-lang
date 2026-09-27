@@ -1,0 +1,14 @@
+// case: model-in-interpolation
+// what: only string, int, float and bool convert inside a `${}` hole. A model
+//      has no such conversion, so the program must not compile.
+// expect-error: cannot interpolate a value of type
+model Point {
+    x: int
+    y: int
+}
+
+fn main() -> int {
+    val someModel = Point(1, 2)
+    print("at ${someModel}")
+    return 0
+}

@@ -1,0 +1,13 @@
+// case: model-missing-field
+// what: `Point` has fields x and y. Reading a field it does not declare must
+//      not compile; today the read becomes a raw load of an absent offset.
+// known-defect: member-resolution
+model Point {
+    x: int
+    y: int
+}
+
+fn main() -> int {
+    val m = Point(1, 2)
+    return m.nonexistent
+}
