@@ -7,6 +7,19 @@ process exit code is the assertion. Optional first line:
 
 Every test is compiled by the fixed-point compiler and executed; the
 runner fails on compile errors, wrong exit codes, or timeouts.
+
+One further directive, for a test that pins a defect instead of a feature:
+
+    // known-failing[: <ref>]     the test is expected NOT to exit 0
+
+This is a ratchet, in the same sense as `known-defect:` in
+scripts/negative_gate.py, and for the same reason: the alternative is to
+leave a red test in the suite, which gets deleted, or to delete the test,
+which loses the only record of what is broken. It asserts the failure is
+STILL there, so a fix fails this gate instead of passing quietly; the day
+the test starts exiting 0 the runner says so and the directive has to go.
+It excuses a wrong exit code ONLY: a test that does not build still fails,
+because "it is red" must never come to mean "it does not compile".
 """
 
 import argparse
@@ -62,6 +75,7 @@ def main() -> int:
 
     ok = 0
     failed = []
+    ratchets = []
     exe_suffix = ".exe" if os.name == "nt" else ""
     for path in tests:
         name = os.path.splitext(os.path.basename(path))[0]
@@ -69,7 +83,18 @@ def main() -> int:
             name = os.path.basename(os.path.dirname(path)) + "/" + name
         src = open(path, encoding="utf-8").read()
         m = re.search(r"^\s*//\s*expect-exit\s+(\d+)", src, re.M)
-        expected = int(m.group(1)) if m else 0
+        ratchet = re.search(r"^\s*//\s*known-failing\s*:?\s*(\S.*?)\s*$", src, re.M)
+        if m and ratchet:
+            failed.append(name)
+            out.fail(f"Failed {name}: header declares both expect-exit and "
+                     f"known-failing -- pick one")
+            continue
+        if ratchet:
+            # A ratcheted case has no target exit code: any non-zero exit is the
+            # expected outcome, and 0 is the failure.
+            expected = None
+        else:
+            expected = int(m.group(1)) if m else 0
 
         out_exe = os.path.join(work, name.replace("/", "_") + exe_suffix)
         try:
@@ -95,6 +120,21 @@ def main() -> int:
 
         run = subprocess.run([out_exe], cwd=work, capture_output=True,
                              timeout=args.timeout)
+        if expected is None:
+            ref = (" " + ratchet.group(1)) if ratchet.group(1) else ""
+            if run.returncode != 0:
+                ok += 1
+                ratchets.append(name)
+                out.say(f"Testing {name} ... exit {run.returncode}, still red as "
+                        f"declared (known-failing:{ref})")
+            else:
+                failed.append(name)
+                out.fail(f"Failed {name}: known-failing but it now exits 0 -- the "
+                         f"defect it was pinning is fixed, or the test asserts "
+                         f"nothing. Delete the known-failing: directive and this "
+                         f"becomes ordinary coverage.")
+                out.ci_error(f"[suite ratchet {name}] known-failing now exits 0")
+            continue
         if run.returncode == expected:
             ok += 1
             out.say(f"Testing {name} ... exit {run.returncode} as expected")
@@ -103,7 +143,15 @@ def main() -> int:
             out.fail(f"Failed {name}: got exit {run.returncode}, want {expected}")
 
     total = len(tests)
-    out.finish("suite", ok, total)
+    extra = ("(%d known-failing, asserted still red)" % len(ratchets)
+             if ratchets else "")
+    out.finish("suite", ok, total, extra=extra)
+    if ratchets:
+        out.say("Known-failing, asserted still red: " + ", ".join(ratchets))
+        out.say("A ratchet is not a waiver: it asserts the failure is STILL there, so a "
+                "fix fails this gate instead of passing quietly.")
+        out.say("When one starts exiting 0, the defect is fixed -- delete the "
+                "known-failing: directive and let the test be ordinary coverage.")
     if failed:
         payload = ", ".join(failed).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1500]
         out.fail("Failed: " + ", ".join(failed))

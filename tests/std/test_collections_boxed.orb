@@ -1,0 +1,43 @@
+// The other half of tests/std/test_collections.orb, and the half that fails.
+//
+// That file's containsInt / indexOfInt checks (its checks 10 and 11) pass for a
+// reason that has nothing to do with lists: `orbit_list_push` boxes the value
+// into a stack slot and stores the address, `l.get(i)` reads the same bits back,
+// and the comparison the helper performs is `(uintptr_t)stored == (uintptr_t)needle`
+// (emitted C, `compiler/c_backend.orb`, orbit_list_push -> `uintptr_t _tmp` and
+// orbit_list_get -> `*(void**)_lr.value`). For an int element the "stored bits"
+// ARE the int, so `20 == 20` and the check means nothing about search. The
+// instant an element is a value with an address -- which is every real element
+// once lists hold boxed values -- the left side is a heap pointer and the
+// comparison can never be true.
+//
+// So this file does the same search over a list whose element is a list, i.e.
+// an element that is already a pointer, and asserts the answer a user wants.
+// Today both assertions are false and the file exits 1. It is declared
+// `known-failing` rather than deleted or inverted, because the ratchet is the
+// point: when F-0002/F-0009 gives lists an element type, this starts exiting 0,
+// the suite runner fails, and this becomes ordinary coverage that nobody has to
+// remember to add.
+//
+// A third repro is NOT executable here, so it is recorded instead: `getOr` is
+// declared `-> string` and hands back whatever the list holds, so on an int
+// list `getOr(nums, 0, "d")` dereferences an int as a char* and the process
+// dies with SIGSEGV. A test that segfaults on purpose is not worth a CI slot.
+// known-failing: F-0002
+import "std/collections/lists.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    val outer = list_of_lists()
+    if assertEqInt(indexOfStr(outer, "x"), 0) == false { return 1 }
+    if assertTrue(containsStr(outer, "x")) == false { return 2 }
+    return 0
+}
+
+fn list_of_lists() -> list {
+    var inner = []
+    inner.push("x")
+    var outer = []
+    outer.push(inner)
+    return outer
+}

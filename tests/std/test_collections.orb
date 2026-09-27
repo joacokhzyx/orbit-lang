@@ -2,15 +2,44 @@
 // out of scope (method lowering targets lists today).
 //
 // KNOWN FALSE PASS -- checks 10 and 11 below (containsInt / indexOfInt
-// on `nums`) do not test what they appear to. They pass only because
-// orbit_list_push stores the raw integer, so `l.get(i) == v` really is
-// `20 == 20`. Two verified demonstrations of what is not covered:
+// on `nums`) do not test what they appear to, and the reason is exact.
 //
-//   1. A list of boxed values answers wrong, silently. The element is
-//      then a pointer, and the pointer is compared to the needle:
+// What they appear to test: that searching a list of ints for an int
+// works. What they actually compare, in the emitted C, is:
+//
+//     push:  { uintptr_t _tmp = (uintptr_t)(20); orbit_list_push(l, &_tmp); }
+//     get:   OrbitResult _lr = orbit_list_get(l, i);
+//            r = _lr.ok ? *(void**)_lr.value : NULL;
+//     test:  (uintptr_t)(r) == (uintptr_t)(20)
+//
+// So the assertion is that the BIT PATTERN stored in the list equals the bit
+// pattern of the needle. There is no element type, so nothing unpacks a
+// stored word before comparing it; for an int element the stored word is the
+// int, so 20 really is 20 and the check passes. It is a comparison of
+// addresses that happens to be true, not a search.
+//
+// WHAT WOULD BREAK IT: the first list whose elements are boxed values --
+// strings behind a pointer, models, or any element a heap cell. Then the
+// stored word is a pointer, `(uintptr_t)pointer` is an address like
+// 0x55f3e2a1c040, and the equality is false for every element including the
+// right one, so containsInt returns false and indexOfInt returns -1 for a
+// list that plainly contains the value. That is not a degradation, it is a
+// total inversion, and it lands the moment lists get an element type.
+//
+// The expectation is still RIGHT after that fix -- a list of ints must be
+// searchable for an int -- so these two checks are left exactly as they are and
+// will keep passing. They are simply not evidence until then, which is why the
+// other half of this contract is a separate file:
+// tests/std/test_collections_boxed.orb asserts the same search over a list
+// that already holds boxed values, where it fails today and is declared
+// `known-failing`. Two more verified demonstrations of what is not covered
+// here:
+//
+//   1. indexOfStr over a list of lists answers wrong, silently. The element is
+//      then a list pointer, and the pointer is compared to the needle:
 //        var inner = []  inner.push("x")
 //        var outer = []  outer.push(inner)
-//        indexOfStr(outer, "x")   ->  -1, and it should be 0
+//        print(indexOfStr(outer, "x"))   ->  -1, and it should be 0
 //
 //   2. getOr is declared `-> string` and calls `l.get(i)`. On an int
 //      list that hands an int back where a string is declared:
