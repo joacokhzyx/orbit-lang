@@ -3,6 +3,15 @@
 // and the runtime exposes no wall time or sleep. uptimeSeconds fits
 // 68 years; differences are exact inside one boot. monotonicMs and
 // sleepMs are omitted on purpose, not forgotten.
+//
+// `uptimeSeconds()` and the builtin `system.uptime()` read the SAME
+// counter through the same `system_uptime` extern. They are not two
+// clocks and they do not disagree; there is no collision to reconcile.
+// Prefer `system.uptime()` in new code (no import needed) and treat
+// `uptimeSeconds()` as the spelling for code that already imports this
+// module, e.g. as the timestamp std/log/log.orb expects. Do not mix
+// them as if they were different sources, and note that neither is a
+// wall clock: a token signed with it expires in 68 years.
 extern fn system_uptime() -> int
 
 fn uptimeSeconds() -> int {

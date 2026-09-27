@@ -1,5 +1,27 @@
 // M5 contract tests: string-list helpers plus int search. Maps are
 // out of scope (method lowering targets lists today).
+//
+// KNOWN FALSE PASS -- checks 10 and 11 below (containsInt / indexOfInt
+// on `nums`) do not test what they appear to. They pass only because
+// orbit_list_push stores the raw integer, so `l.get(i) == v` really is
+// `20 == 20`. Two verified demonstrations of what is not covered:
+//
+//   1. A list of boxed values answers wrong, silently. The element is
+//      then a pointer, and the pointer is compared to the needle:
+//        var inner = []  inner.push("x")
+//        var outer = []  outer.push(inner)
+//        indexOfStr(outer, "x")   ->  -1, and it should be 0
+//
+//   2. getOr is declared `-> string` and calls `l.get(i)`. On an int
+//      list that hands an int back where a string is declared:
+//        getOr(nums, 0, "d")      ->  Segmentation fault (core dumped)
+//
+// So the int coverage here is a property of push/get, not of this
+// module, and the module has no element type to make the difference
+// visible. Root cause is F-0002 extended by F-0009 (no element type at
+// all) and it is the compiler's to fix, not this test's. The
+// string-list checks 1-9 and 12-13 are sound and are the real coverage
+// of lists.orb.
 import "std/collections/lists.orb"
 import "std/test/assert.orb"
 

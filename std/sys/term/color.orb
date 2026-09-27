@@ -1,7 +1,18 @@
 // Orbit Sovereign Standard Library
-// std/sys/term/Color.orb
+// std/sys/term/color.orb
 // High-performance 24-bit TrueColor and 256-color ANSI formatting engine.
-
+//
+// The `AnsiStyle` model is declared but not used by any function here:
+// it is a placeholder for combined styles, and `createStyle` returns
+// it while `wrapBold`/`wrapDim`/`wrapUnderline` take no style argument.
+// Do not read `createStyle()` as configuring the wrap* helpers.
+//
+// This module owns TrueColor styling. std/io/io.orb's `gradient` calls
+// `wrapRgbForeground` from here rather than keeping a private copy --
+// it used to define `wrapRgb(text, r, g, b)`, the same escape sequence
+// with the arguments reversed, which is exactly the kind of pair that
+// makes a caller pass rgb in the wrong order. Colour arguments go
+// (r, g, b, text) here, without exception.
 model AnsiStyle {
     bold: bool
     italic: bool

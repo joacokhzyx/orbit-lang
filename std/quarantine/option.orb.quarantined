@@ -27,7 +27,7 @@
 //                          74 |     T* v;
 //      `orbit check` accepts a generic model and `orbit build` then
 //      hands the C compiler a `T` that does not exist. That is a
-//      compiler bug in its own right (filed as F-0005); it also means
+//      compiler bug in its own right (filed as F-0007); it also means
 //      the honest spelling for a payload-carrying union today is a
 //      concrete payload type per variant, e.g.
 //         union OptInt { SomeInt(int)  NoInt }

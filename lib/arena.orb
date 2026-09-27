@@ -1,7 +1,16 @@
 // lib/arena.orb
 // Request-Bound Arena Allocator
 // Zero-GC memory management bound to the lifecycle of a Request.
-
+//
+// WHAT THIS IS NOT: a real allocator. There is no `pointer` arithmetic
+// in Orbit and no mmap/VirtualAlloc binding, so `buffer` is a string
+// that is never read and `alloc` returns an OFFSET into a logical
+// region, not an address. Nothing you get back from `alloc` is
+// dereferenceable. The region is a size counter: the point of the
+// module today is the bound (`alloc` returns -1 rather than growing
+// past `capacity`) and the O(1) reset, and that is all it claims.
+// docs/ARENA.md and docs/KNOWN_LIMITATIONS.md should agree with
+// this comment, not with the word "allocator".
 model Arena {
     buffer: string // Representación temporal de la memoria bruta
     offset: int
@@ -9,15 +18,15 @@ model Arena {
 }
 
 fn initArena(cap: int) -> Arena {
-    // Syscall to OS allocator (mmap / VirtualAlloc)
+    // No OS allocator is called: the region is counted, not mapped.
     return Arena("", 0, cap)
 }
 
 // O(1) Allocation
 fn alloc(arena: Arena, size: int) -> int {
     if arena.offset + size > arena.capacity {
-        // En un caso real: pedir más memoria al OS o hacer crash si es hard-limit
-        return -1
+        // Over the hard limit there is no OS to ask: refuse the request.
+        return - 1
     }
     val ptr = arena.offset
     arena.offset = arena.offset + size

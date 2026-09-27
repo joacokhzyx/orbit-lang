@@ -1,6 +1,20 @@
 // Functional layer over builtin lists. String-typed helpers only:
 // without generics, one typed family keeps the contract honest.
 // Maps are out of scope here (method lowering targets lists today).
+//
+// THE STRING TYPE IS NOT ENFORCED, it is only documented. There is no
+// list element type yet (F-0002, extended by F-0009), so `l.get(i)`
+// returns whatever was stored and nothing here can notice a mismatch:
+//
+//   getOr(nums, 0, "d")            -> Segmentation fault (core dumped)
+//                                     an int returned where a string
+//                                     is declared, then printed
+//   indexOfStr(listOfLists, "x")   ->  -1, silently wrong
+//                                     a list pointer compared to "x"
+//
+// The int helpers (containsInt, indexOfInt) have the same exposure in
+// the other direction. tests/std/test_collections.orb records this.
+// Until an element type exists, the caller owns it.
 fn getOr(l: list, i: int, dflt: string) -> string {
     if i < 0 { return dflt }
     if i >= l.len() { return dflt }
@@ -39,7 +53,7 @@ fn indexOfStr(l: list, v: string) -> int {
         if l.get(i) == v { return i }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn indexOfInt(l: list, v: int) -> int {
@@ -48,7 +62,7 @@ fn indexOfInt(l: list, v: int) -> int {
         if l.get(i) == v { return i }
         i = i + 1
     }
-    return -1
+    return - 1
 }
 
 fn reverse(l: list) -> list {

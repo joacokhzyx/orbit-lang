@@ -1,0 +1,90 @@
+// The whole std surface has to be importable into ONE program.
+//
+// Regression test for the five duplicate-`extern fn` conflicts that
+// made pairwise-unrelated modules mutually exclusive. Four C symbols
+// were declared by two modules each, and a program importing both
+// owners failed `check` with "Duplicate symbol". Line numbers are as
+// they were BEFORE the fix; the second module of each pair is the one
+// that was corrected to import the first:
+//
+//   orbit_string_from_char_selfhost  std/string/string.orb:9  +  std/io/io.orb:31
+//   system_env                       std/sys/proc/process.orb:7  +  std/io/io.orb:7
+//   orbit_sha256_hex                 std/hash/hash.orb:5  +  std/sys/crypto/jwt.orb:14
+//   orbit_hmac_sha256_base64url      std/hash/hash.orb:6  +  std/sys/crypto/jwt.orb:15
+//
+// The transitive one hurt most: std/bytes/bytes.orb and
+// std/sys/crypto/jwt.orb each import std/string/string.orb, so adding
+// std/io/io.orb to a program that already used byte framing or JWT
+// failed -- you could not have JWT auth and string utilities in one
+// service. The fix is one definition per program: the dependent module
+// imports the owner instead of repeating the declaration. Note the
+// five reported conflicts were four symbols; the fifth was the
+// io.orb + process.orb pair on system_env.
+//
+// The longest case is the one that mattered, and it is asserted here
+// end to end rather than only checked: byte framing AND JWT AND
+// console IO AND process AND hashing in the same binary, with one
+// call into each, so a future redeclaration cannot pass by being
+// unused.
+import "std/test/assert.orb"
+import "std/string/string.orb"
+import "std/collections/lists.orb"
+import "std/bytes/bytes.orb"
+import "std/fs/file.orb"
+import "std/hash/hash.orb"
+import "std/io/io.orb"
+import "std/time/time.orb"
+import "std/sys/proc/process.orb"
+import "std/log/log.orb"
+import "std/sys/crypto/jwt.orb"
+import "std/sys/term/color.orb"
+
+fn main() -> int {
+    // string.orb, reached directly and through three importers
+    if assertEqStr(trim("  hi  "), "hi") == false { return 1 }
+    if assertTrue(startsWith("prefix-x", "prefix-")) == false { return 2 }
+
+    // collections.orb
+    if assertEqStr(getOr(["a", "b"], 0, "z"), "a") == false { return 3 }
+
+    // bytes.orb -- readAt is the byte or -1, the contract that the
+    // deleted std/sys/bytes/buffer.orb contradicted (it returned 1/0
+    // and never returned the byte).
+    var buf = newBuffer()
+    appendByte(buf, 65)
+    appendByte(buf, 66)
+    if assertEqInt(readAt(buf, 0), 65) == false { return 4 }
+    if assertEqInt(readAt(buf, 1), 66) == false { return 5 }
+    if assertEqInt(readAt(buf, 9), -1) == false { return 6 }
+
+    // fs/file.orb -- a path that cannot exist, so no side effects
+    if assertTrue(exists("no_such_file_for_test_imports.orb")) { return 7 }
+
+    // hash/hash.orb -- the real SHA-256, and the externs jwt.orb
+    // borrows rather than redeclares
+    if assertEqInt(sha256Hex("abc").len(), 64) == false { return 8 }
+
+    // jwt.orb, in the same program as byte framing: this pair is what
+    // used to be unbuildable
+    val tok = signHs256("{\"sub\":\"u1\",\"exp\":2000000000}", "s3cr3t")
+    if assertTrue(verifyHs256(tok, "s3cr3t", 1000000000)) == false { return 9 }
+    if assertEqStr(decodePayload(tok), "{\"sub\":\"u1\",\"exp\":2000000000}") == false { return 10 }
+
+    // io/io.orb -- system_env now comes from process.orb, and gradient
+    // styles through color.orb's wrapRgbForeground rather than a
+    // second private copy with the arguments reversed
+    supportsColor()
+    if assertEqStr(gradient("AB", "ff0000", "0000ff"), "\x1b[38;2;255;0;0mA\x1b[0m\x1b[38;2;0;0;255mB\x1b[0m") == false { return 11 }
+
+    // sys/term/color.orb
+    if assertEqStr(wrapBold("hi"), "\x1b[1mhi\x1b[22m") == false { return 12 }
+
+    // time.orb and process.orb
+    if assertTrue(uptimeSeconds() >= 0) == false { return 13 }
+    if assertTrue(pid() > 0) == false { return 14 }
+    if assertEqStr(getEnvOrDefault("NO_SUCH_VAR_FOR_TEST_IMPORTS", "dflt"), "dflt") == false { return 15 }
+
+    // log/log.orb
+    if assertEqStr(toJsonLine("info", "m"), "{\"level\":\"info\",\"msg\":\"m\"}") == false { return 16 }
+    return 0
+}

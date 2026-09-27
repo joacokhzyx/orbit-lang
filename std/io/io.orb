@@ -1,10 +1,23 @@
 // Console output home. Styling itself lives in
-// std/sys/term/color.orb (kept); this module adds printing,
-// capability detection, and one honest gradient with a real hex
-// parser. No readLine (needs an arena-taking input binding that the
-// compiler will not inject) and no eprint (no stderr builtin).
-// println is deliberately absent: builtin print already newlines.
-extern fn system_env(name: string) -> string
+// std/sys/term/color.orb; this module adds capability detection and
+// one honest gradient with a real hex parser. No readLine (needs an
+// arena-taking input binding that the compiler will not inject) and
+// no eprint (no stderr builtin). println is deliberately absent:
+// builtin print already newlines.
+//
+// system_env is declared by std/sys/proc/process.orb and the C string
+// externs by std/string/string.orb. This module used to repeat both
+// declarations; a program importing this and either owner then failed
+// check with "Duplicate symbol". Import the owner instead -- one
+// definition per program is the rule.
+//
+// This module also used to define its own `wrapRgb(text, r, g, b)`,
+// byte-identical to color.orb's `wrapRgbForeground(r, g, b, text)` with
+// the arguments reversed. Two spellings of one escape sequence, in
+// opposite orders, is a trap; gradient now calls wrapRgbForeground.
+import "std/string/string.orb"
+import "std/sys/proc/process.orb"
+import "std/sys/term/color.orb"
 
 fn supportsColor() -> bool {
     if system_env("NO_COLOR") != "" { return false }
@@ -16,19 +29,17 @@ fn hexVal(c: int) -> int {
     if c >= 48 && c <= 57 { return c - 48 }
     if c >= 65 && c <= 70 { return c - 55 }
     if c >= 97 && c <= 102 { return c - 87 }
-    return -1
+    return - 1
 }
 
 fn parseHexByte(s: string, pos: int) -> int {
-    if pos + 1 >= s.len() { return -1 }
+    if pos + 1 >= s.len() { return - 1 }
     val hi = hexVal(s.at(pos))
     val lo = hexVal(s.at(pos + 1))
-    if hi == -1 { return -1 }
-    if lo == -1 { return -1 }
+    if hi == -1 { return - 1 }
+    if lo == -1 { return - 1 }
     return hi * 16 + lo
 }
-
-extern fn orbit_string_from_char_selfhost(code: int) -> string
 
 fn gradient(text: string, from: string, to: string) -> string {
     if from.len() != 6 { return text }
@@ -47,7 +58,7 @@ fn gradient(text: string, from: string, to: string) -> string {
     if b2 == -1 { return text }
     val n = text.len()
     if n == 0 { return "" }
-    if n == 1 { return wrapRgb(text, r1, g1, b1) }
+    if n == 1 { return wrapRgbForeground(r1, g1, b1, text) }
     var out = ""
     var i = 0
     while i < n {
@@ -55,12 +66,8 @@ fn gradient(text: string, from: string, to: string) -> string {
         val g = g1 + (g2 - g1) * i / (n - 1)
         val b = b1 + (b2 - b1) * i / (n - 1)
         val ch = orbit_string_from_char_selfhost(text.at(i))
-        out = out + wrapRgb(ch, r, g, b)
+        out = out + wrapRgbForeground(r, g, b, ch)
         i = i + 1
     }
     return out
-}
-
-fn wrapRgb(text: string, r: int, g: int, b: int) -> string {
-    return "\x1b[38;2;" + r + ";" + g + ";" + b + "m" + text + "\x1b[0m"
 }
