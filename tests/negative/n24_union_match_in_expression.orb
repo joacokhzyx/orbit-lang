@@ -1,0 +1,18 @@
+// case: union-match-in-expression
+// what: a match used as a value, not as a statement, is the same match and the
+//      same rule. Checked only from the statement walk, a non-exhaustive
+//      match in expression position was the one shape that still fell through
+//      silently after the statement-position check started firing.
+union Shape { Circle(int)  Square(int) }
+
+fn doubled(s: Shape) -> int {
+    val one = match s {
+        Shape.Circle(r) => r * 2
+    }
+    return one
+}
+
+fn main() -> int {
+    return doubled(Square(5))
+}
+// expect-error: Non-exhaustive match on Shape: no case for Shape.Square

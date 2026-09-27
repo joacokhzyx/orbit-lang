@@ -188,6 +188,12 @@ model ReturnErrNode {
 model MatchNode {
     expr: list
     cases: list
+    // The `match` keyword's own line and column. Sema reports a non-exhaustive
+    // match against this position and no other node carries one, because no
+    // other node is reported on. Plain ints, the shape every other position in
+    // the compiler already has (Token.line, ParserDiagnostic.column).
+    line: int
+    col: int
 }
 
 model MatchCaseNode {

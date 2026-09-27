@@ -73,6 +73,23 @@ fn reportErrorCard(code: string, message: string, file: string, line: int, col: 
     orbit_os_write_stderr_selfhost("\nERROR: " + kind + "\n")
 }
 
+// Two shapes of semantic diagnostic, chosen by what the checker knew. A check
+// that ran over a positioned node prints the card, pointing at the line; the
+// rest have no position to point at and print the one-line form, which is
+// what they printed before cards existed and is the only honest option.
+fn printSemaErrors(sema: Sema, source: string, inputPath: string) {
+    var ei = 0
+    while ei < sema.errors.len() {
+        val diag: SemaError = sema.errors.get(ei)
+        if diag.code != "" && diag.line > 0 {
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.col, getSourceLine(source, diag.line), diag.hint, "error.SemanticAnalysisFailed")
+        } else {
+            orbit_os_write_stderr_selfhost("Semantic error: " + diag.message + "\n")
+        }
+        ei = ei + 1
+    }
+}
+
 // Phase memory report for ORBIT_MEM_REPORT=1. Zero cost when unset (one
 // getenv) and stderr-only, so build stdout and emitted artifacts are
 // untouched.
@@ -117,11 +134,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
     val sema = initSema()
     analyze(sema, ast)
     if hasErrors(sema) {
-        var ei = 0
-        while ei < sema.errors.len() {
-            orbit_os_write_stderr_selfhost("Semantic error: " + sema.errors.get(ei) + "\n")
-            ei = ei + 1
-        }
+        printSemaErrors(sema, source, inputPath)
         return false
     }
     return true
@@ -307,15 +320,11 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val sema = initSema()
     analyze(sema, ast)
     if hasErrors(sema) {
-        val firstErr = sema.errors.get(0)
-        if orbit_string_indexOf(firstErr, "Non-void function must return a value") != -1 {
+        val firstErr: SemaError = sema.errors.get(0)
+        if orbit_string_indexOf(firstErr.message, "Non-void function must return a value") != -1 {
             reportErrorCard("return/missing-value", "Non-void function must return a value", "<unknown>", 1, 1, "", "Ensure type consistency and scope rules are satisfied.", "error.SemanticAnalysisFailed")
         } else {
-            var ei = 0
-            while ei < sema.errors.len() {
-                orbit_os_write_stderr_selfhost("Semantic error: " + sema.errors.get(ei) + "\n")
-                ei = ei + 1
-            }
+            printSemaErrors(sema, source, inputPath)
         }
         return false
     }

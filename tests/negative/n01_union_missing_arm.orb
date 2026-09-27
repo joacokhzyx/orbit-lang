@@ -1,0 +1,16 @@
+// case: union-missing-arm
+// what: a match over a union that omits a variant must not compile. One arm,
+//      two variants, and the arm that is missing is reached at runtime
+//      otherwise -- the value falls out of the end of the match and the
+//      surrounding code carries on as if the match had handled it. FINDINGS
+//      F-0001.
+union Shape { Circle(int)  Square(int) }
+
+fn main() -> int {
+    val s = Circle(7)
+    match s {
+        Shape.Circle(r) => { print(r) }
+    }
+    return 0
+}
+// expect-error: Non-exhaustive match on Shape: no case for Shape.Square

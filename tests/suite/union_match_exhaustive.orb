@@ -1,0 +1,69 @@
+// A match over a union or an enum must name every variant, and this program
+// is the accepted side of that rule: four exhaustive matches, one that opts
+// out with `_`, and one used as a value. The exit code is the sum of what the
+// arms returned, so a match that dispatches to the wrong arm fails too.
+union Shape {
+    Circle(int)
+    Square(int)
+    Unit
+}
+
+enum Color {
+    Red
+    Green
+    Blue
+}
+
+fn area(s: Shape) -> int {
+    match s {
+        Shape.Circle(r) => { return r * 3 }
+        Shape.Square(a) => { return a * a }
+        Shape.Unit => { return 1 }
+    }
+    return 0
+}
+
+// The explicit opt-out. A `_` arm says the fall-through is intended, so this
+// match is accepted with one variant deliberately left unhandled.
+fn isCircle(s: Shape) -> bool {
+    match s {
+        Shape.Circle(r) => { return true }
+        _ => { return false }
+    }
+}
+
+fn colorCode(c: Color) -> int {
+    match c {
+        Color.Red => { return 1 }
+        Color.Green => { return 2 }
+        Color.Blue => { return 3 }
+    }
+    return 0
+}
+
+// A match in expression position, not statement position: same rule, and the
+// checker has to reach it there too. A match used as a value takes its arms
+// comma-separated with expression bodies, which is the parser's only form for
+// it.
+fn areaTwice(s: Shape) -> int {
+    val one = match s {
+        Shape.Circle(r) => r * 2,
+        Shape.Square(a) => a * 2,
+        Shape.Unit => 2
+    }
+    return one
+}
+
+fn main() -> int {
+    val total = area(Circle(2)) + area(Square(3)) + area(Shape.Unit)
+    val flags = 0
+    if isCircle(Circle(1)) { flags = flags + 1 }
+    if isCircle(Shape.Unit) { flags = flags + 10 }
+    val colors = colorCode(Color.Red) + colorCode(Color.Green) + colorCode(Color.Blue)
+    val expr = areaTwice(Square(5))
+    if total != 16 { return 90 }
+    if flags != 1 { return 91 }
+    if colors != 6 { return 92 }
+    if expr != 10 { return 93 }
+    return 0
+}

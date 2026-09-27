@@ -1,0 +1,17 @@
+// case: union-enum-missing-arm
+// what: the same rule for an `enum`. An enum value with no case for one of its
+//      variants takes the same silent fall-through, so an enum match that
+//      leaves a variant out is a compile error too, not just a union one.
+enum Color { Red  Green  Blue }
+
+fn code(c: Color) -> int {
+    match c {
+        Color.Red => { return 1 }
+    }
+    return 0
+}
+
+fn main() -> int {
+    return code(Color.Blue)
+}
+// expect-error: Non-exhaustive match on Color: no case for Color.Green, Color.Blue

@@ -1,0 +1,20 @@
+// case: union-wrong-qualifier
+// what: an arm that names another type's variant is a case, but it is not a
+//      case for the type being matched. Counting `Other.Circle` as coverage
+//      for `Shape.Circle` is how a match that reads exhaustive turns out not to
+//      be, and the missing arm is still a fall-through at runtime.
+union Shape { Circle(int)  Square(int) }
+union Other { Circle(int)  Square(int) }
+
+fn area(s: Shape) -> int {
+    match s {
+        Other.Circle(r) => { return r }
+        Other.Square(a) => { return a }
+    }
+    return 0
+}
+
+fn main() -> int {
+    return area(Circle(1))
+}
+// expect-error: Non-exhaustive match on Shape: no case for Shape.Circle, Shape.Square

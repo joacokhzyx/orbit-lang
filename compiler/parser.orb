@@ -487,6 +487,8 @@ fn parseIfExpr(parser: Parser) -> ASTNode {
 }
 
 fn parseMatchExpr(parser: Parser) -> ASTNode {
+    val atLine = parser.previousToken.line
+    val atCol = parser.previousToken.col
     val expr = parseExpression(parser)
     consume(parser, TokType.OpenBrace, "Expected '{' after match expression.")
     var cases = []
@@ -498,7 +500,7 @@ fn parseMatchExpr(parser: Parser) -> ASTNode {
         cases.push(ASTNode.MatchCase(MatchCaseNode(pattern, body)))
     }
     consume(parser, TokType.CloseBrace, "Expected '}' after match cases.")
-    return ASTNode.Match(MatchNode(expr, cases))
+    return ASTNode.Match(MatchNode(expr, cases, atLine, atCol))
 }
 
 fn parseBinary(parser: Parser, precedence: int) -> ASTNode {
@@ -608,6 +610,8 @@ fn parseForStatement(parser: Parser) -> ASTNode {
 }
 
 fn parseMatchStatement(parser: Parser) -> ASTNode {
+    val atLine = parser.previousToken.line
+    val atCol = parser.previousToken.col
     val expr = parseExpression(parser)
     consume(parser, TokType.OpenBrace, "Expected '{' after match expression.")
     var cases = []
@@ -638,7 +642,7 @@ fn parseMatchStatement(parser: Parser) -> ASTNode {
         cases.push(ASTNode.MatchCase(MatchCaseNode(pattern, body)))
     }
     consume(parser, TokType.CloseBrace, "Expected '}' after match cases.")
-    return ASTNode.Match(MatchNode(expr, cases))
+    return ASTNode.Match(MatchNode(expr, cases, atLine, atCol))
 }
 
 fn parseBlock(parser: Parser) -> ASTNode {
