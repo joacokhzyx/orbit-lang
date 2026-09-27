@@ -13,6 +13,26 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **Integer literals**: `0x` hexadecimal (`0xFF`, `0xff`, `0xAbCdEf`) and `_` as a
+  digit separator (`1_000_000`). Neither existed: `0xFF` lexed as the integer
+  `0` with `xFF` dropped, and `1_000_000` lexed as `1`. Both compiled clean, ran,
+  and printed a plausible wrong number, which is the worst failure mode there
+  is — a bitmask or a port constant that is silently not the one written.
+  Pinned by `tests/suite/integer_literals.orb`.
+- A `${...}` hole can hold a string literal again (`${show("}")}`). An ordinary
+  string scan stopped at the first quote it met, so the literal ended inside the
+  hole; the scanner now steps over the hole while looking for the closing quote.
+- A model in a `${...}` hole is now a compile error naming the model. A call
+  whose callee names a model is that model's construction and had the type
+  `unknown`, which is interpolatable, so `${m}` printed as nothing at all.
+- A `model` with a field named `a` failed to build: the generated constructor
+  was `orbit_model_M_create(OrbitArena* a, orbit_int a)`, so the arena parameter
+  and the field parameter collided. The parameter is now `arena_`.
+- The constant folder no longer folds a function that branches or calls
+  anything. With integer literals now reaching it as values rather than as
+  text, it started evaluating `fact` by walking its instructions and returned
+  5 for `fact(5)`. Only straight-line pure bodies fold, which is provably
+  sound.
 - **String interpolation**: `${…}` inside a string, ordinary or triple-quoted,
   is substituted. Together with raw strings this is what lets a JSON body carry
   real values without escaping: `ok 200 """{"count":${n}}"""`. A hole may hold a

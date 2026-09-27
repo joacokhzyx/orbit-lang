@@ -753,6 +753,36 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
     return true
 }
 
+// A constant folder has to be able to read a function's value off its
+// instructions, and there is no CFG to walk: a body that branches, or calls
+// anything, cannot be evaluated by stepping through it. Folding one anyway is
+// how `return fact(5)` came to mean 5 -- fact is recursive and branches, and
+// the folder dutifully walked its instructions and came out with a number.
+//
+// So only a straight-line body of pure arithmetic folds. That is provably
+// sound, and it covers the cases a folder is actually for: a named
+// computation over constants, not a function whose answer depends on control
+// flow.
+fn isFoldableBody(func: IRFunction) -> bool {
+    var i = 0
+    while i < func.instructions.len() {
+        val inst: IRInstruction = func.instructions.get(i)
+        if inst != NULL {
+            match inst.opcode {
+                IROpcode.label => { return false }
+                IROpcode.jump => { return false }
+                IROpcode.jump_if_false => { return false }
+                IROpcode.call => { return false }
+                IROpcode.load_field => { return false }
+                IROpcode.store_field => { return false }
+                _ => {}
+            }
+        }
+        i = i + 1
+    }
+    return true
+}
+
 fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -> bool {
     val callInstr: IRInstruction = func.instructions.get(callIdx)
     var calleeName = ""
@@ -766,6 +796,7 @@ fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -
     val callee = cteFindFunction(module, calleeName)
     if callee == NULL { return false }
     if !isPure(callee) { return false }
+    if !isFoldableBody(callee) { return false }
     val destReg = callInstr.dest
     if destReg < 0 { return false }
 

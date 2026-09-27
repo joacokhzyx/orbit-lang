@@ -1,0 +1,49 @@
+// Integer literals: decimal, hexadecimal, and digit separators.
+//
+// These are here because they used to be wrong in the worst way: 0xFF lexed as
+// the integer 0 with "xFF" dropped, and 1_000_000 lexed as 1. Both compiled
+// clean, ran, and printed a plausible wrong number, which for a bitmask or a
+// port is the kind of bug nobody notices until it is expensive.
+
+fn hex_upper() -> int {
+    return 0xFF
+}
+
+fn hex_lower() -> int {
+    return 0xff
+}
+
+fn hex_wide() -> int {
+    return 0xff00
+}
+
+fn hex_zero() -> int {
+    return 0x0
+}
+
+fn hex_digits_and_case() -> int {
+    return 0xAbCdEf
+}
+
+fn separators() -> int {
+    return 1_000_000
+}
+
+fn main() -> int {
+    if hex_upper() != 255 { return 1 }
+    if hex_lower() != 255 { return 2 }
+    if hex_wide() != 65280 { return 3 }
+    if hex_zero() != 0 { return 4 }
+    if hex_digits_and_case() != 11259375 { return 5 }
+    if separators() != 1000000 { return 6 }
+
+    // Decimal is untouched, including a separator that reads like one.
+    if 255 != 0xFF { return 7 }
+    if 3_0 != 30 { return 8 }
+    if 0 != 0 { return 9 }
+
+    // Hex works in a string hole, where a mask is most likely to appear.
+    val mask = 0xFF
+    if "mask=${mask}" != "mask=255" { return 10 }
+    return 0
+}

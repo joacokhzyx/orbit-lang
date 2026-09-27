@@ -39,9 +39,23 @@ fn raw_with_holes() -> string {
 
 // A "}" inside a string inside a hole must not close the hole early, which is
 // the whole reason the scanner tracks quotes instead of just counting braces.
+// This needs the lexer to cooperate: an ordinary string scan stops at the first
+// quote it meets, so "${show("}")}" used to end the literal at the quote before
+// the argument and report the rest of the line as garbage.
 fn braces_inside() -> string {
     val brace = "}"
-    return "[${brace}]"
+    return "[${show(brace)}]"
+}
+
+fn show(s: string) -> string {
+    return s
+}
+
+// Braces nest, so a hole can hold a call whose argument is an expression that
+// itself contains braces, and the outer hole still ends at the right one.
+fn nested_braces() -> string {
+    val m = 2
+    return "${m}${m}"
 }
 
 fn main() -> int {
@@ -49,6 +63,7 @@ fn main() -> int {
     if only_a_hole() != "42" { return 2 }
     if raw_with_holes() != "{\"n\":3,\"path\":\"C:\\dir\"}" { return 3 }
     if braces_inside() != "[}]" { return 6 }
+    if nested_braces() != "22" { return 7 }
 
     // Concatenating an interpolated string is ordinary concatenation.
     val joined = "pre-" + each_type()

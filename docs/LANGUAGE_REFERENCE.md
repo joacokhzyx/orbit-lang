@@ -85,6 +85,21 @@ Both forms are ordinary `string` values at runtime, so they concatenate and
 compare like anything else. An unterminated `"""` is reported as an error rather
 than silently swallowing the rest of the file.
 
+### Integers
+
+Decimal is the base. Two conveniences exist, and both used to be wrong in the
+way that costs the most: they compiled, ran, and produced a plausible number
+that was not the one written.
+
+```orbit
+val mask = 0xFF          // 255, and 0xff / 0xAbCdEf likewise
+val big = 1_000_000      // one million; _ is only a separator
+```
+
+Before, `0xFF` lexed as the integer `0` with `xFF` dropped, and `1_000_000`
+lexed as `1`. Both passed `check`. A bitmask written that way is a bug that
+survives to production.
+
 ### Interpolation
 
 `${…}` inside a string is substituted, in both string forms. That is what
@@ -101,7 +116,7 @@ Rules:
 - A hole may hold a **string, int, float or bool**. Anything else - a model, a
   list, a map, a `result` - is a compile error rather than a guess, because
   there is no text that is obviously right for it.
-- Braces nest and quotes are tracked, so `${ok("}")}` is an expression whose
+- Braces nest and quotes are tracked, so `${show("}")}` is an expression whose
   argument is `}`, not a hole that ended early.
 - There is no escape for `$`. `\${` is a backslash followed by a hole.
 - `"${n}"` is a string, not the `int` it interpolates.

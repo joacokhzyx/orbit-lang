@@ -55,6 +55,54 @@ fn hasInterpolation(text: string) -> bool {
     return false
 }
 
+fn isHexDigit(c: int) -> bool {
+    if isDigit(c) { return true }
+    if c >= 97 && c <= 102 { return true } // 'a'-'f'
+    if c >= 65 && c <= 70 { return true } // 'A'-'F'
+    return false
+}
+
+// Skip past a "${" hole while scanning an ordinary string. The hole can hold a
+// string of its own, so the scan for the closing quote must not stop at the
+// first quote it meets: without this, "${f("x")}" ended the literal at the
+// quote before x and the rest of the line was reported as garbage.
+fn skipInterpHole(lexer: Lexer) {
+    // Step past the "$" and the "{" so the first brace seen is a nested one.
+    // Starting at the "$" instead would count the hole's own brace and never
+    // match, running on through the rest of the file.
+    advance(lexer)
+    advance(lexer)
+    var depth = 0
+    while lexer.pos < lexer.sourceLen {
+        val hc = peek(lexer)
+        if hc == 34 || hc == 39 { // '"' '\''
+            val quote = hc
+            advance(lexer)
+            var closed = false
+            while lexer.pos < lexer.sourceLen && !closed {
+                if peek(lexer) == 92 { // '\\'
+                    advance(lexer)
+                    advance(lexer)
+                } else {
+                    val q = peek(lexer)
+                    advance(lexer)
+                    if q == quote { closed = true }
+                }
+            }
+        } else {
+            if hc == 123 { depth = depth + 1 } // '{'
+            if hc == 125 { // '}'
+                if depth == 0 {
+                    advance(lexer)
+                    return
+                }
+                depth = depth - 1
+            }
+            advance(lexer)
+        }
+    }
+}
+
 fn isDigit(c: int) -> bool {
     return c >= 48 && c <= 57
 }
@@ -203,8 +251,28 @@ fn nextToken(lexer: Lexer) -> Token {
     }
 
     if isDigit(c) {
+        // 0x / 0X hexadecimal, so a mask or a colour is not written out in
+        // decimal. Previously "0xFF" lexed as the integer 0 and left "xFF" to
+        // be dropped, which compiled clean and then meant something else.
+        if c == 48 && (peek(lexer) == 120 || peek(lexer) == 88) { // '0' 'x' 'X'
+            // From the leading '0', not from the 'x' the cursor is on, so the
+            // token keeps the 0x prefix for the integer parser to recognise.
+            val hexStart = start
+            advance(lexer)
+            var hexDigits = 0
+            while isHexDigit(peek(lexer)) {
+                advance(lexer)
+                hexDigits = hexDigits + 1
+            }
+            if hexDigits > 0 {
+                return Token(TokType.IntegerLiteral, lexer.source.slice(hexStart, lexer.pos), line, col)
+            }
+            // A bare "0" followed by something else is just the digit 0.
+        }
         var isFloat = false
-        while isDigit(peek(lexer)) {
+        var lastWasDigit = true
+        while isDigit(peek(lexer)) || (peek(lexer) == 95 && lastWasDigit) { // '_'
+            lastWasDigit = isDigit(peek(lexer))
             advance(lexer)
         }
         if peek(lexer) == 46 { // '.'
@@ -283,6 +351,12 @@ fn nextToken(lexer: Lexer) -> Token {
         while lexer.pos < lexer.sourceLen && peek(lexer) != 34 {
             if peek(lexer) == 92 { // '\\'
                 advance(lexer)
+            }
+            if peek(lexer) == 36 && peekNext(lexer) == 123 { // '$' '{'
+                // Already sitting on the closing brace; advancing again would
+                // eat the quote that ends the literal.
+                skipInterpHole(lexer)
+                continue
             }
             advance(lexer)
         }

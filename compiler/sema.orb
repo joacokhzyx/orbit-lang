@@ -689,6 +689,11 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                         if l.text == "ok" { return "result" }
                         if l.text == "err" { return "result" }
                         if l.text == "print" { return "void" }
+                        // A call whose callee names a model is that model's
+                        // construction, not a function call, so it has that
+                        // model's type. Reporting it as unknown is how a model
+                        // reached a string hole and printed as nothing at all.
+                        if lookupSymbol(sema, l.text) == "model" { return l.text }
                         val fnType = lookupFunction(sema, l.text)
                         if fnType != "unknown" { return fnType }
                     }
