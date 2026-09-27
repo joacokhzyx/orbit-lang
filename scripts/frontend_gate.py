@@ -198,6 +198,44 @@ def run_empty(compiler, cc, work, name, needle):
     return True, "TIR suppressed as required"
 
 
+# Fixtures that cannot be built at all today, so their .tir contract cannot be
+# checked in either direction. Asserting "still broken" is the point: the gate
+# fails the day one of them starts building, at which point someone has to move
+# it out of this table and check the golden against real output.
+#
+# Why they cannot build: importing the front end pulls parser.orb and
+# lexer.orb, which call orbit_os_write_stderr_selfhost (declared in extern.orb)
+# and parseIntSelfhost (defined in builder.orb) without importing either. The
+# front end therefore emits C naming a function that was never declared, and
+# the C compiler rejects it. `orbit check` is clean throughout, which is the
+# whole failure mode this project keeps meeting. See F-0004 on the board.
+KNOWN_UNBUILDABLE = {
+    "syntax_error.orb": "parser.orb/lexer.orb use extern.orb + builder.orb without importing them (F-0004)",
+    "unresolved_type.orb": "parser.orb/lexer.orb use extern.orb + builder.orb without importing them (F-0004)",
+}
+
+
+def assert_still_broken(compiler, cc, work, name, why):
+    """A fixture on the known-unbuildable list must still fail to build.
+
+    When it starts building, that is good news and a gate failure: the
+    contract it claims to assert has never actually been checked.
+    """
+    env = dict(os.environ)
+    env["ORBIT_CC"] = cc
+    env["CC"] = cc
+    env["TEMP"] = work
+    env["TMP"] = work
+    rel = os.path.relpath(os.path.join(FRONTEND, name), ROOT).replace("\\", "/")
+    exe = os.path.join(work, "probe_unbuildable")
+    p = subprocess.run([compiler, "build", rel, "-o", exe], cwd=ROOT, env=env,
+                       capture_output=True, text=True, errors="replace")
+    if p.returncode != 0:
+        return True, "known-unbuildable, as expected (%s)" % why
+    return False, ("this fixture builds now, so remove it from "
+                   "KNOWN_UNBUILDABLE and check %s against real output" % name)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Diff `orbit frontend` output against tests/frontend/expected/")
@@ -243,6 +281,18 @@ def main():
             out.say("Skipping %s ... needs building (--emit-only)" % name)
             continue
         total += 1
+        if name in KNOWN_UNBUILDABLE:
+            # Ratchet, not waiver: the gate now requires this fixture to stay
+            # broken, and tells whoever fixes it what to do next.
+            good, detail = assert_still_broken(args.compiler, args.cc, work, name,
+                                               KNOWN_UNBUILDABLE[name])
+            if good:
+                ok += 1
+            else:
+                fails.append(name)
+                out.ci_error("[frontend %s] %s" % (name, out.scrub_ci(detail)))
+            out.say("Checking tests/frontend/%s ... %s" % (name, detail))
+            continue
         if kind == "emit":
             good, detail = run_emit(args.compiler, work, name, read(path), golden_path)
         elif kind == "run":
@@ -258,6 +308,9 @@ def main():
             out.fail("Failed tests/frontend/%s: %s" % (name, detail))
             out.ci_error("[frontend %s] %s" % (name, out.scrub_ci(detail)))
 
+    if KNOWN_UNBUILDABLE:
+        out.say("Known-unbuildable fixtures, asserted still broken: %s"
+                % ", ".join(sorted(KNOWN_UNBUILDABLE)))
     out.finish("frontend", ok, total)
     if fails:
         out.tip("the front end is the core zone: file the difference, do not "
