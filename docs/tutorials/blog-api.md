@@ -47,11 +47,13 @@ route POST "/posts" {
 Two honest notes before you run it:
 
 - The model is `Note`, not `Post`: the runtime creates the
-  `notes` table on startup (custom tables aren't created yet), so
-  reads work with zero setup.
-- Auth is a shared key in `?key=`. `req.bearer_token()` exists
-  but returns an empty reply at runtime in 0.1.0, so this
-  tutorial doesn't use it. Details: [Known Limitations](../KNOWN_LIMITATIONS.md).
+  `notes` table on startup, so reads work with zero setup. A
+  model of your own gets its table the same way.
+- Auth is a shared key in `?key=`. Bearer tokens work too -
+  `req.bearer_token()` and `req.has_role()` resolve against a
+  `sessions` row, as `examples/sqlite_notes.orb` shows - but a
+  shared key keeps this tutorial to one idea. Details:
+  [Known Limitations](../KNOWN_LIMITATIONS.md).
 
 ## Build and run
 

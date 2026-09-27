@@ -59,58 +59,21 @@ find the file ready.
 one, and don't publish a number without saying which of the two you
 measured (see [Performance notes](../PERF.md)).
 
-## `orbit build` fails on `orbit_auth_bearer_token`
-
-**Symptom:**
-
-```text
-error: implicit declaration of function 'orbit_auth_bearer_token'
-```
-
-**Cause:** auth declarations are compiled in only when the
-program uses a database operation (`-DORBIT_WITH_DB` path). A
-file that calls `req.bearer_token()` with no `Model.all()` /
-`where` / `create` anywhere won't link.
-
-**Fix:** this is a compiler gap, not your bug - and bearer
-routes return empty replies at runtime anyway in 0.1.0. Use a
-`?key=` check per the tutorials until the limitation entry
-changes.
-
-## `orbit build` fails on `orbit_http_header_get`
-
-**Symptom:** `implicit declaration of function
-'orbit_http_header_get'` when calling `req.header(…)`.
-
-**Cause:** same family - the header helper isn't declared in
-generated programs in this build.
-
-**Fix:** read what you need through `req.query()` or
-`req.body()` instead.
-
-## `:param` routes always 404
-
-**Symptom:** `GET /echo/abc123` against
-`route GET "/echo/:id"` answers the router's `404 Not Found`;
-your handler never runs. Same for `{id}` and for DELETE.
-
-**Cause:** path-parameter matching isn't wired at runtime in
-0.1.0, for either syntax.
-
-**Fix:** pass identifiers as query values
-(`GET /notes?id=…`) until the limitation entry changes.
-
 ## `Model.create()` answers 400
 
 **Symptom:** your POST handler's `create()` branch never
-succeeds - literal JSON and `req.body()` alike return `false`.
+succeeds on the *second* attempt at the same `id`.
 
-**Cause:** writes are broken at runtime in this build (cause
-still under investigation; reads are fine).
+**Cause:** the model's `id` is the table's primary key, so the
+second insert of the same id is a constraint violation and
+`create()` answers `false`. Nothing is wrong with the payload or
+the runtime - re-posting an id you already stored cannot work.
 
-**Fix:** keep the failure branch - it's real behavior - and
-design around reads plus validated echoes, as the tutorials do.
-Don't retry in a loop; it won't help.
+**Fix:** decide what a repeat means for your service - a conflict
+(409) or an update - and make the id unique per post. Keep the
+failure branch: it is the branch a duplicate lands in, and
+`create()` also answers `false` when the payload has no usable
+fields.
 
 ## The canonical C source is stale
 

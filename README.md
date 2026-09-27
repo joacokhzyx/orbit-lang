@@ -76,7 +76,7 @@ Full reference: [Command Reference](docs/COMMANDS.md).
 - [Known Limitations](docs/KNOWN_LIMITATIONS.md) · [Changelog](docs/CHANGELOG.md) · [0.1.0 Release Notes](docs/RELEASE_NOTES_0_1_0.md)
 - [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Architecture](docs/ARCHITECTURE.md) · [Project Status](docs/STATUS.md) · [Roadmap](docs/ROADMAP.md)
 - [Migrations guide](docs/guides/migrations.md) · [Performance notes](docs/PERF.md) · [Resource and energy measurement](docs/ENERGY.md)
-- [Platform Support](docs/SUPPORT.md) · [Versioning](docs/VERSIONING.md) · [Energy Measurement](docs/ENERGY.md) · [Server Examples](examples/README.md)
+- [Platform Support](docs/SUPPORT.md) · [Versioning](docs/VERSIONING.md) · [Server Examples](examples/README.md)
 
 ---
 
@@ -84,7 +84,7 @@ Full reference: [Command Reference](docs/COMMANDS.md).
 
 ```text
 compiler/     Self-hosted compiler written in Orbit (lexer → parser → sema → IR → C backend)
-runtime/      C runtime (http, arena_pool, kynx, orm, json)
+runtime/      C runtime (http, arena, kynx, database, auth, ledger, energy, pulse)
 docs/         Language reference and internal design documentation
 examples/     Orbit service examples covering HTTP, auth, and database access
 std/          Orbit standard library modules

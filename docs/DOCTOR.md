@@ -40,7 +40,7 @@ app.orb:12 [D002] route GET /users/:id collides with app.orb:8 (GET /users/{id})
 
 | Code | What it reports |
 |---|---|
-| `D001` | No C compiler answered. Doctor tries `ORBIT_CC`, then `CC`, then `gcc`, `clang`, `cc` in that order, the same order the build uses. |
+| `D001` | No C compiler answered. Doctor tries `ORBIT_CC`, then `CC`, then `gcc`, `clang`, `cc` in that order - a wider net than the build, which resolves `ORBIT_CC`, `CC`, `cc` and stops. |
 | `D002` | Route conflicts: exact duplicates, paths that match once `:params` and `{params}` are treated alike (so `/users/:id` and `/users/{uuid}` collide), and specific routes covered by a same-method wildcard. |
 | `D003` | A `private fn` that nothing in the scanned files calls. Public functions are never reported here, since files outside the scan may import them. `main` and `extern` functions are never reported. |
 | `D004` | A `model` that nothing in the scanned files references, including use as a type or through calls such as `Product.all()`. |

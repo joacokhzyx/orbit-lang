@@ -18,11 +18,15 @@ The primary compiler workflow needs nothing but a C compiler and a stock `python
 - Python 3.10 or newer.
 - Git when building from a checkout.
 
-Compiler selection follows this order in the self-hosted workflow:
+Compiler selection in the build follows this order:
 
 ```text
-ORBIT_CC -> CC -> gcc -> clang -> cc
+ORBIT_CC -> CC -> cc
 ```
+
+That is `compiler/pipeline.orb` and nothing else. (`orbit doctor` is the one
+exception: it reports a finding when no compiler answers, so it also probes
+`gcc` and `clang` off `PATH` - see [orbit doctor](DOCTOR.md).)
 
 Set `ORBIT_CC` when the compiler is not discoverable or when a specific compiler must be tested.
 

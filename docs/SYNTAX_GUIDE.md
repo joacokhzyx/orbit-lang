@@ -166,8 +166,8 @@ union Payload {
 
 ## Control flow
 
-`if` / `else`, `while` with `break` and `continue`, and `match` for tagged
-values. There is no `for` loop; `while` is the loop.
+`if` / `else`, `while` and `for … in` with `break` and `continue`, and
+`match` for tagged values.
 
 ```orbit
 fn main() -> int {

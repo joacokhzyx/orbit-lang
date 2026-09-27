@@ -12,7 +12,7 @@ shipped by anyone else.
 
 | Artifact | Role | SHA-256 |
 |---|---|---|
-| `compiler/selfhost/stage3.exe.c` (3,928,804 bytes, 86,549 lines) | canonical compiler, emitted by the compiler itself | `98A6DB81A6326817EA72C51739A186155F2E8E44D5F19CEB0C35696861CB01A0` |
+| `compiler/selfhost/stage3.exe.c` (4,124,475 bytes, 90,928 lines) | canonical compiler, emitted by the compiler itself | `960758367D4EF493A49A5D6F9DF46CAE5B2FA8B9FCA0DED797C37E5664109610` |
 | `scripts/verify_seed.py` (`PUBLISHED_C`) | published contract, enforced by `--release` | identical to the above |
 
 The canonical file is **committed** (explicitly un-ignored in `.gitignore`, and
@@ -53,9 +53,8 @@ python scripts/verify_seed.py --cc gcc
 scripts/install.sh          # or scripts/install.ps1 on Windows
 ```
 
-C compiler resolution is the same everywhere: `ORBIT_CC` then `CC` then
-`gcc` / `clang` / `cc` / `cl`. `compiler/pipeline.orb` resolves `ORBIT_CC`,
-then `CC`, then the POSIX `cc` convention.
+The build resolves the C compiler as `ORBIT_CC`, then `CC`, then the POSIX
+`cc` convention. `compiler/pipeline.orb` is the only place that decides it.
 
 ### What the gates actually assert
 

@@ -16,7 +16,7 @@ take on faith.
 
 That gives the property the whole design is after: **anyone can read
 `compiler/selfhost/stage3.exe.c` and check what the compiler does.** It is C,
-it is committed, and it is 3.9 MB. A third party does not need to run Orbit at
+it is committed, and it is 4.1 MB. A third party does not need to run Orbit at
 all to audit it.
 
 ## The stages

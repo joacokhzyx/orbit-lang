@@ -1,7 +1,6 @@
 // Wave 2 dispatch probe: static GET table with an overlapping param
-// route. Static routes take the specialized shape (or the generic one
-// under ORBIT_FORCE_GENERIC=1); the param route always chains after
-// them, so static wins over covering patterns in both modes.
+// route. The param route always chains after the static one, so static
+// wins over covering patterns.
 route GET "/" {
     return ok 200 "root"
 }

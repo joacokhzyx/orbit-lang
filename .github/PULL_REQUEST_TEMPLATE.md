@@ -12,10 +12,10 @@ the gates is a draft, not a contribution.
 python scripts/build_selfhost.py --cc gcc --check-stale   # fixed point intact
 python scripts/verify_seed.py --cc gcc --release          # 5/5
 python scripts/parity_selfhost.py --cc gcc --compiler <fp>  # 32/32
-python scripts/test_suite.py --cc gcc --compiler <fp>     # 25/25
+python scripts/test_suite.py --cc gcc --compiler <fp>     # 28/28
 python scripts/test_suite.py --cc gcc --compiler <fp> --dir tests/std  # 13/13
 python scripts/werror_gate.py --compiler <fp> --cc gcc    # 9/9
-python scripts/cli_probe.py --compiler <fp> --work <dir>  # 36/36
+python scripts/cli_probe.py --compiler <fp> --work <dir>  # 48/48
 python scripts/routes_probe.py                            # 72/72
 <fp> fmt --check compiler && <fp> fmt --check tests/suite
 <fp> doctor tests/suite

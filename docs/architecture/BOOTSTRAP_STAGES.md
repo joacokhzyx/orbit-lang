@@ -61,7 +61,7 @@ failure mode, and a gate that only compares the first stage cannot see it.
 The chain converges and every stage's emitted C equals the canonical:
 
 ```
-98a6db81a6326817ea72c51739a186155f2e8e44d5f19ceb0c35696861cb01a0
+960758367d4ef493a49a5d6f9df46cae5b2fa8b9fca0ded797c37e5664109610
 ```
 
 Getting here required fixing the seed's local-variable type inference:

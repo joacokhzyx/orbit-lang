@@ -7,7 +7,7 @@ full story; this page tells the short one.)
 
 Versioning rules: [Versioning and Compatibility](VERSIONING.md).
 Current: `0.1.0` pre-release (`orbit --version` prints
-`orbit 0.1.0`; services still report `0.1.0-rc.2` in `/health`).
+`orbit 0.1.0-rc.2`, and the startup banner says `Orbit 0.1.0`).
 
 ## Unreleased (toward 0.1.0)
 

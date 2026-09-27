@@ -24,12 +24,12 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Database integration | Reads, writes and auto-created model tables; migrations still open | `runtime/database.c`, `examples/posts_crud.orb`, `STAB-6` |
 | Path parameters | `:id`/`{id}`/`*` match with capture, static routes win | `examples/params_service.orb` |
 | Bearer auth and roles | Token extraction, role lookup, expiry; `has_role` enforced | `examples/sqlite_notes.orb`, `tests/auth/` |
-| CLI consistency | Errors to stderr, per-command help, `--quiet`/`--verbose`, doctor JSON | `scripts/cli_probe.py` (35 cases) |
-| Behavior suite | 21 executable programs | `tests/suite/`, `tests/suite/README.md` |
-| Parity and stability probes | 29-probe documented gate | `tests/parity/`, `tests/parity/README.md` |
+| CLI consistency | Errors to stderr, per-command help, `--quiet`/`--verbose`, doctor JSON | `scripts/cli_probe.py` |
+| Behavior suite | Executable programs, one behavior each | `tests/suite/`, `tests/suite/README.md` |
+| Parity and stability probes | Documented gate against committed goldens | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension and syntax support | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |
-| Distributed cluster runtime | Not available as a public feature | Roadmap Phase 6 |
+| Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
 
 ## Verification Workflow
 
@@ -94,9 +94,9 @@ A native backend is a long-term sovereignty and performance project. It depends 
 ### Distributed Operation
 
 **Priority:** P3  
-**Status:** deferred
+**Status:** single host shipped, multi-host deferred
 
-Cluster behavior is intentionally not part of the current public product. Health checks, drain semantics, observability, and failure testing for a single node should mature before membership, gossip, leader coordination, and cross-node routing are implemented.
+`orbit cluster up/status/drain/restart/down/logs` is part of the public CLI and supervises N processes of one service on one machine (see [Cluster](CLUSTER.md)). Multi-host operation is not: membership, gossip, leader coordination, and cross-node routing are still to be designed, and a single node's health, drain, and failure behavior should mature first.
 
 ## Open Risks
 
@@ -106,7 +106,7 @@ Cluster behavior is intentionally not part of the current public product. Health
 | Engineering catalog contains historical paths and stale status details | Contributors may choose the wrong implementation surface | Use this snapshot and `docs/README.md` as navigation; reconcile the catalog progressively |
 | Behavior suite is small relative to the language surface | Regressions can escape CI | Grow the suite by contract area, starting with focused tests |
 | Database schema evolution is not a complete public contract | Existing services may not upgrade safely | Track as `STAB-6`; specify migrations before implementation |
-| Native backend and clustering have large dependency chains | High cost and broad failure surface | Keep them behind the compiler-trust and runtime milestones |
+| Native backend and multi-host clustering have large dependency chains | High cost and broad failure surface | Keep them behind the compiler-trust and runtime milestones |
 
 ## Definition of a Meaningful Milestone
 

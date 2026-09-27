@@ -6,9 +6,9 @@ what happens today, how to work around it, and what would change it.
 Nothing here is a roadmap promise with a date - it's what I measured
 on this build.
 
-Tested on: `orbit 0.1.0` fixed-point build (Windows x86-64, gcc),
-September 2026. Linux paths are marked UNTESTED below where I
-couldn't run them.
+Verified on: `orbit 0.1.0-rc.2` (fixed-point build, gcc 13.3.0),
+Windows x86-64 and Linux x86-64, September 2026. Linux paths are
+marked UNTESTED below where I couldn't run them.
 
 ## Writes work; duplicates and missing tables fail honestly
 
@@ -85,19 +85,6 @@ Graceful shutdown (drain in-flight requests, then exit) runs on
 POSIX through SIGTERM. On Windows the stop is `TerminateProcess`:
 immediate, with in-flight requests lost. `drain` and the graceful
 phase of `restart`/`down` are best-effort stops there.
-
-## Native backend is experimental
-
-`--backend=native` (x86-64 machine code) is research in progress.
-The C backend is the supported path until native matches it on
-behavior and bootstrap checks.
-
-## DB migrations are open
-
-There is no migration story: no schema versioning, no upgrade
-path, no transaction-boundary contract for app code. The
-migrations guide (`docs/guides/migrations.md`) describes the
-manual practice that works today.
 
 ## Two servers, one port: no error on Windows
 

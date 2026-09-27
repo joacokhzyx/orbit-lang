@@ -13,21 +13,23 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
-| `orbit doctor [dir]` | Read-only project checks | `orbit doctor ./examples` |
+| `orbit doctor [dir]` | Project checks; read-only unless `--fix` | `orbit doctor ./examples` |
+| `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
+| `orbit --help` | Display the command-line help | `orbit --help` |
+| `orbit --version` | Display the compiler version | `orbit --version` |
 
 `build`, `run` and `check` accept `--quiet` (less success chatter; errors
 always print) and `--verbose` (echoes the C compiler invocation on build
 and run, the input size on check). `fmt` accepts `--quiet` (single-file
 mode) and `--verbose` (scan totals with `--check`). `doctor` accepts
-`--quiet`, `--verbose` (scan scope) and `--format json` (findings as a
-JSON array of `{file, line, code, message, fix}` on stdout; exit codes
-unchanged). `cluster up/down/drain/restart` accept `--quiet` (errors
+`--fix` (whitespace only: trailing whitespace and a missing final
+newline), `--quiet`, `--verbose` (scan scope), `--format json` (findings
+as a JSON array of `{file, line, code, severity, message, fix}` on
+stdout; exit codes unchanged) and `--color always|never|auto`.
+`cluster up/down/drain/restart` accept `--quiet` (errors
 only); `up` and `restart` echo spawned commands with `--verbose`. The
 child program owns the terminal under `run`, so its output is never
 silenced.
-| `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
-| `orbit --help` | Display the command-line help | `orbit --help` |
-| `orbit --version` | Display the compiler version | `orbit --version` |
 
 `orbit dev` (watch/reload) is not implemented yet. Calling it treats `dev` as a filename and fails - that error message is honest, not a silent stub.
 
@@ -55,7 +57,7 @@ plain so a tired dev can act without decoding anything.
   `error[code]: message` + `--> file:line:col` + the source line with
   `^-- here` + `= help: hint`.
 - `orbit doctor` findings print one line to stdout:
-  `file:line [D00X] message fix: action`.
+  `file:line severity [D00X] message fix: action`.
 - Operational failures (`orbit fmt`, `orbit cluster`, unreadable files,
   failed spawns) print `orbit <cmd>: fact.` to stderr.
 - Usage errors print `Usage: ...` to stderr and exit 2. `--help` prints
@@ -79,29 +81,6 @@ unknown subcommand). The fuzzer accepts 0, 1, and 2.
 Colors and the server banner stay plain when `NO_COLOR` is set or
 `TERM=dumb`: no ANSI escapes, no gradient, no checkmarks. `/_ledger`
 and `/_pulse` HTML pages are not terminal output and are unaffected.
-
-## Script output conventions
-
-The Python gates in `scripts/` share one calm grammar (no `[tag]`
-prefixes, no colors, no emojis):
-
-- Steps read as actions: `Checking parity r1_route_only ... match`,
-  `Testing arith ... exit 0 as expected`, `Building seed ...`.
-- Failures print a fact to stderr, then a next step:
-  `Failed arith: got exit 3, want 0` followed by
-  `Tip: run ... to see why`.
-- Every tool closes the same way on stdout:
-  `Finished suite: 21/21 pass`.
-- `::error::` annotations print only on GitHub Actions
-  (`GITHUB_ACTIONS=true`); local runs stay clean.
-- Long tools (`build_selfhost`, `verify_seed`, `parity_selfhost`,
-  `test_suite`, `measure_selfhost`) accept `--quiet`: only failures
-  and the `Finished` line print.
-- Success lines pinned by `cli_probe.py` (`wrote`, `Checked`,
-  `Formatted`, `Usage:`, exit codes) never change shape.
-
-`scripts/preview_output.py` prints a visual specimen of the grammar
-for review; `scripts/orbit_output.py` implements it.
 
 ## Compiler Build and Verification
 
@@ -127,7 +106,7 @@ A compiler change is not complete until the relevant gates pass:
 2. The canonical C source is current when the change is intentional.
 3. The parity probes match their goldens.
 4. The behavior suite passes.
-5. `fmt --check` is clean on `compiler`, `tests/suite` and `examples` (except the intentionally unparseable `orbit_full_expansion.orb`), `doctor` reports nothing on `tests/suite`, and `cli_probe.py` passes.
+5. `fmt --check` is clean on `compiler`, `tests/suite` and `examples`, `doctor` reports nothing on `tests/suite`, and `cli_probe.py` passes.
 6. Documentation and examples reflect the supported behavior.
 
 See [Platform Support](SUPPORT.md), [Getting Started](GETTING_STARTED.md), and the [Engineering Contract](../ENGINEERING.md) for platform-specific details and invariants.

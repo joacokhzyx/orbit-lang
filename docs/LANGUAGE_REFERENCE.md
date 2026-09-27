@@ -125,8 +125,10 @@ Rules:
 
 ## Control flow
 
-Orbit supports `if` / `else`, `while`, an unconditional `loop`, and iteration
-with `for … in`. `break` and `continue` are valid within loops.
+Orbit supports `if` / `else`, `while`, and iteration with `for … in`. `break`
+and `continue` are valid within loops. There is no unconditional `loop`; the
+keyword is reserved but a `loop { }` body is a parse error, so use `while true`
+when you mean that.
 
 ```orbit
 var mut sum = 0
@@ -140,7 +142,8 @@ while sum < 10 {
 ```
 
 Expressions support arithmetic, comparisons, `&&`, `||`, unary `!` and `-`,
-calls, member access, arrays, object literals, and string interpolation.
+calls, member access, arrays, and string interpolation. Object literals are not
+available yet; see [Arrays and objects](#arrays-and-objects).
 
 ## Arrays and objects
 
@@ -391,11 +394,15 @@ orbit build app.orb                # Compile to a native executable
 orbit run app.orb                  # Build and run it (servers keep the terminal)
 orbit check app.orb                # Parse and typecheck, no code emitted
 orbit fmt app.orb                  # Format a file (writes only on success)
-orbit doctor [dir]                 # Read-only project checks
+orbit doctor [dir]                 # Project checks (--fix writes; see DOCTOR.md)
+orbit frontend app.orb             # Emit the typed IR
 orbit cluster ...                  # Single-host orchestration (see CLUSTER.md)
 orbit --help                       # Display the command-line help
-orbit --version                    # Display the compiler version (0.1.0)
+orbit --version                    # Display the compiler version
 ```
+
+[COMMANDS.md](COMMANDS.md) is the reference for this list, and the one to keep
+current.
 
 `orbit dev` (watch/reload), `orbit test`, `orbit bootstrap`, and
 `--backend=` flags are not implemented. Calling them treats the word as a

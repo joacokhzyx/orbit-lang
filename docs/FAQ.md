@@ -12,10 +12,10 @@ under load. I'm building it to test whether servers can do the
 same work with less energy - still measuring how far that goes.
 
 **2. Is Orbit ready for production?**
-No. It's 0.1.0 pre-release research. Reads work, writes don't
-yet, auth helpers are broken at runtime, and there's no
-migration story. Good for learning and experimenting; don't
-bet a business on it.
+No. It's 0.1.0 pre-release research. Reads, writes, bearer auth
+and path parameters all work; what isn't there is migrations,
+multipart uploads, and latency percentiles. Good for learning
+and experimenting; don't bet a business on it.
 
 **3. What do I need to build it?**
 A C compiler (gcc, clang, or MSVC), Python 3.10+, and git.
@@ -44,19 +44,16 @@ request bodies, filtered queries, status codes, live telemetry.
 The [Tour](TOUR.md) takes 30 minutes; the tutorials go further.
 
 **7. What can't Orbit do yet?**
-The honest list: persistent writes (`create()` returns false),
-bearer-token auth (empty replies), path parameters (`:id`
-never matches), multipart uploads (stub), custom DB tables,
-migrations, latency percentiles, joules on Windows, graceful
-drain on Windows, multi-host clustering. Full list with
-workarounds: [Known Limitations](KNOWN_LIMITATIONS.md).
+The honest list: migrations, multipart uploads (stub), latency
+percentiles, joules on Windows, graceful drain on Windows,
+multi-host clustering. Full list with workarounds:
+[Known Limitations](KNOWN_LIMITATIONS.md).
 
-**8. Why do writes fail? Can't you just fix it?**
-Reads and writes share the runtime but take different code
-paths, and the write path returns `false` in this build with
-the cause still under investigation. I document it instead of
-hiding it. Compiler and runtime fixes land through the
-bootstrap gates, which is slow on purpose.
+**8. When does `create()` return `false`?**
+When the `id` already exists - it is the primary key - or when
+the payload has no usable fields. `delete()` answers `false`
+when no row was removed, which is how a handler tells a 404 from
+a write. Code both branches; they're real answers, not filler.
 
 **9. Is the language stable? Will my code compile next month?**
 No stability promise before 1.0. Minor releases in the 0.x

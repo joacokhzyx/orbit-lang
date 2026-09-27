@@ -121,12 +121,10 @@ adds `-DORBIT_WITH_DB` plus the vendor SQLite flags only when the IR actually
 uses the database. On Windows it adds `-lws2_32`; on the DB path it links
 `runtime/vendor/win-x64/sqlite3.lib` instead of `-lsqlite3`.
 
-Warnings: the self-host invocation uses `-Wall` with
-`-Wno-error=int-conversion -Wno-error=incompatible-pointer-types`, which are
-errors by default on GCC 14+ and would otherwise break user builds over the
-remaining untyped-emission patterns. Full `-Werror` cleanliness is tracked by
-`scripts/werror_gate.py`, and `ORBIT_CCFLAGS_EXTRA` is the escape hatch the
-bootstrap uses for its own low-memory profile.
+`scripts/werror_gate.py` puts `-Werror` on generated C, and that is the strict
+contract; the driver itself only passes `-Wall`.
+`ORBIT_CCFLAGS_EXTRA` is the escape hatch the bootstrap uses for its own
+low-memory profile.
 
 ---
 
@@ -136,7 +134,7 @@ The compiler is its own first customer. `compiler/selfhost/stage3.exe.c` is the
 committed output of the compiler compiling itself, and it is the root of trust.
 
 ```text
-compiler/selfhost/stage3.exe.c   (committed canonical, 3,928,804 bytes)
+compiler/selfhost/stage3.exe.c   (committed canonical, 4,124,475 bytes)
         │  any C compiler: cc, clang, gcc, cl
         ▼
    seed compiler  ──builds──▶  compiler/main.orb
@@ -204,9 +202,11 @@ runs against a real server: `scripts/kynx_route_limit_gate.py`.
 ### Orbit Pulse (performance counters)
 File: `runtime/pulse.c`
 
-RDTSC-based wall-clock and CPU-cycle measurements.
-Records per-request latency into lock-free histogram buckets and computes P50 / P95 / P99 on demand.
-The hardware energy accounting sits alongside it rather than on top of it:
+RDTSC-based wall-clock and CPU-cycle measurements, rendered as the `/_pulse`
+dashboard and its JSON endpoint. Per request it keeps a count, a total, a min
+and a max - there is no histogram, so there is no P50 / P95 / P99 to compute,
+and `system.*` exposes no latency distribution either. The hardware energy
+accounting sits alongside it rather than on top of it:
 `runtime/energy.c` samples the platform energy sensor on its own thread and
 `runtime/ledger.c` records the accounting entries. See [ENERGY.md](ENERGY.md).
 
@@ -373,13 +373,17 @@ contention is on the queue and not on a shared stdout lock.
 
 | Corpus | Location | How it runs | Assertion |
 |---|---|---|---|
-| Language behaviour | `tests/suite/` (25 runnable `.orb` tests) | `scripts/test_suite.py` | The test program compiles, runs, and its **exit code** matches `// expect-exit <N>`. |
-| Standard library | `tests/std/` (13 `.orb` tests) | `scripts/test_suite.py --dir tests/std` | Same convention. |
-| Parity | `tests/parity/probes/` (32 `.orb`) + `tests/parity/golden/` (32) | `scripts/parity_selfhost.py` | For an exit-0 probe, the SHA-256 of the generated C matches the golden. For a non-zero probe, the normalised diagnostics match. |
-| Frontend TIR | `tests/frontend/` (6 `.orb`) + `expected/` (4 `.tir`) | `orbit frontend` | The emitted canonical TIR matches the expected file. |
-| Runtime C | `runtime/test_arena.c`, `test_http_parse.c`, `test_kynx.c` | compiled and run directly | The C harness's own assertions. |
+| Language behaviour | `tests/suite/` | `scripts/test_suite.py` | The test program compiles, runs, and its **exit code** matches `// expect-exit <N>`. |
+| Standard library | `tests/std/` | `scripts/test_suite.py --dir tests/std` | Same convention. |
+| Parity | `tests/parity/probes/` + `tests/parity/golden/` | `scripts/parity_selfhost.py` | For an exit-0 probe, the SHA-256 of the generated C matches the golden. For a non-zero probe, the normalised diagnostics match. |
+| Frontend TIR | `tests/frontend/` + `expected/` | `orbit frontend` | The emitted canonical TIR matches the expected file. |
+| Runtime C | `runtime/test_arena.c`, `test_file.c`, `test_oom.c`, `test_http_parse.c`, `test_kynx.c` | compiled and run directly | The C harness's own assertions. |
 | Auth | `tests/auth/auth_harness.c` | compiled and run directly | Bearer token, role, and `has_role` behaviour against the real runtime. |
 | Doctor | `tests/doctor/` | `orbit doctor tests/doctor` (manual) | Exactly one `D002`, no finding for two methods sharing a path, exit code 1. |
+
+Each corpus keeps its own inventory in its `README.md`, and every gate prints
+the total it just ran, so the counts live with the corpus instead of in a
+second place that can rot.
 
 Everything above runs in CI on ubuntu/gcc and windows/clang, plus an
 eight-leg stress job that re-runs the fixed-point chain independently to hunt

@@ -13,9 +13,9 @@ never at silence.
 |---|---|---|---|
 | [`blog_api.orb`](blog_api.orb) | Blog API with key-checked publishing | SQLite (`sqlite3.dll` on Windows) | check + build + run (GET, search, POST 201/401/400) |
 | [`file_server.orb`](file_server.orb) | File listing, content, raw-body uploads | None | check + build + run (all routes) |
-| [`catalog_service.orb`](catalog_service.orb) | Product catalog API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads verified; writes answer 400) |
+| [`catalog_service.orb`](catalog_service.orb) | Product catalog API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads and POST 201, 400 on a duplicate id) |
 | [`health_service.orb`](health_service.orb) | Health, readiness, and metrics endpoints | None | check + build + run (`/health`, `/metrics` 200) |
-| [`sqlite_notes.orb`](sqlite_notes.orb) | Notes and user management API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads verified; auth, `:id`, writes limited - see below) |
+| [`sqlite_notes.orb`](sqlite_notes.orb) | Notes and user management API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads, auth 401/403, `:id`, writes) |
 | [`orbit_full_expansion.orb`](orbit_full_expansion.orb) | Combined catalog, notes, telemetry, ledger | SQLite (`sqlite3.dll` on Windows) | check + build + run (filtered reads, metrics, `/_ledger/data`) |
 | [`sovereignty_service.orb`](sovereignty_service.orb) | System status and process telemetry API | None | check + build + run (both routes 200) |
 
@@ -29,8 +29,9 @@ never at silence.
   `req.body()` reads, and 200/201/400/401 responses.
 - Routes: `GET /posts`, `GET /posts/search`, `POST /posts`,
   `GET /health`.
-- Writes are validated and echoed, not stored
-  (`create()` returns `false` in 0.1.0).
+- Writes are validated and echoed on purpose, not stored: this file
+  keeps to one idea. `examples/posts_crud.orb` shows the storing
+  version.
 
 ### `file_server.orb`
 
@@ -47,8 +48,8 @@ never at silence.
    - E-commerce & Product Catalog API.
    - Demonstrates `model` definitions, parameterized ORM queries (SQL injection prevention via `?` placeholders), `req.query()` for category filtering, dynamic `req.body()` parsing for `POST`, and error responses with `err`.
    - Routes: `GET /v1/catalog`, `GET /v1/catalog/featured`, `GET /v1/catalog/categories`, `POST /v1/catalog/items`, `GET /v1/catalog/missing`.
-   - Limit: `Product.create()` returns `false` in 0.1.0, so
-     `POST /v1/catalog/items` answers `400` today.
+   - `Product.create()` stores the row and answers `201`; it answers
+     `400` when the `id` is already in the table.
 
 ### `health_service.orb`
 
@@ -61,9 +62,11 @@ never at silence.
    - SQLite-Backed Secure Notes & User Management API.
    - Demonstrates `User` and `Note` models, `req.bearer_token()` authentication, `req.has_role()` authorization, route path parameters with `:id` and `req.param()`, and boolean field usage (`is_private`).
    - Routes: `GET /v1/notes`, `GET /v1/notes/secured`, `POST /v1/notes`, `DELETE /v1/notes/:id`, `GET /health`.
-   - Limits in 0.1.0: `/secured` returns an empty reply
-     (`bearer_token` gap), `:id` routes never match (router
-     404), and `create()`/`delete()` return `false`.
+   - Auth needs a row in `sessions` whose `user_id` joins to
+     `users.role_name` (see `tests/auth/auth_harness.c`): `401`
+     without a token, `403` for a non-admin delete, `200` for an
+     admin. `:id` routes match, and `create()`/`delete()` answer
+     `true` unless the id is missing or already taken.
 
 ### `orbit_full_expansion.orb`
 

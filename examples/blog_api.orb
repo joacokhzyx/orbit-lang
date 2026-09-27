@@ -5,14 +5,13 @@
 //      runtime/vendor/win-x64/sqlite3.dll next to the exe first)
 //
 // Reads come from the seeded notes table, so GET works on a fresh
-// start with no setup. Writes are validated but not stored yet:
-// Model.create() returns false at runtime in 0.1.0, so POST answers
-// 201 with the accepted entry instead of pretending it was saved.
-// See docs/KNOWN_LIMITATIONS.md ("Model.create returns false").
+// start with no setup. The POST route validates and echoes on
+// purpose: this file keeps to one idea (key-checked publishing).
+// A route that really stores the row is examples/posts_crud.orb.
 //
-// Auth here is a shared key in ?key=. req.bearer_token() exists in
-// the compiler but currently returns an empty reply at runtime, so
-// the tutorial does not use it. Same reference as above.
+// Auth here is a shared key in ?key=, so the file needs no
+// sessions row. Bearer tokens and roles work too; see
+// examples/sqlite_notes.orb.
 
 model Note {
     id: string

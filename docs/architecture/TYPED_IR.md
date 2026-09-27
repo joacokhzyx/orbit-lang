@@ -16,8 +16,8 @@ module.  A valid module contains:
 - stable numeric ids for functions, values and blocks;
 - structured diagnostics with source coordinates.
 
-The C and native backends consume this module.  Neither backend is allowed to
-recover syntax, infer types, or depend on a frontend implementation detail.
+The C backend consumes this module.  It is not allowed to recover syntax,
+infer types, or depend on a frontend implementation detail.
 
 ## Canonical text encoding
 

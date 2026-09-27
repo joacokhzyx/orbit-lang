@@ -65,8 +65,8 @@ fn main() -> int {
 ```
 
 Recursion, `if`, and comparison work as you'd expect. Exit code:
-**120**. Loops use `for … in`, `while`, and `loop`, with `break`
-and `continue` inside them.
+**120**. Loops use `for … in` and `while`, with `break` and
+`continue` inside them.
 
 ## 4. Models (3 min)
 

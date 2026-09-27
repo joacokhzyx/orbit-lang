@@ -1,6 +1,10 @@
 /**
  * @file  performance.h
- * @brief RDTSC-based latency counters and per-route P50/P95/P99 histograms.
+ * @brief RDTSC-based latency counters: request count, total, min and max.
+ *
+ * No percentiles. The struct below carries count/total/min/max and nothing
+ * else, so "P50/P95/P99" appears in no header and no source file; a percentile
+ * claim in the docs was simply false.
  *
  * Exposes `orbit_rdtsc()`, `orbit_perf_start_request()`, `orbit_perf_end_request()`,
  * and `orbit_perf_report()`.  All state is kept in thread-local storage so no

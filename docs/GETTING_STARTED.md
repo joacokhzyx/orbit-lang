@@ -107,32 +107,6 @@ The installer registers the VS Code extension automatically. For a manual setup,
 
 ## Troubleshooting
 
-### No C compiler found
-
-Orbit can't find your C compiler. Set it explicitly, then build again:
-
-```powershell
-$env:ORBIT_CC = "clang"
-python scripts/build_selfhost.py --cc clang --out orbit.exe
-```
-
-```sh
-ORBIT_CC=gcc python3 scripts/build_selfhost.py --cc gcc --out orbit
-```
-
-Tip: run `clang --version` or `gcc --version` first to confirm it's on PATH. Small fix - you'll be building in seconds.
-
-### The canonical C source is stale
-
-The generated output doesn't match the committed canonical source. Run without `--check-stale` to inspect the converged output. Only promote a new canonical source after an intentional compiler change and after reviewing the generated diff:
-
-```sh
-python scripts/build_selfhost.py --promote
-```
-
-### A gate script reports a missing tool
-
-Every gate in this repository runs on a C compiler plus a stock `python3`.
-There is nothing to install: no package manager, no lockfile, no vendored
-toolchain. If a script claims a dependency is missing, that is a bug in the
-script, not a gap in your machine.
+Toolchain problems are covered in [Platform Support](SUPPORT.md); symptoms
+you'll meet while running a service are in the
+[troubleshooting tutorial](tutorials/troubleshooting.md).

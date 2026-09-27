@@ -18,6 +18,11 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Result handling | `result_catch.orb` |
 | Error payload binding | `result_bind.orb` |
 | Models and mutation | `model_fields.orb`, `model_two_fields.orb`, `model_mutation.orb` |
+| Integer literals (hex, separators) | `integer_literals.orb` |
+| Raw strings, triple-quoted | `raw_string_literals.orb` |
+| String interpolation | `interpolation.orb` |
+| Constant folding and its limits | `peephole_folds.orb`, `peephole_no_fold_side_effects.orb`, `peephole_wave1.orb` |
+| Arena lifetime | `arena_sink_scope.orb` |
 | Source encoding | `bom_utf8.orb` |
 
 ## Running

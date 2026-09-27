@@ -25,7 +25,7 @@ python3 scripts/build_selfhost.py --cc gcc --out orbit
 
 The compiler step emits C, then your platform C compiler
 produces the binary. Expect the compiler build to take a few
-minutes (it's a 68k-line C file); the service build takes under
+minutes (it is a 90k-line C file); the service build takes under
 a minute.
 
 ## 2. What to ship

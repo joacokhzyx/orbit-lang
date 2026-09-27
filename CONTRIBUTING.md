@@ -57,19 +57,22 @@ For the parity gate, first emit the fixed-point compiler with
 Then the gates that check behaviour and the strict warning contract:
 
 ```bash
-python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp           # 25/25
+python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp           # 28/28
 python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp --dir tests/std  # 13/13
 python scripts/werror_gate.py --cc "$CC" --compiler /tmp/orbit_fp          # 9/9, -Werror on generated C
-python scripts/cli_probe.py --compiler /tmp/orbit_fp --work /tmp/cliprobe  # 36/36 CLI contract
+python scripts/cli_probe.py --compiler /tmp/orbit_fp --work /tmp/cliprobe  # 48/48 CLI contract
 python scripts/routes_probe.py                                             # 72/72 route argument repair
 /tmp/orbit_fp fmt --check compiler && /tmp/orbit_fp fmt --check tests/suite
 /tmp/orbit_fp doctor tests/suite                                           # no findings
 ```
 
-The three C runtime unit tests are built directly:
+The C runtime unit tests are built directly (`test_oom.c` needs
+`fork`/`waitpid`, so it is POSIX-only):
 
 ```bash
 cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o /tmp/ta && /tmp/ta
+cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_file.c -o /tmp/tf && /tmp/tf
+cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_oom.c -o /tmp/to && /tmp/to
 cc -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o /tmp/th && /tmp/th
 cc -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o /tmp/tk && /tmp/tk
 ```

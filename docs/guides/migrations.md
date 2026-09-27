@@ -25,9 +25,10 @@ rows. That's the current schema story:
 ## The practice that works today
 
 1. **Treat the schema as fixed.** Build only on the four
-   tables above, with the columns the runtime creates. Read
-   them as the contract; the model block in your `.orb` file
-   must match them field for field.
+   built-in tables above plus one table per model, with the
+   columns the runtime creates. Read them as the contract; each
+   model block in your `.orb` file must match its table field for
+   field.
 2. **One database file per service directory.** The file lives
    in the working directory, so a systemd `WorkingDirectory`
    or a deployment folder pins it. Never run two services
@@ -50,10 +51,11 @@ rows. That's the current schema story:
 
 ## What can go wrong
 
-- **Writes fail silently-ish.** `create()` returns `false`;
-  your handler's `400` branch runs. If you don't have that
-  branch, the client sees an empty reply. Always code the
-  failure branch.
+- **Writes fail silently-ish.** `create()` answers `false` when
+  the `id` is already in the table (the primary key) or the
+  payload has no usable fields; your handler's `400` branch runs
+  and, without it, the client sees an empty reply. Always code
+  the failure branch - a re-post of a stored id lands there.
 - **Two writers, one file.** UNTESTED and explicitly out of
   scope - concurrent writes from two processes against one
   `orbit.db` have no contract. One writer per file.
