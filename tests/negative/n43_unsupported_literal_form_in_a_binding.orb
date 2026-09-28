@@ -1,0 +1,31 @@
+// case: unsupported-literal-form-in-a-binding
+// what: the same literal is a parse error in one position and a wrong number in
+//      the other, one token apart, and the wrong number is the one that ships:
+//
+//        print(0b1010)          Parser error: Expected ')' after arguments
+//        val x: int = 0b1010    builds, runs, prints 0. Should be 10, or refused.
+//
+//      Same for `0o17` (error / 0), `0x1_000` (error / 1) and `1e2` (error / 1).
+//      The lexer (`compiler/lexer.orb:253-290`) reads 0x, then digits with `_`,
+//      then `.` plus one digit, and stops; the binder takes the integer it has
+//      and nothing downstream knows characters were left over. The parse error
+//      is the loud half and it is what a reader tests, and its message points at
+//      a paren that was never wrong, so the two failures read as unrelated.
+//
+//      n26 pins the exponent form. This pins the class the differential fuzzer
+//      grouped, which is specifically the POSITION asymmetry: 6 of the 12
+//      unsupported forms in a binding answer a number, and all 12 of them are
+//      refused in a call. `0b1010` is the smallest of them and the most
+//      misleading, because 0 is a number a beginner will read as a successful
+//      parse of `0` followed by something harmless.
+//
+//      A fuzzer that only ever puts a literal inside `print(...)` measures half
+//      the behaviour of a literal, which is why `int-literal-bind` exists as a
+//      category at all. FINDINGS F-0028, and F-0011 for the lexer gap itself.
+// known-defect: F-0028
+// wrong-value: 0
+fn main() -> int {
+    val x: int = 0b1010
+    print(x)
+    return 0
+}

@@ -1,0 +1,38 @@
+// case: hex-escape-zero-is-never-decoded
+// what: `print("\x00")` prints four characters -- backslash, x, zero, zero --
+//      where the language documents `\xHH` with two hex digits, and `00` is two
+//      hex digits. Every other two-digit value decodes, measured side by side:
+//
+//        print("\x00")  -> \x00   four characters   (should be one NUL byte)
+//        print("\x01")  -> 0x01  one byte, correct
+//        print("\x0A")  -> 0x0A  one byte, correct
+//        print("\xFF")  -> 0xFF  one byte, correct
+//
+//      `unescapeStringBody` (`compiler/builder.orb:2481`) guards the escape
+//      with `hi >= 0 && lo >= 0 && hi * 16 + lo > 0`, and that last clause is
+//      the bug: it tests the SUM of the two nibbles instead of testing that
+//      both digits are valid, so it rejects the value zero as if it were
+//      malformed. The clause above it is already the validity test the comment
+//      above it describes, and deleting `&& hi * 16 + lo > 0` is the whole fix.
+//
+//      This is the one escape disagreement that is a bug and not a decision,
+//      and the reason is that the documentation has already decided it: a
+//      language that says `\xHH` means `\x00`. The other two escape classes
+//      the fuzzer found ARE decisions -- 24 cases, and the argument for each is
+//      in `scripts/diff_fuzz.py` and in FINDINGS F-0029. They are not pinned
+//      here, because their behaviour is CORRECT: a corpus that asserts a
+//      program is wrong when it is right is worse than no corpus. They are held
+//      instead by the fuzzer's corpus, which now asserts the documented rule,
+//      so a change to the escape behaviour moves the disagreement count and
+//      takes scripts/diff_fuzz_ratchet.py red with it.
+//
+//      It matters beyond tidiness because the failure is length-changing and
+//      silent: the source reads as a one-character string and the value is
+//      four, so anything that hashes, measures, or writes it out is wrong with
+//      no diagnostic. `"\x0000"` is the same bug compounding. FINDINGS F-0020.
+// known-defect: F-0020
+// wrong-value: \x00
+fn main() -> int {
+    print("\x00")
+    return 0
+}

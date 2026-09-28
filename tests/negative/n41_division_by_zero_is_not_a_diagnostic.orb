@@ -1,0 +1,33 @@
+// case: division-by-zero-is-not-a-diagnostic
+// what: `print((7) / 0)` is SIGFPE. Not an answer, not a message, not an exit
+//      code the language chose: the emitted C evaluates `7 / 0` and the
+//      hardware takes the process down. Measured today, exit 136, nothing on
+//      either stream:
+//
+//        print((7) / 0)              -> SIGFPE
+//        print((7) % 0)              -> SIGFPE
+//        print((-2147483648) / -1)   -> SIGFPE   (the one division that
+//                                                  overflows, at any width)
+//
+//      Two of the three are statically decidable: a literal zero divisor is a
+//      constant expression and `INT_MIN / -1` overflows for every int width,
+//      and the front end already folds constants. The rest needs a guard in the
+//      emitted C, and the emitter has both operand types in hand. 16 of the
+//      differential fuzzer's 30 `div-zero` cases die this way; the other 14
+//      agree, and they are the ones that already have the right answer.
+//
+//      This is the loudest defect in the file, and that is exactly why
+//      `scripts/fuzz_frontend.py` never found it: a crash is an event, and the
+//      old fuzzer was looking for events. FINDINGS F-0023.
+//
+//      Pinned as `no-diagnostic:` because a `wrong-value:` cannot hold a
+//      signal, and pinning nothing but "check is clean" is the weakest case in
+//      this directory. What is asserted is the observable -- it builds, it exits
+//      non-zero, and it says nothing -- and it fires the day a diagnostic
+//      arrives, because a diagnostic is a message.
+// known-defect: F-0023
+// no-diagnostic:
+fn main() -> int {
+    print((7) / 0)
+    return 0
+}

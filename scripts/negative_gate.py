@@ -29,14 +29,13 @@ Header directives, one per case, exactly one of:
 
 A known-defect case may also pin the wrong ANSWER, which is the part that
 reaches a user: `orbit check` being clean is only half of a silent defect.
-Both of these are optional and only meaningful on a known-defect case:
+All three of these are optional and only meaningful on a known-defect case:
 
     // wrong-value: <expected stdout, \\n for newline>
         Build and run the program; its stdout must still be exactly this.
         Use it when the compiler accepts the program and then computes the
         wrong number -- a truncated literal, an unsigned division, an out of
-        range index. `\n` separates lines. Nothing is pinned when the wrong
-        answer is an address or a crash: those move per run, per machine.
+        range index. `\n` separates lines.
 
     // cc-rejects: <substring>
         The front end must stay silent AND the C toolchain must still reject
@@ -45,7 +44,18 @@ Both of these are optional and only meaningful on a known-defect case:
         C symbol or C type the emitter invented. Both halves are ratchets, so
         the case fires whether the fix lands in the front end or in codegen.
 
-A case that pins neither of those still pins its class: the front end accepts
+    // no-diagnostic:
+        The program must still BUILD and must still DIE WITHOUT SAYING
+        ANYTHING: non-zero exit, and nothing on stdout or stderr. This is for
+        the class where the wrong answer is a crash -- `print((7) / 0)` is
+        SIGFPE, and a `wrong-value:` cannot pin a signal. Without it such a
+        case pins nothing but the front end's silence, which is the weakest
+        thing in this directory; with it, the case holds the behaviour and
+        fires when the fix arrives, because a diagnostic is a message.
+        Mechanism-neutral on purpose: a signal on POSIX, an exception status
+        on Windows, the same observable either way.
+
+A case that pins none of those still pins its class: the front end accepts
 this program, and the gate fails the day it stops.
 
 Usage:
@@ -74,6 +84,7 @@ KNOWN_DEFECT = re.compile(r"^\s*//\s*known-defect:\s*(\S.*?)\s*$", re.M)
 CASE_NAME = re.compile(r"^\s*//\s*case:\s*(\S.*?)\s*$", re.M)
 WRONG_VALUE = re.compile(r"^\s*//\s*wrong-value:\s*(\S.*?)\s*$", re.M)
 CC_REJECTS = re.compile(r"^\s*//\s*cc-rejects:\s*(\S.*?)\s*$", re.M)
+NO_DIAGNOSTIC = re.compile(r"^\s*//\s*no-diagnostic:\s*$", re.M)
 
 
 def unescape(literal):
@@ -109,6 +120,7 @@ class Case:
         self.known_defect = KNOWN_DEFECT.search(self.source)
         self.wrong_value = WRONG_VALUE.search(self.source)
         self.cc_rejects = CC_REJECTS.search(self.source)
+        self.no_diagnostic = NO_DIAGNOSTIC.search(self.source)
 
     @property
     def kind(self):
@@ -124,7 +136,7 @@ class Case:
     def pins_an_answer(self):
         """True when the case also pins what the program computes, not just
         that the front end lets it through."""
-        return bool(self.wrong_value or self.cc_rejects)
+        return bool(self.wrong_value or self.cc_rejects or self.no_diagnostic)
 
     def __str__(self):
         return self.name
@@ -159,9 +171,15 @@ def run_case(compiler, case, verbose=False, cc=None, work=None):
     if case.kind == "both":
         return "fail", "header declares both expect-error: and known-defect:"
     if case.pins_an_answer and case.kind != "defect":
-        return ("fail", "wrong-value:/cc-rejects: only mean anything on a "
-                "known-defect: case -- on an expect-error: case the compiler "
-                "rejects the program, so there is no answer left to pin")
+        return ("fail", "wrong-value:/cc-rejects:/no-diagnostic: only mean "
+                "anything on a known-defect: case -- on an expect-error: case "
+                "the compiler rejects the program, so there is no answer left "
+                "to pin")
+    if sum(bool(p) for p in (case.wrong_value, case.cc_rejects,
+                             case.no_diagnostic)) > 1:
+        return ("fail", "the header pins more than one answer "
+                "(wrong-value:/cc-rejects:/no-diagnostic:); pick the one that "
+                "describes what the program actually does")
     p = subprocess.run([compiler, "check", case.rel], cwd=ROOT,
                        capture_output=True, text=True, errors="replace")
     combined = (p.stdout or "") + (p.stderr or "")
@@ -190,6 +208,8 @@ def run_case(compiler, case, verbose=False, cc=None, work=None):
                         "line was not checked -- no C toolchain)" % ref)
     if case.cc_rejects:
         return pin_cc_rejects(compiler, case, cc, work, ref, verbose)
+    if case.no_diagnostic:
+        return pin_no_diagnostic(compiler, case, cc, work, ref, verbose)
     if case.wrong_value:
         return pin_wrong_value(compiler, case, cc, work, ref, verbose)
     return "pass", "still accepted (known defect %s)" % ref
@@ -225,6 +245,45 @@ def pin_cc_rejects(compiler, case, cc, work, ref, verbose):
                         % (ref, needle, describe(output, True)))
     return "pass", ("still accepted by check, still rejected by the C step: %s"
                     % needle)
+
+
+def pin_no_diagnostic(compiler, case, cc, work, ref, verbose):
+    """The program still builds and still dies without saying anything.
+
+    A `wrong-value:` cannot pin a signal, and a case that pins only "check is
+    clean" lets the class rot. So this asserts the observable instead: the build
+    succeeds, the exit is non-zero, and neither stream carries a message. It
+    fails in both directions that matter -- a fix that starts explaining itself
+    (a diagnostic IS a message) and a regression that starts printing a number.
+    """
+    ok, output, exe = build_program(compiler, case, cc, work)
+    if not ok:
+        tail = "\n    ".join((output or "").strip().splitlines()[-4:] or ["(no output)"])
+        return "fail", ("known defect %s: the program does not build, so the "
+                        "no-diagnostic pin cannot be checked.\n    %s" % (ref, tail))
+    try:
+        r = subprocess.run([exe], cwd=work, capture_output=True, text=True,
+                           errors="replace", timeout=60)
+    except subprocess.TimeoutExpired:
+        return ("fail", "known defect %s: the program timed out; it was pinned as "
+                "dying, and a hang is a third thing again" % ref)
+    said = " ".join(x for x in ((r.stdout or "").strip(),
+                                (r.stderr or "").strip()) if x)
+    if r.returncode == 0:
+        return ("fail", "known defect %s: the program now EXITS 0. It was pinned "
+                "as dying without a diagnostic, so this is a fix: drop the "
+                "no-diagnostic: line and move the program to tests/suite/ where "
+                "a clean exit is the expectation." % ref)
+    if said:
+        return ("fail", "known defect %s: the program now SAYS something (%r). It "
+                "was pinned as dying silently, so a diagnostic has arrived and "
+                "that is the fix: drop the no-diagnostic: line, and if the front "
+                "end now rejects it too, re-declare the case as expect-error: "
+                "with the diagnostic it prints." % (ref, said[:200]))
+    how = ("on a signal" if r.returncode < 0
+           else "exit %d%s" % (r.returncode, " (an OS status, not a signal)"
+                               if os.name == "nt" else ""))
+    return "pass", "still accepted by check, still dies with no message (%s)" % how
 
 
 def pin_wrong_value(compiler, case, cc, work, ref, verbose):
@@ -282,6 +341,8 @@ def main():
                 pins.append("wrong-value")
             if c.cc_rejects:
                 pins.append("cc-rejects")
+            if c.no_diagnostic:
+                pins.append("no-diagnostic")
             print("%-42s %-8s %-22s %s"
                   % (c.rel, c.kind, "+".join(pins) or "-", c.name))
         return 0
