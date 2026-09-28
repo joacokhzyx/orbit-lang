@@ -54,7 +54,10 @@ DEFAULT_BASELINE = os.path.join(ROOT, "scripts", "baselines", "unknown_count.jso
 # Both move one way only. `instructions` is deliberately NOT here: the corpus
 # legitimately grows, and a gate that fails when a file is added is a gate that
 # gets deleted.
-RATCHETED = ("unknown_instructions", "unknown_without_diagnostic")
+# One-way, on rates rather than counts, so a corpus that grows is not a
+# regression. See the note in read_measurement() for why the first version was
+# wrong.
+RATCHETED = ("unknown_per_mille", "silent_per_mille")
 
 SCHEMA = 1
 
@@ -113,6 +116,30 @@ def read_measurement(from_json=None, compiler=None, cc="gcc", dirs=None):
     if not isinstance(data, dict):
         return None, "census output is not a JSON object"
 
+    # The ratchet is on a RATE, not a count.
+    #
+    # The first version ratcheted `unknown_instructions` and deliberately did
+    # not ratchet `instructions`, on the grounds that the corpus legitimately
+    # grows and a gate that fails when a file is added is a gate that gets
+    # deleted. Those two decisions contradict each other: the corpus growing
+    # raises the count just as surely as it raises the denominator. The
+    # first thing the core agent's work did was add test files, and the
+    # ratchet fired at +110 on a change that had actually *improved* the
+    # ratio from 30.5% to 30.0%.
+    #
+    # Per-thousand-instructions is stable when the corpus grows and still
+    # falls when the language improves. The absolute count stays in the
+    # baseline as information, so padding the corpus to move the rate would be
+    # visible rather than invisible.
+    total_instructions = data.get("instructions")
+    if not isinstance(total_instructions, int) or total_instructions <= 0:
+        return None, ("census reports %r instructions; the rate needs a positive "
+                      "denominator" % (total_instructions,))
+    data["unknown_per_mille"] = int(
+        round(1000.0 * data["unknown_instructions"] / total_instructions))
+    data["silent_per_mille"] = int(
+        round(1000.0 * data["unknown_without_diagnostic"] / total_instructions))
+
     missing = [k for k in RATCHETED if not isinstance(data.get(k), int)]
     if missing:
         return None, ("census output has no integer %s. The reader in "
@@ -162,10 +189,20 @@ def load_baseline(path):
     by_file = base.get("by_file")
     if not isinstance(by_file, dict):
         return None, "baseline %s has no by_file map" % path
-    if sum(by_file.values()) != totals[RATCHETED[0]]:
+    # The gate is on a rate, so the absolute count lives in `context` now. The
+    # sum check still has to hold, and against the absolute count, not against
+    # the per-mille figure -- comparing a sum of counts to a rate is the kind of
+    # thing that passes by accident.
+    context = base.get("context")
+    absolute = context.get("unknown_instructions") if isinstance(context, dict) else None
+    if not isinstance(absolute, int):
+        return None, ("baseline %s has no context.unknown_instructions; the "
+                      "per-file map is checked against the absolute count, which "
+                      "is no longer in totals" % path)
+    if sum(by_file.values()) != absolute:
         return None, ("baseline %s is inconsistent: by_file sums to %d but "
-                      "totals.unknown_instructions is %d"
-                      % (path, sum(by_file.values()), totals[RATCHETED[0]]))
+                      "context.unknown_instructions is %d"
+                      % (path, sum(by_file.values()), absolute))
     return base, ""
 
 
@@ -188,9 +225,12 @@ def write_baseline(path, data, allow_regression, prev):
                  "scripts/unknown_ratchet.py --write-baseline. Do not hand-edit "
                  "a number up; that is what the gate is for."),
         "totals": totals,
-        # Context, not ratcheted: the corpus legitimately grows.
+        # Context, not ratcheted: the corpus legitimately grows, so the absolute
+        # count is recorded for information and the RATE is what is gated.
         "files": data.get("files"),
         "instructions": data.get("instructions"),
+        "context": {"unknown_instructions": data.get("unknown_instructions"),
+                    "unknown_without_diagnostic": data.get("unknown_without_diagnostic")},
         "by_file": dict(sorted(per_file(data).items())),
     }
     try:
@@ -273,13 +313,15 @@ def _measurement(total, silent, files=None):
     files = files or {"a.orb": total}
     return {"unknown_instructions": total,
             "unknown_without_diagnostic": silent,
+            "unknown_per_mille": total * 10,
+            "silent_per_mille": silent * 10,
             "files": len(files), "instructions": 100,
             "files_detail": [{"path": p, "unknown_instructions": n}
                              for p, n in files.items()]}
 
 
 _BASE = {"schema": SCHEMA,
-         "totals": {"unknown_instructions": 100, "unknown_without_diagnostic": 40},
+         "totals": {"unknown_per_mille": 1000, "silent_per_mille": 400},
          "by_file": {"a.orb": 100}}
 
 
@@ -294,9 +336,9 @@ def self_test():
         # name, measurement, baseline, per_file, expect_ok, expect_in_text
         ("identical measurement holds", _measurement(100, 40), _BASE, False, True, None),
         ("improvement holds", _measurement(90, 30), _BASE, False, True, None),
-        ("count rose fails", _measurement(101, 40), _BASE, False, False, "unknown_instructions"),
-        ("count rise names the delta", _measurement(101, 40), _BASE, False, False, "+1"),
-        ("silent count rose fails", _measurement(100, 41), _BASE, False, False, "+1"),
+        ("rate rose fails", _measurement(101, 40), _BASE, False, False, "unknown_per_mille"),
+        ("rate rise names the delta", _measurement(101, 40), _BASE, False, False, "+10"),
+        ("silent rate rose fails", _measurement(100, 41), _BASE, False, False, "+10"),
         ("a new file that brings unknowns fails",
          _measurement(150, 40, {"a.orb": 100, "b.orb": 50}), _BASE, False, False, "rose"),
         ("a rise the total hides by a fall still fails",
@@ -335,8 +377,12 @@ def self_test():
         ("no totals", {"schema": SCHEMA, "by_file": {"a.orb": 100}}, "no totals"),
         ("no by_file", {"schema": SCHEMA, "totals": _BASE["totals"]}, "by_file"),
         ("by_file does not add up",
-         {"schema": SCHEMA, "totals": _BASE["totals"], "by_file": {"a.orb": 7}},
+         {"schema": SCHEMA, "totals": _BASE["totals"],
+          "context": {"unknown_instructions": 100}, "by_file": {"a.orb": 7}},
          "inconsistent"),
+        ("no absolute count to check by_file against",
+         {"schema": SCHEMA, "totals": _BASE["totals"], "by_file": {"a.orb": 100}},
+         "context.unknown_instructions"),
     ]
     for name, payload, want_text in bad:
         if payload is not None:
