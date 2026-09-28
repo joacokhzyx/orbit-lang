@@ -1,0 +1,220 @@
+// A list has one element type, and a read hands it back as that type.
+//
+// Before the element type existed, every read was the same hardcoded pointer
+// dereference -- `*(void**)_lr.value` -- whatever the list held, and `.at()`
+// was lowered to `orbit_string_at` on the receiver, which is a string function
+// reading a list pointer. Measured, on the compiler that predates this file:
+//
+//     val n = [10,20,30]   n.at(0)   -> 48    a byte of the OrbitList header
+//                                  .at(1)   -> 0
+//     val s = ["a","b"]    s.at(1)   -> 0     should be "b"
+//     val f = [1.5,2.5]    f.get(0)  -> 1     should be 1.5
+//     for x in [1,2,3] { print(x) } -> segfault, or the integer 1 as an
+//                                         address, depending on the day
+//
+// Every exit code below is distinct, so a regression names itself rather than
+// producing one wrong number.
+
+fn main() -> int {
+    if intsByAt() != 0 { return 1 }
+    if intsByGet() != 0 { return 2 }
+    if intsByIndex() != 0 { return 3 }
+    if stringsByAt() != 0 { return 4 }
+    if stringsByGet() != 0 { return 5 }
+    if floatsRoundTrip() != 0 { return 6 }
+    if boolsRoundTrip() != 0 { return 7 }
+    if pushedListReadsBack() != 0 { return 8 }
+    if nestedListHoldsPointers() != 0 { return 9 }
+    if setAndPopRoundTrip() != 0 { return 10 }
+    if forLoopOverIntList() != 0 { return 11 }
+    if forLoopOverFloatList() != 0 { return 12 }
+    if forLoopOverStringList() != 0 { return 13 }
+    if forLoopOverPushedList() != 0 { return 14 }
+    if printKeepsTheType() != 0 { return 15 }
+    return 0
+}
+
+// `.at()` on a list is an element read. It used to be orbit_string_at on the
+// list pointer, and only the bytes of the header that happened to be zero
+// looked like a fixed answer -- `.at(0)` gave 48 and `.at(1)` gave 0, which is
+// why the bug was written up as "returns 0" when it was really "returns a
+// byte of a struct".
+fn intsByAt() -> int {
+    val n = [10, 20, 30]
+    if n.at(0) != 10 { return 1 }
+    if n.at(1) != 20 { return 2 }
+    if n.at(2) != 30 { return 3 }
+    return 0
+}
+
+fn intsByGet() -> int {
+    val n = [10, 20, 30]
+    if n.get(0) != 10 { return 1 }
+    if n.get(1) != 20 { return 2 }
+    if n.get(2) != 30 { return 3 }
+    if n.len() != 3 { return 4 }
+    return 0
+}
+
+fn intsByIndex() -> int {
+    val n = [10, 20, 30]
+    if n[0] != 10 { return 1 }
+    if n[1] != 20 { return 2 }
+    if n[2] != 30 { return 3 }
+    return 0
+}
+
+// The ordinary list program, and the one a beginner writes first. `at-on-list-
+// of-strings` pinned this at 0.
+fn stringsByAt() -> int {
+    val s = ["alpha", "beta", "gamma"]
+    if s.at(0) != "alpha" { return 1 }
+    if s.at(1) != "beta" { return 2 }
+    if s.at(2) != "gamma" { return 3 }
+    return 0
+}
+
+fn stringsByGet() -> int {
+    val s = ["alpha", "beta", "gamma"]
+    if s.get(0) != "alpha" { return 1 }
+    if s.get(1) != "beta" { return 2 }
+    if s.get(2) != "gamma" { return 3 }
+    return 0
+}
+
+// A double does not survive a conversion to a 64-bit word: 1.5 becomes 1. So
+// the slot holds the IEEE-754 bit pattern, and reading it back is a memcpy
+// rather than a cast. Compared rather than printed, because a float still
+// loses its value crossing a function argument -- see F-0025.
+fn floatsRoundTrip() -> int {
+    val f = [1.5, 2.5]
+    val a = f.get(0)
+    val b = f.get(1)
+    if a == 1.5 == false { return 1 }
+    if b == 2.5 == false { return 2 }
+    if a > 1.4 == false { return 3 }
+    if b < 2.6 == false { return 4 }
+    if f.at(1) == 2.5 == false { return 5 }
+    return 0
+}
+
+fn boolsRoundTrip() -> int {
+    val flags = [true, false, true]
+    if flags.get(0) != true { return 1 }
+    if flags.get(1) != false { return 2 }
+    if flags.get(2) != true { return 3 }
+    return 0
+}
+
+// The ordinary way to build a list: an empty literal, then pushes. The literal
+// is empty so it carries no element type; the first push it can type is what
+// establishes one, and that is what the reads after it use.
+fn pushedListReadsBack() -> int {
+    var nums = []
+    nums.push(10)
+    nums.push(20)
+    nums.push(30)
+    if nums.len() != 3 { return 1 }
+    if nums.get(0) != 10 { return 2 }
+    if nums.get(1) != 20 { return 3 }
+    if nums.at(2) != 30 { return 4 }
+    return 0
+}
+
+// A list of lists. The element is a pointer, and reading it back gives the
+// pointer -- which is all a list can hold of another list, and is why a helper
+// declared over strings still cannot search a list of lists (F-0019).
+fn nestedListHoldsPointers() -> int {
+    var inner = []
+    inner.push(7)
+    var outer = []
+    outer.push(inner)
+    outer.push(inner)
+    if outer.len() != 2 { return 1 }
+    val got = outer.get(0)
+    if got.len() != 1 { return 2 }
+    if got.get(0) != 7 { return 3 }
+    return 0
+}
+
+fn setAndPopRoundTrip() -> int {
+    var xs = []
+    xs.push(1)
+    xs.push(2)
+    xs.push(3)
+    xs.set(1, 20)
+    if xs.get(1) != 20 { return 1 }
+    val last = xs.pop()
+    if last != 3 { return 2 }
+    if xs.len() != 2 { return 3 }
+    return 0
+}
+
+// `for x in [1,2,3] { print(x) }` segfaulted, because the loop variable was
+// `unknown`, print chose its string branch, and it dereferenced the integer 1.
+fn forLoopOverIntList() -> int {
+    var seen = 0
+    var total = 0
+    for x in [1, 2, 3] {
+        seen = seen + 1
+        total = total + x
+    }
+    if seen != 3 { return 1 }
+    if total != 6 { return 2 }
+    return 0
+}
+
+fn forLoopOverFloatList() -> int {
+    // Accumulated as a count rather than a sum: a float total in a local
+    // initializer goes through orbit_list_read_int, so it is 5 rather than
+    // 4.0. A float surviving an assignment to a declared float is F-0025 and
+    // is not this test's business; reading float ELEMENTS back exactly is.
+    var count = 0
+    var wide = 0
+    var narrow = 0
+    for x in [1.5, 2.5] {
+        count = count + 1
+        if x > 2.0 { wide = wide + 1 }
+        if x < 2.0 { narrow = narrow + 1 }
+    }
+    if count != 2 { return 1 }
+    if wide != 1 { return 2 }
+    if narrow != 1 { return 3 }
+    return 0
+}
+
+fn forLoopOverStringList() -> int {
+    var joined = ""
+    for s in ["a", "b", "c"] {
+        joined = joined + s
+    }
+    if joined != "abc" { return 1 }
+    return 0
+}
+
+// The shape that segfaults today on the pre-fix compiler: the list is built by
+// push, so the loop variable's type has to come from the push rather than from
+// the empty literal.
+fn forLoopOverPushedList() -> int {
+    var nums = []
+    nums.push(4)
+    nums.push(5)
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    if total != 9 { return 1 }
+    return 0
+}
+
+// print() routes on the register's type, so a float element has to arrive as
+// a float register or print truncates it. 100.0 prints as 1e+02: that is
+// orbit_float_to_string, the same formatter string interpolation uses, and it
+// is the shortest representation that reads back as the same double.
+fn printKeepsTheType() -> int {
+    print(1.5)
+    print(0.5)
+    print(-2.25)
+    print(100.0)
+    return 0
+}

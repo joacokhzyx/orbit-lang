@@ -1,0 +1,39 @@
+// expect-exit 2
+//
+// An index past the end of a list must not answer 0.
+//
+// `orbit_list_get` returned an error Result and the emitter threw the Result
+// away: `_lr.ok ? *(void**)_lr.value : NULL`. A read past the end and a slot
+// that really holds 0 were the same value, so a caller had nothing to check
+// and nothing to notice. `xs.get(99)` over a two-element list printed 0.
+//
+// What it answers now is a diagnostic and a stop. There is no `option` in the
+// language to shape an answer as, and any sentinel would be the same problem
+// again: a caller cannot tell a stored 0 from a missing one, which is the whole
+// reason this is a stop rather than a value.
+//
+//     $ orbit run tests/suite/list_index_out_of_range.orb
+//     orbit: list index out of range
+//       index    99
+//       length   2
+//       elements int
+//       in       orbit_main (<build>:NN)
+//
+// Exit 2 is what orbit_list_index_error exits with. The exit code is the whole
+// assertion: the static half of this check -- a LITERAL index into a LITERAL
+// receiver -- is an error[E1002] at compile time and lives in
+// tests/negative/n32_at_out_of_range.orb. This file is the half the front end
+// cannot see, where the length is only known at run time, so the program has to
+// be built and run for the gate to mean anything.
+fn main() -> int {
+    var xs = []
+    xs.push(1)
+    xs.push(2)
+    print(xs.len())
+    print(xs.get(99))
+    // Unreachable. If the read answers anything at all -- 0, NULL, an address
+    // -- the line above has already printed a value and this one prints a
+    // second, and the exit code is 0 and the gate fails.
+    print("unreachable")
+    return 0
+}
