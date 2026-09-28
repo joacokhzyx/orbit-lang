@@ -20,12 +20,13 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
 | How does the compiler pipeline work? | [Architecture Overview](ARCHITECTURE.md) |
 | How do I write Orbit programs? | [Language Reference](LANGUAGE_REFERENCE.md) and [Syntax Guide](SYNTAX_GUIDE.md) |
+| Where will the language lie to me? | [What Orbit does not promise about values](LANGUAGE_REFERENCE.md#what-orbit-does-not-promise-about-values) - 32-bit wrapping, `/` and `%` on a negative operand, untyped list slots, and guessed int/pointer casts |
 | How do I write a library others can import? | [Writing a library](LIBRARIES.md) - the flat namespace, the `private` truth, and the `std/` install trap |
 | What can I build in 30 minutes? | [Language Tour](TOUR.md) - runnable snippets with expected outputs |
 | How does memory management work? | [Arena Design](ARENA.md) and [Orbit Arena](architecture/ORBIT_ARENA.md) |
 | How are HTTP protections implemented? | [Kynx](KYNX.md) |
 | What is experimental or still being researched? | [Superluminal](SUPERLUMINAL.md) |
-| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the honest list, with workarounds |
+| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the honest list, with workarounds. **Start with the first section**: nineteen programs `orbit check` accepts and computes the wrong answer |
 | What changed? | [Changelog](CHANGELOG.md) and [0.1.0 Release Notes](RELEASE_NOTES_0_1_0.md) |
 | What do people ask? | [FAQ](FAQ.md) - twenty honest questions |
 

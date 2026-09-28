@@ -164,6 +164,129 @@ Rules:
 - The result is an ordinary string and can be concatenated, compared or returned
   like any other.
 
+## What Orbit does not promise about values
+
+This section is for the person who has already been bitten. It is not a
+description of the type system; it is a list of things the language will
+not tell you, written as a rule you can follow rather than as a warning
+you can only read once. The mechanism underneath is
+[the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag);
+the measured list of programs that compile and compute the wrong answer
+is in [known limitations](KNOWN_LIMITATIONS.md#nineteen-programs-the-compiler-should-reject-and-does-not),
+which you should read before you rely on any of this.
+
+### An `int` is 32 bits and it wraps silently
+
+`orbit_int` is 32 bits. Overflow is not an error, is not diagnosed, and
+gives you a different number:
+
+```orbit
+print(2147483647 + 1)   // -2147483648
+print(46341 * 46341)    // -2147479015
+print(65536 * 65536)    // 0
+```
+
+All three are what C does, so the wrapping is at least consistent. Two
+things follow that C does *not* give you. First, the compiler never warns
+you, so a value that went out of range in the middle of a calculation
+keeps going with the wrapped one. Second, an integer **literal** is folded
+with no range check at all, so the mistake is baked in before your program
+starts:
+
+```orbit
+print(2147483648)       // -2147483648
+print(4294967296)       // 0
+```
+
+If you need a wider integer, there is none today.
+
+### `+ - *` and `/ %` do not agree about a negative operand
+
+`+`, `-` and `*` are correct for negatives. `/` and `%` are not. Today,
+integer division and remainder are emitted with both operands cast to an
+unsigned 64-bit type and the result truncated back to 32 bits, so a
+negative dividend is divided as a large positive number:
+
+```orbit
+print((0 - 7) / 2)      // -4. It should be -3.
+print((0 - 7) % 2)      //  1. It should be -1.
+print((0 - 7) / 3)      // 1431655763. It should be -2.
+```
+
+And note how carefully that is written: **the parentheses are required.**
+`0-7 / 2` is not this bug. It parses as `0 - (7/2)`, which is correct, and
+prints `-3`. The unparenthesised form is a different program that looks
+identical, so do not rule this out by testing it without them.
+
+**Rule: do not use `/` or `%` on a value that can be negative.** Compute
+the magnitude, divide, and apply the sign yourself.
+
+### A list slot has no element type, so nothing can check it
+
+`OrbitList` is `{ void* data; size_t len, capacity, elem_size;
+OrbitArena* }` (`runtime/types.c:195-201`). One pointer per element, and
+nothing anywhere records what that pointer points at. There is therefore
+no type to check an element against, and no diagnostic to give:
+
+```orbit
+var l = []
+l.push(10)
+l.push("twenty")
+print(l.len())          // 2 - correct
+print(l.get(0))         // 10
+print(l.get(1))         // a heap address
+```
+
+`orbit check` reports no errors. The first element reads back correctly
+because the stored word *is* the integer, which is why a two-element test
+usually passes; the second is a string address read as a value.
+
+**Rule: one list, one element type, and only you know what it is.** Never
+hand a list to a function whose parameter says `string` unless every
+element is a string — the helper cannot check, and the failure is a
+segfault in your code rather than a diagnostic at the call. Use `.get(i)`,
+never `.at(i)`; `.at` on a list answers 0. See
+[collections](#arrays-elements-and-accessors).
+
+### An int-to-pointer cast is a guess, made by name and shape
+
+When the backend has to move a value between an `int` and a pointer, it
+picks the cast from the static type alone, and where there is no static
+type it classifies the value by **its name and its shape** rather than by
+anything it can check. That classification is right often enough to be
+dangerous, because when it is wrong the program still compiles.
+
+This is not a warning about a sharp edge you can see. It is the reason
+`["alpha","beta"].at(1)` returns 0, the reason a field read on an
+untyped value can come back with the wrong field, and the reason a
+capitalised type name like `Int` type-checks and then fails in the C step.
+[Known limitations](KNOWN_LIMITATIONS.md#nineteen-programs-the-compiler-should-reject-and-does-not)
+has the measured list.
+
+**Rule: annotate the binding when you read it back.** `val xs: list = …`
+and `val n: int = f()` cost one token each, and they are the difference
+between a guess and a check. An unannotated `val` is `unknown` for the
+rest of the pipeline, and **30.5% of the instructions the front end emits
+are `unknown`** — so the unannotated case is the common one, not the
+exotic one.
+
+### The short version
+
+| you write | what you can rely on |
+|---|---|
+| `int` arithmetic that fits in 32 bits, all non-negative operands | correct |
+| `int` arithmetic that overflows | wraps, no warning |
+| `int` division or remainder with a negative operand | wrong, silently |
+| a literal outside the 32-bit range | a different number, silently |
+| a list's element type | whatever you put there; nothing checks it |
+| `.get(i)` on a list | bounds-checked; `NULL` past the end |
+| `.at(i)` on a list | **wrong** — reads the list struct, use `.get` |
+| a cast between `int` and `string`/`pointer` | whatever the compiler guessed |
+| an unannotated `val` | `unknown` downstream; annotate it |
+
+None of this is a reason not to use Orbit. It is a list of the places to
+put an assertion or an `if` that the compiler will not put there for you.
+
 ## Control flow
 
 Orbit supports `if` / `else`, `while`, and iteration with `for … in`. `break`
@@ -311,6 +434,14 @@ first; the results are the same either way:
 `.at()` on a **string** is the intended use and works: it returns the byte
 value at that index, and `0` past the end. On a list it is a silent
 miscompile. Use `.get()`.
+
+An index past the end of a *string* is also silently `0`, which is the
+byte value of NUL, so `"hello".at(99)` is indistinguishable from reading a
+real NUL. And a list with two element types in it is not an error, because
+there is no element type to disagree with - see
+[what Orbit does not promise about values](#a-list-slot-has-no-element-type-so-nothing-can-check-it),
+which also covers the int/pointer cast that decides what `.at()` actually
+reads.
 
 ### Maps
 

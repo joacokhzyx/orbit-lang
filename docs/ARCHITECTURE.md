@@ -409,7 +409,7 @@ contention is on the queue and not on a shared stdout lock.
 
 | Path | Role |
 |---|---|
-| `std/` | Orbit standard library. 12 modules, all of which compile and merge into one program: `test/assert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb` |
+| `std/` | Orbit standard library. 13 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb` |
 | `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` (no generic unions) and `bitwise` (no bitwise operators) |
 | `lib/arena.orb` | A counted region and a bound, not an allocator. `alloc` returns an offset; nothing it returns is dereferenceable |
 | `lib/net.orb` | **Does not build.** It type-checks and then the generated C fails: the module declares `extern fn syscall(...)`, which collides with the real `syscall` in `runtime/socket_compat.h`. Its event loop is a `while running { running = false }`. Treat it as a design sketch, not a wrapper |
@@ -419,8 +419,10 @@ contention is on the queue and not on a shared stdout lock.
 than repaired, because each was a function that returned a value and was not
 computing it - `fnv1aHash` was `1469598103 + data.len()`, so
 `fnv1aHash("hello") == fnv1aHash("hellp")` was true. Two more were quarantined
-above. What is left is 12 of 12, pinned by `tests/std/test_imports.orb`, which
-imports all twelve into one program and passes. That test exists because five
+above. `convert/convert.orb` has since been added as the single owner of the
+number-to-text bindings. What is left is **13 of 13**, pinned by
+`tests/std/test_imports.orb`, which imports all thirteen into one program and
+passes. That test exists because five
 `extern fn` conflicts made modules mutually exclusive: four C symbols were
 declared by two modules each, and the transitive one hurt most -
 `std/bytes/bytes.orb` and `std/sys/crypto/jwt.orb` both import

@@ -31,7 +31,8 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
 | `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `compiler/parser.orb:1023`, `compiler/route_runtime.orb:544` |
-| Standard library | **12 modules, 12 of 12 compile and merge into one program.** Was 20 with 13 compiling. Six were deleted because each was a function that returned a value and was not computing it; two are quarantined as `*.orb.quarantined` | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
+| Standard library | **13 modules, 13 of 13 compile and merge into one program.** Was 20, with 13 compiling. Six were deleted because each was a function that returned a value and was not computing it; two are quarantined as `*.orb.quarantined`, because the language cannot express them and the alternative was to ship something that looked like the feature. One module (`std/convert/`) is new. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
+| `std/` test coverage | **17 files, 17/17 pass**, one of them declared `known-failing` so a fix arrives as a red run | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
 | Sockets / threads / bitwise / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
 
 ## Verification Workflow
@@ -48,20 +49,38 @@ python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
 python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
 python scripts/negative_gate.py --compiler <path-to-orbit>
 python scripts/frontend_gate.py --cc <gcc-or-clang> --compiler <path-to-orbit>
-python scripts/unknown_census.py --cc <gcc-or-clang> --compiler <path-to-orbit>   # report only
+python scripts/unknown_census.py --cc <gcc-or-clang> --compiler <path-to-orbit>   # report only, never fails
+python scripts/unknown_ratchet.py --cc <gcc-or-clang> --compiler <path-to-orbit>  # one-way ratchet
 ```
 
-The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite, plus three gates added in September 2026:
+The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite, plus the four gates added in September 2026.
 
-| gate | what it is | today |
-|---|---|---|
-| `scripts/negative_gate.py` | 25 programs in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names | 25/25, with **11 known defects the compiler still accepts** declared as ratchets — the gate fails if one starts being rejected |
-| `scripts/frontend_gate.py` | `orbit frontend` against `tests/frontend/expected/`. `orbit frontend` previously had **no** CI coverage at all | **4/6.** Two fixtures cannot build (`compiler/lexer.orb` calls `orbit_os_write_stderr_selfhost` without importing `compiler/extern.orb`), so their contracts have never been checked |
-| `scripts/unknown_census.py` | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | report only: **30.5%** of 35,814 instructions, **46.6%** of those with no diagnostic at all |
+**Read the `enforces` column before assuming a tool is holding anything.** A
+gate that only counts looks exactly like a gate that blocks, right up until you
+notice that it does not. That is not hypothetical here: the unknown census used
+to be the only tool, it was report-only, and when the probe behind it stopped
+building the only symptom was a line on stderr — while a person quoted the
+number twice, authoritatively, without checking that the thing producing it
+still worked. A tool in `scripts/` must therefore either have a gate or have an
+aliveness check, because a tool that cannot fail is not a tool.
+
+| gate | enforces | what it is | today |
+|---|---|---|---|
+| `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | 34 programs in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | 34/34, with **19 known defects the compiler still accepts** declared as `known-defect:` — the gate fails if one starts being rejected. All nineteen are written up with their wrong values in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
+| `scripts/frontend_gate.py` | **blocking** | `orbit frontend` against `tests/frontend/expected/`. `orbit frontend` previously had **no** CI coverage at all | **6/6.** Two fixtures could not build for most of this cycle (`compiler/lexer.orb` called `orbit_os_write_stderr_selfhost` without importing `compiler/extern.orb`); both missing imports are fixed and both fixtures now run |
+| `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **30.5%** of 37,628 instructions, **46.4%** of those with no diagnostic at all |
+| `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high — 30.5% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | holds: `unknown_instructions` 11480/11480, `unknown_without_diagnostic` 5332/5332 |
+
+`ci-gate.yml` is the authority on which of these runs on every push; the two
+`unknown_*` tools are the pair to look up there, because "the census is a gate"
+and "the census is a measurement" were both true at different times and only one
+of them is true now.
 
 The census number is the honest measure of how far the type system has to
-go, and it is a measurement rather than a threshold: see
-[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
+go, and it is what nineteen of the compiler's accepted defects are made
+of. `checkCompatibility` (`compiler/sema.orb:326`) returns true when
+*either* side is `unknown`, and that one line is why most of the list
+exists; see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#nineteen-programs-the-compiler-should-reject-and-does-not).
 
 ## Active Workstreams
 
