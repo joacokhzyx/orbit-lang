@@ -1335,6 +1335,139 @@ fn generateServerMain(backend: CBackend) -> string {
     return serverMainText(db, auth, generateModelDDL(backend), hasKynxLimits)
 }
 
+fn isDigitCode(c: int) -> bool {
+    if c >= 48 && c <= 57 { return true }
+    return false
+}
+
+fn isIdentStartCode(c: int) -> bool {
+    if c == 95 { return true }
+    if c >= 65 && c <= 90 { return true }
+    if c >= 97 && c <= 122 { return true }
+    return false
+}
+
+fn isIdentCode(c: int) -> bool {
+    if c == 95 { return true }
+    if isDigitCode(c) { return true }
+    if c >= 65 && c <= 90 { return true }
+    if c >= 97 && c <= 122 { return true }
+    return false
+}
+
+fn markAt(marks: list, slot: int) -> int {
+    return marks.get(slot)
+}
+
+// One entry per local, as a tri-state: 0 unseen, 1 only ever the left of an
+// assignment, 2 read at least once. Anything below 2 still wants the attribute,
+// because -Wall counts -Wunused-but-set-variable as well as
+// -Wunused-variable and gcc will warn about either.
+//
+// `names` is the emitter's declVars in declaration order; the first
+// registerCount entries are registers.
+//
+// This walks the emitted C rather than the instruction list, because that is
+// the question the attribute answers. The emitter reaches some registers
+// through a name rather than through the id, and a store into a register is not
+// a read, so neither half of the answer is available from the IR. The C
+// compiler's view is the text, so the text is what gets asked.
+//
+// Over-approximating is deliberate. A false positive keeps an attribute that
+// was not needed and costs 24 bytes; a false negative drops one from a live
+// object, and the canonical unit has to compile with no warnings at all.
+fn markUsedLocals(body: string, names: list, registerCount: int) -> list {
+    val marks = []
+    var m = 0
+    while m < registerCount {
+        marks.push(0)
+        m = m + 1
+    }
+    val nameCount = names.len()
+    var n = 0
+    while n < nameCount {
+        marks.push(0)
+        n = n + 1
+    }
+    val total = orbit_string_len(body)
+    var i = 0
+    while i < total {
+        val c = orbit_string_char_at_selfhost(body, i)
+        if isIdentStartCode(c) {
+            val start = i
+            i = i + 1
+            while i < total && isIdentCode(orbit_string_char_at_selfhost(body, i)) {
+                i = i + 1
+            }
+            val width = i - start
+            // A register is the only identifier that starts `r_` and then
+            // digits. The id is accumulated as it goes rather than parsed out
+            // of a slice, which keeps the whole scan allocation-free.
+            var regId = 0
+            var regDigits = 0
+            var regHit = false
+            if c == 114 && width > 2 && orbit_string_char_at_selfhost(body, start + 1) == 95 {
+                var k = start + 2
+                while k < i && isDigitCode(orbit_string_char_at_selfhost(body, k)) {
+                    regId = regId * 10 + (orbit_string_char_at_selfhost(body, k) - 48)
+                    regDigits = regDigits + 1
+                    k = k + 1
+                }
+                if regDigits > 0 {
+                    regHit = true
+                }
+            }
+            // `name =` and not `name ==`, `name <=`, `name +=`: an assignment,
+            // so a write and not a read. Looked at from the right of the token
+            // on purpose. The emitter puts the destination at the start of a
+            // line, so reading left finds the previous statement's `;` and
+            // calls every declaration a read.
+            var level = 2
+            var e = i
+            while e < total && (orbit_string_char_at_selfhost(body, e) == 32 || orbit_string_char_at_selfhost(body, e) == 9) {
+                e = e + 1
+            }
+            if e + 1 < total && orbit_string_char_at_selfhost(body, e) == 61 && orbit_string_char_at_selfhost(body, e + 1) != 61 {
+                level = 1
+            }
+            if regHit {
+                if regId < registerCount {
+                    if markAt(marks, regId) < level {
+                        marks[regId] = level
+                    }
+                }
+            } else {
+                var ni = 0
+                while ni < nameCount {
+                    val nm = names.get(ni)
+                    if orbit_string_len(nm) == width {
+                        if orbit_string_char_at_selfhost(nm, 0) == c {
+                            var k2 = 0
+                            var same = true
+                            while k2 < width && same {
+                                if orbit_string_char_at_selfhost(body, start + k2) != orbit_string_char_at_selfhost(nm, k2) {
+                                    same = false
+                                }
+                                k2 = k2 + 1
+                            }
+                            if same {
+                                val slot = registerCount + ni
+                                if markAt(marks, slot) < level {
+                                    marks[slot] = level
+                                }
+                            }
+                        }
+                    }
+                    ni = ni + 1
+                }
+            }
+        } else {
+            i = i + 1
+        }
+    }
+    return marks
+}
+
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     backend.currentFunction = func
     backend.callArgs = []
@@ -1436,6 +1569,19 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         si = si + 1
     }
     i = 0
+    // Declarations are written out after the body, not before it: whether one
+    // needs __attribute__((unused)) is a fact about the emitted C, and the body
+    // is what establishes it. The lines are buffered here and filtered once the
+    // body exists. What is NOT deferred is the type and the initialiser, both
+    // of which are decided here because emission rewrites registerTypes as it
+    // goes (load_var retypes a register to float), so a declaration computed
+    // after the body would not be the one this code writes.
+    //
+    // declSlot is the index into markUsedLocals' result, or -1 for a line that
+    // is always written bare because a (void) cast on the next line already
+    // reads the name and no attribute can be wanted.
+    val declLines = []
+    val declSlot = []
     while i < func.registerCount {
         var rTypeName = "void*"
         if i < func.registerTypes.len() {
@@ -1447,7 +1593,8 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
             if rType == "OrbitResult" {
                 initValue = "{0}"
             }
-            orbit_cbuf_append_selfhost(cbFn, "    __attribute__((unused)) " + rType + " r_" + orbit_int_to_string_selfhost(i) + " = " + initValue + ";\n")
+            declLines.push(rType + " r_" + orbit_int_to_string_selfhost(i) + " = " + initValue + ";\n")
+            declSlot.push(i)
         }
         i = i + 1
     }
@@ -1592,31 +1739,61 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
                 hj = hj + 1
             }
             if hseen == false {
+                val nameSlot = func.registerCount + backend.declVars.len()
                 backend.declVars.push(hname)
                 val cType = hoistedCType(backend, func, hname)
-                orbit_cbuf_append_selfhost(cbFn, "    __attribute__((unused)) " + cType + " " + hname + ";\n")
+                declLines.push(cType + " " + hname + ";\n")
                 if orbit_string_len(hname) > 0 && hname.at(0) == 95 {
-                    orbit_cbuf_append_selfhost(cbFn, "    (void)" + hname + ";\n")
+                    // The cast on the next line reads the name, so gcc has
+                    // nothing to warn about and the attribute would be dead
+                    // weight on a line whose next line says the same thing.
+                    declSlot.push(-1)
+                    declLines.push("(void)" + hname + ";\n")
+                    declSlot.push(-1)
+                } else {
+                    declSlot.push(nameSlot)
                 }
             }
         }
         hi = hi + 1
     }
     if isDualPathFunction(func) {
-        orbit_cbuf_append_selfhost(cbFn, "    __attribute__((unused)) orbit_int _orbit_dualpath_;\n")
-        orbit_cbuf_append_selfhost(cbFn, "    (void)_orbit_dualpath_;\n")
+        declLines.push("orbit_int _orbit_dualpath_;\n")
+        declSlot.push(-1)
+        declLines.push("(void)_orbit_dualpath_;\n")
+        declSlot.push(-1)
     }
+    val cbBody = orbit_cbuf_create_selfhost()
     i = 0
     var firstDualPathInstr = isDualPathFunction(func)
     while i < func.instructions.len() {
         val instr: IRInstruction = func.instructions.get(i)
         if firstDualPathInstr {
-            orbit_cbuf_append_selfhost(cbFn, "    ")
+            orbit_cbuf_append_selfhost(cbBody, "    ")
             firstDualPathInstr = false
         }
-        emitInstruction(backend, instr, cbFn)
+        emitInstruction(backend, instr, cbBody)
         i = i + 1
     }
+    // The body is the evidence, so the declarations are filtered against it now.
+    val bodyText = orbit_cbuf_build_selfhost(cbBody)
+    val marks = markUsedLocals(bodyText, backend.declVars, func.registerCount)
+    i = 0
+    while i < declLines.len() {
+        val declLine = declLines.get(i)
+        val slot = declSlot.get(i)
+        if slot < 0 {
+            orbit_cbuf_append_selfhost(cbFn, "    " + declLine)
+        } else {
+            if markAt(marks, slot) == 2 {
+                orbit_cbuf_append_selfhost(cbFn, "    " + declLine)
+            } else {
+                orbit_cbuf_append_selfhost(cbFn, "    __attribute__((unused)) " + declLine)
+            }
+        }
+        i = i + 1
+    }
+    orbit_cbuf_append_selfhost(cbFn, bodyText)
     if isRoute {
         orbit_cbuf_append_selfhost(cbFn, "    return orbit_response_create(arena, 500, \"text/plain\", \"Internal Server Error\");\n")
     } else if isMain {
@@ -2915,14 +3092,14 @@ fn ensureDefIndex(backend: CBackend, func: IRFunction) {
 // backend.currentFunction to get there, and the two call sites that guard
 // against NULL do so before calling).
 fn defIndexForName(backend: CBackend, func: IRFunction, vn: string) -> int {
-    if backend == NULL { return - 1 }
+    if backend == NULL { return -1 }
     ensureDefIndex(backend, func)
     var j = 0
     while j < backend.defIdxNames.len() {
         if backend.defIdxNames.get(j) == vn { return j }
         j = j + 1
     }
-    return - 1
+    return -1
 }
 
 // First instruction defining `regId`, or NULL when the register has none.
@@ -2955,13 +3132,13 @@ fn operandFeFirstPrescanType(backend: CBackend, func: IRFunction, op2: IRValue) 
 // register reference. The backend only ever writes a register as `r_<n>`, so
 // the text is enough -- the same shape test isFloatArgReg was already doing.
 fn argRegId(argStr: string) -> int {
-    if argStr.len() < 3 { return - 1 }
-    if argStr.slice(0, 2) != "r_" { return - 1 }
+    if argStr.len() < 3 { return -1 }
+    if argStr.slice(0, 2) != "r_" { return -1 }
     var regNum = 0
     var ai = 2
     while ai < argStr.len() {
         val ach = argStr.at(ai)
-        if ach < 48 || ach > 57 { return - 1 }
+        if ach < 48 || ach > 57 { return -1 }
         regNum = regNum * 10 + (ach - 48)
         ai = ai + 1
     }
@@ -3442,7 +3619,7 @@ fn fieldRefDotPos(fieldRef: string) -> int {
         }
         i = i + 1
     }
-    return - 1
+    return -1
 }
 
 fn fieldRefOwner(fieldRef: string) -> string {
