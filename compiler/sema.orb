@@ -73,12 +73,23 @@ model Sema {
     currentFunction: string
     seenRoutes: list
     misses: list
+    // Lengths the checker can prove for a `val` bound to a literal, as
+    // "name\tstring\tlen" or "name\tlist\tlen". Only literal bindings, only
+    // immutable ones, and only a string literal with no escapes in it -- a
+    // bound that can be reassigned, or whose length this cannot count, is not
+    // a bound. See checkConstantIndex.
+    constBounds: list
+    // Positions checkConstantIndex has already reported, as "line:col".
+    // inferType reaches a node from more than one direction -- a call infers
+    // its receiver, an expression statement infers its expression -- so
+    // without this one bad index would be printed twice.
+    indexChecks: list
 }
 
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [])
 }
 
 fn listContainsValue(items: list, value: string) -> bool {
@@ -572,6 +583,9 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
         ASTNode.VarDecl(v) => {
             val valueType = inferType(sema, v.value)
             declareSymbol(sema, v.name, valueType, v.isMutable, false)
+            if v.isMutable == false {
+                recordConstBound(sema, v.name, v.value)
+            }
         }
         _ => {}
     }
@@ -582,9 +596,138 @@ fn checkConstDecl(sema: Sema, node: ASTNode) {
         ASTNode.ConstDecl(c) => {
             val valueType = inferType(sema, c.value)
             declareSymbol(sema, c.name, valueType, false, false)
+            recordConstBound(sema, c.name, c.value)
         }
         _ => {}
     }
+}
+
+/* ── Constant index bounds ───────────────────────────────────────────────────
+ *
+ * `xs.get(99)` on a two-element list used to answer 0, and 0 is also what a
+ * slot that really holds 0 answers, so a caller had no way to tell a bug from
+ * a value. The runtime now stops the process on an out-of-range read (see
+ * orbit_list_index_error), which is the fix for the case the checker cannot
+ * see. This is the other half: when the checker CAN see it -- a `val` bound to
+ * a literal, indexed by a literal -- there is no reason to compile the program
+ * at all.
+ *
+ * Narrow on purpose. Only:
+ *   - an immutable binding, because a `var` can be reassigned and then the
+ *     recorded length is a lie;
+ *   - a string literal with no backslash in it, because "\t" is two characters
+ *     in the source and one in the value and counting the source would make
+ *     the check wrong in the direction that rejects good code;
+ *   - a list literal, whose length is its element count.
+ * Everything else is left to the runtime.
+ */
+model ConstBound {
+    name: string
+    kind: string
+    len: int
+}
+
+fn recordConstBound(sema: Sema, name: string, value: list) {
+    if name == "" { return }
+    match value {
+        ASTNode.Literal(lit) => {
+            if lit.valType == "string" {
+                if lit.text.indexOf("\\") == -1 {
+                    sema.constBounds.push(ConstBound(name, "string", lit.text.len() - 2))
+                }
+            }
+        }
+        ASTNode.ListLiteral(ll) => {
+            sema.constBounds.push(ConstBound(name, "list", ll.elements.len()))
+        }
+        _ => {}
+    }
+}
+
+/** @brief The recorded length for @p name, or -1. */
+fn constBoundLen(sema: Sema, name: string, wantKind: string) -> int {
+    var i = sema.constBounds.len()
+    while i > 0 {
+        i = i - 1
+        val entry: ConstBound = sema.constBounds.get(i)
+        if entry.name == name && entry.kind == wantKind {
+            return entry.len
+        }
+    }
+    return -1
+}
+
+/** @brief The index of a literal integer index expression, or -1.
+ *
+ *  Spelled out digit by digit rather than handed to orbit_string_to_int,
+ *  because the front end does not know that name: it is a runtime entry point
+ *  and nothing in an Orbit program declares it (the same gap as F-0004). A
+ *  local loop is the smaller change than teaching the resolver about another
+ *  runtime symbol, and it only has to read the one shape a literal index can
+ *  take. Anything else -- a computed index, a negative one, a hex literal --
+ *  answers -1 and is left to the runtime, which stops the process. */
+fn literalIndexValue(node: list) -> int {
+    match node {
+        ASTNode.Literal(lit) => {
+            if lit.valType != "int" { return -1 }
+            val text = lit.text
+            val n = orbit_string_len(text)
+            if n == 0 { return -1 }
+            var v = 0
+            var i = 0
+            while i < n {
+                val c = text.at(i)
+                if c < 48 || c > 57 { return -1 }
+                v = v * 10 + (c - 48)
+                i = i + 1
+            }
+            return v
+        }
+        _ => { return -1 }
+    }
+}
+
+fn identifierName(node: list) -> string {
+    match node {
+        ASTNode.Literal(lit) => {
+            if lit.valType == "identifier" { return lit.text }
+            return ""
+        }
+        _ => { return "" }
+    }
+}
+
+/** @brief Reject a literal index that is past the end of a literal receiver.
+ *
+ *  Which collection it is comes out of the recorded bound, so the message can
+ *  say so: `s.at(99)` over "hello" is a bad character index and `xs.get(99)` is
+ *  a bad element index, and both used to answer 0 -- the same 0 a slot holding
+ *  0 answers, which is why neither was a bug anybody could see. */
+fn checkConstantIndex(sema: Sema, recv: list, indexNode: list, line: int, col: int) {
+    val idx = literalIndexValue(indexNode)
+    if idx < 0 { return }
+    val name = identifierName(recv)
+    if name == "" { return }
+    val slen = constBoundLen(sema, name, "string")
+    val llen = -1
+    if slen < 0 {
+        llen = constBoundLen(sema, name, "list")
+        if llen < 0 { return }
+    }
+    if slen >= 0 && idx < slen { return }
+    if slen < 0 && idx < llen { return }
+    val at = orbit_int_to_string_selfhost(line) + ":" + orbit_int_to_string_selfhost(col)
+    var seen = 0
+    while seen < sema.indexChecks.len() {
+        if sema.indexChecks.get(seen) == at { return }
+        seen = seen + 1
+    }
+    sema.indexChecks.push(at)
+    if slen >= 0 {
+        reportErrorAt(sema, "E1002", "indices run from 0 to " + orbit_int_to_string_selfhost(slen - 1) + " here, so a literal one can be checked while compiling", line, col, "String index " + orbit_int_to_string_selfhost(idx) + " is out of range for \"" + name + "\", which holds " + orbit_int_to_string_selfhost(slen) + " characters")
+        return
+    }
+    reportErrorAt(sema, "E1002", "a literal index into a literal list can be checked while compiling; guard a computed one with if i < xs.len()", line, col, "List index " + orbit_int_to_string_selfhost(idx) + " is out of range for \"" + name + "\", which holds " + orbit_int_to_string_selfhost(llen) + " elements")
 }
 
 fn checkFunctionSignature(sema: Sema, node: ASTNode) {
@@ -1138,6 +1281,15 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                 ASTNode.MemberAccess(ma) => {
                     val objType = inferType(sema, ma.object)
                     val member = ma.field
+                    // A literal index into a literal receiver is decidable now
+                    // and never at run time, so it is decided now. `at` is the
+                    // string spelling and `get` the list one, and both used to
+                    // answer 0 for an index past the end.
+                    if member == "at" || member == "get" || member == "charAt" {
+                        if c.args.len() >= 1 {
+                            checkConstantIndex(sema, ma.object, c.args.get(0), c.line, c.col)
+                        }
+                    }
                     // `ASTNode.MatchCase(x)` and `Shape.Circle(7)`: a variant
                     // reached through its type name is that type's value, the
                     // same way the bare-name form above is.
@@ -1210,6 +1362,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
         ASTNode.IndexAccess(ia) => {
             inferType(sema, ia.object)
             inferType(sema, ia.index)
+            checkConstantIndex(sema, ia.object, ia.index, ia.line, ia.col)
             return "unknown"
         }
         ASTNode.If(stmt) => {
