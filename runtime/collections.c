@@ -34,7 +34,100 @@
 
 // ─── List<T> ────────────────────────────────────────────────────────────────
 
-OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity) {
+/** @brief The name of an element kind, for a diagnostic.
+ *
+ *  Deliberately a fixed table of literals rather than a %d over the enum: a
+ *  list diagnostic is read by a person who has never seen the enum, and
+ *  "list index 99 out of range (length 2, elements are int)" is a sentence
+ *  while "out of range (length 2, elements are 2)" is not. */
+const char* orbit_list_kind_name(int kind) {
+    switch (kind) {
+        case ORBIT_ELEM_STRING: return "string";
+        case ORBIT_ELEM_INT:    return "int";
+        case ORBIT_ELEM_FLOAT:  return "float";
+        case ORBIT_ELEM_BOOL:   return "bool";
+        case ORBIT_ELEM_REF:    return "reference";
+        case ORBIT_ELEM_OPAQUE: return "untyped";
+        default:                return "unknown";
+    }
+}
+
+/* ── The two list diagnostics ────────────────────────────────────────────
+ *
+ * Both of these used to be silent, and silence is the defect. A read past the
+ * end of a list answered the same 0 as a slot that really held 0, so a caller
+ * could not tell a bug from a value; and a list with no element type could be
+ * read as the wrong type entirely, which is not a value at all but a pointer
+ * read as a character. Neither is recoverable at the use site, because the use
+ * site has already been handed the number. So the list says so, here, where
+ * the index and the length are both known, and stops.
+ *
+ * Both stop the process rather than returning a sentinel. There is no
+ * `option` in the language to shape an answer as, and a sentinel is exactly
+ * the thing that was wrong: an out-of-range 0 and a stored 0 are the same
+ * value, so a caller that checks its result still cannot tell them apart.
+ *
+ * The bounds diagnostic names the enclosing function and the generated-C
+ * location, because the emitted read passes __func__ and __LINE__ and the IR
+ * carries no Orbit position to do better with (a match arm is the only
+ * positioned node in the compiler today). The kind diagnostic has no position
+ * at all: it can be raised from inside an always_inline runtime helper, where
+ * __func__ would be the helper's own name and telling the user that is worse
+ * than saying nothing.
+ */
+void orbit_list_index_error(const char* where, unsigned long index,
+                            unsigned long len, int kind, const char* file, int line) {
+    fprintf(stderr,
+            "orbit: list index out of range\n"
+            "  index    %lu\n"
+            "  length   %lu\n"
+            "  elements %s\n"
+            "  in       %s (%s:%d)\n",
+            index, len, orbit_list_kind_name(kind),
+            where ? where : "<toplevel>", file, line);
+    fflush(stderr);
+    exit(2);
+}
+
+void orbit_list_kind_error(int have, int want) {
+    fprintf(stderr,
+            "orbit: list element type mismatch\n"
+            "  list holds %s, this value is %s\n"
+            "  a list has one element type, so a read and a write must agree on it\n",
+            orbit_list_kind_name(have), orbit_list_kind_name(want));
+    fflush(stderr);
+    exit(2);
+}
+
+/** @brief Adopt @p kind as the list's element type, or report the conflict.
+ *
+ * The first typed push or typed set establishes the kind; a later one that
+ * disagrees is a type error, not something to paper over. Leaving the list
+ * alone here is what made F-0009's `indexOfStr` compare a list pointer with a
+ * string and answer -1: the list was holding two kinds and nothing said so. */
+ORBIT_INLINE void orbit_list_adopt_kind(OrbitList* list, int kind) {
+    if (list->elem_kind == ORBIT_ELEM_OPAQUE) {
+        list->elem_kind = kind;
+        return;
+    }
+    if (list->elem_kind != kind) {
+        orbit_list_kind_error(list->elem_kind, kind);
+    }
+}
+
+/** @brief Check that a read asking for @p kind can decode this list.
+ *
+ * An opaque list is accepted: the kind was never established, so the caller's
+ * static type is the only account of what is in there, and refusing would
+ * reject the lists the runtime itself builds (see orbit_list_create, which
+ * takes no kind). A list that IS typed must agree. */
+ORBIT_INLINE void orbit_list_expect_kind(const OrbitList* list, int kind) {
+    if (list->elem_kind != ORBIT_ELEM_OPAQUE && list->elem_kind != kind) {
+        orbit_list_kind_error(list->elem_kind, kind);
+    }
+}
+
+OrbitResult orbit_list_create_typed(OrbitArena* arena, size_t elem_size, size_t initial_capacity, int elem_kind) {
     if (!arena) arena = orbit_arena_get_global();
     if (!arena || elem_size == 0) {
         fprintf(stderr, "[collections] list_create FAILED: arena=%p elem_size=%zu\n", (void*)arena, elem_size);
@@ -56,9 +149,14 @@ OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initia
     list->len       = 0;
     list->capacity  = initial_capacity;
     list->elem_size = elem_size;
+    list->elem_kind = elem_kind;
     list->arena     = arena;
 
     return orbit_result_ok(list);
+}
+
+OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity) {
+    return orbit_list_create_typed(arena, elem_size, initial_capacity, ORBIT_ELEM_OPAQUE);
 }
 
 /* Grow the backing array, copying existing data forward in the arena.
@@ -108,6 +206,194 @@ ORBIT_INLINE OrbitResult orbit_list_get(const OrbitList* list, size_t index) {
     return orbit_result_ok((char*)list->data + index * list->elem_size);
 }
 
+/* ── Typed element access ──────────────────────────────────────────────────
+ *
+ * The slot word and the value are not the same thing. A slot is always eight
+ * bytes; what is IN it depends on the list's kind, and these six functions are
+ * the only place that mapping is written down:
+ *
+ *   string  the pointer itself
+ *   int     the 32-bit value, sign extended into the word
+ *   bool    0 or 1
+ *   ref     the pointer itself
+ *   float   the double's IEEE-754 bit pattern, NOT its numeric value
+ *
+ * The float case is the whole reason a kind is needed. A double does not
+ * survive a conversion to uintptr_t -- 1.5 becomes 1 -- so a float element
+ * cannot be stored the way an int is. memcpy of the bits is the only exact
+ * round trip, and reading it back as a double is what makes
+ * `[1.5, 2.5].get(0)` answer 1.5 instead of 1.
+ *
+ * Every one of these returns the value in the result's word slot rather than a
+ * pointer to it, so the caller can hand it straight to a register, which is
+ * where an Orbit value lives.
+ */
+
+/** @brief Store the word @p word into the next slot, growing if it has to. */
+ORBIT_INLINE OrbitResult orbit_list_store(OrbitList* list, uintptr_t word) {
+    if (list->len >= list->capacity) {
+        OrbitResult grew = orbit_list_grow(list);
+        if (!grew.ok) return grew;
+    }
+    memcpy((char*)list->data + list->len * list->elem_size, &word, sizeof(uintptr_t));
+    list->len++;
+    return orbit_result_ok(list);
+}
+
+OrbitResult orbit_list_push_string(OrbitList* list, orbit_string value) {
+    if (!list) return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_push: null list");
+    orbit_list_adopt_kind(list, ORBIT_ELEM_STRING);
+    return orbit_list_store(list, (uintptr_t)value);
+}
+
+OrbitResult orbit_list_push_int(OrbitList* list, orbit_int value) {
+    if (!list) return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_push: null list");
+    orbit_list_adopt_kind(list, ORBIT_ELEM_INT);
+    return orbit_list_store(list, (uintptr_t)(intptr_t)value);
+}
+
+OrbitResult orbit_list_push_bool(OrbitList* list, orbit_bool value) {
+    if (!list) return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_push: null list");
+    orbit_list_adopt_kind(list, ORBIT_ELEM_BOOL);
+    return orbit_list_store(list, (uintptr_t)(value ? 1 : 0));
+}
+
+OrbitResult orbit_list_push_ref(OrbitList* list, void* value) {
+    if (!list) return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_push: null list");
+    orbit_list_adopt_kind(list, ORBIT_ELEM_REF);
+    return orbit_list_store(list, (uintptr_t)value);
+}
+
+OrbitResult orbit_list_push_float(OrbitList* list, orbit_float value) {
+    if (!list) return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_push: null list");
+    orbit_list_adopt_kind(list, ORBIT_ELEM_FLOAT);
+    OrbitElemBox box;
+    box.d = value;
+    return orbit_list_store(list, box.u);
+}
+
+/** @brief The word stored in slot @p index, decoded for the list's own kind.
+ *
+ * This is the read an untyped call site makes: it knows nothing about the
+ * element type, so it asks the list. A float list still answers with the
+ * double's bits, so the value is not lost -- only the caller's type is. */
+ORBIT_INLINE OrbitResult orbit_list_get_value(const OrbitList* list, size_t index) {
+    if (!list || !list->data) {
+        return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_get: null list");
+    }
+    if (index >= list->len) {
+        return orbit_result_err(ORBIT_ERR_OUT_OF_BOUNDS, "list_get: index out of range");
+    }
+    uintptr_t word = 0;
+    memcpy(&word, (const char*)list->data + index * list->elem_size, sizeof(uintptr_t));
+    return orbit_result_ok_word(word);
+}
+
+/** @brief Bounds-check a read, and refuse one whose element type is not the
+ *  list's. The kind check runs before the read so a mismatch cannot silently
+ *  reinterpret a slot. */
+ORBIT_INLINE OrbitResult orbit_list_checked(const OrbitList* list, size_t index, int kind) {
+    if (!list || !list->data) {
+        return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_get: null list");
+    }
+    if (index >= list->len) {
+        return orbit_result_err(ORBIT_ERR_OUT_OF_BOUNDS, "list_get: index out of range");
+    }
+    if (kind != ORBIT_ELEM_OPAQUE) {
+        orbit_list_expect_kind(list, kind);
+    }
+    return orbit_list_get_value(list, index);
+}
+
+ORBIT_INLINE OrbitResult orbit_list_get_string(const OrbitList* list, size_t index) {
+    return orbit_list_checked(list, index, ORBIT_ELEM_STRING);
+}
+
+ORBIT_INLINE OrbitResult orbit_list_get_int(const OrbitList* list, size_t index) {
+    return orbit_list_checked(list, index, ORBIT_ELEM_INT);
+}
+
+ORBIT_INLINE OrbitResult orbit_list_get_bool(const OrbitList* list, size_t index) {
+    return orbit_list_checked(list, index, ORBIT_ELEM_BOOL);
+}
+
+ORBIT_INLINE OrbitResult orbit_list_get_ref(const OrbitList* list, size_t index) {
+    return orbit_list_checked(list, index, ORBIT_ELEM_REF);
+}
+
+ORBIT_INLINE OrbitResult orbit_list_get_float(const OrbitList* list, size_t index) {
+    return orbit_list_checked(list, index, ORBIT_ELEM_FLOAT);
+}
+
+/* ── The reads the emitter calls ────────────────────────────────────────────
+ *
+ * These are what a `list_get` in generated C lowers to. Each one takes the
+ * position of the read and stops the process if the index is past the end,
+ * because the alternative -- a 0, which is what this used to answer -- is the
+ * one value a caller cannot distinguish from a real element.
+ *
+ * They return the natural C type rather than a Result, so an emitted read is
+ * one expression with no temporary and no `_lr.ok` test to get wrong. The
+ * float one is the reason the Result-shaped accessor above is not enough: the
+ * double travels in the result's word, and a pointer-to-double cast would
+ * convert the bits to a number instead of reading them as a double.
+ */
+#define ORBIT_LIST_READ_PROLOGUE(list, index)                                        \
+    OrbitResult _lr = orbit_list_checked((list), (index), kind);                    \
+    if (!_lr.ok) {                                                                  \
+        orbit_list_index_error(where, (unsigned long)(index),                        \
+                               (list) ? (list)->len : 0,                            \
+                               (list) ? (list)->elem_kind : 0, file, line);          \
+    }                                                                               \
+    uintptr_t _word = 0;                                                             \
+    memcpy(&_word, &_lr.value, sizeof(uintptr_t))
+
+ORBIT_INLINE uintptr_t orbit_list_read_word(const OrbitList* list, size_t index,
+                                            const char* where, const char* file, int line) {
+    const int kind = ORBIT_ELEM_OPAQUE;
+    ORBIT_LIST_READ_PROLOGUE(list, index);
+    return _word;
+}
+
+ORBIT_INLINE orbit_int orbit_list_read_int(const OrbitList* list, size_t index,
+                                           const char* where, const char* file, int line) {
+    const int kind = ORBIT_ELEM_INT;
+    ORBIT_LIST_READ_PROLOGUE(list, index);
+    return (orbit_int)(intptr_t)_word;
+}
+
+ORBIT_INLINE orbit_bool orbit_list_read_bool(const OrbitList* list, size_t index,
+                                             const char* where, const char* file, int line) {
+    const int kind = ORBIT_ELEM_BOOL;
+    ORBIT_LIST_READ_PROLOGUE(list, index);
+    return _word ? true : false;
+}
+
+ORBIT_INLINE orbit_string orbit_list_read_string(const OrbitList* list, size_t index,
+                                                 const char* where, const char* file, int line) {
+    const int kind = ORBIT_ELEM_STRING;
+    ORBIT_LIST_READ_PROLOGUE(list, index);
+    return (orbit_string)_word;
+}
+
+ORBIT_INLINE void* orbit_list_read_ref(const OrbitList* list, size_t index,
+                                       const char* where, const char* file, int line) {
+    const int kind = ORBIT_ELEM_REF;
+    ORBIT_LIST_READ_PROLOGUE(list, index);
+    return (void*)_word;
+}
+
+ORBIT_INLINE orbit_float orbit_list_read_float(const OrbitList* list, size_t index,
+                                               const char* where, const char* file, int line) {
+    const int kind = ORBIT_ELEM_FLOAT;
+    ORBIT_LIST_READ_PROLOGUE(list, index);
+    OrbitElemBox box;
+    box.u = _word;
+    return box.d;
+}
+
+#undef ORBIT_LIST_READ_PROLOGUE
+
 ORBIT_INLINE size_t orbit_list_len(const OrbitList* list) {
     return list ? list->len : 0;
 }
@@ -129,6 +415,48 @@ OrbitResult orbit_list_set(OrbitList* list, size_t index, const void* elem) {
     }
     memcpy((char*)list->data + index * list->elem_size, elem, list->elem_size);
     return orbit_result_ok(list);
+}
+
+/* The typed writes. `set` cannot move the length, so a write into a slot no
+ * push has typed leaves the list's kind alone -- a list that has never been
+ * pushed to has no element type yet, and inferring one from an assignment would
+ * make `xs[0] = 1; xs[0] = "s"` depend on statement order. */
+
+/** @brief Bounds- and kind-check a typed write, then put @p word in the slot. */
+ORBIT_INLINE OrbitResult orbit_list_store_at(OrbitList* list, size_t index, int kind, uintptr_t word) {
+    if (!list) return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_set: null list");
+    if (index >= list->len) {
+        return orbit_result_err(ORBIT_ERR_OUT_OF_BOUNDS, "list_set: index out of range");
+    }
+    if (list->elem_kind == ORBIT_ELEM_OPAQUE) {
+        list->elem_kind = kind;
+    } else if (list->elem_kind != kind) {
+        orbit_list_kind_error(list->elem_kind, kind);
+    }
+    memcpy((char*)list->data + index * list->elem_size, &word, sizeof(uintptr_t));
+    return orbit_result_ok(list);
+}
+
+OrbitResult orbit_list_set_int(OrbitList* list, size_t index, orbit_int value) {
+    return orbit_list_store_at(list, index, ORBIT_ELEM_INT, (uintptr_t)(intptr_t)value);
+}
+
+OrbitResult orbit_list_set_string(OrbitList* list, size_t index, orbit_string value) {
+    return orbit_list_store_at(list, index, ORBIT_ELEM_STRING, (uintptr_t)value);
+}
+
+OrbitResult orbit_list_set_bool(OrbitList* list, size_t index, orbit_bool value) {
+    return orbit_list_store_at(list, index, ORBIT_ELEM_BOOL, (uintptr_t)(value ? 1 : 0));
+}
+
+OrbitResult orbit_list_set_float(OrbitList* list, size_t index, orbit_float value) {
+    OrbitElemBox box;
+    box.d = value;
+    return orbit_list_store_at(list, index, ORBIT_ELEM_FLOAT, box.u);
+}
+
+OrbitResult orbit_list_set_ref(OrbitList* list, size_t index, void* value) {
+    return orbit_list_store_at(list, index, ORBIT_ELEM_REF, (uintptr_t)value);
 }
 
 /* Return a zero-copy slice view of the list */

@@ -91,6 +91,21 @@ static OrbitResult orbit_result_ok(void* value) {
     return r;
 }
 
+/** @brief Construct a successful Result carrying a 64-bit element word.
+ *
+ * The transport form for a value that is not a pointer: an int, a bool, or a
+ * double's bit pattern. memcpy rather than a cast, so no int-to-pointer
+ * conversion is invented. */
+static ORBIT_UNUSED OrbitResult orbit_result_ok_word(uintptr_t word) {
+    OrbitResult r;
+    r.ok         = true;
+    r.error_code = ORBIT_ERR_NONE;
+    r.error_msg  = NULL;
+    r.value      = NULL;
+    memcpy(&r.value, &word, sizeof(uintptr_t));
+    return r;
+}
+
 /** @brief Construct a successful Result carrying an integer value encoded in the pointer slot. */
 static ORBIT_UNUSED OrbitResult orbit_result_ok_int(orbit_int val) {
     OrbitResult r;
@@ -182,6 +197,42 @@ static ORBIT_UNUSED OrbitResult orbit_slice_get(const OrbitSlice* s, size_t inde
     return orbit_result_ok((char*)s->data + index * s->elem_size);
 }
 
+/* ── Element kinds — what a list holds, so a read can hand it back typed ──
+ *
+ * A list has exactly one element type. `elem_kind` records which, and every
+ * read decodes the slot through it: without this a read handed back the raw
+ * word, so a list of ints and a list of strings were the same value to the
+ * caller and `.at()` on `[10,20,30]` could not tell an int from an address.
+ *
+ * ORBIT_ELEM_OPAQUE is the untyped list -- the kind was never established,
+ * because the list was built by a caller that does not know it either. A read
+ * on an opaque list hands back the stored word undecoded, which is the
+ * behaviour every list had before this field existed.
+ */
+typedef enum {
+    ORBIT_ELEM_OPAQUE = 0,   /* kind never established; reads are raw */
+    ORBIT_ELEM_STRING = 1,   /* char*                                  */
+    ORBIT_ELEM_INT    = 2,   /* orbit_int, sign-extended                */
+    ORBIT_ELEM_FLOAT  = 3,   /* double, by bit pattern                  */
+    ORBIT_ELEM_BOOL   = 4,   /* orbit_bool, 0 or 1                      */
+    ORBIT_ELEM_REF    = 5    /* list / map / object / fn pointer        */
+} OrbitElemKind;
+
+/* The one slot layout, 8 bytes, for every element type.
+ *
+ * An Orbit value travels through a register as a uintptr_t, so an int, a bool
+ * and a pointer all fit in a word and a read is a copy. A double does not fit
+ * the same way: converting a double to uintptr_t truncates it to an integer,
+ * which is how `[1.5, 2.5].get(0)` came to answer 1. Storing the bit pattern
+ * instead makes the round trip exact. */
+typedef union {
+    uintptr_t  u;
+    intptr_t   i;
+    orbit_int  n;
+    double     d;
+    void*      p;
+} OrbitElemBox;
+
 /* ── List<T> — Arena-backed dynamic array ──────────────────────────── *
  *
  * Growth strategy: capacity doubles on overflow (within arena).
@@ -190,6 +241,9 @@ static ORBIT_UNUSED OrbitResult orbit_slice_get(const OrbitSlice* s, size_t inde
  *
  * Memory layout: [header] [...items contiguous in arena...]
  * This gives O(1) indexed access and cache-prefetch-friendly iteration.
+ *
+ * elem_kind is the element type, set by the first typed push and by
+ * list_create_typed. See OrbitElemKind above.
  * ────────────────────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -197,6 +251,7 @@ typedef struct {
     size_t          len;
     size_t          capacity;
     size_t          elem_size;
+    int             elem_kind;          /* OrbitElemKind */
     struct OrbitArena* arena;   /* owning arena for growth */
 } OrbitList;
 
