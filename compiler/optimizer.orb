@@ -39,7 +39,7 @@ fn sinkGetInt(l: list, i: int) -> int {
 fn sinkRegSlot(op: IRValue) -> int {
     match op {
         IRValue.Register(r) => { return r.value }
-        _ => { return - 1 }
+        _ => { return -1 }
     }
 }
 
@@ -135,14 +135,14 @@ fn sinkBuildQual(func: IRFunction, slots: int) -> list {
 // rescan of the region.
 fn sinkTryOperand(useIdx: int, op: IRValue, qual: list, lastDef: list, lastBar: int) -> int {
     val reg = sinkRegSlot(op)
-    if reg < 0 { return - 1 }
-    if reg >= qual.len() { return - 1 }
-    if sinkGetInt(qual, reg) != 1 { return - 1 }
+    if reg < 0 { return -1 }
+    if reg >= qual.len() { return -1 }
+    if sinkGetInt(qual, reg) != 1 { return -1 }
     val defIdx = sinkGetInt(lastDef, reg)
-    if defIdx < 0 { return - 1 }
-    if defIdx >= useIdx { return - 1 }
-    if useIdx - defIdx <= 1 { return - 1 }
-    if lastBar >= defIdx { return - 1 }
+    if defIdx < 0 { return -1 }
+    if defIdx >= useIdx { return -1 }
+    if useIdx - defIdx <= 1 { return -1 }
+    if lastBar >= defIdx { return -1 }
     return useIdx * 65536 + defIdx
 }
 
@@ -177,7 +177,7 @@ fn sinkOne(func: IRFunction, qual: list, lastDef: list) -> int {
         if isBarrierOp(ins.opcode) { lastBar = ui }
         ui = ui + 1
     }
-    return - 1
+    return -1
 }
 
 // Relocates one instruction in place: the definition lands directly

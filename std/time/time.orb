@@ -74,7 +74,7 @@ fn sinceNs(startNs: int) -> int {
 // through a 32-bit counter read at millisecond scale.
 fn sinceMs(startNs: int) -> int {
     val ns = sinceNs(startNs)
-    if ns < 0 { return - 1 }
+    if ns < 0 { return -1 }
     return ns / 1000000
 }
 
@@ -83,6 +83,6 @@ fn sinceMs(startNs: int) -> int {
 // for a span over the cap means the chunk was too long: shorten it.
 fn sinceNsBetween(startNs: int, endNs: int) -> int {
     val delta = endNs - startNs
-    if delta < 0 { return - 1 }
+    if delta < 0 { return -1 }
     return delta
 }

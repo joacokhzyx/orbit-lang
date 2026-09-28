@@ -65,7 +65,7 @@ fn b64Val(c: int) -> int {
     if c >= 97 && c <= 122 { return c - 97 + 26 }
     if c == 45 { return 62 }
     if c == 95 { return 63 }
-    return - 1
+    return -1
 }
 
 fn decodeQuantum(out: string, c0: int, c1: int, c2: int, c3: int, n: int) -> string {
@@ -143,7 +143,7 @@ fn b64Decode(s: string) -> string {
 
 fn scanJsonInt(payloadJson: string, key: string) -> int {
     val at = orbit_string_indexOf(payloadJson, key)
-    if at == -1 { return - 1 }
+    if at == -1 { return -1 }
     var i = at + key.len()
     while i < payloadJson.len() {
         val c = payloadJson.at(i)
@@ -155,7 +155,7 @@ fn scanJsonInt(payloadJson: string, key: string) -> int {
         if c == 58 || c == 32 || c == 34 {
             i = i + 1
         } else {
-            return - 1
+            return -1
         }
     }
     var isNeg = false
@@ -169,7 +169,7 @@ fn scanJsonInt(payloadJson: string, key: string) -> int {
         digits = digits + 1
         i = i + 1
     }
-    if digits == 0 { return - 1 }
+    if digits == 0 { return -1 }
     if isNeg { return 0 - num }
     return num
 }

@@ -242,7 +242,7 @@ fn findType(sema: Sema, name: string) -> int {
         }
         i = i + 1
     }
-    return - 1
+    return -1
 }
 
 // An enum or a union: the two kinds whose value is one of a fixed set of

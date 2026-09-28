@@ -64,12 +64,12 @@ fn readFrame(buf: Buffer) -> string {
 }
 
 fn parseFrameLen(digits: string) -> int {
-    if digits == "" { return - 1 }
+    if digits == "" { return -1 }
     var i = 0
     var num = 0
     while i < digits.len() {
         val c = digits.at(i)
-        if c < 48 || c > 57 { return - 1 }
+        if c < 48 || c > 57 { return -1 }
         num = num * 10 + (c - 48)
         i = i + 1
     }
@@ -77,8 +77,8 @@ fn parseFrameLen(digits: string) -> int {
 }
 
 fn readAt(buf: Buffer, i: int) -> int {
-    if i < 0 { return - 1 }
-    if i >= buf.data.len() { return - 1 }
+    if i < 0 { return -1 }
+    if i >= buf.data.len() { return -1 }
     return buf.data.at(i)
 }
 

@@ -26,7 +26,7 @@ fn initArena(cap: int) -> Arena {
 fn alloc(arena: Arena, size: int) -> int {
     if arena.offset + size > arena.capacity {
         // Over the hard limit there is no OS to ask: refuse the request.
-        return - 1
+        return -1
     }
     val ptr = arena.offset
     arena.offset = arena.offset + size

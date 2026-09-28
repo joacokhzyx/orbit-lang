@@ -140,6 +140,14 @@ fn fmtIsUnaryMinusContext(pptag: TokType) -> bool {
     if pptag == TokType.EOF {
         return true
     }
+    // A keyword cannot end an expression, so a minus straight after one starts
+    // a new one and is unary. This has to be tested before the wordish test
+    // below, because a keyword is wordish: without this, `return -1` came out
+    // as `return - 1`, and because the formatter is authoritative that spread
+    // through the tree as if it were the source text (F-0008).
+    if fmtIsKeyword(pptag) {
+        return true
+    }
     if fmtIsWordish(pptag) {
         return false
     }
@@ -155,7 +163,9 @@ fn fmtIsUnaryMinusContext(pptag: TokType) -> bool {
     return true
 }
 
-fn fmtTrailSpace(ptag: TokType, pptag: TokType) -> bool {
+// `ntag` is only consulted for a unary minus, where what follows decides the
+// spacing. Everywhere else the two tokens are enough.
+fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
     if ptag == TokType.OpenParen {
         return false
     }
@@ -176,6 +186,20 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType) -> bool {
     }
     if ptag == TokType.Minus {
         if fmtIsUnaryMinusContext(pptag) {
+            // A keyword cannot end an expression, so a minus after one starts a
+            // new expression and is unary: `return -1`, not `return - 1`. What
+            // follows decides the rest. Tight against a literal or a name; a
+            // bracket keeps the spacing it always had, because `- (` is a
+            // question about the bracket rather than about the minus and the
+            // formatter is already inconsistent there in both directions
+            // (`val y = -(1)` is tight, `if - (-5)` is not). Note the keyword
+            // test: without it the carve-out would also fire after `*` and
+            // turn the tight `3 * -(1)` into a spaced one.
+            if fmtIsKeyword(pptag) {
+                if ntag == TokType.OpenParen || ntag == TokType.OpenBracket {
+                    return true
+                }
+            }
             return false
         }
         return true
@@ -257,7 +281,7 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType) -> bool {
 
 fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
     if ntag == TokType.OpenParen || ntag == TokType.OpenBracket {
-        if fmtTrailSpace(ptag, pptag) == false {
+        if fmtTrailSpace(ptag, pptag, ntag) == false {
             return false
         }
         if ntag == TokType.OpenParen {
@@ -307,7 +331,7 @@ fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
     if ntag == TokType.Colon {
         return false
     }
-    return fmtTrailSpace(ptag, pptag)
+    return fmtTrailSpace(ptag, pptag, ntag)
 }
 
 fn fmtHonorNewline(ptag: TokType, ntag: TokType, parenDepth: int, brackDepth: int) -> bool {

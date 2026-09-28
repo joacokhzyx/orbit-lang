@@ -133,7 +133,7 @@ fn indexOfReg(regs: list, r: int) -> int {
         }
         i = i + 1
     }
-    return - 1
+    return -1
 }
 
 fn isUsed(used: list, r: int) -> bool {
@@ -216,7 +216,7 @@ fn findLabelIndex(instrs: list, target: int) -> int {
         }
         i = i + 1
     }
-    return - 1
+    return -1
 }
 
 fn isNopOrControl(op: IROpcode) -> bool {
