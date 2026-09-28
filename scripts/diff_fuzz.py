@@ -20,10 +20,10 @@ first and then widens:
     int-arith     + - * / % over signed operands, including 0 and the edges
                   around 2^31-1, 2^31 and 2^63
     int-literal   decimal, 0x, `_` separators, and the forms that do not exist
-                  yet (0b, 0o, exponent)
+                  yet (0b, 0o, exponent), in a call position AND in a binding
     div-zero      `/ 0`, `% 0`, `INT_MIN / -1`, and the sign of the result
-    string-escape `\\n \\t \\r \\" \\\\ \\xHH`, the C escapes Orbit passes through
-                  literally, and the malformed ones
+    string-escape the six escapes the language documents, `\\xHH`, the C
+                  escapes it does NOT document, and the malformed ones
     float         round-tripping; floats are not implemented at all today, so
                   this class is reported on its own line and never mixed in
 
@@ -34,7 +34,8 @@ moves cannot tell you whether a finding is new.
 
 REPORT ONLY by default. It exits non-zero only with `--strict`, because a fuzzer
 that fails the build on the day a finding appears is a fuzzer that gets turned
-off on the day a finding appears. The findings are the deliverable.
+off on the day a finding appears. The findings are the deliverable. The count
+is what `scripts/diff_fuzz_ratchet.py` holds one way (D9).
 
 Usage:
     python scripts/diff_fuzz.py --compiler PATH [--seed N] [--iterations N]
@@ -258,12 +259,68 @@ def divzero_cases():
 
 # Escape handling, stated as a table so the expectation is a decision and not
 # an accident of what Orbit happens to do.
-C_ESCAPES = {"n": 0x0A, "t": 0x09, "r": 0x0D, "a": 0x07, "b": 0x08, "f": 0x0C,
-             "v": 0x0B, "e": 0x1B, "0": 0x00, "'": 0x27, '"': 0x22, "\\": 0x5C}
+#
+# The reference implements what the language DOCUMENTS, not what C does. That
+# distinction is the whole content of this section, so it is argued here rather
+# than left implicit, because getting it wrong is how a fuzzer ends up
+# reporting 24 permanent "disagreements" that nobody will ever fix and everybody
+# learns to ignore.
+#
+# docs/LANGUAGE_REFERENCE.md ("Arrays and objects") says: "An ordinary string
+# supports \n, \t, \r, \", \\, and the byte escape \xHH with two hex digits ...
+# Anything malformed stays literal."
+#
+# So the rule is total: decode the escapes this language has, and write back
+# exactly what the author wrote for everything else. Nothing needs a table of
+# the escapes it does not have, which is why the fallback is safe. The
+# alternative -- decode what C decodes -- is not a smaller rule, it is a
+# different and much larger one: C's set is a table with rules of its own
+# (\0 starts an octal escape, \x is greedy, \e is not standard at all), and
+# every escape still outside it is a guess about what the author meant. Guessing
+# is how `"\q"` becomes some other character and nobody can tell why.
+#
+# The three classes this moved, measured before the change, 24 cases in all:
+#
+#   string-escape/c-escape-is-kept-as-two-characters              17
+#   string-escape/malformed-hex-escape-is-kept-literal             6
+#   string-escape/unknown-escape-is-kept-literal                   1
+#
+# All three were the reference saying "C would decode this" about a language
+# that documents six escapes. They are now ASSERTED agreements, which is a
+# stronger pin than a note: if the escape behaviour ever changes, the count goes
+# up and the ratchet fires. Reversing the decision is a deliberate act -- edit
+# the table below, and the corpus sha moves with it.
+#
+# What is left in this class is one case, and it is a bug and not a decision:
+# `\x00` is two hex digits, so the documented rule covers it, and the compiler
+# does not decode it (F-0020, `compiler/builder.orb:2481` tests the SUM of the
+# two nibbles against zero instead of testing that both digits are valid). There
+# is no reading of the documentation under which `\x00` stays literal.
+DOCUMENTED_ESCAPES = {"n": 0x0A, "t": 0x09, "r": 0x0D, '"': 0x22, "\\": 0x5C}
+
+# The C escapes this language does not have. Listed so the table above can be
+# argued with: every one of these is a case where the compiler and C disagree
+# on purpose today, and the corpus asserts the compiler.
+C_ESCAPES_NOT_HERE = ("\\a", "\\b", "\\f", "\\v", "\\e", "\\0", "\\'")
 
 
-def c_unescape(body):
-    """Reference decode of the text BETWEEN two pairs of double quotes."""
+class Unterminated(ValueError):
+    """A string literal that never closes.
+
+    Not a malformed ESCAPE: the backslash is not the problem, the missing quote
+    is, and the parser already says so. It stays a `reject` expectation because
+    the correct answer really is a diagnostic.
+    """
+
+
+def documented_unescape(body):
+    """Decode the text BETWEEN two pairs of double quotes, as the language says.
+
+    Raises Unterminated for a trailing backslash, which is an unterminated
+    literal rather than a malformed escape. Everything else has a defined value,
+    including the malformed escapes: they are the two characters the author
+    wrote, which is what "stays literal" means and is the only total rule.
+    """
     out_bytes = bytearray()
     i = 0
     while i < len(body):
@@ -273,25 +330,40 @@ def c_unescape(body):
             i += 1
             continue
         if i + 1 >= len(body):
-            raise ValueError("trailing backslash")
+            raise Unterminated("trailing backslash: the literal never closes")
         nxt = body[i + 1]
         if nxt == "x":
             hexpart = body[i + 2:i + 4]
-            if len(hexpart) < 2 or not re.fullmatch(r"[0-9a-fA-F]{2}", hexpart):
-                raise ValueError("malformed \\x")
-            out_bytes.append(int(hexpart, 16))
-            i += 4
-            continue
-        if nxt in C_ESCAPES:
-            out_bytes.append(C_ESCAPES[nxt])
+            if len(hexpart) == 2 and re.fullmatch(r"[0-9a-fA-F]{2}", hexpart):
+                out_bytes.append(int(hexpart, 16))
+                i += 4
+                continue
+            # Malformed \x: not an escape this literal has, so the two
+            # characters stay and whatever followed is ordinary text.
+            out_bytes += b"\\x"
             i += 2
             continue
-        raise ValueError("unknown escape \\%s" % nxt)
+        if nxt in DOCUMENTED_ESCAPES:
+            out_bytes.append(DOCUMENTED_ESCAPES[nxt])
+            i += 2
+            continue
+        # Not an escape this language has: write what the author wrote. The
+        # backslash goes out now and the next character is copied as ordinary
+        # text by the next turn of the loop, which is the same two bytes.
+        out_bytes += b"\\"
+        i += 1
     return bytes(out_bytes)
 
 
 def escape_cases(rng, n_escapes):
-    """Well-formed escapes, C escapes Orbit does not document, malformed ones."""
+    """Well-formed escapes, C escapes the language does not document, and the
+    malformed ones.
+
+    Every body here has a defined value now, including the malformed ones, so
+    every case is a `bytes` comparison except the unterminated literal. That is
+    the point of the reclassification above: a case whose expectation is "or a
+    refusal" cannot tell a language that decided from a language that gave up.
+    """
     bodies = [
         ("\\n", "newline"), ("\\t", "tab"), ("\\r", "carriage return"),
         ('\\"', "double quote"), ("\\\\", "backslash"),
@@ -299,12 +371,12 @@ def escape_cases(rng, n_escapes):
         ("\\xFF", "hex high byte"),
         ("a\\nb", "newline inside"), ("a\\tb\\rc", "several"),
         ("\\x41\\x42\\x43", "three hex bytes"),
-        # escapes a C reader expects and Orbit passes through literally
+        # escapes a C reader expects and this language does not document
         ("\\a", "bell"), ("\\b", "backspace"), ("\\f", "form feed"),
         ("\\v", "vertical tab"), ("\\e", "escape"), ("\\0", "NUL"),
         ("\\'", "single quote"),
         ("a\\0b", "NUL inside a word"),
-        # malformed: a language that documents \\xHH has to say so
+        # malformed: documented as staying literal, so that is the value
         ("\\x", "hex with no digits"), ("\\x4", "hex with one digit"),
         ("\\xZZ", "hex with non-hex"), ("\\q", "unknown letter"),
         ("\\", "trailing backslash"),
@@ -317,11 +389,8 @@ def escape_cases(rng, n_escapes):
     cases = []
     for body, note in bodies:
         try:
-            expect = c_unescape(body)
-        except ValueError as exc:
-            # A malformed escape has no defined value, so the only defensible
-            # answer is a diagnostic. Silently keeping the backslash makes the
-            # string a different length than the source reads as.
+            expect = documented_unescape(body)
+        except Unterminated as exc:
             cases.append(Case("string-escape", 'print("%s")' % body, "reject", None,
                               "%s: %s" % (note, exc)))
             continue
@@ -687,13 +756,13 @@ def class_of(case, problem):
     """
     if case.category == "string-escape":
         body = case.source[len('print("'):-len('")')]
+        if body == "\\":
+            return "string-escape/unterminated-literal-is-accepted"
         if "\\x00" in body or "\\x0" in body and case.expect == b"\x00":
             return "string-escape/hex-zero-is-never-decoded"
         if case.kind == "reject":
-            if "\\x" in body:
-                return "string-escape/malformed-hex-escape-is-kept-literal"
-            return "string-escape/unknown-escape-is-kept-literal"
-        if any(e in body for e in ("\\a", "\\b", "\\f", "\\v", "\\e", "\\0", "\\'")):
+            return "string-escape/unterminated-literal-is-accepted"
+        if any(e in body for e in C_ESCAPES_NOT_HERE):
             return "string-escape/c-escape-is-kept-as-two-characters"
         return "string-escape/wrong-bytes"
     if case.category == "int-literal-bind":
@@ -808,7 +877,13 @@ def main():
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
-            json.dump({"seed": args.seed, "corpus_sha": digest,
+            # `iterations` and `batch` are recorded because the ratchet writes
+            # them into its baseline: a count with no corpus parameters behind
+            # it is a number nobody can reproduce. Neither is part of the corpus
+            # identity -- the sha is over the case list -- so adding them does
+            # not move it.
+            json.dump({"seed": args.seed, "iterations": args.iterations,
+                       "batch": args.batch, "corpus_sha": digest,
                        "cases": len(corpus), "agree": agree,
                        "findings": findings}, fh, indent=2)
             fh.write("\n")
