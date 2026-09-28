@@ -203,21 +203,14 @@ def run_empty(compiler, cc, work, name, needle):
     return True, "TIR suppressed as required"
 
 
-# Fixtures that cannot be built at all today, so their .tir contract cannot be
-# checked in either direction. Asserting "still broken" is the point: the gate
-# fails the day one of them starts building, at which point someone has to move
-# it out of this table and check the golden against real output.
-#
-# Why they cannot build: importing the front end pulls parser.orb and
-# lexer.orb, which call orbit_os_write_stderr_selfhost (declared in extern.orb)
-# and parseIntSelfhost (defined in builder.orb) without importing either. The
-# front end therefore emits C naming a function that was never declared, and
-# the C compiler rejects it. `orbit check` is clean throughout, which is the
-# whole failure mode this project keeps meeting. See F-0004 on the board.
-KNOWN_UNBUILDABLE = {
-    "syntax_error.orb": "parser.orb/lexer.orb use extern.orb + builder.orb without importing them (F-0004)",
-    "unresolved_type.orb": "parser.orb/lexer.orb use extern.orb + builder.orb without importing them (F-0004)",
-}
+# F-0004 is fixed: parser.orb reached parseIntSelfhost through builder.orb,
+# which a program using the front end does not import, and neither imported
+# extern.orb for orbit_os_write_stderr_selfhost. parseIntSelfhost now lives in
+# compiler/literal.orb, a leaf module both callers import, so the emitted C
+# declares what it uses. The ratchet that asserted these two stayed broken has
+# been removed -- it would now fire on every run, which is the point at which a
+# ratchet has done its job.
+KNOWN_UNBUILDABLE = {}
 
 
 def assert_still_broken(compiler, cc, work, name, why):

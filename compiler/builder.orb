@@ -1,5 +1,6 @@
 import "./ast.orb"
 import "./ir.orb"
+import "./literal.orb"
 
 model IRBuilder {
     module: IRModule
@@ -196,32 +197,6 @@ fn fieldTypeOfModel(builder: IRBuilder, typeName: string, fieldName: string) -> 
     return "unknown"
 }
 
-fn parseIntSelfhost(s: string) -> int {
-    var result = 0
-    var i = 0
-    // "0x" / "0X" means base 16. Anything else is base 10, where a '_'
-    // separator is simply not a digit and is skipped, so 1_000_000 reads as
-    // one million without a special case.
-    var base = 10
-    if s.len() > 2 {
-        if s.at(0) == 48 && (s.at(1) == 120 || s.at(1) == 88) { // '0' 'x' 'X'
-            base = 16
-            i = 2
-        }
-    }
-    while i < orbit_string_len(s) {
-        val c = s.at(i)
-        if c >= 48 && c <= 57 {
-            result = result * base + (c - 48)
-        } else if base == 16 {
-            if c >= 97 && c <= 102 { result = result * 16 + (c - 87) } // 'a'-'f'
-            if c >= 65 && c <= 70 { result = result * 16 + (c - 55) } // 'A'-'F'
-        }
-        i = i + 1
-    }
-    return result
-}
-
 fn buildCallArgValue(builder: IRBuilder, node: ASTNode) -> IRValue {
     match node {
         ASTNode.Literal(l) => {
@@ -274,7 +249,7 @@ fn dotPosOf(s: string) -> int {
         }
         i = i + 1
     }
-    return - 1
+    return -1
 }
 
 fn beforeDot(s: string) -> string {
@@ -561,7 +536,7 @@ fn findFunction(module: IRModule, name: string) -> int {
         }
         i = i + 1
     }
-    return - 1
+    return -1
 }
 
 fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
@@ -2372,7 +2347,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 jmp.operand1 = ir_label(endLabel)
                 ir_emit(builder.currentFunction, jmp)
             }
-            return - 1
+            return -1
         }
         ASTNode.Continue(c) => {
             val startLabels = builder.loopStartLabels
@@ -2382,10 +2357,10 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 jmp.operand1 = ir_label(startLabel)
                 ir_emit(builder.currentFunction, jmp)
             }
-            return - 1
+            return -1
         }
         _ => {
-            return - 1
+            return -1
         }
     }
 }
@@ -2446,7 +2421,7 @@ fn hexNibbleValue(code: int) -> int {
     if code >= 48 && code <= 57 { return code - 48 }
     if code >= 65 && code <= 70 { return code - 55 }
     if code >= 97 && code <= 102 { return code - 87 }
-    return - 1
+    return -1
 }
 
 // The text of a string literal, as a runtime value. An ordinary literal still

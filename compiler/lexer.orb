@@ -1,4 +1,10 @@
 import "./token.orb"
+// nextToken reports an invalid character through orbit_os_write_stderr_selfhost,
+// which is declared in extern.orb. Nothing enforced that: an unresolved call is
+// not a diagnostic, so a program importing the lexer without extern.orb -- the
+// front end, which is how `orbit frontend` fixtures are built -- emitted C
+// naming a function the C compiler had never heard of (F-0004).
+import "./extern.orb"
 
 val CHAR_SPACE = 32
 val CHAR_TAB = 9
