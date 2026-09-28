@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Unknown-type census: how much of the corpus the front end cannot type.
 
-REPORT ONLY. This never fails the build and it is not a gate. Making `unknown`
-detectable is core-zone work, and doing it without a number is a guess: the
-question "how much of the corpus is currently unknown?" has to be answerable
-before "make unknown an error" can be scoped, prioritised, or regression-checked
-against. This prints that number, and prints the per-opcode and per-directory
-breakdown that says which front-end rules would pay for it.
+This is the MEASUREMENT. It never fails the build on a count, and that is
+deliberate: a zero-bar gate is a gate everybody disables. The count is held to
+a one-way ratchet one level up, by `scripts/unknown_ratchet.py`, which reads
+this output, compares it to a committed baseline, and fails if the number went
+up. That split is the whole defence -- see DECISIONS.md D7 -- and it is why the
+count is worth taking seriously: it can only go down, and moving it takes a
+deliberate, recorded act.
+
+Making `unknown` detectable is core-zone work, and doing it without a number is
+a guess: the question "how much of the corpus is currently unknown?" has to be
+answerable before "make unknown an error" can be scoped, prioritised, or
+regression-checked against. This prints that number, and prints the per-opcode
+and per-directory breakdown that says which front-end rules would pay for it.
 
 An `unknown` register is one the front end had no type for. Every type rule
 downstream of it is skipped, which is why it is contagious and why so much of
@@ -21,6 +28,12 @@ still a file the compiler does not understand.
 Usage:
     python scripts/unknown_census.py [--compiler PATH] [--cc CC] [--dir D]...
                                      [--json] [--top N] [--strict]
+
+With `--json`, stdout is a single JSON object and nothing else -- the banner
+goes to stderr -- so the output can be consumed by a program. The keys
+`unknown_instructions`, `unknown_without_diagnostic` and
+`files_detail[].unknown_instructions` are the machine contract;
+`scripts/unknown_ratchet.py` reads exactly those.
 
 Exit code is 0 whatever the census finds. `--strict` exits non-zero only when
 the census could not run at all (probe did not build, corpus empty), which is
@@ -172,22 +185,28 @@ def table(counter, total, top, label):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Count `unknown` types across the corpus (report only)")
+        description="Count `unknown` types across the corpus (measurement; "
+                    "scripts/unknown_ratchet.py is the gate that holds it)")
     ap.add_argument("--compiler", default=os.path.join(ROOT, "orbit.exe"))
     ap.add_argument("--cc", default="gcc", help="C compiler for building the probe")
     ap.add_argument("--dir", action="append", default=None,
                     help="corpus directory, repeatable (default: %s)"
                          % ", ".join(DEFAULT_DIRS))
     ap.add_argument("--top", type=int, default=15)
-    ap.add_argument("--json", action="store_true", help="emit the census as JSON")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the census as the only thing on stdout")
     ap.add_argument("--strict", action="store_true",
                     help="exit non-zero if the census cannot RUN (never on a count)")
     out.add_quiet(ap)
     args = ap.parse_args()
     out.set_quiet(args.quiet)
 
-    print("Unknown-type census -- REPORT ONLY, this is not a gate and never "
-          "fails the build.")
+    banner = ("Unknown-type census -- measurement, not a gate. The number is "
+              "held to a one-way ratchet by scripts/unknown_ratchet.py.")
+    if args.json:
+        out.fail(banner)
+    else:
+        print(banner)
 
     dirs = args.dir or DEFAULT_DIRS
     files = discover(dirs)
@@ -223,8 +242,14 @@ def main():
                                     + by_code.get("E2003", 0))
 
     if args.json:
+        out.fail("Unknown-type census -- measurement, the gate is "
+                 "scripts/unknown_ratchet.py")
+        # stdout is the JSON and nothing else, so `--json > f.json` is a file
+        # another program can read. The banner has already gone to stderr.
         print(json.dumps({
-            "note": "report only, not a gate",
+            "schema": 1,
+            "source": "unknown_census.py",
+            "note": "measurement; the gate is unknown_ratchet.py (D7)",
             "files": totals["files"],
             "functions": totals["functions"],
             "instructions": totals["instr"],
@@ -304,7 +329,8 @@ def main():
     print("Finished unknown census: %d/%d instructions unknown (%.1f%%) over %d files"
           % (totals["instr_unk"], totals["instr"],
              pct(totals["instr_unk"], totals["instr"]), totals["files"]))
-    print("Reminder: report only. No count here fails anything.")
+    print("This is the measurement only. scripts/unknown_ratchet.py decides "
+          "whether it is allowed.")
     return 0
 
 
