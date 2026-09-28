@@ -318,6 +318,20 @@ def main(argv=None):
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
         print("  json=%s" % args.json)
+    if completed == 0:
+        # A load tool that reports success against a dead port is a number
+        # nobody can use: the p50 above is 0.000 because nothing was measured,
+        # not because the server was fast. It used to exit 0 here, and it is
+        # in no CI step, so nothing noticed. Measured nothing is not a pass.
+        out.fail("Failed night_load: %d request(s) attempted, 0 completed, so "
+                 "every number above describes nothing."
+                 % (completed + transport[0]))
+        out.tip("is the server up? `orbit build examples/blog_api.orb -o /tmp/srv "
+                "&& /tmp/srv 4102`, then --port 4102")
+        print("Finished night-load: 0 requests completed, nothing measured")
+        return 1
+    print("Finished night-load: %d completed, %d transport errors, error rate "
+          "%.1f%%" % (completed, transport[0], err_rate * 100.0))
     return 0
 
 

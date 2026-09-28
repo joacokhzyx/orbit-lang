@@ -643,6 +643,11 @@ def main():
 
     write_markdown(out_md, read_all_records(out_jsonl), cc)
     out.say("Wrote %s and %s" % (out_jsonl, out_md))
+    # The house convention is that every tool closes the same way, and this one
+    # did not: a reader (or scripts/alive_check.py) could not tell a finished
+    # measurement from a run that stopped early, because both printed whatever
+    # the last phase said and exited 0.
+    print("Finished measure: %d phase record(s) written" % len(read_all_records(out_jsonl)))
     return 0
 
 
