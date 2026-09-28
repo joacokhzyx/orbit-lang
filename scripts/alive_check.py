@@ -143,12 +143,16 @@ def registry(compiler, cc, work):
              lambda: _script("routes_probe.py"),
              r"Finished routes-probe: \d+/\d+", 60),
         Tool("build_selfhost.py", "gate",
-             "the canonical is stale check. Non-zero is correct whenever the "
-             "tree holds a core edit that has not been promoted, so both 0 and "
-             "1 are allowed here and the marker is what does the work",
+             "the canonical is stale check. Non-zero is correct whenever the tree "
+             "holds a core edit that has not been promoted, so both 0 and 1 are "
+             "allowed here. The marker is the per-iteration hash line rather than "
+             "the closing verdict, because the verdict line differs between the "
+             "two outcomes ('converged' vs 'canonical is stale') and a marker "
+             "that only matches the happy path fails the tool for being right",
              lambda: _script("build_selfhost.py", "--cc", cc, "--check-stale"),
-             r"Finished bootstrap: converged", 900, allow_rc=(0, 1),
+             r"^Iteration \d+: [0-9a-f]{64}", 900, allow_rc=(0, 1),
              cost="heavy"),
+
         Tool("verify_seed.py", "gate",
              "hermetic seed -> canonical C fixed point. Same: non-zero here "
              "means the tree has an unpromoted core edit, which is the tool "
