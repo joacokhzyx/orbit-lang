@@ -324,7 +324,16 @@ jobs:
       # gives the wrong number. REPORT ONLY, and deliberately so -- a fuzzer that
       # fails the build the day a finding appears is one that gets switched off
       # the day a finding appears. The summary is the deliverable; the exit code
-      # is not. `--iterations` is the knob: 150 is about half a minute.
+      # is not. What HOLDS the number is the ratchet in the next step.
+      #
+      # Same corpus as the ratchet below (seeded, default `--iterations`, no
+      # override), so the two numbers in this log are the same number and not
+      # two measurements of two different things. It runs on both legs, including
+      # Windows, which is where the report is worth having.
+      #
+      # Cost, measured: 676 cases in 36-45 s with gcc, 92 compiled programs
+      # (a build costs the same whatever the program contains, so 40 cases share
+      # one program). `--iterations` is the knob and the ratchet owns it.
       - name: Differential fuzzer (Orbit vs a reference implementation)
         if: always()
         continue-on-error: true
@@ -334,7 +343,7 @@ jobs:
           SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
           "$PY" scripts/diff_fuzz.py --cc "${{ matrix.cc }}" \
             --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" \
-            --iterations 150 --json diff_fuzz.json > diff_fuzz.log 2>&1 || true
+            --json diff_fuzz.json > diff_fuzz.log 2>&1 || true
           cat diff_fuzz.log
           {
             echo "### differential fuzzer (report only, never fails the build)"
@@ -343,10 +352,51 @@ jobs:
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
+      # D9. The fuzzer above is the measurement; this is the gate, and the only
+      # things it fails on are the disagreement count going UP against
+      # scripts/baselines/diff_fuzz.json and the corpus not being the one that
+      # baseline was taken at. It does not fail because the count is high -- 75
+      # disagreements in 5 classes is today's real state and a zero-bar gate is
+      # a gate everybody disables. A count that can only go down is the
+      # difference between "we found this" and "this cannot come back without a
+      # line in a commit message".
+      #
+      # A HARD step, for the same reason unknown_ratchet.py above is one: a
+      # ratchet wired with `continue-on-error` is a number in a file nobody
+      # reads. The corpus is not a flag here -- it is read out of the baseline --
+      # so a check run cannot measure something the baseline does not describe.
+      #
+      # Linux only, and that is a judgement worth arguing with: 16 of the 75 are
+      # `div-zero/signal-instead-of-a-diagnostic`, and whether the emitted C
+      # raises or exits is a property of the C toolchain and the OS, not of the
+      # compiler. One baseline, two runners, one of which can count a different
+      # number for a reason that is not a defect is a gate that goes red for
+      # weather and gets disabled. The step above still runs on both legs, so
+      # the Windows numbers stay visible without being a gate.
+      - name: Diff-fuzz disagreement ratchet (one-way, D9)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          set +e
+          "$PY" scripts/diff_fuzz_ratchet.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > difffuzz_ratchet.log 2>&1
+          rc=$?
+          set -e
+          tail -n 80 difffuzz_ratchet.log
+          {
+            echo "### diff-fuzz disagreement ratchet rc=$rc"
+            echo '```'
+            tail -n 60 difffuzz_ratchet.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit $rc
+
       # The new gates have to be able to fail, and the only way to know that is
       # to assert it: each self-test feeds its own checker a tool that crashes,
       # one that hangs, one that prints nothing, one whose output is stale, and
-      # one with a broken baseline, and requires each to be reported. Two
+      # one with a broken baseline, and requires each to be reported. Three
       # seconds, and it is the difference between a gate and a hope.
       - name: Gate self-tests (the new gates can say no)
         if: always()
@@ -354,6 +404,7 @@ jobs:
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/unknown_ratchet.py --self-test
+          "$PY" scripts/diff_fuzz_ratchet.py --self-test
           "$PY" scripts/alive_check.py --self-test
 
   # Flakiness detector for the self-host chain. Each leg is an independent
