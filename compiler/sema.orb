@@ -1158,6 +1158,33 @@ fn checkInterpolation(sema: Sema, node: ASTNode) -> bool {
     }
 }
 
+// Does this string literal's source contain anything that decodes to byte 0?
+//
+// `\x00` is the only way: the other escapes are \n \t \r \" \\ and \xHH,
+// there is no `\0`, and an unknown escape is kept literally. A raw NUL typed
+// into the source is checked too, because the lexer has no reason to stop at it.
+fn stringLiteralHasNul(literalText: string) -> bool {
+    val body = literalText
+    var i = 0
+    while i < body.len() {
+        val c = orbit_string_char_at_selfhost(body, i)
+        if c == 0 { return true }
+        if c == 92 { // '\\'
+            if i + 3 < body.len() {
+                if orbit_string_char_at_selfhost(body, i + 1) == 120 {
+                    val a = orbit_string_char_at_selfhost(body, i + 2)
+                    val b = orbit_string_char_at_selfhost(body, i + 3)
+                    if a == 48 && b == 48 { return true }
+                }
+            }
+            i = i + 4
+        } else {
+            i = i + 1
+        }
+    }
+    return false
+}
+
 fn inferType(sema: Sema, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(l) => {
@@ -1182,6 +1209,16 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             // A raw string is a string as far as the type system is concerned;
             // string_raw only exists to tell the lowering not to unescape it.
             if l.valType == "string_raw" { return "string" }
+            if l.valType == "string" && stringLiteralHasNul(l.text) {
+                // An orbit_string is a NUL-terminated `const char*`, so a
+                // string that contains a zero byte is truncated at that byte
+                // on the way into C. `\x00` used to be kept as the four
+                // characters `\x00` instead, which contradicts the documented
+                // meaning of the byte escape and is the one escape this
+                // language cannot honour. Saying so is the honest answer;
+                // emitting the byte would silently lose everything after it.
+                reportError(sema, "a string cannot contain a NUL byte: an orbit_string is a C string, so \"\\x00\" would truncate the value at that point")
+            }
             // Literal chunks of an interpolation are already their own ASTNode
             // and are not reachable as a value, but keep them harmless.
             if l.valType == "string_chunk" { return "string" }
