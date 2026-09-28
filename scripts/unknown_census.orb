@@ -38,7 +38,13 @@
 import "../compiler/extern.orb"
 import "../compiler/frontend/frontend.orb"
 
-fn parseIntSelfhost(s: string) -> int { return 0 }
+// parseIntSelfhost used to be stubbed here because the front end could not
+// reach the real one: parser.orb called a function that lived in builder.orb,
+// which this probe does not import, and an unresolved call is not a
+// diagnostic. That is fixed (F-0004) -- parseIntSelfhost now lives in
+// compiler/literal.orb, which the parser imports -- so the stub below collided
+// with the real one and this probe stopped building. A report-only tool with
+// no gate behind it rotted without a single signal.
 
 fn findOpcodes(opcodes: list, opcode: string) -> int {
     var i = 0
