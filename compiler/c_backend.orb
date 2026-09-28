@@ -271,6 +271,10 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     if orbitType == "bool" || orbitType == "orbit_bool" { return "orbit_bool" }
     if orbitType == "void" { return "void" }
     if orbitType == "list" || orbitType == "List" || orbitType == "OrbitList*" { return "OrbitList*" }
+    // A list described together with its element type is still a list. The
+    // suffix names what is IN it, which is a property of the values, not of
+    // the pointer, so the C type does not change.
+    if orbitType == "string_list" || orbitType == "int_list" || orbitType == "float_list" || orbitType == "bool_list" || orbitType == "ref_list" { return "OrbitList*" }
     if orbitType == "map" || orbitType == "Map" || orbitType == "OrbitMap*" { return "OrbitMap*" }
     if orbitType == "object" || orbitType == "OrbitObject*" { return "OrbitObject*" }
     if orbitType == "result" || orbitType == "Result" || orbitType == "OrbitResult" { return "OrbitResult" }
@@ -309,6 +313,88 @@ fn setStrAt(items: list, idx: int, value: string) -> list {
     }
     items[idx] = value
     return items
+}
+
+/* ── Lowering a collection opcode ────────────────────────────────────────────
+ *
+ * The element type is on the instruction as `elemKind` and the runtime has one
+ * accessor per kind, so lowering is a choice of function and nothing else.
+ * This is the whole of the F-0002 fix on the emit side: before it, every read
+ * was `*(void**)_lr.value` -- one hardcoded pointer dereference for a list of
+ * strings, a list of ints and a list of lists alike.
+ *
+ * Kind 0 means the builder could not tell, and it lowers to the untyped
+ * accessor: the word is handed back exactly as stored, which is what every
+ * list did before. A float never takes that path -- an undecoded double is
+ * still its bits, so the value survives even when the type does not.
+ */
+fn listReadCall(kind: int, listStr: string, idxStr: string) -> string {
+    var fnName = "orbit_list_read_word"
+    if kind == 1 { fnName = "orbit_list_read_string" }
+    if kind == 2 { fnName = "orbit_list_read_int" }
+    if kind == 3 { fnName = "orbit_list_read_float" }
+    if kind == 4 { fnName = "orbit_list_read_bool" }
+    if kind == 5 { fnName = "orbit_list_read_ref" }
+    return fnName + "((" + "const OrbitList*" + ")(" + listStr + "), (size_t)(uintptr_t)(" + idxStr + "), __func__, __FILE__, __LINE__)"
+}
+
+/** @brief A typed list write. @p idxStr is "" for push and the index for set.
+ *
+ *  The typed forms take the value by value, which is what removes the
+ *  `uintptr_t _tmp` staging word the untyped form needs: a 32-bit register's
+ *  address is not a slot's worth of bytes, and copying `elem_size` from it
+ *  read past the variable.
+ *
+ *  The value is cast to the element type on the way in, because the register
+ *  holding it is not always declared as one. A field read off a model is
+ *  usually `void*` -- sema types `IRValueSymbol.value` from the declaration,
+ *  but the emitter's own object-field pass only fires for a receiver it
+ *  recognises as an object, so plenty of perfectly good `string` fields reach
+ *  a `void*` register. Passing that straight to orbit_list_push_string is
+ *  `incompatible pointer type` from the C compiler, and the cast through
+ *  uintptr_t is the transport every register already uses. */
+fn listWriteCall(kind: int, base: string, listStr: string, valueStr: string, idxStr: string) -> string {
+    if kind == 0 {
+        if idxStr == "" {
+            return "{ uintptr_t _tmp = (uintptr_t)(" + valueStr + "); orbit_list_push((OrbitList*)(" + listStr + "), &_tmp); }"
+        }
+        return "{ uintptr_t _tmp = (uintptr_t)(" + valueStr + "); orbit_list_set((OrbitList*)(" + listStr + "), (size_t)(uintptr_t)(" + idxStr + "), &_tmp); }"
+    }
+    // A float is cast, not transported: the register holds a double, and
+    // routing it through uintptr_t is the truncation that made 1.5 into 1.
+    var arg = "(void*)(uintptr_t)(" + valueStr + ")"
+    if kind == 1 { arg = "(orbit_string)(uintptr_t)(" + valueStr + ")" }
+    if kind == 2 { arg = "(orbit_int)(uintptr_t)(" + valueStr + ")" }
+    if kind == 3 { arg = "(orbit_float)(" + valueStr + ")" }
+    if kind == 4 { arg = "(orbit_bool)(uintptr_t)(" + valueStr + ")" }
+    var fnName = "orbit_list_push_ref"
+    if kind == 1 { fnName = "orbit_list_push_string" }
+    if kind == 2 { fnName = "orbit_list_push_int" }
+    if kind == 3 { fnName = "orbit_list_push_float" }
+    if kind == 4 { fnName = "orbit_list_push_bool" }
+    if kind == 5 { fnName = "orbit_list_push_ref" }
+    if idxStr == "" {
+        return fnName + "((OrbitList*)(" + listStr + "), " + arg + ")"
+    }
+    var setName = "orbit_list_set_ref"
+    if kind == 1 { setName = "orbit_list_set_string" }
+    if kind == 2 { setName = "orbit_list_set_int" }
+    if kind == 3 { setName = "orbit_list_set_float" }
+    if kind == 4 { setName = "orbit_list_set_bool" }
+    if kind == 5 { setName = "orbit_list_set_ref" }
+    return setName + "((OrbitList*)(" + listStr + "), (size_t)(uintptr_t)(" + idxStr + "), " + arg + ")"
+}
+
+/** @brief The register type name for a list whose element kind is @p kind.
+ *  `int_list` and friends exist so a list that reaches a read through a copy
+ *  is still described; mapTypeToC maps all of them to OrbitList*. */
+fn listKindTypeName(kind: int) -> string {
+    if kind == 1 { return "string_list" }
+    if kind == 2 { return "int_list" }
+    if kind == 3 { return "float_list" }
+    if kind == 4 { return "bool_list" }
+    if kind == 5 { return "ref_list" }
+    return "list"
 }
 
 fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
@@ -561,24 +647,51 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                                 }
                             }
                         }
-                        IROpcode.list_create => { inf = "list" }
+                        IROpcode.list_create => {
+                            inf = "list"
+                            if inst.elemKind != 0 && inst.dest >= 0 && inst.dest < func.registerTypes.len() {
+                                func.registerTypes = setStrAt(func.registerTypes, inst.dest, listKindTypeName(inst.elemKind))
+                            }
+                        }
                         IROpcode.list_get => {
-                            match inst.operand1 {
-                                IRValue.Register(reg) => {
-                                    if reg.value >= 0 && reg.value < func.registerTypes.len() {
-                                        val lstT = func.registerTypes.get(reg.value)
-                                        if lstT == "string" || lstT == "string_list" {
-                                            inf = "string"
+                            // The element type came from the builder and is on
+                            // the instruction. Before this, the destination was
+                            // declared from the receiver's name and shape,
+                            // which made a list of strings and a list of ints
+                            // the same type and sent `.at()` to orbit_string_at.
+                            if inst.elemKind != 0 {
+                                if inst.elemKind == 1 { inf = "string" }
+                                if inst.elemKind == 2 { inf = "int" }
+                                if inst.elemKind == 3 { inf = "float" }
+                                if inst.elemKind == 4 { inf = "bool" }
+                            } else {
+                                match inst.operand1 {
+                                    IRValue.Register(reg) => {
+                                        if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                            val lstT = func.registerTypes.get(reg.value)
+                                            if lstT == "string" || lstT == "string_list" {
+                                                inf = "string"
+                                            }
                                         }
                                     }
+                                    IRValue.Sym(s) => {
+                                        if isStringVar(backend, s.value) { inf = "string" }
+                                    }
+                                    _ => {}
                                 }
-                                IRValue.Sym(s) => {
-                                    if isStringVar(backend, s.value) { inf = "string" }
-                                }
-                                _ => {}
                             }
                         }
                         IROpcode.list_push => {
+                            if inst.elemKind != 0 {
+                                match inst.operand1 {
+                                    IRValue.Register(reg) => {
+                                        if reg.value >= 0 && reg.value < func.registerTypes.len() {
+                                            func.registerTypes = setStrAt(func.registerTypes, reg.value, listKindTypeName(inst.elemKind))
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
                             if isStringOperand(backend, inst.operand2) {
                                 match inst.operand1 {
                                     IRValue.Register(reg) => {
@@ -2202,10 +2315,21 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     if isStringArg(backend, argStr) {
                         orbit_cbuf_append_selfhost(cb, "    print(\"%s\", " + argStr + ");\n")
                         return
-                    } else {
-                        orbit_cbuf_append_selfhost(cb, "    printf(\"%lld\\n\", (long long)(" + argStr + "));\n")
+                    }
+                    // A float goes through the runtime's own formatter rather
+                    // than through %lld, which truncated 1.5 to 1. Without
+                    // this a list element read back as a float is correct and
+                    // invisible: `[1.5,2.5].get(0)` holds 1.5 and prints 1.
+                    // Not a general float fix -- float arguments still travel
+                    // through uintptr_t and lose their value at a call
+                    // boundary -- but a float REGISTER is the one case where
+                    // the value is intact and only the printing was wrong.
+                    if isFloatArgReg(backend, argStr) {
+                        orbit_cbuf_append_selfhost(cb, "    printf(\"%s\\n\", orbit_float_to_string(arena, (orbit_float)(" + argStr + ")));\n")
                         return
                     }
+                    orbit_cbuf_append_selfhost(cb, "    printf(\"%lld\\n\", (long long)(" + argStr + "));\n")
+                    return
                 } else {
                     while backend.callArgs.len() > 0 {
                         backend.callArgs.pop()
@@ -2243,28 +2367,24 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             var startIdx = backend.callArgs.len() - numArgs
             if startIdx < 0 { startIdx = 0 }
 
+            // A call to orbit_string_at is a character read and a call to
+            // orbit_list_get is an element read. They used to be decided by
+            // asking whether the receiver *looked* like a string, which is the
+            // whole of F-0002: a list receiver that looked like a string was
+            // handed to a string function, and `n.at(1)` over `[10,20,30]`
+            // answered a byte of the OrbitList header. A name says which
+            // function it is; a receiver's spelling cannot.
             if calleeName == "orbit_list_get" {
                 if backend.callArgs.len() >= startIdx + 2 {
                     val receiverStr = backend.callArgs.get(startIdx)
                     val idxStr = backend.callArgs.get(startIdx + 1)
-                    if isStringArg(backend, receiverStr) || isStringVar(backend, receiverStr) || isStringReg(backend, receiverStr) {
-                        while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
-                        val safeGet = "orbit_string_at((orbit_string)(" + receiverStr + "), (orbit_int)(uintptr_t)(" + idxStr + "))"
-                        if destNeeded {
-                            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, safeGet))
-                            return
-                        }
-                        orbit_cbuf_append_selfhost(cb, "    " + safeGet + ";\n")
-                        return
-                    } else {
-                        while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
-                        if destNeeded {
-                            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _lr = orbit_list_get((const OrbitList*)(" + receiverStr + "), (size_t)(uintptr_t)(" + idxStr + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n")
-                            return
-                        }
-                        orbit_cbuf_append_selfhost(cb, "    orbit_list_get((const OrbitList*)(" + receiverStr + "), (size_t)(uintptr_t)(" + idxStr + "));\n")
+                    while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
+                    if destNeeded {
+                        orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, listReadCall(0, receiverStr, idxStr)))
                         return
                     }
+                    orbit_cbuf_append_selfhost(cb, "    (void)(" + listReadCall(0, receiverStr, idxStr) + ");\n")
+                    return
                 }
             }
             if calleeName == "orbit_list_push" {
@@ -2272,7 +2392,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     val receiverStr = backend.callArgs.get(startIdx)
                     val valStr = backend.callArgs.get(startIdx + 1)
                     while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
-                    orbit_cbuf_append_selfhost(cb, "    { void* _tmp = (void*)(uintptr_t)(" + valStr + "); orbit_list_push((OrbitList*)(" + receiverStr + "), &_tmp); }\n")
+                    orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(0, "orbit_list_push", receiverStr, valStr, "") + ";\n")
                     return
                 }
             }
@@ -2639,13 +2759,24 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             if isStringFieldName(backend, fname) && backend != NULL && instr.dest >= 0 {
                 backend.strRegs.push(instr.dest)
             }
-            // Length comes before the JSON-field path: on a string operand
-            // `.length` is the string length (an int), never a JSON lookup.
-            // The old order emitted orbit_json_field here and compared the
-            // result pointer as an integer downstream.
+            // `.length` and `.len` on a STRING are the string length. They are
+            // not on anything else: this used to be decided by the field's
+            // name alone, so `entry.len` where entry is a model read the
+            // model's first bytes as a C string -- `orbit_string_len` on a
+            // `ConstBound*` is a length computed from whatever the pointer
+            // happens to point at, which is how a list of recorded lengths
+            // came to report 6 for every one of them. A name says what a
+            // field is called; the receiver's type says what it means.
+            //
+            // The `operandDefType` half is for a receiver that carries a
+            // string type without being a string *operand* -- a load of a
+            // string field into a register, where the register is the one that
+            // lost its type.
             if fname == "length" || fname == "len" {
-                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(instr.operand1) + "))"))
-                return
+                if isStringOperand(backend, instr.operand1) || operandDefType(backend.currentFunction, instr.operand1) == "string" {
+                    orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_string_len((orbit_string)(" + generateValue(instr.operand1) + "))"))
+                    return
+                }
             }
             // An object's field is a lookup, not a struct member. This has to
             // come first: left to the model path, `o.n` emitted
@@ -2707,23 +2838,32 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.list_create => {
-            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _lr = orbit_list_create(arena, sizeof(void*), " + generateValue(instr.operand2) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? (OrbitList*)_lr.value : NULL; }\n")
+            // The element type rides along in elemKind and lands in the list's
+            // header, so a read of this list knows how to decode its slots
+            // even where the read itself could not be typed.
+            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _lr = orbit_list_create_typed(arena, sizeof(void*), " + generateValue(instr.operand2) + ", " + orbit_int_to_string_selfhost(instr.elemKind) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? (OrbitList*)_lr.value : NULL; }\n")
             return
         }
         IROpcode.list_push => {
             // Orbit lists use pointer-sized slots. Never pass the address of a
-            // 32-bit register directly: orbit_list_push copies one full slot,
-            // which otherwise reads past the stack variable for int/bool values.
+            // 32-bit register directly: the push copies one full slot, which
+            // otherwise reads past the stack variable for int/bool values.
+            //
+            // With a known element type the typed push is not a convenience:
+            // a float cannot go into a slot as a number, because the slot is a
+            // word and a double does not survive being cast to one. The typed
+            // push stores the bit pattern, and it is also what records the
+            // list's element type for the reads that follow.
             val stored = generateValue(instr.operand2)
-            orbit_cbuf_append_selfhost(cb, "    { uintptr_t _tmp = (uintptr_t)(" + stored + "); orbit_list_push(" + generateValue(instr.operand1) + ", &_tmp); }\n")
+            orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(instr.elemKind, "orbit_list_push", generateValue(instr.operand1), stored, "") + ";\n")
             return
         }
         IROpcode.list_get => {
-            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _lr = orbit_list_get(" + generateValue(instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(instr.operand2) + ")); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _lr.ok ? *(void**)_lr.value : NULL; }\n")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, listReadCall(instr.elemKind, generateValue(instr.operand1), generateValue(instr.operand2))))
             return
         }
         IROpcode.list_set => {
-            orbit_cbuf_append_selfhost(cb, "    { void* _tmp = (void*)(uintptr_t)(" + generateValue(instr.operand3) + "); orbit_list_set(" + generateValue(instr.operand1) + ", (size_t)(uintptr_t)(" + generateValue(instr.operand2) + "), &_tmp); }\n")
+            orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(instr.elemKind, "orbit_list_set", generateValue(instr.operand1), generateValue(instr.operand3), generateValue(instr.operand2)) + ";\n")
             return
         }
         IROpcode.list_len => {
@@ -2735,7 +2875,13 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.list_pop => {
-            orbit_cbuf_append_selfhost(cb, "    { OrbitResult _pr = orbit_list_pop(" + generateValue(instr.operand1) + "); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _pr.ok ? *(void**)_pr.value : NULL; }\n")
+            // pop reads the last element and then shortens, so it is a read
+            // first: shrinking before the read would read one past the end.
+            // The empty case has no index to report, so it reports length 0.
+            val listStr = "(const OrbitList*)(" + generateValue(instr.operand1) + ")"
+            orbit_cbuf_append_selfhost(cb, "    { orbit_int _pl = (orbit_int)orbit_list_len(" + listStr + "); if (_pl <= 0) { orbit_list_index_error(__func__, 0, 0, 0, __FILE__, __LINE__); }\n")
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, listReadCall(instr.elemKind, generateValue(instr.operand1), "((size_t)(_pl - 1))")))
+            orbit_cbuf_append_selfhost(cb, "      orbit_list_pop((OrbitList*)(" + generateValue(instr.operand1) + ")); }\n")
             return
         }
         IROpcode.map_create => {
@@ -2963,7 +3109,7 @@ fn isStringOperand(backend: CBackend, operand: IRValue) -> bool {
 }
 
 fn feBuildTimeCallType(name: string) -> string {
-    if name == "print" || name == "orbit_os_exit_selfhost" || name == "orbit_os_exit" || name == "orbit_os_destroy" || name == "orbit_os_reset" || name == "orbit_list_push" || name == "orbit_map_set" || name == "orbit_cbuf_append_selfhost" { return "void" }
+    if name == "print" || name == "orbit_os_exit_selfhost" || name == "orbit_os_exit" || name == "orbit_os_destroy" || name == "orbit_os_reset" || name == "orbit_list_push" || name == "orbit_list_clear" || name == "orbit_map_set" || name == "orbit_cbuf_append_selfhost" { return "void" }
     if name == "orbit_object_create" { return "object" }
     if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" { return "void" }
     if name == "ok" || name == "err" { return "result" }
@@ -3415,6 +3561,12 @@ fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {
 
 fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
     if name == "orbit_list_set" { return true }
+    // orbit_list_clear is a void function the emitter did not know about, so
+    // a call to it was assigned to a register -- `invalid use of void
+    // expression` from the C step, with `orbit check` clean. Same shape as
+    // F-0004, and the same fix: the return type belongs where the call is
+    // emitted, and this is that place.
+    if name == "orbit_list_clear" { return true }
     if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" { return true }
     var fi = 0
     while fi < backend.module.functions.len() {
