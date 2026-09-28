@@ -1,9 +1,9 @@
 // case: at-out-of-range
 // what: an index past the end of a string is not a character. `orbit_string_at`
-//      (`runtime/collections.c:369-373`) answers 0 for `index >= len`, which is
-//      indistinguishable from the character NUL, and the front end has both the
-//      receiver and the index and raises nothing. Measured: `s.at(99)` over
-//      "hello" prints 0. The receiver here is a real string, so this isolates
+//      (`runtime/collections.c:369-373`) answered 0 for `index >= len`, which is
+//      indistinguishable from the character NUL, and the front end had both the
+//      receiver and the index and raised nothing. Measured: `s.at(99)` over
+//      "hello" printed 0. The receiver here is a real string, so this isolates
 //      the missing bounds check from n31's receiver-type bug: with the receiver
 //      correct, an in-range index is right and an out-of-range one is silently
 //      zero.
@@ -11,8 +11,18 @@
 //      Nothing in std/ depends on this being 0 -- `getOr` guards with
 //      `i >= l.len()` before it calls `get` -- so it can be made an error
 //      without a coordinated std change. FINDINGS F-0016.
-// known-defect: F-0016
-// wrong-value: 0
+//
+//      FIXED. The front end now proves this one while compiling, because it has
+//      both halves: `s` is an immutable binding to a literal with no escapes in
+//      it, and 99 is a literal. The runtime half covers what the front end
+//      cannot see (a computed index, a list built by push) and is
+//      tests/suite/list_index_out_of_range.orb, which exits 2.
+//
+//      The position on the card comes from a new field on CallNode and
+//      IndexAccessNode: those were the only two nodes in the AST with no
+//      position, and a check that cannot say where it is has to fall back to
+//      the one-line form.
+// expect-error: String index 99 is out of range for "s", which holds 5 characters
 fn main() -> int {
     val s = "hello"
     print(s.at(99))
