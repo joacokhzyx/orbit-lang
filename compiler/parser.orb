@@ -269,20 +269,24 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
     var result = lhs
     var parsing = true
     while parsing {
-        if matchToken(parser, TokType.OpenParen) {
-            var args = []
-            if check(parser, TokType.CloseParen) == false {
-                var parsingArgs = true
-                while parsingArgs {
-                    val arg = parseExpression(parser)
-                    args.push(arg)
-                    if matchToken(parser, TokType.Comma) == false {
-                        parsingArgs = false
+        if check(parser, TokType.OpenParen) {
+            val callLine = parser.currentToken.line
+            val callCol = parser.currentToken.column
+            if matchToken(parser, TokType.OpenParen) {
+                var args = []
+                if check(parser, TokType.CloseParen) == false {
+                    var parsingArgs = true
+                    while parsingArgs {
+                        val arg = parseExpression(parser)
+                        args.push(arg)
+                        if matchToken(parser, TokType.Comma) == false {
+                            parsingArgs = false
+                        }
                     }
                 }
+                consume(parser, TokType.CloseParen, "Expected ')' after arguments.")
+                result = ASTNode.Call(CallNode(result, args, callLine, callCol))
             }
-            consume(parser, TokType.CloseParen, "Expected ')' after arguments.")
-            result = ASTNode.Call(CallNode(result, args))
         } else {
             if matchToken(parser, TokType.Dot) {
                 // A quoted key is a real key: `headers."content-type"` is how a
@@ -299,9 +303,11 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
                 result = ASTNode.MemberAccess(MemberAccessNode(result, member))
             } else {
                 if matchToken(parser, TokType.OpenBracket) {
+                    val idxLine = parser.previousToken.line
+                    val idxCol = parser.previousToken.col
                     val index = parseExpression(parser)
                     consume(parser, TokType.CloseBracket, "Expected ']' after index.")
-                    result = ASTNode.IndexAccess(IndexAccessNode(result, index))
+                    result = ASTNode.IndexAccess(IndexAccessNode(result, index, idxLine, idxCol))
                 } else {
                     parsing = false
                 }

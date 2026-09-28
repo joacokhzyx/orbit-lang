@@ -221,6 +221,12 @@ model UnaryOpNode {
 model CallNode {
     callee: list
     args: list
+    // Where the `(` was. Sema reports a constant index that is past the end of
+    // a list or a string against this, and it is the only way that check can
+    // point at a line: the IR carries no position, so a runtime diagnostic can
+    // only name the function it was emitted into.
+    line: int
+    col: int
 }
 
 model MemberAccessNode {
@@ -231,6 +237,8 @@ model MemberAccessNode {
 model IndexAccessNode {
     object: list
     index: list
+    line: int
+    col: int
 }
 
 model ListLiteralNode {

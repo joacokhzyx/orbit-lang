@@ -94,6 +94,14 @@ model IRInstruction {
     operand1: IRValue
     operand2: IRValue
     operand3: IRValue
+    // The element type of the list this instruction touches, as an
+    // OrbitElemKind number (0 undecided, 1 string, 2 int, 3 float, 4 bool,
+    // 5 ref). Only the collection opcodes set it, and only the builder sets
+    // it -- it is the one place the element type is decided, so the reader
+    // and the writer cannot disagree about which accessor to emit. 0 means
+    // "nobody could tell", which lowers to the untyped accessor and to a
+    // `void*` destination, exactly as before.
+    elemKind: int
 }
 
 // Factory functions for IRValue
@@ -132,7 +140,7 @@ fn ir_none() -> IRValue {
 }
 
 fn ir_init_instr(opcode: IROpcode) -> IRInstruction {
-    return IRInstruction(opcode, -1, ir_none(), ir_none(), ir_none())
+    return IRInstruction(opcode, -1, ir_none(), ir_none(), ir_none(), 0)
 }
 
 model IRFunction {
