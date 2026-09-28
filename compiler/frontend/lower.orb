@@ -130,6 +130,14 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         ASTNode.MemberAccess(member) => {
             val objVal = lowerExpression(module, function, blockId, bindings, member.object)
             val resType = typeOfExpression(bindings, node)
+            // A member read is the second-largest source of `unknown` in the
+            // corpus and the largest one that said nothing: the lowering had a
+            // diagnostic for a load, a binary op and a unary op, and none for
+            // this, so a member on a receiver it cannot type reached codegen
+            // with no code and no message. FINDINGS F-0018.
+            if resType == "unknown" {
+                tirError(module, "E2004", "cannot type the member read ." + member.field, 0, 0)
+            }
             return tirEmit(function, blockId, "member", resType, tirValue(objVal) + " " + member.field)
         }
         ASTNode.Call(call) => {
@@ -143,6 +151,13 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 i = i + 1
             }
             val returnType = typeOfExpression(bindings, node)
+            // Same reasoning as E2004, and the larger of the two: a call whose
+            // result cannot be typed is a call the front end does not know the
+            // signature of, and it used to be indistinguishable from one it did
+            // -- which is how an unchecked argument type reached codegen.
+            if returnType == "unknown" {
+                tirError(module, "E2005", "cannot type the result of this call", 0, 0)
+            }
             return tirEmit(function, blockId, "call", returnType, operands)
         }
         _ => {

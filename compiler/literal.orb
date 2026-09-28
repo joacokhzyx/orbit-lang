@@ -38,3 +38,46 @@ fn parseIntSelfhost(s: string) -> int {
     }
     return result
 }
+
+// Does this integer literal denote a value orbit_int can hold?
+//
+// parseIntSelfhost cannot answer that question, because asking it is the
+// defect: it accumulates `result * base + digit` into an int and wraps, so
+// 2147483648 comes back as -2147483648 and the caller cannot tell a value that
+// fit from one that did not. A literal is the one thing in a program that
+// cannot be checked later -- by the time there is a register, the wrong number
+// is already the program -- so the check happens on the text.
+//
+// The digits are tested against the limit as they arrive and the walk stops
+// the moment the partial value passes it, so no intermediate ever has to hold
+// a value that does not fit. The bound is 2147483647: orbit_int is a C int
+// (runtime/types.c), and INT_MIN is spelled separately, as a negation.
+fn intLiteralFitsSelfhost(s: string) -> bool {
+    var i = 0
+    var base = 10
+    if s.len() > 2 {
+        if s.at(0) == 48 && (s.at(1) == 120 || s.at(1) == 88) { // '0' 'x' 'X'
+            base = 16
+            i = 2
+        }
+    }
+    var value = 0
+    val limit = 2147483647
+    while i < orbit_string_len(s) {
+        val c = s.at(i)
+        if c >= 48 && c <= 57 {
+            if value > (limit - (c - 48)) / base { return false }
+            value = value * base + (c - 48)
+        } else if base == 16 {
+            if c >= 97 && c <= 102 {
+                if value > (limit - (c - 87)) / 16 { return false }
+                value = value * 16 + (c - 87)
+            } else if c >= 65 && c <= 70 {
+                if value > (limit - (c - 55)) / 16 { return false }
+                value = value * 16 + (c - 55)
+            }
+        }
+        i = i + 1
+    }
+    return true
+}

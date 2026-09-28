@@ -1,7 +1,12 @@
 // case: call-non-function
-// what: an int is not callable. `n()` must not compile; today it is emitted as
-//      a call through a register holding 5.
-// known-defect: call-target
+// what: an int is not callable. `n()` must not compile; it used to be emitted
+//      as a call through a register holding 5.
+//
+//      The name IS declared, so "undeclared function" would be the wrong
+//      diagnostic and would send the reader looking for a missing `fn` that is
+//      right there on the page. The callee resolution checks the declaration's
+//      kind, not just its presence.
+// expect-error: Cannot call 'n': it is a int, not a function
 fn main() -> int {
     val n = 5
     return n()

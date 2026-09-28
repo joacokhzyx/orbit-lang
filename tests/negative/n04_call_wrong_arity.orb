@@ -1,7 +1,14 @@
 // case: call-wrong-arity
 // what: `add` takes two parameters. Calling it with three arguments must not
-//      compile; today the extra argument is dropped and the call is emitted.
-// known-defect: arity
+//      compile; the extra argument used to be dropped and the call emitted.
+//
+//      Both ends of the comparison were available the whole time and nothing
+//      joined them: the call had a name and a list of arguments, the
+//      declaration was a different node in a different pass, and the
+//      argument types the checker inferred on the way past were thrown away.
+//      `Symbol` now carries the declared parameter list, which is what makes
+//      the check possible at all.
+// expect-error: Wrong number of arguments to add: it takes 2, got 3
 fn add(a: int, b: int) -> int { return a + b }
 
 fn main() -> int { return add(1, 2, 3) }

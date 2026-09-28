@@ -1,3 +1,5 @@
+import "./builder.orb"
+import "./extern.orb"
 import "./ir.orb"
 import "./route_runtime.orb"
 
@@ -1471,6 +1473,13 @@ fn markUsedLocals(body: string, names: list, registerCount: int) -> list {
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     backend.currentFunction = func
     backend.callArgs = []
+    // `i` walks the parameter list in the signature below and the register
+    // list after the body, so it is declared here rather than inside the `else`
+    // that opens the signature. Sema scopes a `var` to its block, and the
+    // `i = 0` that restarts it for the declarations was reaching past the end
+    // of that block -- legal only because the emitter happens to give every
+    // local function scope in C. FINDINGS F-0017.
+    var i = 0
     // Reset the per-function string tracking BEFORE inferring register types.
     // inferRegisterTypes consults isStringOperand()/isStringVar(), and both read
     // backend.strRegs / backend.strVars. Register ids and local variable names
@@ -1526,7 +1535,6 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* _init_arena")
     } else {
         orbit_cbuf_append_selfhost(cbFn, funcAttr + "static " + retType + " " + fName + "(")
-        var i = 0
         if func.params.len() == 0 {
             orbit_cbuf_append_selfhost(cbFn, "void")
         } else {

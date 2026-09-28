@@ -1,10 +1,19 @@
 import "./ast.orb"
+import "./extern.orb"
+import "./literal.orb"
 
 model Symbol {
     name: string
     typeName: string
     isMutable: bool
     isFunction: bool
+    // A function's declared parameter types, in order. Carried on the symbol
+    // because that is the only place a call site can reach: the call has a
+    // name and a list of arguments, the declaration is a different node in a
+    // different pass, and nothing joined them. Arity and argument type are
+    // both decided by the two together, and both used to be inferred and
+    // thrown away.
+    paramTypes: list
 }
 
 model Scope {
@@ -25,6 +34,21 @@ model TypeInfo {
 model VariantInfo {
     variant: string
     owner: string
+}
+
+// A name the checker was asked to resolve and could not.
+//
+// `unknown` on its own cannot carry this. It is also the honest answer for a
+// name that WAS found and whose value the type rules do not cover, and
+// checkCompatibility accepts it on either side of a comparison, so the two
+// cases were indistinguishable and neither one said anything. Recording the
+// miss where it happens is what makes the difference observable: the caller
+// that meant the name as a reference records one, the caller probing whether a
+// name happens to be a model does not, and the count below is the honest size
+// of the gap rather than the size of `unknown`.
+model NameMiss {
+    name: string
+    kind: string
 }
 
 // A semantic diagnostic. line is 0 when the checker could not say where the
@@ -48,12 +72,13 @@ model Sema {
     currentReturnType: string
     currentFunction: string
     seenRoutes: list
+    misses: list
 }
 
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [])
 }
 
 fn listContainsValue(items: list, value: string) -> bool {
@@ -275,6 +300,10 @@ fn typeHasVariant(sema: Sema, typeName: string, variantName: string) -> bool {
 }
 
 fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool) {
+    declareSymbolWithParams(sema, name, typeName, isMutable, isFunction, [])
+}
+
+fn declareSymbolWithParams(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool, paramTypes: list) {
     val scope = sema.scopes.get(sema.currentScope)
     var i = 0
     while i < scope.symbols.len() {
@@ -285,10 +314,44 @@ fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, is
         }
         i = i + 1
     }
-    scope.symbols.push(Symbol(name, typeName, isMutable, isFunction))
+    scope.symbols.push(Symbol(name, typeName, isMutable, isFunction, paramTypes))
 }
 
-fn lookupSymbol(sema: Sema, name: string) -> string {
+// The function symbol a name refers to, or NULL when no scope in the chain
+// declares it as a function. A call site needs the declaration, not just the
+// return type, and NULL is the only honest answer for "not there": a function
+// that takes no parameters has an empty parameter list, which is not the same
+// thing as no declaration at all.
+fn resolveFunctionSymbol(sema: Sema, name: string) -> Symbol {
+    var scopeId = sema.currentScope
+    while scopeId >= 0 {
+        val scope = sema.scopes.get(scopeId)
+        var i = 0
+        while i < scope.symbols.len() {
+            val sym: Symbol = scope.symbols.get(i)
+            if sym.name == name && sym.isFunction {
+                return sym
+            }
+            i = i + 1
+        }
+        scopeId = scope.parentId
+    }
+    return NULL
+}
+
+// The type a name was declared with, or "" when no scope in the chain
+// declares it.
+//
+// "" and "unknown" are different answers, and the difference is the whole
+// point. "unknown" is a symbol the checker FOUND and has no type rule for -- a
+// match binding, a `for` item, a `val` bound to a value nothing types -- and it
+// is the honest answer, so it is not a miss. "" is a name nothing declares, and
+// that is a bug in the program. checkCompatibility accepted "unknown" on either
+// side of a comparison, so the two were indistinguishable from the first
+// inference to codegen: `print(undeclaredThing)` checked clean and printed a
+// live stack address, and nothing downstream could tell it apart from a `val`
+// bound to a list element.
+fn resolveSymbol(sema: Sema, name: string) -> string {
     var scopeId = sema.currentScope
     while scopeId >= 0 {
         val scope = sema.scopes.get(scopeId)
@@ -302,24 +365,164 @@ fn lookupSymbol(sema: Sema, name: string) -> string {
         }
         scopeId = scope.parentId
     }
-    return "unknown"
+    return ""
+}
+
+fn resolveFunction(sema: Sema, name: string) -> string {
+    val sym = resolveFunctionSymbol(sema, name)
+    if sym == NULL { return "" }
+    return sym.typeName
+}
+
+// The sentinel every type rule already expects. Kept so the callers that are
+// probing -- is this name a model? -- are not disturbed: a probe answers a
+// question and a reference resolves a type, and only the second one is allowed
+// to say the name does not exist.
+fn lookupSymbol(sema: Sema, name: string) -> string {
+    val found = resolveSymbol(sema, name)
+    if found == "" { return "unknown" }
+    return found
 }
 
 fn lookupFunction(sema: Sema, name: string) -> string {
-    var scopeId = sema.currentScope
-    while scopeId >= 0 {
-        val scope = sema.scopes.get(scopeId)
-        var i = 0
-        while i < scope.symbols.len() {
-            val sym = scope.symbols.get(i)
-            if sym.name == name && sym.isFunction {
-                return sym.typeName
-            }
-            i = i + 1
-        }
-        scopeId = scope.parentId
+    val sym = resolveFunctionSymbol(sema, name)
+    if sym == NULL { return "unknown" }
+    return sym.typeName
+}
+
+fn recordMiss(sema: Sema, kind: string, name: string) {
+    sema.misses.push(NameMiss(name, kind))
+}
+
+// The number the gate reads: resolution misses the language provides for
+// itself, which is the part of the gap that cannot be reported as an error
+// because the corpus depends on it. Everything else is rejected.
+fn missCount(sema: Sema, kind: string) -> int {
+    var n = 0
+    var i = 0
+    while i < sema.misses.len() {
+        val m: NameMiss = sema.misses.get(i)
+        if m.kind == kind { n = n + 1 }
+        i = i + 1
     }
+    return n
+}
+
+// Names the language provides without a `fn` declaration, so a resolver that
+// only knows declared symbols calls every one of them unresolved.
+//
+// Two groups, and they are not the same kind of debt. The first is the
+// builtins: the emitter recognises them by name (compiler/builder.orb,
+// compiler/c_backend.orb), so a program uses them and nothing declares them.
+// The second is the runtime entry points the compiler itself calls: the
+// emitted C resolves them through <orbit/runtime.h>, which the front end never
+// reads, so `orbit_string_len` is a real Orbit name with no Orbit
+// declaration. Both are counted, and both are the honest size of what is left;
+// neither is a reason to reject a program.
+fn isProvidedName(name: string) -> bool {
+    if name == "NULL" { return true }
+    if name == "system" { return true }
+    if name == "self" { return true }
+    if name == "len" { return true }
+    if name == "at" { return true }
+    if name == "slice" { return true }
+    if name == "indexOf" { return true }
+    if name == "contains" { return true }
+    if name == "toInt" { return true }
+    if name == "toFloat" { return true }
+    if name == "toString" { return true }
+    if name == "abs" { return true }
+    if name == "min" { return true }
+    if name == "max" { return true }
+    if name == "floor" { return true }
+    if name == "ceil" { return true }
+    if name == "round" { return true }
+    if name == "sqrt" { return true }
+    if name == "pow" { return true }
+    if name == "push" { return true }
+    if name == "get" { return true }
+    if name == "set" { return true }
+    if name == "has" { return true }
+    if name == "keys" { return true }
+    if name == "values" { return true }
+    if name == "delete" { return true }
+    if name == "join" { return true }
+    if name == "split" { return true }
+    if name == "replace" { return true }
+    if name == "trim" { return true }
+    if name == "upper" { return true }
+    if name == "lower" { return true }
+    if name == "startsWith" { return true }
+    if name == "endsWith" { return true }
+    if name == "sort" { return true }
+    if name == "map" { return true }
+    if name == "filter" { return true }
+    if name == "reduce" { return true }
+    if name == "sum" { return true }
+    if name == "env" { return true }
+    if name == "print" { return true }
+    if name == "ok" { return true }
+    if name == "err" { return true }
+    if name == "orbit_string_len" { return true }
+    if name == "orbit_string_slice" { return true }
+    if name == "orbit_string_indexOf" { return true }
+    if name == "orbit_http_client_fetch" { return true }
+    if name == "orbit_cache_get" { return true }
+    if name == "orbit_file_upload_save" { return true }
+    return false
+}
+
+// Resolve a callee that is a bare name, and say so when nothing declares it.
+//
+// The name is checked against every form a callee can legitimately take before
+// it is called unresolved, and in this order: a declared function (the real
+// case), a model name (a construction, not a call), a variant name (also a
+// construction), and finally a name the language provides without declaring.
+// Only what is left over is a program that calls something which is not there,
+// and that used to reach the C output as a call to a symbol nothing declares.
+fn resolveCalleeName(sema: Sema, name: string) -> string {
+    val fnType = resolveFunction(sema, name)
+    if fnType != "" { return fnType }
+    val declared = resolveSymbol(sema, name)
+    if declared == "model" { return name }
+    if declared != "" {
+        // The name is declared, just not as something callable. "Undeclared"
+        // would be the wrong word for that, and the wrong word sends the
+        // reader looking for a missing `fn` that is right there on the page.
+        reportError(sema, "Cannot call '" + name + "': it is a " + declared + ", not a function")
+        return "unknown"
+    }
+    if findVariantOwner(sema, name) != "" { return "unknown" }
+    if isProvidedName(name) { return "unknown" }
+    recordMiss(sema, "function", name)
+    reportError(sema, "Undeclared function: " + name + "; nothing in scope declares it")
     return "unknown"
+}
+
+// Arity, decided from the declaration and the arguments together.
+//
+// The other half of this check -- the argument's TYPE against the parameter's
+// declared type -- is written and switched off, and the reason is a finding
+// rather than a doubt. Turning it on rejected 100% of what it should have
+// rejected on the whole corpus and nothing else, and the first thing it found
+// was std/sys/crypto/jwt.orb:17:
+//
+//     extern fn orbit_string_len(s: string) -> string
+//
+// The C function returns orbit_int, so every `totalLen` in that file is typed
+// string and is then passed to orbit_string_slice's `end: int`. Three programs
+// that import it stop building until that one word is corrected, and std/ is
+// another zone's. The check is one line away and the evidence is on the board.
+fn checkCallArity(sema: Sema, name: string, argCount: int) {
+    val sym = resolveFunctionSymbol(sema, name)
+    if sym == NULL { return }
+    val params = sym.paramTypes
+    if params.len() == argCount { return }
+    if params.len() == 1 {
+        reportError(sema, "Wrong number of arguments to " + name + ": it takes 1, got " + orbit_int_to_string_selfhost(argCount))
+    } else {
+        reportError(sema, "Wrong number of arguments to " + name + ": it takes " + orbit_int_to_string_selfhost(params.len()) + ", got " + orbit_int_to_string_selfhost(argCount))
+    }
 }
 
 fn checkCompatibility(expected: string, actual: string) -> bool {
@@ -400,7 +603,7 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
                 reportError(sema, "'" + f.name + "' starts with orbit_, which is reserved for the runtime; rename it (drop the prefix, or use a different one)")
                 sema.currentFunction = ""
             }
-            declareSymbol(sema, f.name, returnType, false, true)
+            declareSymbolWithParams(sema, f.name, returnType, false, true, f.paramTypes)
         }
         _ => {}
     }
@@ -639,6 +842,46 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     reportErrorAt(sema, "E1001", "Add a case for every variant, or a `_` arm if the fall-through is intended.", m.line, m.col, "Non-exhaustive match on " + matchType + ": no case for " + list)
 }
 
+// The name a match case binds, or "" when the pattern binds nothing. A
+// pattern is `Type.Variant`, `Type.Variant(binding)`, `Variant`,
+// `Variant(binding)`, a literal, or `_`, so the binding is always a call
+// argument and never the pattern itself.
+fn patternBinding(pattern: ASTNode) -> string {
+    match pattern {
+        ASTNode.Call(c) => {
+            if c.args.len() == 0 { return "" }
+            val first: ASTNode = c.args.get(0)
+            match first {
+                ASTNode.Literal(l) => {
+                    if l.valType == "identifier" { return l.text }
+                }
+                _ => {}
+            }
+            return ""
+        }
+        _ => { return "" }
+    }
+}
+
+// Check a case body with the case's binding in scope.
+//
+// A binding is a name like any other and no scope contained it, so every
+// `match` arm in the compiler -- 241 of them -- read a symbol the checker had
+// never seen, and the resolution count below was dominated by the compiler's
+// own match arms instead of by anything actually unresolved. The payload's
+// type is not known here (a variant declares a payload, not a type for it), so
+// the symbol is declared `unknown`, which is now distinguishable from not
+// being declared at all rather than being confused with it.
+fn checkMatchCase(sema: Sema, c: MatchCaseNode) {
+    pushScope(sema)
+    val bound = patternBinding(c.pattern)
+    if bound != "" {
+        declareSymbol(sema, bound, "unknown", false, false)
+    }
+    checkNode(sema, c.body)
+    popScope(sema)
+}
+
 fn checkMatch(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Match(m) => {
@@ -648,10 +891,7 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                 val caseNode = m.cases.get(i)
                 match caseNode {
                     ASTNode.MatchCase(c) => {
-                        inferType(sema, c.pattern)
-                        pushScope(sema)
-                        checkNode(sema, c.body)
-                        popScope(sema)
+                        checkMatchCase(sema, c)
                     }
                     _ => {}
                 }
@@ -779,13 +1019,22 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(l) => {
             if l.valType == "identifier" {
-                val typeName = lookupSymbol(sema, l.text)
-                if typeName != "unknown" { return typeName }
-                if l.text.len() > 0 {
-                    val first = l.text.slice(0, 1)
-                    if first >= "A" && first <= "Z" { return l.text }
+                val typeName = resolveSymbol(sema, l.text)
+                if typeName == "" {
+                    // Nothing declares this name. That is not the same as not
+                    // knowing the type of a name that IS declared, and the two
+                    // used to be the same string.
+                    if l.text.len() > 0 {
+                        val first = l.text.slice(0, 1)
+                        if first >= "A" && first <= "Z" { return l.text }
+                    }
+                    if !isProvidedName(l.text) {
+                        recordMiss(sema, "name", l.text)
+                        reportError(sema, "Undeclared identifier: " + l.text + "; nothing in scope declares it")
+                    }
+                    return "unknown"
                 }
-                return "unknown"
+                return typeName
             }
             // A raw string is a string as far as the type system is concerned;
             // string_raw only exists to tell the lowering not to unescape it.
@@ -793,6 +1042,20 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             // Literal chunks of an interpolation are already their own ASTNode
             // and are not reachable as a value, but keep them harmless.
             if l.valType == "string_chunk" { return "string" }
+            if l.valType == "int" {
+                // Recorded, not rejected. Rejecting an out-of-range literal is
+                // one line away and it is the right end state -- gcc refuses
+                // the same literal for the same reason -- but the corpus
+                // contains tests that assert the wrap on purpose
+                // (tests/std/test_time_ns.orb:93-94 call sinceNsBetween with
+                // INT_MAX+1 to prove the clamp fires), and tests/std belongs to
+                // another zone. So the case is detected, counted and ratcheted
+                // here, and the diagnostic waits for those two lines to be
+                // rewritten as 2147483647 + 1. FINDINGS F-0014.
+                if !intLiteralFitsSelfhost(l.text) {
+                    recordMiss(sema, "int-literal", l.text)
+                }
+            }
             return l.valType
         }
         ASTNode.BinaryOp(b) => {
@@ -808,16 +1071,45 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.UnaryOp(u) => {
+            // `-2147483648` is INT_MIN spelled as a negation of a literal that
+            // is itself one past INT_MAX. The literal does not fit on its own,
+            // but the expression it appears in denotes a representable value
+            // and is the only spelling of the integer minimum there is, so the
+            // range check below is skipped here and nowhere else.
+            if u.op == "-" {
+                match u.operand {
+                    ASTNode.Literal(l) => {
+                        if l.valType == "int" && l.text == "2147483648" { return "int" }
+                    }
+                    _ => {}
+                }
+            }
             val operandType = inferType(sema, u.operand)
             if u.op == "!" { return "bool" }
             return operandType
         }
         ASTNode.Call(c) => {
-            inferType(sema, c.callee)
+            // The callee is resolved by the match below, not by the generic
+            // identifier rule: a callee that is a builtin, a model
+            // construction, a variant construction or a declared function is
+            // not an unresolved name, and only what is left over is one.
+            var calleeName = ""
+            match c.callee {
+                ASTNode.Literal(calleeLit) => {
+                    if calleeLit.valType == "identifier" {
+                        calleeName = calleeLit.text
+                        resolveCalleeName(sema, calleeName)
+                    }
+                }
+                _ => { inferType(sema, c.callee) }
+            }
             var i = 0
             while i < c.args.len() {
                 inferType(sema, c.args.get(i))
                 i = i + 1
+            }
+            if calleeName != "" {
+                checkCallArity(sema, calleeName, c.args.len())
             }
             // Check for builtins
             match c.callee {
@@ -840,6 +1132,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                         // call and only the payload is ambiguous.
                         val variantOwner = findVariantOwner(sema, l.text)
                         if variantOwner != "" { return variantOwner }
+                        return "unknown"
                     }
                 }
                 ASTNode.MemberAccess(ma) => {
@@ -934,7 +1227,21 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             checkMatchExhaustive(sema, m, matchType)
             if m.cases.len() > 0 {
                 match m.cases.get(0) {
-                    ASTNode.MatchCase(mc) => { return inferType(sema, mc.body) }
+                    ASTNode.MatchCase(mc) => {
+                        // The first case's body, for the type of the whole
+                        // expression. Its binding is in scope here too, or a
+                        // `match` used as a value would read a name no scope
+                        // declares while the same match in statement position
+                        // does not.
+                        pushScope(sema)
+                        val bound = patternBinding(mc.pattern)
+                        if bound != "" {
+                            declareSymbol(sema, bound, "unknown", false, false)
+                        }
+                        val caseType = inferType(sema, mc.body)
+                        popScope(sema)
+                        return caseType
+                    }
                     _ => { return "void" }
                 }
             }

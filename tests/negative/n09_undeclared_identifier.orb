@@ -1,8 +1,17 @@
 // case: undeclared-identifier
 // what: `print(undeclaredThing)` names a symbol that does not exist. It must
-//      not compile; today it checks clean and prints whatever the register
-//      holds, which is a live stack address.
-// known-defect: name-resolution
+//      not compile; it used to check clean and print whatever the register
+//      held, which is a live stack address, and the builder's own comment said
+//      "Unknown identifier - emit load anyway" over the load.
+//
+//      The cause is that `unknown` had two meanings. It was the answer for a
+//      name nothing declares AND the honest answer for a name the checker found
+//      and has no type rule for -- a match binding, a `for` item -- and
+//      checkCompatibility accepts it on either side of a comparison, so
+//      nothing downstream could tell the two apart. `resolveSymbol` answers ""
+//      for the first and the declared type for the second, and only the first
+//      is an error.
+// expect-error: Undeclared identifier: undeclaredThing
 fn main() -> int {
     print(undeclaredThing)
     return 0

@@ -1,11 +1,13 @@
 // case: undeclared-function-call
 // what: `orbit_int_to_string_selfhost` is an extern, so a program that calls
 //      it without declaring it names a function that does not exist. It must
-//      not compile. It does: the call reaches the C output as a call to a
-//      symbol nothing declares, and a void extern reached this way is cast
-//      `(void*)(uintptr_t)`, which gcc rejects outright.
-//      FINDINGS F-0004.
-// known-defect: F-0004
+//      not compile.
+//
+//      It did: the call reached the C output as a call to a symbol nothing
+//      declares, and a void extern reached this way is cast
+//      `(void*)(uintptr_t)`, which gcc rejects outright -- a C error about a
+//      C problem, for an Orbit mistake. FINDINGS F-0004.
+// expect-error: Undeclared function: orbit_int_to_string_selfhost
 fn main() -> int {
     val n = orbit_int_to_string_selfhost(1)
     return n.len()

@@ -90,6 +90,44 @@ fn printSemaErrors(sema: Sema, source: string, inputPath: string) {
     }
 }
 
+// How much of this program the front end could not resolve, as lines a gate can
+// sum. On stderr, and only when the count is not zero, so a clean program says
+// nothing and the shape of a successful build is unchanged.
+//
+//     UNRESOLVED total <n>
+//     UNRESOLVED name <n>
+//     UNRESOLVED function <n>
+//     UNRESOLVED int-literal <n>
+//
+// `total` is the number to ratchet: it is the size of the name-resolution gap,
+// counted the same way on every run, and it is the thing that must never go up.
+// The per-kind lines say which front-end rule to write next, and the same
+// "LABEL value" shape is what scripts/unknown_census.py already parses, so a
+// ratchet over this is a grep. Absence of the line means zero.
+//
+// This reports a count; it never fails. The number exists so "do not regress
+// this" is a property of the build rather than a rule people follow, which is
+// D7. The bar is not zero and moving it to zero is not this slot's job: 30.5%
+// of inferred types in the corpus are `unknown`, and a gate that fails on a
+// high count is a gate everybody turns off.
+fn reportResolutionGaps(sema: Sema) {
+    if sema.misses.len() == 0 { return }
+    var names = missCount(sema, "name")
+    var functions = missCount(sema, "function")
+    var literals = missCount(sema, "int-literal")
+    var out = "UNRESOLVED total " + orbit_int_to_string_selfhost(names + functions + literals) + "\n"
+    if names > 0 {
+        out = out + "UNRESOLVED name " + orbit_int_to_string_selfhost(names) + "\n"
+    }
+    if functions > 0 {
+        out = out + "UNRESOLVED function " + orbit_int_to_string_selfhost(functions) + "\n"
+    }
+    if literals > 0 {
+        out = out + "UNRESOLVED int-literal " + orbit_int_to_string_selfhost(literals) + "\n"
+    }
+    orbit_os_write_stderr_selfhost(out)
+}
+
 // Phase memory report for ORBIT_MEM_REPORT=1. Zero cost when unset (one
 // getenv) and stderr-only, so build stdout and emitted artifacts are
 // untouched.
@@ -133,6 +171,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
 
     val sema = initSema()
     analyze(sema, ast)
+    reportResolutionGaps(sema)
     if hasErrors(sema) {
         printSemaErrors(sema, source, inputPath)
         return false
@@ -319,6 +358,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 
     val sema = initSema()
     analyze(sema, ast)
+    reportResolutionGaps(sema)
     if hasErrors(sema) {
         val firstErr: SemaError = sema.errors.get(0)
         if orbit_string_indexOf(firstErr.message, "Non-void function must return a value") != -1 {

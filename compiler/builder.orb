@@ -1,4 +1,5 @@
 import "./ast.orb"
+import "./extern.orb"
 import "./ir.orb"
 import "./literal.orb"
 
@@ -1856,7 +1857,13 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     }
                     if lit.text == "err" && c.args.len() >= 1 {
                         val msgReg = buildExpr(builder, c.args.get(0))
-                        var codeReg = ir_int(500)
+                        // 500, not ir_int(500). The default has to be a bare
+                        // register index, because that is what codeReg holds
+                        // once a second argument overwrites it, and what
+                        // ir_register() takes. The IRValue it used to be meant
+                        // `err "msg"` passed a register holding a pointer to a
+                        // boxed integer where the error code belonged.
+                        var codeReg = 500
                         if c.args.len() >= 2 {
                             codeReg = buildExpr(builder, c.args.get(1))
                         }
