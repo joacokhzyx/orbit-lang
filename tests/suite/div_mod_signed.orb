@@ -1,0 +1,45 @@
+// Division and remainder are signed.
+//
+// They were emitted with both operands cast to uintptr_t while `+`, `-` and
+// `*` were not, and the difference is invisible until an operand is negative.
+// A 32-bit int sign-extends into a 64-bit unsigned word, so the emitter
+// divided 2^64-7 by 2, got 9223372036854775804, and kept its low 32 bits:
+// (0-7)/2 printed -4, (0-7)%2 printed 1, and (0-7)/3 printed 1431655763. The
+// sibling opcodes survive the same cast only because addition, subtraction and
+// multiplication are the same modulo 2^32, so the cast is invisible there and
+// was copied here.
+//
+// Every case below fails with a different exit code, so a regression says which
+// one broke rather than just that something did.
+
+fn main() -> int {
+    val negSeven = 0 - 7
+    val two = 2
+    val three = 3
+
+    if (0 - 7) / 2 != -3 { return 1 }
+    if (0 - 7) % 2 != -1 { return 2 }
+    if (0 - 7) / 3 != -2 { return 3 }
+    if (0 - 7) % 3 != -1 { return 4 }
+    if negSeven / two != -3 { return 5 }
+    if negSeven % two != -1 { return 6 }
+    if negSeven / three != -2 { return 7 }
+
+    // A negative divisor, which truncates toward zero in C and must do the
+    // same here: -3/-2 is 1, not 2.
+    if (0 - 7) / (0 - 2) != 3 { return 8 }
+    if (0 - 7) % (0 - 2) != -1 { return 9 }
+
+    // The positive half is untouched by the fix.
+    if 7 / 2 != 3 { return 10 }
+    if 7 % 2 != 1 { return 11 }
+    if 0 / 5 != 0 { return 12 }
+    if 0 % 5 != 0 { return 13 }
+
+    // A float operand still divides as a float, so the signed int path did not
+    // swallow it.
+    val half = 7.0 / 2.0
+    if half != 3.5 { return 14 }
+
+    return 0
+}

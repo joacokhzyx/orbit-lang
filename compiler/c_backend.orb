@@ -2011,11 +2011,20 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_float)(" + generateValue(instr.operand1) + ") / (orbit_float)(" + generateValue(instr.operand2) + ")"))
                 return
             }
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") / (uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            // Signed, unlike the uintptr_t the sibling opcodes use, because
+            // division and remainder are the two operations whose result is not
+            // the same modulo 2^32. (uintptr_t)(-7) is 2^64-7, so -7/2 is
+            // answered 9223372036854775804 and lands in an orbit_int as -4.
+            // Casting each operand down to orbit_int first keeps the pointer
+            // conversion the rest of the emitter relies on and restores the
+            // arithmetic C gives for the source. FINDINGS F-0014.
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_int)(uintptr_t)(" + generateValue(instr.operand1) + ") / (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
             return
         }
         IROpcode.mod => {
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") % (uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            // Signed for the reason given on IROpcode.div above: (0-7) % 2 is
+            // -1, and 2^64-7 % 2 is 1.
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_int)(uintptr_t)(" + generateValue(instr.operand1) + ") % (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
             return
         }
         IROpcode.eq => {
