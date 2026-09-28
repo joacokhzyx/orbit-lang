@@ -72,6 +72,17 @@ fn isHexDigit(c: int) -> bool {
 // string of its own, so the scan for the closing quote must not stop at the
 // first quote it meets: without this, "${f("x")}" ended the literal at the
 // quote before x and the rest of the line was reported as garbage.
+fn isRadixDigit(c: int, radix: int) -> bool {
+    if isDigit(c) {
+        if radix == 2 { return c == 48 || c == 49 } // 0-1
+        if radix == 8 { return c >= 48 && c <= 55 } // 0-7
+        return true
+    }
+    if c >= 97 && c <= 102 { return radix == 16 } // 'a'-'f'
+    if c >= 65 && c <= 70 { return radix == 16 } // 'A'-'F'
+    return false
+}
+
 fn skipInterpHole(lexer: Lexer) {
     // Step past the "$" and the "{" so the first brace seen is a nested one.
     // Starting at the "$" instead would count the hole's own brace and never
@@ -260,20 +271,43 @@ fn nextToken(lexer: Lexer) -> Token {
         // 0x / 0X hexadecimal, so a mask or a colour is not written out in
         // decimal. Previously "0xFF" lexed as the integer 0 and left "xFF" to
         // be dropped, which compiled clean and then meant something else.
-        if c == 48 && (peek(lexer) == 120 || peek(lexer) == 88) { // '0' 'x' 'X'
-            // From the leading '0', not from the 'x' the cursor is on, so the
-            // token keeps the 0x prefix for the integer parser to recognise.
-            val hexStart = start
-            advance(lexer)
-            var hexDigits = 0
-            while isHexDigit(peek(lexer)) {
+        if c == 48 {
+            var radix = 0
+            if peek(lexer) == 120 || peek(lexer) == 88 { radix = 16 } // 'x' 'X'
+            if peek(lexer) == 98 || peek(lexer) == 66 { radix = 2 } // 'b' 'B'
+            if peek(lexer) == 111 || peek(lexer) == 79 { radix = 8 } // 'o' 'O'
+            if radix > 0 {
+                // From the leading '0', not from the letter the cursor is on,
+                // so the token keeps the prefix for the integer parser.
+                val radixStart = start
                 advance(lexer)
-                hexDigits = hexDigits + 1
+                // A '_' separator belongs to the literal, but only BETWEEN two
+                // digits: `0xFF_FF` is one number and `0x_FF` is not. Decimal
+                // literals already worked because their loop skipped any '_'
+                // after a digit; a prefixed base needed the same rule, and
+                // without it `0xFF_FF` was 0xFF followed by the name _FF.
+                var radixDigits = 0
+                var afterSeparator = false
+                while lexer.pos < lexer.sourceLen {
+                    val dc = peek(lexer)
+                    if isRadixDigit(dc, radix) {
+                        advance(lexer)
+                        radixDigits = radixDigits + 1
+                        afterSeparator = false
+                    } else if dc == 95 && !afterSeparator && radixDigits > 0 {
+                        advance(lexer)
+                        afterSeparator = true
+                    } else {
+                        afterSeparator = false
+                        break
+                    }
+                }
+                if radixDigits > 0 {
+                    return Token(TokType.IntegerLiteral, lexer.source.slice(radixStart, lexer.pos), line, col)
+                }
+                // A bare "0" followed by something else is just the digit 0:
+                // `0` then an identifier, which is a different program.
             }
-            if hexDigits > 0 {
-                return Token(TokType.IntegerLiteral, lexer.source.slice(hexStart, lexer.pos), line, col)
-            }
-            // A bare "0" followed by something else is just the digit 0.
         }
         var isFloat = false
         var lastWasDigit = true
@@ -288,6 +322,31 @@ fn nextToken(lexer: Lexer) -> Token {
                 while isDigit(peek(lexer)) {
                     advance(lexer)
                 }
+            }
+        }
+        // An exponent belongs to the number: 2.5e3 was 2.5 followed by an
+        // identifier, and 2.5E3 was 2.5 followed by what the type rules read as
+        // a type name. Both were a parse error saying "Expected ')' after
+        // arguments", which is no way to learn that the literal was the problem.
+        // The token keeps the text and the C compiler evaluates the exponent,
+        // which is the same path a plain 2.5 already takes.
+        if peek(lexer) == 101 || peek(lexer) == 69 { // 'e' 'E'
+            val mark = lexer.pos
+            advance(lexer)
+            if peek(lexer) == 43 || peek(lexer) == 45 { // '+' '-'
+                advance(lexer)
+            }
+            var expDigits = 0
+            while isDigit(peek(lexer)) {
+                advance(lexer)
+                expDigits = expDigits + 1
+            }
+            if expDigits == 0 {
+                // Not an exponent after all: give the letters back so "2e" is
+                // the number 2 followed by the name e, as it always was.
+                lexer.pos = mark
+            } else {
+                isFloat = true
             }
         }
         val textDigit = lexer.source.slice(start, lexer.pos)

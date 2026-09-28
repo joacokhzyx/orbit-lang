@@ -1,0 +1,39 @@
+// Every integer base the lexer knows, and float exponents.
+//
+// The three forms here used not to exist. `0b1010` lexed as the integer 0
+// followed by an identifier and was rejected with "Expected ')' after
+// arguments"; `0o17` the same; and `2.5e3` was 2.5 followed by the name e3,
+// while `2.5E3` was 2.5 followed by what the type rules read as a type name.
+// "Expected ')' after arguments" is no way to learn that the literal was the
+// problem, which is why a whole form looked like a parser bug rather than a
+// missing feature. They are pinned in tests/negative/ as the shape they were.
+
+fn main() -> int {
+    // 0x landed earlier than the rest and is here as the control.
+    if 0xFF != 255 { return 1 }
+    if 0xff != 255 { return 2 }
+    if 0xAbCdEf != 11259375 { return 3 }
+
+    if 0b1010 != 10 { return 4 }
+    if 0B1010 != 10 { return 5 }
+    if 0o17 != 15 { return 6 }
+    if 0O17 != 15 { return 7 }
+    if 0b0 != 0 { return 8 }
+
+    // Separators work in every base, because the lexer skips them, not the
+    // parser, so there is one place to get it right.
+    if 1_000_000 != 1000000 { return 9 }
+    if 0xFF_FF != 65535 { return 10 }
+    if 0b1010_1010 != 170 { return 11 }
+
+    // A letter that is not a base marker leaves the number alone: `0e` is the
+    // digit 0 followed by the name e, the way it has always been.
+    if 0 != 0 { return 12 }
+
+    // Float exponents keep their value.
+    if 2.5e3 != 2500.0 { return 13 }
+    if 1.0e6 != 1000000.0 { return 14 }
+    if 1.5E-3 != 0.0015 { return 15 }
+    if 1.0e20 != 100000000000000000000.0 { return 16 }
+    return 0
+}

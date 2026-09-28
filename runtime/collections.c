@@ -734,7 +734,11 @@ orbit_string orbit_int_to_string(OrbitArena* arena, orbit_int value) {
 orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
     if (!arena) return "";
 
-    char tmp[64];
+    // Big enough for the fixed rendering below as well as for %g, so the copy
+    // that moves one into the other cannot truncate. gcc cannot prove that a
+    // value which round-trips as a decimal below 1e17 needs fewer than 26
+    // characters, and it is right not to have to.
+    char tmp[512];
     int n = snprintf(tmp, sizeof(tmp), "%.15g", value);
     if (n <= 0) return "";
 
@@ -750,6 +754,45 @@ orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
             break;
         }
     }
+
+    // Prefer the fixed form for magnitudes a person would write that way.
+    // The loop above minimises *precision*, not length, and %g switches to
+    // exponential when the exponent reaches the precision: 2500.0 round-trips
+    // at precision 2, so it printed as "2.5e+03" -- the same number, in a
+    // shape nobody writes. So for a value inside the range where fixed
+    // notation is readable, look for a fixed rendering that round-trips and
+    // use it instead, trimming the trailing zeros the decimals add.
+    // The range where fixed notation is the shorter, more readable answer.
+    // Below 1e-6 and above 1e17 the digits stop being scannable and the
+    // exponent form is genuinely better, which is roughly where other languages
+    // switch too. 1e6 as "1e+06" is nobody's idea of how to write a million.
+    double magnitude = value < 0 ? -value : value;
+    int wantFixed = (value == value) &&
+                    (value == 0.0 || (magnitude >= 1e-6 && magnitude < 1e17));
+    if (wantFixed) {
+        char fixed[512];
+        for (int dec = 0; dec <= 17; dec++) {
+            if (snprintf(fixed, sizeof(fixed), "%.*f", dec, value) <= 0) break;
+            char* end = NULL;
+            if (strtod(fixed, &end) == value && end != NULL && *end == '\0') {
+                if (dec > 0) {
+                    char* last = fixed + strlen(fixed) - 1;
+                    while (last > fixed && *last == '0') { *last-- = '\0'; }
+                    if (*last == '.') { *last = '\0'; }
+                }
+                snprintf(tmp, sizeof(tmp), "%s", fixed);
+                break;
+            }
+        }
+    }
+
+    // Length the string that is actually in tmp, not the one the last snprintf
+    // that filled it happened to write. The %g loop left `n` describing its own
+    // output, so a million came out as 100000: seven characters sitting in tmp,
+    // `n` saying five, and the final memcpy faithfully copying five. Nothing had
+    // rewritten tmp after that loop before now, which is why it survived.
+    n = (int)strlen(tmp);
+    if (n <= 0) return "";
 
     char* buf = (char*)orbit_alloc(arena, (size_t)n + 1);
     if (!buf) return "";
