@@ -12,12 +12,18 @@ model IRBuilder {
     loopEndLabels: list
     modelNames: list
     returnTypes: list
+    // Element type per named list, as `name -> Orbit type name` (Variable).
+    // A list literal knows its own kind; a `var xs = []` that is filled by
+    // push() learns it from the first push it can type. Separate from the
+    // ordinary variable table because a list's element type is not the
+    // variable's type: `var xs: list` says nothing about what is in it.
+    listKinds: list
 }
 
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [])
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [])
 }
 
 model Variable {
@@ -285,6 +291,259 @@ fn listElementType(source: string) -> string {
     return "unknown"
 }
 
+/* ── List element kinds ────────────────────────────────────────────────────
+ *
+ * A list has one element type (F-0002), and until now the compiler had no way
+ * to say which, so `xs.get(i)` emitted a hardcoded `*(void**)`: one read for
+ * a list of strings, one for a list of ints, one for a list of lists, and all
+ * three the same. This is where the kind is decided.
+ *
+ * Decided once, here, and carried on the instruction as `elemKind`, because
+ * the reader and the writer have to agree and two independent guesses would
+ * not. The builder is the only place that knows: it is the only place that
+ * sees the list literal, the variable it was bound to, and the value pushed
+ * into it. Everything downstream reads `elemKind` and lowers accordingly.
+ *
+ * The kind is named as an Orbit type string, "" for "could not tell", because
+ * that is what the rest of the builder already passes around.
+ */
+
+fn isScalarKindName(k: string) -> bool {
+    if k == "int" || k == "orbit_int" { return true }
+    if k == "float" || k == "orbit_float" { return true }
+    if k == "string" || k == "orbit_string" { return true }
+    if k == "bool" || k == "orbit_bool" { return true }
+    return false
+}
+
+fn isReferenceKindName(k: string) -> bool {
+    if k == "list" || k == "map" || k == "object" || k == "ref" { return true }
+    if k == "" || k == "unknown" || k == "void" { return false }
+    if isScalarKindName(k) { return false }
+    // A capitalised name is a model, and a model value is a pointer.
+    val fc = k.at(0)
+    return fc >= 65 && fc <= 90
+}
+
+/** @brief The OrbitElemKind number for a type name. 0 when there is none. */
+fn elemKindCode(k: string) -> int {
+    if k == "string" || k == "orbit_string" { return 1 }
+    if k == "int" || k == "orbit_int" { return 2 }
+    if k == "float" || k == "orbit_float" { return 3 }
+    if k == "bool" || k == "orbit_bool" { return 4 }
+    if isReferenceKindName(k) { return 5 }
+    return 0
+}
+
+/** @brief The register type a list read should be declared with.
+ *
+ *  A reference element keeps "unknown", so its register is still `void*`:
+ *  the element is a pointer but the compiler does not know which pointer, and
+ *  declaring it as one particular struct would be a guess the C compiler is
+ *  entitled to reject. */
+fn registerTypeForKind(k: string) -> string {
+    if k == "string" || k == "orbit_string" { return "string" }
+    if k == "int" || k == "orbit_int" { return "int" }
+    if k == "float" || k == "orbit_float" { return "float" }
+    if k == "bool" || k == "orbit_bool" { return "bool" }
+    return "unknown"
+}
+
+/** @brief registerTypeForKind, from the kind number the instruction carries. */
+fn registerTypeForElemKind(code: int) -> string {
+    if code == 1 { return "string" }
+    if code == 2 { return "int" }
+    if code == 3 { return "float" }
+    if code == 4 { return "bool" }
+    return "unknown"
+}
+
+/** @brief The static type of an expression, for the purpose of a list's element type.
+ *
+ *  Deliberately narrow. It answers for literals, list and object literals,
+ *  interpolation, arithmetic, comparisons, and names; everything else is
+ *  "unknown", which leaves the list untyped and the read undecoded. A wrong
+ *  answer here would be worse than no answer: it would emit a typed accessor
+ *  for a slot holding something else. */
+fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
+    match node {
+        ASTNode.Literal(lit) => {
+            if lit.valType == "identifier" {
+                // A list is a list. Its ELEMENT type is a different question
+                // and has a different answerer, listKindNameOf; answering this
+                // one with the element type is what made `outer.push(inner)`
+                // push a list as an int and then read the list pointer back
+                // through orbit_list_read_int.
+                return lookupVariable(builder, lit.text)
+            }
+            if lit.valType == "string" { return "string" }
+            if lit.valType == "int" { return "int" }
+            if lit.valType == "float" { return "float" }
+            if lit.valType == "bool" { return "bool" }
+            return "unknown"
+        }
+        ASTNode.ListLiteral(ll) => { return "list" }
+        ASTNode.ObjectLiteral(ol) => { return "object" }
+        ASTNode.Interp(ip) => { return "string" }
+        ASTNode.UnaryOp(u) => {
+            if u.op == "!" { return "bool" }
+            return staticExprTypeName(builder, u.operand)
+        }
+        ASTNode.BinaryOp(b) => {
+            if b.op == "==" || b.op == "!=" || b.op == "<" || b.op == ">" || b.op == "<=" || b.op == ">=" { return "bool" }
+            if b.op == "&&" || b.op == "||" { return "bool" }
+            val lt = staticExprTypeName(builder, b.lhs)
+            val rt = staticExprTypeName(builder, b.rhs)
+            if b.op == "+" && (lt == "string" || rt == "string") { return "string" }
+            if lt == "float" || rt == "float" { return "float" }
+            if lt == "int" && rt == "int" { return "int" }
+            return "unknown"
+        }
+        ASTNode.Call(c) => {
+            match c.callee {
+                ASTNode.MemberAccess(ma) => {
+                    // A read of a list has the list's element type, which is
+                    // how `val x = xs.get(0)` learns what x is.
+                    if ma.field == "get" || ma.field == "at" {
+                        val recvKind = listKindNameOf(builder, ma.object)
+                        if recvKind != "" { return registerTypeForKind(recvKind) }
+                    }
+                    return resolveExprType(builder, node)
+                }
+                _ => { return resolveExprType(builder, node) }
+            }
+        }
+        _ => { return resolveExprType(builder, node) }
+    }
+}
+
+/** @brief The one element type of a list literal, or "" when it has none.
+ *
+ *  A literal whose elements disagree has no element type, and that is a
+ *  front-end error (sema raises it) rather than something to guess at here. */
+fn listLiteralKindName(builder: IRBuilder, ll: ListLiteralNode) -> string {
+    if ll.elements.len() == 0 { return "" }
+    var decided = ""
+    var ei = 0
+    while ei < ll.elements.len() {
+        val et = staticExprTypeName(builder, ll.elements.get(ei))
+        if et == "unknown" || et == "void" {
+            ei = ei + 1
+            continue
+        }
+        if et == "list" || et == "map" || et == "object" || isReferenceKindName(et) {
+            decided = "ref"
+        } else if decided == "" {
+            decided = et
+        } else if decided != et {
+            return ""
+        }
+        ei = ei + 1
+    }
+    return decided
+}
+
+/** @brief Is this expression a list? Used to decide whether `.at()` is a
+ *  character read or an element read. */
+fn isListExpression(builder: IRBuilder, node: ASTNode) -> bool {
+    match node {
+        ASTNode.ListLiteral(ll) => { return true }
+        ASTNode.Literal(lit) => {
+            if lit.valType == "identifier" {
+                val vt = lookupVariable(builder, lit.text)
+                if vt == "list" || vt == "List" { return true }
+            }
+            return false
+        }
+        ASTNode.Call(c) => {
+            var calleeName = ""
+            match c.callee {
+                ASTNode.Literal(l2) => { if l2.valType == "identifier" { calleeName = l2.text } }
+                _ => {}
+            }
+            val rt = lookupFunctionReturnType(builder, calleeName)
+            if rt == "list" || rt == "List" { return true }
+            return false
+        }
+        ASTNode.MemberAccess(ma) => {
+            if fieldTypeOfModel(builder, resolveExprType(builder, ma.object), ma.field) == "list" { return true }
+            return false
+        }
+        _ => { return false }
+    }
+}
+
+/** @brief The element type of a list expression, "" when undecided. */
+fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
+    match node {
+        ASTNode.ListLiteral(ll) => { return listLiteralKindName(builder, ll) }
+        ASTNode.Literal(lit) => {
+            if lit.valType == "identifier" {
+                val vt = lookupVariable(builder, lit.text)
+                if vt == "list" || vt == "List" { return lookupListKind(builder, lit.text) }
+            }
+            return ""
+        }
+        ASTNode.MemberAccess(ma) => {
+            val src = resolveListSource(builder, node)
+            if src != "" { return listElementType(src) }
+            return ""
+        }
+        _ => { return "" }
+    }
+}
+
+fn recordListKind(builder: IRBuilder, name: string, kindName: string) {
+    if name == "" || kindName == "" { return }
+    if lookupListKind(builder, name) != "" { return }
+    builder.listKinds.push(Variable(name, kindName))
+}
+
+/** @brief Remember the element type a write into a named list implies.
+ *
+ *  `var xs = []` followed by `xs.push(10)` is the ordinary way to build a
+ *  list, and the literal is empty, so the create carries no kind. The push is
+ *  where the type becomes knowable, and recording it there is what lets the
+ *  read after it be typed. Only a plain name is recorded: a list reached
+ *  through a field is described by its declaration, and a list built by a
+ *  function is described by nothing the builder can see. */
+fn recordPushListKind(builder: IRBuilder, node: ASTNode, kindCode: int) {
+    if kindCode == 0 { return }
+    match node {
+        ASTNode.Literal(lit) => {
+            if lit.valType == "identifier" {
+                val vt = lookupVariable(builder, lit.text)
+                if vt == "list" || vt == "List" {
+                    recordListKind(builder, lit.text, elemKindTypeName(kindCode))
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/** @brief The Orbit type name a kind number stands for, for the tables above. */
+fn elemKindTypeName(kindCode: int) -> string {
+    if kindCode == 1 { return "string" }
+    if kindCode == 2 { return "int" }
+    if kindCode == 3 { return "float" }
+    if kindCode == 4 { return "bool" }
+    if kindCode == 5 { return "ref" }
+    return ""
+}
+
+fn lookupListKind(builder: IRBuilder, name: string) -> string {
+    var i = builder.listKinds.len()
+    while i > 0 {
+        i = i - 1
+        val v: Variable = builder.listKinds.get(i)
+        if v.name == name {
+            return v.typeVal
+        }
+    }
+    return ""
+}
+
 fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(lit) => {
@@ -294,6 +553,13 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.ObjectLiteral(ol) => { return "object" }
+        // A list literal is a list. It was missing here, so `val n = [10,20,30]`
+        // bound n to "unknown" and every later use of n -- `.at()`, `.get()`,
+        // `.push()` -- had nothing to say what was in it. That is the same
+        // missing-type hole as the missing element type, one level up: the
+        // variable's own type was unknown, so the element type could not be
+        // reached either.
+        ASTNode.ListLiteral(ll) => { return "list" }
         ASTNode.MemberAccess(ma) => {
             val objType = resolveExprType(builder, ma.object)
             if objType != "unknown" && modelHasField(builder, objType, ma.field) {
@@ -609,6 +875,7 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
                 vType = inferValueType(builder, v.value)
             }
             defineVariable(builder, v.name, vType)
+            recordListKind(builder, v.name, listKindNameOf(builder, v.value))
         }
         ASTNode.ConstDecl(c) => {
             val valueReg = buildExpr(builder, c.value)
@@ -805,6 +1072,13 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
         }
         ASTNode.For(stmt) => {
             val iterReg = buildExpr(builder, stmt.iterable)
+            // The element type of the iterable, decided here so the loop
+            // variable is not `unknown`. A `for x in [1,2,3] { print(x) }`
+            // whose x was unknown reached print as a string and printed the
+            // integer 1 as the address 0x1, or segfaulted; the variable's type
+            // is what tells those two emitters apart.
+            val iterKind = elemKindCode(listKindNameOf(builder, stmt.iterable))
+            val iterElemType = registerTypeForElemKind(iterKind)
             val lenReg = ir_alloc_register(builder.currentFunction, "int")
             val lenInstr = ir_init_instr(IROpcode.list_len)
             lenInstr.dest = lenReg
@@ -821,7 +1095,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             idxInit.operand2 = ir_register(zeroReg)
             ir_emit(builder.currentFunction, idxInit)
             defineVariable(builder, stmt.item + "_idx", "int")
-            defineVariable(builder, stmt.item, "unknown")
+            defineVariable(builder, stmt.item, iterElemType)
             val startLabel = allocLabel(builder)
             val endLabel = allocLabel(builder)
             builder.loopStartLabels.push(startLabel)
@@ -845,11 +1119,12 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             jmpFalse.operand1 = ir_register(condReg)
             jmpFalse.operand2 = ir_label(endLabel)
             ir_emit(builder.currentFunction, jmpFalse)
-            val itemReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val itemReg = ir_alloc_register(builder.currentFunction, iterElemType)
             val getInstr = ir_init_instr(IROpcode.list_get)
             getInstr.dest = itemReg
             getInstr.operand1 = ir_register(iterReg)
             getInstr.operand2 = ir_register(idxLoadReg)
+            getInstr.elemKind = iterKind
             ir_emit(builder.currentFunction, getInstr)
             val declItem = ir_init_instr(IROpcode.decl_var)
             declItem.operand1 = ir_symbol(stmt.item)
@@ -978,6 +1253,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
                 vType = inferValueType(builder, v.value)
             }
             defineVariable(builder, v.name, vType)
+            recordListKind(builder, v.name, listKindNameOf(builder, v.value))
         }
         ASTNode.Match(m) => {
             buildMatchStatement(builder, m)
@@ -1634,6 +1910,10 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 pushInstr.operand2 = ir_register(valReg)
                 val resReg = ir_alloc_register(builder.currentFunction, "void")
                 pushInstr.dest = resReg
+                pushInstr.elemKind = elemKindCode(staticExprTypeName(builder, c.args.get(0)))
+                // A `var xs = []` has no element type until something tells it
+                // one, and the first push it can type is that something.
+                recordPushListKind(builder, ma.object, pushInstr.elemKind)
                 ir_emit(builder.currentFunction, pushInstr)
                 return resReg
             }
@@ -1642,7 +1922,8 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val getInstr = ir_init_instr(IROpcode.list_get)
                 getInstr.operand1 = ir_register(objReg)
                 getInstr.operand2 = ir_register(idxReg)
-                val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+                getInstr.elemKind = elemKindCode(listKindNameOf(builder, ma.object))
+                val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(getInstr.elemKind))
                 getInstr.dest = resReg
                 ir_emit(builder.currentFunction, getInstr)
                 return resReg
@@ -1656,6 +1937,8 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 setInstr.operand3 = ir_register(valReg)
                 val resReg = ir_alloc_register(builder.currentFunction, "void")
                 setInstr.dest = resReg
+                setInstr.elemKind = elemKindCode(staticExprTypeName(builder, c.args.get(1)))
+                recordPushListKind(builder, ma.object, setInstr.elemKind)
                 ir_emit(builder.currentFunction, setInstr)
                 return resReg
             }
@@ -1709,9 +1992,27 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
             if memberName == "pop" {
                 val popInstr = ir_init_instr(IROpcode.list_pop)
                 popInstr.operand1 = ir_register(objReg)
-                val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+                popInstr.elemKind = elemKindCode(listKindNameOf(builder, ma.object))
+                val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(popInstr.elemKind))
                 popInstr.dest = resReg
                 ir_emit(builder.currentFunction, popInstr)
+                return resReg
+            }
+            // clear() is a void collection method. It used to fall through to
+            // the default call path, which spelled it `clear(...)`: the front
+            // end said nothing and the C step died on an undefined reference
+            // to a function nobody declared. F-0004's shape, on a name the
+            // runtime already defines.
+            if memberName == "clear" {
+                val arg1 = ir_init_instr(IROpcode.arg)
+                arg1.operand1 = ir_register(objReg)
+                ir_emit(builder.currentFunction, arg1)
+                val callInstr = ir_init_instr(IROpcode.call)
+                val resReg = ir_alloc_register(builder.currentFunction, "void")
+                callInstr.dest = resReg
+                callInstr.operand1 = ir_string("orbit_list_clear")
+                callInstr.operand2 = ir_int(1)
+                ir_emit(builder.currentFunction, callInstr)
                 return resReg
             }
             if memberName == "has" && c.args.len() >= 1 {
@@ -1765,6 +2066,24 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 return resReg
             }
             if memberName == "at" && c.args.len() >= 1 {
+                // `.at()` is a character read on a string and an element read
+                // on a list, and which one it is depends entirely on the
+                // receiver. It used to be a string read unconditionally, so
+                // `n.at(1)` over `[10,20,30]` called orbit_string_at on an
+                // OrbitList and answered whatever byte of the header it landed
+                // on: 48, 0, 0, stable, and none of them 20. The receiver
+                // decides, and the receiver is the one thing that knows.
+                if isListExpression(builder, ma.object) {
+                    val idxReg = buildExpr(builder, c.args.get(0))
+                    val getInstr = ir_init_instr(IROpcode.list_get)
+                    getInstr.operand1 = ir_register(objReg)
+                    getInstr.operand2 = ir_register(idxReg)
+                    getInstr.elemKind = elemKindCode(listKindNameOf(builder, ma.object))
+                    val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(getInstr.elemKind))
+                    getInstr.dest = resReg
+                    ir_emit(builder.currentFunction, getInstr)
+                    return resReg
+                }
                 val idxReg = buildExpr(builder, c.args.get(0))
                 val arg1 = ir_init_instr(IROpcode.arg)
                 arg1.operand1 = ir_register(objReg)
@@ -2109,6 +2428,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                         setInstr.operand3 = ir_register(rhsReg)
                         val resReg = ir_alloc_register(builder.currentFunction, "void")
                         setInstr.dest = resReg
+                        setInstr.elemKind = elemKindCode(staticExprTypeName(builder, bin.rhs))
+                        recordPushListKind(builder, ia.object, setInstr.elemKind)
                         ir_emit(builder.currentFunction, setInstr)
                         return rhsReg
                     }
@@ -2273,6 +2594,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             createInstr.dest = listReg
             createInstr.operand1 = ir_int(8)
             createInstr.operand2 = ir_int(elemCount)
+            createInstr.elemKind = elemKindCode(listLiteralKindName(builder, ll))
             ir_emit(builder.currentFunction, createInstr)
             var ei = 0
             while ei < elemCount {
@@ -2282,6 +2604,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 pushInstr.operand2 = ir_register(elemReg)
                 val voidReg = ir_alloc_register(builder.currentFunction, "void")
                 pushInstr.dest = voidReg
+                pushInstr.elemKind = elemKindCode(staticExprTypeName(builder, ll.elements.get(ei)))
                 ir_emit(builder.currentFunction, pushInstr)
                 ei = ei + 1
             }
@@ -2291,10 +2614,12 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val objReg = buildExpr(builder, ia.object)
             val idxReg = buildExpr(builder, ia.index)
             val getInstr = ir_init_instr(IROpcode.list_get)
-            val resReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val elemKind = elemKindCode(listKindNameOf(builder, ia.object))
+            val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(elemKind))
             getInstr.dest = resReg
             getInstr.operand1 = ir_register(objReg)
             getInstr.operand2 = ir_register(idxReg)
+            getInstr.elemKind = elemKind
             ir_emit(builder.currentFunction, getInstr)
             return resReg
         }
@@ -2337,6 +2662,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     setInstr.operand3 = ir_register(rhsReg)
                     val resReg = ir_alloc_register(builder.currentFunction, "void")
                     setInstr.dest = resReg
+                    setInstr.elemKind = elemKindCode(staticExprTypeName(builder, a.value))
+                    recordPushListKind(builder, ia.object, setInstr.elemKind)
                     ir_emit(builder.currentFunction, setInstr)
                     return rhsReg
                 }
