@@ -89,9 +89,13 @@ fn main() -> int {
     // decides the sign of a raw tickNs() reading.
     if assertEqIntMsg(sinceNsBetween(100, 250), 150, "delta") == false { return 13 }
     if assertEqIntMsg(sinceNsBetween(100, 100), 0, "a zero span is a real zero") == false { return 14 }
+    // 2147483648 does not fit an orbit_int and is now a compile error, so the
+    // value one past the cap is written as the sum it is. The test is about the
+    // clamp, not about the literal.
+    val pastCap = 2147483647 + 1
     if assertEqIntMsg(sinceNsBetween(0, 2147483647), 2147483647, "just under the cap") == false { return 15 }
-    if assertEqIntMsg(sinceNsBetween(0, 2147483648), -1, "exactly at the cap reports a wrap") == false { return 16 }
-    if assertEqIntMsg(sinceNsBetween(2147483648, 0), -1, "a backwards reading reports a wrap") == false { return 17 }
+    if assertEqIntMsg(sinceNsBetween(0, pastCap), -1, "exactly at the cap reports a wrap") == false { return 16 }
+    if assertEqIntMsg(sinceNsBetween(pastCap, 0), -1, "a backwards reading reports a wrap") == false { return 17 }
 
     // --- a long span, accumulated in chunks --------------------------
     // The honest way to measure more than the cap: keep each chunk's end

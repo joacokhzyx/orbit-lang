@@ -1196,7 +1196,15 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                 // here, and the diagnostic waits for those two lines to be
                 // rewritten as 2147483647 + 1. FINDINGS F-0014.
                 if !intLiteralFitsSelfhost(l.text) {
-                    recordMiss(sema, "int-literal", l.text)
+                    // An error, not a resolution gap. It was recorded rather
+                    // than rejected only because two lines of a std test
+                    // spelled the overflow as a literal; they are now written
+                    // as the sum it is, so the reason is gone.
+                    //
+                    // Counting it as a miss also meant every program with a
+                    // large integer printed `UNRESOLVED int-literal 1` to
+                    // stderr -- a quiet program is supposed to say nothing.
+                    reportError(sema, "integer literal " + l.text + " does not fit an orbit_int, which is 32 bits; write the value as a sum if you mean it")
                 }
             }
             return l.valType
