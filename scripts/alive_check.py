@@ -111,32 +111,49 @@ def registry(compiler, cc, work):
     comp = lambda *extra: ["--compiler", compiler, "--cc", cc] + list(extra)
     tools = [
         # ---- gates that already fail on their own in CI -------------------
+        # Every row in this block allows a non-zero exit as well as zero, and
+        # that is a change of question, not a loosening. This check asks "does
+        # the tool still RUN": it launches, it does not crash, it does not
+        # hang, and its output carries the closing line that only appears when
+        # it did the work. It does not ask "does the repository pass", because
+        # the answer to that is twenty lines earlier in the same job, as a hard
+        # step, and a gate that is honestly reporting a defect is a gate
+        # working. Collapsing the two questions means one core-zone case turns
+        # two CI steps red and the second one tells nobody anything new -- which
+        # is the "a tool that cannot fail is not a tool" argument run backwards
+        # into "a check that cannot go green is not a check".
         Tool("negative_gate.py", "gate",
-             "34 programs that must NOT compile; a ratchet that fails on the fix",
+             "every program in tests/negative/ must NOT compile; a ratchet that "
+             "fails on the fix. Exit 1 here means the corpus and the compiler "
+             "disagree, which is the corpus's own hard CI step two dozen lines "
+             "up reporting the same thing",
              lambda: _script("negative_gate.py", *comp()),
-             r"Finished negative: \d+/\d+", 600, cost="cheap", needs=("compiler",)),
+             r"Finished negative: \d+/\d+", 600, allow_rc=(0, 1), cost="cheap",
+             needs=("compiler",)),
         Tool("frontend_gate.py", "gate",
              "`orbit frontend` vs tests/frontend/expected/",
              lambda: _script("frontend_gate.py", *comp()),
-             r"Finished frontend: \d+/\d+", 300, needs=("compiler",)),
+             r"Finished frontend: \d+/\d+", 300, allow_rc=(0, 1),
+             needs=("compiler",)),
         Tool("test_suite.py", "gate",
              "the language behavior suite (this run covers the std subset; the "
              "full suite is the same runner over tests/suite)",
              lambda: _script("test_suite.py", *comp("--dir", "tests/std")),
-             r"Finished suite: \d+/\d+", 900, needs=("compiler",)),
+             r"Finished suite: \d+/\d+", 900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("parity_selfhost.py", "gate",
              "32 stability goldens, CLI path vs in-process path",
              lambda: _script("parity_selfhost.py", *comp()),
-             r"Finished parity: \d+/\d+", 900, needs=("compiler",)),
+             r"Finished parity: \d+/\d+", 900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("werror_gate.py", "gate",
              "generated C must compile clean under -Werror",
              lambda: _script("werror_gate.py", *comp()),
-             r"Finished werror: \d+/\d+", 900, needs=("compiler",)),
+             r"Finished werror: \d+/\d+", 900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("cli_probe.py", "gate",
              "the orbit CLI contract, 50 cases",
              lambda: _script("cli_probe.py", "--compiler", compiler,
                              "--work", _tmp(work, "cli")),
-             r"Finished cli-probe: \d+/\d+", 600, needs=("compiler",)),
+             r"Finished cli-probe: \d+/\d+", 600, allow_rc=(0, 1),
+             needs=("compiler",)),
         Tool("routes_probe.py", "gate",
              "MSYS2 argument-rewrite normalization; Windows CI only breaks "
              "without it and nothing else notices",
@@ -183,6 +200,18 @@ def registry(compiler, cc, work):
                              "--cc", cc),
              r"^Finished unknown-count: \d+ \(baseline \d+, (ratchet holds|"
              r"ratchet broken)", 600, allow_rc=(0, 1), needs=("compiler",)),
+        Tool("diff_fuzz_ratchet.py", "measurement",
+             "the gate that holds the differential fuzzer's disagreement count "
+             "one way (D9). Driven here through its --from-json seam on a "
+             "one-finding document that carries the REAL baseline's corpus_sha, "
+             "so this row exercises the reader, the baseline loader and the "
+             "verdict for the price of a json file. diff_fuzz.py's own row "
+             "covers the producer; a ratchet whose reader is only ever fed by "
+             "its own producer is a ratchet that cannot be tested apart from it",
+             lambda: _script("diff_fuzz_ratchet.py", "--from-json",
+                             _tmp(work, "difffuzz_alive.json")),
+             r"^Finished diff-fuzz ratchet: \d+ disagreements in \d+ cases "
+             r"\(baseline \d+, ratchet holds", 120),
         Tool("amalgamate.py", "measurement",
              "inlines 20 runtime/*.c into the seed. Runs with --out into a "
              "temp dir ON PURPOSE: with no arguments it writes 4.8 MB into the "
@@ -203,6 +232,18 @@ def registry(compiler, cc, work):
              lambda: _script("fuzz_frontend.py", "--compiler", compiler,
                              "--iterations", "3"),
              r"^Fuzzed 3 iterations: ", 600, needs=("compiler",)),
+        Tool("diff_fuzz.py", "report",
+             "the differential fuzzer, report-only in CI with the count held "
+             "one way by diff_fuzz_ratchet.py. 40 iterations, not the gate's "
+             "400: this row asks whether the tool still works, and 40 already "
+             "compiles 196 programs. The marker is the closing line INCLUDING "
+             "the corpus sha, because a fuzzer that measured nothing still "
+             "prints a line and non-empty output is not evidence (D8)",
+             lambda: _script("diff_fuzz.py", "--compiler", compiler,
+                             "--cc", cc, "--iterations", "40"),
+             r"^Finished diff-fuzz: \d+/\d+ agree with the reference across \d+ "
+             r"cases \(seed \d+, sha [0-9a-f]{16}\)$", 600,
+             needs=("compiler",)),
         Tool("measure_selfhost.py", "report",
              "resource measurement across bootstrap phases, in NO CI step. One "
              "phase with a 1 ms interval is the aliveness question: did it "
@@ -244,16 +285,82 @@ def registry(compiler, cc, work):
     return tools
 
 
-# Static rows: not scripts, but part of a tool, and rot-able.
+# Static rows: not scripts, but part of a tool, and rot-able. The third field
+# is an optional checker for a file with internal structure, and there is one per
+# row rather than one for the lot: the first version asserted the D7 baseline's
+# shape for every `.json` in the directory, which is a shape assertion following
+# the file instead of the gate. The moment a second baseline landed it would have
+# failed a perfectly good file, and the cheapest way to be wrong about a
+# validator is to write it once and reuse it.
+def _check_unknown_baseline(path):
+    import json
+    with open(path, encoding="utf-8") as fh:
+        base = json.load(fh)
+    if base.get("schema") != 1 or not isinstance(base.get("totals"), dict):
+        raise ValueError("no schema 1 / no totals")
+    # The gate is on a rate and the absolute count moved to `context`, so this
+    # has to check the rate keys exist and the per-file map still adds up to the
+    # absolute. It asserted the old shape and caught me changing it -- which is
+    # the second time this file has earned its existence in one session.
+    for key in ("unknown_per_mille", "silent_per_mille"):
+        if not isinstance(base["totals"].get(key), int):
+            raise ValueError("totals has no integer %s" % key)
+    context = base.get("context")
+    if not isinstance(context, dict) or \
+            not isinstance(context.get("unknown_instructions"), int):
+        raise ValueError("no context.unknown_instructions")
+    if sum(base["by_file"].values()) != context["unknown_instructions"]:
+        raise ValueError("by_file does not add up to the absolute count")
+
+
+def _check_diff_fuzz_baseline(path):
+    import json
+    with open(path, encoding="utf-8") as fh:
+        base = json.load(fh)
+    if base.get("schema") != 1:
+        raise ValueError("no schema 1")
+    for key in ("disagreements", "seed", "iterations", "cases", "agree"):
+        if not isinstance(base.get(key), int):
+            raise ValueError("no integer %s" % key)
+    if not isinstance(base.get("corpus_sha"), str) or not base["corpus_sha"]:
+        raise ValueError("no corpus_sha; a count with no corpus behind it "
+                         "cannot be compared to anything")
+    by_class = base.get("by_class")
+    if not isinstance(by_class, dict) or not by_class:
+        raise ValueError("no by_class map; a red run names classes, and without "
+                         "them it can only say a number moved")
+    if sum(by_class.values()) != base["disagreements"]:
+        raise ValueError("by_class sums to %d but disagreements is %d"
+                         % (sum(by_class.values()), base["disagreements"]))
+
+
 STATIC_ROWS = [
     ("unknown_census.orb", "the census probe program. THIS is the file that "
      "rotted silently in D8: the F-0004 fix stopped it building and the only "
-     "symptom was a line on stderr"),
+     "symptom was a line on stderr", None),
     ("demo-ledger-server.c", "a C fixture for a demo, not compiled by any gate. "
-     "Recorded rather than checked: compiling it needs the demo's own inputs"),
-    ("baselines/unknown_count.json", "the D7 ratchet baseline. Checked for "
-     "shape here; its contents are the ratchet's business"),
+     "Recorded rather than checked: compiling it needs the demo's own inputs",
+     None),
+    ("baselines/unknown_count.json", "the D7 ratchet baseline. Checked against "
+     "the shape the gate that reads it requires", _check_unknown_baseline),
+    ("baselines/diff_fuzz.json", "the D9 ratchet baseline: the disagreement "
+     "count, the corpus sha it was taken at, and one row per class summing to "
+     "the total", _check_diff_fuzz_baseline),
 ]
+
+# Files in scripts/ that are deliberately not rows, each with the reason. The
+# list is short on purpose: the point of writing it down is that anything NOT in
+# it is a file somebody forgot, and D8's decision is that every script has a
+# gate or an aliveness check. A tool that drops off the registry by accident is
+# a tool nobody checks, which is the exact state D8 exists to end -- and
+# diff_fuzz.py WAS in that state until the D9 ratchet made it worth a row.
+COVERAGE_EXEMPT = {
+    "alive_check.py": "the checker. A row that ran the checker from inside the "
+                      "checker recurses forever. Its own coverage is "
+                      "--self-test (eight broken tools, each failure class "
+                      "required) and the coverage assertion below, which is the "
+                      "one thing only this file can do.",
+}
 
 SHELL_ROWS = [
     ("install.sh", "Linux/macOS installer. Runs code in the user's home "
@@ -475,6 +582,44 @@ def ctx_cache():
 
 
 # --------------------------------------------------------------------------
+def seed_diff_fuzz_reader(work):
+    """Write the one-finding document the D9 ratchet row is driven with.
+
+    It carries the REAL baseline's corpus_sha and a count of 1, so the ratchet
+    reaches the "held" verdict through its real reader and its real baseline
+    loader. Any other sha and the row would be asserting the corpus-moved path,
+    which is a different branch and a much weaker aliveness question.
+
+    Written from the baseline rather than hard-coded so this cannot rot into
+    asserting nothing: if the baseline moves, the document moves with it, and a
+    baseline whose shape changed makes this fail loudly here rather than make
+    the ratchet row pass for the wrong reason.
+    """
+    import json
+    base = os.path.join(SCRIPTS, "baselines", "diff_fuzz.json")
+    path = os.path.join(work, "difffuzz_alive.json")
+    try:
+        with open(base, encoding="utf-8") as fh:
+            committed = json.load(fh)
+        doc = {"seed": committed["seed"], "iterations": committed["iterations"],
+               "batch": 40, "corpus_sha": committed["corpus_sha"],
+               "cases": committed["cases"], "agree": committed["cases"] - 1,
+               "findings": [{"class": "aliveness/one-synthetic-finding",
+                             "source": "print(0)", "kind": "value",
+                             "expect": "0", "note": "",
+                             "problem": "synthetic, written by alive_check.py",
+                             "status": "ok", "observed": "0"}]}
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+    except (OSError, ValueError, KeyError):
+        # Leave the file absent. The ratchet row then fails, which is the
+        # correct outcome: a synthetic document that could not be built must not
+        # turn into a skipped check.
+        if os.path.exists(path):
+            os.remove(path)
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Every tool in scripts/ has to prove it still works (D8)")
@@ -501,6 +646,8 @@ def main():
     os.makedirs(work, exist_ok=True)
     have_compiler = bool(args.compiler) and os.path.isfile(args.compiler)
     ctx = {"cc": args.cc, "ccache": ctx_cache()}
+
+    seed_diff_fuzz_reader(work)
 
     tools = registry(args.compiler, args.cc, work)
     if args.only:
@@ -551,40 +698,55 @@ def main():
         else:
             out.say("%s alive  (%s)" % (label, why))
 
-    for name, why in STATIC_ROWS:
+    for name, why, checker in STATIC_ROWS:
         label = "%-28s %-12s" % (name, "static")
         path = os.path.join(SCRIPTS, name)
         checked += 1
         if not os.path.isfile(path):
             failures += 1
             out.fail("%s GONE  (%s)" % (label, why))
-        elif name.endswith(".json"):
-            import json
+        elif checker is not None:
             try:
-                base = json.load(open(path, encoding="utf-8"))
-                if base.get("schema") != 1 or not isinstance(base.get("totals"), dict):
-                    raise ValueError("no schema 1 / no totals")
-                # The gate is on a rate and the absolute count moved to
-                # `context`, so this has to check the rate keys exist and the
-                # per-file map still adds up to the absolute. It asserted the
-                # old shape and caught me changing it -- which is the second
-                # time this file has earned its existence in one session.
-                for key in ("unknown_per_mille", "silent_per_mille"):
-                    if not isinstance(base["totals"].get(key), int):
-                        raise ValueError("totals has no integer %s" % key)
-                context = base.get("context")
-                if not isinstance(context, dict) or \
-                        not isinstance(context.get("unknown_instructions"), int):
-                    raise ValueError("no context.unknown_instructions")
-                if sum(base["by_file"].values()) != context["unknown_instructions"]:
-                    raise ValueError("by_file does not add up to the absolute count")
-            except (ValueError, KeyError, OSError) as exc:
+                checker(path)
+            except Exception as exc:   # noqa: BLE001 - any failure is the point
                 failures += 1
                 out.fail("%s BROKEN  (%s): %s" % (label, why, exc))
             else:
                 out.say("%s alive  (%s)" % (label, why))
         else:
             out.say("%s alive  (%s)" % (label, why))
+
+    # D8 coverage, asserted. The registry is only "one row per file" if
+    # something checks that it is: without this, a new script can be committed
+    # with no gate and no row, and the tool that is supposed to notice is the
+    # one that cannot.
+    covered = set()
+    for tool in tools:
+        covered.add(tool.name)
+    for name, _why, _checker in STATIC_ROWS:
+        covered.add(name)
+    for name, _why in SHELL_ROWS:
+        covered.add(name)
+    checked += 1
+    uncovered = sorted(f for f in os.listdir(SCRIPTS)
+                       if os.path.isfile(os.path.join(SCRIPTS, f))
+                       and f not in covered and f not in COVERAGE_EXEMPT)
+    known_exempt = sorted(f for f in COVERAGE_EXEMPT if not os.path.isfile(
+        os.path.join(SCRIPTS, f)))
+    if uncovered or known_exempt:
+        failures += 1
+        out.fail("Failed coverage: scripts/ has %d file(s) the registry does not "
+                 "account for." % (len(uncovered) + len(known_exempt)))
+        for f in uncovered:
+            out.fail("    %-28s no gate and no row. D8: every script has to "
+                     "have one or the other." % f)
+        for f in known_exempt:
+            out.fail("    %-28s exempt from the registry but the file is gone; "
+                     "delete the exemption." % f)
+        out.fail("    Exempt on purpose: " + ", ".join(sorted(COVERAGE_EXEMPT)))
+    else:
+        out.say("%-28s %-12s %d file(s) in scripts/, all gated, rowed or "
+                "exempted with a reason" % ("(coverage)", "assert", len(covered)))
 
     for name, why in skipped:
         out.say("not checked: %s (%s)" % (name, why))
