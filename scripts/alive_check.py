@@ -384,10 +384,21 @@ def shell_checks(name):
     if os.name == "nt" and name.endswith(BAT):
         return []  # no POSIX shell to parse it with; the path check below still runs
     if not name.endswith(BAT):
-        p = subprocess.run(["bash", "-n", path], cwd=ROOT, capture_output=True,
-                           text=True, errors="replace")
-        if p.returncode != 0:
-            problems.append("does not parse: %s" % (p.stderr or "").strip()[:200])
+        try:
+            p = subprocess.run(["bash", "-n", path], cwd=ROOT,
+                               capture_output=True, text=True, errors="replace")
+        except OSError:
+            p = None
+        if p is not None and p.returncode != 0:
+            detail = (p.stderr or "").strip()[:200]
+            if os.name == "nt":
+                # Advisory only. A Windows checkout has CRLF line endings and a
+                # POSIX parser is the wrong tool for the job; the path check
+                # below is the part that catches a real rot, and it still runs.
+                problems.append("advisory: bash -n on a Windows checkout (%s)"
+                                % (detail or "no message"))
+            else:
+                problems.append("does not parse: %s" % detail)
     try:
         text = open(os.path.join(ROOT, path), encoding="utf-8",
                     errors="replace").read()
@@ -492,7 +503,12 @@ def check(tool, ctx):
     rc = proc.returncode
 
     # 1. a crash is not a finding, it is a dead tool
-    if rc in CRASH_RCS or rc < 0 or TRACEBACK in output:
+    # POSIX reports a signal as a negative status. Windows does not: a process
+    # killed by an NTSTATUS exception exits with a large positive code, so `rc <
+    # 0` never fires and os.abort() reads as "printed nothing at all". Anything
+    # a shell could not have produced is a crash, not silence.
+    if rc in CRASH_RCS or rc < 0 or (os.name == "nt" and rc > 255) \
+            or TRACEBACK in output:
         tail = " | ".join(l.strip() for l in output.strip().splitlines()[-3:])
         problems.append("crashed (rc=%d): %s" % (rc, tail[:300]))
         return problems
@@ -567,6 +583,7 @@ def self_test():
     else:
         out.fail("  WRONG shell_checks accepted a missing file")
     problems = shell_checks("install.sh")
+    problems = [x for x in problems if not x.startswith("advisory:")]
     if not problems:
         passed += 1
         print("  ok    %-42s -> no dangling repo paths" % "shell_checks on a real script")
