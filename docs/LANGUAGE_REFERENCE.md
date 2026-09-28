@@ -189,9 +189,9 @@ print(65536 * 65536)    // 0
 All three are what C does, so the wrapping is at least consistent. Two
 things follow that C does *not* give you. First, the compiler never warns
 you, so a value that went out of range in the middle of a calculation
-keeps going with the wrapped one. Second, an integer **literal** is folded
-with no range check at all, so the mistake is baked in before your program
-starts:
+keeps going with the wrapped one. Second, an integer **literal** used to be
+folded with no range check at all, so the mistake was baked in before your
+program started. That one is fixed in the tree and not yet in a release:
 
 ```orbit
 print(2147483648)       // -2147483648
@@ -202,10 +202,12 @@ If you need a wider integer, there is none today.
 
 ### `+ - *` and `/ %` do not agree about a negative operand
 
-`+`, `-` and `*` are correct for negatives. `/` and `%` are not. Today,
-integer division and remainder are emitted with both operands cast to an
-unsigned 64-bit type and the result truncated back to 32 bits, so a
-negative dividend is divided as a large positive number:
+Fixed in `672151c` and in the compiler as built from this tree; **not yet
+in a release**, so the numbers below are what `0.1.0-rc.2` gives. `+`, `-`
+and `*` are correct for negatives. `/` and `%` were not, because integer
+division and remainder were emitted with both operands cast to an unsigned
+64-bit type, so a negative dividend was divided as a large positive number
+and only its low 32 bits survived:
 
 ```orbit
 print((0 - 7) / 2)      // -4. It should be -3.
@@ -218,8 +220,8 @@ And note how carefully that is written: **the parentheses are required.**
 prints `-3`. The unparenthesised form is a different program that looks
 identical, so do not rule this out by testing it without them.
 
-**Rule: do not use `/` or `%` on a value that can be negative.** Compute
-the magnitude, divide, and apply the sign yourself.
+**Rule: do not use `/` or `%` on a value that can be negative** until the
+next release. Compute the magnitude, divide, and apply the sign yourself.
 
 ### A list slot has no element type, so nothing can check it
 
@@ -276,8 +278,8 @@ exotic one.
 |---|---|
 | `int` arithmetic that fits in 32 bits, all non-negative operands | correct |
 | `int` arithmetic that overflows | wraps, no warning |
-| `int` division or remainder with a negative operand | wrong, silently |
-| a literal outside the 32-bit range | a different number, silently |
+| `int` division or remainder with a negative operand | wrong in `0.1.0-rc.2`; fixed in `672151c`, unreleased |
+| a literal outside the 32-bit range | a different number in `0.1.0-rc.2`; fixed in tree, unreleased |
 | a list's element type | whatever you put there; nothing checks it |
 | `.get(i)` on a list | bounds-checked; `NULL` past the end |
 | `.at(i)` on a list | **wrong** — reads the list struct, use `.get` |

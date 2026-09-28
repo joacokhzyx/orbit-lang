@@ -45,6 +45,23 @@ the reason they are not pinned. Line numbers into `compiler/` name the
 function rather than the row, because the compiler moves under the
 docs; a `tests/negative/` filename and a `FINDINGS` ID do not.
 
+**Two of the nineteen are already fixed in the tree and not yet in a
+release.** Signed division (`n28` below) was fixed in `672151c`, and the
+32-bit range check on an integer literal (`n29`) is fixed in the working
+tree — the ratchet noticed, which is what it is for:
+
+```console
+Failed tests/negative/n29_int_literal_out_of_range.orb: known defect F-0014
+looks FIXED: orbit check now rejects it with 'Semantic error: Integer
+literal out of range for int: 2147483648 does not fit in 2147483647;
+orbit_int is a 32-bit int'
+```
+
+A red line that names the fix and asks you to re-declare the case is the
+gate working. Both land when the canonical is promoted; until then the
+released compiler still has them, which is why the nineteen is the
+number here.
+
 Two groups, and the split is the whole point.
 
 ### The silent group: no error anywhere, a wrong value
@@ -139,7 +156,7 @@ The identifier is dropped without a word. Pinned as
 `tests/negative/n26_exponent_literal_truncated.orb`.
 
 **7. `/` and `%` disagree with `+`, `-` and `*` about a negative
-operand.**
+operand.** *Fixed in `672151c`, not yet in a release.*
 
 ```orbit
 print((0 - 7) / 2)       // -4. It should be -3.
@@ -164,7 +181,7 @@ is a different program that looks identical, and both appear in real code.
 Pinned as `tests/negative/n28_negative_operand_division.orb`.
 
 **8. An integer literal out of range is a different number, not an
-error.**
+error.** *Fixed in the working tree, not yet in a release.*
 
 ```orbit
 print(2147483648)        // -2147483648
@@ -302,11 +319,13 @@ language already has start firing on the majority of the list.
 simply not written.** Arity, twice (`n04` a function, `n13` a model
 constructor); a model constructor given the wrong argument types (`n14`);
 the missing exponent branch (`n26`); a 32-bit range check on a folded
-literal (`n29`); the signedness of `/` and `%` in the emitter (`n28`); and
-a bounds check in `orbit_string_at` (`runtime/collections.c:369-373`,
-`n32`). Eight narrow fixes in five files - `sema.orb`, `builder.orb`,
-`lexer.orb`, `c_backend.orb`, `runtime/collections.c` - each one to three
-lines in a different place.
+literal (`n29`, fixed in tree); the signedness of `/` and `%` in the
+emitter (`n28`, fixed in `672151c`); and a bounds check in
+`orbit_string_at` (`runtime/collections.c:369-373`, `n32`). Eight narrow
+fixes in five files - `sema.orb`, `builder.orb`, `lexer.orb`,
+`c_backend.orb`, `runtime/collections.c` - each one to three lines in a
+different place. Two of the eight have landed since this was written,
+which is the shape the rest of the work will take.
 
 That asymmetry is the argument for doing the type work first: this is
 nineteen defects, and it is **one mechanism plus eight small fixes**, not

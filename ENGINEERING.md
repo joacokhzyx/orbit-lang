@@ -500,14 +500,18 @@ python scripts/parity_selfhost.py --cc "$CC" --compiler /tmp/orbit_fp
 python scripts/werror_gate.py --cc "$CC" --compiler /tmp/orbit_fp
 
 # 6a. [CI] Negative corpus: every program in tests/negative/ must FAIL to
-#        compile, with the diagnostic text its header names. 34 programs, one
-#        per defect class. The gate also fails when a diagnostic IMPROVES, so
+#        compile, with the diagnostic text its header names. One program per
+#        defect class (34 on the released canonical, 33 now that n28 landed
+#        its fix). The gate also fails when a diagnostic IMPROVES, so
 #        the wording of every rejection is pinned - a better error message is a
 #        red build until the header is updated. A program the compiler wrongly
 #        accepts declares `known-defect: <ref>` and the gate asserts the bug is
 #        STILL there, so nothing improves silently. The summary prints how many
-#        are outstanding. Today: 34/34, 19 known defects still accepted, all 19
-#        written up with measured wrong values in docs/KNOWN_LIMITATIONS.md.
+#        are outstanding. Today on the released canonical: 19 known defects
+#        still accepted (17 on the current tree, where signed division and
+#        the integer-literal range check are fixed but not yet promoted).
+#        All 19 are written up with measured wrong values in
+#        docs/KNOWN_LIMITATIONS.md.
 python scripts/negative_gate.py --compiler /tmp/orbit_fp
 
 # 6b. [CI] `orbit frontend` against tests/frontend/expected/. This had NO CI
