@@ -1,0 +1,43 @@
+// case: float-through-a-call-boundary-is-truncated
+// what: `print(1.5)` printed 1. A float in Orbit is not a value: the literal is
+//      parsed and the register holds it, and then every step from the register to
+//      the argument to `print` was a `uintptr_t` while `print` emitted `%lld`.
+//      The integer part was all that survived, so the fraction was gone with no
+//      diagnostic anywhere. That is the largest single class the differential
+//      fuzzer found, and it is why this case exists.
+//
+//      HALF OF IT IS FIXED, so this case now pins the half that is not.
+//      `print` of a register the front end typed as a float goes through
+//      orbit_float_to_string, the formatter string interpolation already used,
+//      so all three of the original measurements are right and are ordinary
+//      coverage in tests/suite/list_element_type.orb:
+//
+//        print(1.5)      -> 1.5
+//        print(0.5)      -> 0.5
+//        print(-2.25)    -> -2.25
+//        print(3.14159)  -> 3.14159
+//        print(100.0)    -> 1e+02   (the shortest form that reads back as the
+//                                   same double; it agrees with interpolation)
+//
+//      What is still broken is the transport, and it is the same shape on both
+//      sides of a call: a parameter is received as `(orbit_float)(uintptr_t)x`
+//      and a return value travels back through a `uintptr_t` slot. So a float
+//      is not a value yet -- it is a register that print now formats, and a
+//      `float` parameter that receives 1 and returns 2. Measured, same build:
+//
+//        fn twice(x: float) -> float { return x + x }
+//        print(twice(1.5))   -> 2, and it should be 3
+//
+//      Fixing that means giving the transport room for a double, which is a
+//      language-scale change (orbit_int is 32 bits and a register is one word)
+//      and not a one-character fix. FINDINGS F-0025.
+// known-defect: F-0025
+// wrong-value: 2
+fn twice(x: float) -> float {
+    return x + x
+}
+
+fn main() -> int {
+    print(twice(1.5))
+    return 0
+}

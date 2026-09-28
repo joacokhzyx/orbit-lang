@@ -1,0 +1,39 @@
+// case: list-parameter-has-no-element-type
+// what: the element type is decided where a list is BUILT -- a literal, or the
+//      first push into an empty one -- and a `list` PARAMETER is not built
+//      anywhere the checker can see. So a helper declared over a list is
+//      declared over nothing in particular, and a read inside it is untyped:
+//      the destination register is `void*` and the accessor is the untyped one.
+//
+//      That is F-0009, and it is the half of F-0002 that a list element type
+//      does not reach. The direct forms are all fixed -- `n.at(1)` over
+//      `[10,20,30]` is 20, a list built by push reads back typed, a `for` over
+//      one does not segfault -- and this still crashes, because the int comes
+//      back out of a `-> string` function and `print` dereferences it:
+//
+//        $ orbit run tests/negative/n39_list_parameter_has_no_element_type.orb
+//        Segmentation fault (core dumped)
+//
+//      Nothing is pinned on the value: a crash moves per run and per machine,
+//      and a pin that fires at random teaches people to ignore the pin. The
+//      case asserts its class, which is the part that can be checked -- the
+//      front end accepts a program that cannot work.
+//
+//      FIXING IT needs `list<string>` in a signature, which is generics (F-0007,
+//      queued as slot 7) and not a change to the runtime. Until then the honest
+//      answer is the header on std/collections/lists.orb, which already says the
+//      string type is not enforced and why.
+// known-defect: F-0009
+fn getOr(l: list, i: int, dflt: string) -> string {
+    if i < 0 { return dflt }
+    if i >= l.len() { return dflt }
+    return l.get(i)
+}
+
+fn main() -> int {
+    var nums = []
+    nums.push(10)
+    nums.push(20)
+    print(getOr(nums, 0, "d"))
+    return 0
+}
