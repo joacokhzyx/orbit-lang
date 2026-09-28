@@ -238,6 +238,9 @@ jobs:
       # be scoped against. It never fails the build -- `continue-on-error` is
       # not decoration, it is the contract -- so its output goes to the job
       # summary where it is read rather than to a red X nobody investigates.
+      # What HOLDS the number is the ratchet in the next step; this step is the
+      # measurement, and it is `if: always()` so it still runs when something
+      # earlier in the job has already gone red.
       - name: Unknown-type census (report only, never fails the build)
         if: always()
         continue-on-error: true
@@ -254,6 +257,104 @@ jobs:
             cat census.log
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+      # D7. The census above is a measurement; this is the gate, and the only
+      # thing it fails on is the count going UP against
+      # scripts/baselines/unknown_count.json. It does not fail because the count
+      # is high -- 30.5% of inferred types are `unknown` today and a zero-bar
+      # gate is a gate everybody disables. A number that can only go down turns
+      # "do not regress this" into something the build enforces instead of
+      # something people remember.
+      #
+      # This is a HARD step. A ratchet wired with `continue-on-error` is a
+      # number in a file nobody reads, which is the state D7 exists to end.
+      - name: Unknown-count ratchet (one-way, D7)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          set +e
+          "$PY" scripts/unknown_ratchet.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > ratchet.log 2>&1
+          rc=$?
+          set -e
+          cat ratchet.log
+          {
+            echo "### unknown-count ratchet rc=$rc"
+            echo '```'
+            tail -n 30 ratchet.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit $rc
+
+      # D8. Every tool in scripts/ has to prove it still works: it runs, it does
+      # not crash, it does not hang, and its output contains a marker that only
+      # appears when it did the actual work. That last part is the one the
+      # census incident turned on -- a probe that stopped building printed
+      # "the probe did not build" and exited 0, and non-empty output is not
+      # evidence of anything.
+      #
+      # `if: always()` on purpose: a tool that rotted is exactly the case where
+      # something else has also gone wrong, and the rot is the more useful of
+      # the two facts. Linux only -- this is repo hygiene rather than a language
+      # property, and running it on both legs doubles the slowest steps.
+      - name: Tool aliveness (every tool in scripts/ still works, D8)
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          set +e
+          "$PY" scripts/alive_check.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > alive.log 2>&1
+          rc=$?
+          set -e
+          tail -n 60 alive.log
+          {
+            echo "### tool aliveness rc=$rc"
+            echo '```'
+            tail -n 40 alive.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit $rc
+
+      # The crash fuzzer only ever looked for crashes, which are loud. This one
+      # compares Orbit's arithmetic against a reference implementation and
+      # reports the quiet failures: a program that compiles clean, runs, and
+      # gives the wrong number. REPORT ONLY, and deliberately so -- a fuzzer that
+      # fails the build the day a finding appears is one that gets switched off
+      # the day a finding appears. The summary is the deliverable; the exit code
+      # is not. `--iterations` is the knob: 150 is about half a minute.
+      - name: Differential fuzzer (Orbit vs a reference implementation)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/diff_fuzz.py --cc "${{ matrix.cc }}" \
+            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" \
+            --iterations 150 --json diff_fuzz.json > diff_fuzz.log 2>&1 || true
+          cat diff_fuzz.log
+          {
+            echo "### differential fuzzer (report only, never fails the build)"
+            echo '```'
+            cat diff_fuzz.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+      # The new gates have to be able to fail, and the only way to know that is
+      # to assert it: each self-test feeds its own checker a tool that crashes,
+      # one that hangs, one that prints nothing, one whose output is stale, and
+      # one with a broken baseline, and requires each to be reported. Two
+      # seconds, and it is the difference between a gate and a hope.
+      - name: Gate self-tests (the new gates can say no)
+        if: always()
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/unknown_ratchet.py --self-test
+          "$PY" scripts/alive_check.py --self-test
 
   # Flakiness detector for the self-host chain. Each leg is an independent
   # fixed-point run on its own runner, so the 8 repetitions run concurrently
