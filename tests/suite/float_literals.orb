@@ -1,0 +1,30 @@
+// Float literals, printed.
+//
+// A float literal used to lose its fraction on the way to `print`: the literal
+// was parsed correctly and the register held it, and then every step from the
+// register to the argument was a `uintptr_t` while `print` emits `%lld`. So
+// `print(1.5)` printed 1, `print(0.5)` printed 0, and `print(-2.25)` printed
+// -2 -- truncated toward zero, silently, with no diagnostic anywhere. Forty-three
+// of the differential fuzzer's float cases disagreed with a reference
+// implementation because of this one line.
+//
+// Arithmetic hid it: `print(1.5 + 1.5)` printed 3, because both halves rounded
+// the same way and the mistake cancelled. That is why it survived a corpus that
+// does arithmetic on floats constantly.
+//
+// What is still NOT fixed, and is pinned in tests/negative/n35: a float crossing
+// a call boundary. A parameter arrives as `(orbit_float)(uintptr_t)x`, so
+// `twice(1.5)` gives 2, not 3. A register is one word and `orbit_int` is 32
+// bits, so giving a double the room it needs is a language-scale change, not a
+// bug fix. Literals and transport are two halves and only this half is done.
+
+fn main() -> int {
+    print(1.5)
+    print(0.5)
+    print(-2.25)
+    print(3.14159)
+    if 1.5 > 1.0 {
+        print(2.25)
+    }
+    return 0
+}
