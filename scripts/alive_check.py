@@ -564,8 +564,20 @@ def main():
                 base = json.load(open(path, encoding="utf-8"))
                 if base.get("schema") != 1 or not isinstance(base.get("totals"), dict):
                     raise ValueError("no schema 1 / no totals")
-                if sum(base["by_file"].values()) != base["totals"]["unknown_instructions"]:
-                    raise ValueError("by_file does not add up to the total")
+                # The gate is on a rate and the absolute count moved to
+                # `context`, so this has to check the rate keys exist and the
+                # per-file map still adds up to the absolute. It asserted the
+                # old shape and caught me changing it -- which is the second
+                # time this file has earned its existence in one session.
+                for key in ("unknown_per_mille", "silent_per_mille"):
+                    if not isinstance(base["totals"].get(key), int):
+                        raise ValueError("totals has no integer %s" % key)
+                context = base.get("context")
+                if not isinstance(context, dict) or \
+                        not isinstance(context.get("unknown_instructions"), int):
+                    raise ValueError("no context.unknown_instructions")
+                if sum(base["by_file"].values()) != context["unknown_instructions"]:
+                    raise ValueError("by_file does not add up to the absolute count")
             except (ValueError, KeyError, OSError) as exc:
                 failures += 1
                 out.fail("%s BROKEN  (%s): %s" % (label, why, exc))
