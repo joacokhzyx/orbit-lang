@@ -1,17 +1,17 @@
 {
   "schema": 1,
   "note": "Ratchet baseline for the differential fuzzer's disagreement count. `disagreements` may only go down. Written by scripts/diff_fuzz_ratchet.py --write-baseline. Do not hand-edit a number up, and do not hand-edit corpus_sha: that is what the gate is for.",
-  "disagreements": 75,
+  "disagreements": 23,
   "corpus_sha": "c68b57fa13ecb2d5",
   "seed": 20240928,
   "iterations": 400,
   "cases": 676,
-  "agree": 601,
+  "agree": 653,
   "by_class": {
-    "float/truncated-to-an-integer": 43,
     "div-zero/signal-instead-of-a-diagnostic": 16,
-    "int-literal/out-of-range-literal-is-accepted": 9,
-    "int-literal/unsupported-form-is-silently-wrong-in-a-binding": 6,
+    "float/truncated-to-an-integer": 4,
+    "float/exponent-form-is-not-a-float": 1,
+    "int-literal/out-of-range-literal-is-accepted": 1,
     "string-escape/hex-zero-is-never-decoded": 1
   }
 }
