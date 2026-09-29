@@ -1,0 +1,43 @@
+// A list that starts empty and is filled by push.
+//
+// `val xs = [] ; xs.push(10) ; xs.get(0)` was rejected as an out-of-range
+// index, because the checker had recorded the empty literal's length and
+// never heard about the push. A length that can change is not one the
+// checker may assert; it is one it has to stop claiming to know.
+
+fn filled() -> int {
+    val xs = []
+    xs.push(10)
+    xs.push(20)
+    if xs.len() != 2 { return 1 }
+    if xs.get(0) != 10 { return 2 }
+    if xs.get(1) != 20 { return 3 }
+    return 0
+}
+
+// The same list filled a branch at a time, which is the shape that made the
+// recorded length wrong in the first place: from the checker's side the
+// length is 0 or 1 depending on a runtime path, so it is neither.
+fn conditional() -> int {
+    val ys = []
+    if 1 < 2 {
+        ys.push(7)
+    }
+    if ys.len() != 1 { return 1 }
+    if ys.get(0) != 7 { return 2 }
+    return 0
+}
+
+// A literal with a known length is still checked, and still at run time too.
+fn literal_is_still_checked() -> int {
+    val zs = [1, 2, 3]
+    if zs.get(2) != 3 { return 1 }
+    return 0
+}
+
+fn main() -> int {
+    if filled() != 0 { return 1 }
+    if conditional() != 0 { return 2 }
+    if literal_is_still_checked() != 0 { return 3 }
+    return 0
+}

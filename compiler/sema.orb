@@ -779,6 +779,27 @@ fn recordConstBound(sema: Sema, name: string, value: list) {
 }
 
 /** @brief The recorded length for @p name, or -1. */
+// Forget a recorded length, because the value it described is no longer the
+// value the name holds.
+//
+// `val xs = []` then `xs.push(10)` then `xs.get(0)` was rejected as "index 0 is
+// out of range for xs, which holds 0 elements" -- the checker had recorded the
+// empty literal's length and never heard about the push, so a list that
+// provably holds an element was reported as provably empty. The check is
+// right to be careful about a length that can change, and the answer is to
+// stop claiming to know it, not to keep asserting a length that is no longer
+// true.
+fn forgetConstBound(sema: Sema, name: string) {
+    var i = sema.constBounds.len()
+    while i > 0 {
+        i = i - 1
+        val entry: ConstBound = sema.constBounds.get(i)
+        if entry.name == name {
+            sema.constBounds.set(i, ConstBound(name, "unknown", 0))
+        }
+    }
+}
+
 fn constBoundLen(sema: Sema, name: string, wantKind: string) -> int {
     var i = sema.constBounds.len()
     while i > 0 {
@@ -1474,6 +1495,16 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                     // reached through its type name is that type's value, the
                     // same way the bare-name form above is.
                     if typeHasVariant(sema, objType, member) { return objType }
+                    // The receiver's own name, when it is a bare identifier.
+                    // A `push` on it is what makes a recorded length stale, so
+                    // it is needed before the builtin table, not after.
+                    val callObjName = ""
+                    match ma.object {
+                        ASTNode.Literal(ol) => {
+                            if ol.valType == "identifier" { callObjName = ol.text }
+                        }
+                        _ => {}
+                    }
                     if objType == "string" {
                         if member == "len" { return "int" }
                         if member == "contains" { return "bool" }
@@ -1482,22 +1513,15 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                     }
                     if objType == "list" || objType == "List" {
                         if member == "len" { return "int" }
-                        if member == "push" { return "void" }
+                        if member == "push" {
+                            forgetConstBound(sema, callObjName)
+                            return "void"
+                        }
                     }
                     if objType == "map" || objType == "Map" {
                         if member == "has" { return "bool" }
                         if member == "keys" { return "list" }
                         if member == "delete" { return "void" }
-                    }
-                    // system.uptime() and friends: the callee is a member
-                    // access, so its type has to come from the member-access
-                    // rules rather than from the string/list/map tables here.
-                    val callObjName = ""
-                    match ma.object {
-                        ASTNode.Literal(ol) => {
-                            if ol.valType == "identifier" { callObjName = ol.text }
-                        }
-                        _ => {}
                     }
                     if callObjName == "system" {
                         if member == "env" { return "string" }
