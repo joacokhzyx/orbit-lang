@@ -1,6 +1,9 @@
 // case: model-ctor-wrong-arity
-// what: `Point` has two fields, so the constructor takes two arguments.
-// known-defect: arity
+// what: `Point` has two fields, so the constructor takes two arguments. It
+//      used to compile to a C call reading a second argument that was never
+//      passed, and the C compiler has no way to notice: the struct is a
+//      typedef and the constructor a plain call.
+// expect-error: Model 'Point' has 2 field(s) but 1 argument(s) were given.
 model Point {
     x: int
     y: int

@@ -2,7 +2,7 @@
 // what: `Point(x: int, y: int)` must not be constructible from a string and a
 //      bool. This is the constructor half of member/argument checking, and it
 //      is how a string reaches a register the backend will treat as an int.
-// known-defect: call-target
+// expect-error: Field 'Point.x' is declared int but the argument is string.
 model Point {
     x: int
     y: int

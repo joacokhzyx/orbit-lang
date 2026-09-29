@@ -1,7 +1,8 @@
 // case: model-missing-field
 // what: `Point` has fields x and y. Reading a field it does not declare must
-//      not compile; today the read becomes a raw load of an absent offset.
-// known-defect: member-resolution
+//      not compile. It used to become a raw load of an offset that was never
+//      allocated, so the program read whatever happened to be there.
+// expect-error: Model 'Point' has no field 'nonexistent'.
 model Point {
     x: int
     y: int

@@ -232,6 +232,11 @@ model CallNode {
 model MemberAccessNode {
     object: list
     field: string
+    // Where the '.' was. A field that a model does not declare is reported
+    // against this, and without it the diagnostic could only name the
+    // function it was emitted into.
+    line: int
+    col: int
 }
 
 model IndexAccessNode {

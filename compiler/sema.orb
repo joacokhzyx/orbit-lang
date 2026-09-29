@@ -79,6 +79,21 @@ model Sema {
     // bound that can be reassigned, or whose length this cannot count, is not
     // a bound. See checkConstantIndex.
     constBounds: list
+    // The fields of every model seen, as three parallel lists: the owning
+    // model, the field name, the declared type. Parallel rather than joined
+    // because a joined row would have to be split apart again, and splitting
+    // costs a helper that returns a list of strings -- which the C backend
+    // then mis-typess when the row came out of one of these very lists. See
+    // the note on modelFieldType.
+    //
+    // A model declaration is the one piece of the language the checker had and
+    // never read: it knew `model Point` exists, and nothing about x or y. So
+    // `Point(1)` with one argument, `Point("a", true)` with two strings, and
+    // `p.nonexistent` were all accepted, and the first two compiled to C
+    // reading arguments that were never passed.
+    modelFieldOwner: list
+    modelFieldName: list
+    modelFieldTypeName: list
     // Positions checkConstantIndex has already reported, as "line:col".
     // inferType reaches a node from more than one direction -- a call infers
     // its receiver, an expression statement infers its expression -- so
@@ -89,7 +104,7 @@ model Sema {
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [])
 }
 
 fn listContainsValue(items: list, value: string) -> bool {
@@ -267,6 +282,116 @@ fn findVariantOwner(sema: Sema, variantName: string) -> string {
         i = i + 1
     }
     return ""
+}
+
+// How many fields a model declares. Zero when the name is not a model this
+// pass has seen, which is also the honest answer for a model declared after
+// its use.
+fn modelFieldCount(sema: Sema, modelName: string) -> int {
+    var n = 0
+    var i = 0
+    while i < sema.modelFieldOwner.len() {
+        if sema.modelFieldOwner.get(i) == modelName { n = n + 1 }
+        i = i + 1
+    }
+    return n
+}
+
+// The name of the index'th field a model declares, in declaration order, or ""
+// when it declares fewer than that many.
+fn modelFieldNameAt(sema: Sema, modelName: string, index: int) -> string {
+    var seen = 0
+    var i = 0
+    while i < sema.modelFieldOwner.len() {
+        if sema.modelFieldOwner.get(i) == modelName {
+            if seen == index { return sema.modelFieldName.get(i) }
+            seen = seen + 1
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// The declared type of one field, or "" when the model has no such field.
+fn modelFieldType(sema: Sema, modelName: string, fieldName: string) -> string {
+    var i = 0
+    while i < sema.modelFieldOwner.len() {
+        if sema.modelFieldOwner.get(i) == modelName && sema.modelFieldName.get(i) == fieldName {
+            return sema.modelFieldTypeName.get(i)
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// Is an argument of type `got` acceptable where `want` is declared?
+//
+// Deliberately one-sided. "unknown" is accepted everywhere, because that is
+// what a type this pass could not infer means, and refusing it would turn
+// every inference gap into an error at every use. An int is accepted where a
+// float is declared, because that is a widening the C backend performs anyway;
+// a list is accepted for a list, because the element type is not part of the
+// spelling.
+fn argTypeFits(got: string, want: string) -> bool {
+    if want == "" { return true }
+    if got == "unknown" { return true }
+    // The AST spells every single-node payload `list` -- UnaryOpNode.operand,
+    // ReturnNode.expr, CallNode.callee and a dozen more -- because the node
+    // payload was untyped long before the models were. An ASTNode where one of
+    // those is expected is that placeholder being filled in, not a mistake a
+    // program can make, and a user cannot construct an ASTNode at all. So this
+    // one direction is let through, and the rest of the model types are still
+    // checked. The alternative is to re-type the whole AST, which is a much
+    // larger change than the problem deserves.
+    if got == "ASTNode" { return true }
+    // FmtState.prevTag is declared int and handed a TokType on purpose: the
+    // formatter's own comment says why -- a value of unknown type cannot be
+    // stored into an enum-typed model field, because void* has no enum
+    // conversion. That is a C backend gap, not a mistake in the program, and a
+    // user cannot name TokType either, so letting this one direction through
+    // costs nothing and leaves the gap documented where it already was.
+    if want == "int" && got == "TokType" { return true }
+    if got == want { return true }
+    if want == "float" && got == "int" { return true }
+    if orbit_string_slice(want, 0, 4) == "list" && orbit_string_slice(got, 0, 4) == "list" { return true }
+    return false
+}
+
+// A model construction: the declared field count, and the declared field
+// types, checked against the arguments actually written.
+//
+// Neither was checked. `Point(1)` compiled to a C call reading a second
+// argument that was never passed, and `Point("a", true)` passed a string
+// pointer where the C struct member is an int. The C compiler cannot catch
+// either: the struct is a typedef, and `p.x` is a member read whose type is
+// simply wrong. Both are decisions the model declaration already made.
+fn checkModelCtor(sema: Sema, args: list, line: int, col: int, modelName: string) {
+    if lookupSymbol(sema, modelName) != "model" { return }
+    val declared = modelFieldCount(sema, modelName)
+    if declared == 0 { return }
+    if args.len() != declared {
+        reportErrorAt(sema, "E1003", "A model is constructed with one argument per declared field, in order.", line, col, "Model '" + modelName + "' has " + orbit_int_to_string_selfhost(declared) + " field(s) but " + orbit_int_to_string_selfhost(args.len()) + " argument(s) were given.")
+        return
+    }
+    var i = 0
+    while i < declared {
+        val fieldName = modelFieldNameAt(sema, modelName, i)
+        val want = modelFieldType(sema, modelName, fieldName)
+        val got = inferType(sema, args.get(i))
+        if !argTypeFits(got, want) {
+            reportErrorAt(sema, "E1003", "Change the argument, or change the field's declared type.", line, col, "Field '" + modelName + "." + fieldName + "' is declared " + want + " but the argument is " + got + ".")
+        }
+        i = i + 1
+    }
+}
+
+// Reading a field of a model. A model that declares its fields is the one type
+// in the language whose members are fully known, so a member that is not
+// declared is an error rather than a guess.
+fn checkModelField(sema: Sema, objType: string, member: string, line: int, col: int) {
+    if modelFieldCount(sema, objType) == 0 { return }
+    if modelFieldType(sema, objType, member) != "" { return }
+    reportErrorAt(sema, "E1003", "The field is spelled as declared; a model has no other members.", line, col, "Model '" + objType + "' has no field '" + member + "'.")
 }
 
 fn findType(sema: Sema, name: string) -> int {
@@ -570,7 +695,16 @@ fn checkModelDecl(sema: Sema, node: ASTNode) {
             declareSymbol(sema, m.name, "model", false, false)
             var i = 0
             while i < m.fields.len() {
-                checkNode(sema, m.fields.get(i))
+                val field: ASTNode = m.fields.get(i)
+                match field {
+                    ASTNode.FieldDecl(fd) => {
+                        sema.modelFieldOwner.push(m.name)
+                        sema.modelFieldName.push(fd.name)
+                        sema.modelFieldTypeName.push(fd.fieldType)
+                    }
+                    _ => {}
+                }
+                checkNode(sema, field)
                 i = i + 1
             }
         }
@@ -1287,6 +1421,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                     if calleeLit.valType == "identifier" {
                         calleeName = calleeLit.text
                         resolveCalleeName(sema, calleeName)
+                        checkModelCtor(sema, c.args, c.line, c.col, calleeName)
                     }
                 }
                 _ => { inferType(sema, c.callee) }
@@ -1380,6 +1515,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
         ASTNode.MemberAccess(ma) => {
             val objType = inferType(sema, ma.object)
             val member = ma.field
+            checkModelField(sema, objType, member, ma.line, ma.col)
             if objType == "string" && member == "length" { return "int" }
             // `ASTNode.Empty` used as a value is an ASTNode, and reading it as
             // a field of some model of the same name is not: only a declared

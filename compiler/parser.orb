@@ -291,16 +291,18 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
             if matchToken(parser, TokType.Dot) {
                 // A quoted key is a real key: `headers."content-type"` is how a
                 // field with a dash in it is read back, not a novelty.
+                val dotLine = parser.previousToken.line
+                val dotCol = parser.previousToken.col
                 if check(parser, TokType.StringLiteral) {
                     val quoted = parser.currentToken.text
                     advanceParser(parser)
                     val qmember = quoted.slice(1, quoted.len() - 1)
-                    result = ASTNode.MemberAccess(MemberAccessNode(result, qmember))
+                    result = ASTNode.MemberAccess(MemberAccessNode(result, qmember, dotLine, dotCol))
                 } else {
                     consumeMemberName(parser, "Expected member name after '.'.")
                 }
                 val member = parser.previousToken.text
-                result = ASTNode.MemberAccess(MemberAccessNode(result, member))
+                result = ASTNode.MemberAccess(MemberAccessNode(result, member, dotLine, dotCol))
             } else {
                 if matchToken(parser, TokType.OpenBracket) {
                     val idxLine = parser.previousToken.line
