@@ -520,7 +520,7 @@ fn parseBinary(parser: Parser, precedence: int) -> ASTNode {
         advanceParser(parser)
         val nextPrec = getPrecedence(opToken.tag)
         val rhs = parseBinary(parser, nextPrec)
-        lhs = ASTNode.BinaryOp(BinaryOpNode(opToken.text, lhs, rhs))
+        lhs = ASTNode.BinaryOp(BinaryOpNode(opToken.text, lhs, rhs, opToken.line, opToken.col))
     }
 
     return lhs

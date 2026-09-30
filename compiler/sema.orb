@@ -823,6 +823,15 @@ fn constBoundLen(sema: Sema, name: string, wantKind: string) -> int {
  *  answers -1 and is left to the runtime, which stops the process. */
 fn literalIndexValue(node: list) -> int {
     match node {
+        // A negative literal is a unary minus over a positive one -- the lexer
+        // makes `-1` two tokens -- so it reads as -1 here rather than as "not
+        // a literal", which is what made `x / -1` unreachable.
+        ASTNode.UnaryOp(u) => {
+            if u.op != "-" { return -1 }
+            val inner = literalIndexValue(u.operand)
+            if inner < 0 { return -1 }
+            return 0 - inner
+        }
         ASTNode.Literal(lit) => {
             if lit.valType != "int" { return -1 }
             val text = lit.text
@@ -858,6 +867,98 @@ fn identifierName(node: list) -> string {
  *  say so: `s.at(99)` over "hello" is a bad character index and `xs.get(99)` is
  *  a bad element index, and both used to answer 0 -- the same 0 a slot holding
  *  0 answers, which is why neither was a bug anybody could see. */
+// Can this operand be evaluated at compile time to an int?
+//
+// A predicate rather than a sentinel. The first version of this folded to an
+// int and used a magic value to mean "no answer", which cannot work: the
+// sentinel has to be spelled as arithmetic, because a literal outside orbit_int
+// is an error in its own right, and arithmetic is exactly what this function
+// evaluates. So the sentinel folded to the same thing a real operand folds to,
+// an identifier compared equal to it, and every operand looked foldable. There
+// is no value that means "not a number" here -- only the question itself.
+//
+// Literal, negation of a literal, and sums and differences of those. That is
+// the whole set that can reach INT_MIN in a program, since the value itself
+// cannot be written down.
+fn canFoldInt(node: list) -> bool {
+    val lit = literalIndexValue(node)
+    if lit >= 0 { return true }
+    match node {
+        ASTNode.UnaryOp(u) => {
+            if u.op == "-" { return canFoldInt(u.operand) }
+            return false
+        }
+        ASTNode.BinaryOp(b) => {
+            if b.op != "+" && b.op != "-" { return false }
+            return canFoldInt(b.lhs) && canFoldInt(b.rhs)
+        }
+        _ => { return false }
+    }
+}
+
+// The value of an operand already known to satisfy canFoldInt.
+fn foldedIntValue(node: list) -> int {
+    val lit = literalIndexValue(node)
+    if lit >= 0 { return lit }
+    match node {
+        ASTNode.UnaryOp(u) => { return 0 - foldedIntValue(u.operand) }
+        ASTNode.BinaryOp(b) => {
+            if b.op == "+" { return foldedIntValue(b.lhs) + foldedIntValue(b.rhs) }
+            return foldedIntValue(b.lhs) - foldedIntValue(b.rhs)
+        }
+        _ => { return 0 }
+    }
+}
+
+// A `/` or `%` whose divisor is a literal zero, and the one integer division
+// that overflows.
+//
+// Both are constant expressions, and the front end already folds constants, so
+// there is nothing to check at run time: `7 / 0` in the emitted C is a
+// division the hardware performs and the process dies on. Measured today,
+// SIGFPE, exit 136, nothing on either stream. Not a wrong answer and not a
+// message -- a crash, which is why the frontend fuzzer never sees it: a crash
+// is an event, and that fuzzer only checks programs that exit.
+//
+// INT_MIN / -1 is the same shape for a different reason. It is the one
+// division that overflows at any int width, because the quotient is not
+// representable, so it faults the same way a zero divisor does. It cannot be
+// caught as "the divisor is zero"; it has to be named.
+//
+// The rest of the space -- a zero held in a variable, a zero computed at run
+// time -- needs a guard in the emitted C, and the emitter has both operand
+// types in hand. That is the remaining half of this defect and it is not
+// here.
+// The operand is passed field by field, not as the node.
+//
+// A model-typed parameter is emitted as a bare OrbitList* in the C backend, so
+// `b.line` inside the callee reads whatever the list header holds rather than
+// the field -- and reads it silently, which is worse than a build failure. A
+// struct field cannot survive the trip through a union payload that way, so
+// the values come in as plain arguments, the way checkConstantIndex already
+// takes its line and col.
+fn checkDivision(sema: Sema, op: string, rhs: list, lhs: list, line: int, col: int) {
+    if op != "/" && op != "%" { return }
+    val divisor = literalIndexValue(rhs)
+    if divisor == 0 {
+        reportErrorAt(sema, "E1004", "A divisor of zero is an error, not a value; guard the case with if d != 0.", line, col, "This " + op + " has a literal 0 divisor, which has no answer.")
+        return
+    }
+    if divisor == -1 {
+        // The dividend that overflows is -2147483648, and that value does not
+        // fit an orbit_int, so it cannot be spelled directly: written in a
+        // program it is already an error, and the range check says so in
+        // clearer words than this would. Every spelling that can reach here is
+        // therefore arithmetic -- `0 - 2147483647 - 1`, or a negation -- and
+        // those arrive as a folded constant rather than as literal text. So
+        // this asks what the operand came to, which is the only place the real
+        // value exists by the time sema sees it.
+        if canFoldInt(lhs) && foldedIntValue(lhs) == 0 - 2147483647 - 1 {
+            reportErrorAt(sema, "E1004", "This quotient is not representable as an int; divide as floats, or guard the case.", line, col, "Dividing the most negative int by -1 overflows, and an overflowing division faults the same way a zero divisor does.")
+        }
+    }
+}
+
 fn checkConstantIndex(sema: Sema, recv: list, indexNode: list, line: int, col: int) {
     val idx = literalIndexValue(indexNode)
     if idx < 0 { return }
@@ -1402,6 +1503,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             return l.valType
         }
         ASTNode.BinaryOp(b) => {
+            checkDivision(sema, b.op, b.rhs, b.lhs, b.line, b.col)
             val lhsType = inferType(sema, b.lhs)
             val rhsType = inferType(sema, b.rhs)
             if b.op == "==" || b.op == "!=" || b.op == "<" || b.op == "<=" || b.op == ">" || b.op == ">=" {
@@ -1771,7 +1873,10 @@ fn checkNode(sema: Sema, node: ASTNode) {
         ASTNode.Decorator(d) => {}
         ASTNode.TypeAnnotation(ta) => {}
         ASTNode.FieldInit(fi) => { inferType(sema, fi.value) }
-        ASTNode.ExpressionStmt(e) => { inferType(sema, e.expr) }
+        // checkNode, not inferType: an expression statement reaches the
+        // checker only through here, so a check that lives in checkNode is
+        // not run for `print(7 / 0)` unless this dispatches to it.
+        ASTNode.ExpressionStmt(e) => { checkNode(sema, e.expr) }
         ASTNode.Assignment(a) => { inferType(sema, a.value) }
         ASTNode.ListLiteral(ll) => {
             var ei = 0

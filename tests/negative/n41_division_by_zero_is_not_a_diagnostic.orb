@@ -20,13 +20,20 @@
 //      `scripts/fuzz_frontend.py` never found it: a crash is an event, and the
 //      old fuzzer was looking for events. FINDINGS F-0023.
 //
-//      Pinned as `no-diagnostic:` because a `wrong-value:` cannot hold a
-//      signal, and pinning nothing but "check is clean" is the weakest case in
-//      this directory. What is asserted is the observable -- it builds, it exits
-//      non-zero, and it says nothing -- and it fires the day a diagnostic
-//      arrives, because a diagnostic is a message.
-// known-defect: F-0023
-// no-diagnostic:
+//      Fixed for the two statically decidable halves. A literal zero divisor
+//      and INT_MIN/-1 are both constant expressions, and the front end already
+//      folds constants, so there is nothing left to decide at run time -- the
+//      emitted C used to perform a division the hardware then refused.
+//
+//      The third shape, a zero held in a variable, still reaches the hardware
+//      and still faults. That half needs a guard in the emitted C and is not
+//      done; see tests/suite/division.orb, which pins that a divisor through a
+//      variable keeps working, because the guard cannot be "refuse to divide".
+//
+//      This was pinned `no-diagnostic:` because a `wrong-value:` cannot hold a
+//      signal. A diagnostic arrived, so the ratchet fired, which is exactly
+//      what it is for.
+// expect-error: This / has a literal 0 divisor, which has no answer.
 fn main() -> int {
     print((7) / 0)
     return 0

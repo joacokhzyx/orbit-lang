@@ -211,6 +211,11 @@ model BinaryOpNode {
     op: string
     lhs: list
     rhs: list
+    // Where the operator was. A division by a zero divisor is reported
+    // against this, and without it the diagnostic could only name the
+    // function the expression was emitted into.
+    line: int
+    col: int
 }
 
 model UnaryOpNode {
