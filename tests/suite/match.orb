@@ -1,0 +1,49 @@
+// A match in both positions, and a match with a wildcard.
+//
+// buildMatchStatement and buildMatchExpr were the same 170 lines written
+// twice, so this file exists to say the two positions still answer the same:
+// a match used as a statement returns from its arms, and the same match used
+// as a value copies the arm's value into a register. If the shared body ever
+// grows a branch that only one position takes, this is what notices.
+
+union Shape { Circle(int) Square(int) Empty }
+
+fn area(s: Shape) -> int {
+    match s {
+        Shape.Circle(r) => { return r * 3 }
+        Shape.Square(w) => { return w * w }
+        Shape.Empty => { return 0 }
+    }
+    return -1
+}
+
+fn as_expression(n: int) -> int {
+    val v = match n {
+        0 => 10
+        1 => 20
+        _ => 30
+    }
+    return v
+}
+
+fn mixed(n: int) -> string {
+    val s = match n {
+        0 => "zero"
+        1 => "1"
+        _ => "other"
+    }
+    return s
+}
+
+fn main() -> int {
+    if area(Shape.Circle(4)) != 12 { return 1 }
+    if area(Shape.Square(3)) != 9 { return 2 }
+    if area(Shape.Empty) != 0 { return 3 }
+    if as_expression(0) != 10 { return 4 }
+    if as_expression(1) != 20 { return 5 }
+    if as_expression(7) != 30 { return 6 }
+    if mixed(0) != "zero" { return 7 }
+    if mixed(1) != "1" { return 8 }
+    if mixed(9) != "other" { return 9 }
+    return 0
+}

@@ -1265,8 +1265,17 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
     }
 }
 
-fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
+// The body of a match, once. buildMatchStatement and buildMatchExpr were the
+// same 170 lines twice, differing in 5: whether a case body is built as a
+// statement or as an expression, and whether the whole thing hands back a
+// register. A match is a match; the two callers wanted different results from
+// it, not a different algorithm.
+fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
     val matchReg = buildExpr(builder, m.expr)
+    // Only the expression form has a value to return. Allocating it
+    // unconditionally would emit a dead register for every match used as a
+    // statement, and the emitted C carries those declarations.
+    val resultReg = ir_alloc_register(builder.currentFunction, "unknown")
     val endLabel = allocLabel(builder)
     val numCases = m.cases.len()
     var caseLabels = []
@@ -1428,7 +1437,15 @@ fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
                         ir_emit(builder.currentFunction, jmp)
                     }
                 }
-                buildNode(builder, c.body)
+                if asExpr {
+                    val bodyReg = buildExpr(builder, c.body)
+                    val copyInstr = ir_init_instr(IROpcode.copy)
+                    copyInstr.dest = resultReg
+                    copyInstr.operand1 = ir_register(bodyReg)
+                    ir_emit(builder.currentFunction, copyInstr)
+                } else {
+                    buildNode(builder, c.body)
+                }
                 val jmpEnd = ir_init_instr(IROpcode.jump)
                 jmpEnd.operand1 = ir_label(endLabel)
                 ir_emit(builder.currentFunction, jmpEnd)
@@ -1441,187 +1458,16 @@ fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
     val lblEnd = ir_init_instr(IROpcode.label)
     lblEnd.operand1 = ir_label(endLabel)
     ir_emit(builder.currentFunction, lblEnd)
+    if asExpr { return resultReg }
+    return 0
+}
+
+fn buildMatchStatement(builder: IRBuilder, m: MatchNode) {
+    buildMatchBody(builder, m, false)
 }
 
 fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
-    val matchReg = buildExpr(builder, m.expr)
-    val resultReg = ir_alloc_register(builder.currentFunction, "unknown")
-    val endLabel = allocLabel(builder)
-    val numCases = m.cases.len()
-    var caseLabels = []
-    var i = 0
-    while i < numCases {
-        caseLabels.push(allocLabel(builder))
-        i = i + 1
-    }
-    i = 0
-    while i < numCases {
-        val caseNode = m.cases.get(i)
-        match caseNode {
-            ASTNode.MatchCase(c) => {
-                val caseLabel = caseLabels.get(i)
-                val caseLbl = ir_init_instr(IROpcode.label)
-                caseLbl.operand1 = ir_label(caseLabel)
-                ir_emit(builder.currentFunction, caseLbl)
-                var nextLabel = endLabel
-                if i + 1 < numCases {
-                    nextLabel = caseLabels.get(i + 1)
-                }
-                match c.pattern {
-                    ASTNode.Literal(lit) => {
-                        if lit.text == "_" {
-                            // Wildcard
-                        } else {
-                            val patReg = buildExpr(builder, c.pattern)
-                            val eqReg = ir_alloc_register(builder.currentFunction, "bool")
-                            val eqInstr = ir_init_instr(IROpcode.eq)
-                            eqInstr.dest = eqReg
-                            eqInstr.operand1 = ir_register(matchReg)
-                            eqInstr.operand2 = ir_register(patReg)
-                            ir_emit(builder.currentFunction, eqInstr)
-                            val jmp = ir_init_instr(IROpcode.jump_if_false)
-                            jmp.operand1 = ir_register(eqReg)
-                            jmp.operand2 = ir_label(nextLabel)
-                            ir_emit(builder.currentFunction, jmp)
-                        }
-                    }
-                    ASTNode.MemberAccess(mp) => {
-                        // Payload-less variant pattern, e.g. ASTNode.Empty =>
-                        // The scrutinee of a tagged union is a node pointer, so
-                        // compare its tag instead of the pointer itself.
-                        var mpOwner = ""
-                        match mp.object {
-                            ASTNode.Literal(mpl) => { mpOwner = mpl.text }
-                            _ => {}
-                        }
-                        var cmpReg = matchReg
-                        if isUnionTypeName(builder, mpOwner) {
-                            cmpReg = ir_alloc_register(builder.currentFunction, "int")
-                            val mpTag = ir_init_instr(IROpcode.union_get_tag)
-                            mpTag.dest = cmpReg
-                            mpTag.operand1 = ir_register(matchReg)
-                            ir_emit(builder.currentFunction, mpTag)
-                        }
-                        var mpPatReg = -1
-                        if mpOwner != "" {
-                            mpPatReg = ir_alloc_register(builder.currentFunction, "int")
-                            val mpConst = ir_init_instr(IROpcode.load_var)
-                            mpConst.dest = mpPatReg
-                            mpConst.operand1 = ir_symbol(mpOwner + "_TAG_" + mp.field)
-                            ir_emit(builder.currentFunction, mpConst)
-                        } else {
-                            mpPatReg = buildExpr(builder, c.pattern)
-                        }
-                        val mpEqReg = ir_alloc_register(builder.currentFunction, "bool")
-                        val mpEqInstr = ir_init_instr(IROpcode.eq)
-                        mpEqInstr.dest = mpEqReg
-                        mpEqInstr.operand1 = ir_register(cmpReg)
-                        mpEqInstr.operand2 = ir_register(mpPatReg)
-                        ir_emit(builder.currentFunction, mpEqInstr)
-                        val mpJmp = ir_init_instr(IROpcode.jump_if_false)
-                        mpJmp.operand1 = ir_register(mpEqReg)
-                        mpJmp.operand2 = ir_label(nextLabel)
-                        ir_emit(builder.currentFunction, mpJmp)
-                    }
-                    ASTNode.Call(callPattern) => {
-                        // Tagged union variant destructuring pattern e.g. ASTNode.Program(p)
-                        var tagName = ""
-                        var tagOwner = ""
-                        match callPattern.callee {
-                            ASTNode.MemberAccess(ma2) => {
-                                tagName = ma2.field
-                                match ma2.object {
-                                    ASTNode.Literal(ol2) => { tagOwner = ol2.text }
-                                    _ => {}
-                                }
-                            }
-                            ASTNode.Literal(lit2) => { tagName = lit2.text }
-                            _ => {}
-                        }
-                        val tagReg = ir_alloc_register(builder.currentFunction, "int")
-                        val tagInstr = ir_init_instr(IROpcode.union_get_tag)
-                        tagInstr.dest = tagReg
-                        tagInstr.operand1 = ir_register(matchReg)
-                        ir_emit(builder.currentFunction, tagInstr)
-
-                        val dataReg = ir_alloc_register(builder.currentFunction, "unknown")
-                        val dataInstr = ir_init_instr(IROpcode.union_get_data)
-                        dataInstr.dest = dataReg
-                        dataInstr.operand1 = ir_register(matchReg)
-                        ir_emit(builder.currentFunction, dataInstr)
-
-                        if callPattern.args.len() > 0 {
-                            val argNode = callPattern.args.get(0)
-                            match argNode {
-                                ASTNode.Literal(argLit) => {
-                                    if argLit.valType == "identifier" {
-                                        val declVar = ir_init_instr(IROpcode.decl_var)
-                                        declVar.operand1 = ir_symbol(argLit.text)
-                                        declVar.operand2 = ir_register(dataReg)
-                                        ir_emit(builder.currentFunction, declVar)
-                                        defineVariable(builder, argLit.text, variantPayloadType(builder, tagName))
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        // Same fix as in buildMatchStatement: compare the tag
-                        // against the integer constant, never against a node
-                        // built by buildExpr.
-                        var varPatReg = -1
-                        if tagOwner != "" {
-                            varPatReg = ir_alloc_register(builder.currentFunction, "int")
-                            val varPatInstr = ir_init_instr(IROpcode.load_var)
-                            varPatInstr.dest = varPatReg
-                            varPatInstr.operand1 = ir_symbol(tagOwner + "_TAG_" + tagName)
-                            ir_emit(builder.currentFunction, varPatInstr)
-                        } else {
-                            varPatReg = buildExpr(builder, callPattern.callee)
-                        }
-                        val eqReg = ir_alloc_register(builder.currentFunction, "bool")
-                        val eqInstr = ir_init_instr(IROpcode.eq)
-                        eqInstr.dest = eqReg
-                        eqInstr.operand1 = ir_register(tagReg)
-                        eqInstr.operand2 = ir_register(varPatReg)
-                        ir_emit(builder.currentFunction, eqInstr)
-
-                        val jmp = ir_init_instr(IROpcode.jump_if_false)
-                        jmp.operand1 = ir_register(eqReg)
-                        jmp.operand2 = ir_label(nextLabel)
-                        ir_emit(builder.currentFunction, jmp)
-                    }
-                    _ => {
-                        val patReg = buildExpr(builder, c.pattern)
-                        val eqReg = ir_alloc_register(builder.currentFunction, "bool")
-                        val eqInstr = ir_init_instr(IROpcode.eq)
-                        eqInstr.dest = eqReg
-                        eqInstr.operand1 = ir_register(matchReg)
-                        eqInstr.operand2 = ir_register(patReg)
-                        ir_emit(builder.currentFunction, eqInstr)
-                        val jmp = ir_init_instr(IROpcode.jump_if_false)
-                        jmp.operand1 = ir_register(eqReg)
-                        jmp.operand2 = ir_label(nextLabel)
-                        ir_emit(builder.currentFunction, jmp)
-                    }
-                }
-                val bodyReg = buildExpr(builder, c.body)
-                val copyInstr = ir_init_instr(IROpcode.copy)
-                copyInstr.dest = resultReg
-                copyInstr.operand1 = ir_register(bodyReg)
-                ir_emit(builder.currentFunction, copyInstr)
-                val jmpEnd = ir_init_instr(IROpcode.jump)
-                jmpEnd.operand1 = ir_label(endLabel)
-                ir_emit(builder.currentFunction, jmpEnd)
-            }
-            _ => {}
-        }
-        i = i + 1
-    }
-    val lblEnd = ir_init_instr(IROpcode.label)
-    lblEnd.operand1 = ir_label(endLabel)
-    ir_emit(builder.currentFunction, lblEnd)
-    return resultReg
+    return buildMatchBody(builder, m, true)
 }
 
 fn isUnionTypeName(builder: IRBuilder, name: string) -> bool {
