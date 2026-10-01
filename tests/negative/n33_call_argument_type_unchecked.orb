@@ -16,7 +16,22 @@
 //        var n = 0  n = "a string"             -> SIGSEGV, check clean
 //
 //      FINDINGS F-0015.
-// known-defect: F-0015
+// Fixed. The front end records every parameter's declared type on the symbol
+// (that plumbing is what F-0015 asked for) and now compares it against the
+// type of the argument actually passed, at the call site, with the line and
+// column of the `(`.
+//
+// The number this used to print was a heap address, so nothing was pinned
+// about its value; what was pinned was that the call was still accepted.
+// The ratchet fired on it, which is the whole reason it was pinned that way.
+//
+//      fn takesInt(x: int) called as takesInt("a string")  -> E1005
+//      fn takesStr(s: string) called as takesStr(1)       -> E1005
+//      fn takesList(l: list) called as takesList("x")     -> E1005
+//
+// An int where a float is declared is still fine: the C backend widens it, so
+// rejecting that would be a check with no bug behind it.
+// expect-error: Parameter 1 of takesInt is declared int but the argument is string.
 fn takesInt(x: int) -> int { return x + 1 }
 
 fn main() -> int {

@@ -14,9 +14,16 @@ import "std/string/string.orb"
 import "std/hash/hash.orb"
 
 extern fn orbit_base64url_encode_str(str: string) -> string
-extern fn orbit_string_len(s: string) -> string
+extern fn orbit_string_len(s: string) -> int
 extern fn orbit_string_slice(s: string, start: int, end: int) -> string
 extern fn orbit_streq(a: string, b: string) -> bool
+
+// The three `-> int` here used to say `-> string`, and the C returns
+// orbit_int. Nothing noticed, because nothing compared a declared parameter
+// type against the argument passed: totalLen was typed string, went on to be
+// orbit_string_slice's `end: int`, and the two declarations disagreed about
+// the same value without either objecting. E1005 compares them now, so the
+// declaration has to be true.
 
 model JwtHeader {
     alg: string

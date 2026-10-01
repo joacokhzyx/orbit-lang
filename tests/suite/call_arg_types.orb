@@ -1,0 +1,38 @@
+// What a call may pass, and what it may not.
+//
+// Every parameter's declared type was recorded on the symbol and never
+// compared against the argument actually passed. A string handed to an int
+// parameter arrived as a heap address and printed as a number, which is
+// worse than a crash: the program runs and the answer is wrong.
+
+fn takesStr(s: string) -> int { return s.len() }
+fn takesInt(x: int) -> int { return x }
+fn takesFloat(f: float) -> int { return 1 }
+fn takesBool(b: bool) -> int { return 2 }
+fn takesList(l: list) -> int { return l.len() }
+
+// A model is a first-class parameter, not a special case.
+model Box { v: int }
+fn unbox(b: Box) -> int { return b.v }
+fn makeBox() -> Box { return Box(9) }
+
+fn accepted() -> int {
+    if takesStr("hello") != 5 { return 1 }
+    if takesInt(3) != 3 { return 2 }
+    if takesFloat(1.5) != 1 { return 3 }
+    if takesBool(true) != 2 { return 4 }
+    if takesList([1, 2, 3]) != 3 { return 5 }
+    if unbox(makeBox()) != 9 { return 6 }
+    // An int widens to a float in the C backend, so refusing it would be a
+    // check with no bug behind it.
+    if takesFloat(2) != 1 { return 7 }
+    // The value of an expression, not just a literal.
+    if takesInt(2 + 3) != 5 { return 8 }
+    if takesStr("a" + "bc") != 3 { return 9 }
+    return 0
+}
+
+fn main() -> int {
+    if accepted() != 0 { return 1 }
+    return 0
+}

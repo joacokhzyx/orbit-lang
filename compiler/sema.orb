@@ -661,11 +661,51 @@ fn checkCallArity(sema: Sema, name: string, argCount: int) {
     }
 }
 
+// The types of the arguments a call actually passed, against the parameter
+// types its declaration records.
+//
+// The arity check next door reads the same symbol.paramTypes and stops at the
+// count. The types were recorded and never compared, which is why F-0015
+// shipped: `fn takesInt(x: int)` called with a string is accepted, the
+// string's address arrives in an int register, and the program prints a heap
+// address. Not a crash -- a wrong number, which propagates.
+//
+// It is also the check that makes the union payload honest. A model-typed
+// parameter is emitted in C as a bare OrbitList* (see checkDivision's comment),
+// so passing a node payload where a `list` is declared reads struct fields out
+// of a list header. That is silent and it is what cost three hours on the
+// division check. Catching the mismatch here is the difference between a
+// compile error and a line number of 25515 for a four-line file.
+//
+// checkCompatibility decides what counts as a mismatch, so this stays
+// one-sided: an argument the checker could not type is not a mismatch.
+fn checkCallArgTypes(sema: Sema, name: string, args: list, line: int, col: int) {
+    val sym = resolveFunctionSymbol(sema, name)
+    if sym == NULL { return }
+    val params = sym.paramTypes
+    val n = params.len()
+    if n != args.len() { return }
+    var i = 0
+    while i < n {
+        val want = params.get(i)
+        val got = checkNode(sema, args.get(i))
+        if checkCompatibility(want, got) == false {
+            reportErrorAt(sema, "E1005", "Change the argument, or change the parameter's declared type.", line, col, "Parameter " + orbit_int_to_string_selfhost(i + 1) + " of " + name + " is declared " + want + " but the argument is " + got + ".")
+        }
+        i = i + 1
+    }
+}
+
 fn checkCompatibility(expected: string, actual: string) -> bool {
     if expected == "unknown" || actual == "unknown" { return true }
     if expected == actual { return true }
     if expected == "result" { return true }
     if expected == "response" { return true }
+    // An int where a float is declared widens, and the C backend performs the
+    // conversion, so rejecting it would be a check with no bug behind it. The
+    // other direction does not: a float in an int register is a truncated
+    // number, and F-0015 is about exactly that class.
+    if expected == "float" && actual == "int" { return true }
     return false
 }
 
@@ -1675,6 +1715,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             }
             if calleeName != "" {
                 checkCallArity(sema, calleeName, c.args.len())
+                checkCallArgTypes(sema, calleeName, c.args, c.line, c.col)
             }
             // Check for builtins
             match c.callee {
