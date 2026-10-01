@@ -66,7 +66,6 @@
 /* ── Built-in functions (conversions, clock) ───────────────────────── */
 #include "builtins.c"
 #include "crypto.c"
-#include "hyperdrive.c"
 #include "selfhost.c"
 
 /* ── Energy sampler (Linux RAPL at 1 Hz; labeled CPU proxy elsewhere) ── */

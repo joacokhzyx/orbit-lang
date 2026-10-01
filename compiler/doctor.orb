@@ -186,24 +186,6 @@ fn doctorTrimLeft(s: string) -> string {
     return ""
 }
 
-fn doctorSplitLines(source: string) -> list {
-    var lines = []
-    var start = 0
-    var i = 0
-    val n = orbit_string_len(source)
-    while i < n {
-        if orbit_string_char_at_selfhost(source, i) == 10 {
-            lines.push(orbit_string_slice(source, start, i))
-            start = i + 1
-        }
-        i = i + 1
-    }
-    if start < n {
-        lines.push(orbit_string_slice(source, start, n))
-    }
-    return lines
-}
-
 fn doctorListContains(items: list, value: string) -> bool {
     var i = 0
     while i < items.len() {
@@ -400,7 +382,7 @@ fn doctorWildcardCovers(wild: string, specific: string) -> bool {
 }
 
 fn doctorCollectRoutes(file: string, source: string, routes: list) {
-    val lines = doctorSplitLines(source)
+    val lines = splitBuildLines(source)
     var i = 0
     while i < lines.len() {
         val rl = doctorParseRouteLine(lines.get(i))
@@ -445,7 +427,7 @@ fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
 }
 
 fn doctorFindDeclLine(source: string, keyword: string, name: string) -> int {
-    val lines = doctorSplitLines(source)
+    val lines = splitBuildLines(source)
     var i = 0
     while i < lines.len() {
         var rest = doctorTrimLeft(lines.get(i))
@@ -656,7 +638,7 @@ fn doctorUsedInText(files: list, sources: list, declFile: string, declLine: int,
         val fp: string = files.get(i)
         val src: string = sources.get(i)
         if orbit_string_indexOf(src, word) != -1 {
-            val lines = doctorSplitLines(src)
+            val lines = splitBuildLines(src)
             var ln = 1
             while ln <= lines.len() {
                 var isDeclLine = false
@@ -778,7 +760,7 @@ fn doctorScanSystemLine(line: string) -> string {
 }
 
 fn doctorScanSystem(stats: DoctorStats, file: string, source: string) {
-    val lines = doctorSplitLines(source)
+    val lines = splitBuildLines(source)
     var i = 0
     while i < lines.len() {
         val bad = doctorScanSystemLine(doctorCodePart(lines.get(i)))
@@ -819,7 +801,7 @@ fn doctorStripTrailingWs(line: string) -> string {
 }
 
 fn doctorBuildFixedSource(source: string) -> string {
-    val lines = doctorSplitLines(source)
+    val lines = splitBuildLines(source)
     // Re-joining line by line with `out = out + line` was quadratic in the
     // file size; the chunk buffer appends instead.
     val buf = orbit_cbuf_create_selfhost()
@@ -833,7 +815,7 @@ fn doctorBuildFixedSource(source: string) -> string {
 }
 
 fn doctorScanStyle(stats: DoctorStats, file: string, source: string) {
-    val lines = doctorSplitLines(source)
+    val lines = splitBuildLines(source)
     var i = 0
     while i < lines.len() {
         if doctorHasTrailingWs(lines.get(i)) {

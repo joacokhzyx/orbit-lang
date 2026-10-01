@@ -61,13 +61,6 @@ fn hasInterpolation(text: string) -> bool {
     return false
 }
 
-fn isHexDigit(c: int) -> bool {
-    if isDigit(c) { return true }
-    if c >= 97 && c <= 102 { return true } // 'a'-'f'
-    if c >= 65 && c <= 70 { return true } // 'A'-'F'
-    return false
-}
-
 // Skip past a "${" hole while scanning an ordinary string. The hole can hold a
 // string of its own, so the scan for the closing quote must not stop at the
 // first quote it meets: without this, "${f("x")}" ended the literal at the

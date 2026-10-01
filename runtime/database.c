@@ -348,42 +348,7 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
     return result;
 }
 
-/** @brief Return the number of rows in @p col via COUNT(*). */
-int orbit_db_count(orbit_collection col) {
-    KYNX_DB_QUERY_CHECK(0);
-    /* Count uses a small stack buffer since the query is trivial */
-    char query[128];
-    snprintf(query, sizeof(query), "SELECT COUNT(*) FROM %s;", col.table_name);
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
-        return 0;
-
-    int count = 0;
-    orbit_perf_stats.db_queries++; // Telemetry
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        count = sqlite3_column_int(stmt, 0);
-    }
-
-    sqlite3_finalize(stmt);
-    return count;
-}
-
-/** @brief Return true if a row with the given @p id exists in @p col. */
-bool orbit_db_exists(orbit_collection col, const char* id) {
-    KYNX_DB_QUERY_CHECK(false);
-    char query[128];
-    snprintf(query, sizeof(query), "SELECT 1 FROM %s WHERE id = ? LIMIT 1;", col.table_name);
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
-        return false;
-
-    sqlite3_bind_text(stmt, 1, id, -1, SQLITE_STATIC);
-    bool exists = (sqlite3_step(stmt) == SQLITE_ROW);
-    sqlite3_finalize(stmt);
-    return exists;
-}
 
 /** @brief Insert a JSON document into @p col; uses malloc for the query buffer since no arena is available at insert time. */
 /** @brief Extract a value for @p key from a flat JSON object: quoted string values
@@ -549,41 +514,7 @@ bool orbit_db_del(orbit_collection col, const char* id) {
 
 // ─── JSON Helpers ────────────────────────────────────────────────────────────
 
-/** @brief Return true when @p s is NULL, the empty-object literal "{}", or the empty-array literal "[]". */
-bool orbit_is_empty(orbit_string s) {
-    return s == NULL || strcmp(s, "{}") == 0 || strcmp(s, "[]") == 0;
-}
 
-/** @brief Extract the string value for @p key from a flat JSON object stored in @p json. Returns "" if not found. */
-orbit_string orbit_json_get(OrbitArena* arena, orbit_string json, const char* key) {
-    if (!json || !key) return "";
-
-    size_t key_len = strlen(key);
-    char* pat = (char*)orbit_alloc(arena, key_len + 3);
-    if (!pat) return "";
-    snprintf(pat, key_len + 3, "\"%s\"", key);
-
-    const char* pos = strstr(json, pat);
-    if (!pos) return "";
-    pos += key_len + 2;
-    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
-    if (*pos != ':') return "";
-    pos++;
-    while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
-    if (*pos == '"') pos++;
-    else return "";
-
-    const char* end = strchr(pos, '"');
-    if (!end) return "";
-
-    size_t len = (size_t)(end - pos);
-    char* res = (char*)orbit_alloc(arena, len + 1);
-    if (!res) return "";
-
-    memcpy(res, pos, len);
-    res[len] = '\0';
-    return res;
-}
 
 orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";

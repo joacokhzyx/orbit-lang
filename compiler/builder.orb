@@ -686,16 +686,6 @@ fn fieldOwnerForObject(builder: IRBuilder, obj: ASTNode, fieldName: string) -> s
     return ""
 }
 
-fn checkTypeName(t: IRTypeDecl, typeName: string) -> bool {
-    return t.name == typeName
-}
-
-fn isModelName(name: string) -> bool {
-    if name.len() == 0 { return false }
-    val first = name.slice(0, 1)
-    return first >= "A" && first <= "Z"
-}
-
 fn allocLabel(builder: IRBuilder) -> int {
     val lbl = builder.labelCounter
     builder.labelCounter = builder.labelCounter + 1

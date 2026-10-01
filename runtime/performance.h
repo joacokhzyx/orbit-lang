@@ -125,23 +125,12 @@ ORBIT_INLINE void orbit_perf_end_request(uint64_t start_cycles) {
     }
 }
 
-ORBIT_INLINE void orbit_perf_record_arena_reuse(void) {
-    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_reuse_count);
-    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_reuses);
-}
 
-ORBIT_INLINE void orbit_perf_record_string_hit(void) {
-    orbit_perf_atomic_inc64(&orbit_perf_stats.string_intern_hits);
-}
 
 ORBIT_INLINE OrbitPerfStats orbit_perf_get_stats(void) {
     return orbit_perf_stats;
 }
 
-ORBIT_INLINE void orbit_perf_reset_stats(void) {
-    // Structural reset is safe
-    orbit_perf_stats = (OrbitPerfStats){0};
-}
 
 /* ── Epochal VM Arena telemetry recording helpers ────────────────────── */
 

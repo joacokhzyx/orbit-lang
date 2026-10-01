@@ -104,10 +104,5 @@ ORBIT_INLINE const char* orbit_string_intern(OrbitArena* arena, const char* str)
     return new_str;
 }
 
-ORBIT_INLINE bool orbit_string_equals_fast(const char* a, const char* b) {
-    if (ORBIT_LIKELY(a == b)) return true;     /* pointer equality from interning */
-    if (ORBIT_UNLIKELY(!a || !b)) return false;
-    return strcmp(a, b) == 0;
-}
 
 #endif

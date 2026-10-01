@@ -305,26 +305,6 @@ ORBIT_INLINE OrbitResult orbit_list_checked(const OrbitList* list, size_t index,
     return orbit_list_get_value(list, index);
 }
 
-ORBIT_INLINE OrbitResult orbit_list_get_string(const OrbitList* list, size_t index) {
-    return orbit_list_checked(list, index, ORBIT_ELEM_STRING);
-}
-
-ORBIT_INLINE OrbitResult orbit_list_get_int(const OrbitList* list, size_t index) {
-    return orbit_list_checked(list, index, ORBIT_ELEM_INT);
-}
-
-ORBIT_INLINE OrbitResult orbit_list_get_bool(const OrbitList* list, size_t index) {
-    return orbit_list_checked(list, index, ORBIT_ELEM_BOOL);
-}
-
-ORBIT_INLINE OrbitResult orbit_list_get_ref(const OrbitList* list, size_t index) {
-    return orbit_list_checked(list, index, ORBIT_ELEM_REF);
-}
-
-ORBIT_INLINE OrbitResult orbit_list_get_float(const OrbitList* list, size_t index) {
-    return orbit_list_checked(list, index, ORBIT_ELEM_FLOAT);
-}
-
 /* ── The reads the emitter calls ────────────────────────────────────────────
  *
  * These are what a `list_get` in generated C lowers to. Each one takes the
@@ -459,20 +439,6 @@ OrbitResult orbit_list_set_ref(OrbitList* list, size_t index, void* value) {
     return orbit_list_store_at(list, index, ORBIT_ELEM_REF, (uintptr_t)value);
 }
 
-/* Return a zero-copy slice view of the list */
-OrbitSlice orbit_list_as_slice(const OrbitList* list) {
-    OrbitSlice s;
-    if (!list) {
-        s.data      = NULL;
-        s.len       = 0;
-        s.elem_size = 0;
-    } else {
-        s.data      = list->data;
-        s.len       = list->len;
-        s.elem_size = list->elem_size;
-    }
-    return s;
-}
 
 /* Clear without deallocation — O(1) reset */
 void orbit_list_clear(OrbitList* list) {
@@ -624,9 +590,6 @@ ORBIT_INLINE bool orbit_map_has(const OrbitMap* map, const char* key) {
     return r.ok;
 }
 
-ORBIT_INLINE size_t orbit_map_count(const OrbitMap* map) {
-    return map ? map->count : 0;
-}
 
 static ORBIT_UNUSED OrbitResult orbit_map_delete(OrbitMap* map, const char* key) {
     if (!map || !key) {

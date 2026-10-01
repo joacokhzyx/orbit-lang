@@ -255,10 +255,6 @@ const char* orbit_energy_source(void) {
     return orbit_energy_sensor_ok ? "rapl-estimate" : "cpu-proxy";
 }
 
-/* Working sensor path, or "" when absent. For diagnostics only. */
-const char* orbit_energy_sensor_path_str(void) {
-    return orbit_energy_sensor_path;
-}
 
 /* Total sampled package joules since start. 0 without a sensor. */
 double orbit_energy_total_joules(void) {
@@ -266,11 +262,6 @@ double orbit_energy_total_joules(void) {
     return (double)orbit_energy_total_uj / 1000000.0;
 }
 
-/* Calibrated idle watts, or 0 when uncalibrated / loaded / sensor-less. */
-double orbit_energy_idle_watts(void) {
-    if (!orbit_energy_sensor_ok || orbit_energy_cal_state != 1) return 0.0;
-    return orbit_energy_idle_w;
-}
 
 /* Seconds since orbit_energy_start. 0 when never started. */
 double orbit_energy_uptime_s(void) {

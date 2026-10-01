@@ -3780,19 +3780,8 @@ fn findFieldOwner(backend: CBackend, fieldName: string) -> string {
     return ""
 }
 
-fn fieldRefDotPos(fieldRef: string) -> int {
-    var i = 0
-    while i < orbit_string_len(fieldRef) {
-        if fieldRef.at(i) == 46 {
-            return i
-        }
-        i = i + 1
-    }
-    return -1
-}
-
 fn fieldRefOwner(fieldRef: string) -> string {
-    val dot = fieldRefDotPos(fieldRef)
+    val dot = dotPosOf(fieldRef)
     if dot <= 0 {
         return ""
     }
@@ -3800,7 +3789,7 @@ fn fieldRefOwner(fieldRef: string) -> string {
 }
 
 fn fieldRefName(fieldRef: string) -> string {
-    val dot = fieldRefDotPos(fieldRef)
+    val dot = dotPosOf(fieldRef)
     if dot <= 0 {
         return sanitizeIdentifier(fieldRef)
     }
@@ -3951,22 +3940,4 @@ fn calleeEnumParamName(backend: CBackend, calleeName: string, argIdx: int) -> st
         ti = ti + 1
     }
     return ""
-}
-
-fn dualPathQualifies(f: IRFunction) -> bool {
-    if f == NULL { return false }
-    val n = f.instructions.len()
-    if n < 4 { return false }
-    if n > 200 { return false }
-    var qi = 0
-    while qi < n {
-        val inst: IRInstruction = f.instructions.get(qi)
-        match inst.opcode {
-            IROpcode.load_field => { return true }
-            IROpcode.store_field => { return true }
-            _ => {}
-        }
-        qi = qi + 1
-    }
-    return false
 }

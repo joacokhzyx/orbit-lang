@@ -106,17 +106,6 @@ static ORBIT_UNUSED OrbitResult orbit_result_ok_word(uintptr_t word) {
     return r;
 }
 
-/** @brief Construct a successful Result carrying an integer value encoded in the pointer slot. */
-static ORBIT_UNUSED OrbitResult orbit_result_ok_int(orbit_int val) {
-    OrbitResult r;
-    r.ok         = true;
-    r.error_code = ORBIT_ERR_NONE;
-    r.error_msg  = NULL;
-    /* Store int directly in pointer-sized slot (safe on 32/64-bit) */
-    r.value      = NULL;
-    memcpy(&r.value, &val, sizeof(orbit_int));
-    return r;
-}
 
 /** @brief Construct a failed Result with the given error @p code and human-readable @p msg. */
 static OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {
@@ -149,21 +138,7 @@ typedef struct {
     void*  value;
 } OrbitOption;
 
-/** @brief Construct an Option<T> that holds @p value. */
-static ORBIT_UNUSED OrbitOption orbit_some(void* value) {
-    OrbitOption o;
-    o.has_value = true;
-    o.value     = value;
-    return o;
-}
 
-/** @brief Construct an empty Option<T>. */
-static ORBIT_UNUSED OrbitOption orbit_none(void) {
-    OrbitOption o;
-    o.has_value = false;
-    o.value     = NULL;
-    return o;
-}
 
 /* ── Slice<T> — Non-owning view over contiguous memory ─────────────── *
  *
@@ -177,25 +152,7 @@ typedef struct {
     size_t elem_size;
 } OrbitSlice;
 
-/** @brief Construct an empty Slice with @p elem_size bytes per element. */
-static ORBIT_UNUSED OrbitSlice orbit_slice_empty(size_t elem_size) {
-    OrbitSlice s;
-    s.data      = NULL;
-    s.len       = 0;
-    s.elem_size = elem_size;
-    return s;
-}
 
-/** @brief Return a pointer to the element at @p index in @p s, or an error Result if out of bounds. */
-static ORBIT_UNUSED OrbitResult orbit_slice_get(const OrbitSlice* s, size_t index) {
-    if (!s || !s->data) {
-        return orbit_result_err(ORBIT_ERR_NULL_PTR, "slice is null");
-    }
-    if (index >= s->len) {
-        return orbit_result_err(ORBIT_ERR_OUT_OF_BOUNDS, "slice index out of bounds");
-    }
-    return orbit_result_ok((char*)s->data + index * s->elem_size);
-}
 
 /* ── Element kinds — what a list holds, so a read can hand it back typed ──
  *
@@ -298,25 +255,7 @@ typedef struct {
     size_t  data_size;
 } OrbitTaggedUnion;
 
-/** @brief Create an OrbitTaggedUnion with the given discriminant @p tag, payload @p data, and @p size. */
-static ORBIT_UNUSED OrbitTaggedUnion orbit_tagged_union_create(int tag, void* data, size_t size) {
-    OrbitTaggedUnion u;
-    u.tag       = tag;
-    u.data      = data;
-    u.data_size = size;
-    return u;
-}
 
-/** @brief Retrieve the payload of @p u if its tag matches @p expected_tag; returns a type-mismatch error otherwise. */
-static ORBIT_UNUSED OrbitResult orbit_tagged_union_get(const OrbitTaggedUnion* u, int expected_tag) {
-    if (!u) {
-        return orbit_result_err(ORBIT_ERR_NULL_PTR, "union is null");
-    }
-    if (u->tag != expected_tag) {
-        return orbit_result_err(ORBIT_ERR_TYPE_MISMATCH, "union tag mismatch");
-    }
-    return orbit_result_ok(u->data);
-}
 
 /* ── Interface/Trait vtable ────────────────────────────────────────── *
  *
