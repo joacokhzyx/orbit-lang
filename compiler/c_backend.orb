@@ -3119,6 +3119,14 @@ fn feBuildTimeCallType(name: string) -> string {
     if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list" }
     if name == "orbit_os_alloc" || name == "orbit_os_create_arena" { return "ptr" }
     if name == "orbit_response_json" { return "response" }
+    // The frontend's own table, for the names this one did not copy over.
+    // Consulted before giving up, because "unknown" here is not a shrug: it
+    // means "do not guess a type for the local this register feeds", and for a
+    // result or a response the local is an aggregate that cannot be hoisted as
+    // an integer. The C compiler then rejects the store with a type error that
+    // names the generated code and not the call that produced it.
+    val fromFrontend = builtinReturnType(name)
+    if fromFrontend != "" { return fromFrontend }
     return "unknown"
 }
 

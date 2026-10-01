@@ -99,6 +99,54 @@ fn registerFunctionReturnType(builder: IRBuilder, name: string, typeVal: string)
     builder.returnTypes.push(Variable(name, typeVal))
 }
 
+// What type does the frontend say a builtin call returns, without a builder in
+// hand?
+//
+// The table above is the frontend's answer, and it is the one that has to be
+// right: it is what gives a call result a register type. c_backend.orb kept a
+// second copy of the same knowledge for its own purposes, and the two drifted
+// -- feBuildTimeCallType did not list orbit_response_error, orbit_auth_role,
+// or the three crypto helpers, so the backend answered "unknown" for calls the
+// frontend had typed. "unknown" is the safe answer for a string, because
+// refusing to guess is what keeps a scalar from being hoisted as an integer.
+// It is not safe for a result or a response, which is the exact failure the
+// comment in ensureDefIndex describes: an aggregate bound to a val, hoisted as
+// uintptr_t, and an aggregate-to-integer C error from the C compiler.
+//
+// So the backend asks here instead of keeping its own list, and a builtin the
+// frontend types can never be unknown to the emitter.
+fn builtinReturnType(name: string) -> string {
+    if name == "orbit_base64url_encode_str" { return "string" }
+    if name == "orbit_sha256_hex" { return "string" }
+    if name == "orbit_hmac_sha256_base64url" { return "string" }
+    if name == "orbit_auth_bearer_token" { return "string" }
+    if name == "orbit_auth_current_role" { return "string" }
+    if name == "orbit_auth_role" { return "string" }
+    if name == "orbit_auth_has_role" { return "bool" }
+    if name == "orbit_cache_get" { return "string" }
+    if name == "orbit_cache_set" { return "bool" }
+    if name == "orbit_file_upload_save" { return "string" }
+    if name == "orbit_http_param_get" { return "string" }
+    if name == "orbit_http_body_get" { return "string" }
+    if name == "orbit_http_query_get" { return "string" }
+    if name == "orbit_http_header_get" { return "string" }
+    if name == "orbit_db_query_all" { return "string" }
+    if name == "orbit_db_query_where" { return "string" }
+    if name == "orbit_db_query_where_p" { return "string" }
+    if name == "orbit_db_query_get" { return "string" }
+    if name == "orbit_db_insert" { return "bool" }
+    if name == "orbit_db_delete" { return "bool" }
+    if name == "orbit_string_slice" { return "string" }
+    if name == "orbit_response_json" { return "response" }
+    if name == "orbit_response_error" { return "response" }
+    if name == "system_uptime" { return "int" }
+    if name == "system_pid" { return "int" }
+    if name == "system_active_workers" { return "int" }
+    if name == "system_http_requests_total" { return "int" }
+    if name == "system_latency_avg_us" { return "int" }
+    return ""
+}
+
 fn lookupFunctionReturnType(builder: IRBuilder, name: string) -> string {
     var i = builder.returnTypes.len()
     while i > 0 {
