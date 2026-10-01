@@ -17,8 +17,7 @@
 //
 //      That is why this reads as "works" in a test and breaks in an
 //      application. FINDINGS F-0011.
-// known-defect: F-0011
-// cc-rejects: unknown type name
+// expect-error: Nothing declares a type named 'Int'.
 fn main() -> int {
     val n: Int = 1
     print(n)

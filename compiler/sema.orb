@@ -752,10 +752,51 @@ fn checkModelDecl(sema: Sema, node: ASTNode) {
     }
 }
 
+// The declared type of a binding, checked against the type of its value.
+//
+// `typeAnnotation` was parsed, carried through the AST, and then never read by
+// anything. `val x: int = 1e2` bound a float to a name the program had just
+// called an int, and the only thing that showed it was what the program
+// printed afterwards: 100.0, from a variable declared int. The differential
+// fuzzer found it as `unsupported-form-is-silently-wrong-in-a-binding`.
+//
+// An annotation also names something, and a name nothing declares was equally
+// unchecked: `val n: Int = 1` is accepted and emits C that says `Int*`.
+fn checkAnnotation(sema: Sema, name: string, declared: string, actual: string, line: int, col: int) {
+    if declared == "" { return }
+    // A capitalised name is a type only if something declares it. Not
+    // registered as a model, a type or a generic? Then it is a typo or a type
+    // from another module, and the C backend will say so in a way that names
+    // generated code rather than the annotation.
+    if isCapitalised(declared) && !isDeclaredTypeName(sema, declared) {
+        reportErrorAt(sema, "E1006", "Types are written in lower case, or declared with `model` or `union`.", line, col, "Nothing declares a type named '" + declared + "'.")
+        return
+    }
+    if checkCompatibility(declared, actual) == false {
+        reportErrorAt(sema, "E1006", "Change the annotation, or change the value.", line, col, "'" + name + "' is declared " + declared + " but the value is " + actual + ".")
+    }
+}
+
+fn isCapitalised(s: string) -> bool {
+    if s.len() == 0 { return false }
+    val c = s.at(0)
+    return c >= 65 && c <= 90
+}
+
+// Something that declares a type: a model, or an entry in the type registry
+// (enums, unions and aliases). A generic parameter is not a type yet, so a
+// binding to one is left alone.
+fn isDeclaredTypeName(sema: Sema, name: string) -> bool {
+    if lookupSymbol(sema, name) == "model" { return true }
+    if findType(sema, name) >= 0 { return true }
+    return false
+}
+
 fn checkVarDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.VarDecl(v) => {
             val valueType = checkNode(sema, v.value)
+            checkAnnotation(sema, v.name, v.typeAnnotation, valueType, v.line, v.col)
             declareSymbol(sema, v.name, valueType, v.isMutable, false)
             if v.isMutable == false {
                 recordConstBound(sema, v.name, v.value)
@@ -907,6 +948,22 @@ fn identifierName(node: list) -> string {
  *  say so: `s.at(99)` over "hello" is a bad character index and `xs.get(99)` is
  *  a bad element index, and both used to answer 0 -- the same 0 a slot holding
  *  0 answers, which is why neither was a bug anybody could see. */
+// `-2147483648`, spelled as a negation of the literal 2147483648. The only
+// spelling of the integer minimum there is: the value itself does not fit an
+// orbit_int, and the range check says so if it is written directly.
+fn isIntMinSpelling(node: list) -> bool {
+    match node {
+        ASTNode.UnaryOp(u) => {
+            if u.op != "-" { return false }
+            match u.operand {
+                ASTNode.Literal(l) => { return l.valType == "int" && l.text == "2147483648" }
+                _ => { return false }
+            }
+        }
+        _ => { return false }
+    }
+}
+
 // Can this operand be evaluated at compile time to an int?
 //
 // A predicate rather than a sentinel. The first version of this folded to an
@@ -921,6 +978,12 @@ fn identifierName(node: list) -> string {
 // the whole set that can reach INT_MIN in a program, since the value itself
 // cannot be written down.
 fn canFoldInt(node: list) -> bool {
+    // `-2147483648` is INT_MIN: a negation of a literal one past INT_MAX. The
+    // Literal arm in checkNode returns "int" for exactly that spelling, so the
+    // two places have to agree on it or the range check and this disagree about
+    // whether the same tree is an integer. literalIndexValue cannot say -- the
+    // magnitude does not fit -- so it is named here.
+    if isIntMinSpelling(node) { return true }
     val lit = literalIndexValue(node)
     if lit >= 0 { return true }
     match node {
@@ -938,6 +1001,7 @@ fn canFoldInt(node: list) -> bool {
 
 // The value of an operand already known to satisfy canFoldInt.
 fn foldedIntValue(node: list) -> int {
+    if isIntMinSpelling(node) { return 0 - 2147483647 - 1 }
     val lit = literalIndexValue(node)
     if lit >= 0 { return lit }
     match node {

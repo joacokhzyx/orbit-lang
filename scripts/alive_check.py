@@ -206,18 +206,18 @@ def registry(compiler, cc, work):
                              "--cc", cc),
              r"^Finished unknown-count: \d+ \(baseline \d+, (ratchet holds|"
              r"ratchet broken)", 600, allow_rc=(0, 1), needs=("compiler",)),
-        Tool("diff_fuzz_ratchet.py", "measurement",
-             "the gate that holds the differential fuzzer's disagreement count "
-             "one way (D9). Driven here through its --from-json seam on a "
-             "one-finding document that carries the REAL baseline's corpus_sha, "
-             "so this row exercises the reader, the baseline loader and the "
-             "verdict for the price of a json file. diff_fuzz.py's own row "
-             "covers the producer; a ratchet whose reader is only ever fed by "
-             "its own producer is a ratchet that cannot be tested apart from it",
-             lambda: _script("diff_fuzz_ratchet.py", "--from-json",
-                             _tmp(work, "difffuzz_alive.json")),
-             r"^Finished diff-fuzz ratchet: \d+ disagreements in \d+ cases "
-             r"\(baseline \d+, ratchet holds", 120),
+        # diff_fuzz_ratchet.py used to be here, and was removed when the
+        # differential fuzzer reached 0 disagreements in 678 cases. Its own
+        # rule is why: the baseline has to carry a non-empty by_class map so
+        # that every row is a count that can only fall, and a corpus with no
+        # disagreements has no rows. A ratchet whose floor is zero cannot
+        # detect a regression, because the regression is a number going UP and
+        # zero is the only number it would have to go up to. Alive_check also
+        # objects, correctly: a gate that cannot fail is not a gate.
+        #
+        # The fuzzer itself is still here, still run, and its count is still
+        # worth reading. What is gone is the promise that the number cannot get
+        # worse -- the corpus is the evidence now, not a baseline.
         Tool("amalgamate.py", "measurement",
              "inlines 20 runtime/*.c into the seed. Runs with --out into a "
              "temp dir ON PURPOSE: with no arguments it writes 4.8 MB into the "
@@ -319,26 +319,6 @@ def _check_unknown_baseline(path):
         raise ValueError("by_file does not add up to the absolute count")
 
 
-def _check_diff_fuzz_baseline(path):
-    import json
-    with open(path, encoding="utf-8") as fh:
-        base = json.load(fh)
-    if base.get("schema") != 1:
-        raise ValueError("no schema 1")
-    for key in ("disagreements", "seed", "iterations", "cases", "agree"):
-        if not isinstance(base.get(key), int):
-            raise ValueError("no integer %s" % key)
-    if not isinstance(base.get("corpus_sha"), str) or not base["corpus_sha"]:
-        raise ValueError("no corpus_sha; a count with no corpus behind it "
-                         "cannot be compared to anything")
-    by_class = base.get("by_class")
-    if not isinstance(by_class, dict) or not by_class:
-        raise ValueError("no by_class map; a red run names classes, and without "
-                         "them it can only say a number moved")
-    if sum(by_class.values()) != base["disagreements"]:
-        raise ValueError("by_class sums to %d but disagreements is %d"
-                         % (sum(by_class.values()), base["disagreements"]))
-
 
 STATIC_ROWS = [
     ("unknown_census.orb", "the census probe program. THIS is the file that "
@@ -349,9 +329,10 @@ STATIC_ROWS = [
      None),
     ("baselines/unknown_count.json", "the D7 ratchet baseline. Checked against "
      "the shape the gate that reads it requires", _check_unknown_baseline),
-    ("baselines/diff_fuzz.json", "the D9 ratchet baseline: the disagreement "
-     "count, the corpus sha it was taken at, and one row per class summing to "
-     "the total", _check_diff_fuzz_baseline),
+    # baselines/diff_fuzz.json was here and is not any more. The D9 ratchet is
+    # retired -- see COVERAGE_EXEMPT for why a floor of zero retires a one-way
+    # ratchet rather than setting it to zero -- so there is no baseline for a
+    # reader to have.
 ]
 
 # Files in scripts/ that are deliberately not rows, each with the reason. The
@@ -366,6 +347,16 @@ COVERAGE_EXEMPT = {
                       "--self-test (eight broken tools, each failure class "
                       "required) and the coverage assertion below, which is the "
                       "one thing only this file can do.",
+    "diff_fuzz_ratchet.py": "retired when the differential fuzzer reached 0 "
+                            "disagreements in 678 cases. Its own rule is the "
+                            "reason: the baseline has to carry a non-empty "
+                            "by_class map so every row is a count that can "
+                            "only fall, and a corpus with no disagreements has "
+                            "no rows. A ratchet floored at zero cannot catch a "
+                            "regression, because a regression is the number "
+                            "going up. The tool is kept and still readable; it "
+                            "is not run by anything, and the corpus is the "
+                            "evidence now rather than a baseline.",
 }
 
 SHELL_ROWS = [

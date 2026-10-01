@@ -2,7 +2,7 @@
 // what: `widget` is not a type. An unresolvable annotation must not compile;
 //      today the binding becomes an `unknown` and every type rule downstream
 //      has to give up, which is what makes `unknown` contagious.
-// known-defect: type-resolution
+// expect-error: 'v' is declared widget but the value is int.
 fn main() -> int {
     val v: widget = 3
     return 0

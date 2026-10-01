@@ -738,10 +738,25 @@ orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
             if (snprintf(fixed, sizeof(fixed), "%.*f", dec, value) <= 0) break;
             char* end = NULL;
             if (strtod(fixed, &end) == value && end != NULL && *end == '\0') {
-                if (dec > 0) {
-                    char* last = fixed + strlen(fixed) - 1;
-                    while (last > fixed && *last == '0') { *last-- = '\0'; }
-                    if (*last == '.') { *last = '\0'; }
+                // A float prints as a float.
+                //
+                // The loop starts at zero decimals, and %.0f of 2.0 is "2",
+                // which round-trips -- so every integral float found its
+                // answer at the first step and printed as an integer.
+                // `print(2.0)` and `print(2)` produced the same bytes, and a
+                // float carried no information that it was a float.
+                //
+                // The differential fuzzer caught it, five cases at once and all
+                // one bug, by comparing against a reference that keeps the
+                // point. The earlier trailing-zero trim was not the cause and
+                // never ran; this is.
+                //
+                // So: if the fixed form has no point, add ".0". It costs one
+                // digit and buys back the type. 2500.0 is "2500.0" rather than
+                // "2500", which is also what the reference prints, and still
+                // nowhere near "1e+06".
+                if (strchr(fixed, '.') == NULL) {
+                    strncat(fixed, ".0", sizeof(fixed) - strlen(fixed) - 1);
                 }
                 snprintf(tmp, sizeof(tmp), "%s", fixed);
                 break;

@@ -563,6 +563,8 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
     }
     consume(parser, TokType.Identifier, "Expected variable name.")
     val name = parser.previousToken.text
+    val nameLine = parser.previousToken.line
+    val nameCol = parser.previousToken.col
 
     var typeAnnotation = ASTNode.Empty
     if matchToken(parser, TokType.Colon) {
@@ -586,7 +588,7 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
         ASTNode.TypeAnnotation(ta) => { annotationName = ta.token }
         _ => {}
     }
-    return ASTNode.VarDecl(VarDeclNode(name, isMut, value, annotationName))
+    return ASTNode.VarDecl(VarDeclNode(name, isMut, value, annotationName, nameLine, nameCol))
 }
 
 fn parseIfStatement(parser: Parser) -> ASTNode {

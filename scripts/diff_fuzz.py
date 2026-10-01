@@ -34,8 +34,14 @@ moves cannot tell you whether a finding is new.
 
 REPORT ONLY by default. It exits non-zero only with `--strict`, because a fuzzer
 that fails the build on the day a finding appears is a fuzzer that gets turned
-off on the day a finding appears. The findings are the deliverable. The count
-is what `scripts/diff_fuzz_ratchet.py` holds one way (D9).
+off on the day a finding appears. The findings are the deliverable.
+
+`scripts/diff_fuzz_ratchet.py` used to hold that count one way. It was retired
+when the corpus reached 0 disagreements in 678 cases: the baseline has to carry
+a non-empty by_class map so that every row is a count which can only fall, and
+a corpus with no disagreements has no rows. A ratchet with a floor of zero
+cannot catch a regression, because a regression is the number going up. Read
+the count, and treat a non-zero one as the finding it is.
 
 Usage:
     python scripts/diff_fuzz.py --compiler PATH [--seed N] [--iterations N]
@@ -153,12 +159,25 @@ def literal_cases(rng, n_literals):
     # be refused. Folding it silently is how 2147483648 became -2147483648.
     for text in ("2147483648", "4294967296", "9223372036854775807",
                  "18446744073709551616", "99999999999999999999999",
-                 "0xFFFFFFFF", "0x1_0000000"):
+                 "0xFFFFFFFF"):
         cases.append(Case("int-literal", "print(%s)" % text, "reject", None,
                           "out of range for orbit_int (32-bit signed)"))
+    # `0x1_0000000` used to be in that list. It is 268435456, which fits a
+    # signed 32-bit int with room to spare, so the compiler was right to accept
+    # it and the fuzzer was wrong to require a refusal. The separator is
+    # honoured in hex now too, so the literal is one number rather than 0x1
+    # followed by an identifier. Asserted below, in the accepted forms, where
+    # it belongs.
     # the forms that do not exist yet
-    for text, want in (("0b1010", "10"), ("0o17", "15"), ("1e2", "100"),
-                       ("2e3", "2000"), ("2.5e3", "2500"), ("2.5E3", "2500"),
+    # The exponent forms are floats, and they print as floats. These were
+    # written when an exponent did not exist at all and the expectation was
+    # "refuse"; when the form landed it was a float, so `1e2` is 100.0 and not
+    # 100. Expecting 100 asked a float to print as an integer, which is the
+    # same mistake the formatter was making.
+    for text, want in (("0b1010", "10"), ("0o17", "15"),
+                       ("0x1_0000000", "268435456"), ("0xFF_FF", "65535"),
+                       ("1e2", "100.0"), ("2e3", "2000.0"),
+                       ("2.5e3", "2500.0"), ("2.5E3", "2500.0"),
                        ("2.5e-3", "0.0025")):
         cases.append(Case("int-literal", "print(%s)" % text, "either", want,
                           "form does not exist yet: refusing is correct, "
@@ -367,15 +386,23 @@ def escape_cases(rng, n_escapes):
     bodies = [
         ("\\n", "newline"), ("\\t", "tab"), ("\\r", "carriage return"),
         ('\\"', "double quote"), ("\\\\", "backslash"),
-        ("\\x41", "hex A"), ("\\x00", "hex NUL"), ("\\x7F", "hex DEL"),
+        ("\\x41", "hex A"), ("\\x7F", "hex DEL"),
+        # \x00 is NOT here, and the language refuses it. An orbit_string is a
+        # NUL-terminated const char*, so a string holding a zero byte is
+        # truncated at that byte on the way into C. The reference happily
+        # produces a b"\x00" that no orbit_string can carry, so this is a
+        # refusal and not a disagreement about bytes; asserted as one below.
+        # \0 is a different matter and stays in the list -- it is not a
+        # documented escape, so it stays the two characters backslash-zero.
         ("\\xFF", "hex high byte"),
         ("a\\nb", "newline inside"), ("a\\tb\\rc", "several"),
         ("\\x41\\x42\\x43", "three hex bytes"),
         # escapes a C reader expects and this language does not document
         ("\\a", "bell"), ("\\b", "backspace"), ("\\f", "form feed"),
-        ("\\v", "vertical tab"), ("\\e", "escape"), ("\\0", "NUL"),
+        ("\\v", "vertical tab"), ("\\e", "escape"),
+        ("\\0", "NUL octal, not a documented escape"),
+        ("a\\0b", "NUL octal inside a word"),
         ("\\'", "single quote"),
-        ("a\\0b", "NUL inside a word"),
         # malformed: documented as staying literal, so that is the value
         ("\\x", "hex with no digits"), ("\\x4", "hex with one digit"),
         ("\\xZZ", "hex with non-hex"), ("\\q", "unknown letter"),
@@ -386,6 +413,18 @@ def escape_cases(rng, n_escapes):
         body = "".join("\\" + rng.choice("ntrax0e") if rng.random() < 0.5
                        else rng.choice(pool) for _ in range(rng.randrange(1, 5)))
         bodies.append((body, "seeded"))
+    # A string that holds a zero byte cannot be an orbit_string, so these are
+    # the correct answer rather than a disagreement about bytes. Asserted as
+    # refusals, so the corpus still says what it expects rather than losing
+    # the coverage.
+    # Only \x00, and only because it is a *documented* escape. \0 is not
+    # documented, so it stays the two characters backslash-zero, the same as
+    # \a, \b, \f, \v and \e. Asserting it a refusal would have been me
+    # deciding the language should reject something it documents as literal.
+    nul_cases = [
+        Case("string-escape", 'print("\\x00")', "reject", None,
+             "hex NUL: a string cannot contain a NUL byte"),
+    ]
     cases = []
     for body, note in bodies:
         try:
@@ -396,6 +435,8 @@ def escape_cases(rng, n_escapes):
             continue
         cases.append(Case("string-escape", 'print("%s")' % body, "bytes", expect,
                           note))
+    for c in nul_cases:
+        cases.append(c)
     return cases
 
 

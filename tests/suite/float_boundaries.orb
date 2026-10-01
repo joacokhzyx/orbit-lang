@@ -1,0 +1,42 @@
+// A float that crosses a boundary keeps its fraction.
+//
+// `twice(1.5)` printed 3. Every step from the register to the argument to
+// print was a uintptr_t while print emitted %lld, so only the integer part
+// survived and nothing said so. It was the largest single class the
+// differential fuzzer had, and it is the same shape of bug as a formatter that
+// prints 2.0 as 2: a value crossing a typed boundary as an untyped one.
+
+fn twice(x: float) -> float {
+    return x + x
+}
+
+fn half(x: float) -> float {
+    return x / 2.0
+}
+
+fn throughAValue() -> int {
+    val v = 1.5
+    if twice(v) != 3.0 { return 1 }
+    return 0
+}
+
+fn throughACall() -> int {
+    if twice(1.5) != 3.0 { return 1 }
+    if half(1.5) != 0.75 { return 2 }
+    return 0
+}
+
+// A literal alone, then the same literal through a function, then the sum.
+fn sameValueBothWays() -> int {
+    val direct = 2.0 + 2.0
+    val through = twice(2.0)
+    if direct != through { return 1 }
+    return 0
+}
+
+fn main() -> int {
+    if throughACall() != 0 { return 1 }
+    if throughAValue() != 0 { return 2 }
+    if sameValueBothWays() != 0 { return 3 }
+    return 0
+}

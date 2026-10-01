@@ -2625,7 +2625,18 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                                     } else if pt == "string" {
                                         argCast = "(orbit_string)(" + aStr + ")"
                                     } else if pt == "float" {
-                                        argCast = "(orbit_float)(uintptr_t)(" + aStr + ")"
+                                        // A direct cast, never through
+                                        // uintptr_t. The register holds a
+                                        // double, and routing it through an
+                                        // integer slot first is the truncation
+                                        // that made 1.5 arrive as 1: the low
+                                        // 32 bits of the mantissa are nothing
+                                        // like the value. `(orbit_float)(x)`
+                                        // reinterprets the double; the extra
+                                        // hop through uintptr_t threw the
+                                        // fraction away before the cast ever
+                                        // ran.
+                                        argCast = "(orbit_float)(" + aStr + ")"
                                     } else if pt == "result" {
                                         argCast = aStr
                                     } else if isEnumType(backend, pt) {

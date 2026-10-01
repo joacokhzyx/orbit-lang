@@ -92,6 +92,10 @@ model VarDeclNode {
     isMutable: bool
     value: list
     typeAnnotation: string
+    // Where the name was. A type annotation that does not match its value, or
+    // that names a type nothing declares, is reported against this.
+    line: int
+    col: int
 }
 
 model ConstDeclNode {
