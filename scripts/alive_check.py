@@ -130,6 +130,12 @@ def registry(compiler, cc, work):
              lambda: _script("negative_gate.py", *comp()),
              r"Finished negative: \d+/\d+", 600, allow_rc=(0, 1), cost="cheap",
              needs=("compiler",)),
+        Tool("dispatch_coverage.py", "gate",
+             "every ASTNode variant has an arm in the one checker, and every "
+             "arm returns -- so a check cannot silently stop running",
+             lambda: _script("dispatch_coverage.py"),
+             r"Finished dispatch-coverage: OK", 60, allow_rc=(0, 1),
+             cost="cheap", needs=()),
         Tool("frontend_gate.py", "gate",
              "`orbit frontend` vs tests/frontend/expected/",
              lambda: _script("frontend_gate.py", *comp()),

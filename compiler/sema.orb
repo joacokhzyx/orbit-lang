@@ -377,7 +377,7 @@ fn checkModelCtor(sema: Sema, args: list, line: int, col: int, modelName: string
     while i < declared {
         val fieldName = modelFieldNameAt(sema, modelName, i)
         val want = modelFieldType(sema, modelName, fieldName)
-        val got = inferType(sema, args.get(i))
+        val got = checkNode(sema, args.get(i))
         if !argTypeFits(got, want) {
             reportErrorAt(sema, "E1003", "Change the argument, or change the field's declared type.", line, col, "Field '" + modelName + "." + fieldName + "' is declared " + want + " but the argument is " + got + ".")
         }
@@ -715,7 +715,7 @@ fn checkModelDecl(sema: Sema, node: ASTNode) {
 fn checkVarDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.VarDecl(v) => {
-            val valueType = inferType(sema, v.value)
+            val valueType = checkNode(sema, v.value)
             declareSymbol(sema, v.name, valueType, v.isMutable, false)
             if v.isMutable == false {
                 recordConstBound(sema, v.name, v.value)
@@ -728,7 +728,7 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
 fn checkConstDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.ConstDecl(c) => {
-            val valueType = inferType(sema, c.value)
+            val valueType = checkNode(sema, c.value)
             declareSymbol(sema, c.name, valueType, false, false)
             recordConstBound(sema, c.name, c.value)
         }
@@ -1072,25 +1072,34 @@ fn checkRouteBody(sema: Sema, node: ASTNode) {
     }
 }
 
-fn checkBlock(sema: Sema, block: ASTNode) {
+// Returns the type of the last statement, which is what a block used as an
+// expression is worth.
+//
+// It has to be computed here, inside the scope the block pushed. Asking from
+// the caller would mean a second walk of the last statement after popScope,
+// and every name that statement declared would then be undeclared -- a real
+// diagnostic, and a false one.
+fn checkBlock(sema: Sema, block: ASTNode) -> string {
     match block {
         ASTNode.Block(b) => {
             pushScope(sema)
             var i = 0
+            val lastType = "void"
             while i < b.statements.len() {
-                checkNode(sema, b.statements.get(i))
+                lastType = checkNode(sema, b.statements.get(i))
                 i = i + 1
             }
             popScope(sema)
+            return lastType
         }
-        _ => {}
+        _ => { return "void" }
     }
 }
 
 fn checkIfStatement(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.If(stmt) => {
-            inferType(sema, stmt.condition)
+            checkNode(sema, stmt.condition)
             checkNode(sema, stmt.thenBody)
             checkNode(sema, stmt.elseBody)
         }
@@ -1101,7 +1110,7 @@ fn checkIfStatement(sema: Sema, node: ASTNode) {
 fn checkWhileLoop(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.While(w) => {
-            inferType(sema, w.condition)
+            checkNode(sema, w.condition)
             checkNode(sema, w.body)
         }
         _ => {}
@@ -1111,7 +1120,7 @@ fn checkWhileLoop(sema: Sema, node: ASTNode) {
 fn checkForLoop(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.For(f) => {
-            inferType(sema, f.iterable)
+            checkNode(sema, f.iterable)
             pushScope(sema)
             declareSymbol(sema, f.item, "unknown", false, false)
             checkNode(sema, f.body)
@@ -1284,7 +1293,7 @@ fn checkMatchCase(sema: Sema, c: MatchCaseNode) {
 fn checkMatch(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Match(m) => {
-            val matchType = inferType(sema, m.expr)
+            val matchType = checkNode(sema, m.expr)
             var i = 0
             while i < m.cases.len() {
                 val caseNode = m.cases.get(i)
@@ -1316,7 +1325,7 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     }
                 }
                 _ => {
-                    val actualType = inferType(sema, r.expr)
+                    val actualType = checkNode(sema, r.expr)
                     if checkCompatibility(expectedType, actualType) == false {
                         reportError(sema, "Return type mismatch: expected " + expectedType + ", got " + actualType)
                     }
@@ -1333,7 +1342,7 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     // non-string body (e.g. an int register) would compile
                     // to an int-to-pointer conversion. Reject it here with
                     // a proper diagnostic instead of broken C downstream.
-                    val bodyType = inferType(sema, r.expr)
+                    val bodyType = checkNode(sema, r.expr)
                     // An object is the other thing a body can legitimately be:
                     // the runtime serializes it to JSON on the way out.
                     if bodyType != "object" && checkCompatibility("string", bodyType) == false {
@@ -1348,7 +1357,7 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     reportError(sema, "err response must include a message")
                 }
                 _ => {
-                    val bodyType = inferType(sema, r.expr)
+                    val bodyType = checkNode(sema, r.expr)
                     if checkCompatibility("string", bodyType) == false {
                         reportError(sema, "err response body must be a string, got " + bodyType)
                     }
@@ -1400,7 +1409,7 @@ fn checkInterpolation(sema: Sema, node: ASTNode) -> bool {
             while i < ip.parts.len() {
                 val part = ip.parts.get(i)
                 if !isStringChunk(part) {
-                    val partType = inferType(sema, part)
+                    val partType = checkNode(sema, part)
                     if !isInterpolatable(partType) {
                         reportError(sema, "cannot interpolate a value of type '" + partType + "' in a string; only string, int, float and bool convert")
                         bad = bad + 1
@@ -1441,8 +1450,102 @@ fn stringLiteralHasNul(literalText: string) -> bool {
     return false
 }
 
-fn inferType(sema: Sema, node: ASTNode) -> string {
+fn checkNode(sema: Sema, node: ASTNode) -> string {
     match node {
+        ASTNode.Program(prog) => {
+            // Pass 1: Register types and models
+            var i = 0
+            while i < prog.decls.len() {
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.ModelDecl(m) => { checkModelDecl(sema, decl) }
+                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            // Pass 2: Register function signatures
+            i = 0
+            while i < prog.decls.len() {
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.FunctionDecl(f) => { checkFunctionSignature(sema, decl) }
+                    ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name, "type", false, false) }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            // Pass 3: Constants and top-level vals
+            i = 0
+            while i < prog.decls.len() {
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.ConstDecl(c) => { checkConstDecl(sema, decl) }
+                    ASTNode.VarDecl(v) => { checkVarDecl(sema, decl) }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            // Pass 4: Function bodies, routes, impls
+            i = 0
+            while i < prog.decls.len() {
+                val decl = prog.decls.get(i)
+                match decl {
+                    ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, decl) }
+                    ASTNode.RouteDecl(r) => { checkRouteBody(sema, decl) }
+                    ASTNode.ImplDecl(im) => {
+                        var j = 0
+                        while j < im.methods.len() {
+                            checkFunctionBody(sema, im.methods.get(j))
+                            j = j + 1
+                        }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            return ""
+        }
+        ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, node)
+            return ""
+        }
+        ASTNode.VarDecl(v) => { checkVarDecl(sema, node)
+            return ""
+        }
+        ASTNode.ConstDecl(c) => { checkConstDecl(sema, node)
+            return ""
+        }
+        ASTNode.BinaryOp(b) => {
+            checkDivision(sema, b.op, b.rhs, b.lhs, b.line, b.col)
+            val lhsType = checkNode(sema, b.lhs)
+            val rhsType = checkNode(sema, b.rhs)
+            if b.op == "==" || b.op == "!=" || b.op == "<" || b.op == "<=" || b.op == ">" || b.op == ">=" {
+                return "bool"
+            }
+            if b.op == "&&" || b.op == "||" { return "bool" }
+            if b.op == "+" && (lhsType == "string" || rhsType == "string") { return "string" }
+            if lhsType == "float" || rhsType == "float" { return "float" }
+            if lhsType == "int" && rhsType == "int" { return "int" }
+            return "unknown"
+        }
+        ASTNode.UnaryOp(u) => {
+            // `-2147483648` is INT_MIN spelled as a negation of a literal that
+            // is itself one past INT_MAX. The literal does not fit on its own,
+            // but the expression it appears in denotes a representable value
+            // and is the only spelling of the integer minimum there is, so the
+            // range check below is skipped here and nowhere else.
+            if u.op == "-" {
+                match u.operand {
+                    ASTNode.Literal(l) => {
+                        if l.valType == "int" && l.text == "2147483648" { return "int" }
+                    }
+                    _ => {}
+                }
+            }
+            val operandType = checkNode(sema, u.operand)
+            if u.op == "!" { return "bool" }
+            return operandType
+        }
         ASTNode.Literal(l) => {
             if l.valType == "identifier" {
                 val typeName = resolveSymbol(sema, l.text)
@@ -1502,36 +1605,52 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             }
             return l.valType
         }
-        ASTNode.BinaryOp(b) => {
-            checkDivision(sema, b.op, b.rhs, b.lhs, b.line, b.col)
-            val lhsType = inferType(sema, b.lhs)
-            val rhsType = inferType(sema, b.rhs)
-            if b.op == "==" || b.op == "!=" || b.op == "<" || b.op == "<=" || b.op == ">" || b.op == ">=" {
-                return "bool"
-            }
-            if b.op == "&&" || b.op == "||" { return "bool" }
-            if b.op == "+" && (lhsType == "string" || rhsType == "string") { return "string" }
-            if lhsType == "float" || rhsType == "float" { return "float" }
-            if lhsType == "int" && rhsType == "int" { return "int" }
-            return "unknown"
+        ASTNode.Interp(ip) => { checkInterpolation(sema, node)
+            return "string"
         }
-        ASTNode.UnaryOp(u) => {
-            // `-2147483648` is INT_MIN spelled as a negation of a literal that
-            // is itself one past INT_MAX. The literal does not fit on its own,
-            // but the expression it appears in denotes a representable value
-            // and is the only spelling of the integer minimum there is, so the
-            // range check below is skipped here and nowhere else.
-            if u.op == "-" {
-                match u.operand {
-                    ASTNode.Literal(l) => {
-                        if l.valType == "int" && l.text == "2147483648" { return "int" }
+        ASTNode.ObjectLiteral(ol) => {
+            var i = 0
+            while i < ol.fields.len() {
+                val field: ASTNode = ol.fields.get(i)
+                match field {
+                    ASTNode.FieldInit(fi) => {
+                        val fieldType = checkNode(sema, fi.value)
+                        // A list or a map has no value type to store, and the
+                        // alternative -- keeping the pointer and calling it a
+                        // string -- writes a pointer's digits into the JSON
+                        // body. Refuse it until there is a real answer.
+                        if fieldType == "list" || fieldType == "map" {
+                            reportError(sema, "an object field cannot hold a " + fieldType + " yet: { " + fi.name + ": ... }")
+                        }
                     }
                     _ => {}
                 }
+                i = i + 1
             }
-            val operandType = inferType(sema, u.operand)
-            if u.op == "!" { return "bool" }
-            return operandType
+            return "object"
+        }
+        ASTNode.Match(m) => { checkMatch(sema, node)
+
+            // The first case's body gives the type of the whole expression.
+            // Its binding has to be in scope to read it, or a match used as a
+            // value reads a name no scope declares while the same match in
+            // statement position does not.
+            if m.cases.len() > 0 {
+                match m.cases.get(0) {
+                    ASTNode.MatchCase(mc) => {
+                        pushScope(sema)
+                        val bound = patternBinding(mc.pattern)
+                        if bound != "" {
+                            declareSymbol(sema, bound, "unknown", false, false)
+                        }
+                        val caseType = checkNode(sema, mc.body)
+                        popScope(sema)
+                        return caseType
+                    }
+                    _ => { return "void" }
+                }
+            }
+            return "void"
         }
         ASTNode.Call(c) => {
             // The callee is resolved by the match below, not by the generic
@@ -1547,11 +1666,11 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                         checkModelCtor(sema, c.args, c.line, c.col, calleeName)
                     }
                 }
-                _ => { inferType(sema, c.callee) }
+                _ => { checkNode(sema, c.callee) }
             }
             var i = 0
             while i < c.args.len() {
-                inferType(sema, c.args.get(i))
+                checkNode(sema, c.args.get(i))
                 i = i + 1
             }
             if calleeName != "" {
@@ -1582,7 +1701,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
                     }
                 }
                 ASTNode.MemberAccess(ma) => {
-                    val objType = inferType(sema, ma.object)
+                    val objType = checkNode(sema, ma.object)
                     val member = ma.field
                     // A literal index into a literal receiver is decidable now
                     // and never at run time, so it is decided now. `at` is the
@@ -1639,7 +1758,7 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.MemberAccess(ma) => {
-            val objType = inferType(sema, ma.object)
+            val objType = checkNode(sema, ma.object)
             val member = ma.field
             checkModelField(sema, objType, member, ma.line, ma.col)
             if objType == "string" && member == "length" { return "int" }
@@ -1667,90 +1786,54 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.IndexAccess(ia) => {
-            inferType(sema, ia.object)
-            inferType(sema, ia.index)
+            checkNode(sema, ia.object)
+            checkNode(sema, ia.index)
             checkConstantIndex(sema, ia.object, ia.index, ia.line, ia.col)
             return "unknown"
         }
-        ASTNode.If(stmt) => {
-            inferType(sema, stmt.condition)
-            val thenType = inferType(sema, stmt.thenBody)
-            return thenType
+        ASTNode.ModelDecl(m) => { checkModelDecl(sema, node)
+            return ""
         }
-        ASTNode.Match(m) => {
-            val matchType = inferType(sema, m.expr)
-            // A `match` used as a value -- `val n = match s { ... }` -- is
-            // reached only by inferType, never by checkNode, so the
-            // exhaustiveness check has to be asked for here too. Without this
-            // the same non-exhaustive match is an error in statement position
-            // and silently falls through in expression position.
-            checkMatchExhaustive(sema, m, matchType)
-            if m.cases.len() > 0 {
-                match m.cases.get(0) {
-                    ASTNode.MatchCase(mc) => {
-                        // The first case's body, for the type of the whole
-                        // expression. Its binding is in scope here too, or a
-                        // `match` used as a value would read a name no scope
-                        // declares while the same match in statement position
-                        // does not.
-                        pushScope(sema)
-                        val bound = patternBinding(mc.pattern)
-                        if bound != "" {
-                            declareSymbol(sema, bound, "unknown", false, false)
-                        }
-                        val caseType = inferType(sema, mc.body)
-                        popScope(sema)
-                        return caseType
-                    }
-                    _ => { return "void" }
-                }
-            }
-            return "void"
+        ASTNode.FieldDecl(fd) => { return "" }
+        ASTNode.Block(block) => { return checkBlock(sema, node)
         }
-        ASTNode.Block(b) => {
-            if b.statements.len() > 0 {
-                return inferType(sema, b.statements.get(b.statements.len() - 1))
-            }
-            return "void"
+        ASTNode.Return(r) => { checkReturn(sema, node)
+            return ""
         }
-        ASTNode.ListLiteral(ll) => {
-            var ei = 0
-            while ei < ll.elements.len() {
-                inferType(sema, ll.elements.get(ei))
-                ei = ei + 1
-            }
-            return "list"
+        ASTNode.ReturnOk(r) => { checkReturn(sema, node)
+            return ""
         }
-        ASTNode.Interp(ip) => {
-            checkInterpolation(sema, node)
-            return "string"
+        ASTNode.ReturnErr(r) => { checkReturn(sema, node)
+            return ""
         }
-        ASTNode.ObjectLiteral(ol) => {
-            var i = 0
-            while i < ol.fields.len() {
-                val field: ASTNode = ol.fields.get(i)
-                match field {
-                    ASTNode.FieldInit(fi) => {
-                        val fieldType = inferType(sema, fi.value)
-                        // A list or a map has no value type to store, and the
-                        // alternative -- keeping the pointer and calling it a
-                        // string -- writes a pointer's digits into the JSON
-                        // body. Refuse it until there is a real answer.
-                        if fieldType == "list" || fieldType == "map" {
-                            reportError(sema, "an object field cannot hold a " + fieldType + " yet: { " + fi.name + ": ... }")
-                        }
-                    }
-                    _ => {}
-                }
-                i = i + 1
-            }
-            return "object"
+        ASTNode.If(stmt) => { checkIfStatement(sema, node)
+
+            // The value of an if is the type of its then branch. The other
+            // branch is a different shape and the language has no union to
+            // join them into, so this answers for the one that has to be
+            // there. The condition is already checked by checkIfStatement.
+            return checkNode(sema, stmt.thenBody)
+        }
+        ASTNode.While(w) => { checkWhileLoop(sema, node)
+            return ""
+        }
+        ASTNode.For(f) => { checkForLoop(sema, node)
+            return ""
+        }
+        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants)
+            return ""
+        }
+        ASTNode.RouteDecl(r) => { checkRouteBody(sema, node)
+            return ""
         }
         ASTNode.Try(tr) => {
-            inferType(sema, tr.expr)
+            checkNode(sema, tr.expr)
             match tr.catchBody {
                 ASTNode.Empty => {}
                 _ => {
+                    // The name the catch binds has to be in scope before the
+                    // body is walked, or every use of it inside the body is an
+                    // undeclared identifier.
                     if tr.errName != "" {
                         declareSymbol(sema, tr.errName, "string", false, false)
                     }
@@ -1759,133 +1842,62 @@ fn inferType(sema: Sema, node: ASTNode) -> string {
             }
             return "unknown"
         }
-        _ => { return "void" }
-    }
-}
-
-fn checkNode(sema: Sema, node: ASTNode) {
-    match node {
-        ASTNode.Program(prog) => {
-            // Pass 1: Register types and models
-            var i = 0
-            while i < prog.decls.len() {
-                val decl = prog.decls.get(i)
-                match decl {
-                    ASTNode.ModelDecl(m) => { checkModelDecl(sema, decl) }
-                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
-                    _ => {}
-                }
-                i = i + 1
-            }
-            // Pass 2: Register function signatures
-            i = 0
-            while i < prog.decls.len() {
-                val decl = prog.decls.get(i)
-                match decl {
-                    ASTNode.FunctionDecl(f) => { checkFunctionSignature(sema, decl) }
-                    ASTNode.TraitDecl(t) => { declareSymbol(sema, t.name, "type", false, false) }
-                    _ => {}
-                }
-                i = i + 1
-            }
-            // Pass 3: Constants and top-level vals
-            i = 0
-            while i < prog.decls.len() {
-                val decl = prog.decls.get(i)
-                match decl {
-                    ASTNode.ConstDecl(c) => { checkConstDecl(sema, decl) }
-                    ASTNode.VarDecl(v) => { checkVarDecl(sema, decl) }
-                    _ => {}
-                }
-                i = i + 1
-            }
-            // Pass 4: Function bodies, routes, impls
-            i = 0
-            while i < prog.decls.len() {
-                val decl = prog.decls.get(i)
-                match decl {
-                    ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, decl) }
-                    ASTNode.RouteDecl(r) => { checkRouteBody(sema, decl) }
-                    ASTNode.ImplDecl(im) => {
-                        var j = 0
-                        while j < im.methods.len() {
-                            checkFunctionBody(sema, im.methods.get(j))
-                            j = j + 1
-                        }
-                    }
-                    _ => {}
-                }
-                i = i + 1
-            }
+        ASTNode.MatchCase(mc) => { return "" }
+        ASTNode.GenericParam(gp) => { return "" }
+        ASTNode.TraitDecl(trd) => { declareSymbol(sema, trd.name, "type", false, false)
+            return ""
         }
-        ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, node) }
-        ASTNode.VarDecl(v) => { checkVarDecl(sema, node) }
-        ASTNode.ConstDecl(c) => { checkConstDecl(sema, node) }
-        ASTNode.BinaryOp(b) => { inferType(sema, node) }
-        ASTNode.UnaryOp(u) => { inferType(sema, node) }
-        ASTNode.Literal(l) => {}
-        ASTNode.Interp(ip) => { checkInterpolation(sema, node) }
-        ASTNode.ObjectLiteral(ol) => { inferType(sema, node) }
-        ASTNode.Match(m) => { checkMatch(sema, node) }
-        ASTNode.Call(c) => { inferType(sema, node) }
-        ASTNode.MemberAccess(ma) => { inferType(sema, node) }
-        ASTNode.IndexAccess(ia) => { inferType(sema, node) }
-        ASTNode.ModelDecl(m) => { checkModelDecl(sema, node) }
-        ASTNode.FieldDecl(fd) => {}
-        ASTNode.Block(block) => { checkBlock(sema, node) }
-        ASTNode.Return(r) => { checkReturn(sema, node) }
-        ASTNode.ReturnOk(r) => { checkReturn(sema, node) }
-        ASTNode.ReturnErr(r) => { checkReturn(sema, node) }
-        ASTNode.If(stmt) => { checkIfStatement(sema, node) }
-        ASTNode.While(w) => { checkWhileLoop(sema, node) }
-        ASTNode.For(f) => { checkForLoop(sema, node) }
-        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants) }
-        ASTNode.RouteDecl(r) => { checkRouteBody(sema, node) }
-        ASTNode.Try(tr) => {
-            inferType(sema, tr.expr)
-            match tr.catchBody {
-                ASTNode.Empty => {}
-                _ => {
-                    if tr.errName != "" {
-                        declareSymbol(sema, tr.errName, "string", false, false)
-                    }
-                    checkNode(sema, tr.catchBody)
-                }
-            }
-        }
-        ASTNode.MatchCase(mc) => {}
-        ASTNode.GenericParam(gp) => {}
-        ASTNode.TraitDecl(trd) => { declareSymbol(sema, trd.name, "type", false, false) }
         ASTNode.ImplDecl(im) => {
             var j = 0
             while j < im.methods.len() {
                 checkFunctionBody(sema, im.methods.get(j))
                 j = j + 1
             }
+            return ""
         }
-        ASTNode.ScheduleDecl(s) => { inferType(sema, s.handler) }
-        ASTNode.ConfigDecl(cfg) => { inferType(sema, cfg.value) }
-        ASTNode.Break(b) => {}
-        ASTNode.Continue(c) => {}
-        ASTNode.ImportStmt(i) => {}
-        ASTNode.UseStmt(u) => {}
-        ASTNode.Param(p) => {}
-        ASTNode.Decorator(d) => {}
-        ASTNode.TypeAnnotation(ta) => {}
-        ASTNode.FieldInit(fi) => { inferType(sema, fi.value) }
+        ASTNode.ScheduleDecl(s) => { checkNode(sema, s.handler)
+            return ""
+        }
+        ASTNode.ConfigDecl(cfg) => { checkNode(sema, cfg.value)
+            return ""
+        }
+        ASTNode.Break(b) => { return "" }
+        ASTNode.Continue(c) => { return "" }
+        ASTNode.ImportStmt(i) => { return "" }
+        ASTNode.UseStmt(u) => { return "" }
+        ASTNode.Param(p) => { return "" }
+        ASTNode.Decorator(d) => { return "" }
+        ASTNode.TypeAnnotation(ta) => { return "" }
+        ASTNode.FieldInit(fi) => { checkNode(sema, fi.value)
+            return ""
+        }
         // checkNode, not inferType: an expression statement reaches the
         // checker only through here, so a check that lives in checkNode is
         // not run for `print(7 / 0)` unless this dispatches to it.
-        ASTNode.ExpressionStmt(e) => { checkNode(sema, e.expr) }
-        ASTNode.Assignment(a) => { inferType(sema, a.value) }
+        ASTNode.ExpressionStmt(e) => { checkNode(sema, e.expr)
+            return ""
+        }
+        ASTNode.Assignment(a) => { checkNode(sema, a.value)
+            return ""
+        }
         ASTNode.ListLiteral(ll) => {
             var ei = 0
             while ei < ll.elements.len() {
-                inferType(sema, ll.elements.get(ei))
+                checkNode(sema, ll.elements.get(ei))
                 ei = ei + 1
             }
+            return "list"
         }
-        ASTNode.Empty => {}
+        ASTNode.Empty => {
+            // The absence of a node. Nothing to check, and no type to answer:
+            // "void" says there is no value here without claiming a type.
+            return "void"
+        }
+        // Reached only by a variant this function has no arm for, which
+        // dispatch-coverage.py fails the build over. The answer is "unknown"
+        // rather than "void" on purpose: void claims a type this pass knows,
+        // and for a node it does not recognise it does not.
+        _ => { return "unknown" }
     }
 }
 
