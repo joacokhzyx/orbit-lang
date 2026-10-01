@@ -620,11 +620,16 @@ of number that gets copied from an old document. If you are reading a
 claim that the frontend gate is incomplete, it is out of date.
 
 
-## `lib/net.orb` does not build
+## `lib/net.orb` is gone
 
-It type-checks and then the generated C is rejected: the module
-declares `extern fn syscall(n, a1, a2, a3)`, which collides with
-the real `syscall` in `runtime/socket_compat.h`.
+It used to live here, and the entry below is kept because a gate that was
+4/6 and is now 6/6 is exactly the kind of number that gets copied out of an
+old document. If you are reading that the socket wrapper is a known gap, it
+is out of date: the file was removed rather than quarantined.
+
+The three files -- `lib/net.orb`, `lib/sys/linux.orb`,
+`lib/sys/windows.orb` -- were a design sketch for a socket wrapper that
+nothing imported. It type-checked and then the generated C was rejected:
 
 ```console
   <build>:121:18: error: conflicting types for 'syscall'
@@ -632,8 +637,14 @@ the real `syscall` in `runtime/socket_compat.h`.
      41 | #include <sys/syscall.h>                            // glibc's
 ```
 
-Its event loop is `while running { ... running = false }`. It is a
-design sketch and is documented as one; it is not a working wrapper,
-and there is no socket API in the language or the runtime.
-`docs/ARCHITECTURE.md` says the same.
+Its event loop was `while running { ... running = false }`.
+
+They were deleted rather than moved to `std/quarantine/` because that
+directory has a rule these did not meet: a quarantined module is one that
+was *specified* and cannot yet be expressed, and deleting it loses the only
+written record that it was wanted. Nobody specified this one. There is no
+socket API in the language or the runtime to specify it against, so keeping
+three non-building files was a claim about a future that no document
+committed to. `lib/arena.orb`, which is real and used by `examples/` and
+`tests/std/`, was not touched.
 

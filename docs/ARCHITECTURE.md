@@ -411,9 +411,7 @@ contention is on the queue and not on a shared stdout lock.
 |---|---|
 | `std/` | Orbit standard library. 13 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb` |
 | `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` (no generic unions) and `bitwise` (no bitwise operators) |
-| `lib/arena.orb` | A counted region and a bound, not an allocator. `alloc` returns an offset; nothing it returns is dereferenceable |
-| `lib/net.orb` | **Does not build.** It type-checks and then the generated C fails: the module declares `extern fn syscall(...)`, which collides with the real `syscall` in `runtime/socket_compat.h`. Its event loop is a `while running { running = false }`. Treat it as a design sketch, not a wrapper |
-| `lib/sys/linux.orb`, `lib/sys/windows.orb` | Platform-specific extern wrappers |
+| `lib/` | One module: `arena.orb`, a counted region and a bound, not an allocator. It used to also hold `net.orb` and `sys/{linux,windows}.orb`, a design sketch for a socket wrapper that did not build; they were removed rather than quarantined, because unlike `option` and `bitwise` nobody had specified them and there is no socket API in the language or the runtime to specify them against |
 
 `std/` used to be 20 modules, 13 of which compiled. Six were removed rather
 than repaired, because each was a function that returned a value and was not
