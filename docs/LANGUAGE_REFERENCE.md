@@ -321,6 +321,87 @@ Expressions support arithmetic, comparisons, `&&`, `||`, unary `!` and `-`,
 calls, member access, arrays, [object literals](#object-literals), and string
 interpolation.
 
+### `if` is also a value
+
+An `if` is one construct with two uses, and they are the same construct: a
+statement that runs a branch, and an expression whose value is the value of the
+branch that ran.
+
+```orbit
+val label = if score >= 90 { "A" } else { "B" }
+print(if ready then "go" else "wait")
+```
+
+Both branch shapes work in both positions, so nothing has to be rewritten to
+move an `if` from one to the other:
+
+| branch | written as | value of the branch |
+|---|---|---|
+| a block | `if c { … }` | the value of its **last statement** |
+| an expression | `if c then a`, or `if c a` | the value of `a` |
+
+```orbit
+// The same `if`, three ways, all worth the same thing.
+val a = if c then 1 else 2
+val b = if c 1 else 2
+val d = if c {
+    1
+} else {
+    2
+}
+
+fn classify(n: int) -> string {
+    if n < 0 { return "negative" }   // a statement: no value wanted
+    return if n == 0 then "zero" else "positive"   // a value
+}
+```
+
+Rules worth knowing:
+
+- **`else` is required where a value is wanted.** `val y = if c 1` is
+  `E0302`: the false path would have no value to give. As a statement, an `if`
+  with no `else` is fine.
+- **Only the branch that runs is evaluated.** The other one has no effect at
+  all, so a call, a write, or an `ok`/`err` in the untaken branch does not
+  happen.
+- **The type of an `if` is the type of its then branch.** There is no union to
+  join two branch types into, and the two are not compared, so keep them the
+  same shape: an `if` that returns `"a"` in one branch and `1` in the other is
+  an `if` typed `string` that sometimes holds an integer.
+- **`else if` chains are one value**, in either position and either spelling:
+  `if a then 1 else if b then 2 else 3`. Every `if` in the chain needs its own
+  `else` when the chain is a value.
+- **A branch written without braces is a single expression.** `if c val x = 1
+  else 2` is `E0304`; write `if c { val x = 1 } else { 2 }`.
+- **`then` is optional and is not a reserved word.** It introduces a branch, and
+  it exists for the branch the condition would otherwise swallow: the condition
+  is parsed as a full expression, so in `if n - 1` the `-` is a subtraction and
+  the then branch is missing (`E0303`). `if n then -1 else 0` is the branch that
+  means minus one. `then` is read as that keyword only when a branch follows it,
+  so `then` is still an ordinary name everywhere else — as a variable, and as
+  the whole branch (`if ready then else 3` is the value of `then` when it is
+  true).
+
+A block branch is worth its last statement, so a block may compute and then
+answer:
+
+```orbit
+val total = if n > 10 {
+    val doubled = n * 2
+    doubled + 1
+} else {
+    0
+}
+```
+
+Two shapes are **not** supported today:
+
+- A block used as a value on its own — `{ 1 + 2 }` is not an expression. The
+  "last statement is the value" rule applies to a branch of an `if` only.
+- `if` inside the experimental typed front end (`orbit frontend`), which reports
+  `E3001` for an `if` in expression position. The C backend path compiles and
+  runs these; the TIR lowering does not model a merge value yet.
+
 ## Arrays and objects
 
 Array literals use brackets:

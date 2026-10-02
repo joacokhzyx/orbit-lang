@@ -73,6 +73,25 @@ fn reportErrorCard(code: string, message: string, file: string, line: int, col: 
     orbit_os_write_stderr_selfhost("\nERROR: " + kind + "\n")
 }
 
+// The hint under a parser diagnostic.
+//
+// E0301 is a token the parser had no use for, and the generic advice -- look for
+// a missing bracket, quote or keyword -- is the right advice for it. The `if`
+// codes are different in kind: the token is one the parser understands, and
+// what it is doing there is wrong, so each of them says what to write instead.
+fn parserDiagnosticHint(diag: ParserDiagnostic) -> string {
+    if diag.code == "E0302" {
+        return "Give the `if` an `else` branch, or use it as a statement, where no value is wanted."
+    }
+    if diag.code == "E0303" {
+        return "A branch that begins with an operator needs `then` before it, as in `if n then -1 else 0`."
+    }
+    if diag.code == "E0304" {
+        return "Write a branch that holds statements as `{ ... }`."
+    }
+    return "Check for missing brackets, quotes, or keywords before this token."
+}
+
 // Two shapes of semantic diagnostic, chosen by what the checker knew. A check
 // that ran over a positioned node prints the card, pointing at the line; the
 // rest have no position to point at and print the one-line form, which is
@@ -146,7 +165,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
         val diag: ParserDiagnostic = parser.diagnostics.get(0)
         if diag.code != "" {
             val srcLine = getSourceLine(source, diag.line)
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, "Check for missing brackets, quotes, or keywords before this token.", diag.kind)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind)
         } else {
             var i = 0
             while i < parser.diagnostics.len() {
@@ -330,7 +349,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         val diag: ParserDiagnostic = parser.diagnostics.get(0)
         if diag.code != "" {
             val srcLine = getSourceLine(source, diag.line)
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, "Check for missing brackets, quotes, or keywords before this token.", diag.kind)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind)
         } else {
             var i = 0
             while i < parser.diagnostics.len() {

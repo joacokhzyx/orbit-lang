@@ -1,0 +1,52 @@
+// `if` as a value: the value of the `if` is the value of the branch that ran.
+//
+// Every check is `if wrong { return N }` with a distinct N, so a wrong value
+// names itself in the exit code instead of being one number among many.
+fn main() -> int {
+    val c = 3 > 2
+
+    // Both branch shapes, both spelled with and without `then`.
+    val a = if c then 1 else 2
+    if a != 1 { return 1 }
+    val d = if c 100 else 200
+    if d != 100 { return 2 }
+    val b = if c {
+        10
+    } else {
+        20
+    }
+    if b != 10 { return 3 }
+    val e = if c { 1000 }
+    else { 2000 }
+    if e != 1000 { return 4 }
+
+    // The false side is the same `if` with the condition flipped.
+    val f = if c > 4 then 7 else 8
+    if f != 8 { return 5 }
+
+    // Nested in a call: the value is the argument, not a statement.
+    if double(if c then 21 else 0) != 42 { return 6 }
+
+    // An `if` value inside a list literal and inside arithmetic.
+    val xs = [if c then 5 else 6, 7]
+    if xs.get(0) != 5 { return 7 }
+    if xs.get(1) != 7 { return 8 }
+    if (if c then 2 else 3) + 40 != 42 { return 9 }
+
+    // `then` is what lets a branch start where the condition would otherwise
+    // swallow it: without it `if n - 1` is a subtraction.
+    val n = 4
+    val neg = if n > 10 then -1 else -2
+    if neg != -2 { return 10 }
+
+    // Strings are values too, and the type of the `if` is the type of the then
+    // branch, so this is a string and not an unknown.
+    val s = if c { "yes" }
+    else { "no" }
+    if s != "yes" { return 11 }
+    return 0
+}
+
+fn double(x: int) -> int {
+    return x * 2
+}

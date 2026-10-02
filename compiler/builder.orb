@@ -433,6 +433,11 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
         ASTNode.ListLiteral(ll) => { return "list" }
         ASTNode.ObjectLiteral(ol) => { return "object" }
         ASTNode.Interp(ip) => { return "string" }
+        // The value of an `if` is the value of the branch that ran, and the
+        // then branch is the one that decides it, so that is what an `if` is
+        // worth as a type. An `if` in a chain answers with the innermost then
+        // branch, which is the only one guaranteed to be there.
+        ASTNode.If(ifn) => { return branchTypeName(builder, ifn.thenBody) }
         ASTNode.UnaryOp(u) => {
             if u.op == "!" { return "bool" }
             return staticExprTypeName(builder, u.operand)
@@ -525,6 +530,12 @@ fn isListExpression(builder: IRBuilder, node: ASTNode) -> bool {
 fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.ListLiteral(ll) => { return listLiteralKindName(builder, ll) }
+        // A list built by an `if` is a list: `val xs = if c { [1] } else { [2] }`
+        // then `xs.push(3)` has to know what is in it, exactly as a literal
+        // does. A block branch is worth its last statement, the same rule
+        // branchTypeName types it by.
+        ASTNode.If(ifn) => { return listKindNameOf(builder, branchValueNode(ifn.thenBody)) }
+        ASTNode.Block(blk) => { return listKindNameOf(builder, branchValueNode(node)) }
         ASTNode.Literal(lit) => {
             if lit.valType == "identifier" {
                 val vt = lookupVariable(builder, lit.text)
@@ -630,7 +641,37 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
             }
             return lookupFunctionReturnType(builder, calleeName)
         }
+        ASTNode.If(ifn) => { return branchTypeName(builder, ifn.thenBody) }
         _ => { return "unknown" }
+    }
+}
+
+// The node a branch is worth. A branch written as a block is worth its last
+// statement, and a declaration is worth the value it declares; everything else
+// is its own value. This is the same rule sema's checkBlock types a block by
+// ("the type of the last statement"), so the type layer and the builder agree
+// on what `if c { 1 } else { 2 }` is worth.
+fn branchValueNode(node: ASTNode) -> ASTNode {
+    match node {
+        ASTNode.Block(b) => {
+            if b.statements.len() == 0 { return ASTNode.Empty }
+            return branchValueNode(b.statements.get(b.statements.len() - 1))
+        }
+        ASTNode.ExpressionStmt(e) => { return branchValueNode(e.expr) }
+        ASTNode.VarDecl(v) => { return branchValueNode(v.value) }
+        _ => { return node }
+    }
+}
+
+// The type a branch is worth: an `if` is worth the type of its then branch, and
+// a declaration is worth its annotation when it has one.
+fn branchTypeName(builder: IRBuilder, node: ASTNode) -> string {
+    match node {
+        ASTNode.VarDecl(v) => {
+            if v.typeAnnotation != "" { return v.typeAnnotation }
+            return staticExprTypeName(builder, v.value)
+        }
+        _ => { return staticExprTypeName(builder, branchValueNode(node)) }
     }
 }
 
@@ -1031,6 +1072,200 @@ fn isTerminatorInstr(instr: IRInstruction) -> bool {
     }
 }
 
+// A `val`/`var` declaration, returning the register its value is in (or -1
+// when the value is a constant the caller passed straight through). The
+// register is the value of the declaration, so this is also how a block whose
+// last statement is a declaration gets the value of that block -- the same
+// rule branchTypeName types it by.
+fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
+    val varVal = buildCallArgValue(builder, v.value)
+    val varInstr = ir_init_instr(IROpcode.decl_var)
+    varInstr.operand1 = ir_symbol(v.name)
+    varInstr.operand2 = varVal
+    ir_emit(builder.currentFunction, varInstr)
+    var vType = v.typeAnnotation
+    if vType == "" {
+        vType = inferValueType(builder, v.value)
+    }
+    defineVariable(builder, v.name, vType)
+    recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+    match varVal {
+        IRValue.Register(r) => { return r }
+        _ => { return -1 }
+    }
+}
+
+// The body of an `if`, once. An `if` that has a value and an `if` that is a
+// statement are the same `if`: the branches, the labels, the jump to the merge
+// and the end label are identical, and the only difference is that a value
+// wants somewhere to put the branch's result. That is the same shape as
+// buildMatchBody, and for the same reason: two callers wanting different results
+// from one construct is not two constructs.
+//
+// The result register IS the phi. C has no phi node, so each branch copies its
+// own value into the one register and the merge reads it afterwards; a branch
+// that produced no value at all (an empty block) copies a zero, because the
+// register is a plain C variable that the other branch may have written.
+//
+// asExpr false allocates no result register at all: an `if` used as a
+// statement would only carry a dead declaration into the emitted C.
+fn buildIfBody(builder: IRBuilder, n: IfNode, asExpr: bool) -> int {
+    val condReg = buildExpr(builder, n.condition)
+    val elseLabel = allocLabel(builder)
+    val endLabel = allocLabel(builder)
+    var resultReg = -1
+    if asExpr {
+        resultReg = ir_alloc_register(builder.currentFunction, branchTypeName(builder, n.thenBody))
+    }
+    val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
+    jmpFalse.operand1 = ir_register(condReg)
+    jmpFalse.operand2 = ir_label(elseLabel)
+    ir_emit(builder.currentFunction, jmpFalse)
+    val thenStart = builder.currentFunction.instructions.len()
+    var thenReg = -1
+    if asExpr {
+        thenReg = buildBranchValue(builder, n.thenBody)
+    } else {
+        buildNode(builder, n.thenBody)
+    }
+    val thenAdded = builder.currentFunction.instructions.len() - thenStart
+    var thenTerminates = false
+    if thenAdded > 0 {
+        val lastThen: IRInstruction = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
+        thenTerminates = isTerminatorInstr(lastThen)
+    }
+    if thenTerminates == false {
+        if asExpr {
+            emitIfResult(builder, resultReg, thenReg)
+        }
+        val jmpEnd = ir_init_instr(IROpcode.jump)
+        jmpEnd.operand1 = ir_label(endLabel)
+        ir_emit(builder.currentFunction, jmpEnd)
+    }
+    val lblElseInstr = ir_init_instr(IROpcode.label)
+    lblElseInstr.operand1 = ir_label(elseLabel)
+    ir_emit(builder.currentFunction, lblElseInstr)
+    var hasElse = true
+    match n.elseBody {
+        ASTNode.Empty => { hasElse = false }
+        _ => {}
+    }
+    var elseReg = -1
+    if hasElse {
+        if asExpr {
+            elseReg = buildBranchValue(builder, n.elseBody)
+        } else {
+            buildNode(builder, n.elseBody)
+        }
+    }
+    var elseTerminates = thenTerminates
+    if hasElse && builder.currentFunction.instructions.len() > 0 {
+        val lastElse: IRInstruction = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
+        elseTerminates = isTerminatorInstr(lastElse)
+    }
+    if thenTerminates == false || elseTerminates == false {
+        if asExpr && hasElse && elseTerminates == false {
+            emitIfResult(builder, resultReg, elseReg)
+        }
+        val lblEndInstr = ir_init_instr(IROpcode.label)
+        lblEndInstr.operand1 = ir_label(endLabel)
+        ir_emit(builder.currentFunction, lblEndInstr)
+    }
+    if asExpr { return resultReg }
+    return 0
+}
+
+// One branch's value into the `if`'s result register. A branch with no value --
+// an empty block, a `return` -- leaves a zero rather than copying a register
+// that was never allocated, which would put a negative register number into the
+// emitted C.
+fn emitIfResult(builder: IRBuilder, resultReg: int, valueReg: int) {
+    var src = valueReg
+    if src < 0 {
+        val zeroReg = ir_alloc_register(builder.currentFunction, "int")
+        val zeroInstr = ir_init_instr(IROpcode.load_const)
+        zeroInstr.dest = zeroReg
+        zeroInstr.operand1 = ir_int(0)
+        ir_emit(builder.currentFunction, zeroInstr)
+        src = zeroReg
+    }
+    val copyInstr = ir_init_instr(IROpcode.copy)
+    copyInstr.dest = resultReg
+    copyInstr.operand1 = ir_register(src)
+    ir_emit(builder.currentFunction, copyInstr)
+}
+
+// One branch, built for its value. A block branch runs its statements in its
+// own scope and is worth its last one; a branch written as an expression is
+// built as an expression. -1 means the branch has no value, and the caller
+// decides what to do about that.
+fn buildBranchValue(builder: IRBuilder, node: ASTNode) -> int {
+    match node {
+        ASTNode.Block(b) => {
+            pushVariableScope(builder)
+            val count = b.statements.len()
+            var i = 0
+            while i + 1 < count {
+                buildNode(builder, b.statements.get(i))
+                i = i + 1
+            }
+            var reg = -1
+            if count > 0 {
+                reg = buildLastStatementValue(builder, b.statements.get(count - 1))
+            }
+            popVariableScope(builder)
+            return reg
+        }
+        ASTNode.Empty => { return -1 }
+        _ => { return buildExpr(builder, node) }
+    }
+}
+
+// The value of a block's last statement, or -1 when it has none to give.
+//
+// The statements of a block are not wrapped in a node of their own: a bare
+// expression statement IS the expression. So this is a division between the two
+// kinds of statement, and it is the division buildNode already draws: the forms
+// listed here are the ones it builds without asking for a value, and everything
+// else is a value form -- a literal, an operator, a call, a read, a literal
+// list or object, a match, a try, a nested `if`, or the bare expression a block
+// statement is -- which buildExpr answers with a register.
+//
+// A `val` is the one statement that has both: the declaration runs, and the
+// value it declared is the value of the block.
+fn buildLastStatementValue(builder: IRBuilder, node: ASTNode) -> int {
+    match node {
+        ASTNode.VarDecl(v) => { return buildVarDecl(builder, v) }
+        ASTNode.ExpressionStmt(e) => { return buildExpr(builder, e.expr) }
+        ASTNode.Return(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.ReturnOk(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.ReturnErr(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.While(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.For(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.Block(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.Break(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.Continue(x) => { buildNode(builder, node)
+            return -1
+        }
+        ASTNode.Empty => { return -1 }
+        _ => { return buildExpr(builder, node) }
+    }
+}
+
 fn buildNode(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.Block(b) => {
@@ -1043,47 +1278,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             popVariableScope(builder)
         }
         ASTNode.If(stmt) => {
-            val condReg = buildExpr(builder, stmt.condition)
-            val elseLabel = allocLabel(builder)
-            val endLabel = allocLabel(builder)
-            val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
-            jmpFalse.operand1 = ir_register(condReg)
-            jmpFalse.operand2 = ir_label(elseLabel)
-            ir_emit(builder.currentFunction, jmpFalse)
-            val thenStart = builder.currentFunction.instructions.len()
-            buildNode(builder, stmt.thenBody)
-            val thenAdded = builder.currentFunction.instructions.len() - thenStart
-            var thenTerminates = false
-            if thenAdded > 0 {
-                val lastThen: IRInstruction = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
-                thenTerminates = isTerminatorInstr(lastThen)
-            }
-            if thenTerminates == false {
-                val jmpEnd = ir_init_instr(IROpcode.jump)
-                jmpEnd.operand1 = ir_label(endLabel)
-                ir_emit(builder.currentFunction, jmpEnd)
-            }
-            val lblElseInstr = ir_init_instr(IROpcode.label)
-            lblElseInstr.operand1 = ir_label(elseLabel)
-            ir_emit(builder.currentFunction, lblElseInstr)
-            var hasElse = true
-            match stmt.elseBody {
-                ASTNode.Empty => { hasElse = false }
-                _ => {}
-            }
-            if hasElse {
-                buildNode(builder, stmt.elseBody)
-            }
-            var elseTerminates = thenTerminates
-            if hasElse && builder.currentFunction.instructions.len() > 0 {
-                val lastElse: IRInstruction = builder.currentFunction.instructions.get(builder.currentFunction.instructions.len() - 1)
-                elseTerminates = isTerminatorInstr(lastElse)
-            }
-            if thenTerminates == false || elseTerminates == false {
-                val lblEndInstr = ir_init_instr(IROpcode.label)
-                lblEndInstr.operand1 = ir_label(endLabel)
-                ir_emit(builder.currentFunction, lblEndInstr)
-            }
+            buildIfBody(builder, stmt, false)
         }
         ASTNode.While(stmt) => {
             val startLabel = allocLabel(builder)
@@ -1281,17 +1476,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             ir_emit(builder.currentFunction, retInstr)
         }
         ASTNode.VarDecl(v) => {
-            val varVal = buildCallArgValue(builder, v.value)
-            val varInstr = ir_init_instr(IROpcode.decl_var)
-            varInstr.operand1 = ir_symbol(v.name)
-            varInstr.operand2 = varVal
-            ir_emit(builder.currentFunction, varInstr)
-            var vType = v.typeAnnotation
-            if vType == "" {
-                vType = inferValueType(builder, v.value)
-            }
-            defineVariable(builder, v.name, vType)
-            recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+            buildVarDecl(builder, v)
         }
         ASTNode.Match(m) => {
             buildMatchStatement(builder, m)
@@ -2509,6 +2694,9 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         }
         ASTNode.Match(m) => {
             return buildMatchExpr(builder, m)
+        }
+        ASTNode.If(ifn) => {
+            return buildIfBody(builder, ifn, true)
         }
         ASTNode.Try(t) => {
             return buildTryExpr(builder, t)

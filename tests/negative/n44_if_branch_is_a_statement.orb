@@ -1,0 +1,12 @@
+// case: if-branch-is-a-statement
+// what: a branch written without braces is a single expression, so a statement
+//      there is a mistake worth naming. Reported as
+//      "unexpected token 'KeywordVal'" it reads like a lexer problem three lines
+//      away from the cause; the message says which shape was expected.
+// expect-error: an `if` branch written without braces must be a single expression
+fn main() -> int {
+    val flag = true
+    val n = if flag val x = 1 else 2
+    print(n)
+    return 0
+}

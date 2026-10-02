@@ -39,6 +39,12 @@ model FmtState {
     // values round-trip through ints exactly; comparisons are unaffected.
     prevTag: int
     pprevTag: int
+    // The text of the two tokens the tags above name. The tags answer almost
+    // every spacing question, but not the one `then` raises: it is an ordinary
+    // identifier in the token stream and a keyword in the grammar, and only
+    // its text tells the two apart.
+    prevText: string
+    pprevText: string
     toks: list
     comments: list
     braces: list
@@ -136,7 +142,7 @@ fn fmtIsParenSpacedKeyword(tag: TokType) -> bool {
     return true
 }
 
-fn fmtIsUnaryMinusContext(pptag: TokType) -> bool {
+fn fmtIsUnaryMinusContext(pptag: TokType, pprevText: string) -> bool {
     if pptag == TokType.EOF {
         return true
     }
@@ -146,6 +152,15 @@ fn fmtIsUnaryMinusContext(pptag: TokType) -> bool {
     // as `return - 1`, and because the formatter is authoritative that spread
     // through the tree as if it were the source text (F-0008).
     if fmtIsKeyword(pptag) {
+        return true
+    }
+    // `then` is the one contextual keyword in the language: an ordinary
+    // identifier in the token stream, and the keyword that introduces a
+    // braceless `if` branch. A minus after it starts that branch the same way a
+    // minus after any other keyword starts an expression, so `if n then -1` is
+    // a branch of minus one and not a subtraction -- and the tag cannot tell the
+    // two apart, only the text can.
+    if pptag == TokType.Identifier && pprevText == "then" {
         return true
     }
     if fmtIsWordish(pptag) {
@@ -165,7 +180,7 @@ fn fmtIsUnaryMinusContext(pptag: TokType) -> bool {
 
 // `ntag` is only consulted for a unary minus, where what follows decides the
 // spacing. Everywhere else the two tokens are enough.
-fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
+fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string) -> bool {
     if ptag == TokType.OpenParen {
         return false
     }
@@ -185,7 +200,7 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
         return false
     }
     if ptag == TokType.Minus {
-        if fmtIsUnaryMinusContext(pptag) {
+        if fmtIsUnaryMinusContext(pptag, pprevText) {
             // A keyword cannot end an expression, so a minus after one starts a
             // new expression and is unary: `return -1`, not `return - 1`. What
             // follows decides the rest. Tight against a literal or a name; a
@@ -279,9 +294,9 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
     return false
 }
 
-fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
+fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string) -> bool {
     if ntag == TokType.OpenParen || ntag == TokType.OpenBracket {
-        if fmtTrailSpace(ptag, pptag, ntag) == false {
+        if fmtTrailSpace(ptag, pptag, ntag, pprevText) == false {
             return false
         }
         if ntag == TokType.OpenParen {
@@ -331,7 +346,7 @@ fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType) -> bool {
     if ntag == TokType.Colon {
         return false
     }
-    return fmtTrailSpace(ptag, pptag, ntag)
+    return fmtTrailSpace(ptag, pptag, ntag, pprevText)
 }
 
 fn fmtHonorNewline(ptag: TokType, ntag: TokType, parenDepth: int, brackDepth: int) -> bool {
@@ -745,7 +760,7 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
                                         }
                                     }
                                 } else {
-                                    if fmtTableSpace(ptag, pptag, ntag) {
+                                    if fmtTableSpace(ptag, pptag, ntag, st.pprevText) {
                                         if gap > 0 && fmtHonorNewline(ptag, ntag, st.parenDepth, st.brackDepth) {
                                             if gap >= 2 {
                                                 if ptag == TokType.OpenBrace {
@@ -780,6 +795,8 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
     st.commentSincePrev = false
     st.pprevTag = st.prevTag
     st.prevTag = ntag
+    st.pprevText = st.prevText
+    st.prevText = tok.text
     st.curLine = nline
     if ntag == TokType.OpenBrace {
         st.depth = st.depth + 1
@@ -838,7 +855,7 @@ fn fmtEmitTokens(toks: list, comments: list) -> string {
     // st.out carries a chunk-buffer handle, not text: the emitter only ever
     // appends to it, and the real string is materialized once at the end.
     val cbOut = orbit_cbuf_create_selfhost()
-    val st = FmtState(cbOut, 1, 0, 0, 0, true, false, false, false, false, false, TokType.EOF, TokType.EOF, toks, comments, [], 0, 0)
+    val st = FmtState(cbOut, 1, 0, 0, 0, true, false, false, false, false, false, TokType.EOF, TokType.EOF, "", "", toks, comments, [], 0, 0)
     while st.ti < st.toks.len() {
         val tok: Token = st.toks.get(st.ti)
         fmtEmitPending(st, tok.line, tok.col)

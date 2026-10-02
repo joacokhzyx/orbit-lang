@@ -1,0 +1,66 @@
+// Only the branch that runs is evaluated.
+//
+// An `if` used as a value is still a branch: the value comes from one side, and
+// the other side does not run at all. A phi register that evaluated both sides
+// would still give the right answer here and be wrong everywhere a branch has
+// an effect -- an append, a write, a call that would fail.
+model Trace {
+    last: string
+    calls: int
+}
+
+fn note(t: Trace, which: string) -> int {
+    t.last = which
+    t.calls = t.calls + 1
+    if which == "then" {
+        return 1
+    }
+    return 2
+}
+
+fn choose(c: bool, t: Trace) -> int {
+    return if c { note(t, "then") }
+    else { note(t, "else") }
+}
+
+fn main() -> int {
+    val t = Trace("none", 0)
+
+    // The then branch runs; the else branch is never evaluated.
+    if choose(true, t) != 1 { return 1 }
+    if t.calls != 1 { return 2 }
+    if t.last != "then" { return 3 }
+
+    // The other way round.
+    if choose(false, t) != 2 { return 4 }
+    if t.calls != 2 { return 5 }
+    if t.last != "else" { return 6 }
+
+    // A branch with a write in it, in the position that must not have one. The
+    // value of a block branch is its last statement, so these two blocks are
+    // worth 42 and 0 -- and the else block, which would have overwritten `last`,
+    // must not run at all.
+    val takenBranch = if true {
+        t.calls = t.calls + 10
+        42
+    } else {
+        t.last = "phantom"
+        0
+    }
+    if takenBranch != 42 { return 7 }
+    if t.calls != 12 { return 8 }
+    if t.last != "else" { return 9 }
+
+    // A chain runs exactly one arm: two probes, two calls, never the third.
+    var i = 0
+    while i < 2 {
+        val v = if i == 0 { note(t, "first") }
+        else if i == 1 { note(t, "second") }
+        else { note(t, "never") }
+        if v != 2 { return 11 }
+        i = i + 1
+    }
+    if t.calls != 14 { return 12 }
+    if t.last != "second" { return 13 }
+    return 0
+}

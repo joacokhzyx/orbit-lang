@@ -158,10 +158,21 @@ model BlockNode {
     statements: list
 }
 
+// An `if`, as a statement and as a value: one node, because it is one
+// construct. The value of an `if` is the value of the branch that ran.
+//
+// A branch is whatever the branch was written as -- a `{ ... }` block, whose
+// value is the value of its last statement, or a single expression, optionally
+// after `then`. `elseBody` is Empty when there is no `else`, which is the same
+// thing as a branch with no statements, so both are read the same way.
+//
+// The three fields used to be declared `list` and were never lists: every
+// consumer treats each of them as the one node it is, and a `list` there was a
+// type-shaped lie that let `stmt.thenBody` be passed to buildExpr unchecked.
 model IfNode {
-    condition: list
-    thenBody: list
-    elseBody: list
+    condition: ASTNode
+    thenBody: ASTNode
+    elseBody: ASTNode
 }
 
 model WhileNode {

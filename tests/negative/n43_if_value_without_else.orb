@@ -1,0 +1,17 @@
+// case: if-value-without-else
+// what: an `if` in a position that wants a value has to have an `else`, because
+//      without one the false path has no value to give. It used to parse, build
+//      nothing at all, and bind the initialiser to register 0 -- a silent zero
+//      for every `val x = if c 1` in a program.
+//
+//      The diagnostic names the `if` itself and says what is missing, because
+//      the alternative was E0301 on the token after the branches: a braceless
+//      `if` swallowed the `else` into its then branch and the parse collapsed
+//      somewhere the reader was not looking.
+// expect-error: this `if` is used as a value, so it needs an `else` branch
+fn main() -> int {
+    val ready = true
+    val size = if ready 1
+    print(size)
+    return 0
+}

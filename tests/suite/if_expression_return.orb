@@ -1,0 +1,64 @@
+// `return if c then a else b`, and the two demands of `if` -- a value and a
+// statement -- not confusing each other.
+//
+// classify() returns the sum of everything it computed on the way, so main()
+// can check the values without classify() having to know what it was given.
+fn classify(n: int) -> int {
+    // A braceless `if` as a whole statement: legal, and worth nothing.
+    if n > 100 print("big")
+    // A statement `if` whose then branch holds an `if` used as a value, and an
+    // `else if` chain of exactly the kind that was a statement first.
+    var mut total = 0
+    if n > 10 {
+        val halved = if n > 20 then n / 2 else n
+        total = total + halved
+    } else if n > 0 {
+        // An `if` value as the condition of another `if`, and an `if` value
+        // bound by a name inside a statement branch.
+        if (if n == 5 then true else false) { total = total + 5 }
+        val isFive = if n == 5 then true else false
+        if isFive { total = total + 1 }
+    } else {
+        // Statement `if`s inside a branch, which is a block.
+        if n == 0 { total = total + 100 }
+        else { total = total + 200 }
+    }
+    // A value `if` whose branches are blocks of statements, each worth its last
+    // statement: the value of the block is the value of the `if`.
+    val computed = if n > 10 {
+        val doubled = n * 2
+        doubled + 1
+    } else {
+        val tripled = n * 3
+        tripled
+    }
+    return total + computed
+}
+
+fn sign(n: int) -> int {
+    return if n > 0 then 1 else if n < 0 then -1 else 0
+}
+
+fn main() -> int {
+    // 50: halved 25 + (50 * 2 + 1) 101 = 126
+    if classify(50) != 126 { return 1 }
+    // 5: 5 + 1 + 15 = 21
+    if classify(5) != 21 { return 2 }
+    // 0: 100 + 0 = 100
+    if classify(0) != 100 { return 3 }
+    // -4: 200 + -12 = 188
+    if classify(-4) != 188 { return 4 }
+
+    if sign(9) != 1 { return 5 }
+    if sign(-9) != -1 { return 6 }
+    if sign(0) != 0 { return 7 }
+
+    // `return` of a value `if`, at the tail of a function and through a call.
+    if tail(3) != 30 { return 8 }
+    if tail(0) != -1 { return 9 }
+    return 0
+}
+
+fn tail(n: int) -> int {
+    return if n > 0 then n * 10 else -1
+}

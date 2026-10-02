@@ -1278,14 +1278,29 @@ fn checkBlock(sema: Sema, block: ASTNode) -> string {
     }
 }
 
-fn checkIfStatement(sema: Sema, node: ASTNode) {
+// The type of an `if` is the type of its then branch, and checking it walks
+// each part exactly once: the old shape called this from checkNode and then
+// asked for the then branch's type with a second checkNode, so every diagnostic
+// inside a branch was reported twice (`print(nope)` under an `if` printed
+// "Undeclared identifier" twice).
+//
+// The value of an `if` is the value of the branch that ran, so the then branch
+// is the one that decides the type. The other branch is a different shape and
+// the language has no union to join them into, so it is checked but not asked
+// for a type; the `else if` chain answers with the innermost then branch, which
+// is the only one guaranteed to be there.
+fn checkIf(sema: Sema, node: ASTNode) -> string {
     match node {
         ASTNode.If(stmt) => {
             checkNode(sema, stmt.condition)
-            checkNode(sema, stmt.thenBody)
-            checkNode(sema, stmt.elseBody)
+            val thenType = checkNode(sema, stmt.thenBody)
+            match stmt.elseBody {
+                ASTNode.Empty => {}
+                _ => { checkNode(sema, stmt.elseBody) }
+            }
+            return thenType
         }
-        _ => {}
+        _ => { return "void" }
     }
 }
 
@@ -1989,14 +2004,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         ASTNode.ReturnErr(r) => { checkReturn(sema, node)
             return ""
         }
-        ASTNode.If(stmt) => { checkIfStatement(sema, node)
-
-            // The value of an if is the type of its then branch. The other
-            // branch is a different shape and the language has no union to
-            // join them into, so this answers for the one that has to be
-            // there. The condition is already checked by checkIfStatement.
-            return checkNode(sema, stmt.thenBody)
-        }
+        ASTNode.If(stmt) => { return checkIf(sema, node) }
         ASTNode.While(w) => { checkWhileLoop(sema, node)
             return ""
         }

@@ -1,0 +1,70 @@
+// An `else if` chain is one value, in either position, spelled either way.
+//
+// The chain and the nested-`if` it stands for have to agree, or "the last else
+// wins" is not a rule anybody can rely on.
+fn classify(n: int) -> string {
+    val name = if n < 0 { "negative" }
+    else if n == 0 { "zero" }
+    else if n < 10 { "small" }
+    else { "large" }
+    return name
+}
+
+fn classifyBraceless(n: int) -> string {
+    val name = if n < 0 then "negative" else if n == 0 then "zero" else if n < 10 then "small" else "large"
+    return name
+}
+
+// The same chain as a statement, which is how it was written before it was a
+// value: the two must build the same thing.
+fn count(n: int) -> int {
+    var mut hits = 0
+    if n < 0 {
+        hits = hits + 1
+    } else if n == 0 {
+        hits = hits + 10
+    } else if n < 10 {
+        hits = hits + 100
+    } else {
+        hits = hits + 1000
+    }
+    return hits
+}
+
+fn main() -> int {
+    val probes = [-5, 0, 3, 400]
+    val expected = ["negative", "zero", "small", "large"]
+    val expectedHits = [1, 10, 100, 1000]
+    var i = 0
+    while i < probes.len() {
+        val n: int = probes.get(i)
+        val want: string = expected.get(i)
+        if classify(n) != want { return 1 }
+        if classifyBraceless(n) != want { return 2 }
+        val wantHits: int = expectedHits.get(i)
+        if count(n) != wantHits { return 3 }
+        i = i + 1
+    }
+
+    // A chain as the value of a `return`, and as a call argument.
+    if firstLetter(classify(-1)) != "n" { return 4 }
+    if firstLetter(classify(50)) != "l" { return 5 }
+
+    // Mixed: a block branch whose `else` is a braceless `if`, and a braceless
+    // branch whose `else` is a block holding a nested `if`.
+    val mixed = if i > 3 then "many" else if i > 1 then "few" else "none"
+    if mixed != "many" { return 6 }
+    val mixed2 = if i > 3 then "many" else {
+        if i > 1 {
+            "few"
+        } else {
+            "none"
+        }
+    }
+    if mixed2 != "many" { return 7 }
+    return 0
+}
+
+fn firstLetter(s: string) -> string {
+    return s.slice(0, 1)
+}

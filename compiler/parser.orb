@@ -385,7 +385,8 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         return expr
     }
     if matchToken(parser, TokType.KeywordIf) {
-        return parseIfExpr(parser)
+        // A value is required here, so this `if` has to have an `else`.
+        return parseIf(parser, true)
     }
     if matchToken(parser, TokType.OpenBracket) {
         var elements = []
@@ -485,14 +486,119 @@ fn parseObjectLiteralFallback(parser: Parser, firstTag: TokType) -> ASTNode {
     return ASTNode.Empty
 }
 
-fn parseIfExpr(parser: Parser) -> ASTNode {
+// One `if`, in every position it can appear.
+//
+// There used to be two of these -- parseIfStatement for a statement, parseIfExpr
+// for a value -- and they disagreed about the shape of a branch, so the same
+// keyword produced two different trees. An `if` is one node with two demands:
+// the branches are the same either way, and the only thing the position decides
+// is whether a missing `else` is legal. `wantValue` is that one difference: an
+// `if` used where a value is required has to have an `else`, because without one
+// the false path has no value to give.
+fn parseIf(parser: Parser, wantValue: bool) -> ASTNode {
+    // The `if` keyword itself: the diagnostic below points at the `if`, which
+    // is what a reader has to change, not at the end of the branches.
+    val ifLine = parser.previousToken.line
+    val ifCol = parser.previousToken.col
     val condition = parseExpression(parser)
-    val thenBody = parseExpression(parser)
+    val thenBody = parseIfBranch(parser)
     var elseBody = ASTNode.Empty
+    var hasElse = false
     if matchToken(parser, TokType.KeywordElse) {
-        elseBody = parseExpression(parser)
+        hasElse = true
+        if matchToken(parser, TokType.KeywordIf) {
+            elseBody = parseIf(parser, wantValue)
+        } else {
+            elseBody = parseIfBranch(parser)
+        }
+    }
+    if wantValue && hasElse == false {
+        parser.diagnostics.push(ParserDiagnostic("this `if` is used as a value, so it needs an `else` branch: without one the false path has no value", ifLine, ifCol, "E0302", "error.IfWithoutElse"))
     }
     return ASTNode.If(IfNode(condition, thenBody, elseBody))
+}
+
+// One branch of an `if`: a `{ ... }` block, or a single expression. Both shapes
+// are accepted in both positions, so `print(if c { 1 } else { 2 })` and
+// `if c 1 else 2` are the same `if` and mean the same thing; the difference is
+// only how much the branch has to say.
+//
+// `then` before a braceless branch is optional and contextual. It is not a
+// keyword of the language -- `then` is still an ordinary identifier -- and it
+// exists for the one case the condition would otherwise swallow: `if n - 1` is
+// a subtraction, so the branch that means minus one is written
+// `if n then -1 else 0`.
+fn parseIfBranch(parser: Parser) -> ASTNode {
+    if matchToken(parser, TokType.OpenBrace) {
+        return parseBlockBody(parser)
+    }
+    if isThenIdentifier(parser) {
+        advanceParser(parser)
+        // `then` was the keyword only if a branch follows it. When nothing can
+        // follow, the name was the branch: `if ready then` is a branch whose
+        // value is the variable `then`, and reading the name as a keyword there
+        // would make `then` reserved in exactly the one place it is not.
+        if matchToken(parser, TokType.OpenBrace) {
+            return parseBlockBody(parser)
+        }
+        if canStartBranch(parser.currentToken.tag) {
+            return parseExpression(parser)
+        }
+        return ASTNode.Literal(LiteralNode("identifier", "then"))
+    }
+    // A token that can only begin a statement cannot begin a branch, and saying
+    // so beats "unexpected token 'KeywordVal'" from three lines further down.
+    val tag = parser.currentToken.tag
+    if tag == TokType.KeywordElse {
+        // Nothing to consume: the `else` is still current, and the caller is
+        // about to consume it as the else branch. One diagnostic, no cascade.
+        parser.diagnostics.push(ParserDiagnostic("this `if` has no then branch: `else` must follow a then branch", parser.currentToken.line, parser.currentToken.col, "E0303", "error.IfMissingThenBranch"))
+        return ASTNode.Empty
+    }
+    if isStatementOnlyToken(tag) {
+        parser.diagnostics.push(ParserDiagnostic("an `if` branch written without braces must be a single expression; wrap statements in `{ ... }`", parser.currentToken.line, parser.currentToken.col, "E0304", "error.IfBranchNotExpression"))
+        // Recovery: consume the offending branch as the statement it is, so the
+        // rest of the file still parses and the reader gets one diagnostic
+        // instead of a cascade. Compilation stops at the diagnostic either way.
+        return parseStatement(parser)
+    }
+    return parseExpression(parser)
+}
+
+// The name `then`, which is an identifier in the token stream and a keyword only
+// where a branch follows it.
+fn isThenIdentifier(parser: Parser) -> bool {
+    if parser.currentToken.tag != TokType.Identifier { return false }
+    return parser.currentToken.text == "then"
+}
+
+// The tokens that can begin a branch: an expression, or the brace of a block.
+// The question it answers is whether the `then` before one was a keyword or an
+// ordinary name, so the list is the set of tokens that are not a branch's end.
+fn canStartBranch(tag: TokType) -> bool {
+    if tag == TokType.Identifier || tag == TokType.IntegerLiteral || tag == TokType.FloatLiteral { return true }
+    if tag == TokType.StringLiteral || tag == TokType.RawStringLiteral || tag == TokType.InterpStringLiteral { return true }
+    if tag == TokType.CharLiteral || tag == TokType.OpenParen || tag == TokType.OpenBracket { return true }
+    if tag == TokType.OpenBrace || tag == TokType.Minus || tag == TokType.Bang { return true }
+    if tag == TokType.KeywordIf || tag == TokType.KeywordMatch || tag == TokType.KeywordTry { return true }
+    if tag == TokType.KeywordOk || tag == TokType.KeywordErr { return true }
+    return false
+}
+
+// The tokens that can only begin a statement: `val`, `return`, `while`, `fn`
+// and the rest. A branch is an expression, so one of these where a branch
+// belongs is a mistake worth naming.
+fn isStatementOnlyToken(tag: TokType) -> bool {
+    if tag == TokType.KeywordVal || tag == TokType.KeywordVar || tag == TokType.KeywordConst { return true }
+    if tag == TokType.KeywordMut || tag == TokType.KeywordWhile || tag == TokType.KeywordFor { return true }
+    if tag == TokType.KeywordLoop || tag == TokType.KeywordBreak || tag == TokType.KeywordContinue { return true }
+    if tag == TokType.KeywordReturn || tag == TokType.KeywordIn { return true }
+    if tag == TokType.KeywordFn || tag == TokType.KeywordAsync || tag == TokType.KeywordModel { return true }
+    if tag == TokType.KeywordRoute || tag == TokType.KeywordEvery || tag == TokType.KeywordImport { return true }
+    if tag == TokType.KeywordUse || tag == TokType.KeywordTrait || tag == TokType.KeywordImpl { return true }
+    if tag == TokType.KeywordType || tag == TokType.KeywordEnum || tag == TokType.KeywordUnion { return true }
+    if tag == TokType.KeywordPrivate || tag == TokType.KeywordExtern || tag == TokType.KeywordCatch { return true }
+    return false
 }
 
 fn parseMatchExpr(parser: Parser) -> ASTNode {
@@ -591,20 +697,6 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
     return ASTNode.VarDecl(VarDeclNode(name, isMut, value, annotationName, nameLine, nameCol))
 }
 
-fn parseIfStatement(parser: Parser) -> ASTNode {
-    val condition = parseExpression(parser)
-    val thenBody = parseBlock(parser)
-    var elseBody = ASTNode.Empty
-    if matchToken(parser, TokType.KeywordElse) {
-        if matchToken(parser, TokType.KeywordIf) {
-            elseBody = parseIfStatement(parser)
-        } else {
-            elseBody = parseBlock(parser)
-        }
-    }
-    return ASTNode.If(IfNode(condition, thenBody, elseBody))
-}
-
 fn parseWhileStatement(parser: Parser) -> ASTNode {
     val condition = parseExpression(parser)
     val body = parseBlock(parser)
@@ -658,6 +750,13 @@ fn parseMatchStatement(parser: Parser) -> ASTNode {
 
 fn parseBlock(parser: Parser) -> ASTNode {
     consume(parser, TokType.OpenBrace, "Expected '{' before block.")
+    return parseBlockBody(parser)
+}
+
+// The body of a block, with the "{" already consumed. `parseBlock` is this plus
+// the brace, and an `if` branch needs them apart: it has already looked at the
+// token to decide whether the branch is a block at all.
+fn parseBlockBody(parser: Parser) -> ASTNode {
     var statements = []
     var parsingBlock = true
     while parsingBlock {
@@ -1088,7 +1187,9 @@ fn parseStatementInner(parser: Parser) -> ASTNode {
         return ASTNode.Return(ReturnNode(expr))
     }
     if matchToken(parser, TokType.KeywordIf) {
-        return parseIfStatement(parser)
+        // A statement of its own: no value is wanted from it, so a braceless
+        // `if` with no `else` is fine here.
+        return parseIf(parser, false)
     }
     if matchToken(parser, TokType.KeywordErr) {
         var codeText = "500"
