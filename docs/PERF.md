@@ -91,11 +91,10 @@ Where the gains came from, in order of size:
 4. **The compile cache** and the eight stress legs running in parallel.
 
 Remaining cost, honestly: the compiler's own `cc` on the 3.9 MB unit is still
-the largest single item in `orbit build`, and the fixed point now has 92
-`-Wint-conversion` warnings, all of one kind: the register machine represents
-a value as an integer, so unpacking a result (`OrbitResult.value` is `void*`)
-emits an integer-from-pointer conversion. That is tracked as STAB-3 and its
-root cause is understood; it is not fixed.
+the largest single item in `orbit build`, and the fixed point has 0
+`-Wint-conversion` warnings since 2026-09-26 (STAB-3, ENGINEERING.md): the
+register machine's pointer/int conflation was fixed at the source, and the
+suppression flags were removed. `scripts/werror_gate.py` is the guard.
 
 ## HTTP request path: what was changed
 
