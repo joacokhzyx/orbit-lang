@@ -53,6 +53,24 @@ fn currentScopeAdd(scope: VarScope, name: string, typeVal: string) {
     scope.variables.push(Variable(name, typeVal))
 }
 
+// The last declaration of `name` wins, walking backwards -- which is what both
+// callers did, and why a re-declaration in an inner scope shadows the outer one.
+// The sentinel is a parameter rather than a shared constant because the two
+// callers answer differently on absence: a return type that cannot be found is
+// "unknown" and has to stay that, while an undeclared list kind is "" because
+// "" is what tells listKindNameOf that nothing has pushed a kind yet.
+fn lookupLastVariableType(vars: list, name: string, absent: string) -> string {
+    var i = vars.len()
+    while i > 0 {
+        i = i - 1
+        val v: Variable = vars.get(i)
+        if checkVariableName(v, name) {
+            return getVariableType(v)
+        }
+    }
+    return absent
+}
+
 fn checkVariableName(v: Variable, name: string) -> bool {
     return v.name == name
 }
@@ -148,15 +166,7 @@ fn builtinReturnType(name: string) -> string {
 }
 
 fn lookupFunctionReturnType(builder: IRBuilder, name: string) -> string {
-    var i = builder.returnTypes.len()
-    while i > 0 {
-        i = i - 1
-        val v: Variable = builder.returnTypes.get(i)
-        if checkVariableName(v, name) {
-            return getVariableType(v)
-        }
-    }
-    return "unknown"
+    return lookupLastVariableType(builder.returnTypes, name, "unknown")
 }
 
 fn registerBuiltinFunctionReturnTypes(builder: IRBuilder) {
@@ -234,6 +244,21 @@ fn modelTableName(name: string) -> string {
 }
 
 fn fieldTypeOfModel(builder: IRBuilder, typeName: string, fieldName: string) -> string {
+    val t = modelFieldTypeOf(builder, typeName, fieldName)
+    if t == "! no such model field" { return "unknown" }
+    return t
+}
+
+// The model-then-field walk both of the above need, with the answer and the
+// "no such field" case kept apart. They used to be the same seventeen lines
+// written twice, and the temptation was to define modelHasField as
+// `fieldTypeOfModel(...) != "unknown"` -- which quietly changes its meaning for
+// a field that is declared with no type at all, since "" is a plausible typeVal
+// and is not "unknown". A sentinel that cannot be a type name is the honest
+// way to say "absent". The language has no module-level constant, so the
+// sentinel is this literal in the three places that need it, and it is spelled
+// with a leading "!" because no declared type name can start with one.
+fn modelFieldTypeOf(builder: IRBuilder, typeName: string, fieldName: string) -> string {
     var mi = 0
     while mi < builder.module.models.len() {
         val m: IRModelDecl = builder.module.models.get(mi)
@@ -249,7 +274,7 @@ fn fieldTypeOfModel(builder: IRBuilder, typeName: string, fieldName: string) -> 
         }
         mi = mi + 1
     }
-    return "unknown"
+    return "! no such model field"
 }
 
 fn buildCallArgValue(builder: IRBuilder, node: ASTNode) -> IRValue {
@@ -592,15 +617,7 @@ fn elemKindTypeName(kindCode: int) -> string {
 }
 
 fn lookupListKind(builder: IRBuilder, name: string) -> string {
-    var i = builder.listKinds.len()
-    while i > 0 {
-        i = i - 1
-        val v: Variable = builder.listKinds.get(i)
-        if v.name == name {
-            return v.typeVal
-        }
-    }
-    return ""
+    return lookupLastVariableType(builder.listKinds, name, "")
 }
 
 fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
@@ -712,22 +729,7 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
 }
 
 fn modelHasField(builder: IRBuilder, typeName: string, fieldName: string) -> bool {
-    var mi = 0
-    while mi < builder.module.models.len() {
-        val m: IRModelDecl = builder.module.models.get(mi)
-        if m.name == typeName {
-            var fi = 0
-            while fi < m.fields.len() {
-                val f: IRModelField = m.fields.get(fi)
-                if f.name == fieldName {
-                    return true
-                }
-                fi = fi + 1
-            }
-        }
-        mi = mi + 1
-    }
-    return false
+    return modelFieldTypeOf(builder, typeName, fieldName) != "! no such model field"
 }
 
 fn variantPayloadType(builder: IRBuilder, tagName: string) -> string {
@@ -987,20 +989,7 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     }
     buildNode(builder, f.body)
     // Auto-append ret if missing
-    val needsRet = func.instructions.len() == 0
-    var needsRet2 = false
-    if needsRet == false {
-        val last: IRInstruction = func.instructions.get(func.instructions.len() - 1)
-        match last.opcode {
-            IROpcode.ret => {}
-            _ => { needsRet2 = true }
-        }
-    }
-    if needsRet || needsRet2 {
-        val ret = ir_init_instr(IROpcode.ret)
-        ret.operand1 = ir_none()
-        ir_emit(func, ret)
-    }
+    ensureTrailingRet(func)
     popVariableScope(builder)
     builder.currentFunction = prevFunc
 }
@@ -1045,20 +1034,7 @@ fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
     builder.currentFunction = func
     pushVariableScope(builder)
     buildNode(builder, r.body)
-    val needsRet = func.instructions.len() == 0
-    var needsRet2 = false
-    if needsRet == false {
-        val last: IRInstruction = func.instructions.get(func.instructions.len() - 1)
-        match last.opcode {
-            IROpcode.ret => {}
-            _ => { needsRet2 = true }
-        }
-    }
-    if needsRet || needsRet2 {
-        val ret = ir_init_instr(IROpcode.ret)
-        ret.operand1 = ir_none()
-        ir_emit(func, ret)
-    }
+    ensureTrailingRet(func)
     popVariableScope(builder)
     builder.currentFunction = prevFunc
 }
@@ -1266,6 +1242,59 @@ fn buildLastStatementValue(builder: IRBuilder, node: ASTNode) -> int {
     }
 }
 
+// `break` jumps to the innermost loop's end label, `continue` to its start
+// label. Those are the same nine lines with a different stack, and the two arms
+// used to say so twice. Neither stack is checked for emptiness here beyond the
+// length test: a break outside a loop has no label to jump to and emits
+// nothing, which is what both arms always did.
+fn emitLoopJump(builder: IRBuilder, labels: list) -> int {
+    if labels.len() > 0 {
+        val label = labels.get(labels.len() - 1)
+        val jmp = ir_init_instr(IROpcode.jump)
+        jmp.operand1 = ir_label(label)
+        ir_emit(builder.currentFunction, jmp)
+    }
+    return -1
+}
+
+// The tail every loop ends with: jump back to the top, label the end, and pop
+// both label stacks. `while` and `for` each wrote these ten lines out, and the
+// two copies differed only in what the end-label instruction was called. A
+// missing pop means a `break` in the next loop jumps to the wrong place, and
+// that is not a crash you would blame on this file.
+fn jumpTo(builder: IRBuilder, label: int) -> IRInstruction {
+    val jmp = ir_init_instr(IROpcode.jump)
+    jmp.operand1 = ir_label(label)
+    return jmp
+}
+
+fn closeLoop(builder: IRBuilder, startLabel: int, endLabel: int) {
+    val lblEnd = ir_init_instr(IROpcode.label)
+    lblEnd.operand1 = ir_label(endLabel)
+    ir_emit(builder.currentFunction, lblEnd)
+    builder.loopStartLabels.pop()
+    builder.loopEndLabels.pop()
+}
+
+// A C function whose body does not end in a return is undefined behaviour when
+// it is called, and gcc only mentions it under -Wreturn-type, which is not in
+// this project's -Wall set -- so the emitter appends the return rather than
+// hoping. buildFunction and buildRoute each wrote these fifteen lines out, and
+// only one of the two had a comment saying what they were for, which is how a
+// reader ends up believing there is one of them.
+fn ensureTrailingRet(func: IRFunction) {
+    if func.instructions.len() > 0 {
+        val last: IRInstruction = func.instructions.get(func.instructions.len() - 1)
+        match last.opcode {
+            IROpcode.ret => { return }
+            _ => {}
+        }
+    }
+    val ret = ir_init_instr(IROpcode.ret)
+    ret.operand1 = ir_none()
+    ir_emit(func, ret)
+}
+
 fn buildNode(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.Block(b) => {
@@ -1294,14 +1323,8 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             jmpFalse.operand2 = ir_label(endLabel)
             ir_emit(builder.currentFunction, jmpFalse)
             buildNode(builder, stmt.body)
-            val jmpStart = ir_init_instr(IROpcode.jump)
-            jmpStart.operand1 = ir_label(startLabel)
-            ir_emit(builder.currentFunction, jmpStart)
-            val lblEndInstr = ir_init_instr(IROpcode.label)
-            lblEndInstr.operand1 = ir_label(endLabel)
-            ir_emit(builder.currentFunction, lblEndInstr)
-            builder.loopStartLabels.pop()
-            builder.loopEndLabels.pop()
+            ir_emit(builder.currentFunction, jumpTo(builder, startLabel))
+            closeLoop(builder, startLabel, endLabel)
         }
         ASTNode.For(stmt) => {
             val iterReg = buildExpr(builder, stmt.iterable)
@@ -1375,14 +1398,8 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             storeIdx.operand1 = ir_symbol(stmt.item + "_idx")
             storeIdx.operand2 = ir_register(incReg)
             ir_emit(builder.currentFunction, storeIdx)
-            val jmpStart = ir_init_instr(IROpcode.jump)
-            jmpStart.operand1 = ir_label(startLabel)
-            ir_emit(builder.currentFunction, jmpStart)
-            val lblEnd = ir_init_instr(IROpcode.label)
-            lblEnd.operand1 = ir_label(endLabel)
-            ir_emit(builder.currentFunction, lblEnd)
-            builder.loopStartLabels.pop()
-            builder.loopEndLabels.pop()
+            ir_emit(builder.currentFunction, jumpTo(builder, startLabel))
+            closeLoop(builder, startLabel, endLabel)
         }
         ASTNode.Return(r) => {
             // Check for Empty expr
@@ -2745,26 +2762,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         ASTNode.FieldInit(fi) => {
             return buildExpr(builder, fi.value)
         }
-        ASTNode.Break(b) => {
-            val endLabels = builder.loopEndLabels
-            if endLabels.len() > 0 {
-                val endLabel = endLabels.get(endLabels.len() - 1)
-                val jmp = ir_init_instr(IROpcode.jump)
-                jmp.operand1 = ir_label(endLabel)
-                ir_emit(builder.currentFunction, jmp)
-            }
-            return -1
-        }
-        ASTNode.Continue(c) => {
-            val startLabels = builder.loopStartLabels
-            if startLabels.len() > 0 {
-                val startLabel = startLabels.get(startLabels.len() - 1)
-                val jmp = ir_init_instr(IROpcode.jump)
-                jmp.operand1 = ir_label(startLabel)
-                ir_emit(builder.currentFunction, jmp)
-            }
-            return -1
-        }
+        ASTNode.Break(b) => { return emitLoopJump(builder, builder.loopEndLabels) }
+        ASTNode.Continue(c) => { return emitLoopJump(builder, builder.loopStartLabels) }
         _ => {
             return -1
         }
