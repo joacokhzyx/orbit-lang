@@ -1,0 +1,3 @@
+// expect-error: E1007
+var top = 1
+fn main() -> int { return 0 }

@@ -296,14 +296,14 @@ literal does not parse (`Expected ')' after arguments`), so each of these needs
 the value bound to a `val` first — which is what I did. Use `.get(i)`, not
 `.at(i)`, and treat a list's contents as something only you know.
 
-## 29.0% of instructions are `unknown`, and 46.6% of those are silent
+## 29.2% of instructions are `unknown`, and 46.8% of those are silent
 
 `scripts/unknown_census.py`, run over 110 files and 42,017
 instructions on this build:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 12,203 | **29.0%** |
+| instructions the front end types `unknown` | 12,613 | **29.2%** |
 | ...with no diagnostic at all | 5,684 | **46.6% of the unknown** |
 | ...of those, opcode `call` | 2,904 | |
 | ...of those, opcode `member` | 2,428 | |
@@ -329,7 +329,7 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-29.0% is the number the type work has to be scoped against, and a
+29.2% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Verified here:
 
 ```console

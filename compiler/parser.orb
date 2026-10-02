@@ -1110,9 +1110,11 @@ fn parseImplDecl(parser: Parser) -> ASTNode {
 fn parseConstDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     consume(parser, TokType.Identifier, "Expected constant name.")
     val name = parser.previousToken.text
+    val nameLine = parser.previousToken.line
+    val nameCol = parser.previousToken.col
     consume(parser, TokType.Equal, "Expected '=' after constant name.")
     val value = parseExpression(parser)
-    return ASTNode.ConstDecl(ConstDeclNode(name, value, isPrivate))
+    return ASTNode.ConstDecl(ConstDeclNode(name, value, isPrivate, nameLine, nameCol))
 }
 
 fn parseScheduleDecl(parser: Parser) -> ASTNode {

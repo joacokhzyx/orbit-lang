@@ -1,4 +1,6 @@
-fn routePreambleText(hasRoutes: bool) -> string {
+// globals carries ready-made "#define NAME value" lines (one per top-level
+// val/const), rendered by the backend where IRGlobal/IRValue live.
+fn routePreambleText(hasRoutes: bool, globals: string) -> string {
     var out = ""
     out = out + "#define ORBIT_CUSTOM_ROUTER\n"
     out = out + "#include \"socket_compat.h\"\n"
@@ -67,49 +69,21 @@ fn routePreambleText(hasRoutes: bool) -> string {
     out = out + "#ifdef _WIN32\n"
     out = out + "void __main(void) {}\n"
     out = out + "#endif\n"
-    out = out + "#define CHAR_SPACE ' '\n"
-    out = out + "#define CHAR_TAB '\\t'\n"
-    out = out + "#define CHAR_CR '\\r'\n"
-    out = out + "#define CHAR_LF '\\n'\n"
-    out = out + "#define CHAR_ZERO '0'\n"
-    out = out + "#define CHAR_NINE '9'\n"
-    out = out + "#define CHAR_A_UPPER 'A'\n"
-    out = out + "#define CHAR_Z_UPPER 'Z'\n"
-    out = out + "#define CHAR_A_LOWER 'a'\n"
-    out = out + "#define CHAR_Z_LOWER 'z'\n"
-    out = out + "#define CHAR_UNDERSCORE '_'\n"
-    out = out + "#define CHAR_SLASH '/'\n"
-    out = out + "#define CHAR_DOT '.'\n"
-    out = out + "#define CHAR_PLUS '+'\n"
-    out = out + "#define CHAR_MINUS '-'\n"
-    out = out + "#define CHAR_STAR '*'\n"
-    out = out + "#define CHAR_PERCENT '%'\n"
-    out = out + "#define CHAR_EQUAL '='\n"
-    out = out + "#define CHAR_BANG '!'\n"
-    out = out + "#define CHAR_COLON ':'\n"
-    out = out + "#define CHAR_SEMICOLON ';'\n"
-    out = out + "#define CHAR_COMMA ','\n"
-    out = out + "#define CHAR_QUOTE '\"'\n"
-    out = out + "#define CHAR_DQUOTE '\"'\n"
-    out = out + "#define CHAR_SINGLE_QUOTE '\\''\n"
-    out = out + "#define CHAR_BACKSLASH '\\\\'\n"
-    out = out + "#define CHAR_LPAREN '('\n"
-    out = out + "#define CHAR_RPAREN ')'\n"
-    out = out + "#define CHAR_LBRACE '{'\n"
-    out = out + "#define CHAR_RBRACE '}'\n"
-    out = out + "#define CHAR_LBRACKET '['\n"
-    out = out + "#define CHAR_RBRACKET ']'\n"
-    out = out + "#define CHAR_HASH '#'\n"
-    out = out + "#define CHAR_AT '@'\n"
-    out = out + "#define CHAR_DOLLAR '$'\n"
-    out = out + "#define CHAR_AMP '&'\n"
-    out = out + "#define CHAR_PIPE '|'\n"
-    out = out + "#define CHAR_CARET '^'\n"
-    out = out + "#define CHAR_TILDE '~'\n"
-    out = out + "#define CHAR_BACKTICK '`'\n"
-    out = out + "#define CHAR_QUESTION '?'\n"
-    out = out + "#define CHAR_LESS '<'\n"
-    out = out + "#define CHAR_GREATER '>'\n"
+    // One define per top-level `val`/`const` the program declares, in
+    // declaration order. This used to be 43 pasted strings holding the
+    // compiler's own lexer constants, which is how the compiler kept working
+    // while top-level declarations were broken: the names in lexer.orb were
+    // decoration and the values were text in the emitter. Two sources of truth
+    // for one set of names, and they had already drifted -- lexer.orb declared
+    // CHAR_ASTERISK where the pasted list said CHAR_STAR, so using the constant
+    // the compiler's own source declared failed to build.
+    //
+    // The numeric literal is the rendering on purpose. The pasted list wrote
+    // printable ASCII as a character literal, which is a trap for the values
+    // that need an escape (92 is a backslash, 39 is a quote, 34 is a double
+    // quote) and it bought nothing: a #define is text, so 32 works wherever
+    // ' ' did.
+    out = out + globals
     out = out + "#ifndef genericParams\n"
     out = out + "#define genericParams(...) (void*)0\n"
     out = out + "#endif\n"

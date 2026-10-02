@@ -884,6 +884,50 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
     }
 }
 
+// A top-level declaration used to become a decl_var in the module's
+// pseudo-main function: an uninitialised local, invisible from every other
+// function. This compiler only compiled because its lexer constants were
+// pasted into the emitter's prelude as text, making the declarations in
+// lexer.orb decoration. What a top-level declaration can be is now fixed and
+// small -- a name for an integer or boolean literal, which the backend emits
+// as a #define -- and everything else is a loud error rather than a silent
+// local. Use a function for state.
+fn checkTopLevelConstantDecl(sema: Sema, node: ASTNode) {
+    match node {
+        ASTNode.VarDecl(v) => {
+            if v.isMutable {
+                reportErrorAt(sema, "E1007", "State lives inside functions; at file scope, only `val NAME = <int or bool literal>` is a declaration.", v.line, v.col, "'" + v.name + "' is a `var` at file scope.")
+            } else if isTopLevelConstantExpr(v.value) == false {
+                reportErrorAt(sema, "E1007", "Put the value inside a function, or give it an int/bool literal -- only literals become a `#define`.", v.line, v.col, "'" + v.name + "' is a top-level `val`, but its value is not an int or bool literal.")
+            }
+        }
+        ASTNode.ConstDecl(c) => {
+            if isTopLevelConstantExpr(c.value) == false {
+                reportErrorAt(sema, "E1007", "Put the value inside a function, or give it an int/bool literal -- only literals become a `#define`.", c.line, c.col, "'" + c.name + "' is a constant of file scope, but its value is not an int or bool literal.")
+            }
+        }
+        _ => {}
+    }
+}
+
+// The initializer shape that may appear at file scope: an integer or boolean
+// literal, possibly negated. Anything computed belongs in a function.
+fn isTopLevelConstantExpr(node: ASTNode) -> bool {
+    match node {
+        ASTNode.Literal(l) => {
+            return l.valType == "int" || l.valType == "bool"
+        }
+        ASTNode.UnaryOp(u) => {
+            if u.op != "-" { return false }
+            match u.operand {
+                ASTNode.Literal(l) => { return l.valType == "int" }
+                _ => { return false }
+            }
+        }
+        _ => { return false }
+    }
+}
+
 fn checkConstDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.ConstDecl(c) => {
@@ -1677,8 +1721,14 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             while i < prog.decls.len() {
                 val decl = prog.decls.get(i)
                 match decl {
-                    ASTNode.ConstDecl(c) => { checkConstDecl(sema, decl) }
-                    ASTNode.VarDecl(v) => { checkVarDecl(sema, decl) }
+                    ASTNode.ConstDecl(c) => {
+                        checkTopLevelConstantDecl(sema, decl)
+                        checkConstDecl(sema, decl)
+                    }
+                    ASTNode.VarDecl(v) => {
+                        checkTopLevelConstantDecl(sema, decl)
+                        checkVarDecl(sema, decl)
+                    }
                     _ => {}
                 }
                 i = i + 1

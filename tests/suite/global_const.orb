@@ -1,0 +1,13 @@
+val CHAR_SPACE = 32
+const LIMIT = 3
+val NEG = -2
+
+fn main() -> int {
+    print(CHAR_SPACE)
+    print(LIMIT)
+    print(NEG)
+    if 32 == CHAR_SPACE {
+        print(1)
+    }
+    return 0
+}

@@ -17,7 +17,15 @@ fn main() {
 ```
 
 Use `async fn` where an API accepts an asynchronous declaration. Top-level
-declarations include `fn`, `model`, `enum`, `union`, `type`, and `route`.
+declarations include `fn`, `model`, `enum`, `union`, `type`, and `route`. A
+top-level `val` or `const` is also accepted when its value is an int or bool
+literal (a constant with file scope, emitted as a C `#define`); anything else
+at file scope is rejected with E1007.
+
+```orbit
+val CHAR_SPACE = 32
+const MAX_RETRIES = 3
+```
 
 ## Variables and types
 

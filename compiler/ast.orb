@@ -102,6 +102,8 @@ model ConstDeclNode {
     name: string
     value: list
     isPrivate: bool
+    line: int
+    col: int
 }
 
 model ScheduleDeclNode {

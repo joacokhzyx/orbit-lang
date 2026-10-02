@@ -71,7 +71,7 @@ fn generateC(backend: CBackend) -> string {
     }
     var i = 0
     val cbTop = orbit_cbuf_create_selfhost()
-    orbit_cbuf_append_selfhost(cbTop, generateRoutePreamble(hasRoutes))
+    orbit_cbuf_append_selfhost(cbTop, generateRoutePreamble(hasRoutes, backend.module.globals))
     orbit_cbuf_append_selfhost(cbTop, generateRouteTypeDecls(backend))
     if hasRoutes == false && moduleConstructsVariants(backend) {
         orbit_cbuf_append_selfhost(cbTop, "#ifndef AST_VARIANTS_DEFINED\n")
@@ -1164,8 +1164,35 @@ fn fnv1a64Hash(method: string, path: string) -> string {
     return dec
 }
 
-fn generateRoutePreamble(hasRoutes: bool) -> string {
-    return routePreambleText(hasRoutes)
+// The defines in the preamble come from the program's own top-level
+// declarations, so the names the C compiler sees and the names in the source
+// cannot drift apart: a constant the program declares is a define the program
+// gets, and a constant it does not declare is not. Kept in this file because
+// rendering IRValue is a backend job; route_runtime only concatenates.
+fn generateRoutePreamble(hasRoutes: bool, globals: list) -> string {
+    var defs = ""
+    val gi = 0
+    while gi < globals.len() {
+        val g: IRGlobal = globals.get(gi)
+        defs = defs + "#define " + g.name + " " + cDefineLiteral(g.value) + "\n"
+        gi = gi + 1
+    }
+    return routePreambleText(hasRoutes, defs)
+}
+
+// The C text of a top-level declaration's value, for a #define.
+//
+// A define is text substitution, so the requirement is only that what comes
+// after the name is a C expression. The builder has already decided that this
+// value is a constant and stored the literal; this renders it. Anything that
+// is not a String operand is not a constant and never gets here -- the builder
+// puts the literal in an IRValue.String precisely so an accidental register
+// cannot land in a #define, where it would compile as a variable.
+fn cDefineLiteral(value: IRValue) -> string {
+    match value {
+        IRValue.String(s) => { return s.value }
+        _ => { return "0" }
+    }
 }
 
 fn generateRouteTypeDecls(backend: CBackend) -> string {
@@ -1532,6 +1559,18 @@ fn markUsedLocals(body: string, names: list, registerCount: int) -> list {
     return marks
 }
 
+// Is this name a top-level `val`/`const`, and therefore a #define in the
+// emitted C rather than a variable?
+fn isTopLevelConstant(backend: CBackend, name: string) -> bool {
+    val gi = 0
+    while gi < backend.module.globals.len() {
+        val g: IRGlobal = backend.module.globals.get(gi)
+        if g.name == name { return true }
+        gi = gi + 1
+    }
+    return false
+}
+
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     backend.currentFunction = func
     backend.callArgs = []
@@ -1778,6 +1817,17 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
             _ => {}
         }
         if hname != "" && hname != "arena" && hname != "NULL" && hname != "true" && hname != "false" && orbit_string_indexOf(hname, "_TAG_") == -1 && orbit_string_indexOf(hname, "TAG_") == -1 {
+            // A name that is a top-level constant is a #define in the emitted
+            // C, and this pass exists to declare the names it could not find a
+            // declaration for. Declaring one anyway writes `uintptr_t NAME;`
+            // underneath `#define NAME 5`, and the preprocessor then expands
+            // the declaration too -- "expected identifier before numeric
+            // constant", which is what a top-level val produced until the
+            // hoister learned to ask.
+            if isTopLevelConstant(backend, hname) {
+                hi = hi + 1
+                continue
+            }
             val hseen = listContainsStr(backend.declVars, hname) || listContainsStr(func.params, hname)
             if hseen == false {
                 val nameSlot = func.registerCount + backend.declVars.len()

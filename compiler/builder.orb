@@ -934,6 +934,33 @@ fn getOrCreateFunction(builder: IRBuilder, name: string) -> IRFunction {
     return func
 }
 
+// The C literal for a top-level declaration's value, or "" when the value is
+// not a compile-time constant.
+//
+// Only literals qualify, and that is the whole scope of the feature: a
+// top-level `val` is a name for a value the programmer wrote down, not a
+// mutable slot, so nothing that has to be computed belongs here. Sema refuses
+// the rest with a diagnostic rather than letting it silently become a local --
+// see checkTopLevelDeclaration.
+fn topLevelConstantValue(node: ASTNode) -> string {
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "int" { return l.text }
+            if l.valType == "bool" { if l.text == "true" { return "1" } return "0" }
+            return ""
+        }
+        ASTNode.UnaryOp(u) => {
+            // A negative literal is a unary minus over a literal, and that is
+            // still a constant: `val MIN = -2147483648`.
+            if u.op != "-" { return "" }
+            val inner = topLevelConstantValue(u.operand)
+            if inner == "" { return "" }
+            return "-" + inner
+        }
+        _ => { return "" }
+    }
+}
+
 fn buildDecl(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
@@ -944,7 +971,27 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
         ASTNode.RouteDecl(r) => {
             buildRoute(builder, r)
         }
+        // A top-level declaration with a compile-time constant value becomes a
+        // file-scope define in the emitted C, so every function sees the same
+        // thing. It used to become a decl_var in whatever function happened to
+        // be current -- which is the module's pseudo-main -- so the name was a
+        // local, uninitialised, and every read of it was whatever the stack
+        // held. `val g = 5` followed by `print(g)` printed an address.
+        //
+        // The compiler itself never hit that, because its sixteen lexer
+        // constants were pasted into the emitter's prelude as literal
+        // "#define CHAR_SPACE ' '" strings and the declarations in lexer.orb
+        // were decoration. Two sources of truth for one set of names, which had
+        // already diverged: lexer.orb declared CHAR_ASTERISK, the pasted list
+        // said CHAR_STAR, and using the constant the compiler's own source
+        // declared failed to build.
         ASTNode.VarDecl(v) => {
+            val constValue = topLevelConstantValue(v.value)
+            if constValue != "" {
+                builder.module.globals.push(IRGlobal(v.name, ir_string(constValue), inferValueType(builder, v.value)))
+                defineVariable(builder, v.name, inferValueType(builder, v.value))
+                return
+            }
             val func = builder.currentFunction
             val varVal = buildCallArgValue(builder, v.value)
             val instr = ir_init_instr(IROpcode.decl_var)
@@ -959,8 +1006,14 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
             recordListKind(builder, v.name, listKindNameOf(builder, v.value))
         }
         ASTNode.ConstDecl(c) => {
+            val constLiteral = topLevelConstantValue(c.value)
+            if constLiteral != "" {
+                builder.module.globals.push(IRGlobal(c.name, ir_string(constLiteral), inferValueType(builder, c.value)))
+                defineVariable(builder, c.name, inferValueType(builder, c.value))
+                return
+            }
             val valueReg = buildExpr(builder, c.value)
-            val irGlobal = IRGlobal(c.name, ir_register(valueReg))
+            val irGlobal = IRGlobal(c.name, ir_register(valueReg), inferValueType(builder, c.value))
             builder.module.globals.push(irGlobal)
         }
         _ => {}
@@ -2425,6 +2478,20 @@ fn objectFieldSetter(builder: IRBuilder, valueReg: int) -> string {
     return "orbit_object_set_string"
 }
 
+// The declared type of a top-level constant, or "" when the name is not one.
+// Used to give a global's load registers their real type: without it the
+// builder's first heuristic -- "capitalised means enum constant" -- typed a
+// register NAME and the C came out as `NAME* r_0`.
+fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
+    val gi = 0
+    while gi < builder.module.globals.len() {
+        val g: IRGlobal = builder.module.globals.get(gi)
+        if g.name == name { return g.typeName }
+        gi = gi + 1
+    }
+    return ""
+}
+
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(lit) => {
@@ -2437,6 +2504,19 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     loadVar.operand1 = ir_symbol(lit.text)
                     ir_emit(builder.currentFunction, loadVar)
                     return varReg
+                }
+                // A top-level `val`/`const` with a constant value is a file
+                // constant: load it like a variable, typed like one. It used to
+                // fall through to the uppercase heuristic below, which typed a
+                // capitalised name as if it were an enum variant.
+                val gType = topLevelConstantType(builder, lit.text)
+                if gType != "" {
+                    val gReg = ir_alloc_register(builder.currentFunction, gType)
+                    val gLoad = ir_init_instr(IROpcode.load_var)
+                    gLoad.dest = gReg
+                    gLoad.operand1 = ir_symbol(lit.text)
+                    ir_emit(builder.currentFunction, gLoad)
+                    return gReg
                 }
                 // Check if it's an uppercase (type/enum constant)
                 val fc0 = lit.text.at(0)

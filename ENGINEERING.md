@@ -566,7 +566,7 @@ python scripts/unknown_census.py --cc "$CC" --compiler /tmp/orbit_fp
 
 # 15. [CI] Unknown-count ratchet, D7. Reads the census output and compares two
 #     of its counts against a committed baseline in scripts/baselines/. Fails
-#     if either went UP; does not fail for being high, because 29.0% unknown is
+#     if either went UP; does not fail for being high, because 29.2% unknown is
 #     the number the type work is scoped against and a zero-bar gate is a gate
 #     everybody deletes. The two ratcheted counts are `unknown_instructions` and
 #     `unknown_without_diagnostic`; the instruction total is deliberately not

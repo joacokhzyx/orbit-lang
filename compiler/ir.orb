@@ -225,6 +225,7 @@ model IRModule {
 model IRGlobal {
     name: string
     value: IRValue
+    typeName: string
 }
 
 fn initIRModule() -> IRModule {
