@@ -305,22 +305,6 @@ fn buildCallArgValue(builder: IRBuilder, node: ASTNode) -> IRValue {
     }
 }
 
-fn buildBinaryOperand(builder: IRBuilder, node: ASTNode) -> IRValue {
-    match node {
-        ASTNode.Literal(l) => {
-            if l.valType == "string" || l.valType == "string_raw" {
-                return ir_string(literalStringValue(l))
-            }
-            val reg = buildExpr(builder, node)
-            return ir_register(reg)
-        }
-        _ => {
-            val reg = buildExpr(builder, node)
-            return ir_register(reg)
-        }
-    }
-}
-
 fn dotPosOf(s: string) -> int {
     var i = 0
     while i < orbit_string_len(s) {
@@ -1873,6 +1857,34 @@ fn buildInterpString(builder: IRBuilder, parts: list, isRaw: bool) -> int {
     return acc
 }
 
+// One emitter for the native-dispatch call shape the `req.*`, `model.*` and
+// `system.*` tables produce: fixed prefix arguments, then one per user
+// argument, one result register typed as the native's return type, and the
+// call. These three tables used to each transcribe that around their lookup.
+fn emitNativeCall(builder: IRBuilder, nativeName: string, fixedArgs: list, userArgs: list) -> int {
+    var fai = 0
+    while fai < fixedArgs.len() {
+        val fa = ir_init_instr(IROpcode.arg)
+        fa.operand1 = fixedArgs.get(fai)
+        ir_emit(builder.currentFunction, fa)
+        fai = fai + 1
+    }
+    var ai = 0
+    while ai < userArgs.len() {
+        val a = ir_init_instr(IROpcode.arg)
+        a.operand1 = buildCallArgValue(builder, userArgs.get(ai))
+        ir_emit(builder.currentFunction, a)
+        ai = ai + 1
+    }
+    val res = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, nativeName))
+    val call = ir_init_instr(IROpcode.call)
+    call.dest = res
+    call.operand1 = ir_string(nativeName)
+    call.operand2 = ir_int(userArgs.len() + fixedArgs.len())
+    ir_emit(builder.currentFunction, call)
+    return res
+}
+
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     // Check if it's a method call (member access)
     match c.callee {
@@ -1938,23 +1950,9 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 _ => {}
             }
             if reqBuiltin != "" {
-                val reqArg = ir_init_instr(IROpcode.arg)
-                reqArg.operand1 = reqOperand
-                ir_emit(builder.currentFunction, reqArg)
-                var rai = 0
-                while rai < c.args.len() {
-                    val reqCallArg = ir_init_instr(IROpcode.arg)
-                    reqCallArg.operand1 = buildCallArgValue(builder, c.args.get(rai))
-                    ir_emit(builder.currentFunction, reqCallArg)
-                    rai = rai + 1
-                }
-                val reqRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, reqBuiltin))
-                val reqCall = ir_init_instr(IROpcode.call)
-                reqCall.dest = reqRes
-                reqCall.operand1 = ir_string(reqBuiltin)
-                reqCall.operand2 = ir_int(c.args.len() + 1)
-                ir_emit(builder.currentFunction, reqCall)
-                return reqRes
+                var reqFixed = []
+                reqFixed.push(reqOperand)
+                return emitNativeCall(builder, reqBuiltin, reqFixed, c.args)
             }
             var modelName = ""
             match ma.object {
@@ -1987,23 +1985,9 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 }
             }
             if modelBuiltin != "" {
-                val modelRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, modelBuiltin))
-                val tableArg = ir_init_instr(IROpcode.arg)
-                tableArg.operand1 = ir_string(modelTableName(modelName))
-                ir_emit(builder.currentFunction, tableArg)
-                var mai = 0
-                while mai < c.args.len() {
-                    val modelCallArg = ir_init_instr(IROpcode.arg)
-                    modelCallArg.operand1 = buildCallArgValue(builder, c.args.get(mai))
-                    ir_emit(builder.currentFunction, modelCallArg)
-                    mai = mai + 1
-                }
-                val modelCall = ir_init_instr(IROpcode.call)
-                modelCall.dest = modelRes
-                modelCall.operand1 = ir_string(modelBuiltin)
-                modelCall.operand2 = ir_int(c.args.len() + 1)
-                ir_emit(builder.currentFunction, modelCall)
-                return modelRes
+                var modelFixed = []
+                modelFixed.push(ir_string(modelTableName(modelName)))
+                return emitNativeCall(builder, modelBuiltin, modelFixed, c.args)
             }
             var systemBuiltin = ""
             match ma.object {
@@ -2025,20 +2009,8 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 _ => {}
             }
             if systemBuiltin != "" {
-                var sai = 0
-                while sai < c.args.len() {
-                    val sysCallArg = ir_init_instr(IROpcode.arg)
-                    sysCallArg.operand1 = buildCallArgValue(builder, c.args.get(sai))
-                    ir_emit(builder.currentFunction, sysCallArg)
-                    sai = sai + 1
-                }
-                val sysRes = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, systemBuiltin))
-                val sysCall = ir_init_instr(IROpcode.call)
-                sysCall.dest = sysRes
-                sysCall.operand1 = ir_string(systemBuiltin)
-                sysCall.operand2 = ir_int(c.args.len())
-                ir_emit(builder.currentFunction, sysCall)
-                return sysRes
+                var sysFixed = []
+                return emitNativeCall(builder, systemBuiltin, sysFixed, c.args)
             }
             val objReg = buildExpr(builder, ma.object)
             // Collection methods
@@ -2604,8 +2576,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     }
                 }
             }
-            val lhsOperand = buildBinaryOperand(builder, bin.lhs)
-            val rhsOperand = buildBinaryOperand(builder, bin.rhs)
+            val lhsOperand = buildCallArgValue(builder, bin.lhs)
+            val rhsOperand = buildCallArgValue(builder, bin.rhs)
             var opCode = IROpcode.add
             if bin.op == "+" { opCode = IROpcode.add }
             if bin.op == "-" { opCode = IROpcode.sub }
