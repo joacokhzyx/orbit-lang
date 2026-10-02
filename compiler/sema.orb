@@ -385,13 +385,60 @@ fn checkModelCtor(sema: Sema, args: list, line: int, col: int, modelName: string
     }
 }
 
-// Reading a field of a model. A model that declares its fields is the one type
-// in the language whose members are fully known, so a member that is not
-// declared is an error rather than a guess.
-fn checkModelField(sema: Sema, objType: string, member: string, line: int, col: int) {
-    if modelFieldCount(sema, objType) == 0 { return }
-    if modelFieldType(sema, objType, member) != "" { return }
-    reportErrorAt(sema, "E1003", "The field is spelled as declared; a model has no other members.", line, col, "Model '" + objType + "' has no field '" + member + "'.")
+// Reading a member of a value whose member set is closed.
+//
+// This used to be about models only, and it opened with
+// `if modelFieldCount(sema, objType) == 0 { return }` -- which is a silent
+// pass for every receiver that is not a model with declared fields. An int
+// has no fields, so the count was 0 and the function said nothing. So did a
+// union, which has variants rather than fields. Both went on to the C backend
+// as a struct member read on a type that has no struct, and gcc rejected the
+// output with "unknown type name" or a bad member, which the user saw as
+// "orbit build: couldn't finish the C step - this one is on me, not your
+// code". A member that cannot exist is a decision the type declaration
+// already made, and it is checkable before the emitter is involved.
+//
+// The rule is deliberately narrow, because being wrong here breaks working
+// code instead of catching broken code. A member set is only closed when the
+// declaration that made it is one we can read:
+//
+//   - a model declares its fields, and nothing else. (Models have no methods:
+//     `fn` inside a `model` is a parse error, so a method call on a model is
+//     as wrong as a field read on an int.)
+//   - an enum or a union declares its variants, and a member that is not one
+//     of them is not a member. A payload is read by matching, not by naming
+//     a field, so `s.radius` on a `Shape` is this error even though `Shape`
+//     has an int inside it.
+//   - int, bool and float have no members at all.
+//
+// Everything else stays silent on purpose: string, list, map, object, result
+// and response all answer to a method surface that the emitter owns and this
+// function cannot see, and "unknown" is the documented escape hatch that lets
+// a module-qualified name like `json.encode` through. Reporting against a set
+// we cannot enumerate would be a gate that cries wolf.
+fn checkMemberResolution(sema: Sema, objType: string, member: string, line: int, col: int) {
+    if objType == "int" || objType == "bool" || objType == "float" {
+        reportErrorAt(sema, "E1003", "A value of type " + objType + " has no members. If this was meant to be a model or a variant, it is spelled elsewhere in the program.", line, col, "'" + objType + "' has no member '" + member + "'.")
+        return
+    }
+    // A model is not in typeRegistry: checkModelDecl fills modelFieldOwner
+    // instead, and TypeDecl -- the arm that calls registerType -- never sees
+    // one. Asking findType about a model answers -1, which is how the first
+    // version of this function sat silently on n05 while loudly on n06. The
+    // question "is this a model with declared fields" is therefore asked of
+    // modelFieldCount, which is the table that can answer it.
+    if modelFieldCount(sema, objType) > 0 {
+        if modelFieldType(sema, objType, member) != "" { return }
+        reportErrorAt(sema, "E1003", "The field is spelled as declared; a model has no other members.", line, col, "Model '" + objType + "' has no field '" + member + "'.")
+        return
+    }
+    val typeIndex = findType(sema, objType)
+    if typeIndex < 0 { return }
+    if isTaggedTypeIndex(sema, typeIndex) {
+        if typeHasVariant(sema, objType, member) { return }
+        reportErrorAt(sema, "E1003", "A variant is spelled as declared, and a payload is read by matching on it rather than by naming a field.", line, col, "'" + objType + "' has no variant '" + member + "'.")
+        return
+    }
 }
 
 fn findType(sema: Sema, name: string) -> int {
@@ -1865,7 +1912,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         ASTNode.MemberAccess(ma) => {
             val objType = checkNode(sema, ma.object)
             val member = ma.field
-            checkModelField(sema, objType, member, ma.line, ma.col)
+            checkMemberResolution(sema, objType, member, ma.line, ma.col)
             if objType == "string" && member == "length" { return "int" }
             // `ASTNode.Empty` used as a value is an ASTNode, and reading it as
             // a field of some model of the same name is not: only a declared

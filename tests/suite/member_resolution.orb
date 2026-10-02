@@ -1,0 +1,52 @@
+// Member resolution: a closed member set is checked, an open one is not.
+//
+// Every case in the first half is a member that cannot exist and is now a
+// diagnostic instead of a C step that dies with "unknown type name". Every
+// case in the second half is a member that does exist, and the point of the
+// test is that none of them changed: a check that rejects valid code is worse
+// than no check, because it teaches the reader that the compiler is guessing.
+model Point {
+    x: int
+    y: int
+}
+
+enum Color { Red Green Blue }
+
+union Shape { Circle(int) Square(int) }
+
+fn area(s: Shape) -> int {
+    match s {
+        Shape.Circle(r) => { return r * r }
+        Shape.Square(a) => { return a * a }
+    }
+}
+
+fn main() -> int {
+    // A model: declared fields, and only those.
+    val p = Point(3, 4)
+    print(p.x)
+    print(p.y)
+
+    // An enum: declared variants, and only those.
+    val c = Color.Green
+    match c {
+        Color.Red => { print(1) }
+        Color.Green => { print(2) }
+        Color.Blue => { print(3) }
+    }
+
+    // A union: a variant read by matching, which is how a payload is read.
+    print(area(Shape.Circle(5)))
+    print(area(Shape.Square(6)))
+
+    // The open member surfaces this function deliberately does not touch:
+    // string, list, and the system builtins all answer to a method set the
+    // emitter owns, so a check that tried to enumerate them would be wrong.
+    val xs = [1, 2, 3]
+    print(xs.len())
+    print(xs.get(0))
+    val s = "hi"
+    print(s.length)
+    print(system.uptime() >= 0)
+    return 0
+}

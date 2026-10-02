@@ -1,6 +1,9 @@
 // case: union-variant-missing-payload
-// what: `Square` carries an int and declares no field called `radius`.
-// known-defect: member-resolution
+// what: `Square` carries an int and declares no field called `radius`. A
+//      union's members are its variants, and a payload is read by matching on
+//      the variant rather than by naming a field, so `s.radius` is a member
+//      that cannot exist -- even though the union does contain an int.
+// expect-error: 'Shape' has no variant 'radius'.
 union Shape { Circle(int)  Square(int) }
 
 fn main() -> int {

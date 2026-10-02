@@ -1,8 +1,9 @@
 // case: field-on-int
 // what: an int is not an object and has no members. `n.nothing` must not
-//      compile. This is the shape that reaches codegen as a member access with
-//      no receiver type, and the receiver is classified by name and shape.
-// known-defect: member-resolution
+//      compile. It used to reach codegen as a struct member read on a type
+//      that has no struct, so the C step died with "unknown type name" and
+//      the user was told the compiler was at fault rather than their code.
+// expect-error: 'int' has no member 'nothing'.
 fn main() -> int {
     val n = 5
     return n.nothing
