@@ -40,7 +40,9 @@ var mut total: int = 0
 
 Core scalar types include `int`, `float`, `bool`, and `string`. Use models for
 named records, enums for closed alternatives, unions for tagged alternatives,
-and `type` for aliases.
+and `type` for aliases. Containers accept an element parameter in the
+annotation - `val names: list<string>` and `fn first(l: list<int>)` - and the
+checker enforces what flows through it.
 
 ```orbit
 model User {
@@ -749,14 +751,13 @@ were told about a file that never worked.
   `containsStr`, `containsInt`, `indexOfStr`, `indexOfInt`, `reverse`
   over builtin lists. Maps are out of scope (method lowering targets
   lists today); higher-order helpers need closures the language lacks.
-  **The element type is yours, not the compiler's.** There is no list
-  element type in the language, so nothing checks what a slot holds, and
-  these helpers cannot: they are written for string slots and the `*Str`
-  family will not tell you otherwise. `getOr` on a list of ints
-  segfaults, and `indexOfStr` on a list of lists returns `-1` without a
-  word - both verified by running them. The int helpers
-  (`containsInt`, `indexOfInt`) have the same exposure in the other
-  direction. `orbit check` reports no errors for any of it.
+  Every helper declares its payload: `fn getOr(l: list<string>, ...)` and
+  `fn containsInt(l: list<int>, ...)`. A caller that can name the element
+  type and passes a different one fails `orbit check` with E1005 naming
+  both; a caller handing a bare `list` still runs, and the runtime aborts
+  with a clear "list element type mismatch" on the first typed read
+  instead of dereferencing the wrong shape (F-0002/F-0009, closed by
+  `list<T>` in signatures).
 - `std/fs/file.orb`: path-based `readAll` (returns `result`, consume
   with inline try), `writeAll`, `append` (read-modify-write, never
   atomic), `exists`, `removeFile`, `listDir`. No open handles, no

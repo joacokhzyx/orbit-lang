@@ -1,0 +1,11 @@
+// case: list<T> param given a list of a different element
+// what: the list literal is uniform, its element is `int`, and list<int> is
+//      not list<string>. A caller that can name the wrong kind must fail.
+// expect-error: declared list<string> but the argument is list<int>
+fn getNames(l: list<string>) -> int {
+    return l.len()
+}
+fn main() -> int {
+    print(getNames([1, 2, 3]))
+    return 0
+}

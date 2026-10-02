@@ -174,7 +174,21 @@ fn selectInterpBody(text: string, isRaw: bool) -> string {
 fn parseTypeName(parser: Parser) -> string {
     if check(parser, TokType.Identifier) {
         advanceParser(parser)
-        return parser.previousToken.text
+        // A type may carry parameters -- `list<string>` -- because a function
+        // that takes `items: list` cannot otherwise say what it expects, and a
+        // caller passing a list of the wrong kind got a segfault instead of a
+        // compile error (F-0009). The parameters are stored as text on the
+        // annotation; the checkers split them back out again.
+        var typeName = parser.previousToken.text
+        if matchToken(parser, TokType.Less) {
+            var inner = parseTypeName(parser)
+            while matchToken(parser, TokType.Comma) {
+                inner = inner + ", " + parseTypeName(parser)
+            }
+            consume(parser, TokType.Greater, "Expected '>' after the type parameters.")
+            typeName = typeName + "<" + inner + ">"
+        }
+        return typeName
     }
     parserError(parser, "Expected type name.")
     return "unknown"
@@ -678,8 +692,7 @@ fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {
         if matchToken(parser, TokType.Ampersand) {
             isPointer = true
         }
-        consume(parser, TokType.Identifier, "Expected type name.")
-        var typeName = parser.previousToken.text
+        var typeName = parseTypeName(parser)
         if isPointer {
             typeName = "&" + typeName
         }

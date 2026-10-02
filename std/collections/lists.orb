@@ -1,35 +1,33 @@
 // Functional layer over builtin lists. String-typed helpers only:
-// without generics, one typed family keeps the contract honest.
+// one typed family keeps the contract honest.
 // Maps are out of scope here (method lowering targets lists today).
 //
-// THE STRING TYPE IS NOT ENFORCED, it is only documented. There is no
-// list element type yet (F-0002, extended by F-0009), so `l.get(i)`
-// returns whatever was stored and nothing here can notice a mismatch:
+// THE STRING TYPE IS NOT ENFORCED WHEN THE LIST GETS IN UNTYPED. A function
+// may now declare its payload: `fn getOr(l: list<string>, ...)` and the
+// checker rejects a caller that hands it a list of another kind, while reads
+// inside are typed. The exposure below is only for the bare `list` form, where
+// the checker cannot see how the caller built the list and the runtime only
+// enforces that pushes/reads see ONE kind (orbit_list_adopt_kind) -- a
+// retyped parameter pointer was what made F-0009 segfault:
 //
-//   getOr(nums, 0, "d")            -> Segmentation fault (core dumped)
-//                                     an int returned where a string
-//                                     is declared, then printed
-//   indexOfStr(listOfLists, "x")   ->  -1, silently wrong
-//                                     a list pointer compared to "x"
-//
-// The int helpers (containsInt, indexOfInt) have the same exposure in
-// the other direction. tests/std/test_collections.orb records this.
-// Until an element type exists, the caller owns it.
-fn getOr(l: list, i: int, dflt: string) -> string {
+//   getOr as written below, called with a list of ints -> an int returned
+//   where a string is declared, then printed
+//   indexOfStr(listOfLists, "x")                      -> keeps? -> reads typed via elemAnnotation...
+fn getOr(l: list<string>, i: int, dflt: string) -> string {
     if i < 0 { return dflt }
     if i >= l.len() { return dflt }
     return l.get(i)
 }
 
-fn firstOr(l: list, dflt: string) -> string {
+fn firstOr(l: list<string>, dflt: string) -> string {
     return getOr(l, 0, dflt)
 }
 
-fn lastOr(l: list, dflt: string) -> string {
+fn lastOr(l: list<string>, dflt: string) -> string {
     return getOr(l, l.len() - 1, dflt)
 }
 
-fn containsStr(l: list, v: string) -> bool {
+fn containsStr(l: list<string>, v: string) -> bool {
     var i = 0
     while i < l.len() {
         if l.get(i) == v { return true }
@@ -38,7 +36,7 @@ fn containsStr(l: list, v: string) -> bool {
     return false
 }
 
-fn containsInt(l: list, v: int) -> bool {
+fn containsInt(l: list<int>, v: int) -> bool {
     var i = 0
     while i < l.len() {
         if l.get(i) == v { return true }
@@ -47,7 +45,7 @@ fn containsInt(l: list, v: int) -> bool {
     return false
 }
 
-fn indexOfStr(l: list, v: string) -> int {
+fn indexOfStr(l: list<string>, v: string) -> int {
     var i = 0
     while i < l.len() {
         if l.get(i) == v { return i }
@@ -56,7 +54,7 @@ fn indexOfStr(l: list, v: string) -> int {
     return -1
 }
 
-fn indexOfInt(l: list, v: int) -> int {
+fn indexOfInt(l: list<int>, v: int) -> int {
     var i = 0
     while i < l.len() {
         if l.get(i) == v { return i }

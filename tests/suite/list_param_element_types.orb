@@ -1,0 +1,26 @@
+import "std/collections/lists.orb"
+
+fn firstOrEmpty(l: list<int>, fallback: int) -> int {
+    if l.len() == 0 { return fallback }
+    return l.get(0)
+}
+
+fn onlyInts(l: list<int>) -> int {
+    var i = 0
+    var sum = 0
+    while i < l.len() {
+        sum = sum + l.get(i)
+        i = i + 1
+    }
+    return sum
+}
+
+fn main() -> int {
+    val nums = [3, 4, 5]
+    print(firstOrEmpty(nums, -1))
+    print(onlyInts(nums))
+    val empty = []
+    empty.push(9)
+    print(onlyInts(empty))
+    return 0
+}

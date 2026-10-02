@@ -18,12 +18,21 @@ model IRBuilder {
     // ordinary variable table because a list's element type is not the
     // variable's type: `var xs: list` says nothing about what is in it.
     listKinds: list
+    // listKinds length at each open block scope. The array is flat, and a
+    // variable declared in one function is an *unrelated* variable in the
+    // next: `l: list<string>` in getOr and `l: list<int>` in containsInt are
+    // both named `l`. lookupListKind returns the most recent match, so
+    // without per-scope marks, the later reader won -- the *read* side was
+    // built with the *last writer's* kind, `list<int>` and `list<string>`
+    // both taking `l`. The whole std got one elemKind for `l`. Restored on
+    // popVariableScope exactly as variableScopes is.
+    listKindMarks: list
 }
 
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [])
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [])
 }
 
 model Variable {
@@ -41,11 +50,20 @@ fn initScope() -> VarScope {
 
 fn pushVariableScope(builder: IRBuilder) {
     builder.variableScopes.push(initScope())
+    builder.listKindMarks.push(builder.listKinds.len())
 }
 
 fn popVariableScope(builder: IRBuilder) {
     if builder.variableScopes.len() > 0 {
         builder.variableScopes.pop()
+    }
+    // Pop of a block restores the list-kind registry: entries laid down in a
+    // block are not visible after it, same as variables.
+    if builder.listKindMarks.len() > 0 {
+        val mark = builder.listKindMarks.pop()
+        while builder.listKinds.len() > mark {
+            builder.listKinds.pop()
+        }
     }
 }
 
@@ -561,6 +579,24 @@ fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
     }
 }
 
+// The container base of an annotation: "list<string>" means a list, and the
+// parameter payload is carried professionally, not in the C type. The emitted
+// C for a list local is one struct either way.
+fn annotationBaseType(t: string) -> string {
+    val lt = t.indexOf("<")
+    if lt < 0 { return t }
+    return t.slice(0, lt)
+}
+
+// The payload of a `list<T>` annotation, or "": a bare `list` never said.
+fn annotationListElement(t: string) -> string {
+    if t.slice(0, 4) != "list" { return "" }
+    val lt = t.indexOf("<")
+    if lt < 0 { return "" }
+    // orbit_string_slice's third argument is the end index, not a length.
+    return t.slice(lt + 1, t.len() - 1)
+}
+
 fn recordListKind(builder: IRBuilder, name: string, kindName: string) {
     if name == "" || kindName == "" { return }
     if lookupListKind(builder, name) != "" { return }
@@ -986,8 +1022,13 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
             if vType == "" {
                 vType = inferValueType(builder, v.value)
             }
-            defineVariable(builder, v.name, vType)
-            recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+            defineVariable(builder, v.name, annotationBaseType(vType))
+            val vElem = annotationListElement(v.typeAnnotation)
+            if vElem != "" {
+                recordListKind(builder, v.name, vElem)
+            } else {
+                recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+            }
         }
         ASTNode.ConstDecl(c) => {
             val constLiteral = topLevelConstantValue(c.value)
@@ -1017,9 +1058,13 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
         if i < f.paramTypes.len() {
             pType = f.paramTypes.get(i)
         }
-        defineVariable(builder, p, pType)
+        val pElem = annotationListElement(pType)
+        if pElem != "" {
+            recordListKind(builder, p, pElem)
+        }
+        defineVariable(builder, p, annotationBaseType(pType))
         val instr = ir_init_instr(IROpcode.arg)
-        instr.dest = ir_alloc_register(func, pType)
+        instr.dest = ir_alloc_register(func, annotationBaseType(pType))
         instr.operand1 = ir_int(i)
         ir_emit(func, instr)
         i = i + 1
@@ -1100,8 +1145,13 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     if vType == "" {
         vType = inferValueType(builder, v.value)
     }
-    defineVariable(builder, v.name, vType)
-    recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+    defineVariable(builder, v.name, annotationBaseType(vType))
+    val vElem = annotationListElement(v.typeAnnotation)
+    if vElem != "" {
+        recordListKind(builder, v.name, vElem)
+    } else {
+        recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+    }
     match varVal {
         IRValue.Register(r) => { return r }
         _ => { return -1 }

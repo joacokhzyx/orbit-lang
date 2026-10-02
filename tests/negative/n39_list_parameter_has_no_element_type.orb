@@ -19,10 +19,13 @@
 //      case asserts its class, which is the part that can be checked -- the
 //      front end accepts a program that cannot work.
 //
-//      FIXING IT needs `list<string>` in a signature, which is generics (F-0007,
-//      queued as slot 7) and not a change to the runtime. Until then the honest
-//      answer is the header on std/collections/lists.orb, which already says the
-//      string type is not enforced and why.
+//      WRITING THE INTENT fixes it now: `fn getOr(l: list<string>, ...)`.
+//      The checker uses the annotation, and the compiler rejects a caller that
+//      can name a different element type (n46). A caller that builds an untyped
+//      list the compiler cannot prove is accepted at the boundary, and... still
+//      ends up as a runtime abort on the first typed read if the list is off.
+//      That boundary weakness is F-0002, and declaring it in the signature is
+//      the part left to complete, not the grammar.
 // known-defect: F-0009
 fn getOr(l: list, i: int, dflt: string) -> string {
     if i < 0 { return dflt }

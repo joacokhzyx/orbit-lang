@@ -353,7 +353,9 @@ fn argTypeFits(got: string, want: string) -> bool {
     if want == "int" && got == "TokType" { return true }
     if got == want { return true }
     if want == "float" && got == "int" { return true }
-    if orbit_string_slice(want, 0, 4) == "list" && orbit_string_slice(got, 0, 4) == "list" { return true }
+    if orbit_string_slice(want, 0, 4) == "list" && orbit_string_slice(got, 0, 4) == "list" {
+        return compatibleListElement(want, got)
+    }
     return false
 }
 
@@ -756,6 +758,37 @@ fn canonicalTypeSpelling(t: string) -> string {
     return t
 }
 
+// The base type of an annotation, without parameters: "list<string>" -> "list".
+fn compatTypeBase(t: string) -> string {
+    val lt = t.indexOf("<")
+    if lt < 0 { return t }
+    return orbit_string_slice(t, 0, lt)
+}
+
+// The element type a `list<T>` annotation carries, or "" when there is none:
+// a bare `list` never told the checker anything about its payload.
+fn compatTypeListElement(t: string) -> string {
+    if orbit_string_slice(t, 0, 4) != "list" { return "" }
+    val lt = t.indexOf("<")
+    if lt < 0 { return "" }
+    // list<" + inner + ">" -> inner. orbit_string_slice is (s, start, end),
+    // not (s, start, length) -- the day this shipped the string-length form was
+    // presumed and every slice came back one character of the payload, which
+    // made compatibleListElement compare "s" with "b" and report... nothing.
+    return orbit_string_slice(t, lt + 1, t.len() - 1)
+}
+
+// Two list types agree on their element when either side has none to
+// contradict: a bare `list` carries no information, so the runtime's adopted
+// element kind -- checked at each read -- is the only account, and the static
+// check has nothing to add. When both say, they must say the same.
+fn compatibleListElement(want: string, got: string) -> bool {
+    val we = compatTypeListElement(want)
+    val ge = compatTypeListElement(got)
+    if we == "" || ge == "" { return true }
+    return we == ge
+}
+
 fn checkCompatibility(expected: string, actual: string) -> bool {
     // Two locals rather than two assignments to the parameters. A string
     // parameter is a `const char *`, and the only way the emitter can write
@@ -768,6 +801,9 @@ fn checkCompatibility(expected: string, actual: string) -> bool {
     if want == got { return true }
     if want == "result" { return true }
     if want == "response" { return true }
+    if compatTypeBase(want) == "list" && compatTypeBase(got) == "list" {
+        return compatibleListElement(want, got)
+    }
     // An int where a float is declared widens, and the C backend performs the
     // conversion, so rejecting it would be a check with no bug behind it. The
     // other direction does not: a float in an int register is a truncated
@@ -2123,9 +2159,24 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         }
         ASTNode.ListLiteral(ll) => {
             var ei = 0
+            var uniform = ""
+            var mixed = false
             while ei < ll.elements.len() {
-                checkNode(sema, ll.elements.get(ei))
+                val elemType = checkNode(sema, ll.elements.get(ei))
+                if elemType == "" || elemType == "unknown" {
+                    mixed = true
+                } else if uniform == "" {
+                    uniform = elemType
+                } else if elemType != uniform {
+                    mixed = true
+                }
                 ei = ei + 1
+            }
+            // A uniform payload is what `list<T>` means; a literal whose
+            // elements all agree is that, statically. Mixed and empty only
+            // support the opaque `list`.
+            if uniform != "" && mixed == false {
+                return "list<" + uniform + ">"
             }
             return "list"
         }

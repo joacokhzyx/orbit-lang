@@ -45,12 +45,13 @@
 //      list that hands an int back where a string is declared:
 //        getOr(nums, 0, "d")      ->  Segmentation fault (core dumped)
 //
-// So the int coverage here is a property of push/get, not of this
-// module, and the module has no element type to make the difference
-// visible. Root cause is F-0002 extended by F-0009 (no element type at
-// all) and it is the compiler's to fix, not this test's. The
-// string-list checks 1-9 and 12-13 are sound and are the real coverage
-// of lists.orb.
+// The element types are owned by the compiler now (`list<string>` /
+// `list<int>` in every signature in lists.orb, F-0007 with enough type IR to
+// check the payload). Reading back a list of the wrong kind is a REAL error
+// when the caller can name it (E1005), and a runtime abort when it cannot.
+// Checks 10 and 11 below still only assert bit-pattern equality today, but
+// they at least run against a typed getter, which puts the remaining gap on
+// boxing, not on the payload type.
 import "std/collections/lists.orb"
 import "std/test/assert.orb"
 
