@@ -412,6 +412,15 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val backend = initCBackend(irModule)
     val cCode = generateC(backend)
     reportMemStage("codegen")
+    val irErrs = verifyModuleTypes(backend)
+    if irErrs.len() > 0 {
+        var ie = 0
+        while ie < irErrs.len() {
+            orbit_os_write_stderr_selfhost("orbit build: type verification: " + irErrs.get(ie) + "\n")
+            ie = ie + 1
+        }
+        return false
+    }
     val hasDb = moduleUsesDatabase(irModule)
 
     // Use a constant intermediate-C filename: clang embeds the C file path in

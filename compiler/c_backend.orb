@@ -848,6 +848,232 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
         pass = pass + 1
     }
 }
+fn irVerifierUnionType(backend: CBackend, t: string) -> bool {
+    var i = 0
+    while i < backend.module.types.len() {
+        val ty: IRTypeDecl = backend.module.types.get(i)
+        if ty.name == t && ty.kind == "union_type" { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn irVerifierKnown(t: string) -> bool {
+    if t == "" { return false }
+    if t == "unknown" { return false }
+    if t == "void" { return false }
+    if t == "void*" { return false }
+    return true
+}
+
+fn irVerifierNumeric(t: string) -> bool {
+    if t == "int" { return true }
+    if t == "float" { return true }
+    if t == "orbit_int" { return true }
+    if t == "orbit_float" { return true }
+    if t == "usize" { return true }
+    return false
+}
+
+fn irVerifierOperandType(func: IRFunction, v: IRValue) -> string {
+    match v {
+        IRValue.Int(x) => { return "int" }
+        IRValue.Float(x) => { return "float" }
+        IRValue.Bool(x) => { return "bool" }
+        IRValue.String(x) => {
+            if x.value.indexOf("TAG_") != -1 { return getEnumNameFromTag(x.value) }
+            return "string"
+        }
+        IRValue.Sym(x) => {
+            if x.value.indexOf("TAG_") != -1 { return getEnumNameFromTag(x.value) }
+            if x.value == "true" || x.value == "false" { return "bool" }
+            return ""
+        }
+        IRValue.Register(x) => {
+            if x.value >= 0 && x.value < func.registerTypes.len() {
+                return func.registerTypes.get(x.value)
+            }
+            return ""
+        }
+        _ => { return "" }
+    }
+}
+
+// STAB-5: walk the built IR and reject type contradictions before any C is
+// emitted. The point is the three silent-degradation classes the ratchet
+// cannot see: a call whose destination register disagrees with the callee's
+// declared return type, a member read on a string typed as a model, and a
+// string-concat destination typed as an integer. `unknown` is allowed to
+// pass -- its silence is the census's subject, not a contradiction -- but a
+// known type meeting a different known type is a bug and fails the build.
+fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list, warns: list) {
+    var i = 0
+    while i < func.instructions.len() {
+        val inst: IRInstruction = func.instructions.get(i)
+        if inst != NULL {
+            var dt = ""
+            if inst.dest >= 0 && inst.dest < func.registerTypes.len() {
+                dt = func.registerTypes.get(inst.dest)
+            }
+            match inst.opcode {
+                IROpcode.add => {
+                    val t1 = irVerifierOperandType(func, inst.operand1)
+                    val t2 = irVerifierOperandType(func, inst.operand2)
+                    if irVerifierKnown(t1) && irVerifierKnown(t2) {
+                        if t1 == "string" && t2 == "string" {
+                            if irVerifierKnown(dt) && dt != "string" {
+                                errs.push("string add destination typed '" + dt + "' in fn '" + func.name + "'")
+                            }
+                        } else if irVerifierNumeric(t1) && irVerifierNumeric(t2) {
+                            if irVerifierKnown(dt) && irVerifierNumeric(dt) == false {
+                                errs.push("numeric add destination typed '" + dt + "' in fn '" + func.name + "'")
+                            }
+                        }
+                    }
+                }
+                IROpcode.sub => { verifyarithBinop(func, inst, dt, "sub", errs) }
+                IROpcode.mul => { verifyarithBinop(func, inst, dt, "mul", errs) }
+                IROpcode.div => { verifyarithBinop(func, inst, dt, "div", errs) }
+                IROpcode.mod => { verifyarithBinop(func, inst, dt, "mod", errs) }
+                IROpcode.neg => {
+                    val t1 = irVerifierOperandType(func, inst.operand1)
+                    if irVerifierKnown(t1) && irVerifierNumeric(t1) == false {
+                        errs.push("neg of '" + t1 + "' in fn '" + func.name + "'")
+                    }
+                    if irVerifierKnown(dt) && irVerifierNumeric(dt) == false {
+                        errs.push("neg destination typed '" + dt + "' in fn '" + func.name + "'")
+                    }
+                }
+                IROpcode.eq => { verifycmpBinop(backend, func, inst, dt, warns) }
+                IROpcode.ne => { verifycmpBinop(backend, func, inst, dt, warns) }
+                IROpcode.lt => { verifycmpBinop(backend, func, inst, dt, warns) }
+                IROpcode.le => { verifycmpBinop(backend, func, inst, dt, warns) }
+                IROpcode.gt => { verifycmpBinop(backend, func, inst, dt, warns) }
+                IROpcode.ge => { verifycmpBinop(backend, func, inst, dt, warns) }
+                IROpcode.and_op => { verifyBoolBinop(func, inst, dt, errs) }
+                IROpcode.or_op => { verifyBoolBinop(func, inst, dt, errs) }
+                IROpcode.not_op => {
+                    val t1 = irVerifierOperandType(func, inst.operand1)
+                    if irVerifierKnown(t1) && t1 != "bool" {
+                        errs.push("not_op of '" + t1 + "' in fn '" + func.name + "'")
+                    }
+                    if irVerifierKnown(dt) && dt != "bool" {
+                        errs.push("not_op destination typed '" + dt + "' in fn '" + func.name + "'")
+                    }
+                }
+                IROpcode.copy => {
+                    val t1 = irVerifierOperandType(func, inst.operand1)
+                    if irVerifierKnown(t1) && irVerifierKnown(dt) {
+                        val simple1 = verifierSimpleKind(t1)
+                        val simple2 = verifierSimpleKind(dt)
+                        if simple1 != "" && simple2 != "" && simple1 != simple2 {
+                            errs.push("copy of '" + t1 + "' into '" + dt + "' in fn '" + func.name + "'")
+                        }
+                    }
+                }
+                IROpcode.call => {
+                    var cn = ""
+                    match inst.operand1 {
+                        IRValue.String(s) => { cn = s.value }
+                        IRValue.Sym(s) => { cn = s.value }
+                        _ => {}
+                    }
+                    if cn != "" {
+                        var rt = feBuildTimeCallType(cn)
+                        if irVerifierKnown(rt) == false && rt != "void" {
+                            var fi = 0
+                            while fi < backend.module.functions.len() {
+                                val f: IRFunction = backend.module.functions.get(fi)
+                                if f.name == cn { rt = f.returnType }
+                                fi = fi + 1
+                            }
+                        }
+                        if irVerifierKnown(rt) && irVerifierKnown(dt) && rt != dt && rt != "void" && dt != "result" {
+                            errs.push("call '" + cn + "' returns '" + rt + "' but destination typed '" + dt + "' in fn '" + func.name + "'")
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        i = i + 1
+    }
+}
+
+fn verifierSimpleKind(t: string) -> string {
+    if t == "int" || t == "orbit_int" { return "int" }
+    if t == "float" || t == "orbit_float" { return "float" }
+    if t == "string" { return "string" }
+    if t == "bool" { return "bool" }
+    return ""
+}
+
+fn verifyarithBinop(func: IRFunction, inst: IRInstruction, dt: string, op: string, errs: list) {
+    val t1 = irVerifierOperandType(func, inst.operand1)
+    val t2 = irVerifierOperandType(func, inst.operand2)
+    if irVerifierKnown(t1) && irVerifierKnown(t2) {
+        if irVerifierNumeric(t1) && irVerifierNumeric(t2) {
+            if irVerifierKnown(dt) && irVerifierNumeric(dt) == false {
+                errs.push(op + " destination typed '" + dt + "' in fn '" + func.name + "'")
+            }
+        } else {
+            errs.push(op + " of '" + t1 + "' and '" + t2 + "' in fn '" + func.name + "'")
+        }
+    }
+}
+
+fn verifycmpBinop(backend: CBackend, func: IRFunction, inst: IRInstruction, dt: string, warns: list) {
+    val t1 = irVerifierOperandType(func, inst.operand1)
+    val t2 = irVerifierOperandType(func, inst.operand2)
+    if irVerifierKnown(t1) && irVerifierKnown(t2) {
+        val num = (irVerifierNumeric(t1) && irVerifierNumeric(t2))
+        val str = (t1 == "string" && t2 == "string")
+        val bl = (t1 == "bool" && t2 == "bool")
+        val enumVsInt = isEnumType(backend, t1) && (t2 == "int" || t2 == "usize" || isEnumType(backend, t2))
+        val intVsEnum = isEnumType(backend, t2) && (t1 == "int" || t1 == "usize" || isEnumType(backend, t1))
+        val nullCmp = (t1 == "NULL" || t2 == "NULL")
+        val unionVsInt = (irVerifierUnionType(backend, t1) && (t2 == "int" || t2 == "usize")) || (irVerifierUnionType(backend, t2) && (t1 == "int" || t1 == "usize"))
+        if num == false && str == false && bl == false && t1 != t2 && enumVsInt == false && intVsEnum == false && nullCmp == false && unionVsInt == false {
+            warns.push("comparison of '" + t1 + "' and '" + t2 + "' in fn '" + func.name + "'")
+        }
+    }
+    if irVerifierKnown(dt) && dt != "bool" {
+        warns.push("comparison destination typed '" + dt + "' in fn '" + func.name + "'")
+    }
+}
+
+fn verifyBoolBinop(func: IRFunction, inst: IRInstruction, dt: string, errs: list) {
+    val t1 = irVerifierOperandType(func, inst.operand1)
+    val t2 = irVerifierOperandType(func, inst.operand2)
+    if irVerifierKnown(t1) && t1 != "bool" {
+        errs.push("and/or of '" + t1 + "' in fn '" + func.name + "'")
+    }
+    if irVerifierKnown(t2) && t2 != "bool" {
+        errs.push("and/or of '" + t2 + "' in fn '" + func.name + "'")
+    }
+    if irVerifierKnown(dt) && dt != "bool" {
+        errs.push("and/or destination typed '" + dt + "' in fn '" + func.name + "'")
+    }
+}
+
+fn verifyModuleTypes(backend: CBackend) -> list {
+    var errs: list = []
+    var warns: list = []
+    var i = 0
+    while i < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(i)
+        verifyIRTypes(backend, f, errs, warns)
+        i = i + 1
+    }
+    if orbit_os_env_selfhost("ORBIT_IR_VERIFY") != "" {
+        var wi = 0
+        while wi < warns.len() {
+            orbit_os_write_stderr_selfhost("orbit build: type-check note: " + warns.get(wi) + "\n")
+            wi = wi + 1
+        }
+    }
+    return errs
+}
 
 fn isCKeyword(name: string) -> bool {
     if name == "auto" { return true }
