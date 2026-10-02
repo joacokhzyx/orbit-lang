@@ -1,11 +1,11 @@
 import "std/collections/lists.orb"
 
-fn firstOrEmpty(l: list<int>, fallback: int) -> int {
+fn firstOrEmpty(l: list < int >, fallback: int) -> int {
     if l.len() == 0 { return fallback }
     return l.get(0)
 }
 
-fn onlyInts(l: list<int>) -> int {
+fn onlyInts(l: list < int >) -> int {
     var i = 0
     var sum = 0
     while i < l.len() {
