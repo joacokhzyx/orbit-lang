@@ -756,7 +756,7 @@ orbit_string orbit_float_to_string(OrbitArena* arena, orbit_float value) {
                 // "2500", which is also what the reference prints, and still
                 // nowhere near "1e+06".
                 if (strchr(fixed, '.') == NULL) {
-                    strncat(fixed, ".0", sizeof(fixed) - strlen(fixed) - 1);
+                    orbit_str_append(fixed, sizeof(fixed), ".0");
                 }
                 snprintf(tmp, sizeof(tmp), "%s", fixed);
                 break;

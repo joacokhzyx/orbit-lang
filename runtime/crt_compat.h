@@ -76,4 +76,25 @@ static inline FILE* orbit_fopen(const char* path, const char* mode) {
 
 #endif
 
+/* Append `suffix` to a fixed buffer, bounded, on every platform.
+ *
+ * strncat() is the obvious way to write this and it is the wrong one on
+ * Windows: MSVC marks it __declspec(deprecated) in favour of strncat_s, and
+ * this project compiles its runtime with -Werror, so a correct strncat is a
+ * build failure there. It is also easy to get wrong by one -- strncat's count
+ * is the number of bytes to append, not the space remaining, so the caller has
+ * to remember to leave room for the terminator.
+ *
+ * The whole job is three bytes, so it is spelled out: measure, check, write.
+ * One implementation for both platforms, and nothing for the compiler to
+ * deprecate.
+ */
+static inline void orbit_str_append(char* buf, size_t cap, const char* suffix) {
+    if (!buf || !suffix || cap == 0) return;
+    size_t used = strlen(buf);
+    size_t add = strlen(suffix);
+    if (used + add + 1 > cap) return;
+    memcpy(buf + used, suffix, add + 1);
+}
+
 #endif
