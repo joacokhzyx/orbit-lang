@@ -34,6 +34,33 @@ PROBES = [
      ("-DORBIT_WITH_NET",)),
 ]
 
+def tail_with_head(text, limit=1200):
+    r"""Keep the head of a compiler's output, not the tail.
+
+    This gate existed for five consecutive CI runs to report a failure whose
+    cause was invisible in its own output. clang puts the diagnostic on the
+    FIRST line -- "'getenv': This function or variable may be unsafe" -- and
+    then four lines of note: chain showing which macro in which MSVC header
+    expanded it. Keeping the last 600 characters kept the notes and threw away
+    the sentence naming the function, so the log said
+
+        Failed arith [WERROR-FAIL]: ...icrosoft Visual Studio\...vcruntime.h:358
+
+    which is the middle of a filename. A gate that cannot show its own
+    diagnostic is a gate that cannot be acted on, and the whole run went red
+    five times over a cause nobody could read.
+
+    So: the head is kept, because that is where the answer is, and the tail is
+    kept too when the output is long enough that the head alone would lose the
+    summary.
+    """
+    if len(text) <= limit:
+        return text
+    head = text[:limit - 200]
+    tail = text[-200:]
+    return head + "\n... [%d characters elided] ...\n" % (len(text) - limit) + tail
+
+
 def run_probe(compiler, cc, name, src, expect, extra_flags=()):
     with tempfile.TemporaryDirectory(prefix="werror_") as td:
         td = Path(td)
@@ -44,7 +71,7 @@ def run_probe(compiler, cc, name, src, expect, extra_flags=()):
                              "-o", str(td / "app.exe")], env=env,
                             capture_output=True, text=True, errors="replace")
         if p1.returncode != 0:
-            return (name, "ORBIT-FAIL", (p1.stdout + p1.stderr)[-300:])
+            return (name, "ORBIT-FAIL", tail_with_head(p1.stdout + p1.stderr, 900))
         c_file = td / "orbit_selfhost_build.c"
         if not c_file.exists():
             return (name, "NO-C", "orbit build left no orbit_selfhost_build.c in TEMP")
@@ -60,7 +87,7 @@ def run_probe(compiler, cc, name, src, expect, extra_flags=()):
                              "-o", str(exe)], capture_output=True, text=True, errors="replace",
                             cwd=str(ROOT))
         if p2.returncode != 0:
-            return (name, "WERROR-FAIL", (p2.stdout + p2.stderr)[-600:])
+            return (name, "WERROR-FAIL", tail_with_head(p2.stdout + p2.stderr, 1400))
         try:
             p3 = subprocess.run([str(exe)], capture_output=True, text=True, errors="replace",
                                 timeout=15)
@@ -72,12 +99,67 @@ def run_probe(compiler, cc, name, src, expect, extra_flags=()):
             return (name, "EXIT-FAIL", f"exit={p3.returncode} want={expect}")
         return (name, "OK", f"exit={p3.returncode}")
 
+def self_test():
+    """The gate's own reporting, checked.
+
+    This gate went red five times in a row on Windows without anybody being
+    able to read why, because it kept the tail of clang's output and clang
+    writes the diagnostic on the first line. A gate that cannot show its own
+    failure is a gate that cannot be acted on, so the truncation is now a
+    function with a test, and the test is the thing that would have caught it
+    in the first run instead of the fifth.
+    """
+    fails = 0
+
+    def check(label, ok):
+        nonlocal fails
+        if ok:
+            out.say(f"  ok    {label}")
+        else:
+            out.fail(f"  BROKEN {label}")
+            fails += 1
+
+    # The exact shape that hid the cause: a one-line diagnostic, then notes.
+    diagnostic = "'getenv': This function or variable may be unsafe. Consider using _dupenv_s instead.\n"
+    notes = ("C:\\...\\vcruntime.h:358:55: note: expanded from macro '_CRT_INSECURE_DEPRECATE'\n"
+             "  358 | #define _CRT_INSECURE_DEPRECATE(_Replacement) _CRT_DEPRECATE_TEXT(\n"
+             "1 error generated.\n")
+    noise = notes + ("filler line about something unrelated\n" * 200)
+
+    got = tail_with_head(diagnostic + noise, 1400)
+    check("the diagnostic line survives truncation", diagnostic.strip() in got)
+    check("the summary survives too", "1 error generated" in got)
+    check("the middle is elided rather than silently dropped",
+          "elided" in got)
+
+    # Short output must come back untouched, or the elision marker would show
+    # up on every probe that passes.
+    short = "one line\n"
+    check("short output is returned unchanged", tail_with_head(short, 1400) == short)
+
+    # The old behaviour is the bug, so assert it is gone rather than only
+    # asserting the new behaviour is present.
+    old = (diagnostic + noise)[-600:]
+    check("the tail-only behaviour this replaced would have lost it",
+          diagnostic.strip() not in old)
+
+    # And a null/empty input must not explode: a probe that produced no output
+    # is a real case, not a hypothetical one.
+    check("empty input does not raise", tail_with_head("", 1400) == "")
+
+    out.finish("werror gate self-test", 6 - fails, 6)
+    return 1 if fails else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--compiler", default=str(ROOT / "orbit.exe"))
     ap.add_argument("--cc", default="gcc")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
+    if args.self_test:
+        return self_test()
     if args.list:
         for probe in PROBES:
             print(probe[0])

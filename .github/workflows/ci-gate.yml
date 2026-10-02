@@ -407,6 +407,7 @@ jobs:
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/unknown_ratchet.py --self-test
+          "$PY" scripts/werror_gate.py --self-test
           "$PY" scripts/alive_check.py --self-test
 
   # Flakiness detector for the self-host chain. Each leg is an independent
