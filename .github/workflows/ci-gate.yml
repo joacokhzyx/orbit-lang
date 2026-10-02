@@ -261,7 +261,7 @@ jobs:
       # D7. The census above is a measurement; this is the gate, and the only
       # thing it fails on is the count going UP against
       # scripts/baselines/unknown_count.json. It does not fail because the count
-      # is high -- 30.5% of inferred types are `unknown` today and a zero-bar
+      # is high -- 29.0% of inferred types are `unknown` today and a zero-bar
       # gate is a gate everybody disables. A number that can only go down turns
       # "do not regress this" into something the build enforces instead of
       # something people remember.

@@ -1,0 +1,32 @@
+// The capitalised container spellings are real types, not typos.
+//
+// `List`, `Map`, `Result` and `Response` are the same types as `list`, `map`,
+// `result` and `response`, and the emitter has always accepted both spellings.
+// The check added to reject `val n: Int = 1` -- a name capitalised and
+// declared by nothing -- asked only the checker's two type registries, so it
+// rejected all four of these too. Forty-three green tests did not notice,
+// because nothing in the suite used the capitalised spelling. That is the
+// lesson this test exists to record: a rule about which names are types has to
+// be read off the table that decides what a name means.
+fn succeed() -> result {
+    val value: result = ok(41)
+    return value
+}
+
+fn main() -> int {
+    val xs: list = [1, 2, 3]
+    val ys: List = xs
+    if ys.len() != 3 { return 1 }
+
+    // And the pair is genuinely one type: read the capitalised spelling
+    // through the language's own result reader, not just stored and returned.
+    val bound: Result = succeed()
+    val read: int = try bound catch {
+        return 2
+    }
+    if read != 41 { return 3 }
+
+    val back: list = ys
+    if back.get(2) != 3 { return 4 }
+    return 0
+}

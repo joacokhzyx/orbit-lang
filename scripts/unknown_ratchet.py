@@ -7,7 +7,7 @@ unknown field, an unknown argument type and an unknown body all pass, and 46% of
 them produce no diagnostic at all. A count that can only go down turns "do not
 regress this" from a rule people follow into a property the build enforces.
 
-It does not fail because the count is HIGH. 30.5% of inferred types are unknown
+It does not fail because the count is HIGH. 29.0% of inferred types are unknown
 today and a zero-bar gate is a gate everybody disables, so the only thing that
 fails here is a count that went UP relative to a committed baseline.
 
@@ -125,7 +125,7 @@ def read_measurement(from_json=None, compiler=None, cc="gcc", dirs=None):
     # raises the count just as surely as it raises the denominator. The
     # first thing the core agent's work did was add test files, and the
     # ratchet fired at +110 on a change that had actually *improved* the
-    # ratio from 30.5% to 30.0%.
+    # ratio from 29.3% to 29.0%.
     #
     # Per-thousand-instructions is stable when the corpus grows and still
     # falls when the language improves. The absolute count stays in the

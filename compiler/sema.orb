@@ -743,16 +743,36 @@ fn checkCallArgTypes(sema: Sema, name: string, args: list, line: int, col: int) 
     }
 }
 
+// One type has two spellings and the emitter accepts both, so a comparison
+// that took them literally called `val a: List = []` a type mismatch between
+// List and list. Normalising here rather than at the annotation means every
+// caller of checkCompatibility agrees, which is the point: the four pairs
+// name one type each, not four types and four near-misses.
+fn canonicalTypeSpelling(t: string) -> string {
+    if t == "List" { return "list" }
+    if t == "Map" { return "map" }
+    if t == "Result" { return "result" }
+    if t == "Response" { return "response" }
+    return t
+}
+
 fn checkCompatibility(expected: string, actual: string) -> bool {
-    if expected == "unknown" || actual == "unknown" { return true }
-    if expected == actual { return true }
-    if expected == "result" { return true }
-    if expected == "response" { return true }
+    // Two locals rather than two assignments to the parameters. A string
+    // parameter is a `const char *`, and the only way the emitter can write
+    // back into one is `(uintptr_t)`, which gcc reports as a pointer built
+    // from an integer without a cast. The werror gate caught it, which is the
+    // gate doing the one thing it is for.
+    val want = canonicalTypeSpelling(expected)
+    val got = canonicalTypeSpelling(actual)
+    if want == "unknown" || got == "unknown" { return true }
+    if want == got { return true }
+    if want == "result" { return true }
+    if want == "response" { return true }
     // An int where a float is declared widens, and the C backend performs the
     // conversion, so rejecting it would be a check with no bug behind it. The
     // other direction does not: a float in an int register is a truncated
     // number, and F-0015 is about exactly that class.
-    if expected == "float" && actual == "int" { return true }
+    if want == "float" && got == "int" { return true }
     return false
 }
 
@@ -833,9 +853,20 @@ fn isCapitalised(s: string) -> bool {
 // Something that declares a type: a model, or an entry in the type registry
 // (enums, unions and aliases). A generic parameter is not a type yet, so a
 // binding to one is left alone.
+//
+// Plus the four capitalised container spellings, which are real. `mapTypeToC`
+// answers to list/List, map/Map, result/Result and response/Response, and the
+// reference has always said so. The first version of the capitalised rule
+// asked only the two registries above, so it rejected all four -- a check
+// added to catch `val n: Int = 1` also refused `val a: List = []`, and
+// nothing in the suite used that spelling, so 43 green tests did not notice.
+// A rule about which names are types has to be read off the thing that
+// decides what a name means, which is the emitter's type table, not off the
+// two tables the checker happens to keep.
 fn isDeclaredTypeName(sema: Sema, name: string) -> bool {
     if lookupSymbol(sema, name) == "model" { return true }
     if findType(sema, name) >= 0 { return true }
+    if name == "List" || name == "Map" || name == "Result" || name == "Response" { return true }
     return false
 }
 

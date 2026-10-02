@@ -44,22 +44,31 @@ enum Role { Admin, Member }
 type UserId = string
 ```
 
-The six lowercase names are the only type names the compiler knows: `int`,
-`float`, `string`, `bool`, `void`, and `list`/`map`/`object`/`result`/`response`
-as container and result spellings. `List`, `Map`, `Result` and `Response` are
-accepted capitalised and are real. **Any other capitalised spelling is not a
-type at all.** `mapTypeToC` sees a name that starts uppercase, is not one of
-those four, and hands it through as `Name*` — so `val n: Int = 1` type-checks
-cleanly and then gcc rejects the generated C with `unknown type name 'Int'`.
-The same happens for `Float`, `String`, `Bool`, `Void`, `Any` and `DateTime`.
-The one way it slips through is if you never use the binding: an unused local
-is never declared in the C, so the bad type never gets written down.
+The lowercase names are the type names the compiler knows: `int`, `float`,
+`string`, `bool`, `void`, and `list`/`map`/`object`/`result`/`response` as
+container and result spellings. `List`, `Map`, `Result` and `Response` are
+accepted capitalised and are the same four types. **Any other capitalised
+spelling is not a type at all**, and that is now a diagnostic rather than a
+surprise in the C step: `val n: Int = 1` is `E1006, Nothing declares a type
+named 'Int'`, with the note that types are written in lower case or declared
+with `model` or `union`. `Float`, `String`, `Bool`, `Void`, `Any` and
+`DateTime` are refused the same way.
 
-Binary literals are not supported: `0b101` is the number `0` followed by junk,
-silently. Neither are exponents — `1.5e2` is `1.5` followed by junk and
-evaluates to `1`, and `2.5E3` declares a variable named `E3` whose type the C
-compiler has never heard of. Hex (`0x1F`) and digit separators (`1_000`) do
-work.
+Two cases are worth spelling out because the check is not a spelling test:
+
+- A **capitalised** name is a type only if a `model`, `enum`, `union` or alias
+  declares it, or it is one of the four real container spellings above.
+- A **lower-case** name that nothing declares is refused by the other half of
+  the same check, which compares the annotation against the value: `val n:
+  widget = 1` is `'n' is declared widget but the value is int`. The
+  distinction is the useful one — `Int` looks like a type and is not one,
+  while `widget` is a name the program forgot to declare.
+
+Integer literals accept binary (`0b101` is 5), hex (`0x1F` is 31), digit
+separators (`1_000` is 1000) and exponents (`1.5e2` is `150.0`, `1e-3` is
+`0.001`). An exponent produces a float, always: `1e2` is `100.0`, not `100`,
+because the value it denotes has a fractional part even when it prints without
+one.
 
 ### Annotate your bindings
 
@@ -268,9 +277,10 @@ has the measured list.
 **Rule: annotate the binding when you read it back.** `val xs: list = …`
 and `val n: int = f()` cost one token each, and they are the difference
 between a guess and a check. An unannotated `val` is `unknown` for the
-rest of the pipeline, and **30.5% of the instructions the front end emits
+rest of the pipeline, and **29.0% of the instructions the front end emits
 are `unknown`** — so the unannotated case is the common one, not the
-exotic one.
+exotic one. Annotating a binding is therefore not a nicety: it is what
+lets the next check fire.
 
 ### The short version
 

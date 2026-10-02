@@ -566,14 +566,14 @@ python scripts/unknown_census.py --cc "$CC" --compiler /tmp/orbit_fp
 
 # 15. [CI] Unknown-count ratchet, D7. Reads the census output and compares two
 #     of its counts against a committed baseline in scripts/baselines/. Fails
-#     if either went UP; does not fail for being high, because 30.5% unknown is
+#     if either went UP; does not fail for being high, because 29.0% unknown is
 #     the number the type work is scoped against and a zero-bar gate is a gate
 #     everybody deletes. The two ratcheted counts are `unknown_instructions` and
 #     `unknown_without_diagnostic`; the instruction total is deliberately not
 #     ratcheted, because the corpus legitimately grows and a gate that fails
 #     when a file is added is a gate that gets deleted. Raising a baseline is a
 #     deliberate act - --write-baseline refuses to move a number up without
-#     --allow-regression. Today: 11480/11480 and 5332/5332, unchanged.
+#     --allow-regression. Today: 290/293 and 135/137 per mille, ratchet holds.
 python scripts/unknown_ratchet.py --cc "$CC" --compiler /tmp/orbit_fp
 ```
 
