@@ -1574,7 +1574,15 @@ fn generateRouteHandlerBody(func: IRFunction) -> string {
 
 fn generateRouterBlock(backend: CBackend) -> string {
     var out = ""
-    out = out + routerPreText()
+    var logsActive = "1"
+    if orbit_os_env_selfhost("ORBIT_LOGS") == "0" {
+        logsActive = "0"
+    }
+    var kynxActive = "1"
+    if orbit_os_env_selfhost("ORBIT_KYNX") == "0" {
+        kynxActive = "0"
+    }
+    out = out + routerPreText(logsActive, kynxActive)
     var i = 0
     while i < backend.module.functions.len() {
         val func: IRFunction = backend.module.functions.get(i)

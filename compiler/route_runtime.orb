@@ -96,11 +96,11 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
     return out
 }
 
-fn routerPreText() -> string {
+fn routerPreText(logsActive: string, kynxActive: string) -> string {
     var out = ""
     out = out + "#ifdef ORBIT_WITH_NET\n"
-    out = out + "#define ORBIT_LOGS_ACTIVE 1\n"
-    out = out + "#define ORBIT_KYNX_ACTIVE 1\n"
+    out = out + "#define ORBIT_LOGS_ACTIVE " + logsActive + "\n"
+    out = out + "#define ORBIT_KYNX_ACTIVE " + kynxActive + "\n"
     out = out + "static inline uint64_t orbit_route_hash(const char* method, const char* path) {\n"
     out = out + "    uint64_t h = 14695981039346656037ULL;\n"
     out = out + "    if (!method || !path) return 0;\n"
