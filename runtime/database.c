@@ -137,6 +137,47 @@ bool orbit_db_exec_ddl(const char* sql) {
     return rc == SQLITE_OK;
 }
 
+/** @brief Execute one declared migration set (idempotent). Creates the
+ * bookkeeping table on first use and runs each statement exactly once, in
+ * declaration order, inside a transaction. Reruns are no-ops, so applying
+ * the same program against an already-migrated database is safe. */
+bool orbit_run_migrations(const char* const* migrations, int count) {
+    if (!orbit_db_conn) return false;
+    int rc = sqlite3_exec(orbit_db_conn,
+        "CREATE TABLE IF NOT EXISTS _orbit_migrations (version INTEGER PRIMARY KEY);",
+        NULL, NULL, NULL);
+    if (rc != SQLITE_OK) return false;
+    for (int i = 0; i < count; i++) {
+        sqlite3_stmt* stmt = NULL;
+        int done = 0;
+        if (sqlite3_prepare_v2(orbit_db_conn, "SELECT 1 FROM _orbit_migrations WHERE version = ?", -1, &stmt, NULL) != SQLITE_OK) {
+            return false;
+        }
+        sqlite3_bind_int(stmt, 1, i);
+        if (sqlite3_step(stmt) == SQLITE_ROW) done = 1;
+        sqlite3_finalize(stmt);
+        if (done) continue;
+        if (!migrations[i] || !*migrations[i]) return false;
+        char* msg = NULL;
+        rc = sqlite3_exec(orbit_db_conn, "BEGIN;", NULL, NULL, NULL);
+        if (rc != SQLITE_OK) return false;
+        rc = sqlite3_exec(orbit_db_conn, migrations[i], NULL, NULL, &msg);
+        if (rc == SQLITE_OK) {
+            sqlite3_stmt* ins = NULL;
+            sqlite3_prepare_v2(orbit_db_conn, "INSERT INTO _orbit_migrations (version) VALUES (?);", -1, &ins, NULL);
+            sqlite3_bind_int(ins, 1, i);
+            sqlite3_step(ins);
+            sqlite3_finalize(ins);
+            rc = sqlite3_exec(orbit_db_conn, "COMMIT;", NULL, NULL, NULL);
+        } else {
+            sqlite3_exec(orbit_db_conn, "ROLLBACK;", NULL, NULL, NULL);
+        }
+        if (msg) sqlite3_free(msg);
+        if (rc != SQLITE_OK) return false;
+    }
+    return true;
+}
+
 /* ── Internal: append a JSON-escaped string within [p, end). ──────────── */
 
 static char* orbit_db_append_json_escaped(char* p, char* end, const char* s) {
