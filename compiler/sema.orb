@@ -2146,6 +2146,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         ASTNode.ConfigDecl(cfg) => { checkNode(sema, cfg.value)
             return ""
         }
+        ASTNode.MigrationDecl(m) => { return "" }
         ASTNode.Break(b) => { return "" }
         ASTNode.Continue(c) => { return "" }
         ASTNode.ImportStmt(i) => { return "" }

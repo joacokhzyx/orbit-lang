@@ -125,6 +125,10 @@ jobs:
           # files this change did not touch.
           $CC -O0 -Wall -I runtime -DORBIT_WITH_NET runtime/test_float_format.c -o t_ffmt_bin $LDFLAGS
           ./t_ffmt_bin
+          LDDB=""
+          if [ "${{ runner.os }}" = "Windows" ]; then LDDB="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDDB="-lsqlite3"; fi
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB runtime/test_migrations.c -o t_mig_bin $LDDB
+          ./t_mig_bin
 
       - name: Auth unit gate (bearer/role/has_role)
         shell: bash

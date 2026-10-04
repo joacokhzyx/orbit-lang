@@ -224,6 +224,10 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, "    _orbit_argv = argv;\n")
         orbit_cbuf_append_selfhost(cbTop, "    _orbit_argc = argc;\n")
         orbit_cbuf_append_selfhost(cbTop, "    \n")
+        if backend.module.migrations.len() > 0 || moduleUsesDatabase(backend.module) {
+            orbit_cbuf_append_selfhost(cbTop, "    orbit_db_init(\"orbit.db\");\n")
+            orbit_cbuf_append_selfhost(cbTop, generateModelDDL(backend))
+        }
         orbit_cbuf_append_selfhost(cbTop, "    orbit_string_pool_init(2048);\n")
         orbit_cbuf_append_selfhost(cbTop, "    OrbitArena* arena = orbit_arena_create(131072);\n")
         orbit_cbuf_append_selfhost(cbTop, "\n")
@@ -1641,6 +1645,17 @@ fn generateModelDDL(backend: CBackend) -> string {
             ddl = ddl + "    orbit_db_exec_ddl(\"CREATE TABLE IF NOT EXISTS " + modelTableName(m.name) + " (" + cols + ");\");\n"
         }
         mi = mi + 1
+    }
+    if backend.module.migrations.len() > 0 {
+        var entryList = ""
+        var mti = 0
+        while mti < backend.module.migrations.len() {
+            val sql: string = backend.module.migrations.get(mti)
+            if mti > 0 { entryList = entryList + ", " }
+            entryList = entryList + "\"" + escapeString(sql) + "\""
+            mti = mti + 1
+        }
+        ddl = ddl + "    { const char* _orbit_migs[] = {" + entryList + "}; if (!orbit_run_migrations(_orbit_migs, " + orbit_int_to_string_selfhost(backend.module.migrations.len()) + ")) { fprintf(stderr, \"orbit: migrations failed to apply\\n\"); exit(1); } }\n"
     }
     return ddl
 }
@@ -4091,6 +4106,7 @@ fn moduleUsesAuth(module: IRModule) -> bool {
 }
 
 fn moduleUsesDatabase(module: IRModule) -> bool {
+    if module.migrations.len() > 0 { return true }
     return moduleCallsBuiltin(module, "db")
 }
 

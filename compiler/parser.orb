@@ -1262,6 +1262,11 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
         if text == "port" || text == "cors" || text == "db" || text == "env" {
             return parseConfigDecl(parser)
         }
+        if text == "migrations" {
+            advanceParser(parser)
+            consume(parser, TokType.StringLiteral, "Expected migration SQL string.")
+            return ASTNode.MigrationDecl(MigrationDeclNode(parser.previousToken.text))
+        }
     }
 
     if matchToken(parser, TokType.KeywordEvery) {

@@ -877,6 +877,9 @@ fn registerModel(builder: IRBuilder, node: ASTNode) {
             }
             builder.module.models.push(IRModelDecl(m.name, irFields))
         }
+        ASTNode.MigrationDecl(m) => {
+            builder.module.migrations.push(unescapeString(m.sql))
+        }
         _ => {}
     }
 }
@@ -1672,6 +1675,9 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
         }
         ASTNode.ModelDecl(m) => {
             // Models are registered in pass 1, no codegen needed
+        }
+        ASTNode.MigrationDecl(m) => {
+            // Registered in pass 1, no codegen needed
         }
         ASTNode.TypeDecl(t) => {
             // Types are registered in pass 1

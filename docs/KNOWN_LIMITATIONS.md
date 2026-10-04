@@ -111,15 +111,18 @@ remain: captured values are not percent-decoded, and at most 8
 captures bind per request. Query values (`?id=`) keep working
 alongside.
 
-## Custom tables are created, not migrated
+## Custom tables are created, and forward DDL migrates
 
 On startup the runtime creates the four built-in tables (`notes`,
 `products`, `users`, `sessions`, plus demo seeds) and one table
 per model in your program (`CREATE TABLE IF NOT EXISTS` from the
 model fields: `string`→`TEXT`, `int`/`bool`→`INTEGER`,
-`float`→`REAL`, an `id` field becomes the primary key). There is
-still no migration story: adding a field later does not alter an
-existing table (see `docs/guides/migrations.md`).
+`float`→`REAL`, an `id` field becomes the primary key). Forward
+DDL now runs through `migrations "<SQL>"` lines (each once, in
+declaration order, tracked in `_orbit_migrations`); see
+`docs/guides/migrations.md`. What does not exist: `down`
+migrations, a version-required startup check, and a standalone
+`orbit migrate`.
 
 ## Multipart uploads aren't implemented
 
