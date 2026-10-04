@@ -640,6 +640,54 @@ fn lookupListKind(builder: IRBuilder, name: string) -> string {
     return lookupLastVariableType(builder.listKinds, name, "")
 }
 
+fn memberCallReturnType(builder: IRBuilder, receiver: ASTNode, member: string) -> string {
+    val t = resolveExprType(builder, receiver)
+    if t == "string" {
+        if member == "len" { return "int" }
+        if member == "contains" { return "bool" }
+        if member == "slice" { return "string" }
+        if member == "to_int" { return "int" }
+        if member == "indexOf" { return "int" }
+        if member == "at" { return "int" }
+        if member == "startsWith" { return "bool" }
+        if member == "endsWith" { return "bool" }
+        if member == "trim" { return "string" }
+        if member == "toUpper" { return "string" }
+        if member == "toLower" { return "string" }
+        if member == "padLeft" { return "string" }
+        if member == "padRight" { return "string" }
+        if member == "join" { return "string" }
+        if member == "split" { return "list" }
+        return "unknown"
+    }
+    if t == "list" || t == "List" {
+        if member == "len" { return "int" }
+        if member == "push" { return "void" }
+        if member == "pop" { return memberElemType(builder, receiver) }
+        if member == "get" || member == "at" { return memberElemType(builder, receiver) }
+        if member == "clear" { return "void" }
+        if member == "contains" { return "bool" }
+        if member == "indexOf" { return "int" }
+        return "unknown"
+    }
+    if t == "map" || t == "Map" {
+        if member == "has" { return "bool" }
+        if member == "keys" { return "list" }
+        if member == "delete" { return "void" }
+        return "unknown"
+    }
+    return "unknown"
+}
+
+fn memberElemType(builder: IRBuilder, receiver: ASTNode) -> string {
+    val kind = listKindNameOf(builder, receiver)
+    if kind == "string" || kind == "orbit_string" { return "string" }
+    if kind == "int" || kind == "orbit_int" { return "int" }
+    if kind == "float" || kind == "orbit_float" { return "float" }
+    if kind == "bool" || kind == "orbit_bool" { return "bool" }
+    return "unknown"
+}
+
 fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(lit) => {
@@ -665,6 +713,8 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
         }
         ASTNode.Call(c) => {
             var calleeName = ""
+            var calleeIsMember = false
+            var calleeObject: ASTNode = ASTNode.Empty
             match c.callee {
                 ASTNode.Literal(lit2) => {
                     if lit2.valType == "identifier" {
@@ -673,8 +723,14 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
                 }
                 ASTNode.MemberAccess(ma2) => {
                     calleeName = ma2.field
+                    calleeIsMember = true
+                    calleeObject = ma2.object
                 }
                 _ => {}
+            }
+            if calleeIsMember {
+                val mt = memberCallReturnType(builder, calleeObject, calleeName)
+                if mt != "unknown" { return mt }
             }
             return lookupFunctionReturnType(builder, calleeName)
         }

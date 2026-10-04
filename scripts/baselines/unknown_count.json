@@ -2,18 +2,18 @@
   "schema": 1,
   "note": "Ratchet baseline for the unknown-type count. Every number in totals may only go down. Written by scripts/unknown_ratchet.py --write-baseline. Do not hand-edit a number up; that is what the gate is for.",
   "totals": {
-    "unknown_per_mille": 293,
-    "silent_per_mille": 137
+    "unknown_per_mille": 291,
+    "silent_per_mille": 136
   },
   "files": 116,
-  "instructions": 44183,
+  "instructions": 44449,
   "context": {
-    "unknown_instructions": 12938,
-    "unknown_without_diagnostic": 6051
+    "unknown_instructions": 12955,
+    "unknown_without_diagnostic": 6055
   },
   "by_file": {
     "compiler/ast.orb": 0,
-    "compiler/builder.orb": 881,
+    "compiler/builder.orb": 902,
     "compiler/c_backend.orb": 1685,
     "compiler/cluster.orb": 888,
     "compiler/cteval.orb": 794,
@@ -55,7 +55,7 @@
     "std/hash/hash.orb": 4,
     "std/io/io.orb": 63,
     "std/log/log.orb": 8,
-    "std/string/string.orb": 64,
+    "std/string/string.orb": 60,
     "std/sys/crypto/jwt.orb": 190,
     "std/sys/proc/process.orb": 12,
     "std/sys/term/color.orb": 18,
