@@ -1615,15 +1615,21 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                     reportError(sema, "ok response must include a value")
                 }
                 _ => {
-                    // orbit_response_json takes a C string body: a known
-                    // non-string body (e.g. an int register) would compile
-                    // to an int-to-pointer conversion. Reject it here with
-                    // a proper diagnostic instead of broken C downstream.
                     val bodyType = checkNode(sema, r.expr)
-                    // An object is the other thing a body can legitimately be:
-                    // the runtime serializes it to JSON on the way out.
-                    if bodyType != "object" && checkCompatibility("string", bodyType) == false {
-                        reportError(sema, "ok response body must be a string or an object, got " + bodyType)
+                    // A `-> result` function returns a result value, not an
+                    // HTTP response, so its body may be any typed value.
+                    if sema.currentReturnType == "result" {
+                        // body built and type-checked; result fn acceptance
+                    } else {
+                        // orbit_response_json takes a C string body: a known
+                        // non-string body (e.g. an int register) would compile
+                        // to an int-to-pointer conversion. Reject it here with
+                        // a proper diagnostic instead of broken C downstream.
+                        // An object is the other thing a body can legitimately
+                        // be: the runtime serializes it to JSON on the way out.
+                        if bodyType != "object" && checkCompatibility("string", bodyType) == false {
+                            reportError(sema, "ok response body must be a string or an object, got " + bodyType)
+                        }
                     }
                 }
             }
@@ -1635,8 +1641,10 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                 }
                 _ => {
                     val bodyType = checkNode(sema, r.expr)
-                    if checkCompatibility("string", bodyType) == false {
-                        reportError(sema, "err response body must be a string, got " + bodyType)
+                    if sema.currentReturnType != "result" {
+                        if checkCompatibility("string", bodyType) == false {
+                            reportError(sema, "err response body must be a string, got " + bodyType)
+                        }
                     }
                 }
             }

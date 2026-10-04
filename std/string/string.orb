@@ -198,15 +198,10 @@ fn parseIntChecked(s: string) -> result {
         }
         i = i + 1
     }
-    // NOTE: the `.to_int()` method emits a call to a C helper that
-    // does not exist in the runtime; the extern below does.
-    val n = orbit_string_to_int(t)
+    val n = t.to_int()
     val back = orbit_int_to_string(n)
     if back != t {
         return err("not an integer", 2)
     }
-    // NOTE: `return ok(n)` directly trips the "ok body must be a
-    // string" rule; assign through a typed binding instead.
-    val good: result = ok(n)
-    return good
+    return ok(n)
 }

@@ -722,9 +722,7 @@ Shipped and tested under `tests/std/` (run with
 - `std/string/string.orb`: `trim`, `startsWith`, `endsWith`, `join`,
   `split`, `padLeft`, `padRight`, `toUpper`, `toLower` (byte-wise,
   ASCII-only), `parseIntChecked` (canonical decimal only; returns
-  `result`, consume with inline try). Uses the `.to_int()` method
-  nowhere: it emits a missing helper (STAB-9); the extern
-  `orbit_string_to_int` is used instead.
+  `result`, consume with inline try). `orbit_string_to_int` is bound by the `.to_int()` method on strings.
 - `std/hash/hash.orb`: `sha256Hex`, `hmacSha256` (runtime bindings).
   No `fnv1a32`: bitwise operators have no lexer tokens yet. There used
   to be an `std/sys/crypto/hash.orb` claiming to provide it, and it is
