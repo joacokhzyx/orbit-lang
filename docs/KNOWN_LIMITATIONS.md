@@ -254,26 +254,12 @@ that claimed them are gone or quarantined, and
 [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#stdquarantine-specified-not-implemented)
 names the absences.
 
-## `orbit fmt` splits a negative literal after `return`
+## `orbit fmt` no longer splits a negative literal (fixed)
 
-`return -1` comes back as `return - 1`:
-
-```console
-$ printf 'fn main() -> int {\n    return -1\n}\n' > t.orb
-$ orbit fmt t.orb && grep return t.orb
-    return - 1
-```
-
-It is specific to `return`. `val x = -1`, `print(-1)`, `f(-1)` and
-`3 * -1` are all left alone, and so is `return - 1` if you write it
-that way already — the formatter is idempotent, it just disagrees
-with you about the first pass. It still compiles and still returns
--1, so this is cosmetic. It is listed because the formatter is
-treated as authoritative by `fmt --check`, and applying it has
-therefore spread `- 1` through 15 sites across 5 files (`std/io/io.orb`,
-`std/bytes/bytes.orb`, `std/sys/crypto/jwt.orb`,
-`std/collections/lists.orb` and `lib/arena.orb`). Fixing
-`compiler/fmt.orb` will need a re-run of `fmt` over those trees.
+This entry was stale. The formatter keeps `return -1` as `return -1`:
+a minus straight after a keyword starts a new expression and is
+unary (F-0008, in `compiler/fmt.orb`). The tree no longer carries
+the spread `- 1` sites the old entry warned about.
 
 ## A list slot has no element type, so nothing can check it
 
