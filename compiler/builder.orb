@@ -295,6 +295,73 @@ fn modelFieldTypeOf(builder: IRBuilder, typeName: string, fieldName: string) -> 
     return "! no such model field"
 }
 
+// Is `name` a model this program declares? An object literal in a position
+// whose declared type is one is that model's struct, not the runtime object.
+fn isModelDeclName(builder: IRBuilder, name: string) -> bool {
+    var i = 0
+    while i < builder.module.models.len() {
+        val m: IRModelDecl = builder.module.models.get(i)
+        if m.name == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The value a literal writes under one key, or Empty. The literal is keyed
+// while the model's constructor is ordered, so this recovers the order.
+fn literalFieldValue(node: ASTNode, name: string) -> ASTNode {
+    match node {
+        ASTNode.ObjectLiteral(ol) => {
+            var i = 0
+            while i < ol.fields.len() {
+                val field: ASTNode = ol.fields.get(i)
+                match field {
+                    ASTNode.FieldInit(fi) => {
+                        if fi.name == name { return fi.value }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return ASTNode.Empty
+}
+
+// An object literal written where the declared type is a model builds that
+// model's struct, not the runtime's dynamic object: the fields are known, so
+// each is passed positionally to the constructor the model already has. The
+// checker has already rejected a key the model does not declare and a declared
+// field the literal omits.
+fn buildObjectLiteralAsModel(builder: IRBuilder, node: ASTNode, modelName: string) -> int {
+    val resReg = ir_alloc_register(builder.currentFunction, modelName)
+    var fieldCount = 0
+    var mi = 0
+    while mi < builder.module.models.len() {
+        val m: IRModelDecl = builder.module.models.get(mi)
+        if m.name == modelName {
+            var fi = 0
+            while fi < m.fields.len() {
+                val f: IRModelField = m.fields.get(fi)
+                val valueNode = literalFieldValue(node, f.name)
+                val arg = ir_init_instr(IROpcode.arg)
+                arg.operand1 = buildCallArgValue(builder, valueNode)
+                ir_emit(builder.currentFunction, arg)
+                fieldCount = fieldCount + 1
+                fi = fi + 1
+            }
+        }
+        mi = mi + 1
+    }
+    val call = ir_init_instr(IROpcode.call)
+    call.dest = resReg
+    call.operand1 = ir_string(modelName)
+    call.operand2 = ir_int(fieldCount)
+    ir_emit(builder.currentFunction, call)
+    return resReg
+}
+
 fn buildCallArgValue(builder: IRBuilder, node: ASTNode) -> IRValue {
     match node {
         ASTNode.Literal(l) => {
@@ -1577,7 +1644,18 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
                     }
                 }
                 _ => {
-                    val retReg = buildExpr(builder, r.expr)
+                    var retReg = -1
+                    if isModelDeclName(builder, builder.currentFunction.returnType) {
+                        match r.expr {
+                            ASTNode.ObjectLiteral(ol) => {
+                                retReg = buildObjectLiteralAsModel(builder, r.expr, builder.currentFunction.returnType)
+                            }
+                            _ => {}
+                        }
+                    }
+                    if retReg < 0 {
+                        retReg = buildExpr(builder, r.expr)
+                    }
                     val retInstr = ir_init_instr(IROpcode.ret)
                     retInstr.operand1 = ir_register(retReg)
                     ir_emit(builder.currentFunction, retInstr)

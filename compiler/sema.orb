@@ -1588,6 +1588,73 @@ fn checkMatch(sema: Sema, node: ASTNode) {
     }
 }
 
+// The value a literal writes under one key, or Empty when the key is absent.
+// Looked up by name because the literal is keyed while the model it can be
+// checked against is ordered.
+fn objectLiteralFieldValue(node: ASTNode, name: string) -> ASTNode {
+    match node {
+        ASTNode.ObjectLiteral(ol) => {
+            var i = 0
+            while i < ol.fields.len() {
+                val field: ASTNode = ol.fields.get(i)
+                match field {
+                    ASTNode.FieldInit(fi) => {
+                        if fi.name == name { return fi.value }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return ASTNode.Empty
+}
+
+// An object literal written where a model is declared. The literal is keyed and
+// the model is ordered, so every key must be a declared field and every declared
+// field must be present -- the same closed shape a model construction gets,
+// checked by name instead of by argument position.
+fn checkObjectLiteralModel(sema: Sema, modelName: string, node: ASTNode) {
+    match node {
+        ASTNode.ObjectLiteral(ol) => {
+            var i = 0
+            while i < ol.fields.len() {
+                val field: ASTNode = ol.fields.get(i)
+                match field {
+                    ASTNode.FieldInit(fi) => {
+                        if modelFieldType(sema, modelName, fi.name) == "" {
+                            reportError(sema, "Model '" + modelName + "' has no field '" + fi.name + "'")
+                        }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            val declared = modelFieldCount(sema, modelName)
+            var d = 0
+            while d < declared {
+                val fieldName = modelFieldNameAt(sema, modelName, d)
+                val want = modelFieldType(sema, modelName, fieldName)
+                val valueNode = objectLiteralFieldValue(node, fieldName)
+                match valueNode {
+                    ASTNode.Empty => {
+                        reportError(sema, "Model '" + modelName + "' requires field '" + fieldName + "'")
+                    }
+                    _ => {
+                        val got = checkNode(sema, valueNode)
+                        if !argTypeFits(got, want) {
+                            reportError(sema, "Field '" + modelName + "." + fieldName + "' is declared " + want + " but the value is " + got)
+                        }
+                    }
+                }
+                d = d + 1
+            }
+        }
+        _ => {}
+    }
+}
+
 fn checkReturn(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.Return(r) => {
@@ -1599,6 +1666,16 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                 ASTNode.Empty => {
                     if expectedType != "void" {
                         reportError(sema, "Non-void function must return a value")
+                    }
+                }
+                ASTNode.ObjectLiteral(ol) => {
+                    if lookupSymbol(sema, expectedType) == "model" {
+                        checkObjectLiteralModel(sema, expectedType, r.expr)
+                    } else {
+                        val actualType = checkNode(sema, r.expr)
+                        if checkCompatibility(expectedType, actualType) == false {
+                            reportError(sema, "Return type mismatch: expected " + expectedType + ", got " + actualType)
+                        }
                     }
                 }
                 _ => {
