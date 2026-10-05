@@ -150,13 +150,18 @@ RAPL). On Windows the honest proxy is CPU time plus memory -
 never converted to joules with a universal factor. The measurement
 record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 
-## No p50/p99 yet
+## Latency percentiles are bucket edges, and there is no success/error split
 
-`system.*` exposes uptime, pid, worker count, total requests, and
-mean latency in microseconds. There is no latency distribution
-(no p50/p95/p99) and no success/error split. `/_ledger` adds
-per-route request counts, mean milliseconds, and DB share. What
-isn't measured isn't exposed.
+`system.latency_p50_us()`, `latency_p95_us()`, and `latency_p99_us()`
+exist alongside uptime, pid, worker count, total requests, and mean
+latency. They read a 100 µs-resolution histogram (1 ms-wide buckets
+up to 100 ms, then an overflow bucket answered from the recorded
+maximum), so a reported p99 is the boundary of the bucket holding 99%
+of requests, not a measurement of one request. Anything past 100 ms
+collapses into a single bucket and reports the max. What isn't
+measured still isn't exposed: there is no success/error split.
+`/_ledger` adds per-route request counts, mean milliseconds, and DB
+share.
 
 ## Windows drain is kill
 
@@ -173,10 +178,10 @@ answered. Don't rely on a bind error to catch the mistake; check
 with `netstat -ano | findstr <port>` and stop the older process.
 UNTESTED on Linux.
 
-## A generic model typechecks, then emits C that does not compile
+## A generic model is a parse error: there is no monomorphisation
 
-`model Box[T] { v: T }` passes `orbit check` with no errors and then
-fails in the C step:
+`model Box[T] { v: T }` used to pass `orbit check` with no errors and
+then fail in the C step:
 
 ```console
 $ orbit build gen.orb -o gen
@@ -185,13 +190,26 @@ $ orbit build gen.orb -o gen
   <build>:91:29: error: unknown type name 'T'
 ```
 
-`T` reaches the emitter as an ordinary type name, `mapTypeToC` has
-no case for it, and the backend helpfully casts it to `void*` in
-register declarations while emitting a bare `T*` in the struct and
-the constructor. There is no monomorphisation, so a generic type
-parameter is a name with nothing behind it. This is the same root
-cause as the quarantined `std/quarantine/option.orb.quarantined`:
-`Option<T>` cannot be written until this can.
+`T` reached the emitter as an ordinary type name, `mapTypeToC` has no
+case for it, and the backend helpfully cast it to `void*` in register
+declarations while emitting a bare `T*` in the struct and the
+constructor. The parser now refuses the parameter list, so the
+compiler is the one that says no, and it names the declaration:
+
+```console
+$ orbit check gen.orb
+Parser error at line 1: 'model Box[T]' is not supported: there is no
+monomorphisation, so a type parameter has nothing to substitute and 'T'
+reaches the emitter as a C type name. Declare one model per type;
+`result` carries a payload today.
+```
+
+What is still missing is the feature, not the diagnostic. Nothing
+substitutes a type argument at a use site, so `Box<int>` and
+`Box<string>` cannot be written and there is nothing to make distinct
+C for. This is the same root cause as the quarantined
+`std/quarantine/option.orb.quarantined`: `Option<T>` cannot be written
+until this can.
 
 ## `std/` is 13 modules, and 8 of the 20 it used to be are not coming back
 

@@ -894,6 +894,15 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     }
     val name = parser.previousToken.text
     val genericParams = parseGenericParams(parser)
+    // A type parameter is a name with nothing behind it. A model's fields are
+    // lowered with their declared type names and `mapTypeToC` has no case for
+    // `T`, so `model Box[T] { v: T }` used to pass `orbit check` and then reach
+    // the C compiler as a bare `T*`. Refuse the parameter list here rather
+    // than carry it into the emitter. `fn` and `trait` keep theirs: an unused
+    // one costs nothing, because a parameter type is not lowered from here.
+    if genericParams.len() > 0 {
+        parserError(parser, "'model " + name + "[T]' is not supported: there is no monomorphisation, so a type parameter has nothing to substitute and 'T' reaches the emitter as a C type name. Declare one model per type; `result` carries a payload today.")
+    }
     consume(parser, TokType.OpenBrace, "Expected '{' after model name.")
     var fields = []
     while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
