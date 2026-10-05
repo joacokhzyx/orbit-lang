@@ -92,3 +92,50 @@ fn intLiteralFitsSelfhost(s: string) -> bool {
     }
     return true
 }
+
+// ── Generic instantiation names ──────────────────────────────────────────
+//
+// `Box<int>` becomes the struct `Box_int` in the emitted C, and the checker
+// and the builder MUST agree on that string: a symbol typed `Box_int` beside a
+// literal built as something else would pass `orbit check` and then read the
+// wrong member. Two copies of this rule is exactly the failure this module
+// exists to prevent (see the note at the top), so there is one copy and both
+// callers import it.
+
+fn isTypeNameChar(c: int) -> bool {
+    if c >= 48 && c <= 57 { return true }
+    if c >= 65 && c <= 90 { return true }
+    if c >= 97 && c <= 122 { return true }
+    if c == 95 { return true }
+    return false
+}
+
+// The struct-name suffix for one type argument. `list<string>` is
+// `list_string`, so no punctuation survives into a C identifier and two
+// different arguments cannot collide. The emitter's own sanitizeIdentifier
+// would turn the punctuation into runs of `_` instead, which is also correct
+// but makes `Box_list__string_` unreadable in the generated C.
+fn mangleTypeArg(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < orbit_string_len(s) {
+        val c = s.at(i)
+        if isTypeNameChar(c) {
+            out = out + s.slice(i, i + 1)
+        } else {
+            // `&&` does not short-circuit in this language, so the guard is a
+            // statement and not a second operand: slicing at -1 of an empty
+            // string is the thing being kept out of reach.
+            val n = orbit_string_len(out)
+            if n > 0 {
+                if orbit_string_slice(out, n - 1, n) != "_" { out = out + "_" }
+            }
+        }
+        i = i + 1
+    }
+    val n2 = orbit_string_len(out)
+    if n2 > 0 {
+        if orbit_string_slice(out, n2 - 1, n2) == "_" { out = orbit_string_slice(out, 0, n2 - 1) }
+    }
+    return out
+}

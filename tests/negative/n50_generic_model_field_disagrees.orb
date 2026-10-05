@@ -1,0 +1,21 @@
+// case: generic-model-field-disagrees-with-the-argument
+// what: a type parameter is fixed by the first field that determines it, and
+//      every other field is then checked against it. `Same { a: 1, b: "s" }`
+//      says `Same<int>` on the strength of `a`, and `b` is then a string where
+//      the struct has an orbit_int.
+//
+//      Before monomorphisation this could not be expressed at all, and after it
+//      the check is the only thing standing between two literals and one wrong
+//      struct: `Same_int` and `Same_string` both exist, both are named `Same`,
+//      and nothing in the name says which one `b` belongs to.
+// expect-error: Model 'Same': field 'b' is declared T, which this literal fixes as int, but the value is string
+model Same[T] {
+    a: T
+    b: T
+}
+
+fn main() -> int {
+    val s = Same { a: 1, b: "s" }
+    print(s.a)
+    return 0
+}

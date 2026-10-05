@@ -1,0 +1,21 @@
+// case: generic-model-constrained-type-parameter
+// what: `model Box[T: int]` promises something about the argument and this
+//      compiler is not in a position to keep it -- the argument is INFERRED, so
+//      there is nothing to check a constraint against. parseGenericParams
+//      parses one for `fn` and `trait`, where an unimplemented constraint costs
+//      nothing because a parameter type is not lowered from there; a model field
+//      IS lowered, so accepting one would be accepting a promise about a value
+//      nobody supplies.
+//
+//      Note what is refused: the constraint, not the parameter. `model Box[T]`
+//      is real (n47 is the shape that is still refused, and why).
+// expect-error: 'model Box[T: int]' is not supported: a model's type parameter is inferred from the value written for it
+model Box[T: int] {
+    v: T
+}
+
+fn main() -> int {
+    val b = Box { v: 1 }
+    print(b.v)
+    return 0
+}

@@ -631,25 +631,46 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                             }
                         }
                         IROpcode.load_field => {
-                            var fnm = ""
+                            var fref = ""
                             match inst.operand2 {
-                                IRValue.String(s) => { fnm = s.value }
-                                IRValue.Sym(s) => { fnm = s.value }
+                                IRValue.String(s) => { fref = s.value }
+                                IRValue.Sym(s) => { fref = s.value }
                                 _ => {}
                             }
-                            fnm = fieldRefName(fnm)
+                            var fnm = fieldRefName(fref)
+                            // The read is typed from the model that OWNS the
+                            // field, and the builder already wrote that owner
+                            // into the field reference. It used to be stripped
+                            // here and the type taken from a module-wide scan
+                            // of every model's field names instead, with no
+                            // break -- so the LAST model declaring a name won,
+                            // whatever the receiver was. Two models sharing a
+                            // field name with different declared types
+                            // therefore read each other's member through the
+                            // wrong struct: a C type error where one was a
+                            // float, and a segfault where the read compiled.
+                            //
+                            // Monomorphisation makes this reachable from one
+                            // declaration: `Box_int` and `Box_string` both have
+                            // a field called `v`.
+                            val fowner = fieldRefOwner(fref)
                             if backend != NULL && backend.module != NULL && backend.module.models != NULL {
                                 var mi = 0
+                                var scoped = false
                                 while mi < backend.module.models.len() {
                                     val m: IRModelDecl = backend.module.models.get(mi)
-                                    var fi = 0
-                                    while fi < m.fields.len() {
-                                        val fld: IRModelField = m.fields.get(fi)
-                                        if fld.name == fnm {
-                                            inf = fld.typeName
+                                    if fowner == "" || m.name == fowner {
+                                        var fi = 0
+                                        while fi < m.fields.len() {
+                                            val fld: IRModelField = m.fields.get(fi)
+                                            if fld.name == fnm {
+                                                inf = fld.typeName
+                                                scoped = true
+                                            }
+                                            fi = fi + 1
                                         }
-                                        fi = fi + 1
                                     }
+                                    if scoped { break }
                                     mi = mi + 1
                                 }
                             }

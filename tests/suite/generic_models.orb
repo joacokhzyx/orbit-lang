@@ -1,0 +1,143 @@
+// A generic model is one declaration and many structs.
+//
+// `model Box[T] { v: T }` used to be a parse error, and the reason it was one
+// is the reason it is not: nothing substituted `T`, so `T` reached the emitter
+// as a C type name and the build died on `unknown type name 'T'`. The type
+// argument is now inferred from the value written for the field that uses it,
+// and the emitter gets a struct per instantiation -- `Box_int` with an
+// `orbit_int`, `Box_string` with an `orbit_string`, two C types that share
+// nothing.
+//
+// Every exit code below is distinct, so a regression names itself.
+
+model Box[T] {
+    v: T
+}
+
+model Pair[A, B] {
+    left: A
+    right: B
+}
+
+model Bag[T] {
+    items: list < T >
+}
+
+fn main() -> int {
+    if anIntArgumentBecomesAnIntField() != 0 { return 1 }
+    if aStringArgumentBecomesAStringField() != 0 { return 2 }
+    if twoArgumentsInferTwoFields() != 0 { return 3 }
+    if twoInstantiationsAreTwoStructs() != 0 { return 4 }
+    if aListElementIsTheArgument() != 0 { return 5 }
+    if theSameLiteralTwiceIsOneStruct() != 0 { return 6 }
+    if aSignatureNamesTheInstance() != 0 { return 7 }
+    if twoOverloadedNamesAreTwoSignatures() != 0 { return 8 }
+    return 0
+}
+
+// A signature may WRITE the argument, because an annotation is not an
+// expression: `Box<int>` parses as a type the way `list<string>` does, and it
+// names the instance the literal infers. Before this the annotation was refused
+// and a generic value could only be a local -- which is not a type system, it is
+// a special case.
+//
+// The instance name is built by one function both the checker and the emitter
+// call. They have to agree: a checker that called this `Box_int` while the
+// emitter built `Box_string` would pass `orbit check` and then read a member of
+// a struct that was never allocated.
+fn takeInt(b: Box < int >) -> int {
+    return b.v
+}
+
+fn takeText(b: Box < string >) -> string {
+    return b.v
+}
+
+fn leftOf(p: Pair < string, int >) -> string {
+    return p.left
+}
+
+fn makeIntBox() -> Box < int > {
+    return Box { v: 3 }
+}
+
+fn aSignatureNamesTheInstance() -> int {
+    if takeInt(Box { v: 1 }) != 1 { return 1 }
+    if takeInt(makeIntBox()) != 3 { return 2 }
+    if takeText(Box { v: "x" }) != "x" { return 3 }
+    if leftOf(Pair { left: "a", right: 1 }) != "a" { return 4 }
+    // A written argument that no literal in the function creates still has to
+    // exist: `takeText` is the only mention of `Box_string` in this shape.
+    return 0
+}
+
+// Two functions, two written arguments, two structs -- and a call that cannot
+// pick the wrong one, because the argument is part of the signature.
+fn twoOverloadedNamesAreTwoSignatures() -> int {
+    val i = Box { v: 2 }
+    val s = Box { v: "two" }
+    if takeInt(i) != 2 { return 1 }
+    if takeText(s) != "two" { return 2 }
+    return 0
+}
+
+fn anIntArgumentBecomesAnIntField() -> int {
+    val b = Box { v: 1 }
+    if b.v != 1 { return 1 }
+    return 0
+}
+
+fn aStringArgumentBecomesAStringField() -> int {
+    val b = Box { v: "hi" }
+    if b.v != "hi" { return 1 }
+    return 0
+}
+
+// Two parameters, two arguments, and the fields are not interchangeable: the
+// first is the int and the second is the string, which is the whole content of
+// `Pair[A, B]`.
+fn twoArgumentsInferTwoFields() -> int {
+    val p = Pair { left: 7, right: "seven" }
+    if p.left != 7 { return 1 }
+    if p.right != "seven" { return 2 }
+    return 0
+}
+
+// Two instantiations of one model in one program, read the other way round. The
+// field NAMES are the same in both structs and only the owner says which is
+// which, so this is the case where typing a field read off the name alone would
+// read each struct through the other's type.
+fn twoInstantiationsAreTwoStructs() -> int {
+    val ints = Pair { left: 1, right: 2 }
+    val strings = Pair { left: "a", right: "b" }
+    if ints.left + ints.right != 3 { return 1 }
+    if strings.left != "a" { return 2 }
+    if strings.right != "b" { return 3 }
+    if ints.right != 2 { return 4 }
+    return 0
+}
+
+// A parameter used as a list's element is taken from the elements, which is the
+// one place the answer is not simply the value's own type.
+fn aListElementIsTheArgument() -> int {
+    val ints = Bag { items: [1, 2, 3] }
+    val strings = Bag { items: ["a", "b"] }
+    if ints.items.len() != 3 { return 1 }
+    if strings.items.len() != 2 { return 2 }
+    var joined = ""
+    for s in strings.items {
+        joined = joined + s + ","
+    }
+    if joined != "a,b," { return 3 }
+    return 0
+}
+
+// Inference is a function of the model, not of the literal: the same literal
+// written twice is one struct, and a field read through either of them is the
+// same read.
+fn theSameLiteralTwiceIsOneStruct() -> int {
+    val a = Box { v: 5 }
+    val b = Box { v: 5 }
+    if a.v + b.v != 10 { return 1 }
+    return 0
+}

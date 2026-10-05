@@ -187,6 +187,14 @@ model IRModelField {
 model IRModelDecl {
     name: string
     fields: list
+    // The type parameter names, in declaration order. A model with any is a
+    // GENERIC DECLARATION and never reaches the emitter: it lives in
+    // IRBuilder.genericModels, not in IRModule.models, because a field typed
+    // `T` has no C type until a use says what T is. Only the instantiations
+    // the builder synthesises -- `Box` with `T` fixed at `int` is `Box_int`,
+    // fields already substituted -- are IRModelDecls in module.models, so
+    // every existing consumer of that list sees exactly what it saw before.
+    typeParams: list
 }
 
 model IRVariantField {

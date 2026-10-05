@@ -922,14 +922,31 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     val name = parser.previousToken.text
     parser.modelNames.push(name)
     val genericParams = parseGenericParams(parser)
-    // A type parameter is a name with nothing behind it. A model's fields are
-    // lowered with their declared type names and `mapTypeToC` has no case for
-    // `T`, so `model Box[T] { v: T }` used to pass `orbit check` and then reach
-    // the C compiler as a bare `T*`. Refuse the parameter list here rather
-    // than carry it into the emitter. `fn` and `trait` keep theirs: an unused
-    // one costs nothing, because a parameter type is not lowered from here.
-    if genericParams.len() > 0 {
-        parserError(parser, "'model " + name + "[T]' is not supported: there is no monomorphisation, so a type parameter has nothing to substitute and 'T' reaches the emitter as a C type name. Declare one model per type; `result` carries a payload today.")
+    // `model Box[T] { v: T }` used to be refused here, and the reason it was
+    // refused is now the reason it is not: nothing substituted T, so T
+    // reached the emitter as a C type name. The builder now fixes every type
+    // parameter at each construction site and emits one struct per
+    // instantiation (`Box { v: 1 }` is `Box_int`), so a generic declaration
+    // never reaches the emitter at all -- see IRModelDecl.typeParams.
+    //
+    // A constraint is a different matter. parseGenericParams parses one for
+    // `fn` and `trait`, where an unimplemented constraint costs nothing
+    // because a parameter type is not lowered from here. A model field IS
+    // lowered, so accepting `[T: Something]` would be accepting a promise
+    // about the argument that nothing in this compiler is in a position to
+    // keep: the argument is inferred, so there is nothing to check it
+    // against. Refuse it, and say which half exists.
+    var gp = 0
+    while gp < genericParams.len() {
+        match genericParams.get(gp) {
+            ASTNode.GenericParam(gparam) => {
+                if gparam.constraint != "" {
+                    parserError(parser, "'model " + name + "[" + gparam.name + ": " + gparam.constraint + "]' is not supported: a model's type parameter is inferred from the value written for it, so there is no argument to constrain. Leave the constraint off and let the argument fit, or declare one model per type.")
+                }
+            }
+            _ => {}
+        }
+        gp = gp + 1
     }
     consume(parser, TokType.OpenBrace, "Expected '{' after model name.")
     var fields = []

@@ -1,0 +1,26 @@
+// case: generic-model-named-without-its-argument
+// what: a signature is written before any value exists, so there is nothing in
+//      `fn take(b: Box)` to infer `T` from. The emitter would be handed the name
+//      `Box` and emit `Box*`, and `Box` is only ever emitted under the name its
+//      arguments make -- so the C step fails on `unknown type name 'Box'`,
+//      naming generated code for a program whose every line is fine.
+//
+//      WRITING THE ARGUMENT IS THE FIX, and it is a fix rather than a
+//      workaround: `fn take(b: Box<int>)` names the instance, and the instance
+//      is the same one `Box { v: 1 }` infers, so a signature can talk about
+//      what a value will be. Only the bare name is refused.
+//
+//      The literal is not affected. `Box { v: 1 }` is an expression, and the
+//      literal beside the name is what fixes the argument.
+// expect-error: 'Box' names a generic model, and a generic model has no one type
+model Box[T] {
+    v: T
+}
+
+fn take(b: Box) -> int {
+    return 1
+}
+
+fn main() -> int {
+    return take(Box { v: 1 })
+}

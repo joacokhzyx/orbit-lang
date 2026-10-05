@@ -1,36 +1,26 @@
 // case: generic-model-type-parameter
-// what: `model Box[T] { v: T }` used to pass `orbit check` with no errors and
-//      then fail in the C step on `unknown type name 'T'`. Nothing
-//      monomorphises, so `T` reached the emitter as an ordinary type name and
-//      `mapTypeToC` had no case for it: a bare `T*` in the struct, in the
-//      constructor and in every register holding a field read, while the
-//      surrounding register declarations helpfully cast it to `void*`.
+// what: the shape that used to be refused is real now. `model Box[T] { v: T }`
+//      is one declaration and many structs: the builder fixes T from the value
+//      written for the field that uses it and emits one C struct per
+//      instantiation, so `Box { v: 1 }` is `Box_int` with an `orbit_int` and
+//      `Box { v: "hi" }` is `Box_string` with an `orbit_string`. Nothing
+//      substitutes at the emitter any more, which is the whole reason the
+//      parser used to say no.
 //
-//        $ orbit build gen.orb -o gen
-//          <build>:31:5: error: unknown type name 'T'
-//             31 |     T* v;
+//      What is left is the spelling that cannot reach a type argument. There
+//      is no grammar for one at an expression site -- `Box<int>` lexes as a
+//      comparison, and adding that grammar is a far bigger change than the
+//      feature -- so the positional constructor has an argument and nothing to
+//      call it an int. The emitter would resolve the call against a `Box` that
+//      is never emitted, so this is refused, and the diagnostic says what to
+//      write instead.
 //
-//      The compiler is now the one that says no, and it says so about the
-//      declaration rather than about generated C. This is the same missing
-//      feature as the quarantined std/quarantine/option.orb.quarantined:
-//      `Option<T>` cannot be written until codegen substitutes the argument at
-//      each use.
-//
-//      The declaration is where the refusal belongs, not the use site. The
-//      positional constructor spelling already refused it -- `Box(1)` is
-//      E1003, "Field 'Box.v' is declared T but the argument is int" -- because
-//      checkNode happens to compare the field's declared type against the
-//      argument's. That is an accident of that spelling: `fn id[T](x: T)` is
-//      E1005 for the same reason and `model Box[T] { v: int }` was accepted,
-//      because there is no rule anywhere that says a type parameter cannot be
-//      a field's declared type. A use-site check that fires only when the use
-//      happens to line up is not a check.
-//
-//      WRITING THE INTENT, which is what makes the feature real: substitute
-//      the argument at each use, so `Option<int>` and `Option<string>` lower
-//      to distinct C. Then the parser takes the parameter list back and
-//      std/quarantine/option.orb.quarantined can be lifted.
-// expect-error: 'model Box[T]' is not supported: there is no monomorphisation
+//      The other three refusals this feature needs are n50 (a value that
+//      disagrees with what the literal already decided), n51 (a generic model
+//      named as a declared type, where there is no literal to infer from) and
+//      n52 (a type parameter no field's declared type mentions, so there is no
+//      value to take the argument from).
+// expect-error: Model 'Box' takes a type parameter, so it is constructed with a literal.
 model Box[T] {
     v: T
 }

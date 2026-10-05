@@ -1,0 +1,20 @@
+// case: generic-model-undeterminable-type-parameter
+// what: a type parameter no field's declared type mentions has no value to take
+//      the argument from. The builder would substitute "unknown" and emit a
+//      `Phantom_unknown` with a `void*` field -- which compiles, and computes:
+//      `Phantom { id: 1 }` would build it for a model whose type argument
+//      nothing in the program said.
+//
+//      A diagnostic beats a struct named after the absence of a type. This is
+//      the same rule as n30's family, pointed the other way: there, a name
+//      nothing declares; here, a declaration nothing can fix.
+// expect-error: Model 'Phantom' cannot infer type parameter 'T': no field's declared type mentions it
+model Phantom[T] {
+    id: int
+}
+
+fn main() -> int {
+    val p = Phantom { id: 1 }
+    print(p.id)
+    return 0
+}

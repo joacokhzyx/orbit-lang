@@ -107,6 +107,19 @@ model Sema {
     modelFieldOwner: list
     modelFieldName: list
     modelFieldTypeName: list
+    // The type parameter names of every generic model seen, as two parallel
+    // lists: the model, and its parameters as one comma-separated string in
+    // declaration order. Parallel, for the reason the three above are: a joined
+    // row would have to be split apart again, and the C backend mis-typess a
+    // row that came out of one of these very lists.
+    //
+    // A generic model's fields are registered under the model's OWN name with
+    // their UNSUBSTITUTED types, so the declaration is still the thing that
+    // answers `Box { ... }` has field `v`. What these two add is the knowledge
+    // that `v`'s type is a parameter, which is what lets the literal fix it and
+    // the checker then hold the value against it.
+    modelGenericOwner: list
+    modelGenericParams: list
     // Positions checkConstantIndex has already reported, as "line:col".
     // inferType reaches a node from more than one direction -- a call infers
     // its receiver, an expression statement infers its expression -- so
@@ -124,7 +137,7 @@ model Sema {
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [])
 }
 
 fn listContainsValue(items: list, value: string) -> bool {
@@ -403,6 +416,16 @@ fn checkModelCtor(sema: Sema, args: list, line: int, col: int, modelName: string
     if lookupSymbol(sema, modelName) != "model" { return }
     val declared = modelFieldCount(sema, modelName)
     if declared == 0 { return }
+    // The positional spelling cannot reach a generic model's type parameters.
+    // There is no grammar for a type argument at an expression site -- `Box<int>`
+    // lexes as a comparison -- so `Box(1)` has one argument and no way to say
+    // that it is an int, and the emitter would resolve the call against a `Box`
+    // struct that does not exist. Refusing it here is the whole of the answer,
+    // and it says what to write instead.
+    if modelGenericParamsOf(sema, modelName).len() > 0 {
+        reportErrorAt(sema, "E1003", "Write it as a literal: `Model { field: value }`. The type arguments are inferred from the values written for the fields that use them.", line, col, "Model '" + modelName + "' takes a type parameter, so it is constructed with a literal.")
+        return
+    }
     if args.len() != declared {
         reportErrorAt(sema, "E1003", "A model is constructed with one argument per declared field, in order.", line, col, "Model '" + modelName + "' has " + orbit_int_to_string_selfhost(declared) + " field(s) but " + orbit_int_to_string_selfhost(args.len()) + " argument(s) were given.")
         return
@@ -1029,6 +1052,22 @@ fn checkModelDecl(sema: Sema, node: ASTNode) {
         ASTNode.ModelDecl(m) => {
             checkModelName(sema, m.name)
             declareSymbol(sema, m.name, "model", false, false)
+            if m.genericParams.len() > 0 {
+                var params = ""
+                var gi = 0
+                while gi < m.genericParams.len() {
+                    match m.genericParams.get(gi) {
+                        ASTNode.GenericParam(gparam) => {
+                            if gi > 0 { params = params + "," }
+                            params = params + gparam.name
+                        }
+                        _ => {}
+                    }
+                    gi = gi + 1
+                }
+                sema.modelGenericOwner.push(m.name)
+                sema.modelGenericParams.push(params)
+            }
             var i = 0
             while i < m.fields.len() {
                 val field: ASTNode = m.fields.get(i)
@@ -1060,6 +1099,7 @@ fn checkModelDecl(sema: Sema, node: ASTNode) {
 // unchecked: `val n: Int = 1` is accepted and emits C that says `Int*`.
 fn checkAnnotation(sema: Sema, name: string, declared: string, actual: string, line: int, col: int) {
     if declared == "" { return }
+    if checkGenericModelTypeName(sema, declared, line, col) { return }
     // A capitalised name is a type only if something declares it. Not
     // registered as a model, a type or a generic? Then it is a typo or a type
     // from another module, and the C backend will say so in a way that names
@@ -1071,6 +1111,83 @@ fn checkAnnotation(sema: Sema, name: string, declared: string, actual: string, l
     if checkCompatibility(declared, actual) == false {
         reportErrorAt(sema, "E1006", "Change the annotation, or change the value.", line, col, "'" + name + "' is declared " + declared + " but the value is " + actual + ".")
     }
+}
+
+// A generic model named as a DECLARED TYPE. `Box<int>` is expressible: the
+// written argument IS the declaration, and it names the same instance the
+// literal `Box { v: 1 }` infers, so a signature can talk about what a value
+// will be. A BARE `Box` is refused, because a signature is written before any
+// value exists and there is nothing there to infer from -- the C step would
+// then be handed a struct name that only ever exists under the name its
+// arguments make (`Box_int`).
+//
+// This is not applied to `Box { v: 1 }`. That is an expression, and the
+// literal beside the name is exactly what fixes the arguments.
+fn isGenericModelTypeName(sema: Sema, name: string) -> bool {
+    var bare = name
+    val lt = orbit_string_indexOf(name, "<")
+    if lt > 0 { bare = orbit_string_slice(name, 0, lt) }
+    return modelGenericParamsOf(sema, bare).len() > 0
+}
+
+// Whether the annotation carries its arguments. `Box<int>` does; `Box` and
+// `Box<>` do not.
+fn genericArgsOf(sema: Sema, name: string) -> list {
+    var bare = name
+    val lt = orbit_string_indexOf(name, "<")
+    if lt <= 0 { return [] }
+    bare = orbit_string_slice(name, 0, lt)
+    val params = modelGenericParamsOf(sema, bare)
+    if params.len() == 0 { return [] }
+    val n = orbit_string_len(name)
+    if n < 2 { return [] }
+    if orbit_string_slice(name, n - 1, n) != ">" { return [] }
+    val inner = orbit_string_slice(name, lt + 1, n - 1)
+    val args = splitOnComma(inner)
+    if args.len() != params.len() { return [] }
+    return args
+}
+
+// The type a symbol declared `Box<int>` carries. It is the instance name, the
+// same string the builder builds for the literal, because a checker that
+// disagreed with the emitter about which struct a value is would accept the
+// program and then read the wrong member.
+fn resolvedGenericTypeName(sema: Sema, declared: string) -> string {
+    val args = genericArgsOf(sema, declared)
+    if args.len() == 0 { return declared }
+    val lt = orbit_string_indexOf(declared, "<")
+    val bare = orbit_string_slice(declared, 0, lt)
+    var out = bare
+    var i = 0
+    while i < args.len() {
+        out = out + "_" + mangleTypeArg(args.get(i))
+        i = i + 1
+    }
+    return out
+}
+
+fn checkGenericModelTypeName(sema: Sema, declared: string, line: int, col: int) -> bool {
+    if isGenericModelTypeName(sema, declared) == false { return false }
+    // Written arguments are a declaration, and the one thing that can stand in
+    // for a value before the value exists.
+    if genericArgsOf(sema, declared).len() > 0 { return false }
+    reportErrorAt(sema, "E1006", "Write the arguments -- `Box<int>` -- or build the value with a literal. A bare generic model has no one type until a value fixes it.", line, col, "'" + declared + "' names a generic model, and a generic model has no one type: a signature written before any value cannot say which one.")
+    return true
+}
+
+fn checkableParamTypes(sema: Sema, declared: list) -> list {
+    var out = []
+    var i = 0
+    while i < declared.len() {
+        val t = declared.get(i)
+        if isGenericModelTypeName(sema, t) {
+            out.push("unknown")
+        } else {
+            out.push(t)
+        }
+        i = i + 1
+    }
+    return out
 }
 
 fn isCapitalised(s: string) -> bool {
@@ -1448,6 +1565,12 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
             if returnType == "" {
                 returnType = "void"
             }
+            // A `-> Box` on a generic model is the same refusal as a `Box`
+            // parameter, and it is reported here rather than in the body pass
+            // because this is the pass that decides what the function's type IS.
+            // "unknown" then keeps the body from disagreeing with it as well.
+            if checkGenericModelTypeName(sema, returnType, 0, 0) { returnType = "unknown" }
+
             if reservedCFunctionName(f.name) {
                 sema.currentFunction = f.name
                 reportError(sema, "'" + f.name + "' is a C library function name and cannot be used as an Orbit function name; rename it (for example user_" + f.name + ")")
@@ -1457,7 +1580,7 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
                 reportError(sema, "'" + f.name + "' starts with orbit_, which is reserved for the runtime; rename it (drop the prefix, or use a different one)")
                 sema.currentFunction = ""
             }
-            declareSymbolWithParams(sema, f.name, returnType, false, true, f.paramTypes)
+            declareSymbolWithParams(sema, f.name, returnType, false, true, checkableParamTypes(sema, f.paramTypes))
         }
         _ => {}
     }
@@ -1470,6 +1593,9 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
             if returnType == "" {
                 returnType = "void"
             }
+            // `-> Box<int>` names the instance, so the return check compares a
+            // `Box { v: 1 }` against `Box_int` and not against the model.
+            if genericArgsOf(sema, returnType).len() > 0 { returnType = resolvedGenericTypeName(sema, returnType) }
             val prevReturn = sema.currentReturnType
             sema.currentReturnType = returnType
             sema.currentFunction = f.name
@@ -1481,6 +1607,10 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
                 var pType = "unknown"
                 if i < f.paramTypes.len() {
                     pType = f.paramTypes.get(i)
+                    // "unknown" after the refusal, so the parameter does not
+                    // go on to disagree with every argument passed to it and
+                    // bury the one diagnostic that says what is actually wrong.
+                    if checkGenericModelTypeName(sema, pType, 0, 0) { pType = "unknown" }
                 }
                 declareSymbol(sema, pName, pType, false, false)
                 i = i + 1
@@ -1840,15 +1970,274 @@ fn checkObjectLiteralModel(sema: Sema, modelName: string, node: ASTNode) {
                     }
                     _ => {
                         val got = checkNode(sema, valueNode)
-                        if !argTypeFits(got, want) {
-                            reportError(sema, "Field '" + modelName + "." + fieldName + "' is declared " + want + " but the value is " + got)
+                        // A generic model's declared types are in terms of its
+                        // parameters, which the literal is what fixes, so this
+                        // comparison has nothing to compare yet.
+                        // checkGenericModelFields below does it against the
+                        // substituted type instead.
+                        if modelGenericParamsOf(sema, modelName).len() == 0 {
+                            if !argTypeFits(got, want) {
+                                reportError(sema, "Field '" + modelName + "." + fieldName + "' is declared " + want + " but the value is " + got)
+                            }
                         }
                     }
                 }
                 d = d + 1
             }
+            checkGenericModelFields(sema, modelName, node)
         }
         _ => {}
+    }
+}
+
+// The type parameter names of `modelName` as a list, in declaration order, or
+// [] when it declares none. The registry stores one comma-separated string
+// because a model with two parameters is one row, and a row has to be a
+// string; splitting it back out is this function's whole job.
+fn modelGenericParamsOf(sema: Sema, modelName: string) -> list {
+    var i = 0
+    while i < sema.modelGenericOwner.len() {
+        if sema.modelGenericOwner.get(i) == modelName {
+            return splitOnComma(sema.modelGenericParams.get(i))
+        }
+        i = i + 1
+    }
+    return []
+}
+
+fn splitOnComma(s: string) -> list {
+    var out = []
+    var cur = ""
+    var i = 0
+    while i < orbit_string_len(s) {
+        // 44 is ','. A char is an int here, and every other comparison against
+        // one in this compiler is against its code.
+        if s.at(i) == 44 {
+            val trimmed = trimTypeArgForSema(cur)
+            if trimmed != "" { out.push(trimmed) }
+            cur = ""
+        } else {
+            cur = cur + s.slice(i, i + 1)
+        }
+        i = i + 1
+    }
+    val tail = trimTypeArgForSema(cur)
+    if tail != "" { out.push(tail) }
+    return out
+}
+
+// parseTypeName writes arguments as ", ", so `Pair<string, float>` is stored
+// with a space before `float`. An untrimmed argument would be compared and
+// substituted with the space still attached, and no type rule matches " float".
+fn trimTypeArgForSema(s: string) -> string {
+    var start = 0
+    var end = orbit_string_len(s)
+    while start < end {
+        val c = s.at(start)
+        if c != 32 && c != 9 && c != 10 && c != 13 { break }
+        start = start + 1
+    }
+    while end > start {
+        val c2 = s.at(end - 1)
+        if c2 != 32 && c2 != 9 && c2 != 10 && c2 != 13 { break }
+        end = end - 1
+    }
+    if end <= start { return "" }
+    return orbit_string_slice(s, start, end)
+}
+
+// What a generic model's literal fixed each type parameter to, as "T int" rows
+// in declaration order. A parameter a field's declared type does not MENTION is
+// left out, and one nothing determines keeps "unknown" -- see the builder's
+// modelLiteralArgTypes, which walks the same fields in the same order and must
+// reach the same answer, because the checker deciding that `Box { v: "hi" }` is
+// fine and the emitter writing `Box_int` are two halves of one decision.
+//
+// This is the same inference the builder performs, reached through the
+// checker's own expression typer. The two are not the same code and the
+// builder's is deliberately the narrow one, so there is a case where they
+// disagree: the builder cannot type a method call and says "unknown", while
+// checkNode knows the callee's return type. That disagreement fails CLOSED.
+// "unknown" is the one type argTypeFits accepts on either side of every rule,
+// so a value the checker types and the builder cannot is still checked here
+// and still emits `Box_unknown` -- never a `Box_string` the checker did not
+// clear.
+fn modelGenericBindings(sema: Sema, modelName: string, node: ASTNode) -> list {
+    val params = modelGenericParamsOf(sema, modelName)
+    var bindings = []
+    var p = 0
+    while p < params.len() {
+        bindings.push(params.get(p) + " unknown")
+        p = p + 1
+    }
+    var d = 0
+    while d < modelFieldCount(sema, modelName) {
+        val fieldName = modelFieldNameAt(sema, modelName, d)
+        val want = modelFieldType(sema, modelName, fieldName)
+        val valueNode = objectLiteralFieldValue(node, fieldName)
+        // `&&` does not short-circuit in this language, so each guard is a
+        // statement. Indexing bindings at -1 is what they keep out of reach.
+        val direct = indexInList(params, want)
+        if direct >= 0 {
+            if bindingTail(bindings.get(direct)) == "unknown" {
+                bindings.set(direct, params.get(direct) + " " + checkNode(sema, valueNode))
+            }
+        }
+        val elem = listElementParamIndexOf(params, want)
+        if elem >= 0 {
+            if bindingTail(bindings.get(elem)) == "unknown" {
+                match valueNode {
+                    ASTNode.ListLiteral(ll) => {
+                        var et = ""
+                        var ei = 0
+                        var mixed = false
+                        while ei < ll.elements.len() {
+                            val t = checkNode(sema, ll.elements.get(ei))
+                            if t == "" || t == "unknown" || t == "void" {
+                                mixed = true
+                            } else {
+                                if et == "" {
+                                    et = t
+                                } else {
+                                    if et != t { mixed = true }
+                                }
+                            }
+                            ei = ei + 1
+                        }
+                        if mixed == false {
+                            if et != "" { bindings.set(elem, params.get(elem) + " " + et) }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        d = d + 1
+    }
+    return bindings
+}
+
+fn indexInList(items: list, want: string) -> int {
+    var i = 0
+    while i < items.len() {
+        if items.get(i) == want { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn bindingTail(row: string) -> string {
+    val sp = orbit_string_indexOf(row, " ")
+    if sp < 0 { return row }
+    return orbit_string_slice(row, sp + 1, orbit_string_len(row))
+}
+
+fn bindingHead(row: string) -> string {
+    val sp = orbit_string_indexOf(row, " ")
+    if sp < 0 { return row }
+    return orbit_string_slice(row, 0, sp)
+}
+
+// `list<T>` reduced to the element slot: the index of T in it, or -1. One
+// level, because a `list<list<T>>` field has no element type to read and the
+// builder will not invent one either.
+fn listElementParamIndexOf(params: list, declared: string) -> int {
+    val prefix = "list<"
+    if orbit_string_len(declared) <= orbit_string_len(prefix) + 1 { return -1 }
+    if orbit_string_slice(declared, 0, orbit_string_len(prefix)) != prefix { return -1 }
+    val last = orbit_string_len(declared) - 1
+    if declared.at(last) != 62 { return -1 }
+    return indexInList(params, orbit_string_slice(declared, orbit_string_len(prefix), last))
+}
+
+// The type `declared` becomes once every parameter is bound: the parameter's
+// own name where it stands alone, and every other character kept. Word at a
+// time on purpose -- the `T` in `string` is not the parameter `T`.
+fn modelSubstitutedType(declared: string, bindings: list) -> string {
+    var out = ""
+    var i = 0
+    while i < orbit_string_len(declared) {
+        if isTypeWordChar(declared.at(i)) {
+            var j = i
+            while j < orbit_string_len(declared) {
+                if isTypeWordChar(declared.at(j)) == false { break }
+                j = j + 1
+            }
+            out = out + substitutedWord(declared.slice(i, j), bindings)
+            i = j
+        } else {
+            out = out + declared.slice(i, i + 1)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+fn isTypeWordChar(c: int) -> bool {
+    if c >= 48 && c <= 57 { return true }
+    if c >= 65 && c <= 90 { return true }
+    if c >= 97 && c <= 122 { return true }
+    if c == 95 { return true }
+    return false
+}
+
+fn substitutedWord(word: string, bindings: list) -> string {
+    var i = 0
+    while i < bindings.len() {
+        if bindingHead(bindings.get(i)) == word {
+            val arg = bindingTail(bindings.get(i))
+            if arg == "unknown" { return word }
+            return arg
+        }
+        i = i + 1
+    }
+    return word
+}
+
+// A generic model's literal, after the type arguments are fixed. Two things
+// are checked that are not checked for a model written out longhand.
+//
+// A parameter nothing determines is a refusal rather than a guess. The builder
+// would substitute "unknown" and emit `Box_unknown` with a `void*` field, which
+// compiles and computes: `Box { v: 1 + 1 }` would build a `Box_unknown` for a
+// value that is plainly an int. Naming the parameter and saying how to fix it
+// costs one program the shape it wanted and saves every reader of the struct
+// a lie.
+//
+// And a value that disagrees with what the literal already decided is an error
+// naming the model, the field and both types -- `Pair { first: 1, second: true
+// }` is a `Pair_int_bool`, which is a different model from `Pair_int_int`, and
+// the program did not say which one it meant.
+fn checkGenericModelFields(sema: Sema, modelName: string, node: ASTNode) {
+    val bindings = modelGenericBindings(sema, modelName, node)
+    var i = 0
+    while i < bindings.len() {
+        if bindingTail(bindings.get(i)) == "unknown" {
+            reportError(sema, "Model '" + modelName + "' cannot infer type parameter '" + bindingHead(bindings.get(i)) + "': no field's declared type mentions it, so there is no value to take the argument from. Declare one model per type, or use the parameter in a field.")
+        }
+        i = i + 1
+    }
+    var d = 0
+    while d < modelFieldCount(sema, modelName) {
+        val fieldName = modelFieldNameAt(sema, modelName, d)
+        val declared = modelFieldType(sema, modelName, fieldName)
+        val param = indexInList(modelGenericParamsOf(sema, modelName), declared)
+        val substituted = modelSubstitutedType(declared, bindings)
+        val valueNode = objectLiteralFieldValue(node, fieldName)
+        match valueNode {
+            ASTNode.Empty => {}
+            _ => {
+                val got = checkNode(sema, valueNode)
+                if !argTypeFits(got, substituted) {
+                    if param >= 0 {
+                        reportError(sema, "Model '" + modelName + "': field '" + fieldName + "' is declared " + declared + ", which this literal fixes as " + bindingTail(bindings.get(param)) + ", but the value is " + got)
+                    } else {
+                        reportError(sema, "Field '" + modelName + "." + fieldName + "' is declared " + substituted + " but the value is " + got)
+                    }
+                }
+            }
+        }
+        d = d + 1
     }
 }
 
@@ -2469,7 +2858,20 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         ASTNode.TypedLiteral(tl) => {
             if isModelName(sema, tl.declaredType) {
                 checkObjectLiteralModel(sema, tl.declaredType, tl.value)
-                return tl.declaredType
+                // A generic literal is worth its INSTANCE, which is what both
+                // the emitter builds and a `-> Box<int>` names. Answering with
+                // the bare model name would make every return and every
+                // annotation on a generic value a mismatch against itself.
+                val params = modelGenericParamsOf(sema, tl.declaredType)
+                if params.len() == 0 { return tl.declaredType }
+                val bindings = modelGenericBindings(sema, tl.declaredType, tl.value)
+                var name = tl.declaredType
+                var bi = 0
+                while bi < bindings.len() {
+                    name = name + "_" + mangleTypeArg(bindingTail(bindings.get(bi)))
+                    bi = bi + 1
+                }
+                return name
             }
             checkNode(sema, tl.value)
             return ""

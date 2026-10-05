@@ -27,12 +27,17 @@ model IRBuilder {
     // both taking `l`. The whole std got one elemKind for `l`. Restored on
     // popVariableScope exactly as variableScopes is.
     listKindMarks: list
+    // The generic model DECLARATIONS, as IRModelDecl with typeParams filled.
+    // Separate from module.models because that list is what the emitter walks,
+    // and a declaration's field types are not C types until a use fixes them.
+    // An instantiation is pushed back into module.models under its own name.
+    genericModels: list
 }
 
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [])
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [])
 }
 
 model Variable {
@@ -302,7 +307,9 @@ fn modelFieldTypeOf(builder: IRBuilder, typeName: string, fieldName: string) -> 
 }
 
 // Is `name` a model this program declares? An object literal in a position
-// whose declared type is one is that model's struct, not the runtime object.
+// whose declared type is one is that model's struct, not the runtime object. A
+// generic declaration counts: `Box { v: 1 }` is a struct either way, and which
+// struct is decided by the instantiation this call reaches below.
 fn isModelDeclName(builder: IRBuilder, name: string) -> bool {
     var i = 0
     while i < builder.module.models.len() {
@@ -310,6 +317,294 @@ fn isModelDeclName(builder: IRBuilder, name: string) -> bool {
         if m.name == name { return true }
         i = i + 1
     }
+    var gi = 0
+    while gi < builder.genericModels.len() {
+        val gm: IRModelDecl = builder.genericModels.get(gi)
+        if gm.name == name { return true }
+        gi = gi + 1
+    }
+    return false
+}
+
+/* ── Monomorphisation ────────────────────────────────────────────────────────
+ *
+ * `model Box[T] { v: T }` is one declaration and many structs. There is no
+ * grammar for a type argument at an expression site -- `Box<int>` lexes as a
+ * comparison, and adding one is a far bigger change than the feature is worth
+ * -- so the argument is INFERRED from the literal that fixes it. `Box { v: 1 }`
+ * is `Box_int` and `Box { v: "hi" }` is `Box_string`: two C structs that share
+ * no storage and no member names, each emitted by the same code that has always
+ * emitted a model's struct, because an instantiation is an ordinary IRModelDecl
+ * with its fields already substituted. `T` therefore never reaches mapTypeToC,
+ * which has no case for it and is not given one.
+ *
+ * Three functions, deliberately in this order. The name is PURE, so a use site
+ * that asks what type a literal is and the site that builds it cannot disagree
+ * about which struct it is; the registration is IMPURE and idempotent; and the
+ * inference both read is one walk over the literal, so there is one answer.
+ */
+
+// Which type parameter does `declared` stand for, or -1 when it is not exactly
+// one. A field declared `T` is bound by the value written for it. A field
+// declared anything that merely MENTIONS a parameter binds nothing, which is
+// what turns a parameter nothing determines into a diagnostic instead of a
+// guess: there is no `unknown` to substitute and no second question to ask.
+fn typeParamIndex(params: list, declared: string) -> int {
+    var i = 0
+    while i < params.len() {
+        if params.get(i) == declared { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+// `list<T>`, reduced to the element slot: the index of T in it, or -1 for
+// anything else. One level is what a model field can be lowered with -- a
+// `list<list<T>>` field has no element type to read, and inventing one would
+// be a type nobody declared.
+fn listElementParamIndex(params: list, declared: string) -> int {
+    val prefix = "list<"
+    if orbit_string_len(declared) <= orbit_string_len(prefix) + 1 { return -1 }
+    if orbit_string_slice(declared, 0, orbit_string_len(prefix)) != prefix { return -1 }
+    val last = orbit_string_len(declared) - 1
+    // 62 is '>'. A char is an int here; every other comparison against one in
+    // this compiler is against its code.
+    if declared.at(last) != 62 { return -1 }
+    return typeParamIndex(params, orbit_string_slice(declared, orbit_string_len(prefix), last))
+}
+
+// The argument a whole word stands for, or the word unchanged. Keeping this
+// word-at-a-time is the difference between substituting a type parameter and
+// corrupting a type name: the `T` in `T` is the parameter, and the `T` in
+// `string` is not.
+fn argumentForTypeName(word: string, params: list, args: list) -> string {
+    val idx = typeParamIndex(params, word)
+    if idx < 0 || idx >= args.len() { return word }
+    val a = args.get(idx)
+    if a == "" { return word }
+    return a
+}
+
+// The declared type with every type parameter replaced by its argument. `T`
+// becomes `int` before anything is lowered, and `list<T>` becomes `list<int>`
+// by the same walk -- which is exactly the string a model written out longhand
+// would have had, so every downstream rule reads it the way it always has.
+fn substituteTypeParams(declared: string, params: list, args: list) -> string {
+    var out = ""
+    var i = 0
+    while i < orbit_string_len(declared) {
+        if isTypeNameChar(declared.at(i)) {
+            var j = i
+            while j < orbit_string_len(declared) {
+                if isTypeNameChar(declared.at(j)) == false { break }
+                j = j + 1
+            }
+            out = out + argumentForTypeName(declared.slice(i, j), params, args)
+            i = j
+        } else {
+            out = out + declared.slice(i, i + 1)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+// The type arguments a literal fixes, in declaration order, one per parameter.
+// A parameter nothing determines stays "unknown", which is this compiler's
+// standing answer for a value it could not type and which mapTypeToC has always
+// lowered to `void*`. It is not a new sentinel: a field of an untyped model is
+// already emitted that way, and the struct name says so (`Box_unknown`).
+//
+// Fields are walked in DECLARATION order and the first one that determines a
+// parameter wins. The literal is keyed and the model is ordered, so declaration
+// order is the only order both agree on; and first-wins makes the answer a
+// function of the model rather than of the keys, which is what stops the
+// checker and this builder disagreeing about which struct a literal is.
+fn modelLiteralArgTypes(builder: IRBuilder, gm: IRModelDecl, literal: ASTNode) -> list {
+    var args = []
+    var p = 0
+    while p < gm.typeParams.len() {
+        args.push("unknown")
+        p = p + 1
+    }
+    var fi = 0
+    while fi < gm.fields.len() {
+        val f: IRModelField = gm.fields.get(fi)
+        val valueNode = literalFieldValue(literal, f.name)
+        val direct = typeParamIndex(gm.typeParams, f.typeName)
+        if direct >= 0 {
+            if args.get(direct) == "unknown" {
+                args.set(direct, staticExprTypeName(builder, valueNode))
+            }
+        }
+        val elem = listElementParamIndex(gm.typeParams, f.typeName)
+        if elem >= 0 {
+            if args.get(elem) == "unknown" {
+                match valueNode {
+                    ASTNode.ListLiteral(ll) => { args.set(elem, listLiteralKindName(builder, ll)) }
+                    _ => {}
+                }
+            }
+        }
+        fi = fi + 1
+    }
+    return args
+}
+
+// The generic declaration called `name`, or NULL.
+fn genericModelByName(builder: IRBuilder, name: string) -> IRModelDecl {
+    var gi = 0
+    while gi < builder.genericModels.len() {
+        val gm: IRModelDecl = builder.genericModels.get(gi)
+        if gm.name == name { return gm }
+        gi = gi + 1
+    }
+    return NULL
+}
+
+// The name this literal's instantiation carries: the model's own name unchanged
+// when it has no type parameters, `Model_arg_arg` when it has.
+//
+// PURE. A binding asks this what type its value is before anything is built,
+// and the build asks it again for the constructor name; one answer for both is
+// what makes `val b = Box { v: 1 }` bind `b` to the struct that was emitted.
+fn modelInstanceName(builder: IRBuilder, modelName: string, literal: ASTNode) -> string {
+    val gm = genericModelByName(builder, modelName)
+    if gm == NULL { return modelName }
+    val args = modelLiteralArgTypes(builder, gm, literal)
+    var out = modelName
+    var i = 0
+    while i < args.len() {
+        out = out + "_" + mangleTypeArg(args.get(i))
+        i = i + 1
+    }
+    return out
+}
+
+// Register the instantiation and return its name. The one impure step, and
+// idempotent: a second `Box { v: 1 }` finds the struct the first one declared
+// and is lowered against it. Two literals that infer the same arguments are the
+// same type, and that is what makes the struct rather than the literal the unit
+// of monomorphisation.
+fn ensureModelInstance(builder: IRBuilder, modelName: string, literal: ASTNode) -> string {
+    val gm = genericModelByName(builder, modelName)
+    if gm == NULL { return modelName }
+    val instance = modelInstanceName(builder, modelName, literal)
+    var mi = 0
+    while mi < builder.module.models.len() {
+        val m: IRModelDecl = builder.module.models.get(mi)
+        if m.name == instance { return instance }
+        mi = mi + 1
+    }
+    val args = modelLiteralArgTypes(builder, gm, literal)
+    val fields = []
+    var fi = 0
+    while fi < gm.fields.len() {
+        val f: IRModelField = gm.fields.get(fi)
+        fields.push(IRModelField(f.name, substituteTypeParams(f.typeName, gm.typeParams, args)))
+        fi = fi + 1
+    }
+    builder.module.models.push(IRModelDecl(instance, fields, []))
+    return instance
+}
+
+// Register the instantiation for WRITTEN arguments -- `Box<int>` in a
+// signature or an annotation -- and return its name.
+fn ensureModelInstanceFromArgs(builder: IRBuilder, modelName: string, args: list) -> string {
+    val gm = genericModelByName(builder, modelName)
+    if gm == NULL { return "" }
+    if args.len() != gm.typeParams.len() { return "" }
+    var mi = 0
+    while mi < builder.module.models.len() {
+        val m: IRModelDecl = builder.module.models.get(mi)
+        if m.name == modelName { return modelName }
+        mi = mi + 1
+    }
+    var instance = modelName
+    var ai = 0
+    while ai < args.len() {
+        instance = instance + "_" + mangleTypeArg(args.get(ai))
+        ai = ai + 1
+    }
+    mi = 0
+    while mi < builder.module.models.len() {
+        val m: IRModelDecl = builder.module.models.get(mi)
+        if m.name == instance { return instance }
+        mi = mi + 1
+    }
+    val fields = []
+    var fi = 0
+    while fi < gm.fields.len() {
+        val f: IRModelField = gm.fields.get(fi)
+        fields.push(IRModelField(f.name, substituteTypeParams(f.typeName, gm.typeParams, args)))
+        fi = fi + 1
+    }
+    builder.module.models.push(IRModelDecl(instance, fields, []))
+    return instance
+}
+
+// The instance a declared type names, registering it if this is the first
+// mention. `Box<int>` -> `Box_int`.
+fn declaredTypeInstanceName(builder: IRBuilder, declared: string) -> string {
+    val lt = orbit_string_indexOf(declared, "<")
+    if lt <= 0 { return "" }
+    val bare = orbit_string_slice(declared, 0, lt)
+    if genericModelByName(builder, bare) == NULL { return "" }
+    val n = orbit_string_len(declared)
+    if n < 2 { return "" }
+    if orbit_string_slice(declared, n - 1, n) != ">" { return "" }
+    val args = splitTypeArgs(orbit_string_slice(declared, lt + 1, n - 1))
+    if args.len() == 0 { return "" }
+    return ensureModelInstanceFromArgs(builder, bare, args)
+}
+
+fn splitTypeArgs(s: string) -> list {
+    var out = []
+    var cur = ""
+    var depth = 0
+    var i = 0
+    while i < orbit_string_len(s) {
+        val c = s.at(i)
+        if c == 60 { depth = depth + 1 }
+        if c == 62 { depth = depth - 1 }
+        if c == 44 && depth == 0 {
+            out.push(trimTypeArg(cur))
+            cur = ""
+        } else {
+            cur = cur + s.slice(i, i + 1)
+        }
+        i = i + 1
+    }
+    if orbit_string_len(trimTypeArg(cur)) > 0 { out.push(trimTypeArg(cur)) }
+    return out
+}
+
+// parseTypeName writes arguments as ", " -- `Pair<string, float>` is stored with
+// the space -- so the second argument arrives as " float". An untrimmed argument
+// substitutes into the field type as " float", which no type rule matches, and
+// the field is emitted as void*. The instance NAME was unaffected, because
+// mangleTypeArg drops the space anyway, which is why this presented as a struct
+// whose field silently had the wrong C type.
+fn trimTypeArg(s: string) -> string {
+    var start = 0
+    var end = orbit_string_len(s)
+    while start < end {
+        if isTypeArgSpace(s.at(start)) == false { break }
+        start = start + 1
+    }
+    while end > start {
+        if isTypeArgSpace(s.at(end - 1)) == false { break }
+        end = end - 1
+    }
+    if end <= start { return "" }
+    return orbit_string_slice(s, start, end)
+}
+
+fn isTypeArgSpace(c: int) -> bool {
+    if c == 32 { return true }
+    if c == 9 { return true }
+    if c == 10 { return true }
+    if c == 13 { return true }
     return false
 }
 
@@ -340,13 +635,19 @@ fn literalFieldValue(node: ASTNode, name: string) -> ASTNode {
 // each is passed positionally to the constructor the model already has. The
 // checker has already rejected a key the model does not declare and a declared
 // field the literal omits.
+//
+// A generic model is instantiated HERE, at the literal that fixes its type
+// arguments, and everything below then works on the instantiation exactly as
+// it works on a model that was written out longhand. That is the whole trick:
+// no new emitter, no new type case, one more IRModelDecl.
 fn buildObjectLiteralAsModel(builder: IRBuilder, node: ASTNode, modelName: string) -> int {
-    val resReg = ir_alloc_register(builder.currentFunction, modelName)
+    val instance = ensureModelInstance(builder, modelName, node)
+    val resReg = ir_alloc_register(builder.currentFunction, instance)
     var fieldCount = 0
     var mi = 0
     while mi < builder.module.models.len() {
         val m: IRModelDecl = builder.module.models.get(mi)
-        if m.name == modelName {
+        if m.name == instance {
             var fi = 0
             while fi < m.fields.len() {
                 val f: IRModelField = m.fields.get(fi)
@@ -362,7 +663,7 @@ fn buildObjectLiteralAsModel(builder: IRBuilder, node: ASTNode, modelName: strin
     }
     val call = ir_init_instr(IROpcode.call)
     call.dest = resReg
-    call.operand1 = ir_string(modelName)
+    call.operand1 = ir_string(instance)
     call.operand2 = ir_int(fieldCount)
     ir_emit(builder.currentFunction, call)
     return resReg
@@ -434,6 +735,7 @@ fn listElementType(source: string) -> string {
     if ownerType == "IRVariantDecl" && fieldName == "fields" { return "IRVariantField" }
     if ownerType == "IRFunction" && fieldName == "instructions" { return "IRInstruction" }
     if ownerType == "IRBuilder" && fieldName == "variableScopes" { return "VarScope" }
+    if ownerType == "IRBuilder" && fieldName == "genericModels" { return "IRModelDecl" }
     if ownerType == "IRBuilder" && fieldName == "returnTypes" { return "Variable" }
     if ownerType == "VarScope" && fieldName == "variables" { return "Variable" }
     return "unknown"
@@ -535,7 +837,10 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
         // `Model { ... }` is worth the model's own name: the name in front is
         // the type, and without this `val p = Post { ... }` bound p to unknown
         // and every field read through it had nothing to read a field type off.
-        ASTNode.TypedLiteral(tl) => { return tl.declaredType }
+        // A generic model's own name is not a type, so this is where the
+        // instantiation is named: `Box { v: 1 }` is a `Box_int`, which is what
+        // a field read through it needs to cast to.
+        ASTNode.TypedLiteral(tl) => { return modelInstanceName(builder, tl.declaredType, tl.value) }
         ASTNode.Interp(ip) => { return "string" }
         // The value of an `if` is the value of the branch that ran, and the
         // then branch is the one that decides it, so that is what an `if` is
@@ -807,7 +1112,10 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.ObjectLiteral(ol) => { return "object" }
-        ASTNode.TypedLiteral(tl) => { return tl.declaredType }
+        // A generic model literal is its instantiation, for the same reason
+        // staticExprTypeName answers with the model name at all: this is the
+        // one place the name in front of `{...}` becomes a type.
+        ASTNode.TypedLiteral(tl) => { return modelInstanceName(builder, tl.declaredType, tl.value) }
         // A list literal is a list. It was missing here, so `val n = [10,20,30]`
         // bound n to "unknown" and every later use of n -- `.at()`, `.get()`,
         // `.push()` -- had nothing to say what was in it. That is the same
@@ -986,7 +1294,25 @@ fn registerModel(builder: IRBuilder, node: ASTNode) {
                 }
                 fi = fi + 1
             }
-            builder.module.models.push(IRModelDecl(m.name, irFields))
+            val params = []
+            var gi = 0
+            while gi < m.genericParams.len() {
+                match m.genericParams.get(gi) {
+                    ASTNode.GenericParam(gparam) => { params.push(gparam.name) }
+                    _ => {}
+                }
+                gi = gi + 1
+            }
+            // A generic declaration goes to genericModels, never to
+            // module.models: its fields are spelled in terms of names that
+            // only a use can fill in, and module.models is walked by the
+            // emitter. Each instantiation the builder synthesises goes into
+            // module.models on its own, already substituted.
+            if params.len() > 0 {
+                builder.genericModels.push(IRModelDecl(m.name, irFields, params))
+            } else {
+                builder.module.models.push(IRModelDecl(m.name, irFields, []))
+            }
         }
         ASTNode.MigrationDecl(m) => {
             builder.module.migrations.push(unescapeString(m.sql))
@@ -1032,15 +1358,34 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
             val func = initIRFunction(f.name)
-            func.returnType = f.returnType
+            // A return type may name an instance that no literal in this
+            // function creates, so the instance is registered from the written
+            // argument before the module is emitted. The PROTOTYPE is rendered
+            // from this IRFunction, so it has to be the instance name here and
+            // not the annotation.
+            val retInstance = declaredTypeInstanceName(builder, f.returnType)
+            if retInstance != "" {
+                func.returnType = retInstance
+            } else {
+                func.returnType = f.returnType
+            }
             func.isExtern = f.isExtern
-            registerFunctionReturnType(builder, f.name, f.returnType)
+            registerFunctionReturnType(builder, f.name, func.returnType)
             var i = 0
             while i < f.params.len() {
                 val p = f.params.get(i)
                 func.params.push(p)
                 val pType = f.paramTypes.get(i)
-                func.paramTypes.push(pType)
+                // The PROTOTYPE is rendered from paramTypes, so an annotation of
+                // `Box<int>` has to become the instance name here as well as in
+                // the body: `Box<int>` reaching mapTypeToC falls through to the
+                // pointer default and emits `Box_int_*` from a mangled name.
+                val pInstance = declaredTypeInstanceName(builder, pType)
+                if pInstance != "" {
+                    func.paramTypes.push(pInstance)
+                } else {
+                    func.paramTypes.push(pType)
+                }
                 i = i + 1
             }
             builder.module.functions.push(func)
@@ -1192,7 +1537,12 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
             if vType == "" {
                 vType = inferValueType(builder, v.value)
             }
-            defineVariable(builder, v.name, annotationBaseType(vType))
+            val vInstance = declaredTypeInstanceName(builder, vType)
+            if vInstance != "" {
+                defineVariable(builder, v.name, vInstance)
+            } else {
+                defineVariable(builder, v.name, annotationBaseType(vType))
+            }
             val vElem = annotationListElement(v.typeAnnotation)
             if vElem != "" {
                 recordListKind(builder, v.name, vElem)
@@ -1217,7 +1567,16 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
 
 fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     val func = getOrCreateFunction(builder, f.name)
-    func.returnType = f.returnType
+    // The same resolution the prototype got. Two IRFunctions carry one name --
+    // the prototype and the body -- and the type verifier reads the last one it
+    // finds, so a body still carrying the annotation makes `-> Box<int>` look
+    // like it returns something the call destination disagrees with.
+    val bodyInstance = declaredTypeInstanceName(builder, f.returnType)
+    if bodyInstance != "" {
+        func.returnType = bodyInstance
+    } else {
+        func.returnType = f.returnType
+    }
     val prevFunc = builder.currentFunction
     builder.currentFunction = func
     pushVariableScope(builder)
@@ -1232,9 +1591,24 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
         if pElem != "" {
             recordListKind(builder, p, pElem)
         }
-        defineVariable(builder, p, annotationBaseType(pType))
+        // `Box<int>` as a parameter is the instance, and the instance has to
+        // exist before struct emission reads the module: a signature may be the
+        // only mention of the type in the program. Every other annotation keeps
+        // its base type, and an EMPTY type name here would define the variable
+        // with no type at all -- which is not "unknown", it is nothing, and the
+        // first field read through the parameter then loads a field nobody
+        // declared.
+        val pInstance = declaredTypeInstanceName(builder, pType)
+        val pBase = annotationBaseType(pType)
+        if pInstance != "" {
+            defineVariable(builder, p, pInstance)
+        } else {
+            defineVariable(builder, p, pBase)
+        }
         val instr = ir_init_instr(IROpcode.arg)
-        instr.dest = ir_alloc_register(func, annotationBaseType(pType))
+        val regType = pInstance
+        if regType == "" { regType = pBase }
+        instr.dest = ir_alloc_register(func, regType)
         instr.operand1 = ir_int(i)
         ir_emit(func, instr)
         i = i + 1
@@ -1315,7 +1689,15 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     if vType == "" {
         vType = inferValueType(builder, v.value)
     }
-    defineVariable(builder, v.name, annotationBaseType(vType))
+    // An annotated generic model names its instance; every other annotation
+    // keeps its base type, because `list<int>` is a list with an element and
+    // the element is recorded separately.
+    val vInstance = ""
+    if vInstance != "" {
+        defineVariable(builder, v.name, vInstance)
+    } else {
+        defineVariable(builder, v.name, annotationBaseType(vType))
+    }
     val vElem = annotationListElement(v.typeAnnotation)
     if vElem != "" {
         recordListKind(builder, v.name, vElem)

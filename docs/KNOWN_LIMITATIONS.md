@@ -178,38 +178,92 @@ answered. Don't rely on a bind error to catch the mistake; check
 with `netstat -ano | findstr <port>` and stop the older process.
 UNTESTED on Linux.
 
-## A generic model is a parse error: there is no monomorphisation
+## A generic model monomorphises; the type argument is inferred, never written
 
-`model Box[T] { v: T }` used to pass `orbit check` with no errors and
-then fail in the C step:
-
-```console
-$ orbit build gen.orb -o gen
-  <build>:74:5: error: unknown type name 'T'
-  <build>:77:63: error: unknown type name 'T'
-  <build>:91:29: error: unknown type name 'T'
-```
-
-`T` reached the emitter as an ordinary type name, `mapTypeToC` has no
-case for it, and the backend helpfully cast it to `void*` in register
-declarations while emitting a bare `T*` in the struct and the
-constructor. The parser now refuses the parameter list, so the
-compiler is the one that says no, and it names the declaration:
+`model Box[T] { v: T }` works. The type argument comes from the value
+written for the field that uses it, and each instantiation is its own C
+struct:
 
 ```console
-$ orbit check gen.orb
-Parser error at line 1: 'model Box[T]' is not supported: there is no
-monomorphisation, so a type parameter has nothing to substitute and 'T'
-reaches the emitter as a C type name. Declare one model per type;
-`result` carries a payload today.
+$ cat box.orb
+model Box[T] { v: T }
+fn main() -> int { val b = Box { v: 1 }  print(b.v)  return 0 }
+$ orbit check box.orb
+Checked box.orb: no errors.
+$ orbit build box.orb -o box && ./box
+1
 ```
 
-What is still missing is the feature, not the diagnostic. Nothing
-substitutes a type argument at a use site, so `Box<int>` and
-`Box<string>` cannot be written and there is nothing to make distinct
-C for. This is the same root cause as the quarantined
-`std/quarantine/option.orb.quarantined`: `Option<T>` cannot be written
-until this can.
+`Box { v: 1 }` is `Box_int` and `Box { v: "hi" }` is `Box_string`, and the
+generated C says so:
+
+```c
+typedef struct Box_int { orbit_int v; } Box_int;
+static inline Box_int* orbit_model_Box_int_create(OrbitArena* arena_, orbit_int v);
+
+typedef struct Box_string { orbit_string v; } Box_string;
+static inline Box_string* orbit_model_Box_string_create(OrbitArena* arena_, orbit_string v);
+```
+
+There is nothing new in the emitter. An instantiation is an ordinary
+model whose fields are already substituted, so it goes out through the
+code that has always emitted a model struct, and `mapTypeToC` is handed
+`int` where the declaration said `T` -- it still has no case for `T`, and
+still does not need one. The generic declaration itself is never emitted.
+
+**Why the literal infers but a signature names.** There is no grammar
+for a type argument at an *expression* site: `Box<int>` lexes as a
+comparison, and adding that grammar is a far bigger change than the
+feature is worth. An annotation is a different position -- `parseTypeName`
+already reads `list<string>` -- so a signature may write the argument out:
+
+```orbit
+model Box[T] { v: T }
+fn take(b: Box<int>) -> int { return b.v }
+fn make() -> Box<int> { return Box { v: 3 } }
+```
+
+`Box<int>` is not decoration: it names the instance the literal infers, and
+the checker and the emitter have to agree on that string or the program
+passes `orbit check` and reads the wrong member. So the instance name is
+built by one function in `literal.orb`, which both sides import -- the same
+reason that module exists. `Box` with NO argument is still refused in a
+signature (n51): a signature is written before any value exists, so there
+is nothing to infer from, and the emitter would be handed a struct name
+that only ever exists as `Box_int`.
+
+### What is still refused, and where
+
+| you write | what happens |
+|---|---|
+| `Box { v: 1 }` | `Box_int`. The supported spelling. |
+| `Box(1)` | E1003. The positional form has an argument and no way to call it an int. (n47) |
+| `fn take(b: Box<int>)`, `-> Box<string>` | Supported. The written argument names (and creates) the instance. |
+| `fn take(b: Box)` | E1006. Nothing to infer from before the value exists; write the argument. (n51) |
+| `model Box[T: int]` | Parser error. A constraint is a promise about an argument this language infers, so there is nothing to hold it to. (n53) |
+| `model Phantom[T] { id: int }` | E1006: no field's declared type mentions `T`, so there is no value to take the argument from. `void*` would compile, and would be a lie about the model. (n52) |
+| `Same { a: 1, b: "s" }` where `model Same[T] { a: T, b: T }` | E1006. `a` fixes `T` at `int` and `b` is then checked against it. (n50) |
+| `model Box[T] { v: list<list<T>> }` | `T` is not determined. Only a field declared `T`, or a `list<T>` whose value is a list literal, fixes an argument. |
+| `union Option[T] { ... }` | Still a parse error: `union` has no type parameter list at all, and substitution is wired for model fields only. This is what keeps `std/quarantine/option.orb.quarantined` quarantined. |
+
+Two parameters work, and two instantiations of one model in one program
+are two structs:
+
+```orbit
+model Pair[A, B] { left: A, right: B }
+val ints = Pair { left: 1, right: 2 }      // Pair_int_int
+val strs = Pair { left: "a", right: "b" }   // Pair_string_string
+```
+
+**A field read has to be typed off its owner.** This is worth knowing
+because it was a live defect and monomorphisation made it easy to hit:
+two models declaring the same field name with different types used to
+type each other's member reads from a module-wide scan of field *names*,
+last match winning. `Pair_int_string` and `Pair_string_int` both have a
+field called `second`, so any program instantiating one generic model
+twice walked straight into it. The read is now typed from the model the
+field reference names, which the builder had been writing down and the
+backend had been discarding.
 
 ## `std/` is 13 modules, and 8 of the 20 it used to be are not coming back
 
