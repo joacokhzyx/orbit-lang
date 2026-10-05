@@ -362,15 +362,13 @@ fn typeParamIndex(params: list, declared: string) -> int {
 // anything else. One level is what a model field can be lowered with -- a
 // `list<list<T>>` field has no element type to read, and inventing one would
 // be a type nobody declared.
+// The index of the parameter inside `declared`'s innermost list, or -1. The
+// peel itself is in literal.orb, because the checker peels the same way and two
+// copies of this rule disagreed: the checker reached the parameter in a
+// `list<list<T>>` field and the builder did not, so the same literal checked as
+// `list<list<float>>` and built as `Nested_unknown`.
 fn listElementParamIndex(params: list, declared: string) -> int {
-    val prefix = "list<"
-    if orbit_string_len(declared) <= orbit_string_len(prefix) + 1 { return -1 }
-    if orbit_string_slice(declared, 0, orbit_string_len(prefix)) != prefix { return -1 }
-    val last = orbit_string_len(declared) - 1
-    // 62 is '>'. A char is an int here; every other comparison against one in
-    // this compiler is against its code.
-    if declared.at(last) != 62 { return -1 }
-    return typeParamIndex(params, orbit_string_slice(declared, orbit_string_len(prefix), last))
+    return typeParamIndex(params, listPeeledInner(declared))
 }
 
 // The argument a whole word stands for, or the word unchanged. Keeping this
@@ -420,6 +418,23 @@ fn substituteTypeParams(declared: string, params: list, args: list) -> string {
 // order is the only order both agree on; and first-wins makes the answer a
 // function of the model rather than of the keys, which is what stops the
 // checker and this builder disagreeing about which struct a literal is.
+// The element of a list literal `depth` levels down, or Empty.
+fn listLiteralValueAtDepth(node: ASTNode, depth: int) -> ASTNode {
+    var current = node
+    var d = 0
+    while d < depth {
+        match current {
+            ASTNode.ListLiteral(ll) => {
+                if ll.elements.len() == 0 { return ASTNode.Empty }
+                current = ll.elements.get(0)
+            }
+            _ => { return ASTNode.Empty }
+        }
+        d = d + 1
+    }
+    return current
+}
+
 fn modelLiteralArgTypes(builder: IRBuilder, gm: IRModelDecl, literal: ASTNode) -> list {
     var args = []
     var p = 0
@@ -440,9 +455,16 @@ fn modelLiteralArgTypes(builder: IRBuilder, gm: IRModelDecl, literal: ASTNode) -
         val elem = listElementParamIndex(gm.typeParams, f.typeName)
         if elem >= 0 {
             if args.get(elem) == "unknown" {
-                match valueNode {
-                    ASTNode.ListLiteral(ll) => { args.set(elem, listLiteralKindName(builder, ll)) }
-                    _ => {}
+                // The depth the peel reached is the depth the value has to be
+                // descended to match: the last peel produced the parameter name,
+                // not a list, so the list holding that parameter's values is one
+                // level above it.
+                val depth = listPeelDepth(f.typeName) - 1
+                if depth >= 0 {
+                    match listLiteralValueAtDepth(valueNode, depth) {
+                        ASTNode.ListLiteral(ll) => { args.set(elem, listLiteralKindName(builder, ll)) }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -936,6 +958,24 @@ fn isListExpression(builder: IRBuilder, node: ASTNode) -> bool {
 }
 
 /** @brief The element type of a list expression, "" when undecided. */
+// What an ELEMENT READ of `node` yields, as a kind name, or "" when nothing
+// says. Two sources, in one place, because a read that answers "float" while
+// the opcode carrying the read says "raw" is a value printed as a number.
+//
+// The first is the name-keyed registry, which only a name can fill. The second
+// is the receiver's own declared type: `post.grid.get(0)` on a
+// `list<list<float>>` field has no name to look up, and the element type is
+// right there in the type. Splitting those two across the read sites is how the
+// answer came out "float" in one place and "unknown" in the other -- and the
+// second is what reaches the emitter.
+fn listReadElemKindName(builder: IRBuilder, node: ASTNode) -> string {
+    val recorded = listKindNameOf(builder, node)
+    if recorded != "" { return recorded }
+    val elem = annotationListElement(resolveExprType(builder, node))
+    if elem == "string" || elem == "int" || elem == "float" || elem == "bool" { return elem }
+    return ""
+}
+
 fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.ListLiteral(ll) => { return listLiteralKindName(builder, ll) }
@@ -948,7 +988,11 @@ fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
         ASTNode.Literal(lit) => {
             if lit.valType == "identifier" {
                 val vt = lookupVariable(builder, lit.text)
-                if vt == "list" || vt == "List" { return lookupListKind(builder, lit.text) }
+                if annotationBaseType(vt) == "list" {
+                    val recorded = lookupListKind(builder, lit.text)
+                    if recorded != "" { return recorded }
+                    return annotationListElement(vt)
+                }
             }
             return ""
         }
@@ -1096,6 +1140,10 @@ fn memberElemType(builder: IRBuilder, receiver: ASTNode) -> string {
     if elem == "string" || elem == "int" || elem == "float" || elem == "bool" {
         return elem
     }
+    // An element that is ITSELF a list is still an answer, and dropping it is
+    // what made `list<list<float>>` read back as unknown: the register had no
+    // element kind, so the read of the inner list came out raw.
+    if annotationBaseType(elem) == "list" { return elem }
     if kind == "string" || kind == "orbit_string" { return "string" }
     if kind == "int" || kind == "orbit_int" { return "int" }
     if kind == "float" || kind == "orbit_float" { return "float" }
@@ -1547,7 +1595,12 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
             if vElem != "" {
                 recordListKind(builder, v.name, vElem)
             } else {
-                recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+                val topElem = annotationListElement(vType)
+                if topElem != "" {
+                    recordListKind(builder, v.name, topElem)
+                } else {
+                    recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+                }
             }
         }
         ASTNode.ConstDecl(c) => {
@@ -1702,7 +1755,12 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     if vElem != "" {
         recordListKind(builder, v.name, vElem)
     } else {
-        recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+        val inferredElem = annotationListElement(vType)
+        if inferredElem != "" {
+            recordListKind(builder, v.name, inferredElem)
+        } else {
+            recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+        }
     }
     match varVal {
         IRValue.Register(r) => { return r }
@@ -1972,7 +2030,11 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             // whose x was unknown reached print as a string and printed the
             // integer 1 as the address 0x1, or segfaulted; the variable's type
             // is what tells those two emitters apart.
-            val iterKind = elemKindCode(listKindNameOf(builder, stmt.iterable))
+            // The same two sources as an explicit read, and for the same reason: a `for`
+            // over a list whose kind was never pushed -- it came from a field or
+            // from a `->` function -- has no name-keyed entry, and the loop
+            // variable then typed as the raw word.
+            val iterKind = elemKindCode(listReadElemKindName(builder, stmt.iterable))
             val iterElemType = registerTypeForElemKind(iterKind)
             val lenReg = ir_alloc_register(builder.currentFunction, "int")
             val lenInstr = ir_init_instr(IROpcode.list_len)
@@ -2716,7 +2778,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val getInstr = ir_init_instr(IROpcode.list_get)
                 getInstr.operand1 = ir_register(objReg)
                 getInstr.operand2 = ir_register(idxReg)
-                getInstr.elemKind = elemKindCode(listKindNameOf(builder, ma.object))
+                getInstr.elemKind = elemKindCode(listReadElemKindName(builder, ma.object))
                 val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(getInstr.elemKind))
                 getInstr.dest = resReg
                 ir_emit(builder.currentFunction, getInstr)
@@ -2871,7 +2933,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     val getInstr = ir_init_instr(IROpcode.list_get)
                     getInstr.operand1 = ir_register(objReg)
                     getInstr.operand2 = ir_register(idxReg)
-                    getInstr.elemKind = elemKindCode(listKindNameOf(builder, ma.object))
+                    getInstr.elemKind = elemKindCode(listReadElemKindName(builder, ma.object))
                     val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(getInstr.elemKind))
                     getInstr.dest = resReg
                     ir_emit(builder.currentFunction, getInstr)
@@ -3463,7 +3525,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val objReg = buildExpr(builder, ia.object)
             val idxReg = buildExpr(builder, ia.index)
             val getInstr = ir_init_instr(IROpcode.list_get)
-            val elemKind = elemKindCode(listKindNameOf(builder, ia.object))
+            val elemKind = elemKindCode(listReadElemKindName(builder, ia.object))
             val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(elemKind))
             getInstr.dest = resReg
             getInstr.operand1 = ir_register(objReg)

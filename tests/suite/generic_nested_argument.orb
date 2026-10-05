@@ -1,0 +1,71 @@
+// A generic argument is substituted at every DEPTH of a field type, not just at
+// the top of it.
+//
+// `model Nested[T] { grid: list<list<T>> }` puts the argument one level down.
+// parseTypeName stores a parameterised type as text with its arguments joined
+// by ", ", so the argument arrived as "T" inside "list<list<T>>" and as
+// " float" inside "list<float>" -- and an untrimmed argument matches no type
+// rule at all, so the field was emitted as `void*`.
+//
+// The reason this is pinned separately from the one-level case is that the
+// instance NAME was correct while the field type was not. `mangleTypeArg`
+// drops punctuation, so " float" and "float" produce the same suffix and the
+// struct came out named `Nested_float` holding a `void*`. A program that
+// printed fine, typechecked clean, and read garbage out of the field -- and a
+// struct whose name promised a float.
+//
+// Every exit code below is distinct, so a regression names itself.
+
+model Nested[T] {
+    grid: list < list < T > >
+}
+
+model Bagged[T] {
+    items: list < T >
+}
+
+fn main() -> int {
+    if nestedArgumentReachesTheInnerType() != 0 { return 1 }
+    if nestedArgumentIsReadableThroughBothLevels() != 0 { return 2 }
+    if listOfListsArgument() != 0 { return 3 }
+    return 0
+}
+
+// The declared field is `list<list<float>>`, so every level is float and the
+// inner read is a float read. It came back as a machine word read as a
+// double before the substitution reached it.
+fn nestedArgumentReachesTheInnerType() -> int {
+    val n = Nested { grid: [[1.5, 2.5]] }
+    if n.grid.len() != 1 { return 1 }
+    val inner = n.grid.get(0)
+    if inner.len() != 2 { return 2 }
+    if inner.get(0) != 1.5 { return 3 }
+    if inner.get(1) != 2.5 { return 4 }
+    return 0
+}
+
+// Reading through both levels, with the value bound to a float so the
+// annotation is checked rather than obeyed.
+fn nestedArgumentIsReadableThroughBothLevels() -> int {
+    val n = Nested { grid: [[0.25]] }
+    val outerFirst = n.grid.get(0)
+    val innerFirst: float = outerFirst.get(0)
+    if innerFirst != 0.25 { return 1 }
+    return 0
+}
+
+// `list<T>` takes its argument from the element, which is the one place the
+// answer is not simply the value's own type. The parameter is FLOAT here, so
+// this also pins the second half of the cast defect: a float argument to a
+// float field used to travel through `uintptr_t` and arrive truncated.
+fn listOfListsArgument() -> int {
+    val floats = Bagged { items: [1.0, 2.0, 3.0] }
+    if floats.items.len() != 3 { return 1 }
+    if floats.items.get(2) != 3.0 { return 2 }
+    var total = 0.0
+    for cell in floats.items {
+        total = total + cell
+    }
+    if total != 6.0 { return 3 }
+    return 0
+}

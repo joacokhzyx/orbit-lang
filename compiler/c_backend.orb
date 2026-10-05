@@ -282,6 +282,23 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     // suffix names what is IN it, which is a property of the values, not of
     // the pointer, so the C type does not change.
     if orbitType == "string_list" || orbitType == "int_list" || orbitType == "float_list" || orbitType == "bool_list" || orbitType == "ref_list" { return "OrbitList*" }
+    // A parameterised spelling, at any depth: `list<string>`, `list<list<float>>`.
+    // The base decides the C type, because the arguments say what is IN the
+    // pointer and not what the pointer is. Deciding on the exact spelling
+    // instead is why `list<list<float>>` was emitted as `void*`: it matched no
+    // arm, and a lowercase name falls through to the pointer default that is
+    // not a pointer at all. The same rule covers `map<string, list<int>>`.
+    val open = orbit_string_indexOf(orbitType, "<")
+    if open > 0 {
+        val closed = orbit_string_len(orbitType) - 1
+        // 62 is '>'. A char is an int here; every other comparison against one
+        // in this compiler is against its code.
+        if orbitType.at(closed) == 62 {
+            val base = orbit_string_slice(orbitType, 0, open)
+            if base == "list" || base == "List" { return "OrbitList*" }
+            if base == "map" || base == "Map" { return "OrbitMap*" }
+        }
+    }
     if orbitType == "map" || orbitType == "Map" || orbitType == "OrbitMap*" { return "OrbitMap*" }
     if orbitType == "object" || orbitType == "OrbitObject*" { return "OrbitObject*" }
     if orbitType == "result" || orbitType == "Result" || orbitType == "OrbitResult" { return "OrbitResult" }
@@ -2828,7 +2845,14 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     } else if mft == "string" {
                         callExpr = callExpr + "(orbit_string)(" + aStr + ")"
                     } else if mft == "float" {
-                        callExpr = callExpr + "(orbit_float)(uintptr_t)(" + aStr + ")"
+                        // No uintptr_t hop. The int and bool arms above carry
+                        // one because an int survives it, and this one was
+                        // written to match its neighbours: `(orbit_float)
+                        // (uintptr_t)(2.5)` is `(orbit_float)(2)`, so a float
+                        // model field silently lost its fraction at every
+                        // construction. A float is a value, not a machine
+                        // word; the cast the destination needs is the only one.
+                        callExpr = callExpr + "(orbit_float)(" + aStr + ")"
                     } else if mft != "" {
                         callExpr = callExpr + "(" + mapTypeToC(backend, mft) + ")(" + aStr + ")"
                     } else {

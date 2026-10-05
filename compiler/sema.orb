@@ -2086,29 +2086,42 @@ fn modelGenericBindings(sema: Sema, modelName: string, node: ASTNode) -> list {
         val elem = listElementParamIndexOf(params, want)
         if elem >= 0 {
             if bindingTail(bindings.get(elem)) == "unknown" {
-                match valueNode {
-                    ASTNode.ListLiteral(ll) => {
-                        var et = ""
-                        var ei = 0
-                        var mixed = false
-                        while ei < ll.elements.len() {
-                            val t = checkNode(sema, ll.elements.get(ei))
-                            if t == "" || t == "unknown" || t == "void" {
-                                mixed = true
-                            } else {
-                                if et == "" {
-                                    et = t
+                // Descend to the level the parameter sits at, then read the
+                // element types of THAT list. Reading the outermost elements of
+                // a `list<list<float>>` would bind T to the inner LIST rather
+                // than to float, and the field would be checked against itself.
+                // Peel count minus one: the last peel produced the parameter
+                // name itself, not a list, so the LIST holding that parameter's
+                // values is the level before it. `list<list<T>>` peels twice and
+                // its values live in the list one level down.
+                val depth = listPeelDepthOf(want) - 1
+                if depth < 0 {
+                    d = d + 1
+                } else {
+                    match listValueAtDepth(valueNode, depth) {
+                        ASTNode.ListLiteral(ll) => {
+                            var et = ""
+                            var ei = 0
+                            var mixed = false
+                            while ei < ll.elements.len() {
+                                val t = checkNode(sema, ll.elements.get(ei))
+                                if t == "" || t == "unknown" || t == "void" {
+                                    mixed = true
                                 } else {
-                                    if et != t { mixed = true }
+                                    if et == "" {
+                                        et = t
+                                    } else {
+                                        if et != t { mixed = true }
+                                    }
                                 }
+                                ei = ei + 1
                             }
-                            ei = ei + 1
+                            if mixed == false {
+                                if et != "" { bindings.set(elem, params.get(elem) + " " + et) }
+                            }
                         }
-                        if mixed == false {
-                            if et != "" { bindings.set(elem, params.get(elem) + " " + et) }
-                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -2138,16 +2151,42 @@ fn bindingHead(row: string) -> string {
     return orbit_string_slice(row, 0, sp)
 }
 
-// `list<T>` reduced to the element slot: the index of T in it, or -1. One
-// level, because a `list<list<T>>` field has no element type to read and the
-// builder will not invent one either.
+// `list<...>` peeled as far as it goes: the index of the parameter in the
+// innermost element slot, or -1. The DEPTH matters: a `list<list<T>>` field has
+// a parameter one level down, and the value has to be descended the same number
+// of levels to reach the thing that decides it. Reading one level and giving up
+// is what made `model Nested[T] { grid: list<list<T>> }` refuse a value it could
+// see the type of, and an inference that only works one level deep is an
+// inference whose depth is a rule nobody wrote down.
 fn listElementParamIndexOf(params: list, declared: string) -> int {
-    val prefix = "list<"
-    if orbit_string_len(declared) <= orbit_string_len(prefix) + 1 { return -1 }
-    if orbit_string_slice(declared, 0, orbit_string_len(prefix)) != prefix { return -1 }
-    val last = orbit_string_len(declared) - 1
-    if declared.at(last) != 62 { return -1 }
-    return indexInList(params, orbit_string_slice(declared, orbit_string_len(prefix), last))
+    return indexInList(params, listPeeledInner(declared))
+}
+
+// How many `list<` wrappers the declared type has. The peel is in literal.orb
+// and the builder peels with it: the two copies did not agree once, and the
+// disagreement read as a checker that accepted a value the emitter could not
+// build.
+// The element of a list literal `depth` levels down, or Empty. The counterpart
+// to the peel: the declared type says how deep to go, and this walks the same
+// distance into the value so the two ends of the inference agree.
+fn listValueAtDepth(node: ASTNode, depth: int) -> ASTNode {
+    var current = node
+    var d = 0
+    while d < depth {
+        match current {
+            ASTNode.ListLiteral(ll) => {
+                if ll.elements.len() == 0 { return ASTNode.Empty }
+                current = ll.elements.get(0)
+            }
+            _ => { return ASTNode.Empty }
+        }
+        d = d + 1
+    }
+    return current
+}
+
+fn listPeelDepthOf(declared: string) -> int {
+    return listPeelDepth(declared)
 }
 
 // The type `declared` becomes once every parameter is bound: the parameter's

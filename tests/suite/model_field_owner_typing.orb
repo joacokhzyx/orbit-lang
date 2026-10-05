@@ -1,0 +1,52 @@
+// A field read is typed from the model that OWNS the field, not from a scan of
+// every field name in the program.
+//
+// This is the case where typing a read off the name alone reads one struct
+// through the other's type: Alpha.value is an int and Beta.value is a float, so
+// whichever model the scan happened to reach last decided how BOTH reads were
+// emitted. `print(a.value)` printed 7.0 -- the int, stored and reloaded through
+// a float. Nothing reported anything: the program compiled, ran, and was wrong.
+//
+// The same defect made a generic model unusable the moment it was instantiated
+// twice (Box_int and Box_string both have a field called v), which is why the
+// fix and this test arrived together. A monomorphised program and a plain
+// two-model program are the same defect wearing different clothes, so they are
+// pinned side by side.
+//
+// Every exit code below is distinct, so a regression names itself.
+
+model Alpha {
+    value: int
+    other: string
+}
+
+model Beta {
+    value: float
+    other: int
+}
+
+fn readAlpha(a: Alpha) -> int {
+    return a.value
+}
+
+fn readBeta(b: Beta) -> float {
+    return b.value
+}
+
+// The two models declare `value` with different types and `other` with the
+// opposite pairing, so neither field can be resolved by name.
+fn main() -> int {
+    val a = Alpha { value: 7, other: "a" }
+    val b = Beta { value: 2.5, other: 9 }
+    if readAlpha(a) != 7 { return 1 }
+    if readBeta(b) != 2.5 { return 2 }
+    // Read the second field both ways too: `other` is a string on one and an
+    // int on the other, which is the mirror image of `value`.
+    if a.other != "a" { return 3 }
+    if b.other != 9 { return 4 }
+    // A read in statement position, where the only evidence of the type is what
+    // print does with it. Before the fix this printed 7.0.
+    print(a.value)
+    print(b.value)
+    return 0
+}

@@ -1,0 +1,70 @@
+// A parameter whose declared type resolves to nothing keeps its BASE type, and
+// never an empty one.
+//
+// `defineVariable(builder, p, "")` is what a monomorphisation change wrote for
+// every parameter that was not a generic instance, because the code asked the
+// instance resolver and took "" to mean "no instance" without asking what the
+// annotation actually said. An empty type name is not "unknown": a symbol with
+// no type resolves to nothing at all, so the first field read through the
+// parameter loaded a field no declaration named.
+//
+// The symptom was not in this file at all -- it was the compiler failing to
+// compile ITSELF, in the IR verifier, dereferencing a field of a value it could
+// not type. A program is the wrong place to look for a bug whose only witness
+// is the compiler that compiles the program.
+//
+// So the shape pinned here is the fallback: an annotation the instance resolver
+// declines, an annotation with no parameters at all, and one that resolves
+// through a list's element. All three have to keep working, and all three have
+// to keep a type that something downstream can use.
+
+model Point {
+    x: int
+    y: int
+}
+
+// No parameters: the type of every parameter comes from the annotation, and an
+// annotation of `int` is not an instance of anything.
+fn scaled(a: int, b: int, factor: int) -> int {
+    return (a + b) * factor
+}
+
+// A list parameter: the base type is `list` and the element is recorded
+// separately, so the read inside is an int read and not a raw word.
+fn firstOf(xs: list < int >) -> int {
+    return xs.get(0)
+}
+
+// A model parameter: the read through it is typed by the model's declaration,
+// which is the case that broke when the parameter carried no type at all.
+fn moved(p: Point) -> int {
+    return p.x + p.y
+}
+
+// A generic instance as a parameter: the instance is the type.
+model Box[T] {
+    v: T
+}
+
+fn unwrapped(b: Box < int >) -> int {
+    return b.v
+}
+
+fn main() -> int {
+    if scaled(2, 3, 4) != 20 { return 1 }
+    if firstOf([9, 8]) != 9 { return 2 }
+    if moved(Point { x: 1, y: 2 }) != 3 { return 3 }
+    if unwrapped(Box { v: 7 }) != 7 { return 4 }
+    // The same, bound through a parameter that carries no annotation at all.
+    if identity(41) != 41 { return 5 }
+    if firstOf(second()) != 5 { return 6 }
+    return 0
+}
+
+fn identity(n: int) -> int {
+    return n
+}
+
+fn second() -> list < int > {
+    return [5, 6]
+}

@@ -139,3 +139,50 @@ fn mangleTypeArg(s: string) -> string {
     }
     return out
 }
+
+// ── Generic list-element peeling ──────────────────────────────────────────
+//
+// `list<list<T>>` puts the parameter one level down, and both the checker and
+// the builder have to find it there. They had their own copies of the rule, and
+// the copies did not agree: the checker peeled to any depth while the builder
+// peeled one level, so the same literal checked as `list<list<float>>` and
+// built as `Nested_unknown`. Two answers to one question is one bug, so there
+// is one function and both callers import it (see the note at the top).
+
+/** @brief Peel `declared` as far as it is `list<...>`, returning the depth.
+ *
+ *  `list<T>` is 1, `list<list<T>>` is 2, and a type that is not a list at all
+ *  is 0. The bound of 8 is not a policy: it is the point at which a type this
+ *  long is a mistake, and an unbounded walk on a malformed type is a hang. */
+fn listPeelDepth(declared: string) -> int {
+    var current = declared
+    var peeled = 0
+    while peeled < 8 {
+        val prefix = "list<"
+        val plen = orbit_string_len(prefix)
+        val dlen = orbit_string_len(current)
+        if dlen <= plen + 1 { break }
+        if orbit_string_slice(current, 0, plen) != prefix { break }
+        // 62 is '>'. A char is an int here; every other comparison against one in
+        // this compiler is against its code.
+        if current.at(dlen - 1) != 62 { break }
+        current = orbit_string_slice(current, plen, dlen - 1)
+        peeled = peeled + 1
+    }
+    return peeled
+}
+
+/** @brief The type inside the innermost `list<...>` of @p declared, or "". */
+fn listPeeledInner(declared: string) -> string {
+    val depth = listPeelDepth(declared)
+    if depth == 0 { return "" }
+    var current = declared
+    var d = 0
+    while d < depth {
+        val prefix = "list<"
+        val plen = orbit_string_len(prefix)
+        current = orbit_string_slice(current, plen, orbit_string_len(current) - 1)
+        d = d + 1
+    }
+    return current
+}

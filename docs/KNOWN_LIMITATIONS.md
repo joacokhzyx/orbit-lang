@@ -39,6 +39,47 @@ Thirty-two programs that must be rejected, thirty-one of which are. The one
 that is not is [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
 which is a language design gap rather than a missing check.
 
+## Four bugs that typechecked, ran and were wrong
+
+None of these was a missing check. Every one compiled clean, ran, and produced
+a wrong answer, which is why no gate found them: a gate runs the program and
+compares what it prints, and a program that prints `7.0` instead of `7` prints
+something.
+
+They are one class, and the class is worth more than the four entries:
+
+- **A name derived in two places.** A field read was typed from a scan of every
+  field *name* in the module, last match winning, instead of from the model that
+  owns the field. Two models sharing a field name with different types read each
+  other's member.
+- **A rule implemented twice.** Checker and emitter each peeled one `list<>` to
+  find a generic parameter. The checker peeled to any depth and the emitter to
+  one, so the same literal checked as `list<list<float>>` and built as
+  `Nested_unknown`.
+- **A cast inherited from its neighbours.** The float arm of a constructor
+  argument read `(orbit_float)(uintptr_t)(x)`, written to match the int arm
+  beside it, where the `uintptr_t` hop is harmless. For a float it truncates, so
+  every float model field lost its fraction.
+- **An empty string used as "no value".** A parameter not resolved to an
+  instance was defined with an empty type name. Empty is not `unknown`: a symbol
+  with no type resolves to nothing, and the first field read through it loaded a
+  field no declaration named.
+
+The pattern: **wherever the checker and the emitter must agree on a derived
+name, that derivation has one implementation and one test that pins it.** Two
+implementations is a coin flip that lands wrong at runtime rather than at build
+time, which is the only place a coin flip is not allowed to land.
+
+Where the shared derivations live, and why that file exists: `literal.orb` is a
+leaf module importing nothing, so `builder.orb`, `sema.orb` and `parser.orb` can
+all depend on it and the import graph stays a DAG. It was created for exactly
+this reason (F-0004: a helper in the wrong side of the graph was an unresolved
+call, which is not an error - `orbit check` stayed clean and the C compiler
+rejected the output with a name it had never been given).
+
+The tests that pin all four are `tests/suite/model_field_owner_typing.orb`,
+`generic_nested_argument.orb` and `parameter_type_fallback.orb`.
+
 What replaced the list, in the order the work was done:
 
 | what used to happen | what happens now |
