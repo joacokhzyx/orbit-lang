@@ -26,4 +26,4 @@ extern fn orbit_cbuf_build_selfhost(buf: string) -> string
 extern fn orbit_mem_report_selfhost() -> string
 // Monotonic clock, nanoseconds. Doctor times each of its layers with it so the
 // scan budget in ENGINEERING.md is measured rather than asserted.
-extern fn orbit_clock_ns() -> int
+extern fn orbit_clock_ms() -> int

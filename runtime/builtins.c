@@ -77,6 +77,34 @@ orbit_int orbit_clock_ns(void) {
 #endif
 }
 
+/**
+ * Return the monotonic clock in MILLISECONDS.
+ *
+ * This is the one an Orbit program should use. orbit_int is 32-bit, so
+ * orbit_clock_ns() wraps every 4.29 seconds and a subtraction across that
+ * boundary returns a NEGATIVE duration -- which reads as a phase that took
+ * less time than it started. Milliseconds fit for 24 days of uptime, which is
+ * longer than any process, and 1 ms resolution is finer than the budgets we
+ * hold doctor to. Named in milliseconds so no caller has to guess the unit.
+ */
+orbit_int orbit_clock_ms(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER freq = {0};
+    if (freq.QuadPart == 0) {
+        QueryPerformanceFrequency(&freq);
+    }
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    LONGLONG sec = now.QuadPart / freq.QuadPart;
+    LONGLONG rem = now.QuadPart % freq.QuadPart;
+    return (orbit_int)(sec * 1000LL + (rem * 1000LL) / freq.QuadPart);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (orbit_int)(ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL);
+#endif
+}
+
 /* ── HTTP query parameter extraction ──────────────────────────────────────── */
 
 /* Forward-declare OrbitRequest so builtins.c can reference it without

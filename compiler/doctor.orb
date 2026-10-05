@@ -30,7 +30,7 @@ model DoctorStats {
     // Per-layer duration in milliseconds, so the scan budget in ENGINEERING.md
     // is measured instead of asserted. Four counters because four phases do
     // different amounts of work, and one total would hide which one.
-    tokenMs: int
+    textMs: int
     astMs: int
     semaMs: int
     ioMs: int
@@ -1236,7 +1236,7 @@ fn doctorUsage() {
 
 fn doctorRun(opts: DoctorOptions) {
     var stats = DoctorStats(0, 0, opts.jsonMode, opts.quiet, opts.color, [], 0, 0, 0, 0)
-    val ioStart = orbit_clock_ns()
+    val ioStart = orbit_clock_ms()
     var files = doctorCollectOrbFiles(opts.dir)
     if files.len() == 0 {
         val probe = orbit_file_read_selfhost(opts.dir)
@@ -1256,7 +1256,7 @@ fn doctorRun(opts: DoctorOptions) {
         sources.push(orbit_file_read_selfhost(fp2))
         fi2 = fi2 + 1
     }
-    stats.ioMs = (orbit_clock_ns() - ioStart) / 1000000
+    stats.ioMs = (orbit_clock_ms() - ioStart)
     stats.files = files.len()
     doctorCheckToolchain(stats)
 
@@ -1264,7 +1264,6 @@ fn doctorRun(opts: DoctorOptions) {
     // the difference between "fix what it found" and "tidy every file it
     // opened": a file with no findings is not rewritten, so a fix can never
     // change a byte the analysis did not point at.
-    val tokenStart = orbit_clock_ns()
     var routes = []
     var decls = []
     var refs = []
@@ -1275,27 +1274,31 @@ fn doctorRun(opts: DoctorOptions) {
         if src3 == "" {
             doctorReport(stats, fp3, 1, "D008", "file is empty or could not be read.", "add content, or drop the path from the scan.")
         } else {
-            val semaStart = orbit_clock_ns()
+            val semaStart = orbit_clock_ms()
             val okRes = checkSourceWithFile(src3, fp3)
-            stats.semaMs = stats.semaMs + ((orbit_clock_ns() - semaStart) / 1000000)
+            stats.semaMs = stats.semaMs + ((orbit_clock_ms() - semaStart))
             if okRes == false {
                 doctorReport(stats, fp3, 1, "D008", "this file did not pass the compiler's own checks (see the error above).", "run `orbit check " + fp3 + "` and address the first error.")
             }
+            // The text scans get their own clock rather than being inferred as
+            // "the rest of the loop": a total that wraps three phases is not a
+            // measurement of any of them, and the budgets are per phase.
+            val textStart = orbit_clock_ms()
             doctorCollectRoutes(fp3, src3, routes)
             doctorScanSystem(stats, fp3, src3)
             doctorScanStyle(stats, fp3, src3)
-            val astStart = orbit_clock_ns()
+            stats.textMs = stats.textMs + (orbit_clock_ms() - textStart)
+            val astStart = orbit_clock_ms()
             val parser = initParser(src3)
             val ast = parseProgram(parser)
             if parser.diagnostics.len() == 0 {
                 doctorCollectDecls(ast, fp3, src3, decls)
                 doctorWalkRefs(ast, refs)
             }
-            stats.astMs = stats.astMs + ((orbit_clock_ns() - astStart) / 1000000)
+            stats.astMs = stats.astMs + ((orbit_clock_ms() - astStart))
         }
         i = i + 1
     }
-    stats.tokenMs = (orbit_clock_ns() - tokenStart) / 1000000
     doctorCheckRoutes(stats, routes)
     doctorCheckUnused(stats, decls, refs, files, sources)
 
@@ -1305,7 +1308,7 @@ fn doctorRun(opts: DoctorOptions) {
     if opts.verbose {
         print("doctor: scanned " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
         print("doctor: " + orbit_int_to_string_selfhost(printed) + " finding(s) shown, " + orbit_int_to_string_selfhost(stats.findings) + " reported.")
-        print("doctor: " + orbit_int_to_string_selfhost(stats.tokenMs) + " ms text, " + orbit_int_to_string_selfhost(stats.astMs) + " ms ast, " + orbit_int_to_string_selfhost(stats.semaMs) + " ms semantic, " + orbit_int_to_string_selfhost(stats.ioMs) + " ms io.")
+        print("doctor: " + orbit_int_to_string_selfhost(stats.textMs) + " ms text, " + orbit_int_to_string_selfhost(stats.astMs) + " ms ast, " + orbit_int_to_string_selfhost(stats.semaMs) + " ms semantic, " + orbit_int_to_string_selfhost(stats.ioMs) + " ms io.")
     }
     if opts.quiet == false && opts.jsonMode == false {
         doctorPrintGates()

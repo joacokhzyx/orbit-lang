@@ -49,7 +49,9 @@ Orbit competes with Go, C, C++, and Java for production server workloads. These 
 
 No performance number is published until it comes with the command that produced it, the hardware it ran on, the flags it ran with, and the spread across at least 5 runs. A number without its reproducible command is not a claim, it is an anecdote, and it does not go in this document. `scripts/orbit_ccache.py` and `scripts/measure_selfhost.py` exist to make bootstrap-side measurements cheap enough to repeat; `scripts/night_load.py` is the load generator for live-service measurements.
 
-**Note on the doctor row.** `DoctorStats` now carries a duration per phase (`tokenMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them, so the budget can be read from inside the compiler rather than guessed at from outside. Measure with the total for the tree, not one layer: the layer that dominates on a 100K LOC tree is whichever one the tree is worst at.
+**Note on the doctor row.** `DoctorStats` carries a duration per phase (`textMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them, so the budget can be read from inside the compiler. **The budget is not met and the measurement is not a close call.** On `compiler/` (23 files) doctor takes 205 ms text, 4.6 s AST, 7.8 s semantic, ~1 ms io: about 12.6 s against a 50 ms target, 250x over. The semantic phase dominates because `D008` runs the full typechecker on every file; that check is the reason doctor is slow, not the text or AST scans. Getting under budget means either not typechecking files that have already been typechecked by a gate, or not doing it inside doctor, and neither is decided here. Until one of those lands, quote the number above rather than the target.
+
+Read the phases from `orbit_clock_ms()`, never a nanosecond clock: `orbit_int` is a 32-bit `int`, so nanoseconds wrap every 4.29 s and a subtraction across the wrap returns a NEGATIVE duration. It printed `-417 ms text` before this was fixed.
 
 ---
 
