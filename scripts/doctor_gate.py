@@ -16,6 +16,8 @@ Each case in tests/doctor/golden/ is a directory holding:
   expect_rc     optional expected exit code (default 1: the case has findings)
   expect_crlf   optional; asserts every LF in the fixtures is part of a CRLF
   expect_unchanged  optional; asserts --dry-run really wrote nothing
+  allow_stderr  optional; permits stderr, for cases whose finding IS a
+                compiler diagnostic printed by the compiler
 
 Each case runs against a throwaway COPY of its own directory. That is what lets
 a case pass --fix or --dry-run and still mean the same thing tomorrow: the
@@ -62,7 +64,8 @@ def read_rc(case: pathlib.Path) -> int:
 
 
 # Files that belong to the gate rather than to the scanned tree.
-META = {"expected.txt", "args", "expect_rc", "expect_crlf", "expect_unchanged", "scan"}
+META = {"expected.txt", "args", "expect_rc", "expect_crlf", "expect_unchanged",
+        "allow_stderr", "scan"}
 
 
 def stage_case(case: pathlib.Path, work: str) -> None:
@@ -186,7 +189,11 @@ def main() -> int:
             failures.append(
                 (case.name, f"exit {read_rc(case)}", f"exit {proc.returncode}")
             )
-        if proc.stderr.strip():
+        # A D008 case points doctor at a file that does not compile, and the
+        # compiler prints its own diagnostic while doctor is looking. That
+        # output is the evidence behind the finding, not noise from doctor, so
+        # such a case opts in with allow_stderr.
+        if proc.stderr.strip() and not (case / "allow_stderr").exists():
             failures.append((case.name, "no stderr", proc.stderr.strip()[:400]))
 
     if args.update:

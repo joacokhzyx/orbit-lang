@@ -49,9 +49,24 @@ Orbit competes with Go, C, C++, and Java for production server workloads. These 
 
 No performance number is published until it comes with the command that produced it, the hardware it ran on, the flags it ran with, and the spread across at least 5 runs. A number without its reproducible command is not a claim, it is an anecdote, and it does not go in this document. `scripts/orbit_ccache.py` and `scripts/measure_selfhost.py` exist to make bootstrap-side measurements cheap enough to repeat; `scripts/night_load.py` is the load generator for live-service measurements.
 
-**Note on the doctor row.** `DoctorStats` carries a duration per phase (`textMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them, so the budget can be read from inside the compiler. **The budget is not met and the measurement is not a close call.** On `compiler/` (23 files) doctor takes 205 ms text, 4.6 s AST, 7.8 s semantic, ~1 ms io: about 12.6 s against a 50 ms target, 250x over. The semantic phase dominates because `D008` runs the full typechecker on every file; that check is the reason doctor is slow, not the text or AST scans. Getting under budget means either not typechecking files that have already been typechecked by a gate, or not doing it inside doctor, and neither is decided here. Until one of those lands, quote the number above rather than the target.
+**Note on the doctor row.** `DoctorStats` carries a duration per phase (`textMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them. Read the phases from `orbit_clock_ms()`, never a nanosecond clock: `orbit_int` is a 32-bit `int`, so nanoseconds wrap every 4.29 s and a subtraction across the wrap returns a NEGATIVE duration. It printed `-417 ms text` before this was fixed.
 
-Read the phases from `orbit_clock_ms()`, never a nanosecond clock: `orbit_int` is a 32-bit `int`, so nanoseconds wrap every 4.29 s and a subtraction across the wrap returns a NEGATIVE duration. It printed `-417 ms text` before this was fixed.
+Measured on `compiler/` (23 files, 21 262 LOC), gcc 13.3, warm page cache:
+
+| run | text | ast | semantic | wall |
+|---|---|---|---|---|
+| `ORBIT_DOCTOR_CACHE=0` | 175 ms | 3976 ms | 6834 ms | ~11.0 s |
+| first run, cache empty | 176 ms | 4019 ms | 6553 ms | ~10.8 s |
+| second run, cache warm | 215 ms | 4295 ms | 0 ms | ~4.5 s |
+
+**The budget is still not met, and the gap is now in the AST phase.** The semantic phase is cached on a hash of the file's contents, so it is paid once per distinct source; the AST phase is not cached and is ~4 s on this tree either way. Against a 50 ms / 100K LOC target, 4 s for 21K LOC is roughly 40x over. The first run on a freshly cloned tree pays ~11 s because the cache is cold; that is stated rather than hidden.
+
+Two things this measurement decided:
+
+1. **Dropping the typecheck was rejected, on evidence.** It was measured: removing it takes the run to 4.85 s, still ~460x over, because the parse dominates what remains. And it loses real signal -- a file with a syntax error, a type error, or a broken import then reports `no findings`, because the AST pass skips unparseable files and the typecheck is the only other thing looking. A linter that reports a broken file as clean is worse than a slow one.
+2. **The parse-error half of D008 is now free.** A file that does not parse is reported from `parser.diagnostics`, which the AST pass already produced, so the guarantee survives without paying for a typecheck that cannot succeed anyway. `d008_parse_error` and `d008_semantic_error` in the goldens pin both halves.
+
+The cache is keyed on the CONTENT hash, not the path or an mtime: move a file and its answer still applies; change one byte and it does not (`d008_survives_edit`). `ORBIT_DOCTOR_CACHE=0` turns it off. Its only limitation is that a cache hit does not reprint the compiler diagnostic, so the finding points at `orbit check` rather than promising "see the error above" -- a promise a cache hit cannot keep.
 
 ---
 

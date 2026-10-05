@@ -1234,6 +1234,76 @@ fn doctorUsage() {
     orbit_os_write_stderr_selfhost("Usage: orbit doctor [dir] [options]\nRun `orbit doctor --help` for details.\n")
 }
 
+/** @brief Where the typecheck cache lives, or "" when caching is off.
+ *
+ *  Follows the compiler's existing convention: ORBIT_DOCTOR_CACHE wins, then
+ *  ORBIT_CCACHE_DIR (so one scratch dir serves the whole toolchain), then
+ *  XDG_CACHE_HOME/orbit/doctor. ORBIT_DOCTOR_CACHE=0 disables it outright --
+ *  a cache you cannot turn off is a cache you cannot debug. */
+fn doctorCacheDir() -> string {
+    val override = orbit_os_env_selfhost("ORBIT_DOCTOR_CACHE")
+    if doctorTrimSpace(override) == "0" { return "" }
+    if override != "" { return override }
+    val shared = orbit_os_env_selfhost("ORBIT_CCACHE_DIR")
+    if shared != "" { return doctorJoinPath(shared, "doctor") }
+    val xdg = orbit_os_env_selfhost("XDG_CACHE_HOME")
+    if xdg == "" { return "" }
+    return doctorJoinPath(doctorJoinPath(xdg, "orbit"), "doctor")
+}
+
+/** @brief Typecheck one file, reusing a previous answer for the same bytes.
+ *
+ *  The key is a hash of the SOURCE, not the path: move a file and its answer
+ *  still applies, edit a byte and it does not. Keying by path would make a
+ *  rename look like a first run, and keying by path+mtime would trust a clock.
+ *
+ *  What is cached is the boolean and nothing else. The compiler's diagnostics
+ *  go to stderr as a side effect of typechecking, so a cache hit does not
+ *  reprint them; the finding text points at `orbit check` for the detail rather
+ *  than claiming "see the error above", which would be a promise a cache hit
+ *  cannot keep. */
+fn doctorTypecheckCached(stats: DoctorStats, file: string, source: string) -> bool {
+    val dir = doctorCacheDir()
+    val digest = orbit_string_hash_selfhost(source)
+    var path = ""
+    if dir != "" && digest != "" {
+        if doctorCacheReady(dir) {
+            path = doctorJoinPath(dir, digest + ".ok")
+        }
+    }
+    if path != "" {
+        val probe = orbit_file_read_selfhost(path)
+        if probe == "ok" { return true }
+        if probe == "bad" { return false }
+    }
+    val start = orbit_clock_ms()
+    val okRes = checkSourceWithFile(source, file)
+    stats.semaMs = stats.semaMs + (orbit_clock_ms() - start)
+    if path != "" {
+        if okRes {
+            orbit_file_write_selfhost(path, "ok")
+        } else {
+            orbit_file_write_selfhost(path, "bad")
+        }
+    }
+    return okRes
+}
+
+/** @brief Whether the cache directory exists and is writable, creating it once.
+ *
+ *  Probed by writing a file rather than by asking the OS: the question is not
+ *  "does this path exist" but "will the writes that follow survive", and a
+ *  directory that exists but is read-only answers differently. The probe is
+ *  remembered so a large tree does not rewrite it once per file. */
+fn doctorCacheReady(dir: string) -> bool {
+    val probe = doctorJoinPath(dir, ".writable")
+    val existing = orbit_file_read_selfhost(probe)
+    if existing == "yes" { return true }
+    if orbit_os_mkdir_selfhost(dir) == false { return false }
+    if orbit_file_write_selfhost(probe, "yes") { return true }
+    return false
+}
+
 fn doctorRun(opts: DoctorOptions) {
     var stats = DoctorStats(0, 0, opts.jsonMode, opts.quiet, opts.color, [], 0, 0, 0, 0)
     val ioStart = orbit_clock_ms()
@@ -1274,11 +1344,14 @@ fn doctorRun(opts: DoctorOptions) {
         if src3 == "" {
             doctorReport(stats, fp3, 1, "D008", "file is empty or could not be read.", "add content, or drop the path from the scan.")
         } else {
-            val semaStart = orbit_clock_ms()
-            val okRes = checkSourceWithFile(src3, fp3)
-            stats.semaMs = stats.semaMs + ((orbit_clock_ms() - semaStart))
+            // A file that does not parse is reported HERE, from diagnostics the
+            // AST pass below already produced, and costs nothing: it cannot be
+            // typechecked, and without this line the AST pass silently skips it
+            // and doctor reports a broken file as clean. The expensive semantic
+            // check is separate and cached; see doctorTypecheckCached.
+            val okRes = doctorTypecheckCached(stats, fp3, src3)
             if okRes == false {
-                doctorReport(stats, fp3, 1, "D008", "this file did not pass the compiler's own checks (see the error above).", "run `orbit check " + fp3 + "` and address the first error.")
+                doctorReport(stats, fp3, 1, "D008", "this file does not pass the compiler's semantic checks.", "run `orbit check " + fp3 + "` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)")
             }
             // The text scans get their own clock rather than being inferred as
             // "the rest of the loop": a total that wraps three phases is not a
@@ -1294,6 +1367,15 @@ fn doctorRun(opts: DoctorOptions) {
             if parser.diagnostics.len() == 0 {
                 doctorCollectDecls(ast, fp3, src3, decls)
                 doctorWalkRefs(ast, refs)
+            } else {
+                // A parse failure is a finding, and it is the one D008 case that
+                // costs nothing: the parser just said so. Reporting it here is
+                // what keeps a file that cannot be parsed from being reported
+                // as CLEAN, which is what happens if this is left to the
+                // typecheck -- the typecheck is skipped for exactly these files,
+                // so a check that waits for it waits forever.
+                val pd: ParserDiagnostic = parser.diagnostics.get(0)
+                doctorReport(stats, fp3, pd.line, "D008", "this file does not parse, so no analysis beyond the text checks could run on it (" + pd.message + ").", "run `orbit check " + fp3 + "` and fix the first parse error.")
             }
             stats.astMs = stats.astMs + ((orbit_clock_ms() - astStart))
         }

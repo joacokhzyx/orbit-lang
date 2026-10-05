@@ -118,6 +118,43 @@ OrbitList* orbit_file_list_dir_selfhost(orbit_string path) {
     return (orbit_file_list_dir)(orbit_arena_get_global(), path);
 }
 
+/* Used by orbit_string_hash_selfhost below. */
+orbit_int orbit_string_char_at_selfhost(orbit_string s, orbit_int index);
+
+bool orbit_os_mkdir_selfhost(orbit_string path) {
+    return (orbit_os_mkdir_p)(path);
+}
+
+/**
+ * FNV-1a over a string, as an 8-digit hex digest.
+ *
+ * The compiler needs a content fingerprint to key a cache on, and 32 bits is the
+ * whole width of orbit_int, so the digest is a STRING: a 32-bit int rendered in
+ * decimal is indistinguishable from a much smaller number, and a cache key that
+ * loses its leading digits is a cache key that collides.
+ *
+ * Zero-width is 2166136261u, the documented offset basis. Returns "" for an
+ * empty string so a caller can treat "" as "no digest, do not cache this"
+ * without a special case: caching the empty source would key every empty file
+ * to one entry.
+ */
+orbit_string orbit_string_hash_selfhost(orbit_string s) {
+    orbit_int n = orbit_string_len(s);
+    if (n <= 0) return "";
+    uint32_t h = 2166136261u;
+    for (orbit_int i = 0; i < n; i++) {
+        h ^= (uint32_t)(unsigned char)orbit_string_char_at_selfhost(s, i);
+        h *= 16777619u;
+    }
+    char out[9];
+    static const char* digits = "0123456789abcdef";
+    for (int i = 0; i < 8; i++) {
+        out[i] = digits[(h >> ((7 - i) * 4)) & 0xF];
+    }
+    out[8] = '\0';
+    return (orbit_string)orbit_arena_strdup(orbit_arena_get_global(), out);
+}
+
 // String/Int conversion helper
 orbit_string orbit_int_to_string_selfhost(orbit_int value) {
     return (orbit_int_to_string)(orbit_arena_get_global(), value);

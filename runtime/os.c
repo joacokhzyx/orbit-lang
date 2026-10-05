@@ -14,6 +14,7 @@
 #include "crt_compat.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
@@ -24,7 +25,49 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #endif
+
+/**
+ * Create a directory and every missing parent, like `mkdir -p`.
+ *
+ * Exists because orbit_file_write cannot create the directory it is writing
+ * into: it opens the path and reports failure, so a cache whose layout has a
+ * subdirectory was unusable until this did. Returns false when the path could
+ * not be created, and true when it already existed -- "the directory is there"
+ * is the only thing a caller asking for this actually wanted.
+ */
+bool orbit_os_mkdir_p(const char* path) {
+    if (!path || !*path) return false;
+    char buf[1024];
+    size_t len = strlen(path);
+    if (len == 0 || len >= sizeof(buf)) return false;
+    memcpy(buf, path, len + 1);
+
+    /* Strip a trailing separator unless the path IS the root. */
+    while (len > 1 && (buf[len - 1] == '/' || buf[len - 1] == '\\')) {
+        buf[--len] = '\0';
+    }
+
+    for (size_t i = 1; i < len; i++) {
+        if (buf[i] == '/' || buf[i] == '\\') {
+            char saved = buf[i];
+            buf[i] = '\0';
+#ifdef _WIN32
+            _mkdir(buf);
+#else
+            mkdir(buf, 0777);
+#endif
+            buf[i] = saved;
+        }
+    }
+#ifdef _WIN32
+    if (_mkdir(buf) != 0 && errno != EEXIST) return false;
+#else
+    if (mkdir(buf, 0777) != 0 && errno != EEXIST) return false;
+#endif
+    return true;
+}
 
 orbit_string orbit_os_cwd(OrbitArena* arena) {
     OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
@@ -299,6 +342,7 @@ orbit_int orbit_os_kill(orbit_int pid, orbit_int mode) {
 #include <sys/types.h>
 #if !defined(_WIN32)
 #include <unistd.h>
+#include <sys/stat.h>
 #endif
 #ifdef __APPLE__
 #include <sys/sysctl.h>

@@ -69,7 +69,7 @@ app.orb:12 [D002] route GET /users/:id collides with app.orb:8 (GET /users/{id})
 | `D005` | An unknown member on `system`, for example `system.cores()`. The valid members are `uptime`, `pid`, `active_workers`, `http_requests_total`, `latency_avg_us`, `latency_p50_us`, `latency_p95_us`, `latency_p99_us`. |
 | `D006` | Trailing whitespace on a line. |
 | `D007` | A file that does not end with a newline. |
-| `D008` | A file that did not pass the compiler's own parse and typecheck. You'll see the compiler's error just above the finding. |
+| `D008` | A file the compiler could not accept: it does not parse, or it does not pass the semantic checks. Both halves are reported separately, because they have different causes and different fixes. |
 
 Unused reports (`D003`/`D004`) are deliberately conservative. A name counts as used when the compiler's AST walk finds it or when a whole-word use appears anywhere outside its own declaration line, so generated or loosely referenced code is left alone. If doctor stays quiet about a helper you suspect is dead, it is erring on the side of not bothering you.
 
@@ -131,6 +131,26 @@ it, so the baseline only ever shrinks.
 `scripts/doctor_gate.py` pins the exact output of each check against the
 goldens in `tests/doctor/golden/`, so a check cannot quietly change what it
 says.
+
+## What doctor remembers
+
+The semantic half of `D008` runs the real typechecker, and that is the slowest
+thing doctor does. Its answer is cached on a **hash of the file's contents**:
+
+- a file you have not touched is not typechecked twice
+- a file you edited, even by one byte, is typechecked again
+- a file you moved keeps its answer, because the key is the content and not the
+  path or a timestamp
+
+```sh
+ORBIT_DOCTOR_CACHE=0 orbit doctor .          # do not use or write the cache
+ORBIT_DOCTOR_CACHE=/tmp/mycache orbit doctor .
+```
+
+The first run on a fresh clone pays for every file; later runs on the same tree
+do not. One consequence is worth knowing: a cached answer does not reprint the
+compiler's diagnostic, so that finding points you at `orbit check <file>` for
+the detail instead of showing it above the line.
 
 ## Gates
 

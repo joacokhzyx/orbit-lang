@@ -1,0 +1,4 @@
+fn main() -> int {
+    val y: int = "not an int"
+    return 0
+}

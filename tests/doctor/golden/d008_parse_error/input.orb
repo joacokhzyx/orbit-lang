@@ -1,0 +1,4 @@
+fn main() -> int {
+    val x = 
+    return 0
+}
