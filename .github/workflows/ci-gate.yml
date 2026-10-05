@@ -119,6 +119,8 @@ jobs:
           ./t_params_bin
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_latency_percentiles.c -o t_pct_bin $LDFLAGS
           ./t_pct_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_ledger_percentiles.c -o t_led_bin $LDFLAGS
+          ./t_led_bin
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o t_kynx_bin $LDFLAGS
           ./t_kynx_bin
           # No -w here on purpose, and that is the whole point of compiling this

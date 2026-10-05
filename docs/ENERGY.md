@@ -94,13 +94,20 @@ where the numbers are bad. Those get published too.
 ## What Orbit meters today
 
 The cost ledger (`/_ledger`, `/_ledger/data`, loopback only) records per-route
-requests, mean ms, and DB share from existing cycle counters, plus energy
+requests, mean ms, DB share, and p50/p95/p99 µs from cycle counters, plus energy
 columns backed by the sampler in `runtime/energy.c`:
 
 | Platform | `energy_source` | `joules_total` / `joules_per_req` | `avg_cycles` |
 |---|---|---|---|
 | Linux with readable powercap sensor | `rapl-estimate` | route share of attributable package joules (ESTIMATE) | handler cycles, as before |
 | Windows, macOS, or Linux without a sensor | `cpu-proxy` | always `0` (never synthesized) | labeled CPU proxy, not energy |
+
+The `p50_us`/`p95_us`/`p99_us` fields are latency, not energy, and are
+metered the same way on every platform: one bucket per power of two of
+handler cycles per route, 32 KB of static state for all 64 route slots. A
+reported percentile is the bucket's upper boundary, which is why the 1 µs
+request and the 4 µs request above it can report the same number. The JSON
+names the basis in `latency_source`.
 
 The HTML table has Energy and Source columns. Without a sensor the Energy cell
 reads "— (cpu proxy: N cycles/req)" and the in-table note says cycle counters

@@ -242,32 +242,29 @@ identical, so do not rule this out by testing it without them.
 **Rule: do not use `/` or `%` on a value that can be negative** until the
 next release. Compute the magnitude, divide, and apply the sign yourself.
 
-### A list slot has no element type, so nothing can check it
+### A list element type is what you declare, or what the first push decides
 
-`OrbitList` is `{ void* data; size_t len, capacity, elem_size;
-OrbitArena* }` (`runtime/types.c:195-201`). One pointer per element, and
-nothing anywhere records what that pointer points at. There is therefore
-no type to check an element against, and no diagnostic to give:
+A list carries an element type, and the checker enforces it. Declare it:
+
+```orbit
+val xs: list<int> = []
+xs.push(10)
+xs.push("twenty")       // error[E1006]
+```
+
+With no declaration, the first push decides it, and that is the one case where
+the answer comes from a value rather than from the program saying so:
 
 ```orbit
 var l = []
-l.push(10)
-l.push("twenty")
-print(l.len())          // 2 - correct
-print(l.get(0))         // 10
-print(l.get(1))         // a heap address
+l.push(10)              // l is list<int> from here
+l.push("twenty")        // error[E1006]
 ```
 
-`orbit check` reports no errors. The first element reads back correctly
-because the stored word *is* the integer, which is why a two-element test
-usually passes; the second is a string address read as a value.
-
-**Rule: one list, one element type, and only you know what it is.** Never
-hand a list to a function whose parameter says `string` unless every
-element is a string — the helper cannot check, and the failure is a
-segfault in your code rather than a diagnostic at the call. Use `.get(i)`,
-never `.at(i)`; `.at` on a list answers 0. See
-[collections](#arrays-elements-and-accessors).
+**Rule: say what a list holds when the pushes are not all one type.** The check
+is real, but it can only be as good as the declaration behind it, and a `list`
+parameter declared without its element has nothing to check a read against. See
+[collections](#arrays-elements-and-accessors) for the accessor table.
 
 ### An int-to-pointer cast is a guess, made by name and shape
 
@@ -300,9 +297,8 @@ lets the next check fire.
 | `int` arithmetic that overflows | wraps, no warning |
 | `int` division or remainder with a negative operand | wrong in `0.1.0-rc.2`; fixed in `672151c`, unreleased |
 | a literal outside the 32-bit range | a different number in `0.1.0-rc.2`; fixed in tree, unreleased |
-| a list's element type | whatever you put there; nothing checks it |
-| `.get(i)` on a list | bounds-checked; `NULL` past the end |
-| `.at(i)` on a list | **wrong** — reads the list struct, use `.get` |
+| a list's element type | declared, or decided by the first push, and checked |
+| `.get(i)` / `.at(i)` / `xs[i]` / `.pop()` on a list | the element, typed; bounds-checked; `NULL` past the end |
 | a cast between `int` and `string`/`pointer` | whatever the compiler guessed |
 | an unannotated `val` | `unknown` downstream; annotate it |
 
@@ -501,7 +497,30 @@ slot per element, whatever the element was:
 ```
 
 `OrbitList` is `{ void* data; size_t len, capacity, elem_size; OrbitArena* }`
-(`runtime/types.c:195-201`). Nothing in the type records what a slot points at.
+(`runtime/types.c:195-201`). What a slot points at is not in that struct; it is
+in the program, as the list's element type.
+
+**Say what the list holds, and the checker holds you to it.** A `list<T>`
+annotation is the declaration:
+
+```orbit
+val xs: list<int> = []
+xs.push(10)
+xs.push("nope")          // error[E1006]: the value is string, the slot is int
+```
+
+A literal whose elements all agree is typed statically, and an empty `[]` with
+no annotation takes its element type from the first push, because that is the
+first answer anyone has:
+
+```orbit
+var names = []
+names.push("one")        // this push decides: list<string>
+names.push(2)            // error[E1006]
+```
+
+An `int` goes into a `list<float>` (the emitter converts it on the way in); a
+float into a `list<int>` is refused, because that truncates.
 
 **`.get(i)` works, and it is the accessor to use.** It emits
 `orbit_list_get`, which is bounds-checked:
@@ -521,45 +540,34 @@ assigns `NULL`, so you get a null pointer rather than an element:
 print(words.get(99))            // (null)
 ```
 
-**`.at(i)` does not read an element.** It is classified as a *string* access
-and compiles to `orbit_string_at((orbit_string)list, i)` - a byte read at an
-offset into the list struct. It type-checks clean, which is the problem. Note
-that a method call directly on a literal does not parse, so bind the list
-first; the results are the same either way:
+`.at(i)`, `xs[i]` and `.pop()` read the same element and answer with the
+element type, so `val s: string = words.get(0)` is checked rather than obeyed.
+A `for` loop declares its variable as the element of the iterable.
 
-| expression | result |
-|---|---|
-| `[10,20,30].at(0)` | the low byte of the list's `data` pointer - I measured 48, 144 and 0 in three programs that differ only in what else they allocated |
-| `["a","b"].at(1)` and above | `0` |
-| `["a","b"].at(0)` bound to a `string` | segfault |
-| `"hello".at(0)` | `104` - correct, this is what `.at` is for |
-
-`.at()` on a **string** is the intended use and works: it returns the byte
-value at that index, and `0` past the end. On a list it is a silent
-miscompile. Use `.get()`.
-
-An index past the end of a *string* is also silently `0`, which is the
-byte value of NUL, so `"hello".at(99)` is indistinguishable from reading a
-real NUL. And a list with two element types in it is not an error, because
-there is no element type to disagree with - see
-[what Orbit does not promise about values](#a-list-slot-has-no-element-type-so-nothing-can-check-it),
-which also covers the int/pointer cast that decides what `.at()` actually
-reads.
+An index past the end of a *string* is silently `0`, which is the byte value
+of NUL, so `"hello".at(99)` is indistinguishable from reading a real NUL.
+What is still not typed - a `list` parameter declared without its element, a
+model or union element, an object's own field types - is listed under
+[what Orbit does not promise about values](#a-list-carries-an-element-type-now-and-the-checker-enforces-it).
 
 ### Maps
 
 A map literal does not build a map. `{ "a": 1 }` emits
-`orbit_object_create(arena)`, and `.get()` on that object still emits
-`orbit_list_get` - the key is passed where an index belongs:
+`orbit_object_create(arena)`, and there is no map type in the emitter's table
+beyond the name. `.get()` on such an object is a keyed field read - it used to
+lower to a list read, which passed the key where an index belongs and
+dereferenced an `OrbitObject` as an `OrbitList`:
 
 ```orbit
 val m = { "a": 1, "b": 2 }
-val v: int = m.get("a")   // orbit check: no errors. Run: segfault.
+val v: int = m.get("a")   // 1
+val s: string = m.get("b")  // 2, as a string
 ```
 
-`orbit check` accepts all of this without a murmur. There is no map type in
-the emitter's table beyond the name, and [known limitations](KNOWN_LIMITATIONS.md)
-records it.
+The getter is picked from the setter that wrote that key, so the read answers
+with the type the value was stored as. An object literal's field types are not
+recorded anywhere, so a key nobody wrote has nothing to be read as;
+[known limitations](KNOWN_LIMITATIONS.md) records that gap.
 
 ## Result values
 
@@ -853,8 +861,12 @@ telemetry is worth, so the histogram trades precision for a fixed
 
 Every server records per-route handler cost automatically - no annotations.
 `/_ledger` serves a live table (loopback only), `/_ledger/data` the same as
-JSON. Columns: requests, mean ms, DB share, energy, source. Milliseconds share the request
-log's approximate clock basis. The energy column reads joules per request
+JSON. Columns: requests, mean ms, p50/p95/p99 µs, DB share, energy, source.
+Milliseconds and the percentiles share the request log's approximate
+clock basis. The per-route percentiles come from a log2-spaced
+histogram (one bucket per power of two of cycles, so a reported p99 is
+that bucket's boundary rather than a measured request); process-wide
+`system.latency_p*_us` uses the finer 100 µs buckets described above. The energy column reads joules per request
 (estimated route share, see `docs/ENERGY.md`) where a power sensor exists,
 and a labeled CPU proxy in cycles where it does not - never converted.
 Paths starting with `/_` are reserved for

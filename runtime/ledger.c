@@ -27,12 +27,21 @@
 
 #define ORBIT_LEDGER_MAX 64
 
+/* Per-route latency histogram: one bucket per power of two of cycles, so
+ * bucket i holds durations in (2^i, 2^(i+1)] and its upper boundary is
+ * 2^(i+1) cycles. Log spacing keeps the whole table at 64 routes * 64
+ * buckets * 8 B = 32 KB of static state, where 100 us-wide buckets would
+ * need 512 KB. The cost is resolution: a reported p99 is a power-of-two
+ * boundary, not a measurement. */
+#define ORBIT_LEDGER_LAT_BUCKETS 64
+
 typedef struct {
     char method[16];
     char path[256];
     uint64_t count;
     uint64_t total_cycles;
     uint64_t db_cycles;
+    uint64_t lat[ORBIT_LEDGER_LAT_BUCKETS];
     int used;
 } OrbitLedgerEntry;
 
@@ -105,12 +114,47 @@ static int orbit_ledger_enter(const char* method, const char* path) {
 #endif
 }
 
+/* Bucket index for a duration: the position of its highest set bit. */
+static int orbit_ledger_lat_bucket(uint64_t cycles) {
+    int b = 0;
+    uint64_t c = cycles;
+    while (c > 1) {
+        c >>= 1;
+        b++;
+    }
+    if (b >= ORBIT_LEDGER_LAT_BUCKETS) b = ORBIT_LEDGER_LAT_BUCKETS - 1;
+    return b;
+}
+
+/* Percentile of one route as the upper boundary of the bucket holding it,
+ * in microseconds on the 2.5 GHz basis. per_mille is 500/950/990. */
+static uint64_t orbit_ledger_percentile_us(const OrbitLedgerEntry* e, uint64_t per_mille) {
+    if (e->count == 0) return 0;
+    if (per_mille > 1000) per_mille = 1000;
+    uint64_t target = (e->count * per_mille + 999) / 1000;
+    uint64_t seen = 0;
+    int i = 0;
+    while (i < ORBIT_LEDGER_LAT_BUCKETS) {
+        seen += e->lat[i];
+        if (seen >= target) {
+            /* Boundary of bucket i is 2^(i+1) cycles. */
+            uint64_t edge = (i + 1) >= 64 ? UINT64_MAX : (1ULL << (i + 1));
+            return edge / 2500ULL;
+        }
+        i++;
+    }
+    /* Unreachable while every recorded duration lands in a bucket; kept so a
+     * future bucket-count change cannot read past the array. */
+    return 0;
+}
+
 static void orbit_ledger_exit(int idx, uint64_t cycles) {
     /* Under ORBIT_NO_LEDGER, enter always returns -1, so this is a no-op
      * store apart from clearing the thread-local slot. */
     if (idx >= 0 && idx < ORBIT_LEDGER_MAX) {
         orbit_perf_atomic_inc64(&orbit_ledger_table[idx].count);
         orbit_perf_atomic_add64(&orbit_ledger_table[idx].total_cycles, cycles);
+        orbit_perf_atomic_add64(&orbit_ledger_table[idx].lat[orbit_ledger_lat_bucket(cycles)], 1);
     }
     orbit_ledger_tls_slot = -1;
 }
@@ -197,10 +241,14 @@ orbit_string orbit_ledger_json(OrbitArena* arena) {
             uint64_t share = tot > 0 ? (db * 100ULL) / tot : 0;
             double rj = ORBIT_LEDGER_ROUTE_J(tot, denom);
             double jpr = n > 0 ? rj / (double)n : 0.0;
+            uint64_t p50 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 500);
+            uint64_t p95 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 950);
+            uint64_t p99 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 990);
             off += (size_t)snprintf(buf + off, 32768 - off,
                 "%s{\"method\":\"%s\",\"path\":\"%s\",\"req\":%llu,\"avg_ms\":%llu.%02llu,"
                 "\"db_share\":%llu,\"joules_total\":%.6f,\"joules_per_req\":%.6f,"
-                "\"avg_cycles\":%llu,\"energy_source\":\"%s\"}",
+                "\"avg_cycles\":%llu,\"p50_us\":%llu,\"p95_us\":%llu,\"p99_us\":%llu,"
+                "\"latency_source\":\"%s\",\"energy_source\":\"%s\"}",
                 first ? "" : ",",
                 orbit_ledger_table[i].method, orbit_ledger_table[i].path,
                 (unsigned long long)n,
@@ -208,6 +256,8 @@ orbit_string orbit_ledger_json(OrbitArena* arena) {
                 (unsigned long long)share,
                 rj, jpr,
                 (unsigned long long)avg_c,
+                (unsigned long long)p50, (unsigned long long)p95, (unsigned long long)p99,
+                "log2-bucket boundaries, 2.5 GHz basis",
                 src);
             first = 0;
         }
@@ -235,7 +285,8 @@ orbit_string orbit_ledger_html(OrbitArena* arena) {
         "<h1>Cost ledger</h1>"
         "<p>Per-route handler cost. No annotations were written for this.</p>"
         "<table border=\"1\" cellpadding=\"8\" cellspacing=\"0\">"
-        "<tr><th>Route</th><th>Req</th><th>Avg ms</th><th>DB share</th>"
+        "<tr><th>Route</th><th>Req</th><th>Avg ms</th><th>p50 µs</th><th>p95 µs</th>"
+        "<th>p99 µs</th><th>DB share</th>"
         "<th>Energy</th><th>Source</th></tr>");
     int i = 0;
     while (i < ORBIT_LEDGER_MAX && off < 31000) {
@@ -249,22 +300,29 @@ orbit_string orbit_ledger_html(OrbitArena* arena) {
             uint64_t share = tot > 0 ? (db * 100ULL) / tot : 0;
             double rj = ORBIT_LEDGER_ROUTE_J(tot, denom);
             double jpr = n > 0 ? rj / (double)n : 0.0;
+            uint64_t p50 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 500);
+            uint64_t p95 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 950);
+            uint64_t p99 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 990);
             if (src[0] == 'r') {
                 off += (size_t)snprintf(buf + off, 32768 - off,
-                    "<tr><td>%s %s</td><td>%llu</td><td>%llu.%02llu</td><td>%llu%%</td>"
+                    "<tr><td>%s %s</td><td>%llu</td><td>%llu.%02llu</td><td>%llu</td>"
+                    "<td>%llu</td><td>%llu</td><td>%llu%%</td>"
                     "<td>%.6f J/req (est.)</td><td>%s</td></tr>",
                     orbit_ledger_table[i].method, orbit_ledger_table[i].path,
                     (unsigned long long)n,
                     (unsigned long long)ms_i, (unsigned long long)ms_f,
+                    (unsigned long long)p50, (unsigned long long)p95, (unsigned long long)p99,
                     (unsigned long long)share,
                     jpr, src);
             } else {
                 off += (size_t)snprintf(buf + off, 32768 - off,
-                    "<tr><td>%s %s</td><td>%llu</td><td>%llu.%02llu</td><td>%llu%%</td>"
+                    "<tr><td>%s %s</td><td>%llu</td><td>%llu.%02llu</td><td>%llu</td>"
+                    "<td>%llu</td><td>%llu</td><td>%llu%%</td>"
                     "<td>&mdash; (cpu proxy: %llu cycles/req)</td><td>%s</td></tr>",
                     orbit_ledger_table[i].method, orbit_ledger_table[i].path,
                     (unsigned long long)n,
                     (unsigned long long)ms_i, (unsigned long long)ms_f,
+                    (unsigned long long)p50, (unsigned long long)p95, (unsigned long long)p99,
                     (unsigned long long)share,
                     (unsigned long long)avg_c, src);
             }
@@ -273,7 +331,9 @@ orbit_string orbit_ledger_html(OrbitArena* arena) {
     }
     snprintf(buf + off, 32768 - off,
         "</table>"
-        "<p><small>%s Metered: RAPL package joules sampled at 1 Hz minus idle baseline. "
+        "<p><small>Per-route percentiles are log2-bucket boundaries on the 2.5 GHz "
+        "basis, not measurements of single requests. %s "
+        "Metered: RAPL package joules sampled at 1 Hz minus idle baseline. "
         "Estimated: per-route split by cycle share. Proxy: cycle counters where no sensor exists; "
         "never converted to joules.</small></p>"
         "</body></html>", note);
