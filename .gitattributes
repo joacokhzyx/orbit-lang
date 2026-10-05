@@ -21,3 +21,8 @@ tests/parity/golden/*.txt -text
 # out with LF everywhere keeps `fmt --check` quiet on Windows, where
 # core.autocrlf would otherwise materialize every .orb file as CRLF.
 *.orb text eol=lf
+
+# ...except the fixtures that exist to prove CRLF survives a fix. A CRLF
+# fixture stored as LF tests nothing, and git's own conversion is exactly the
+# bug doctor --fix had, so this one path must stay byte-exact.
+tests/doctor/golden/crlf_preserved/input.orb -text
