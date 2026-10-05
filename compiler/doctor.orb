@@ -729,6 +729,9 @@ fn doctorIsValidSystemMember(member: string) -> bool {
     if member == "active_workers" { return true }
     if member == "http_requests_total" { return true }
     if member == "latency_avg_us" { return true }
+    if member == "latency_p50_us" { return true }
+    if member == "latency_p95_us" { return true }
+    if member == "latency_p99_us" { return true }
     return false
 }
 
@@ -765,7 +768,7 @@ fn doctorScanSystem(stats: DoctorStats, file: string, source: string) {
     while i < lines.len() {
         val bad = doctorScanSystemLine(doctorCodePart(lines.get(i)))
         if bad != "" {
-            doctorReport(stats, file, i + 1, "D005", "unknown member 'system." + bad + "'. Valid members are: uptime, pid, active_workers, http_requests_total, latency_avg_us.", "use one of: uptime, pid, active_workers, http_requests_total, latency_avg_us.")
+            doctorReport(stats, file, i + 1, "D005", "unknown member 'system." + bad + "'. Valid members are: uptime, pid, active_workers, http_requests_total, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.", "use one of: uptime, pid, active_workers, http_requests_total, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.")
         }
         i = i + 1
     }

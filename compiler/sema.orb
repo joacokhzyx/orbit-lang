@@ -2120,6 +2120,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         if member == "active_workers" { return "int" }
                         if member == "http_requests_total" { return "int" }
                         if member == "latency_avg_us" { return "int" }
+                        if member == "latency_p50_us" || member == "latency_p95_us" || member == "latency_p99_us" { return "int" }
                     }
                 }
                 _ => {}
@@ -2151,6 +2152,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 if member == "active_workers" { return "int" }
                 if member == "http_requests_total" { return "int" }
                 if member == "latency_avg_us" { return "int" }
+                if member == "latency_p50_us" || member == "latency_p95_us" || member == "latency_p99_us" { return "int" }
             }
             return "unknown"
         }

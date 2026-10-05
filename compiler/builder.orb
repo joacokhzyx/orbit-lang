@@ -180,6 +180,9 @@ fn builtinReturnType(name: string) -> string {
     if name == "system_active_workers" { return "int" }
     if name == "system_http_requests_total" { return "int" }
     if name == "system_latency_avg_us" { return "int" }
+    if name == "system_latency_p50_us" { return "int" }
+    if name == "system_latency_p95_us" { return "int" }
+    if name == "system_latency_p99_us" { return "int" }
     return ""
 }
 
@@ -217,6 +220,9 @@ fn registerBuiltinFunctionReturnTypes(builder: IRBuilder) {
     registerFunctionReturnType(builder, "system_active_workers", "int")
     registerFunctionReturnType(builder, "system_http_requests_total", "int")
     registerFunctionReturnType(builder, "system_latency_avg_us", "int")
+    registerFunctionReturnType(builder, "system_latency_p50_us", "int")
+    registerFunctionReturnType(builder, "system_latency_p95_us", "int")
+    registerFunctionReturnType(builder, "system_latency_p99_us", "int")
     registerFunctionReturnType(builder, "ok", "result")
     registerFunctionReturnType(builder, "err", "result")
 }
@@ -2222,6 +2228,12 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                             systemBuiltin = "system_http_requests_total"
                         } else if memberName == "latency_avg_us" {
                             systemBuiltin = "system_latency_avg_us"
+                        } else if memberName == "latency_p50_us" {
+                            systemBuiltin = "system_latency_p50_us"
+                        } else if memberName == "latency_p95_us" {
+                            systemBuiltin = "system_latency_p95_us"
+                        } else if memberName == "latency_p99_us" {
+                            systemBuiltin = "system_latency_p99_us"
                         }
                     }
                 }

@@ -44,7 +44,7 @@ app.orb:12 [D002] route GET /users/:id collides with app.orb:8 (GET /users/{id})
 | `D002` | Route conflicts: exact duplicates, paths that match once `:params` and `{params}` are treated alike (so `/users/:id` and `/users/{uuid}` collide), and specific routes covered by a same-method wildcard. |
 | `D003` | A `private fn` that nothing in the scanned files calls. Public functions are never reported here, since files outside the scan may import them. `main` and `extern` functions are never reported. |
 | `D004` | A `model` that nothing in the scanned files references, including use as a type or through calls such as `Product.all()`. |
-| `D005` | An unknown member on `system`, for example `system.cores()`. The valid members are `uptime`, `pid`, `active_workers`, `http_requests_total`, `latency_avg_us`. |
+| `D005` | An unknown member on `system`, for example `system.cores()`. The valid members are `uptime`, `pid`, `active_workers`, `http_requests_total`, `latency_avg_us`, `latency_p50_us`, `latency_p95_us`, `latency_p99_us`. |
 | `D006` | Trailing whitespace on a line. |
 | `D007` | A file that does not end with a newline. |
 | `D008` | A file that did not pass the compiler's own parse and typecheck. You'll see the compiler's error just above the finding. |

@@ -17,9 +17,20 @@ fn main() -> int {
     if lat < 0 {
         return 4
     }
+    // Percentiles come from a 100 us bucket histogram, so a value of 0 before
+    // any request is the honest answer, not a missing one.
+    val p50 = system.latency_p50_us()
+    val p95 = system.latency_p95_us()
+    val p99 = system.latency_p99_us()
+    if p50 < 0 || p95 < 0 || p99 < 0 {
+        return 5
+    }
+    if p50 > p95 || p95 > p99 {
+        return 6
+    }
     val workers = system.active_workers()
     if workers < 0 {
-        return 5
+        return 7
     }
     return 0
 }

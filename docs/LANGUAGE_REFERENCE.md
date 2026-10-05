@@ -840,6 +840,14 @@ not measured is not exposed (no success/error split, no p50/p95/p99 yet).
 | `system.active_workers()` | `int` workers configured at startup (`0` outside servers) | server startup |
 | `system.http_requests_total()` | `int` completed requests | request counter |
 | `system.latency_avg_us()` | `int` mean latency, microseconds (`0` before the first request) | RDTSC cycles on the same 2.5 GHz basis as the request log; approximate on other clocks |
+| `system.latency_p50_us()` | `int` median latency, microseconds | bucket edge of a 100 µs-resolution histogram, `0` before the first request |
+| `system.latency_p95_us()` | `int` 95th percentile latency, microseconds | same histogram; past 100 ms the bucket reports the recorded max |
+| `system.latency_p99_us()` | `int` 99th percentile latency, microseconds | same histogram; past 100 ms the bucket reports the recorded max |
+
+A percentile is a bucket boundary, not a measurement of one request:
+1 µs-wide buckets over the whole range would cost more state than the
+telemetry is worth, so the histogram trades precision for a fixed
+8 KB and reports where the samples actually land.
 
 ## Cost ledger
 

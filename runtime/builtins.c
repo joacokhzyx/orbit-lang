@@ -472,6 +472,18 @@ orbit_int system_latency_avg_us(void) {
     return (orbit_int)((stats.total_cycles / stats.request_count) / 2500ULL);
 }
 
+orbit_int system_latency_p50_us(void) {
+    return (orbit_int)orbit_perf_percentile_us(orbit_perf_stats.request_count, 500);
+}
+
+orbit_int system_latency_p95_us(void) {
+    return (orbit_int)orbit_perf_percentile_us(orbit_perf_stats.request_count, 950);
+}
+
+orbit_int system_latency_p99_us(void) {
+    return (orbit_int)orbit_perf_percentile_us(orbit_perf_stats.request_count, 990);
+}
+
 orbit_int system_os_exec(orbit_string cmd) {
     if (!cmd) return -1;
 #if !defined(ORBIT_WITH_EXEC)

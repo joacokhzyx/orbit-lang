@@ -1,14 +1,16 @@
 /**
  * @file  performance.h
- * @brief RDTSC-based latency counters: request count, total, min and max.
+ * @brief RDTSC-based latency counters: request count, total, min, max, and
+ *        a 100 µs-resolution histogram for percentiles.
  *
- * No percentiles. The struct below carries count/total/min/max and nothing
- * else, so "P50/P95/P99" appears in no header and no source file; a percentile
- * claim in the docs was simply false.
+ * A percentile from a histogram is a bucket boundary, not a measurement of
+ * one request, and `orbit_perf_percentile_us` returns that boundary: the
+ * reported p99 is the first bucket edge holding 99% of requests. Anything
+ * finer would have to invent a distribution the samples do not support.
  *
  * Exposes `orbit_rdtsc()`, `orbit_perf_start_request()`, `orbit_perf_end_request()`,
- * and `orbit_perf_report()`.  All state is kept in thread-local storage so no
- * locking is required on the hot path.
+ * `orbit_perf_percentile_us()`, and `orbit_perf_report()`.  All state is kept in
+ * thread-local storage so no locking is required on the hot path.
  */
 #ifndef ORBIT_PERFORMANCE_H
 #define ORBIT_PERFORMANCE_H
@@ -109,10 +111,44 @@ ORBIT_INLINE void orbit_perf_start_request(void) {
     orbit_perf_atomic_inc64(&orbit_perf_stats.request_count);
 }
 
+/* Latency histogram: one bucket per 100 µs up to 100 ms, plus an overflow
+ * bucket. Cycles convert at the same 2.5 GHz basis the average uses. */
+#define ORBIT_PERF_LAT_BUCKET_US 100ULL
+#define ORBIT_PERF_LAT_BUCKETS 1000
+#define ORBIT_PERF_CYCLES_PER_US 2500ULL
+
+static uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
+
+ORBIT_INLINE void orbit_perf_record_latency(uint64_t duration_cycles) {
+    uint64_t bucket = duration_cycles / (ORBIT_PERF_CYCLES_PER_US * ORBIT_PERF_LAT_BUCKET_US);
+    if (bucket > (uint64_t)ORBIT_PERF_LAT_BUCKETS) bucket = ORBIT_PERF_LAT_BUCKETS;
+    orbit_perf_atomic_add64(&orbit_perf_lat_hist[bucket], 1);
+}
+
+/* Percentile as the upper boundary of the bucket holding it, in
+ * microseconds. per_mille is 500 for p50, 950 for p95, 990 for p99. */
+ORBIT_INLINE uint64_t orbit_perf_percentile_us(uint64_t request_count, uint64_t per_mille) {
+    if (request_count == 0) return 0;
+    if (per_mille > 1000) per_mille = 1000;
+    uint64_t target = (request_count * per_mille + 999) / 1000;
+    uint64_t seen = 0;
+    for (int i = 0; i <= ORBIT_PERF_LAT_BUCKETS; i++) {
+        seen += orbit_perf_lat_hist[i];
+        if (seen >= target) {
+            /* The last bucket is overflow, so its boundary is the first
+             * observation that landed past 100 ms. */
+            if (i == ORBIT_PERF_LAT_BUCKETS) return orbit_perf_stats.max_cycles / ORBIT_PERF_CYCLES_PER_US;
+            return (uint64_t)(i + 1) * ORBIT_PERF_LAT_BUCKET_US;
+        }
+    }
+    return orbit_perf_stats.max_cycles / ORBIT_PERF_CYCLES_PER_US;
+}
+
 ORBIT_INLINE void orbit_perf_end_request(uint64_t start_cycles) {
     uint64_t end = orbit_rdtsc();
     uint64_t duration = end - start_cycles;
 
+    orbit_perf_record_latency(duration);
     orbit_perf_atomic_add64(&orbit_perf_stats.total_cycles, duration);
 
     // Minor race on min/max is acceptable for statistics compared to full CAS overhead
