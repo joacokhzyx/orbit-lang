@@ -7,12 +7,12 @@ from a real run on `orbit 0.1.0` (Windows, September 2026).
 
 ## Honest scope first
 
-Multipart parsing and disk persistence aren't implemented in
-0.1.0 - `req.file()` returns a placeholder path and saves
-nothing, so this tutorial doesn't use it. Uploads here are raw
-request bodies: the server measures what arrived and answers with
-the byte count. If you need real multipart uploads today, Orbit
-can't do that yet ([Known Limitations](../KNOWN_LIMITATIONS.md)).
+Multipart parsing and disk persistence *are* implemented -
+`req.file(field, dir)` saves the named part to `dir` and returns
+the path - so this tutorial could use it. It keeps uploads as raw
+request bodies anyway: the server measures what arrived and
+answers with the byte count, which demonstrates the same flow
+without touching the filesystem in the walkthrough.
 
 ## The service
 

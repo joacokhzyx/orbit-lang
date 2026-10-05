@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include <time.h>
+#include <ctype.h>
 #ifdef _WIN32
 #  include <windows.h>
 #else
@@ -129,14 +130,44 @@ orbit_string orbit_http_query_get(OrbitArena* arena, OrbitRequest* req, orbit_st
     return "";
 }
 
+/* Path params are raw bytes off the request line; percent-decode before
+ * handing them to user code. '+' stays a literal '+' in a path segment
+ * (no query-style space expansion). */
+static orbit_string orbit_url_decode(OrbitArena* arena, const char* s) {
+    if (!s) return "";
+    size_t n = strlen(s);
+    char* buf = (char*)orbit_alloc(arena, n + 1);
+    if (!buf) return "";
+    size_t w = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == '%' && i + 2 < n) {
+            int hi = s[i + 1];
+            int lo = s[i + 2];
+            int hh = (hi >= '0' && hi <= '9') ? hi - '0' :
+                     (hi >= 'a' && hi <= 'f') ? hi - 'a' + 10 :
+                     (hi >= 'A' && hi <= 'F') ? hi - 'A' + 10 : -1;
+            int ll = (lo >= '0' && lo <= '9') ? lo - '0' :
+                     (lo >= 'a' && lo <= 'f') ? lo - 'a' + 10 :
+                     (lo >= 'A' && lo <= 'F') ? lo - 'A' + 10 : -1;
+            if (hh >= 0 && ll >= 0) {
+                buf[w++] = (char)((hh << 4) | ll);
+                i += 2;
+                continue;
+            }
+        }
+        buf[w++] = s[i];
+    }
+    buf[w] = '\0';
+    return buf;
+}
+
 orbit_string orbit_http_param_get(OrbitArena* arena, OrbitRequest* req, orbit_string param_name) {
     int i;
-    (void)arena;
     if (!req || !param_name) return "";
     /* Path params captured by orbit_route_match during dispatch. */
     for (i = 0; i < req->param_count && i < ORBIT_MAX_PATH_PARAMS; i++) {
         if (req->param_names[i] && strcmp(req->param_names[i], param_name) == 0) {
-            return req->param_values[i] ? req->param_values[i] : "";
+            return req->param_values[i] ? orbit_url_decode(arena, req->param_values[i]) : "";
         }
     }
     return "";
@@ -250,14 +281,136 @@ bool orbit_cache_set(orbit_string key, orbit_string val, int64_t ttl) {
     return false;
 }
 
+static const char* orbit_ci_strstr(const char* hay, size_t haylen, const char* needle) {
+    size_t nlen = strlen(needle);
+    if (nlen == 0 || haylen < nlen) return NULL;
+    for (size_t i = 0; i + nlen <= haylen; i++) {
+        size_t j = 0;
+        while (j < nlen && (char)tolower((unsigned char)hay[i + j]) == (char)tolower((unsigned char)needle[j])) j++;
+        if (j == nlen) return hay + i;
+    }
+    return NULL;
+}
+
+/* Save the `name="field_name"` part of a multipart/form-data request body to
+ * dest_dir. The boundary comes from the Content-Type header; the part name
+ * must match, and its Content-Disposition filename (sanitized) or
+ * upload_<ts>.bin is the target. Returns the saved path, or "" when the
+ * request is not multipart or the field is absent.
+ *
+ * NUL bytes inside the part cannot be represented in an orbit_string, so
+ * the body is written as length-delimited bytes and the returned path is the
+ * contract -- callers can treat the file as saved bytes, not typed data. */
 orbit_string orbit_file_upload_save(OrbitArena* arena, OrbitRequest* req, orbit_string field_name, orbit_string dest_dir) {
-    (void)req;
-    (void)field_name;
-    /* Security-sanitized file upload handler saving to dest_dir */
-    char* saved_path = (char*)orbit_alloc(arena, 256);
-    if (!saved_path) return "";
-    snprintf(saved_path, 256, "%s/upload_%llu.bin", dest_dir ? dest_dir : "./uploads", (unsigned long long)time(NULL));
-    return saved_path;
+    if (!arena || !req || !req->headers || !req->body) return "";
+
+    const char* ct = orbit_ci_strstr(req->headers, req->headers_len, "content-type:");
+    if (!ct) return "";
+    ct += strlen("content-type:");
+    const char* bpos = orbit_ci_strstr(ct, (size_t)(req->headers + req->headers_len - ct), "boundary=");
+    if (!bpos) return "";
+    bpos += strlen("boundary=");
+    const char* bend = bpos;
+    while (bend < req->headers + req->headers_len && *bend != ';' && *bend != '\r' && *bend != '\n' && *bend != ' ') bend++;
+    size_t blen = (size_t)(bend - bpos);
+    if (blen == 0 || blen > 200) return "";
+
+    /* Walk parts: --<boundary>\r\n<part-headers>\r\n\r\n<content>\r\n--<boundary> */
+    /* "--<boundary>" is the delimiter between parts */
+    char boundary_full[264];
+    boundary_full[0] = '-'; boundary_full[1] = '-';
+    memcpy(boundary_full + 2, bpos, blen);
+    boundary_full[2 + blen] = '\0';
+
+    const char* cur = req->body;
+    const char* body_end = req->body + req->body_len;
+    while (cur && cur < body_end) {
+        /* find the next boundary marker at or after cur */
+        const char* m = cur;
+        while (m && m < body_end && !(m + 2 + blen <= body_end && memcmp(m, boundary_full, 2 + blen) == 0)) {
+            m++;
+        }
+        if (!m || m >= body_end) return "";
+        cur = m + 2 + blen;
+        /* After a boundary marker must come \r\n (part follows) or -- (end). */
+        if (cur + 2 <= body_end && cur[0] == '-' && cur[1] == '-') return "";
+        if (cur + 2 <= body_end && cur[0] == '\r' && cur[1] == '\n') cur += 2;
+        else return "";
+
+        /* part headers end at \r\n\r\n */
+        const char* hend = NULL;
+        for (const char* p = cur; p + 4 <= body_end; p++) {
+            if (p[0] == '\r' && p[1] == '\n' && p[2] == '\r' && p[3] == '\n') { hend = p; break; }
+        }
+        if (!hend) return "";
+        size_t hdrlen = (size_t)(hend - cur);
+        const char* content = hend + 4;
+
+        /* next boundary or -- terminator: content ends at \r\n-- boundary */
+        const char* cend = NULL;
+        for (const char* p = content; p + 4 + blen <= body_end; p++) {
+            if (p[0] == '\r' && p[1] == '\n' && p[2] == '-' && p[3] == '-' &&
+                memcmp(p + 4, bpos, blen) == 0) { cend = p; break; }
+        }
+        if (!cend) return "";
+        size_t clen = (size_t)(cend - content);
+
+        /* match the field name in this part's Content-Disposition */
+        char want[520];
+        if (field_name && *field_name) {
+            snprintf(want, sizeof(want), "name=\"%s\"", (const char*)field_name);
+            if (!orbit_ci_strstr(cur, hdrlen, want)) {
+                cur = cend + 4 + blen;
+                continue;
+            }
+        }
+
+        /* filename="..." wins; otherwise a generated one */
+        char namebuf[256];
+        int have_name = 0;
+        const char* fp = orbit_ci_strstr(cur, hdrlen, "filename=\"");
+        if (fp) {
+            fp += strlen("filename=\"");
+            const char* fe = fp;
+            while (fe < cur + hdrlen && *fe != '"') fe++;
+            size_t n = (size_t)(fe - fp);
+            if (n > 0 && n < sizeof(namebuf)) {
+                /* strip any path, then sanitize */
+                const char* base = fp;
+                for (const char* q = fp; q < fe; q++) {
+                    if (*q == '/' || *q == '\\') base = q + 1;
+                }
+                size_t bi = 0;
+                for (const char* q = base; q < fe && bi + 1 < sizeof(namebuf); q++) {
+                    char c = *q;
+                    int okc = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                              (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+                    namebuf[bi++] = okc ? c : '_';
+                }
+                namebuf[bi] = '\0';
+                have_name = 1;
+            }
+        }
+        if (!have_name || namebuf[0] == '\0') {
+            snprintf(namebuf, sizeof(namebuf), "upload_%llu.bin", (unsigned long long)time(NULL));
+        }
+
+        const char* dir = (dest_dir && *dest_dir) ? dest_dir : "./uploads";
+        char* path = (char*)orbit_alloc(arena, 512);
+        if (!path) return "";
+        snprintf(path, 512, "%s/%s", dir, namebuf);
+
+        FILE* f = orbit_fopen(path, "wb");
+        if (!f) {
+            orbit_alloc(arena, 0);
+            return "";
+        }
+        size_t w = fwrite(content, 1, clen, f);
+        fclose(f);
+        if (w != clen) return "";
+        return path;
+    }
+    return "";
 }
 
 /* ── System Telemetry (real counters, no invented values) ────────────────────

@@ -4,12 +4,9 @@
 //      ./file_server 8080   (Windows: .\file_server.exe 8080;
 //      no database is used, so no sqlite3.dll is needed)
 //
-// Honest scope for 0.1.0: this service lists files, serves small
-// text content stored in its own listing, and accepts raw-body
-// uploads that it measures and echoes. Multipart parsing and disk
-// persistence are not implemented yet: req.file() returns a
-// placeholder path and saves nothing, so the tutorial does not
-// use it. See docs/KNOWN_LIMITATIONS.md ("no multipart uploads").
+// Multipart parsing and disk persistence are implemented: req.file()
+// saves the named part to disk. The tutorial still teaches the
+// raw-body flow (measure and echo), which needs no filesystem.
 
 route GET "/files" {
     return ok 200 "{\"files\":[{\"name\":\"welcome.txt\",\"size\":29},{\"name\":\"notes.txt\",\"size\":41}]}"

@@ -113,6 +113,10 @@ jobs:
           fi
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
           ./t_http_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_upload.c -o t_upload_bin $LDFLAGS
+          ./t_upload_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_params_decode.c -o t_params_bin $LDFLAGS
+          ./t_params_bin
           $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o t_kynx_bin $LDFLAGS
           ./t_kynx_bin
           # No -w here on purpose, and that is the whole point of compiling this

@@ -30,11 +30,10 @@ uploads - the list is below, with workarounds.
 ## What it still can't do
 
 Single-host cluster only; no joules on Windows; no p50/p99;
-Windows drain is kill; no native backend; DB
-migrations open. Since these notes were drafted, writes,
-bearer auth, path parameters, and custom tables all work
-(see [Known Limitations](KNOWN_LIMITATIONS.md) for the
-current list): `req.file()` still saves nothing.
+Windows drain is kill; no native backend. Since these notes were
+drafted, writes, bearer auth, path parameters, custom tables,
+DB migrations, and `req.file()` uploads all work (see
+[Known Limitations](KNOWN_LIMITATIONS.md) for the current list).
 
 ## Verify it yourself
 

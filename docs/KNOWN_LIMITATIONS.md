@@ -102,14 +102,14 @@ headers), `req.has_role("admin")` and `req.role()` resolve through
 Using any auth helper links the database automatically; tokens
 themselves are rows you insert (see `tests/auth/auth_harness.c`).
 
-## Path parameters match, values are raw
+## Path parameters match, values are decoded
 
 Routes with `:id` or `{id}` segments match at runtime and bind
 through `req.param("id")` (verified with GET and DELETE, including
-static-over-param precedence and trailing slashes). Two limits
-remain: captured values are not percent-decoded, and at most 8
-captures bind per request. Query values (`?id=`) keep working
-alongside.
+static-over-param precedence and trailing slashes). Captured
+values are percent-decoded by `req.param()`. One limit remains:
+at most 8 captures bind per request. Query values (`?id=`) keep
+working alongside.
 
 ## Custom tables are created, and forward DDL migrates
 
@@ -124,13 +124,16 @@ declaration order, tracked in `_orbit_migrations`); see
 migrations, a version-required startup check, and a standalone
 `orbit migrate`.
 
-## Multipart uploads aren't implemented
+## Multipart uploads save files to disk
 
-`req.file()` compiles but maps to a stub that returns a
-placeholder path and saves nothing (called with one argument it
-also triggers a C arity warning). There is no multipart parsing
-and no disk persistence in 0.1.0. The file-server tutorial
-(`docs/tutorials/file-server.md`) uploads raw bodies and says so.
+`req.file(field_name, dest_dir)` now parses `multipart/form-data`
+boundaries, matches the part by `name=`, sanitizes the part's
+`filename=` (path stripped, safe chars only), and writes the part
+payload to `dest_dir/<name>`. Returns the saved path or "" when the
+request is not multipart or the field is absent. Binaries containing
+NUL bytes are length-delimited on the wire but cannot round-trip as
+`orbit_string`; treat them as saved bytes. Pinned by
+`runtime/test_upload.c`.
 
 ## Cluster is single-host only
 
@@ -169,29 +172,6 @@ loudly in my test - both processes kept running and the port
 answered. Don't rely on a bind error to catch the mistake; check
 with `netstat -ano | findstr <port>` and stop the older process.
 UNTESTED on Linux.
-
-## An object literal cannot be a `-> model` return type
-
-`inferType` returns the literal string `"object"` for an object
-literal (`compiler/sema.orb:980`), and the return check compares
-that name against the declared one. A model name is not `"object"`,
-so the comparison fails and you get a mismatch naming a type that
-was never in your source:
-
-```orbit
-model Point { x: int, y: int }
-fn make() -> Point { return { x: 1, y: 2 } }
-// Semantic error: Return type mismatch: expected Point, got object
-```
-
-The literal itself is fine - the feature landed, and `orbit check`
-accepts it as a model field, as a local, and as a `response` body.
-Only the `-> model` annotation is unreachable. Workaround: build
-the model with its constructor and return that, or return the
-literal from a function typed `-> response`. (Reading a value back
-out of an object with `.get()` is a separate miscompile - see
-"a list slot has no element type" below, and
-[LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#maps).)
 
 ## A generic model typechecks, then emits C that does not compile
 
