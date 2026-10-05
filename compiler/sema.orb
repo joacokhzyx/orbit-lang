@@ -51,6 +51,19 @@ model NameMiss {
     kind: string
 }
 
+// The element type a push into a named list adopted, for a list that nothing
+// declared an element type for.
+//
+// `var xs = []` has no element type: the literal is empty. The first push is
+// where the program says what the slot holds, and remembering it there is what
+// lets the read after it be checked instead of merely emitted. The name is the
+// whole key because a push is spelled `xs.push(v)` and that is the only handle
+// the checker has on the list it is writing into.
+model ListElem {
+    name: string
+    elem: string
+}
+
 // A semantic diagnostic. line is 0 when the checker could not say where the
 // problem is -- most checks run over a node that carries no position -- and
 // the printer falls back to the one-line form for those. Only a diagnostic
@@ -99,12 +112,19 @@ model Sema {
     // its receiver, an expression statement infers its expression -- so
     // without this one bad index would be printed twice.
     indexChecks: list
+    // Element types the checker adopted from a push, and the length of that
+    // table at each open scope. Scoped per scope for the same reason the
+    // builder's own list-kind registry is: two functions with a parameter
+    // named `l` would otherwise collide, and a name declared in an inner block
+    // is a different list from the outer one of the same name.
+    listElems: list
+    listElemMarks: list
 }
 
 fn initSema() -> Sema {
     var initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [])
 }
 
 fn listContainsValue(items: list, value: string) -> bool {
@@ -282,6 +302,18 @@ fn findVariantOwner(sema: Sema, variantName: string) -> string {
         i = i + 1
     }
     return ""
+}
+
+// Whether this pass has seen a model by this name. Needed separately from
+// modelFieldCount because a field count of zero is also what a model that
+// declares no fields answers, and "no such model" must not read as one.
+fn isModelName(sema: Sema, name: string) -> bool {
+    var i = 0
+    while i < sema.modelFieldOwner.len() {
+        if sema.modelFieldOwner.get(i) == name { return true }
+        i = i + 1
+    }
+    return false
 }
 
 // How many fields a model declares. Zero when the name is not a model this
@@ -759,16 +791,23 @@ fn canonicalTypeSpelling(t: string) -> string {
 }
 
 // The base type of an annotation, without parameters: "list<string>" -> "list".
+//
+// Canonicalised, because "List<string>" is the same annotation spelled the other
+// way and the two container spellings have to answer to one type here exactly as
+// they do in checkCompatibility. Splitting off the head is also what makes the
+// payload-carrying form work at all: the bare prefix test this replaced asked
+// whether the string STARTED with "list", so "List<int>" was neither a list nor
+// anything else, and neither was a `list` compared against a `List`.
 fn compatTypeBase(t: string) -> string {
     val lt = t.indexOf("<")
-    if lt < 0 { return t }
-    return orbit_string_slice(t, 0, lt)
+    if lt < 0 { return canonicalTypeSpelling(t) }
+    return canonicalTypeSpelling(orbit_string_slice(t, 0, lt))
 }
 
 // The element type a `list<T>` annotation carries, or "" when there is none:
 // a bare `list` never told the checker anything about its payload.
 fn compatTypeListElement(t: string) -> string {
-    if orbit_string_slice(t, 0, 4) != "list" { return "" }
+    if compatTypeBase(t) != "list" { return "" }
     val lt = t.indexOf("<")
     if lt < 0 { return "" }
     // list<" + inner + ">" -> inner. orbit_string_slice is (s, start, end),
@@ -787,6 +826,151 @@ fn compatibleListElement(want: string, got: string) -> bool {
     val ge = compatTypeListElement(got)
     if we == "" || ge == "" { return true }
     return we == ge
+}
+
+/** @brief The bare name an expression is, or "" when it is not one.
+ *
+ *  A push is spelled `xs.push(v)` and the check needs to know which list is
+ *  being written into, so the name is read off the receiver rather than off the
+ *  type: a list reached through a field is described by its declaration, and a
+ *  list built by a call is described by nothing this pass can see. */
+fn bareNameOf(node: ASTNode) -> string {
+    match node {
+        ASTNode.Literal(lit) => {
+            if lit.valType == "identifier" { return lit.text }
+            return ""
+        }
+        _ => { return "" }
+    }
+}
+
+/** @brief The element type of a list-typed expression, "unknown" when undecided. */
+fn listElementOf(sema: Sema, objType: string, recvName: string) -> string {
+    // What the program declared outranks what a push happened to say: an
+    // annotation is a decision the source made before it ran, and honouring a
+    // push over it would let the first push into an empty list redefine the
+    // element type the binding just declared.
+    val declared = compatTypeListElement(objType)
+    if declared != "" { return declared }
+    val adopted = lookupListElem(sema, recvName)
+    if adopted == "" { return "unknown" }
+    return adopted
+}
+
+/** @brief The adopted element type for @p name, or "" when there is none. */
+fn lookupListElem(sema: Sema, name: string) -> string {
+    if name == "" { return "" }
+    var i = sema.listElems.len()
+    while i > 0 {
+        i = i - 1
+        val entry: ListElem = sema.listElems.get(i)
+        if entry.name == name { return entry.elem }
+    }
+    return ""
+}
+
+/** @brief Remember that the first push into @p name decided the element type.
+ *
+ *  First push wins, which is the rule the builder's own list-kind registry uses
+ *  and for the same reason: the checker approves a slot and the emitter reads it
+ *  back, so the two have to name the same type or the check passes for bytes the
+ *  program then reads as something else. */
+fn adoptListElem(sema: Sema, name: string, elem: string) {
+    if name == "" { return }
+    if !isSlotElementType(elem) { return }
+    if lookupListElem(sema, name) != "" { return }
+    sema.listElems.push(ListElem(name, elem))
+}
+
+/** @brief Forget an adopted element type: the name now holds something else.
+ *
+ *  `var tmp = []` then `tmp.push(1)` then `tmp = []` then `tmp.push("s")` is a
+ *  program that reuses one name for two lists. The adopted type described the
+ *  first list and says nothing about the second, so it is dropped the way a
+ *  recorded length is dropped by a push: the answer to "how long is it" stops
+ *  being the answer once the value behind the name has changed. */
+fn forgetListElem(sema: Sema, name: string) {
+    if name == "" { return }
+    var i = sema.listElems.len()
+    while i > 0 {
+        i = i - 1
+        val entry: ListElem = sema.listElems.get(i)
+        if entry.name == name {
+            sema.listElems.set(i, ListElem(name, ""))
+        }
+    }
+}
+
+/** @brief Can this type name what a list slot holds?
+ *
+ *  "unknown" is the absence of a type rather than a type, and "void" says there
+ *  is no value to store, so neither is adopted: an element type invented out of
+ *  a gap would be enforced against every later push, and the gap says nothing
+ *  about any of them. */
+fn isSlotElementType(t: string) -> bool {
+    if t == "" || t == "unknown" || t == "void" { return false }
+    if t == "int" || t == "float" || t == "string" || t == "bool" { return true }
+    if t == "map" || t == "object" { return true }
+    if compatTypeBase(t) == "list" { return true }
+    // A capitalised name is a model or a union, and either way the slot holds a
+    // pointer to it. That is a real element type even though this pass cannot
+    // say which fields the value must have.
+    if isCapitalised(t) { return true }
+    return false
+}
+
+/** @brief Is a value of type @p got something a slot holding @p want accepts?
+ *
+ *  Narrower than argTypeFits on purpose. A parameter is a promise about the
+ *  caller, and an unknown argument is let through because refusing it would turn
+ *  every inference gap into an error at every use. An element slot is a promise
+ *  about the bytes in it, and the read that comes back has to decode as `want`,
+ *  so the ways in are agreement, an int widening to a float because the C
+ *  backend performs that conversion anyway, and a type this pass does not know
+ *  -- which is not a licence to contradict what it does know. */
+fn listElementFits(got: string, want: string) -> bool {
+    if got == want { return true }
+    if want == "float" && got == "int" { return true }
+    if got == "" || got == "void" || got == "unknown" { return true }
+    if want == "" || want == "void" || want == "unknown" { return true }
+    return false
+}
+
+/** @brief A push into a list: what the slot claims against what goes into it.
+ *
+ *  This is the check that was missing. The emitter has carried an element kind
+ *  for a list since F-0002 and the runtime refuses a mismatched push, so a
+ *  wrong-typed push into a `list<int>` compiled and then died on the way in --
+ *  or, where the emitter could not tell the slot's kind either, went in
+ *  unexamined and was read back as whatever the reader assumed. A push is also
+ *  the one place an unannotated list learns what it holds, so this is where an
+ *  empty `[]` acquires the element type its later reads are checked against. */
+fn checkListPush(sema: Sema, objType: string, recvName: string, argTypes: list, line: int, col: int) {
+    if argTypes.len() != 1 { return }
+    val got: string = argTypes.get(0)
+    val want = listElementOf(sema, objType, recvName)
+    if want == "unknown" {
+        adoptListElem(sema, recvName, got)
+        return
+    }
+    if listElementFits(got, want) { return }
+    reportErrorAt(sema, "E1006", "A list has one element type: change the value being pushed, or the element type of the list.", line, col, "This list holds " + want + ", so what is pushed into it must be " + want + " -- this value is " + got + ".")
+}
+
+/** @brief The type to record for a binding, which is not always the value's type.
+ *
+ *  An annotation that names an element type says more than the value's own type
+ *  can: `val xs: list<int> = []` has a list literal with nothing in it, so the
+ *  value types as a bare `list` and the element type the program declared would
+ *  be discarded along with it. Every push into xs is unchecked for that reason
+ *  alone, and so is every read. The annotation wins only when it carries a
+ *  payload the value could not supply; where the value already says `list<int>`
+ *  its own answer is the same one. */
+fn bindingTypeName(annotation: string, valueType: string) -> string {
+    if annotation == "" { return valueType }
+    if compatTypeListElement(annotation) == "" { return valueType }
+    if compatTypeListElement(valueType) != "" { return valueType }
+    return annotation
 }
 
 fn checkCompatibility(expected: string, actual: string) -> bool {
@@ -816,11 +1000,20 @@ fn pushScope(sema: Sema) {
     val newScopeId = sema.scopes.len()
     sema.scopes.push(Scope([], sema.currentScope))
     sema.currentScope = newScopeId
+    sema.listElemMarks.push(sema.listElems.len())
 }
 
 fn popScope(sema: Sema) {
     val parentScope = sema.scopes.get(sema.currentScope)
     sema.currentScope = parentScope.parentId
+    // Leaving a scope drops the element types adopted inside it: a list declared
+    // in a block is not visible after it, and neither is what was pushed into it.
+    if sema.listElemMarks.len() > 0 {
+        val mark = sema.listElemMarks.pop()
+        while sema.listElems.len() > mark {
+            sema.listElems.pop()
+        }
+    }
 }
 
 fn checkModelName(sema: Sema, name: string) {
@@ -911,7 +1104,7 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
         ASTNode.VarDecl(v) => {
             val valueType = checkNode(sema, v.value)
             checkAnnotation(sema, v.name, v.typeAnnotation, valueType, v.line, v.col)
-            declareSymbol(sema, v.name, valueType, v.isMutable, false)
+            declareSymbol(sema, v.name, bindingTypeName(v.typeAnnotation, valueType), v.isMutable, false)
             if v.isMutable == false {
                 recordConstBound(sema, v.name, v.value)
             }
@@ -1397,9 +1590,13 @@ fn checkWhileLoop(sema: Sema, node: ASTNode) {
 fn checkForLoop(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.For(f) => {
-            checkNode(sema, f.iterable)
+            // The loop variable is the element the iterable holds, so it is
+            // declared as one. It was declared "unknown", and an unknown is
+            // compatible with every annotation, which is how `for x in [1,2,3]`
+            // gave a loop body an x that read back as nothing at all.
+            val iterType = checkNode(sema, f.iterable)
             pushScope(sema)
-            declareSymbol(sema, f.item, "unknown", false, false)
+            declareSymbol(sema, f.item, listElementOf(sema, iterType, bareNameOf(f.iterable)), false, false)
             checkNode(sema, f.body)
             popScope(sema)
         }
@@ -1931,6 +2128,18 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     }
                     return "unknown"
                 }
+                // A list the program has pushed into is a `list<T>` from here
+                // on, not a bare `list`. The symbol was declared as a bare
+                // `list` because the value it was bound to was an empty
+                // literal, and the element type arrived afterwards with the
+                // first push; leaving the answer as `list` would throw that
+                // away at every use that is not the push itself, so a list of
+                // lists pushed into a `list<list<int>>` read back as a bare
+                // `list` and contradicted the slot it was written into.
+                if compatTypeBase(typeName) == "list" && compatTypeListElement(typeName) == "" {
+                    val adopted = lookupListElem(sema, l.text)
+                    if adopted != "" { return "list<" + adopted + ">" }
+                }
                 return typeName
             }
             // A raw string is a string as far as the type system is concerned;
@@ -2036,9 +2245,14 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 }
                 _ => { checkNode(sema, c.callee) }
             }
+            // The argument types are kept as they are walked, not asked for a
+            // second time. A check that wanted them from a fresh checkNode would
+            // print every diagnostic inside an argument twice, which is the same
+            // reason checkIf checks each branch exactly once.
+            val argTypes: list = []
             var i = 0
             while i < c.args.len() {
-                checkNode(sema, c.args.get(i))
+                argTypes.push(checkNode(sema, c.args.get(i)))
                 i = i + 1
             }
             if calleeName != "" {
@@ -2101,11 +2315,24 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         if member == "slice" { return "string" }
                         if member == "to_int" { return "int" }
                     }
-                    if objType == "list" || objType == "List" {
+                    // `compatTypeBase` and not the literal "list": a list whose
+                    // element type is known types as `list<int>`, and a test
+                    // for the bare spelling matched none of them, so `xs.len()`
+                    // on an annotated list answered "unknown" and `xs.push(...)`
+                    // never reached the check below.
+                    if compatTypeBase(objType) == "list" {
                         if member == "len" { return "int" }
                         if member == "push" {
                             forgetConstBound(sema, callObjName)
+                            checkListPush(sema, objType, callObjName, argTypes, c.line, c.col)
                             return "void"
+                        }
+                        // A read hands back the slot's element, which is the
+                        // whole of `list<T>`: without this the annotation said
+                        // what a list could hold and nothing said what reading
+                        // one gives you.
+                        if member == "get" || member == "at" || member == "pop" {
+                            return listElementOf(sema, objType, callObjName)
                         }
                     }
                     if objType == "map" || objType == "Map" {
@@ -2157,9 +2384,11 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.IndexAccess(ia) => {
-            checkNode(sema, ia.object)
+            // `xs[i]` is `xs.get(i)`, so it is worth the slot's element too.
+            val objType = checkNode(sema, ia.object)
             checkNode(sema, ia.index)
             checkConstantIndex(sema, ia.object, ia.index, ia.line, ia.col)
+            if compatTypeBase(objType) == "list" { return listElementOf(sema, objType, bareNameOf(ia.object)) }
             return "unknown"
         }
         ASTNode.ModelDecl(m) => { checkModelDecl(sema, node)
@@ -2233,6 +2462,18 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         ASTNode.Param(p) => { return "" }
         ASTNode.Decorator(d) => { return "" }
         ASTNode.TypeAnnotation(ta) => { return "" }
+        // A model literal is checked as that model: keys against declared
+        // fields, so `Post { titel: "x" }` is a typo the checker can see, and a
+        // bare `{...}` stays a dynamic object with no declared type to hold it
+        // against.
+        ASTNode.TypedLiteral(tl) => {
+            if isModelName(sema, tl.declaredType) {
+                checkObjectLiteralModel(sema, tl.declaredType, tl.value)
+                return tl.declaredType
+            }
+            checkNode(sema, tl.value)
+            return ""
+        }
         ASTNode.FieldInit(fi) => { checkNode(sema, fi.value)
             return ""
         }
@@ -2243,6 +2484,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             return ""
         }
         ASTNode.Assignment(a) => { checkNode(sema, a.value)
+            forgetListElem(sema, bareNameOf(a.target))
             return ""
         }
         ASTNode.ListLiteral(ll) => {

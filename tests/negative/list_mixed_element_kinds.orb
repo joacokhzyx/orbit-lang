@@ -1,27 +1,30 @@
-// expect-exit 2
+// case: list-mixed-element-kinds
+// what: a list has one element type, and pushing a second kind into it is a
+//      type error rather than something to discover later. Before the element
+//      type existed there was nowhere to put this. `var mixed = []` `mixed.push(1)`
+//      `mixed.push("two")` stored an int and a string in the same 8-byte slot,
+//      in whatever order they arrived, and every read of it was a `*(void**)`.
+//      Nothing said so at the push and nothing could say so at the read, because
+//      the read had no type to check the value against. That is the mechanism
+//      behind F-0009, where `getOr(nums, 0, "d")` on an int list dereferenced
+//      an int as a `char*` and the process died with SIGSEGV.
 //
-// A list has one element type, and pushing a second kind into it is a type
-// error rather than something to discover later.
+//      This case was a tests/suite program pinning the RUNTIME refusal:
 //
-// Before the element type existed there was nowhere to put this. `var mixed = []
-// mixed.push(1) mixed.push("two")` stored an int and a string in the same
-// 8-byte slot, in whatever order they arrived, and every read of it was a
-// `*(void**)`. Nothing said so at the push and nothing could say so at the
-// read, because the read had no type to check the value against. That is the
-// mechanism behind F-0009, where `getOr(nums, 0, "d")` on an int list
-// dereferenced an int as a `char*` and the process died with SIGSEGV.
+//        $ orbit run tests/suite/list_mixed_element_kinds.orb
+//        orbit: list element type mismatch
+//          list holds int, this value is string
+//          a list has one element type, so a read and a write must agree on it
 //
-//     $ orbit run tests/suite/list_mixed_element_kinds.orb
-//     orbit: list element type mismatch
-//       list holds int, this value is string
-//       a list has one element type, so a read and a write must agree on it
+//      The checker refuses it first now, so it cannot run at all, and the suite
+//      runner asserts that every program in tests/suite builds. The refusal
+//      moved up a stage; the record moved with it.
 //
-// Exit 2 is what orbit_list_kind_error exits with.
-//
-// A heterogeneous list is not expressible in this shape of list. The
-// alternative is a boxed element -- a tagged union per slot -- which is a much
-// larger runtime change and still would not make `getOr(l, 0, "d")` legal,
-// because the read would have no declared type to check against either.
+//      A heterogeneous list is not expressible in this shape of list. The
+//      alternative is a boxed element -- a tagged union per slot -- which is a
+//      much larger runtime change and still would not make `getOr(l, 0, "d")`
+//      legal, because the read would have no declared type to check against either.
+// expect-error: This list holds int, so what is pushed into it must be int
 fn main() -> int {
     var mixed = []
     mixed.push(1)

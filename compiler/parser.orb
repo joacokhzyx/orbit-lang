@@ -18,14 +18,29 @@ model Parser {
     diagnostics: list
     depth: int
     source: string
+    modelNames: list
 }
 
 fn initParser(source: string) -> Parser {
     val lex = initLexer(source)
     val dummy = Token(TokType.EOF, "", 1, 1)
-    val mut parser = Parser(lex, dummy, dummy, [], 0, source)
+    val mut parser = Parser(lex, dummy, dummy, [], 0, source, [])
     advanceParser(parser)
     return parser
+}
+
+// Whether this source has already declared a model by this name. A `Model {`
+// literal is only a literal when the name in front is a declared model: `if
+// flag {` is a bare identifier followed by a block, and a brace after any
+// other name means nothing of the sort. A model literal therefore has to follow
+// its declaration, which is where it belongs in a file anyway.
+fn parserDeclaredModel(parser: Parser, name: string) -> bool {
+    var i = 0
+    while i < parser.modelNames.len() {
+        if parser.modelNames.get(i) == name { return true }
+        i = i + 1
+    }
+    return false
 }
 
 fn advanceParser(parser: Parser) {
@@ -365,6 +380,18 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         if name == "true" { return ASTNode.Literal(LiteralNode("bool", name)) }
         if name == "false" { return ASTNode.Literal(LiteralNode("bool", name)) }
         val node = ASTNode.Literal(LiteralNode("identifier", name))
+        // `Point { x: 1 }` is a model literal. Without this the name parses as
+        // its own expression and the `{...}` becomes a separate statement: the
+        // emitter then writes the bare identifier where a pointer belongs, which
+        // is a C error the checker never saw. The name rides along beside the
+        // literal, so the builder builds the struct rather than the dynamic
+        // object. Only a declared model name qualifies, or every `if flag {`
+        // would be read as a literal.
+        if check(parser, TokType.OpenBrace) && parserDeclaredModel(parser, name) {
+            advanceParser(parser)
+            val body = parseObjectLiteralBody(parser)
+            return parsePostfix(parser, ASTNode.TypedLiteral(TypedLiteralNode(body, name)))
+        }
         return parsePostfix(parser, node)
     }
     if matchToken(parser, TokType.KeywordOk) {
@@ -893,6 +920,7 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
         }
     }
     val name = parser.previousToken.text
+    parser.modelNames.push(name)
     val genericParams = parseGenericParams(parser)
     // A type parameter is a name with nothing behind it. A model's fields are
     // lowered with their declared type names and `mapTypeToC` has no case for
@@ -919,8 +947,11 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
         if matchToken(parser, TokType.Ampersand) {
             isPointer = true
         }
-        consume(parser, TokType.Identifier, "Expected field type.")
-        var fieldType = parser.previousToken.text
+        // parseTypeName, not a bare identifier: a field that could only say
+        // `int` could not say `list<string>`, so the element type was
+        // unwritable exactly where a model holds its collection. The checkers
+        // split the parameters back out, the same way they do for `fn` params.
+        var fieldType = parseTypeName(parser)
         if isPointer {
             fieldType = "&" + fieldType
         }

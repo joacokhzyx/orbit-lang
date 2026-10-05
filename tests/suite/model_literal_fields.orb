@@ -1,0 +1,93 @@
+// A model literal builds the model's struct, wherever it is written, and the
+// name in front is the type.
+//
+// `Post { title: "x" }` used to parse as two statements: the bare identifier
+// `Post`, then a `{...}` object literal. The checker never saw a model at all,
+// and the emitter wrote the identifier where a pointer belongs, so the C step
+// failed on `(void*)(uintptr_t)(Post)` -- a compile error in generated code
+// that `orbit check` had already called clean. The literal is now a value of
+// the model, which is also what makes a field read through it typed.
+//
+// The second half is the reason a model needs its fields to be readable: a
+// field declared `list<string>` is a declared element type, so reading through
+// it hands back a string instead of an unknown word the print then formats as
+// a number.
+//
+// Every exit code below is distinct, so a regression names itself.
+
+model Post {
+    title: string,
+    tags: list < string >
+}
+
+model Point {
+    x: int,
+    y: int
+}
+
+fn main() -> int {
+    if literalInAValIsAModel() != 0 { return 1 }
+    if literalAsAnArgumentIsAModel() != 0 { return 2 }
+    if literalFieldsAreTyped() != 0 { return 3 }
+    if listFieldReadsAreTyped() != 0 { return 4 }
+    if dynamicObjectReadsAreTyped() != 0 { return 5 }
+    return 0
+}
+
+// The literal is the struct: the field read goes through the struct's own
+// field, not through a key lookup, and both models stay distinct.
+fn literalInAValIsAModel() -> int {
+    val post = Post { title: "hello", tags: [] }
+    val point = Point { x: 1, y: 2 }
+    if post.title != "hello" { return 1 }
+    if point.x + point.y != 3 { return 2 }
+    return 0
+}
+
+// The same literal as an argument, where there is no declaration to read the
+// type from: the name in front is the only thing that says which struct this
+// is, which is the whole reason the parser keeps it.
+fn sumOf(point: Point) -> int {
+    return point.x + point.y
+}
+
+fn literalAsAnArgumentIsAModel() -> int {
+    if sumOf(Point { x: 2, y: 3 }) != 5 { return 1 }
+    return 0
+}
+
+fn literalFieldsAreTyped() -> int {
+    val point = Point { x: 10, y: 20 }
+    val total: int = point.x + point.y
+    if total != 30 { return 1 }
+    return 0
+}
+
+// A declared element type on a model field is enough to type the read. No
+// push ever told the registry what this list holds; the field declaration is
+// the declaration.
+fn listFieldReadsAreTyped() -> int {
+    val post = Post { title: "tagged", tags: ["red", "blue"] }
+    if post.tags.len() != 2 { return 1 }
+    val first: string = post.tags.get(0)
+    if first != "red" { return 2 }
+    var joined = ""
+    for tag in post.tags {
+        joined = joined + tag + ","
+    }
+    if joined != "red,blue," { return 3 }
+    return 0
+}
+
+// A dynamic object has no declared types, so `.get("k")` reads back whatever
+// the setter stored under that key. It used to lower to a LIST read, so
+// `{ "a": 1 }` read back through orbit_list_read_word and the process died
+// dereferencing an OrbitObject as an OrbitList.
+fn dynamicObjectReadsAreTyped() -> int {
+    val config = { name: "orbit", retries: 3 }
+    val name: string = config.get("name")
+    val retries: int = config.get("retries")
+    if name != "orbit" { return 1 }
+    if retries != 3 { return 2 }
+    return 0
+}

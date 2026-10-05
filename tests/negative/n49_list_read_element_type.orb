@@ -1,0 +1,25 @@
+// case: list-read-into-the-wrong-annotation
+// what: reading an element out of a list hands back the list's element type, so
+//      a binding annotated as something else has to be rejected. A read used to
+//      answer "unknown", and an unknown is compatible with every annotation, so
+//      the mismatch had nowhere to be caught -- and the annotation went on to
+//      the emitter, which declared the destination register from it. The int
+//      came back out of the accessor in an int register, the annotation said
+//      string, and print dereferenced the number:
+//
+//        $ orbit check tests/negative/n49_list_read_element_type.orb   (before)
+//        Checked ...: no errors.
+//        $ orbit run tests/negative/n49_list_read_element_type.orb     (before)
+//        Segmentation fault (core dumped)
+//
+//      Nothing is pinned on the crash: a segfault moves per run and per machine.
+//      The class is the checkable part, and the front end now answers it.
+// expect-error: 'v' is declared string but the value is int
+fn f(xs: list<int>) -> int {
+    val v: string = xs.get(0)
+    return v.len()
+}
+
+fn main() -> int {
+    return f([1, 2, 3])
+}

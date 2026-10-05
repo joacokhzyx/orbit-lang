@@ -1,0 +1,26 @@
+// case: list-push-into-an-annotated-element-type
+// what: the element type an annotation declares is a decision the program made
+//      before it ran, so a value that contradicts it is checkable now. It was
+//      not checkable at all, and not even at run time: the emitter's element
+//      kind comes from a literal or from a push into a list it has already
+//      seen, and `val xs: list<int> = []` has neither -- the literal is empty,
+//      and the push that follows it is the first thing the emitter is asked to
+//      push, so there was no earlier element to contradict. The string went in,
+//      nothing compared it with the annotation, and the annotation was the only
+//      statement anybody had made about the slot.
+//
+//        $ orbit check tests/negative/n48_list_push_element_type.orb   (before)
+//        Checked ...: no errors.
+//        $ orbit run tests/negative/n48_list_push_element_type.orb     (before)
+//        (no output, exit 0: the string sat in an int slot unexamined)
+//
+//      A heterogeneous list is not expressible in this shape of list; see
+//      tests/negative/list_mixed_element_kinds.orb for why that is not a gap in
+//      the check but a decision about the representation.
+// expect-error: This list holds int, so what is pushed into it must be int
+fn main() -> int {
+    val xs: list<int> = []
+    xs.push(1)
+    xs.push("two")
+    return xs.len()
+}

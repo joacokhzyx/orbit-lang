@@ -1,0 +1,170 @@
+// A `list<T>` annotation says what the list holds, so the checker enforces it:
+// a push that contradicts it is rejected, and a read hands the element back
+// typed rather than as an unknown an annotation could disagree with silently.
+//
+// The two halves were missing in the checker while the emitter already had
+// them. The emitter carried an element kind (F-0002) and the runtime refused a
+// mismatched push, so the worst case was a program that compiled and died on
+// the way in; the best case was a read typed "unknown", which is compatible
+// with everything, so `val v: string = xs.get(0)` on a list of ints was
+// accepted, the annotation reached the emitter as the destination register's
+// type, and print dereferenced a number. Both are rejected now.
+//
+// What is still NOT enforced, and is what the counter-case pins: a receiver
+// this pass cannot name. A list reached through a bare `list` field, or through
+// a parameter declared `list`, has no element type for the checker to compare
+// against -- see tests/negative/n39_list_parameter_has_no_element_type.orb.
+//
+// Every exit code below is distinct, so a regression names itself.
+
+fn main() -> int {
+    if annotatedPushHolds() != 0 { return 1 }
+    if annotatedReadsAreTyped() != 0 { return 2 }
+    if intWidenIntoAFloatSlot() != 0 { return 3 }
+    if readsInsideAnAnnotatedParameter() != 0 { return 4 }
+    if loopOverAnAnnotatedList() != 0 { return 5 }
+    if pushDecidesTheElementType() != 0 { return 6 }
+    if rebindingForgetsTheAdoptedType() != 0 { return 7 }
+    if nestedAnnotatedList() != 0 { return 8 }
+    if popReturnsTheElement() != 0 { return 9 }
+    return 0
+}
+
+// The annotation is the declaration, and it is the one the push is checked
+// against. `[]` carries no element type, so this list's is `int` because the
+// program said so, not because anything was pushed before the check.
+fn annotatedPushHolds() -> int {
+    val xs: list < int > = []
+    xs.push(10)
+    xs.push(20)
+    if xs.len() != 2 { return 1 }
+    if xs.get(0) != 10 { return 2 }
+    return 0
+}
+
+// Three spellings of the same read, three typed answers. `.at()` on a list is
+// an element read and `[i]` is `get(i)`; none of the three is a `void*` any
+// more, so an annotation on the destination is checked rather than obeyed.
+fn annotatedReadsAreTyped() -> int {
+    val xs: list < int > = [4, 5, 6]
+    val byGet: int = xs.get(0)
+    val byAt: int = xs.at(1)
+    val byIndex: int = xs[2]
+    if byGet != 4 { return 1 }
+    if byAt != 5 { return 2 }
+    if byIndex != 6 { return 3 }
+    return 0
+}
+
+// An int is a float's element as well: the C backend performs the conversion
+// on the way in, so a check with no bug behind it would be a check with no
+// reason. A float into an int slot is the other direction and is refused --
+// it truncates, and F-0015 is exactly that class.
+fn intWidenIntoAFloatSlot() -> int {
+    val xs: list < float > = []
+    xs.push(1)
+    xs.push(2.5)
+    if xs.len() != 2 { return 1 }
+    if xs.get(0) == 1.0 == false { return 2 }
+    if xs.get(1) == 2.5 == false { return 3 }
+    return 0
+}
+
+// A parameter declared `list<int>` is a declaration like any other, so the read
+// inside the helper is an int. `-> int` returning `l.get(i)` is the shape
+// std/collections/lists.orb is written in.
+fn readOne(xs: list < int >, i: int) -> int {
+    return xs.get(i)
+}
+
+fn sumOf(xs: list < int >) -> int {
+    var total = 0
+    var i = 0
+    while i < xs.len() {
+        total = total + xs.get(i)
+        i = i + 1
+    }
+    return total
+}
+
+fn readsInsideAnAnnotatedParameter() -> int {
+    if readOne([7, 8], 1) != 8 { return 1 }
+    if sumOf([1, 2, 3, 4]) != 10 { return 2 }
+    return 0
+}
+
+// The loop variable is the element the iterable holds, so `for` declares it
+// as one. It was declared "unknown", which is compatible with every annotation,
+// which is why `for x in xs { print(x) }` had no type to print x as.
+fn loopOverAnAnnotatedList() -> int {
+    var joined = ""
+    for name in ["a", "b", "c"] {
+        joined = joined + name
+    }
+    if joined != "abc" { return 1 }
+    var total = 0
+    for n in [1, 2, 3] {
+        total = total + n
+    }
+    if total != 6 { return 2 }
+    return 0
+}
+
+// An empty `[]` plus pushes is the ordinary way to build a list, and there is
+// no annotation to check against -- so the FIRST push is what decides the
+// element type, and every later push is checked against it. A second push of
+// another kind is tests/negative/list_mixed_element_kinds.orb.
+fn pushDecidesTheElementType() -> int {
+    var names = []
+    names.push("one")
+    names.push("two")
+    if names.len() != 2 { return 1 }
+    if names.get(0) != "one" { return 2 }
+    return 0
+}
+
+// One name, two lists. The adopted element type described the first list and
+// says nothing about the second, so the assignment drops it -- the same reason
+// a push drops a recorded length.
+fn rebindingForgetsTheAdoptedType() -> int {
+    var slot = []
+    slot.push(1)
+    if slot.get(0) != 1 { return 1 }
+    slot = []
+    slot.push("now a string")
+    if slot.len() != 1 { return 2 }
+    return 0
+}
+
+// A list of lists. The slot holds a pointer either way, but the checker can say
+// so: `list<list<int>>` is one element type, and pushing an int into it is
+// refused rather than stored beside the inner list.
+//
+// The inner list is built here rather than by a helper on purpose. It is an
+// empty literal, so the checker records it as provably holding nothing and a
+// push it cannot see does not change that -- the recorded length is dropped by
+// the pushes it can see, and a call that might push is not one of them.
+fn nestedAnnotatedList() -> int {
+    val outer: list < list < int > > = []
+    var firstInner = []
+    firstInner.push(1)
+    outer.push(firstInner)
+    var secondInner = []
+    secondInner.push(2)
+    outer.push(secondInner)
+    if outer.len() != 2 { return 1 }
+    val first = outer.get(0)
+    if first.len() != 1 { return 2 }
+    if first.get(0) != 1 { return 3 }
+    return 0
+}
+
+// `pop` is a read with a side effect, so it hands back the same element type
+// `get` does.
+fn popReturnsTheElement() -> int {
+    val xs: list < string > = ["first", "second"]
+    val last: string = xs.pop()
+    if last != "second" { return 1 }
+    if xs.len() != 1 { return 2 }
+    return 0
+}

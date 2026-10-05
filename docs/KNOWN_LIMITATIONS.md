@@ -36,7 +36,7 @@ Finished negative: 32/32 pass (1 known defect still accepted)
 ```
 
 Thirty-two programs that must be rejected, thirty-one of which are. The one
-that is not is [a `list` parameter with no element type](#a-list-slot-has-no-element-type-so-nothing-can-check-it),
+that is not is [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
 which is a language design gap rather than a missing check.
 
 What replaced the list, in the order the work was done:
@@ -262,26 +262,88 @@ a minus straight after a keyword starts a new expression and is
 unary (F-0008, in `compiler/fmt.orb`). The tree no longer carries
 the spread `- 1` sites the old entry warned about.
 
-## A list slot has no element type, so nothing can check it
+## A list carries an element type now, and the checker enforces it
+
+This entry used to be a description of a hole. The hole is closed for the
+receivers the checker can name, and what is left is a different and smaller
+one, so the entry is rewritten rather than deleted.
 
 `OrbitList` is `{ void* data; size_t len, capacity, elem_size; ... }`
-(`runtime/types.c:195-201`). One pointer per element, and nothing
-records what it points at. This is the single most load-bearing gap
-in the language - it is why an unannotated binding is assumed to be
-a string, and it is why the `std/collections/lists.orb` helpers
-cannot protect you:
+(`runtime/types.c:195-201`): one pointer per element, and the header carries an
+element *kind* rather than a type. The kind was already there (F-0002) and the
+runtime already refused a push that disagreed with it. What was missing was that
+nothing in the front end knew what the slot held, so the annotation and the
+literal were parsed, carried on the AST, and never compared with anything. Every
+row of the old table is now decided while compiling:
 
-| program | result |
-|---|---|
-| `getOr([1,2,3], 0, "d")` bound to a `string` | **segfault** |
-| `indexOfStr([[1,2],[3,4]], "x")` | `-1`, silently |
-| `[10,20,30].at(0)` | the low byte of the `data` pointer - 48, 144 and 0 in three programs differing only in what else they allocated |
-| an object `{ "a": 1 }`, with `.get("a")` bound to an `int` | segfault |
+| program | before | now |
+|---|---|---|
+| `getOr([1,2,3], 0, "d")` bound to a `string` | **segfault** | `error[E1005]` at the call |
+| `indexOfStr([[1,2],[3,4]], "x")` | `-1`, silently | `error[E1005]` at the call |
+| `[10,20,30].at(0)` | the low byte of the `data` pointer - 48, 144 and 0 in three programs differing only in what else they allocated | `10` |
+| `val xs: list<int> = [1,2,3]`, then `xs.push("nope")` | compiled; died at run time with `orbit: list element type mismatch` | `error[E1006]` at the push |
+| `val xs: list<int> = []`, then `xs.push("nope")` | compiled; **exit 0**, with a string in an int slot | `error[E1006]` at the push |
+| `var xs = []`, `xs.push(1)`, `xs.push("two")` | compiled; `exit 2` from the runtime refusal | `error[E1006]` at the second push |
+| `val v: string = xs.get(0)` where `xs: list<int>` | compiled clean; **segfault** | `error[E1006]: 'v' is declared string but the value is int` |
+| an object `{ "a": 1 }`, with `.get("a")` bound to an `int` | segfault | `1`, and typed by the setter that wrote the key |
 
-`orbit check` reports no errors for any row. A method call directly on a
-literal does not parse (`Expected ')' after arguments`), so each of these needs
-the value bound to a `val` first — which is what I did. Use `.get(i)`, not
-`.at(i)`, and treat a list's contents as something only you know.
+**Where the element type comes from.** Four places, and they agree because each
+one asks the same question in the same order. A `list<T>` annotation is a
+declaration and outranks everything else - including the value it is bound to,
+which is what makes `val xs: list<int> = []` work: the literal is empty and
+types as a bare `list`, and the annotation is what the binding records. A list
+literal whose elements all agree is `list<T>` statically. An empty `[]` plus
+pushes has no declaration, so the **first** push decides, and every later push is
+checked against it - first-push-wins because the checker approves a slot and the
+emitter reads it back, and two answers are one bug. Assigning the name a
+different list forgets the adopted type, the same way a push forgets a recorded
+length.
+
+**What the element type buys a read.** `.get(i)`, `.at(i)`, `xs[i]` and `.pop()`
+answer with the slot's element, and a `for` loop declares its variable as the
+element of the iterable. A read used to answer `unknown`, and `unknown` is
+compatible with every annotation, so nothing could be checked at a read at all:
+the annotation went on to the emitter as the destination register's type and
+`print` dereferenced a number. `std/collections/lists.orb` is written in exactly
+that style and its reads are now typed inside the helpers.
+
+**One widening is allowed and one is not.** An `int` goes into a `list<float>`
+and the emitter converts it on the way in, because a check with no bug behind it
+is a check with no reason. The other direction truncates, and is refused.
+
+### What is still untyped
+
+- **A `list` parameter declared without its element.** `fn read(xs: list, i: int)`
+  has nothing to check a read against, and `tests/negative/n39_list_parameter_has_no_element_type.orb`
+  is still a known defect (F-0009). A model field is no longer in this bullet:
+  `model Bag { xs: list<string> }` parses, because `parseModelDecl` reads a field
+  type through `parseTypeName`, and a read through it is typed by the field's
+  declaration.
+- **An element this pass could not type.** `unknown` on either side is accepted,
+  as everywhere else in the checker: an unknown is an inference gap, and
+  refusing it would turn every gap into an error at every use.
+- **A model or a union as the element.** `list<Point>` is checked for
+  pointerness and nothing more; the fields of the value are not checked against
+  the model's declaration here.
+- **A heterogeneous list.** Not expressible in this shape of list, and that is
+  a decision about the representation (one boxed element per slot) rather than a
+  gap in the check. See
+  `tests/negative/list_mixed_element_kinds.orb` for why a boxed element would
+  still not make `getOr(l, 0, "d")` legal.
+- **The runtime refusal is still the backstop**, and it is still reachable -
+  the field case above is the reachable one. It is no longer reachable by any
+  push the front end could type, which is the intended end state: a diagnostic
+  beats an `exit 2` with no line number.
+
+### An object `.get()` is a keyed read, and the key is not typed
+
+`{ "a": 1 }.get("a")` no longer lowers to a list read. It reads the field the
+same way a dynamic object is written, and the emitter picks the getter from the
+setter that wrote that key, so an int field reads back an int and a string field
+a string. An object literal's field types are still not recorded: nothing knows
+them, so a key that was never written still answers with the type of whatever
+was, and a getter chosen from no setter is the raw one. That is the remaining
+gap here, and it needs the object's own field types recorded.
 
 ## 29.2% of instructions are `unknown`, and 46.8% of those are silent
 

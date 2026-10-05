@@ -1,13 +1,13 @@
 // case: object-literal-list-field
-// what: an object field cannot hold a list. The rejection has to happen here;
-//      the alternative is a struct field initialised from a list pointer.
+// what: a DYNAMIC object field cannot hold a list. A model field can: the
+//      model declares `tags: list<string>` and the struct holds the pointer,
+//      which is where a list has always lived. The dynamic object has no
+//      declared field types at all, so the emitter has nothing to store a
+//      list pointer in that will not read back as its digits in the JSON
+//      body. Refuse it there instead of guessing.
 // expect-error: an object field cannot hold a list yet
-model Config {
-    name: string
-    tags: list
-}
-
 fn main() -> int {
-    val c = Config { name: "x", tags: [] }
+    val config = { name: "x", tags: [] }
+    print(config.get("name"))
     return 0
 }

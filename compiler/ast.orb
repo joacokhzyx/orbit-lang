@@ -21,6 +21,16 @@ model TypeAnnotationNode {
     isNullable: bool
 }
 
+// `Model { ... }` is a model literal, and the name in front has to survive to
+// codegen or the emitter writes the identifier where a pointer belongs. The
+// annotation carries the value together with the declared type it was written
+// against, because the two are not separable: a `{...}` builds a dynamic
+// object and a `Model{...}` builds a struct.
+model TypedLiteralNode {
+    value: ASTNode
+    declaredType: string
+}
+
 model GenericParamNode {
     name: string
     constraint: string
@@ -285,4 +295,4 @@ model BreakNode {}
 
 model ContinueNode {}
 
-type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | MigrationDecl(MigrationDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | Empty
+type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | MigrationDecl(MigrationDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | TypedLiteral(TypedLiteralNode) | Empty

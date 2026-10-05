@@ -532,6 +532,10 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
         }
         ASTNode.ListLiteral(ll) => { return "list" }
         ASTNode.ObjectLiteral(ol) => { return "object" }
+        // `Model { ... }` is worth the model's own name: the name in front is
+        // the type, and without this `val p = Post { ... }` bound p to unknown
+        // and every field read through it had nothing to read a field type off.
+        ASTNode.TypedLiteral(tl) => { return tl.declaredType }
         ASTNode.Interp(ip) => { return "string" }
         // The value of an `if` is the value of the branch that ran, and the
         // then branch is the one that decides it, so that is what an `if` is
@@ -699,6 +703,31 @@ fn recordPushListKind(builder: IRBuilder, node: ASTNode, kindCode: int) {
     }
 }
 
+/** @brief The element kind a write into @p receiver's list carries.
+ *
+ *  The slot's own kind when the slot has one, and the written value's kind when
+ *  it does not. Every write to a list has to use one kind and so does every
+ *  read, which is the whole reason the kind is carried on the instruction
+ *  rather than guessed at each end: two guesses are two answers.
+ *
+ *  Taking the slot's kind is what makes `val xs: list<float> = []` mean it.
+ *  The empty literal gives the create no kind, so the first push is where the
+ *  slot's kind and the written value's kind are first compared at all, and
+ *  emitting the value's kind there adopts an int slot for a list the program
+ *  declared a float -- after which the run-time refusal fires on the second
+ *  push, having already put the wrong thing in the first slot. An int in a
+ *  float slot is a conversion the emitter performs on the way in; a float in
+ *  an int slot is a truncation, and that is what sema now refuses to write. */
+fn listWriteKind(builder: IRBuilder, receiver: ASTNode, value: ASTNode) -> int {
+    val slotKind = listKindNameOf(builder, receiver)
+    if slotKind != "" { return elemKindCode(slotKind) }
+    val kind = elemKindCode(staticExprTypeName(builder, value))
+    // A list with no kind yet takes this one, which is the `var xs = []` then
+    // `xs.push(10)` shape the registry exists for.
+    recordPushListKind(builder, receiver, kind)
+    return kind
+}
+
 /** @brief The Orbit type name a kind number stands for, for the tables above. */
 fn elemKindTypeName(kindCode: int) -> string {
     if kindCode == 1 { return "string" }
@@ -733,7 +762,7 @@ fn memberCallReturnType(builder: IRBuilder, receiver: ASTNode, member: string) -
         if member == "split" { return "list" }
         return "unknown"
     }
-    if t == "list" || t == "List" {
+    if annotationBaseType(t) == "list" {
         if member == "len" { return "int" }
         if member == "push" { return "void" }
         if member == "pop" { return memberElemType(builder, receiver) }
@@ -754,6 +783,14 @@ fn memberCallReturnType(builder: IRBuilder, receiver: ASTNode, member: string) -
 
 fn memberElemType(builder: IRBuilder, receiver: ASTNode) -> string {
     val kind = listKindNameOf(builder, receiver)
+    // A receiver with no recorded kind can still carry one in its declared
+    // type: `post.tags` is a `list<string>` because the model field says so,
+    // and no push ever told the registry. Reading the element off the
+    // annotation is what turns that field's element type into a typed read.
+    val elem = annotationListElement(resolveExprType(builder, receiver))
+    if elem == "string" || elem == "int" || elem == "float" || elem == "bool" {
+        return elem
+    }
     if kind == "string" || kind == "orbit_string" { return "string" }
     if kind == "int" || kind == "orbit_int" { return "int" }
     if kind == "float" || kind == "orbit_float" { return "float" }
@@ -770,6 +807,7 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.ObjectLiteral(ol) => { return "object" }
+        ASTNode.TypedLiteral(tl) => { return tl.declaredType }
         // A list literal is a list. It was missing here, so `val n = [10,20,30]`
         // bound n to "unknown" and every later use of n -- `.at()`, `.get()`,
         // `.push()` -- had nothing to say what was in it. That is the same
@@ -2252,14 +2290,46 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 pushInstr.operand2 = ir_register(valReg)
                 val resReg = ir_alloc_register(builder.currentFunction, "void")
                 pushInstr.dest = resReg
-                pushInstr.elemKind = elemKindCode(staticExprTypeName(builder, c.args.get(0)))
-                // A `var xs = []` has no element type until something tells it
-                // one, and the first push it can type is that something.
-                recordPushListKind(builder, ma.object, pushInstr.elemKind)
+                pushInstr.elemKind = listWriteKind(builder, ma.object, c.args.get(0))
                 ir_emit(builder.currentFunction, pushInstr)
                 return resReg
             }
             if memberName == "get" && c.args.len() >= 1 {
+                // `.get("k")` on a dynamic object is a keyed field read, not an
+                // index. It fell through to the list read below, so
+                // `orbit_object_set_int(o, "a", 1)` was read back with
+                // orbit_list_read_word and the program died dereferencing a
+                // struct as a list. A load_field on an object is what the
+                // emitter already types by the setter that wrote the key.
+                if resolveExprType(builder, ma.object) == "object" {
+                    val objFieldReg = ir_alloc_register(builder.currentFunction, "object")
+                    val objFieldInstr = ir_init_instr(IROpcode.load_field)
+                    objFieldInstr.dest = objFieldReg
+                    objFieldInstr.operand1 = ir_register(objReg)
+                    // A literal key is the field NAME, not a value to evaluate:
+                    // the emitter resolves the getter by matching it against
+                    // the setter that wrote that key, and a register operand has
+                    // no name to match.
+                    val keyArg = c.args.get(0)
+                    var keyIsLiteral = false
+                    var keyText = ""
+                    match keyArg {
+                        ASTNode.Literal(kl) => {
+                            if kl.valType == "string" || kl.valType == "string_raw" {
+                                keyIsLiteral = true
+                                keyText = literalStringValue(kl)
+                            }
+                        }
+                        _ => {}
+                    }
+                    if keyIsLiteral {
+                        objFieldInstr.operand2 = ir_string(keyText)
+                    } else {
+                        objFieldInstr.operand2 = ir_register(buildExpr(builder, keyArg))
+                    }
+                    ir_emit(builder.currentFunction, objFieldInstr)
+                    return objFieldReg
+                }
                 val idxReg = buildExpr(builder, c.args.get(0))
                 val getInstr = ir_init_instr(IROpcode.list_get)
                 getInstr.operand1 = ir_register(objReg)
@@ -2279,8 +2349,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 setInstr.operand3 = ir_register(valReg)
                 val resReg = ir_alloc_register(builder.currentFunction, "void")
                 setInstr.dest = resReg
-                setInstr.elemKind = elemKindCode(staticExprTypeName(builder, c.args.get(1)))
-                recordPushListKind(builder, ma.object, setInstr.elemKind)
+                setInstr.elemKind = listWriteKind(builder, ma.object, c.args.get(1))
                 ir_emit(builder.currentFunction, setInstr)
                 return resReg
             }
@@ -2708,6 +2777,24 @@ fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
 }
 
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
+    // A type annotation is not a runtime operation: the value underneath is the
+    // expression, and the annotation only says which declared type it has. A
+    // model literal is the one case that needs it, because a `{...}` and a
+    // `Model{...}` build differently and only the annotation says which.
+    match node {
+        ASTNode.TypedLiteral(tl) => {
+            match tl.value {
+                ASTNode.ObjectLiteral(ol) => {
+                    if isModelDeclName(builder, tl.declaredType) {
+                        return buildObjectLiteralAsModel(builder, tl.value, tl.declaredType)
+                    }
+                }
+                _ => {}
+            }
+            return buildExpr(builder, tl.value)
+        }
+        _ => {}
+    }
     match node {
         ASTNode.Literal(lit) => {
             if lit.valType == "identifier" {
@@ -2809,8 +2896,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                         setInstr.operand3 = ir_register(rhsReg)
                         val resReg = ir_alloc_register(builder.currentFunction, "void")
                         setInstr.dest = resReg
-                        setInstr.elemKind = elemKindCode(staticExprTypeName(builder, bin.rhs))
-                        recordPushListKind(builder, ia.object, setInstr.elemKind)
+                        setInstr.elemKind = listWriteKind(builder, ia.object, bin.rhs)
                         ir_emit(builder.currentFunction, setInstr)
                         return rhsReg
                     }
@@ -3046,8 +3132,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     setInstr.operand3 = ir_register(rhsReg)
                     val resReg = ir_alloc_register(builder.currentFunction, "void")
                     setInstr.dest = resReg
-                    setInstr.elemKind = elemKindCode(staticExprTypeName(builder, a.value))
-                    recordPushListKind(builder, ia.object, setInstr.elemKind)
+                    setInstr.elemKind = listWriteKind(builder, ia.object, a.value)
                     ir_emit(builder.currentFunction, setInstr)
                     return rhsReg
                 }
