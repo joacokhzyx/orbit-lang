@@ -27,6 +27,43 @@ model DoctorStats {
     quiet: bool
     color: string
     findItems: list
+    // Per-layer duration in milliseconds, so the scan budget in ENGINEERING.md
+    // is measured instead of asserted. Four counters because four phases do
+    // different amounts of work, and one total would hide which one.
+    tokenMs: int
+    astMs: int
+    semaMs: int
+    ioMs: int
+}
+
+/** @brief Everything one run needs that is not a finding.
+ *
+ *  A model rather than a growing argument list: `doctorRun` was already at
+ *  six positional flags and the fix engine needed seven more. Two of these
+ *  (`codeFilter`, `codeSkip`) exist because a check that cannot be turned off
+ *  individually cannot be adopted incrementally, and thirty checks landing in a
+ *  repository at once is how a tool gets uninstalled. */
+model DoctorOptions {
+    dir: string
+    fixMode: bool
+    quiet: bool
+    verbose: bool
+    jsonMode: bool
+    color: string
+    // Apply "suggested" edits too, not only "safe" ones.
+    unsafeMode: bool
+    // Run the C step on every fixed file, not only the front end.
+    verifyBuild: bool
+    // Report what would be fixed without writing anything.
+    dryRun: bool
+    // Comma-separated code allowlist and denylist, "" for neither.
+    codeFilter: string
+    codeSkip: string
+    // Findings at least this severe are printed even when filtered; "warning"
+    // or "error", "" for no floor.
+    minSeverity: string
+    // Path to a baseline file whose entries do not fail the exit code.
+    baseline: string
 }
 
 model DoctorFinding {
@@ -36,6 +73,293 @@ model DoctorFinding {
     severity: string
     message: string
     fix: string
+    // Added by the fix engine. `column` is 0 when the check has no column to
+    // name, and `layer` is the §2.2 layer that produced the finding, which is
+    // what makes a report groupable by where the answer came from.
+    column: int
+    layer: string
+    edits: list
+    // "safe", "suggested" or "none": what kind of fix this finding carries.
+    // --fix applies safe ones by default; suggested needs --unsafe.
+    fixKind: string
+    // Filled in by the fix engine, never by a check: whether the edit was
+    // written, and if not, why. A doctor that silently failed to fix something
+    // is worse than one that never offered.
+    applied: string
+    verified: string
+}
+
+/** @brief One range replacement in the original source.
+ *
+ *  Lines are 1-based and inclusive on both ends, so `endLine == startLine` is a
+ *  replacement and `endLine == startLine - 1` is a pure insertion in front of
+ *  that line. Lines and not byte offsets: this is the only addressing the
+ *  runtime offers reliably, it is what the existing whitespace fixes already
+ *  did, and a diagnostic that names a line is a diagnostic a human can find.
+ *
+ *  `kind` is "safe" or "suggested" and it belongs to the EDIT, not the finding,
+ *  because one fix can be safe in one place and not in another. */
+model DoctorEdit {
+    startLine: int
+    endLine: int
+    text: string
+    kind: string
+}
+
+// ── The fix engine ──────────────────────────────────────────────────────────
+//
+// A fix is a list of range replacements applied to the ORIGINAL text, and it is
+// applied only after the result has been checked. That order is the whole
+// design: doctor is allowed to be wrong about a finding, and it is not allowed
+// to be wrong about a file.
+//
+// Edits are in the token/text domain rather than on the AST on purpose. Only 10
+// of the 43 AST node models carry a line and a column -- FunctionDeclNode,
+// BlockNode, IfNode and RouteDeclNode among them -- so an AST-level fix would
+// have to guess where a statement ends, and a range that is one line off turns
+// "extract this branch" into "delete the function header". Ranges in the
+// original text cannot be off: they were read off the source.
+//
+// A moved range carries its own comments with it, which a re-printed AST would
+// drop, and the result can be handed to fmtFormatSource afterwards.
+
+/** @brief The edits of one finding, or an empty list when it carries none. */
+fn doctorEditsOf(f: DoctorFinding) -> list {
+    return f.edits
+}
+
+/** @brief Whether every edit in the list may be applied without --unsafe. */
+fn doctorEditsAreSafe(edits: list) -> bool {
+    var i = 0
+    while i < edits.len() {
+        val e: DoctorEdit = edits.get(i)
+        if e.kind != "safe" { return false }
+        i = i + 1
+    }
+    return true
+}
+
+/** @brief Where each source line starts, in characters.
+ *
+ *  The fixes splice into THIS text by offset rather than re-joining a line
+ *  list. Re-joining is the obvious implementation and it is wrong: it rewrites
+ *  the line endings of every line in the file to \n, so a CRLF file silently
+ *  becomes an LF file the moment you fix one trailing space on line 900. */
+fn doctorLineStarts(source: string) -> list {
+    val starts = []
+    starts.push(0)
+    val n = orbit_string_len(source)
+    var i = 0
+    while i < n {
+        if orbit_string_char_at_selfhost(source, i) == 10 {
+            starts.push(i + 1)
+        }
+        i = i + 1
+    }
+    return starts
+}
+
+/** @brief The offset a line begins at, clamped to the end of the file.
+ *
+ *  One past the last line is the append point, and it is a real offset: a file
+ *  with no final newline still has an end we can insert in front of. */
+fn doctorStartOffset(starts: list, line: int, total: int) -> int {
+    if line < 1 { return 0 }
+    if line > starts.len() { return total }
+    return starts.get(line - 1)
+}
+
+/** @brief Sort edits by the line they touch, earliest first.
+ *
+ *  An insertion at line N is keyed to N, and a replacement of lines N..M to N,
+ *  so two edits to the same line are adjacent after the sort and the overlap
+ *  check sees both. */
+fn doctorSortEdits(edits: list) -> list {
+    val out = []
+    var i = 0
+    while i < edits.len() {
+        val e: DoctorEdit = edits.get(i)
+        var at = 0
+        while at < out.len() {
+            val o: DoctorEdit = out.get(at)
+            if e.startLine < o.startLine { break }
+            at = at + 1
+        }
+        val rest = []
+        var r = 0
+        while r < out.len() {
+            if r != at { rest.push(out.get(r)) }
+            r = r + 1
+        }
+        rest.push(e)
+        out = rest
+        i = i + 1
+    }
+    return out
+}
+
+/** @brief Why `edits` cannot be applied, or "" when they can.
+ *
+ *  Two fixes that both rewrite one line cannot both be right: whichever ran
+ *  second was computed against text the first one replaced. That is a
+ *  conflict to report, not a merge to guess at. */
+fn doctorEditsConflict(edits: list) -> string {
+    val sorted = doctorSortEdits(edits)
+    var i = 0
+    while i < sorted.len() {
+        val a: DoctorEdit = sorted.get(i)
+        val j = i + 1
+        while j < sorted.len() {
+            val b: DoctorEdit = sorted.get(j)
+            if b.startLine <= a.endLine {
+                return "two fixes both rewrite line " + orbit_int_to_string_selfhost(a.startLine)
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+/** @brief `source` with every edit applied, or "" when they cannot all be. */
+fn doctorApplyEdits(source: string, edits: list) -> string {
+    val reason = doctorEditsConflict(edits)
+    if reason != "" { return "" }
+    val starts = doctorLineStarts(source)
+    val total = orbit_string_len(source)
+    val sorted = doctorSortEdits(edits)
+    val out = orbit_cbuf_create_selfhost()
+    var cursor = 0
+    var i = 0
+    while i < sorted.len() {
+        val e: DoctorEdit = sorted.get(i)
+        val from = doctorStartOffset(starts, e.startLine, total)
+        val to = from
+        if e.endLine >= e.startLine {
+            val endLine = e.endLine + 1
+            if endLine <= starts.len() {
+                to = starts.get(endLine - 1)
+            } else {
+                to = total
+            }
+        }
+        if from < cursor { from = cursor }
+        if to < from { to = from }
+        if from > total { from = total }
+        if to > total { to = total }
+        orbit_cbuf_append_selfhost(out, orbit_string_slice(source, cursor, from))
+        orbit_cbuf_append_selfhost(out, doctorEditText(source, from, to, e.text))
+        cursor = to
+        i = i + 1
+    }
+    orbit_cbuf_append_selfhost(out, orbit_string_slice(source, cursor, total))
+    return orbit_cbuf_build_selfhost(out)
+}
+
+/** @brief The line ending a check should write when it appends a line.
+ *
+ *  A new line in a CRLF file has to end in CRLF, or one fix makes the file
+ *  mixed and the next `git diff` is noise. */
+fn doctorEolOf(source: string) -> string {
+    val n = orbit_string_len(source)
+    var i = 0
+    while i < n {
+        if orbit_string_char_at_selfhost(source, i) == 10 {
+            if i > 0 && orbit_string_char_at_selfhost(source, i - 1) == 13 { return "\r\n" }
+            return "\n"
+        }
+        i = i + 1
+    }
+    return "\n"
+}
+
+/** @brief The text an edit writes, with the line ending it displaced restored.
+ *
+ *  A line replacement's range includes the newline that ended it, so a fix that
+ *  supplies only the line's content would join it to the next line. Rather than
+ *  making every check remember to append its own ending, the engine puts back
+ *  whatever the replaced range ended with -- which is also what keeps a CRLF
+ *  file CRLF. */
+fn doctorEditText(source: string, from: int, to: int, text: string) -> string {
+    if from >= to { return text }
+    val replaced = orbit_string_slice(source, from, to)
+    val n = orbit_string_len(replaced)
+    if n == 0 { return text }
+    val last = orbit_string_char_at_selfhost(replaced, n - 1)
+    var ending = ""
+    if last == 10 {
+        if n > 1 && orbit_string_char_at_selfhost(replaced, n - 2) == 13 { ending = "\r\n" }
+        else { ending = "\n" }
+    } else if last == 13 {
+        ending = "\r"
+    }
+    if ending == "" { return text }
+    if doctorEndsWithNewline(text) { return text }
+    return text + ending
+}
+
+fn doctorEndsWithNewline(s: string) -> bool {
+    val n = orbit_string_len(s)
+    if n == 0 { return true }
+    // A lone CR is not a terminator: in a CRLF file the CR belongs to the line's
+    // text and the LF is what ends the line.
+    return orbit_string_char_at_selfhost(s, n - 1) == 10
+}
+
+/** @brief Whether `edited` may replace `before`, and why not when it may not.
+ *
+ *  Returns "" when the fix is good. Anything else is the reason to refuse, and
+ *  every reason here is a reason a user would rather hear than not:
+ *
+ *  - the ORIGINAL did not compile, so "still compiles" is not evidence of
+ *    anything. Doctor does not fix files it cannot read the shape of;
+ *  - the EDITED does not compile. This is the one that matters, and it is the
+ *    only reason the engine is allowed to write anything at all;
+ *  - with --verify-build, the EDITED does not survive the C step. The front end
+ *    alone is not enough, and the four bugs this engine exists because of all
+ *    passed `orbit check`: a fix that typechecks and miscompiles is worse than
+ *    no fix, because it is a fix nobody re-reads.
+ */
+fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bool) -> string {
+    if checkSourceWithFile(before, file) == false {
+        return "skipped: this file does not pass the compiler's own checks, so a fix could not be verified"
+    }
+    if checkSourceWithFile(edited, file) == false {
+        return "not applied: the result no longer passes the compiler's checks"
+    }
+    if verifyBuild {
+        val tmp = orbit_os_temp_dir_selfhost() + "/orbit_doctor_fix_check"
+        if compileSourceWithFile(edited, file, tmp, false) == false {
+            return "not applied: the result does not compile (front end passed, C step failed)"
+        }
+    }
+    return ""
+}
+
+/** @brief Apply every fixable finding in `edits`, and record what happened.
+ *
+ *  One pass per file, all findings' edits applied together, so that two fixes to
+ *  different parts of one file do not each re-read a version the other has
+ *  already changed. A conflict between two findings aborts both and says so,
+ *  because "fixed" for one of them would be a lie about the other. */
+fn doctorFixFile(stats: DoctorStats, file: string, source: string, edits: list, unsafeMode: bool, verifyBuild: bool, dryRun: bool) -> string {
+    if edits.len() == 0 { return "" }
+    val edited = doctorApplyEdits(source, edits)
+    if edited == "" {
+        return "not applied: the edits conflict (see the finding)"
+    }
+    if edited == source {
+        return "no change"
+    }
+    val why = doctorVerifyFix(source, edited, file, verifyBuild)
+    if why != "" { return why }
+    if dryRun {
+        return "would apply (dry run; not written)"
+    }
+    if orbit_file_write_selfhost(file, edited) == false {
+        return "not applied: the file could not be written"
+    }
+    return "applied"
 }
 
 fn doctorSeverity(code: string) -> string {
@@ -89,8 +413,28 @@ fn doctorRenderText(stats: DoctorStats, dir: string, f: DoctorFinding) -> string
     return "\x1b[1m" + loc + "\x1b[0m " + sev + " \x1b[36m[" + f.code + "]\x1b[0m " + f.message + " fix: " + f.fix
 }
 
+// Only ever ADDS fields. The existing six are a contract: `cli_probe.py` reads
+// `"code"` out of this output and an editor may read the rest, so removing or
+// renaming one is a breaking change. The new ones are what makes a finding
+// actionable by a machine rather than only by a reader -- an editor that knows
+// the column can jump, and one that knows the edits can offer the fix.
 fn doctorRenderJson(f: DoctorFinding) -> string {
-    return "    {\"file\": \"" + doctorJsonEscape(f.file) + "\", \"line\": " + orbit_int_to_string_selfhost(f.line) + ", \"code\": \"" + f.code + "\", \"severity\": \"" + f.severity + "\", \"message\": \"" + doctorJsonEscape(f.message) + "\", \"fix\": \"" + doctorJsonEscape(f.fix) + "\"}"
+    var out = "    {\"file\": \"" + doctorJsonEscape(f.file) + "\", \"line\": " + orbit_int_to_string_selfhost(f.line)
+    out = out + ", \"code\": \"" + f.code + "\", \"severity\": \"" + f.severity + "\", \"message\": \"" + doctorJsonEscape(f.message) + "\", \"fix\": \"" + doctorJsonEscape(f.fix) + "\""
+    out = out + ", \"column\": " + orbit_int_to_string_selfhost(f.column)
+    out = out + ", \"layer\": \"" + doctorLayerOf(f.code) + "\""
+    out = out + ", \"fix_kind\": \"" + f.fixKind + "\""
+    out = out + ", \"applied\": \"" + doctorJsonEscape(f.applied) + "\""
+    out = out + ", \"edits\": ["
+    var i = 0
+    while i < f.edits.len() {
+        val e: DoctorEdit = f.edits.get(i)
+        if i > 0 { out = out + ", " }
+        out = out + "{\"start_line\": " + orbit_int_to_string_selfhost(e.startLine) + ", \"end_line\": " + orbit_int_to_string_selfhost(e.endLine) + ", \"kind\": \"" + e.kind + "\", \"text\": \"" + doctorJsonEscape(e.text) + "\"}"
+        i = i + 1
+    }
+    out = out + "]}"
+    return out
 }
 
 fn doctorJsonEscape(s: string) -> string {
@@ -142,8 +486,25 @@ model DoctorRouteLine {
 }
 
 fn doctorReport(stats: DoctorStats, file: string, line: int, code: string, message: string, fix: string) {
+    doctorReportFull(stats, file, line, 0, code, message, fix, "none", [])
+}
+
+// The same report with the parts a Layer 1 text check does not have. A check
+// that knows its column, its layer, or how to fix itself says so here rather
+// than being asked about it later: a fix engine that has to re-derive the
+// column from the message is a fix engine that guesses.
+fn doctorReportFull(stats: DoctorStats, file: string, line: int, column: int, code: string, message: string, fix: string, fixKind: string, edits: list) {
     stats.findings = stats.findings + 1
-    stats.findItems.push(DoctorFinding(file, line, code, doctorSeverity(code), message, fix))
+    stats.findItems.push(DoctorFinding(file, line, code, doctorSeverity(code), message, fix, column, doctorLayerOf(code), edits, fixKind, "", ""))
+}
+
+// Which of the three layers a code comes from. The §2.3-§2.5 split, so a report
+// can say where an answer came from and so a new check cannot be filed into the
+// wrong layer by accident.
+fn doctorLayerOf(code: string) -> string {
+    if code == "D002" || code == "D005" || code == "D006" || code == "D007" { return "text" }
+    if code == "D001" || code == "D008" { return "io" }
+    return "ast"
 }
 
 fn doctorIsWordChar(c: int) -> bool {
@@ -783,24 +1144,20 @@ fn doctorHasTrailingWs(line: string) -> bool {
     return c == 32 || c == 9
 }
 
-// Strips trailing spaces/tabs but keeps a trailing carriage return in
-// place, so CRLF files keep their line endings under --fix.
+// Returns the line's CONTENT: trailing spaces, tabs and the carriage return of
+// a CRLF ending all go. The fix engine puts the original line ending back, so a
+// check hands over text, not terminators, and cannot invent a mixed-ending file.
 fn doctorStripTrailingWs(line: string) -> string {
     var end = orbit_string_len(line)
-    var cr = ""
-    if end > 0 && orbit_string_char_at_selfhost(line, end - 1) == 13 {
-        cr = orbit_string_slice(line, end - 1, end)
-        end = end - 1
-    }
     while end > 0 {
         val c = orbit_string_char_at_selfhost(line, end - 1)
-        if c == 32 || c == 9 {
+        if c == 32 || c == 9 || c == 13 {
             end = end - 1
         } else {
             break
         }
     }
-    return orbit_string_slice(line, 0, end) + cr
+    return orbit_string_slice(line, 0, end)
 }
 
 fn doctorBuildFixedSource(source: string) -> string {
@@ -817,19 +1174,30 @@ fn doctorBuildFixedSource(source: string) -> string {
     return orbit_cbuf_build_selfhost(buf)
 }
 
+// The two whitespace checks carry their own edits, so --fix goes through the
+// same engine every future fix will: apply the edits, verify the result, write
+// it. A fix engine first exercised on a hand-rolled path somewhere else is a
+// fix engine nobody has run.
 fn doctorScanStyle(stats: DoctorStats, file: string, source: string) {
     val lines = splitBuildLines(source)
     var i = 0
     while i < lines.len() {
-        if doctorHasTrailingWs(lines.get(i)) {
-            doctorReport(stats, file, i + 1, "D006", "trailing whitespace on this line.", "remove the trailing spaces or tabs (doctor --fix does this).")
+        val raw = lines.get(i)
+        if doctorHasTrailingWs(raw) {
+            var edits = []
+            edits.push(DoctorEdit(i + 1, i + 1, doctorStripTrailingWs(raw), "safe"))
+            doctorReportFull(stats, file, i + 1, orbit_string_len(raw) - 1, "D006", "trailing whitespace on this line.", "remove the trailing spaces or tabs (doctor --fix does this).", "safe", edits)
         }
         i = i + 1
     }
     val n = orbit_string_len(source)
     if n > 0 {
         if orbit_string_char_at_selfhost(source, n - 1) != 10 {
-            doctorReport(stats, file, lines.len(), "D007", "file does not end with a newline.", "end the file with a single newline (doctor --fix does this).")
+            // A missing final newline is an append at the end of the file: an
+            // insertion in front of the line after the last one.
+            var endEdits = []
+            endEdits.push(DoctorEdit(lines.len() + 1, lines.len(), doctorEolOf(source), "safe"))
+            doctorReportFull(stats, file, lines.len(), 0, "D007", "file does not end with a newline.", "end the file with a single newline (doctor --fix does this).", "safe", endEdits)
         }
     }
 }
@@ -842,53 +1210,44 @@ fn doctorPrintGates() {
 }
 
 fn doctorPrintHelp() {
-    print("Usage: orbit doctor [dir] [--fix] [--quiet] [--verbose] [--format json] [--color always|never|auto]")
+    print("Usage: orbit doctor [dir] [options]")
     print("")
     print("Scans .orb files under [dir] (default: the current directory) without changing them.")
-    print("  --fix   Tidies whitespace only: trailing-whitespace removal and a missing final newline.")
-    print("  --quiet Only findings (and fixes); no summaries or gate list.")
-    print("  --verbose Also prints the scan scope (file count).")
-    print("  --format json  Findings as a JSON array on stdout (exit codes unchanged).")
+    print("  --fix           Apply the fixes doctor knows how to make.")
+    print("  --unsafe        Also apply the structural fixes; off by default.")
+    print("  --verify-build  Check each fixed file compiles to C (on by default with --fix).")
+    print("  --fast          Skip that C check; the front end is still checked.")
+    print("  --dry-run       Report what --fix would change, and change nothing.")
+    print("  --only CODES    Only these codes, e.g. --only D006,D007.")
+    print("  --skip CODES    Every code but these.")
+    print("  --min-severity warning|error  Hide anything below this severity.")
+    print("  --baseline FILE Print findings listed in FILE but do not fail on them.")
+    print("  --quiet         Findings (and fixes) only; no summaries or gate list.")
+    print("  --verbose       Also print the scan scope and the per-phase timings.")
+    print("  --format text|json  Output format; json is a JSON array on stdout.")
     print("  --color always|never|auto  ANSI colors (auto honors NO_COLOR/TERM).")
-    print("Nothing else is ever changed automatically.")
+    print("")
     print("Exit codes: 0 clean, 1 findings, 2 usage.")
 }
 
 fn doctorUsage() {
-    orbit_os_write_stderr_selfhost("Usage: orbit doctor [dir] [--fix]\nRun `orbit doctor --help` for details.\n")
+    orbit_os_write_stderr_selfhost("Usage: orbit doctor [dir] [options]\nRun `orbit doctor --help` for details.\n")
 }
 
-fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: bool, color: string) {
-    var stats = DoctorStats(0, 0, jsonMode, quiet, color, [])
-    var files = doctorCollectOrbFiles(dir)
+fn doctorRun(opts: DoctorOptions) {
+    var stats = DoctorStats(0, 0, opts.jsonMode, opts.quiet, opts.color, [], 0, 0, 0, 0)
+    val ioStart = orbit_clock_ns()
+    var files = doctorCollectOrbFiles(opts.dir)
     if files.len() == 0 {
-        val probe = orbit_file_read_selfhost(dir)
+        val probe = orbit_file_read_selfhost(opts.dir)
         if probe != "" {
-            files.push(dir)
+            files.push(opts.dir)
         }
     }
     if files.len() == 0 {
-        print("doctor: no .orb files found under \"" + dir + "\"; nothing to check.")
+        print("doctor: no .orb files found under \"" + opts.dir + "\"; nothing to check.")
         orbit_os_exit_selfhost(1)
         return
-    }
-    if fixMode {
-        var fi = 0
-        while fi < files.len() {
-            val fp: string = files.get(fi)
-            val src = orbit_file_read_selfhost(fp)
-            if src != "" {
-                val fixed = doctorBuildFixedSource(src)
-                if fixed != src {
-                    if orbit_file_write_selfhost(fp, fixed) {
-                        print("fixed " + fp + ": whitespace tidied (trailing spaces removed, final newline ensured).")
-                    } else {
-                        doctorReport(stats, fp, 1, "D006", "whitespace fixes could not be written.", "check file permissions and run again.")
-                    }
-                }
-            }
-            fi = fi + 1
-        }
     }
     var sources = []
     var fi2 = 0
@@ -897,8 +1256,15 @@ fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: b
         sources.push(orbit_file_read_selfhost(fp2))
         fi2 = fi2 + 1
     }
+    stats.ioMs = (orbit_clock_ns() - ioStart) / 1000000
     stats.files = files.len()
     doctorCheckToolchain(stats)
+
+    // The fix pass runs over the findings, not over the files. That ordering is
+    // the difference between "fix what it found" and "tidy every file it
+    // opened": a file with no findings is not rewritten, so a fix can never
+    // change a byte the analysis did not point at.
+    val tokenStart = orbit_clock_ns()
     var routes = []
     var decls = []
     var refs = []
@@ -909,51 +1275,47 @@ fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: b
         if src3 == "" {
             doctorReport(stats, fp3, 1, "D008", "file is empty or could not be read.", "add content, or drop the path from the scan.")
         } else {
+            val semaStart = orbit_clock_ns()
             val okRes = checkSourceWithFile(src3, fp3)
+            stats.semaMs = stats.semaMs + ((orbit_clock_ns() - semaStart) / 1000000)
             if okRes == false {
                 doctorReport(stats, fp3, 1, "D008", "this file did not pass the compiler's own checks (see the error above).", "run `orbit check " + fp3 + "` and address the first error.")
             }
             doctorCollectRoutes(fp3, src3, routes)
             doctorScanSystem(stats, fp3, src3)
             doctorScanStyle(stats, fp3, src3)
+            val astStart = orbit_clock_ns()
             val parser = initParser(src3)
             val ast = parseProgram(parser)
             if parser.diagnostics.len() == 0 {
                 doctorCollectDecls(ast, fp3, src3, decls)
                 doctorWalkRefs(ast, refs)
             }
+            stats.astMs = stats.astMs + ((orbit_clock_ns() - astStart) / 1000000)
         }
         i = i + 1
     }
+    stats.tokenMs = (orbit_clock_ns() - tokenStart) / 1000000
     doctorCheckRoutes(stats, routes)
     doctorCheckUnused(stats, decls, refs, files, sources)
-    if verbose {
-        print("doctor: scanned " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+
+    doctorApplyFixes(stats, opts, files, sources)
+    val baseline = doctorLoadBaseline(opts.baseline)
+    val printed = doctorPrintFindings(stats, opts, baseline)
+    if opts.verbose {
+        print("doctor: scanned " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
+        print("doctor: " + orbit_int_to_string_selfhost(printed) + " finding(s) shown, " + orbit_int_to_string_selfhost(stats.findings) + " reported.")
+        print("doctor: " + orbit_int_to_string_selfhost(stats.tokenMs) + " ms text, " + orbit_int_to_string_selfhost(stats.astMs) + " ms ast, " + orbit_int_to_string_selfhost(stats.semaMs) + " ms semantic, " + orbit_int_to_string_selfhost(stats.ioMs) + " ms io.")
     }
-    if jsonMode {
-        print("[")
-        var qi = 0
-        while qi < stats.findItems.len() {
-            val qf: DoctorFinding = stats.findItems.get(qi)
-            var qline = doctorRenderJson(qf)
-            if qi < stats.findItems.len() - 1 { qline = qline + "," }
-            print(qline)
-            qi = qi + 1
-        }
-        print("]")
-    } else {
-        var ti = 0
-        while ti < stats.findItems.len() {
-            val tf: DoctorFinding = stats.findItems.get(ti)
-            print(doctorRenderText(stats, dir, tf))
-            ti = ti + 1
-        }
+    if opts.quiet == false && opts.jsonMode == false {
+        doctorPrintGates()
     }
     var errCount = 0
     var warnCount = 0
     var si = 0
     while si < stats.findItems.len() {
         val sf: DoctorFinding = stats.findItems.get(si)
+        if doctorFiltered(sf, opts) { si = si + 1 }
         if sf.severity == "error" {
             errCount = errCount + 1
         } else {
@@ -961,31 +1323,220 @@ fn doctorRun(dir: string, fixMode: bool, quiet: bool, verbose: bool, jsonMode: b
         }
         si = si + 1
     }
-    if quiet == false && jsonMode == false {
-        doctorPrintGates()
-    }
     if stats.findings == 0 {
-        if quiet == false && jsonMode == false {
-            print("doctor: no findings in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+        if opts.quiet == false && opts.jsonMode == false {
+            print("doctor: no findings in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
         }
     } else {
-        if quiet == false && jsonMode == false {
-            print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) (" + orbit_int_to_string_selfhost(errCount) + " error(s), " + orbit_int_to_string_selfhost(warnCount) + " warning(s)) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + dir + "\".")
+        if opts.quiet == false && opts.jsonMode == false {
+            print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) (" + orbit_int_to_string_selfhost(errCount) + " error(s), " + orbit_int_to_string_selfhost(warnCount) + " warning(s)) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
         }
-        orbit_os_exit_selfhost(1)
+        if printed > 0 { orbit_os_exit_selfhost(1) }
+    }
+}
+
+/** @brief Whether this finding is shown and counted toward the exit code.
+ *
+ *  A finding in the baseline is printed and marked, and does not fail the run.
+ *  That is the whole mechanism for adopting thirty checks at once: the ones you
+ *  have not fixed yet are visible, and only the ones you have never looked at
+ *  are allowed to be invisible. */
+fn doctorFiltered(f: DoctorFinding, opts: DoctorOptions) -> bool {
+    if opts.codeFilter != "" {
+        if doctorListHasCode(opts.codeFilter, f.code) == false { return true }
+    }
+    if opts.codeSkip != "" {
+        if doctorListHasCode(opts.codeSkip, f.code) { return true }
+    }
+    if opts.minSeverity != "" {
+        if f.severity == "error" { return false }
+        if opts.minSeverity == "error" { return true }
+    }
+    return false
+}
+
+fn doctorListHasCode(csv: string, code: string) -> bool {
+    var i = 0
+    var cur = ""
+    var guard = 0
+    while guard < 256 {
+        guard = guard + 1
+        if i >= orbit_string_len(csv) {
+            if doctorTrimSpace(cur) == code { return true }
+            return false
+        }
+        val c = csv.at(i)
+        if c == 44 {
+            if doctorTrimSpace(cur) == code { return true }
+            cur = ""
+        } else {
+            cur = cur + csv.slice(i, i + 1)
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn doctorTrimSpace(s: string) -> string {
+    var start = 0
+    var end = orbit_string_len(s)
+    while start < end && doctorIsSpace(s.at(start)) { start = start + 1 }
+    while end > start && doctorIsSpace(s.at(end - 1)) { end = end - 1 }
+    if end <= start { return "" }
+    return s.slice(start, end)
+}
+
+fn doctorIsSpace(c: int) -> bool {
+    if c == 32 { return true }
+    if c == 9 { return true }
+    if c == 10 { return true }
+    if c == 13 { return true }
+    return false
+}
+
+/** @brief The identity of a finding, as a baseline line reads it. */
+fn doctorFingerprint(f: DoctorFinding) -> string {
+    return f.code + " " + f.file + ":" + orbit_int_to_string_selfhost(f.line)
+}
+
+fn doctorLoadBaseline(path: string) -> list {
+    var out = []
+    if path == "" { return out }
+    val text = orbit_file_read_selfhost(path)
+    if text == "" { return out }
+    val lines = splitBuildLines(text)
+    var i = 0
+    while i < lines.len() {
+        val l = doctorTrimSpace(lines.get(i))
+        if l != "" {
+            if l.at(0) != 35 {
+                out.push(l)
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+/** @brief Print the findings, honouring the filters, and return how many were
+ *         counted toward the exit code.
+ *
+ *  Three things are shown but NOT counted, and each is a promise the run makes
+ *  to the reader: a finding in the baseline is one you have already decided to
+ *  live with, and a finding this run applied is one that is now gone. Counting
+ *  either would mean `--fix` could never return success, and a gate nobody can
+ *  turn green is a gate everybody turns off. */
+fn doctorPrintFindings(stats: DoctorStats, opts: DoctorOptions, baseline: list) -> int {
+    if opts.jsonMode {
+        print("[")
+    }
+    var counted = 0
+    var ti = 0
+    var firstJson = true
+    while ti < stats.findItems.len() {
+        val tf: DoctorFinding = stats.findItems.get(ti)
+        if doctorFiltered(tf, opts) == false {
+            val known = baseline.len() > 0 && doctorListContains(baseline, doctorFingerprint(tf))
+            val fixed = tf.applied == "applied"
+            if known == false && fixed == false {
+                counted = counted + 1
+            }
+            if opts.jsonMode {
+                if firstJson == false { print(",") }
+                firstJson = false
+                print(doctorRenderJson(tf))
+            } else {
+                print(doctorRenderText(stats, opts.dir, tf))
+                if known {
+                    print("  (in baseline: known finding, not counted toward the exit code)")
+                }
+                if fixed {
+                    if tf.verified == "" {
+                        print("  fix: applied")
+                    } else {
+                        print("  fix: applied (verified: " + tf.verified + ")")
+                    }
+                } else if tf.applied != "" {
+                    print("  fix: " + tf.applied)
+                }
+            }
+        }
+        ti = ti + 1
+    }
+    if opts.jsonMode {
+        print("]")
+    }
+    return counted
+}
+
+/** @brief Run the fix engine over every finding that carries an edit.
+ *
+ *  One pass over the findings, edits gathered per file, then one apply per file:
+ *  two fixes to different parts of one file must not each read a version the
+ *  other already changed. */
+fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list, sources: list) {
+    if opts.fixMode == false { return }
+    val perFile = []
+    var i = 0
+    while i < files.len() {
+        perFile.push([])
+        i = i + 1
+    }
+    var any = false
+    var fi = 0
+    while fi < stats.findItems.len() {
+        val f: DoctorFinding = stats.findItems.get(fi)
+        val edits = f.edits
+        if edits.len() == 0 { fi = fi + 1 }
+        if doctorEditsAreSafe(edits) == false && opts.unsafeMode == false {
+            f.applied = "not applied: this fix is structural; re-run with --fix --unsafe to apply it"
+            fi = fi + 1
+        }
+        var target = -1
+        var gi = 0
+        while gi < files.len() {
+            if files.get(gi) == f.file { target = gi }
+            gi = gi + 1
+        }
+        if target < 0 { fi = fi + 1 }
+        val bucket = perFile.get(target)
+        var e = 0
+        while e < edits.len() {
+            bucket.push(edits.get(e))
+            e = e + 1
+        }
+        any = true
+        fi = fi + 1
+    }
+    if any == false { return }
+    var pi = 0
+    while pi < files.len() {
+        val edits = perFile.get(pi)
+        if edits.len() > 0 {
+            val outcome = doctorFixFile(stats, files.get(pi), sources.get(pi), edits, opts.unsafeMode, opts.verifyBuild, opts.dryRun)
+            var fi2 = 0
+            while fi2 < stats.findItems.len() {
+                val f: DoctorFinding = stats.findItems.get(fi2)
+                if f.file == files.get(pi) && f.applied == "" {
+                    if f.edits.len() > 0 {
+                        f.applied = outcome
+                        if opts.verifyBuild {
+                            f.verified = "front end and C step"
+                        } else {
+                            f.verified = "front end only (--fast)"
+                        }
+                    }
+                }
+                fi2 = fi2 + 1
+            }
+        }
+        pi = pi + 1
     }
 }
 
 fn runDoctor() {
-    var fixMode = false
-    var seenFix = false
-    var quiet = false
-    var verbose = false
-    var jsonMode = false
-    var seenFormat = false
-    var color = "auto"
-    var seenColor = false
-    var dir = "."
+    var opts = DoctorOptions(".", false, false, false, false, "auto", false, false, false, "", "", "", "")
+    var seenFlags = []
     var dirSet = false
     var i = 2
     while true {
@@ -995,49 +1546,51 @@ fn runDoctor() {
             doctorPrintHelp()
             return
         }
-        if a == "--fix" {
-            if seenFix {
-                doctorUsage()
-                orbit_os_exit_selfhost(2)
-                return
-            }
-            seenFix = true
-            fixMode = true
-        } else if a == "--quiet" {
-            quiet = true
+        if a == "--quiet" {
+            opts.quiet = true
         } else if a == "--verbose" {
-            verbose = true
-        } else if a == "--format" {
-            if seenFormat {
-                doctorUsage()
-                orbit_os_exit_selfhost(2)
-                return
-            }
-            seenFormat = true
+            opts.verbose = true
+        } else if a == "--fix" {
+            opts.fixMode = true
+        } else if a == "--unsafe" {
+            opts.unsafeMode = true
+        } else if a == "--verify-build" {
+            opts.verifyBuild = true
+        } else if a == "--fast" {
+            opts.verifyBuild = false
+        } else if a == "--dry-run" {
+            opts.dryRun = true
+        } else if a == "--format" || a == "--color" || a == "--only" || a == "--skip" || a == "--min-severity" || a == "--baseline" {
+            val name = a
             val v = orbit_os_argv_selfhost(i + 1)
-            if v == "json" {
-                jsonMode = true
-                i = i + 1
-            } else {
+            if v == "" {
                 doctorUsage()
                 orbit_os_exit_selfhost(2)
                 return
             }
-        } else if a == "--color" {
-            if seenColor {
+            if doctorListContains(seenFlags, name) {
                 doctorUsage()
                 orbit_os_exit_selfhost(2)
                 return
             }
-            seenColor = true
-            val cv = orbit_os_argv_selfhost(i + 1)
-            if cv == "always" || cv == "never" || cv == "auto" {
-                color = cv
-                i = i + 1
-            } else {
-                doctorUsage()
-                orbit_os_exit_selfhost(2)
-                return
+            seenFlags.push(name)
+            i = i + 1
+            if name == "--format" {
+                if v == "text" { opts.jsonMode = false }
+                else if v == "json" { opts.jsonMode = true }
+                else { doctorUsage() orbit_os_exit_selfhost(2) return }
+            } else if name == "--color" {
+                if v == "always" || v == "never" || v == "auto" { opts.color = v }
+                else { doctorUsage() orbit_os_exit_selfhost(2) return }
+            } else if name == "--only" {
+                opts.codeFilter = v
+            } else if name == "--skip" {
+                opts.codeSkip = v
+            } else if name == "--min-severity" {
+                if v == "warning" || v == "error" { opts.minSeverity = v }
+                else { doctorUsage() orbit_os_exit_selfhost(2) return }
+            } else if name == "--baseline" {
+                opts.baseline = v
             }
         } else if doctorStartsWith(a, "-") {
             doctorUsage()
@@ -1050,9 +1603,15 @@ fn runDoctor() {
                 return
             }
             dirSet = true
-            dir = a
+            opts.dir = a
         }
         i = i + 1
     }
-    doctorRun(dir, fixMode, quiet, verbose, jsonMode, color)
+    // --verify-build is on by default for a fix pass and off otherwise, so the
+    // flag names what it changes instead of what it turns on. A fix that
+    // typechecks and miscompiles is the failure this exists to prevent.
+    if opts.fixMode && doctorListContains(seenFlags, "--verify-build") == false && doctorListContains(seenFlags, "--fast") == false {
+        opts.verifyBuild = true
+    }
+    doctorRun(opts)
 }

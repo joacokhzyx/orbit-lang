@@ -240,10 +240,20 @@ def one(compiler, work, name, argv, exp_rc, stream, needle, absent="", env_extra
     ok_json = True
     if name == "doctor-json" and p.returncode == 1:
         import json as _json
+        # The original six keys are a contract an editor may already depend on,
+        # so they are required to be PRESENT rather than to be the whole object:
+        # the newer keys are additive and a consumer that breaks on them is the
+        # thing this assertion exists to catch.
+        base_keys = {"file", "line", "code", "severity", "message", "fix"}
+        added_keys = {"column", "layer", "fix_kind", "applied", "edits"}
         try:
             rows = _json.loads(so)
             ok_json = (isinstance(rows, list) and len(rows) >= 1 and
-                       all(set(r) == {"file", "line", "code", "severity", "message", "fix"} for r in rows))
+                       all(base_keys <= set(r) for r in rows) and
+                       all(added_keys <= set(r) for r in rows) and
+                       all(isinstance(r["column"], int) and
+                           isinstance(r["edits"], list) and
+                           isinstance(r["applied"], str) for r in rows))
         except Exception:
             ok_json = False
     ok = (p.returncode == exp_rc) and ok_stream and ok_absent and ok_json

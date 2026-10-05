@@ -24,3 +24,6 @@ extern fn orbit_cbuf_append_selfhost(buf: string, s: string)
 extern fn orbit_cbuf_build_selfhost(buf: string) -> string
 // Memory snapshot of the global arena (see ORBIT_MEM_REPORT).
 extern fn orbit_mem_report_selfhost() -> string
+// Monotonic clock, nanoseconds. Doctor times each of its layers with it so the
+// scan budget in ENGINEERING.md is measured rather than asserted.
+extern fn orbit_clock_ns() -> int

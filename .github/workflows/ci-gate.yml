@@ -200,6 +200,13 @@ jobs:
           SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
           "${RUNNER_TEMP}/fixed_point${SUFFIX}" doctor tests/suite
 
+      - name: Doctor goldens (exact output)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
+          "$PY" scripts/doctor_gate.py --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+
       - name: CLI contract probe
         shell: bash
         run: |

@@ -49,7 +49,7 @@ Orbit competes with Go, C, C++, and Java for production server workloads. These 
 
 No performance number is published until it comes with the command that produced it, the hardware it ran on, the flags it ran with, and the spread across at least 5 runs. A number without its reproducible command is not a claim, it is an anecdote, and it does not go in this document. `scripts/orbit_ccache.py` and `scripts/measure_selfhost.py` exist to make bootstrap-side measurements cheap enough to repeat; `scripts/night_load.py` is the load generator for live-service measurements.
 
-**Note on the doctor row.** Doctor does not currently time its own layers: there is no per-layer duration field in the compiler's `DoctorStats`, and adding one is a §2.6 deliverable. Until that lands, the budget is checked from outside. Do not record a doctor timing claim by reading a field that does not exist.
+**Note on the doctor row.** `DoctorStats` now carries a duration per phase (`tokenMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them, so the budget can be read from inside the compiler rather than guessed at from outside. Measure with the total for the tree, not one layer: the layer that dominates on a 100K LOC tree is whichever one the tree is worst at.
 
 ---
 
@@ -174,11 +174,12 @@ Track every `alloc` IR opcode inside a function body. Walk all paths from that o
 
 Every analysis added to doctor must satisfy all of the following before it is considered done:
 
-1. A test that provides a synthetic `.orb` source string triggering the finding, runs the analysis, and asserts the exact severity, file, and line number. Doctor fixtures live in `tests/doctor/` as `.orb` files. `scripts/cli_probe.py` and `scripts/test_suite.py` do not currently execute that directory, so either wire it into a gate or state in the same commit that the check is manual. Untested analysis is not shipped analysis.
-2. Completion within the per-layer time budget. The `DoctorStats` struct must record the duration of each layer separately. It does not today; this is part of the work, not a prerequisite for it.
+1. A golden in `tests/doctor/golden/` for the check, plus its `.orb` fixture, and `scripts/doctor_gate.py` passing in CI. That gate runs each case against a throwaway copy of its fixtures and compares stdout character for character, so it pins the severity, file, line, wording and exit code at once. It is wired into CI; `tests/doctor/` is no longer a manual-only directory. A check with no golden is not shipped. `--update` is the only way a golden changes, and it must be reviewed as a diff.
+2. Completion within the per-layer time budget, with the per-phase durations `DoctorStats` now records printed by `--verbose` as evidence.
 3. No abort on malformed input. Parse and lex failures are always caught, converted to a finding, and the scan continues.
-4. Every finding includes: file path, line number, code, severity, and a one-sentence actionable suggestion. The rendered line is `file:line [CODE] message fix: action`.
+4. Every finding includes: file path, line number, code, severity, and a one-sentence actionable suggestion. The rendered line is `file:line [CODE] message fix: action`. The JSON carries the same six keys plus `column`, `layer`, `fix_kind`, `applied` and `edits`; the original six are the contract, the rest are additive.
 5. A new code is added to the `D00X` table in `docs/DOCTOR.md` in the same commit. Doctor's code space is a public contract; renumbering an existing code is a breaking change.
+6. A fixable finding carries its edits. A check that can fix itself emits `edits` rather than describing the fix in prose only, marks them `safe` or `unsafe`, and is exercised through the shared fix engine by a golden that passes `--fix`. Two invariants hold for every fix that engine applies and are pinned by the `crlf_preserved` and `dry_run_changes_nothing` goldens: the file is byte-identical outside the edited ranges, and nothing is written unless the result still passes the checks it was verified against.
 
 ### 2.7 Expected Output After Full Implementation
 

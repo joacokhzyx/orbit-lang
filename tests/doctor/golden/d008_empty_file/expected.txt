@@ -1,0 +1,6 @@
+empty.orb:1 error [D008] file is empty or could not be read. fix: add content, or drop the path from the scan.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (1 error(s), 0 warning(s)) in 1 files under "dir".

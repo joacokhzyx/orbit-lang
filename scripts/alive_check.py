@@ -160,6 +160,11 @@ def registry(compiler, cc, work):
                              "--work", _tmp(work, "cli")),
              r"Finished cli-probe: \d+/\d+", 600, allow_rc=(0, 1),
              needs=("compiler",)),
+        Tool("doctor_gate.py", "gate",
+             "doctor's exact output against the goldens in tests/doctor/golden/",
+             lambda: _script("doctor_gate.py", "--compiler", compiler),
+             r"Finished doctor_gate: \d+ case", 300, allow_rc=(0, 1),
+             needs=("compiler",)),
         Tool("routes_probe.py", "gate",
              "MSYS2 argument-rewrite normalization; Windows CI only breaks "
              "without it and nothing else notices",

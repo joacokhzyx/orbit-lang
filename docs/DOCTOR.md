@@ -1,21 +1,43 @@
 # orbit doctor
 
-`orbit doctor` looks over your `.orb` files and reports what it finds. It does not change your code, with one narrow exception described below.
+`orbit doctor` looks over your `.orb` files and reports what it finds. It
+does not change your code unless you ask it to with `--fix`.
 
 ```sh
 orbit doctor                  # scan the current directory
 orbit doctor examples         # scan one directory tree
-orbit doctor --fix            # scan, then tidy whitespace only
-orbit doctor --fix examples   # tidy whitespace under one tree
+orbit doctor --fix            # scan, then apply the fixes it knows
+orbit doctor --fix --dry-run  # say what it would change, change nothing
 orbit doctor --quiet examples # findings only, no summaries
+orbit doctor --verbose .      # also the per-phase timings
+orbit doctor --only D006,D007 # just these checks
+orbit doctor --skip D003      # everything but this one
+orbit doctor --min-severity error   # hide warnings
+orbit doctor --baseline known.txt   # print what is listed, do not fail on it
 orbit doctor --format json examples  # findings as JSON on stdout
 orbit doctor --color always examples # force ANSI colors
 orbit doctor --help           # usage
 ```
 
-With `--format json`, stdout is a JSON array of
-`{file, line, code, severity, message, fix}` objects and nothing
-else (exit codes unchanged), so editors and CI can parse it.
+With `--format json`, stdout is a JSON array of objects and nothing else
+(exit codes unchanged), so editors and CI can parse it. The original six
+keys are a contract and are always present:
+
+`{file, line, code, severity, message, fix}`
+
+Four more keys are additive, and mean a finding can be acted on without a
+human reading it:
+
+| Key | What it is |
+|---|---|
+| `column` | 1-based column, or `0` when the finding is about a whole line or the whole file. |
+| `layer` | Which analysis produced it: `text`, `ast`, `ir` or `sema`. |
+| `fix_kind` | `safe`, `unsafe` or `""` when there is no fix. |
+| `applied` | `applied`, or a sentence saying why not, after a `--fix` run. |
+| `edits` | The fix as line ranges: `{start_line, end_line, kind, text}`. `end_line` exclusive when it is `start_line - 1`, that is, an insertion in front of that line. A consumer can apply them itself. |
+
+Reading `edits` is a supported interface, not a dump: a check that can fix
+itself always emits them, and `applied` says whether doctor managed to.
 
 ## Presentation
 
@@ -64,12 +86,51 @@ A few notes on scope:
 
 ## --fix
 
-`--fix` applies two whitespace tidies and nothing else:
+`--fix` applies the fixes doctor knows how to make, which today are the two
+whitespace tidies:
 
 1. trailing-whitespace removal per line,
 2. a missing final newline at end of file.
 
-It never renames, moves, deletes, or restructures code, and it never touches route, model, function, or `system.*` findings. Line endings are preserved per line, so a CRLF file stays a CRLF file. Fixed files are listed as `fixed <path>: ...` on output, and the exit code then reflects the state after fixing.
+It never renames, moves, deletes, or restructures code, and it never touches
+route, model, function, or `system.*` findings. The exit code then reflects
+the state after fixing, so a clean `--fix` run exits `0`.
+
+Every fix goes through one engine, and that engine holds three promises:
+
+- **Nothing outside the edited range changes.** Fixes splice into the original
+  text by offset. A file that is fixed on line 900 is byte-for-byte identical
+  everywhere else, including its line endings: a CRLF file stays CRLF, and no
+  comment is reflowed.
+- **Two fixes to one line is a conflict, not a guess.** If two findings both
+  rewrite the same line, doctor applies neither and says so, rather than
+  merging them into something neither check asked for.
+- **A fixed file is verified before it is written.** The front end is always
+  re-run on the result. With `--fix` the C step runs too, unless you pass
+  `--fast`. The result is only written if both pass.
+
+`--unsafe` extends `--fix` to fixes marked `unsafe` (structural ones). No
+check emits those yet; the flag exists so that the day one does, the safe path
+is the default rather than the other way round. `--dry-run` reports the fix
+and its verification without writing anything.
+
+## Adopting new checks
+
+A new check arrives as an error, which breaks every tree that has the problem.
+That is what the baseline is for:
+
+```sh
+orbit doctor --baseline known.txt .   # report, but do not fail on what is listed
+```
+
+Each line of the baseline file is `CODE file:line`, and a finding that matches
+one is printed and marked `(in baseline: known finding, not counted toward
+the exit code)` instead of failing the run. Delete a line once you have fixed
+it, so the baseline only ever shrinks.
+
+`scripts/doctor_gate.py` pins the exact output of each check against the
+goldens in `tests/doctor/golden/`, so a check cannot quietly change what it
+says.
 
 ## Gates
 

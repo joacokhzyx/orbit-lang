@@ -1,0 +1,4 @@
+input.orb:2 warning [D006] trailing whitespace on this line. fix: remove the trailing spaces or tabs (doctor --fix does this).
+  fix: applied (verified: front end and C step)
+input.orb:4 warning [D007] file does not end with a newline. fix: end the file with a single newline (doctor --fix does this).
+  fix: applied (verified: front end and C step)

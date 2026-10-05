@@ -1,0 +1,2 @@
+input.orb:1 warning [D006] trailing whitespace on this line. fix: remove the trailing spaces or tabs (doctor --fix does this).
+input.orb:2 warning [D006] trailing whitespace on this line. fix: remove the trailing spaces or tabs (doctor --fix does this).
