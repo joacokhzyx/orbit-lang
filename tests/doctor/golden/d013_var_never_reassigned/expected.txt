@@ -1,0 +1,7 @@
+input.orb:4 warning [D013] 'never' is declared var but never assigned again. fix: make it a val: nothing can reassign it, and the compiler stops checking every write.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".
+doctor: 3 finding(s) hidden by --only/--skip/--min-severity.

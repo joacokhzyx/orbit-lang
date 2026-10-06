@@ -1,0 +1,15 @@
+fn handler(req: string) -> int {
+    val key = orbit_os_env("EXAMPLE_API_KEY")
+    val rows = orbit_db_query_all("SELECT id FROM users WHERE active = 1")
+    val total = 0
+    total = total + rows.len()
+    var counter = 0
+    counter = counter + 1
+    print(key + orbit_int_to_string_selfhost(total + counter))
+    return 0
+}
+extern fn print(s: string) -> int
+extern fn orbit_int_to_string_selfhost(v: int) -> string
+extern fn orbit_os_env(n: string) -> string
+extern fn orbit_db_query_all(q: string) -> list
+

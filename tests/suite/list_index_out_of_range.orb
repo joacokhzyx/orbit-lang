@@ -26,7 +26,7 @@
 // cannot see, where the length is only known at run time, so the program has to
 // be built and run for the gate to mean anything.
 fn main() -> int {
-    var xs = []
+    val xs = []
     xs.push(1)
     xs.push(2)
     print(xs.len())

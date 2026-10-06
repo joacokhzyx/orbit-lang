@@ -42,7 +42,7 @@ fn listContainsStr(items: list, value: string) -> bool {
 }
 
 fn generateC(backend: CBackend) -> string {
-    var hasRoutes = moduleHasRoute(backend)
+    val hasRoutes = moduleHasRoute(backend)
     var routeLimits = ""
     if hasRoutes {
         var rli = 0
@@ -129,8 +129,8 @@ fn generateC(backend: CBackend) -> string {
         val func: IRFunction = backend.module.functions.get(i)
         if func.isExtern == false {
             var fName2 = func.name
-            var isMain2 = isMainFuncName(fName2)
-            var isRoute2 = func.routeMethod != ""
+            val isMain2 = isMainFuncName(fName2)
+            val isRoute2 = func.routeMethod != ""
             if isMain2 {
                 fName2 = "orbit_main"
             }
@@ -654,7 +654,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                                 IRValue.Sym(s) => { fref = s.value }
                                 _ => {}
                             }
-                            var fnm = fieldRefName(fref)
+                            val fnm = fieldRefName(fref)
                             // The read is typed from the model that OWNS the
                             // field, and the builder already wrote that owner
                             // into the field reference. It used to be stripped
@@ -1898,8 +1898,8 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     }
     var retType = mapTypeToC(backend, func.returnType)
     var fName = func.name
-    var isMain = isMainFuncName(fName)
-    var isRoute = func.routeMethod != ""
+    val isMain = isMainFuncName(fName)
+    val isRoute = func.routeMethod != ""
     if isMain {
         fName = "orbit_main"
         retType = "int"
@@ -2502,7 +2502,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.label => {
-            var lval = generateValue(instr.operand1)
+            val lval = generateValue(instr.operand1)
             if listContainsStr(backend.refLabels, lval) == false { return }
             orbit_cbuf_append_selfhost(cb, "label_" + lval + ":;\n")
             return

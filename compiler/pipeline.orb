@@ -131,9 +131,9 @@ fn printSemaErrors(sema: Sema, source: string, inputPath: string) {
 // high count is a gate everybody turns off.
 fn reportResolutionGaps(sema: Sema) {
     if sema.misses.len() == 0 { return }
-    var names = missCount(sema, "name")
-    var functions = missCount(sema, "function")
-    var literals = missCount(sema, "int-literal")
+    val names = missCount(sema, "name")
+    val functions = missCount(sema, "function")
+    val literals = missCount(sema, "int-literal")
     var out = "UNRESOLVED total " + orbit_int_to_string_selfhost(names + functions + literals) + "\n"
     if names > 0 {
         out = out + "UNRESOLVED name " + orbit_int_to_string_selfhost(names) + "\n"

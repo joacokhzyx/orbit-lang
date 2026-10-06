@@ -125,9 +125,9 @@ fn pushedListReadsBack() -> int {
 // pointer -- which is all a list can hold of another list, and is why a helper
 // declared over strings still cannot search a list of lists (F-0019).
 fn nestedListHoldsPointers() -> int {
-    var inner = []
+    val inner = []
     inner.push(7)
-    var outer = []
+    val outer = []
     outer.push(inner)
     outer.push(inner)
     if outer.len() != 2 { return 1 }
@@ -138,7 +138,7 @@ fn nestedListHoldsPointers() -> int {
 }
 
 fn setAndPopRoundTrip() -> int {
-    var xs = []
+    val xs = []
     xs.push(1)
     xs.push(2)
     xs.push(3)

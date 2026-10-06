@@ -3,7 +3,7 @@ model Counter {
     n: int
 }
 fn main() -> int {
-    var c = Counter(10)
+    val c = Counter(10)
     c.n = c.n + 5
     return c.n
 }

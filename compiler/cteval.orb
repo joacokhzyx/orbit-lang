@@ -384,8 +384,8 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) ->
         return false }
     st.depth = st.depth + 1
 
-    var regs = []
-    var known = []
+    val regs = []
+    val known = []
     var pi = 0
     while pi < args.len() {
         regSet(regs, known, pi, args.get(pi))
@@ -800,8 +800,8 @@ fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -
     val destReg = callInstr.dest
     if destReg < 0 { return false }
 
-    var knownRegs = []
-    var knownVals = []
+    val knownRegs = []
+    val knownVals = []
     var ki = 0
     while ki < callIdx {
         val prev: IRInstruction = func.instructions.get(ki)
@@ -857,7 +857,7 @@ fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -
         argStart = scan
     }
 
-    var args = []
+    val args = []
     var k = argStart
     while k < callIdx {
         val argInstr: IRInstruction = func.instructions.get(k)
@@ -978,7 +978,7 @@ fn cteFoldFunction(module: IRModule, func: IRFunction, st: CTEState) {
 }
 
 fn dceFunction(func: IRFunction) {
-    var used = []
+    val used = []
     var i = 0
     while i < func.instructions.len() {
         val instr: IRInstruction = func.instructions.get(i)

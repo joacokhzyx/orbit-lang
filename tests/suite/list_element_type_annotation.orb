@@ -115,7 +115,7 @@ fn loopOverAnAnnotatedList() -> int {
 // element type, and every later push is checked against it. A second push of
 // another kind is tests/negative/list_mixed_element_kinds.orb.
 fn pushDecidesTheElementType() -> int {
-    var names = []
+    val names = []
     names.push("one")
     names.push("two")
     if names.len() != 2 { return 1 }
@@ -146,10 +146,10 @@ fn rebindingForgetsTheAdoptedType() -> int {
 // the pushes it can see, and a call that might push is not one of them.
 fn nestedAnnotatedList() -> int {
     val outer: list < list < int > > = []
-    var firstInner = []
+    val firstInner = []
     firstInner.push(1)
     outer.push(firstInner)
-    var secondInner = []
+    val secondInner = []
     secondInner.push(2)
     outer.push(secondInner)
     if outer.len() != 2 { return 1 }

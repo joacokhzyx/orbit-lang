@@ -67,7 +67,7 @@ fn isStdPath(relPath: string) -> bool {
 }
 
 fn resolveStdPath(cleanRel: string) -> string {
-    var roots = []
+    val roots = []
     val selfDir = getDir(orbit_os_argv_selfhost(0))
     if selfDir != "" {
         roots.push(selfDir)

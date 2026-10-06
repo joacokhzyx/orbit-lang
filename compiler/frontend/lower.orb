@@ -42,7 +42,7 @@ fn bindingType(bindings: list, name: string) -> string {
 }
 
 fn copyBindings(bindings: list) -> list {
-    var copied = []
+    val copied = []
     var i = 0
     while i < bindings.len() {
         copied.push(bindings.get(i))
@@ -255,7 +255,7 @@ fn lowerFunction(module: TirModule, declaration: FunctionDeclNode) {
     }
 
     val entry = tirCreateBlock(function)
-    var bindings = []
+    val bindings = []
     paramIndex = 0
     while paramIndex < declaration.params.len() {
         val name: string = declaration.params.get(paramIndex)

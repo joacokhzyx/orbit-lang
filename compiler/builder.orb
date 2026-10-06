@@ -1181,7 +1181,7 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
         ASTNode.Call(c) => {
             var calleeName = ""
             var calleeIsMember = false
-            var calleeObject: ASTNode = ASTNode.Empty
+            val calleeObject: ASTNode = ASTNode.Empty
             match c.callee {
                 ASTNode.Literal(lit2) => {
                     if lit2.valType == "identifier" {
@@ -1330,7 +1330,7 @@ fn registerModel(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.ModelDecl(m) => {
             builder.modelNames.push(m.name)
-            var irFields = []
+            val irFields = []
             var fi = 0
             while fi < m.fields.len() {
                 val fNode: ASTNode = m.fields.get(fi)
@@ -1378,7 +1378,7 @@ fn builderRegisterType(builder: IRBuilder, node: ASTNode) {
             } else if kind == "union" {
                 kind = "union_type"
             }
-            var irVariants = []
+            val irVariants = []
             var vi = 0
             while vi < t.variants.len() {
                 val vn: ASTNode = t.variants.get(vi)
@@ -1388,7 +1388,7 @@ fn builderRegisterType(builder: IRBuilder, node: ASTNode) {
                 }
                 vi = vi + 1
             }
-            var irRich = []
+            val irRich = []
             var rvi = 0
             while rvi < t.variantPayloads.len() {
                 val payload: string = t.variantPayloads.get(rvi)
@@ -2272,7 +2272,7 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
     val resultReg = ir_alloc_register(builder.currentFunction, "unknown")
     val endLabel = allocLabel(builder)
     val numCases = m.cases.len()
-    var caseLabels = []
+    val caseLabels = []
     var i = 0
     while i < numCases {
         caseLabels.push(allocLabel(builder))
@@ -2657,7 +2657,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 _ => {}
             }
             if reqBuiltin != "" {
-                var reqFixed = []
+                val reqFixed = []
                 reqFixed.push(reqOperand)
                 return emitNativeCall(builder, reqBuiltin, reqFixed, c.args)
             }
@@ -2692,7 +2692,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 }
             }
             if modelBuiltin != "" {
-                var modelFixed = []
+                val modelFixed = []
                 modelFixed.push(ir_string(modelTableName(modelName)))
                 return emitNativeCall(builder, modelBuiltin, modelFixed, c.args)
             }
@@ -2722,7 +2722,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 _ => {}
             }
             if systemBuiltin != "" {
-                var sysFixed = []
+                val sysFixed = []
                 return emitNativeCall(builder, systemBuiltin, sysFixed, c.args)
             }
             val objReg = buildExpr(builder, ma.object)

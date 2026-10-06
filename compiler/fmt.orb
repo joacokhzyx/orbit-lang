@@ -970,7 +970,7 @@ fn fmtStripTrailingSlashes(dir: string) -> string {
 }
 
 fn fmtListOrbFiles(dir: string) -> list {
-    var found = []
+    val found = []
     val clean = fmtStripTrailingSlashes(dir)
     if clean == "" {
         return found

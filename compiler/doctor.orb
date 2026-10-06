@@ -571,7 +571,7 @@ fn doctorCollectOrbFiles(root: string) -> list {
         files.push(root)
         return files
     }
-    var dirs = []
+    val dirs = []
     dirs.push(root)
     var di = 0
     while di < dirs.len() {
@@ -1056,6 +1056,111 @@ fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, s
 
 // Drop // comments and "..." spans so strings and comments never count
 // as system uses.
+/** @brief The contents of every string literal on a line, in order.
+ *
+ *  The inverse of doctorCodePart, which drops literals. Secrets have to be found
+ *  INSIDE them, so a scan that reuses the code part would find nothing at all
+ *  and look like it had run. Escapes are left as written: a secret prefix does
+ *  not contain a backslash, and un-escaping would mean guessing at what the
+ *  author meant.
+ *
+ *  A line comment ends the literals: text after "//" is not code, and a secret
+ *  in a comment is a secret in a file, but reporting it against the wrong line
+ *  is worse than not reporting it. */
+fn doctorStringLiterals(line: string) -> list {
+    var out = []
+    val cpos = orbit_string_indexOf(line, "//")
+    var n = orbit_string_len(line)
+    if cpos != -1 { n = cpos }
+    var i = 0
+    while i < n {
+        if orbit_string_char_at_selfhost(line, i) == 34 {
+            val start = i + 1
+            var j = start
+            var closed = false
+            while j < n {
+                val c = orbit_string_char_at_selfhost(line, j)
+                if c == 92 {
+                    j = j + 2
+                    continue
+                }
+                if c == 34 {
+                    closed = true
+                    break
+                }
+                j = j + 1
+            }
+            if closed {
+                out.push(orbit_string_slice(line, start, j))
+                i = j + 1
+            } else {
+                i = n
+            }
+        } else {
+            i = i + 1
+        }
+    }
+    return out
+}
+
+/** @brief The first secret-shaped prefix in `text`, or "".
+ *
+ *  Returns the PREFIX and never the value. A diagnostic that quoted the string
+ *  it found would copy the credential into CI logs, a build page and every
+ *  terminal that ran the tool, which is how a secret stops being a secret. The
+ *  prefix is enough to find the line and enough to say what kind of key it is. */
+fn doctorSecretPrefix(text: string) -> string {
+    val prefixes = ["sk-", "ghp_", "AKIA", "-----BEGIN", "password=", "secret=", "token=", "apikey="]
+    // A credential has material after its prefix. Without this the scanner flags
+    // its OWN prefix table -- eight findings on one line inside doctor.orb, one
+    // per prefix it is made of -- which is how a check becomes noise on the
+    // first file it ever sees. Requiring real content after the prefix is also
+    // the honest definition: "sk-" alone is a shape, not a leaked key.
+    val tn = orbit_string_len(text)
+    var i = 0
+    while i < prefixes.len() {
+        val p: string = prefixes.get(i)
+        if tn >= orbit_string_len(p) + 8 {
+            if doctorContainsFold(text, p) { return p }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+/** @brief Case-insensitive substring test, without allocating a lowered copy.
+ *
+ *  orbit_string_indexOf is case-sensitive and there is no case-insensitive form
+ *  in the runtime, so this compares a window of `needle` against `hay` folding
+ *  ASCII. ASCII only, deliberately: a secret prefix is ASCII, and folding
+ *  anything above 127 needs a table this does not have. */
+fn doctorContainsFold(hay: string, needle: string) -> bool {
+    val hn = orbit_string_len(hay)
+    val nn = orbit_string_len(needle)
+    if nn == 0 { return false }
+    if hn < nn { return false }
+    var i = 0
+    while i + nn <= hn {
+        var j = 0
+        var same = true
+        while j < nn {
+            if doctorFoldChar(orbit_string_char_at_selfhost(hay, i + j)) != doctorFoldChar(orbit_string_char_at_selfhost(needle, j)) {
+                same = false
+                break
+            }
+            j = j + 1
+        }
+        if same { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn doctorFoldChar(c: int) -> int {
+    if c >= 65 && c <= 90 { return c + 32 }
+    return c
+}
+
 fn doctorCodePart(line: string) -> string {
     var cut = line
     val cpos = orbit_string_indexOf(line, "//")
@@ -1207,10 +1312,205 @@ fn doctorScanStyle(stats: DoctorStats, lines: list, file: string, eol: string, e
     // the line list: splitBuildLines drops the final newline, so "the last line
     // exists" cannot tell a terminated file from an unterminated one.
     if endsWithNewline == false {
-        var endEdits = []
+        val endEdits = []
         endEdits.push(DoctorEdit(lines.len() + 1, lines.len(), eol, "safe"))
         doctorReportFull(stats, file, lines.len(), 0, "D007", "file does not end with a newline.", "end the file with a single newline (doctor --fix does this).", "safe", endEdits)
     }
+}
+
+/** @brief Layer 1 checks that read string literals: secrets and SQL surfaces.
+ *
+ *  One pass over the lines, because the literals are the same literals both
+ *  checks need and splitting them twice is the mistake this function exists to
+ *  avoid. Neither check reports the literal's contents: for a secret that is the
+ *  whole point, and for a SQL string the line number and the keyword are enough
+ *  to act on. */
+fn doctorScanLiterals(stats: DoctorStats, lines: list, file: string) {
+    var i = 0
+    while i < lines.len() {
+        val literals = doctorStringLiterals(lines.get(i))
+        var k = 0
+        while k < literals.len() {
+            val lit: string = literals.get(k)
+            val secret = doctorSecretPrefix(lit)
+            if secret != "" {
+                doctorReport(stats, file, i + 1, "D009", "a string literal looks like a hardcoded credential (prefix '" + secret + "').", "read it from the environment instead; the value is not shown here on purpose.")
+            } else {
+                val kw = doctorSqlKeyword(lit)
+                if kw != "" {
+                    val interpolated = doctorHasInterpolationOn(lines, i, lit)
+                    if interpolated {
+                        doctorReport(stats, file, i + 1, "D010", "a SQL statement starting with " + doctorTrimSpace(kw) + " is built by string interpolation.", "use a parameterised query instead of pasting values into the SQL text.")
+                    }
+                }
+            }
+            k = k + 1
+        }
+        i = i + 1
+    }
+}
+
+/** @brief The first SQL keyword in `text`, or "".
+ *
+ *  A keyword alone is not a finding: plenty of prose mentions SELECT. It becomes
+ *  a finding when the string is also interpolated, which is what doctorScanLiterals
+ *  checks before reporting. */
+fn doctorSqlKeyword(text: string) -> string {
+    val kws = ["SELECT ", "INSERT ", "UPDATE ", "DELETE ", "DROP "]
+    var i = 0
+    while i < kws.len() {
+        val k: string = kws.get(i)
+        if doctorContainsFold(text, k) { return k }
+        i = i + 1
+    }
+    return ""
+}
+
+/** @brief Whether the literal at `idx` on line `i` has values pasted into it.
+ *
+ *  Interpolation in this language is a plain "+" against the literal's closing
+ *  quote, so the evidence is that the line continues after the string ends.
+ *  Looking only at the current line is a deliberate under-report: a SQL string
+ *  continued on the next line would be missed, and a false D010 on a query
+ *  built without interpolation is the failure mode that makes people turn a
+ *  check off. */
+fn doctorHasInterpolationOn(lines: list, i: int, lit: string) -> bool {
+    val line = lines.get(i)
+    // Three pieces: a quote, the literal, then a quote-space-plus. Writing this
+    // as one string is how it went wrong first time: `"\"" + lit + "\" + " +"`
+    // ends with a dangling `+`, and the lexer then reads the rest of the file as
+    // one unterminated string.
+    val marker = "\"" + lit + "\" +"
+    return doctorContainsFold(line, marker)
+}
+
+/** @brief var that is never written after its declaration, reported as D013.
+ *
+ *  A `var` exists because something changes it. A `var` that is only ever
+ *  assigned once, at its declaration, is a `val` wearing a `var`, and the
+ *  difference is not style: `val` cannot be reassigned, so the compiler stops
+ *  checking every write to it. Only single-assignment text is considered, and
+ *  the name is matched whole, so a same-named local in another function does
+ *  not make this one look written. */
+fn doctorScanMutableDecls(stats: DoctorStats, lines: list, file: string) {
+    var i = 0
+    while i < lines.len() {
+        val raw = lines.get(i)
+        val trimmed = doctorTrimSpace(raw)
+        if doctorStartsWith(trimmed, "var ") {
+            // Slice the TRIMMED line. Slicing the raw one at a fixed offset
+            // depends on the indentation, and an indented `var i = 0` yielded the
+            // name "var" -- which then "was never reassigned" for every single
+            // declaration in the tree.
+            val rest = doctorTrimSpace(orbit_string_slice(trimmed, 4, orbit_string_len(trimmed)))
+            val first = doctorLeadingName(rest)
+            // `var mut x` says out loud that x is mutable. Recommending val
+            // against an explicit declaration of intent is exactly the false
+            // positive that gets a check switched off, so it is not reported
+            // either way -- not even when the truth is that it never is.
+            val name = ""
+            if first == "mut" {
+                val afterMut = doctorTrimSpace(orbit_string_slice(rest, 3, orbit_string_len(rest)))
+                if doctorLeadingName(afterMut) == "" {
+                    i = i + 1
+                }
+            } else {
+                name = first
+            }
+            if name != "" {
+                var writes = 0
+                var j = 0
+                while j < lines.len() {
+                    if doctorAssignsTo(lines.get(j), name) { writes = writes + 1 }
+                    j = j + 1
+                }
+                // One write is the declaration itself. Zero would mean the
+                // declaration line did not look like an assignment, which means
+                // we do not understand this form and must not report it.
+                if writes == 1 {
+                    doctorReport(stats, file, i + 1, "D013", "'" + name + "' is declared var but never assigned again.", "make it a val: nothing can reassign it, and the compiler stops checking every write.")
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
+/** @brief The identifier at the start of `rest`, or "" when there is none. */
+fn doctorLeadingName(rest: string) -> string {
+    var i = 0
+    val n = orbit_string_len(rest)
+    var name = ""
+    while i < n {
+        val c = orbit_string_char_at_selfhost(rest, i)
+        if doctorIsWordChar(c) {
+            name = name + rest.slice(i, i + 1)
+            i = i + 1
+        } else {
+            break
+        }
+    }
+    return name
+}
+
+/** @brief Whether this line ASSIGNS to `name`: `name = ...` or `name += ...`.
+ *
+ *  It has to require the `=`. Checking only that the next character is not a
+ *  word character counted every plain USE of the name as a write, so a `var`
+ *  that was read and printed looked reassigned and D013 never fired. `==`, `<`
+ *  and `!=` are comparisons and a following `+` is arithmetic, not a compound
+ *  assignment, so those are excluded by looking at what follows the operator. */
+fn doctorAssignsTo(line: string, name: string) -> bool {
+    val code = doctorCodePart(line)
+    val n = orbit_string_len(code)
+    val nn = orbit_string_len(name)
+    var i = 0
+    while i + nn <= n {
+        if orbit_string_slice(code, i, i + nn) == name {
+            var beforeOk = true
+            if i > 0 {
+                if doctorIsWordChar(orbit_string_char_at_selfhost(code, i - 1)) { beforeOk = false }
+            }
+            if beforeOk {
+                var after = i + nn
+                // `name` at end of line cannot be an assignment.
+                if after < n {
+                    val c = orbit_string_char_at_selfhost(code, after)
+                    if c == 32 || c == 9 {
+                        var k = after
+                        while k < n {
+                            val sp = orbit_string_char_at_selfhost(code, k)
+                            if sp != 32 && sp != 9 { break }
+                            k = k + 1
+                        }
+                        if k < n {
+                            val op = orbit_string_char_at_selfhost(code, k)
+                            if op == 61 {
+                                if k + 1 >= n { return true }
+                                // `==` is a comparison.
+                                if orbit_string_char_at_selfhost(code, k + 1) != 61 { return true }
+                            }
+                            if op == 43 || op == 45 || op == 42 || op == 47 {
+                                var m = k + 1
+                                while m < n {
+                                    val sp2 = orbit_string_char_at_selfhost(code, m)
+                                    if sp2 != 32 && sp2 != 9 { break }
+                                    m = m + 1
+                                }
+                                if m < n {
+                                    if orbit_string_char_at_selfhost(code, m) == 61 { return true }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + nn
+            continue
+        }
+        i = i + 1
+    }
+    return false
 }
 
 fn doctorPrintGates() {
@@ -1445,7 +1745,7 @@ fn doctorCacheReady(dir: string, cacheState: list) -> bool {
 }
 
 fn doctorRun(opts: DoctorOptions) {
-    var stats = DoctorStats(0, 0, opts.jsonMode, opts.quiet, opts.color, [], 0, 0, 0, 0)
+    val stats = DoctorStats(0, 0, opts.jsonMode, opts.quiet, opts.color, [], 0, 0, 0, 0)
     val ioStart = orbit_clock_ms()
     var files = doctorCollectOrbFiles(opts.dir)
     if files.len() == 0 {
@@ -1459,7 +1759,7 @@ fn doctorRun(opts: DoctorOptions) {
         orbit_os_exit_selfhost(1)
         return
     }
-    var sources = []
+    val sources = []
     var fi2 = 0
     while fi2 < files.len() {
         val fp2: string = files.get(fi2)
@@ -1491,9 +1791,9 @@ fn doctorRun(opts: DoctorOptions) {
     // the difference between "fix what it found" and "tidy every file it
     // opened": a file with no findings is not rewritten, so a fix can never
     // change a byte the analysis did not point at.
-    var routes = []
-    var decls = []
-    var refs = []
+    val routes = []
+    val decls = []
+    val refs = []
     // What the parse pass produced, kept for the fingerprint pass. Parsing a
     // file twice to find its imports is the one cost the cache cannot absorb.
     val parsedFiles = []
@@ -1514,6 +1814,8 @@ fn doctorRun(opts: DoctorOptions) {
             val fplines: list = fileLines.get(i)
             doctorCollectRoutes(fplines, fp3, routes)
             doctorScanSystem(stats, fplines, fp3)
+            doctorScanLiterals(stats, fplines, fp3)
+            doctorScanMutableDecls(stats, fplines, fp3)
             val slen = orbit_string_len(src3)
             val endsNl = false
             if slen > 0 {
@@ -1824,8 +2126,8 @@ fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list, source
 }
 
 fn runDoctor() {
-    var opts = DoctorOptions(".", false, false, false, false, "auto", false, false, false, "", "", "", "")
-    var seenFlags = []
+    val opts = DoctorOptions(".", false, false, false, false, "auto", false, false, false, "", "", "", "")
+    val seenFlags = []
     var dirSet = false
     var i = 2
     while true {

@@ -1,0 +1,13 @@
+fn main() -> int {
+    val key = "sk-proj-AAAABBBBCCCCDDDD1234"
+    val q = "SELECT * FROM users WHERE id = " + "1"
+    var never = 5
+    val t = "password=hunter2000"
+    print(key + q + orbit_int_to_string_selfhost(never) + t)
+    return 0
+}
+extern fn print(s: string) -> int
+extern fn orbit_int_to_string_selfhost(v: int) -> string
+extern fn orbit_os_env(n: string) -> string
+extern fn orbit_db_query_all(q: string) -> list
+

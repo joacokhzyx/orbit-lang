@@ -1,0 +1,8 @@
+input.orb:2 warning [D009] a string literal looks like a hardcoded credential (prefix 'sk-'). fix: read it from the environment instead; the value is not shown here on purpose.
+input.orb:5 warning [D009] a string literal looks like a hardcoded credential (prefix 'password='). fix: read it from the environment instead; the value is not shown here on purpose.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (0 error(s), 2 warning(s)) in 1 files under "input.orb".
+doctor: 2 finding(s) hidden by --only/--skip/--min-severity.

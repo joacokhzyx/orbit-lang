@@ -142,7 +142,7 @@ model Sema {
 }
 
 fn initSema() -> Sema {
-    var initialScopes = []
+    val initialScopes = []
     initialScopes.push(Scope([], -1))
     return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [])
 }
@@ -1798,7 +1798,7 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     if isTaggedTypeIndex(sema, typeIdx) == false { return }
     val t: TypeInfo = sema.typeRegistry.get(typeIdx)
 
-    var covered = []
+    val covered = []
     var hasWildcard = false
     var i = 0
     while i < m.cases.len() {
@@ -1827,7 +1827,7 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     // One diagnostic per match, not per missing variant: a `match` on a large
     // type can be missing thirty cases, and thirty near-identical lines bury
     // the one fact the reader needs.
-    var missing = []
+    val missing = []
     var v = 0
     while v < t.variants.len() {
         val variantNode = t.variants.get(v)

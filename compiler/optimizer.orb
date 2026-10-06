@@ -70,9 +70,9 @@ fn sinkSlotCount(func: IRFunction) -> int {
 // run; only the POSITION of the definition moves, and sinkOne
 // re-derives that per round.
 fn sinkBuildQual(func: IRFunction, slots: int) -> list {
-    var defCount = []
-    var useCount = []
-    var movable = []
+    val defCount = []
+    val useCount = []
+    val movable = []
     var k = 0
     while k < slots {
         defCount.push(0)
@@ -362,7 +362,7 @@ fn resolveConstInt(func: IRFunction, operand: IRValue, useIdx: int, depth: int) 
                     if vn != "" {
                         var stores = 0
                         var storeIdx = -1
-                        var stored: IRValue = operand
+                        val stored: IRValue = operand
                         var si = 0
                         while si < func.instructions.len() {
                             val sin: IRInstruction = func.instructions.get(si)
@@ -425,7 +425,7 @@ fn boolLitValue(v: IRValue) -> bool {
 
 fn optimizeFunction(func: IRFunction) -> OptStats {
     var patterns = 0
-    var folds = 0
+    val folds = 0
     var i = 0
     while i < func.instructions.len() {
         val instr: IRInstruction = func.instructions.get(i)
@@ -506,7 +506,7 @@ fn optimizeFunction(func: IRFunction) -> OptStats {
     var rounds = 0
     val slots = sinkSlotCount(func)
     val qual = sinkBuildQual(func, slots)
-    var lastDef = []
+    val lastDef = []
     while lastDef.len() < slots {
         lastDef.push(-1)
     }

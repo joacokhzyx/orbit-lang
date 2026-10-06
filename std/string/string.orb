@@ -145,7 +145,7 @@ fn join(parts: list, sep: string) -> string {
 }
 
 fn split(s: string, sep: string) -> list {
-    var parts = []
+    val parts = []
     if sep == "" {
         parts.push(s)
         return parts

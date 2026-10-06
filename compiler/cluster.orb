@@ -425,8 +425,8 @@ fn clusterUp() {
     }
     val runBin = clusterNativePath(binary)
     val runLogDir = clusterNativePath(logDir)
-    var ports = []
-    var pids = []
+    val ports = []
+    val pids = []
     var i = 0
     while i < nodeCount {
         val port = portBase + i
@@ -447,7 +447,7 @@ fn clusterUp() {
         pids.push(pid)
         i = i + 1
     }
-    var noDrain = []
+    val noDrain = []
     val state = clusterBuildState(binary, portBase, logDir, ports, pids, noDrain)
     if orbit_file_write_selfhost(".orbit/cluster.json", state) == false {
         orbit_os_write_stderr_selfhost("cluster up: could not write state file .orbit/cluster.json.\n")
