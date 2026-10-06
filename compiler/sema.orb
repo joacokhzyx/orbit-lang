@@ -80,6 +80,13 @@ model Sema {
     scopes: list
     currentScope: int
     errors: list
+    // Bare `list`: the element type is not declared, so the C backend cannot
+    // infer it and picks a model to cast each element to when the list is READ.
+    // That pick happened to be DoctorDecl, whose `kind` sits at the same offset
+    // as TypeInfo's, so every read was correct by accident -- and a segfault the
+    // moment either model changed shape. Every read of these two is annotated
+    // (`val t: TypeInfo = ...`) to pin the cast. Do not drop those annotations:
+    // they are what makes the emitted C correct, and nothing else is.
     typeRegistry: list
     variantRegistry: list
     currentReturnType: string
@@ -275,7 +282,7 @@ fn hasErrors(sema: Sema) -> bool {
 fn registerType(sema: Sema, name: string, kind: string, variants: list) {
     var i = 0
     while i < sema.typeRegistry.len() {
-        val t = sema.typeRegistry.get(i)
+        val t: TypeInfo = sema.typeRegistry.get(i)
         if t.name == name {
             return
         }
@@ -308,7 +315,7 @@ fn registerType(sema: Sema, name: string, kind: string, variants: list) {
 fn findVariantOwner(sema: Sema, variantName: string) -> string {
     var i = 0
     while i < sema.variantRegistry.len() {
-        val v = sema.variantRegistry.get(i)
+        val v: VariantInfo = sema.variantRegistry.get(i)
         if v.variant == variantName {
             return v.owner
         }
@@ -501,7 +508,7 @@ fn checkMemberResolution(sema: Sema, objType: string, member: string, line: int,
 fn findType(sema: Sema, name: string) -> int {
     var i = 0
     while i < sema.typeRegistry.len() {
-        val t = sema.typeRegistry.get(i)
+        val t: TypeInfo = sema.typeRegistry.get(i)
         if t.name == name {
             return i
         }
@@ -515,7 +522,7 @@ fn findType(sema: Sema, name: string) -> int {
 // An alias has no variants of its own and is never checked.
 fn isTaggedTypeIndex(sema: Sema, index: int) -> bool {
     if index < 0 { return false }
-    val t = sema.typeRegistry.get(index)
+    val t: TypeInfo = sema.typeRegistry.get(index)
     if t.kind == "enum" { return true }
     if t.kind == "union" { return true }
     return false
@@ -524,7 +531,7 @@ fn isTaggedTypeIndex(sema: Sema, index: int) -> bool {
 fn typeHasVariant(sema: Sema, typeName: string, variantName: string) -> bool {
     val idx = findType(sema, typeName)
     if idx < 0 { return false }
-    val t = sema.typeRegistry.get(idx)
+    val t: TypeInfo = sema.typeRegistry.get(idx)
     var i = 0
     while i < t.variants.len() {
         val variantNode = t.variants.get(i)
@@ -1789,7 +1796,7 @@ fn qualifiedVariantName(sema: Sema, matchType: string, owner: ASTNode, field: st
 fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     val typeIdx = findType(sema, matchType)
     if isTaggedTypeIndex(sema, typeIdx) == false { return }
-    val t = sema.typeRegistry.get(typeIdx)
+    val t: TypeInfo = sema.typeRegistry.get(typeIdx)
 
     var covered = []
     var hasWildcard = false
