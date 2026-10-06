@@ -190,6 +190,17 @@ For every `route` whose method is `POST`, `PUT`, `PATCH`, or `DELETE`: scan the 
 
 ### 2.4 Layer 2: AST Structural Analyses
 
+**Status: shipped.** The four analyses this section names are all in
+`compiler/doctor.orb`: cyclomatic complexity as `D017`, recursion without tail
+calls as `D018`, allocation inside a loop as `D019`, and dead functions as
+`D003`/`D004`. There is no fifth one promised here.
+
+The numbers `D020` through `D023` appear in no version of this document. They
+were an invention of a planning note, listed as "what a doctor could grow next",
+and reading them back as spec is how a plan starts promising things the spec
+never did. `D022` (duplicate match arm) and `D023` (shadowing) are still real
+ideas and are recorded below as candidates rather than as commitments.
+
 Implement in `compiler/doctor.orb`, reusing the AST `doctorRun` already builds. Parse errors must convert to a warning diagnostic rather than aborting the run: the existing contract is that doctor still runs its text checks on a file that does not parse and skips only the AST-based analysis. Budget: ≤ 20 ms per 10K LOC.
 
 #### Cyclomatic Complexity
@@ -211,25 +222,101 @@ Build a call graph from all function declarations in the file. Use DFS to detect
 
 For any function whose body contains a `for` or `while`: walk the loop body subtree for calls whose callee identifier matches `list_create`, `map_create`, or the suffix `_alloc`. If found: emit a warning: `"Allocation inside loop body in fn <name> at <line>. Consider pre-allocating and reusing outside the loop."`
 
+#### Candidates that are not in this section
+
+Neither is scheduled. Both are written down so the next person does not re-derive
+them, and so the reason they are not scheduled is visible.
+
+- **Duplicate `match` arm.** Not a doctor check: `patternVariantName` and
+  `qualifiedVariantName` (`sema.orb:1757`, `:1782`) need a `Sema`, and doctor's
+  only door to it is `checkSourceWithFile(...) -> bool` (`pipeline.orb:161`).
+  It belongs beside `checkMatchExhaustive` (`sema.orb:1796`) as a second E-code.
+  `covered` (`sema.orb:1801`) accumulates variant names and never checks for a
+  repeat. Note the wildcard bails first (`sema.orb:1814`, `:1825`), so a check
+  placed after that bail would skip exactly the dead arms.
+- **Shadowing.** Shadowing is intended: `builder.orb:79-80` and
+  `resolveSymbol` (`sema.orb:601`) both resolve innermost-first on purpose, and
+  same-scope re-declaration is already a hard error (`sema.orb:557`). The only
+  useful form -- "this name shadows an outer one that is used afterwards" -- is
+  the most expensive candidate here, because `LiteralNode` (`ast.orb:146`) has
+  no `line`/`col`, so a *use* has no position and the answer needs a parser
+  change plus a scope-tracking pass. Low diagnostic value for that price.
+
 #### Dead Function Detection (partial: private only)
 
 A `private fn` that no scanned file calls is unreachable; that is `D003` and it exists. A public `fn` unreachable from any `route`, `schedule`, or other reachable `fn` is also dead, but reporting it requires whole-program reachability from the entry point, which a single-directory scan cannot establish. The general form of the finding stands: `"fn <name> is never called from any route or schedule and will not be compiled into the output binary."` It is not implementable at directory-scan scope without false positives, so it is deferred, not solved.
 
 ### 2.5 Layer 3: Semantic Graph Analyses
 
-Implement in `compiler/doctor.orb` on top of `compiler/ir.orb`, using the type information `compiler/sema.orb` already computes. Every opcode named below exists in `IROpcode` today. Budget: ≤ 30 ms per 10K LOC.
+**Status: reconciled. This section promised three analyses; none of them can be
+built as written, and the reason is worth writing down rather than discovering a
+third time.**
 
-#### Unguarded Mutable Shared State
+The original text opened with "Every opcode named below exists in `IROpcode`
+today." True, and misleading. `alloc`, `free`, `db_get`, `db_set` and `db_where`
+are all declared in `compiler/ir.orb:30-35` -- and emitted **zero** times by
+`compiler/builder.orb`, which is the only thing that produces the real IR:
 
-Any `var` declared at module scope (not inside a function or route) that appears as the destination of a `store_var` IR opcode inside a route or schedule handler is a race condition. Emit an error: `"Module-level mutable variable '<name>' written from concurrent handler without synchronisation. This is a data race."`
+| opcode | declared | emitted by `builder.orb` | referenced by |
+|---|---|---|---|
+| `alloc` | `ir.orb:30` | **0** | `cteval.orb`, `c_backend.orb` |
+| `free` | `ir.orb:31` | **0** | `cteval.orb`, `c_backend.orb` |
+| `db_get` | `ir.orb:32` | **0** | `cteval.orb`, `c_backend.orb` |
+| `db_set` | `ir.orb:33` | **0** | `cteval.orb`, `c_backend.orb` |
+| `db_where` | `ir.orb:35` | **0** | `cteval.orb`, `c_backend.orb` |
 
-#### Taint Propagation for HTTP Inputs
+`cteval.orb` carries its own private mini-IR for constant evaluation, and
+`c_backend.orb` consumes the enum in switches where `free` emits the comment
+`/* free - arena managed */`. An analysis that reads these fields would analyse a
+code path that does not run.
 
-Every value that originates from a `req` block field is tainted at source. Walk the IR data-flow graph. If a tainted register reaches a `db_get`, `db_set`, or `db_where` opcode without passing through a type-narrowing or explicit validation instruction, emit an error: `"Untrusted request field '<name>' flows into database operation at <file>:<line> without validation. Possible injection risk."`
+#### Unguarded Mutable Shared State -- nothing to find
 
-#### Arena Leak Detection
+The check was "a `var` at module scope, written from a handler". There are no
+module-scope `var`s: E1007 rejects them (`sema.orb:1252-1259`), and
+`builder.orb:1574` turns any surviving top-level `val` into a `#define` of an
+int or bool literal. `ENGINEERING.md` already said as much in its own §3 notes:
+*"the language has no working module-level mutable state"*. `store_var` IS
+emitted (`builder.orb`, 3 sites), but only for function-locals.
 
-Track every `alloc` IR opcode inside a function body. Walk all paths from that opcode to `ret`. If any path does not contain a `free` opcode for the same allocation site and does not exit through an arena checkpoint/rewind boundary, emit a warning: `"Possible unfreed allocation in fn <name> at <file>:<line>. Verify this is covered by an arena scope."`
+The general finding -- "shared mutable state needs a guard" -- stays true for a
+language that will grow one. The check waits for that language. The code number
+is not spent.
+
+#### Arena Leak Detection -- re-expressible, but D019 already owns the shape
+
+`alloc`/`free` are not emitted, so there is nothing to walk. Allocation reaches
+the IR as an ordinary `IROpcode.call` to a runtime name, and the arena argument
+is injected by the backend via `functionNeedsArena` (`c_backend.orb:3915`).
+An allocation check is therefore a NAME match over calls, which is exactly what
+**D019** already does at the AST level and with positions attached. Anything
+D026 could add is path analysis ("is it freed on every path") over a data-flow
+graph the IR does not currently carry. Deferred with the reason, not with a
+promise.
+
+#### Taint Propagation for HTTP Inputs -- the one worth building
+
+Also a name match, and also the one that earns its cost: untrusted request
+fields reaching a database call is a real vulnerability class, and the sources
+and sinks are named in the emitted calls.
+
+- sources: `orbit_http_body_get`, `orbit_auth_bearer_token`,
+  `orbit_auth_current_role`
+- sinks: `orbit_db_query_where`, `orbit_db_query_where_p`, `orbit_db_query_all`,
+  `orbit_db_query_get`, `orbit_db_insert`, `orbit_db_delete`
+
+The precedent for walking calls and matching names is `moduleCallsBuiltin`
+(`c_backend.orb:4163`): walk `module.functions` -> `f.instructions` ->
+`inst.opcode == IROpcode.call` -> match `inst.operand1` as `IRValue.String`.
+
+**Doctor implements this on the AST, not the IR.** The IR carries no positions
+-- `IRInstruction` (`ir.orb:91-105`) is `opcode, dest, operand1/2/3, elemKind`,
+nothing else, and only 7 of 43 AST models carry `line`/`col` (`ast.orb:102`,
+`:110`, `:221`, `:243`, `:259`, `:269`, `:276`). An IR-only finding can be
+attributed to a function, and attributing it to a line means guessing one. The
+AST plus sema's scope chain carries the same information with real positions,
+which is the same reason `checkNode(sema, node: ASTNode)` is the shape the rest
+of the compiler walks in.
 
 ### 2.6 Implementation Contract
 
