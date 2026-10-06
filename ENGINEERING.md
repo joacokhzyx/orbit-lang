@@ -133,18 +133,25 @@ Layer 1: Token and line stream analysis                [PARTIAL: D002, D005, D00
   Detects: Route conflicts, hardcoded secrets, SQL injection surface, unguarded routes
 ```
 
-Layer 2 is BLOCKED on a backend defect, recorded as `known-defect: ASTBODYLEN`
-in `tests/negative/`. `FunctionDeclNode.body.len()` returns garbage
-(-1184889136 for a one-statement function) while `params`, `paramTypes` and
-`genericParams` on the same model return correct lengths -- the backend computes
-`body`'s offset against the wrong model. It has gone unnoticed because no code in
-the compiler CALLS `.len()` on `body`: sema.orb hands `f.body` straight to
-checkNode, which matches on elements rather than measuring the list. Complexity
-(D017) needs the length and cannot get it, so the whole AST layer waits on a
-backend fix. A check that reports a path count computed from a garbage length is
-not a finding, it is a random number with a severity attached.
+The AST schema had two type errors, both now fixed and both the reason an
+earlier draft of D017 reported a complexity of 1 for a function of 25:
 
-Layer 2 otherwise does exactly one thing: it parses each file with `initParser`/`parseProgram`, walks the AST to collect declarations and references, and reports unused private functions and unused models. It then falls back to a whole-word text search (`doctorUsedInText`) before reporting anything. It is deliberately conservative, because a name may be used by a file outside the scan. Any analysis added to Layer 2 inherits that constraint: a false positive that silences a real dead-code report is worse than a missed one.
+- five models declared `body: list` (`FunctionDeclNode`, `RouteDeclNode`,
+  `WhileNode`, `ForNode`, `MatchCaseNode`) while the parser has always handed
+  them parseBlock()'s single ASTNode, and `IfNode` got it right with
+  `thenBody: ASTNode`. Reading `f.body.len()` returned -1184889136 for a
+  one-statement function while `params`, `paramTypes` and `genericParams` on the
+  same model returned correct lengths -- a model pointer read as a list header
+- `CallNode.callee` said `list` and is an `ASTNode`, which `builder.orb` has
+  always known: it matches on it
+
+Neither was visible because no code called `.len()` on either field. sema.orb
+passes `f.body` straight into `checkNode`, which matches rather than measures, so
+every AST walk in the compiler was correct by accident of never asking.
+`tests/suite/ast_function_body_is_a_block.orb` asserts the corrected shape, so the
+fix cannot be undone by someone reading `body: list` as a convenience.
+
+Layer 2 now does exactly one thing does exactly one thing: it parses each file with `initParser`/`parseProgram`, walks the AST to collect declarations and references, and reports unused private functions and unused models. It then falls back to a whole-word text search (`doctorUsedInText`) before reporting anything. It is deliberately conservative, because a name may be used by a file outside the scan. Any analysis added to Layer 2 inherits that constraint: a false positive that silences a real dead-code report is worse than a missed one.
 
 ### 2.3 Layer 1: Text and Token Analyses
 

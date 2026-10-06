@@ -61,7 +61,7 @@ model FunctionDeclNode {
     params: list
     paramTypes: list
     returnType: string
-    body: list
+    body: ASTNode
     isAsync: bool
     isPrivate: bool
     isExtern: bool
@@ -72,7 +72,7 @@ model RouteDeclNode {
     http_method: string
     path: string
     decorators: list
-    body: list
+    body: ASTNode
     has_limit: bool
     limit_rate: int
     limit_window_ms: int
@@ -187,14 +187,14 @@ model IfNode {
 }
 
 model WhileNode {
-    condition: list
-    body: list
+    condition: ASTNode
+    body: ASTNode
 }
 
 model ForNode {
     item: string
     iterable: list
-    body: list
+    body: ASTNode
 }
 
 model ReturnNode {
@@ -224,7 +224,7 @@ model MatchNode {
 
 model MatchCaseNode {
     pattern: list
-    body: list
+    body: ASTNode
 }
 
 model TryNode {
@@ -250,7 +250,7 @@ model UnaryOpNode {
 }
 
 model CallNode {
-    callee: list
+    callee: ASTNode
     args: list
     // Where the `(` was. Sema reports a constant index that is past the end of
     // a list or a string against this, and it is the only way that check can

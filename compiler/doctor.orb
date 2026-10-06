@@ -1444,6 +1444,445 @@ fn doctorRememberMagic(seen: list, num: string, name: string, file: string, line
     seen.push(num)
 }
 
+/** @brief The statements a node carries, as a list to walk.
+ *
+ *  A function body is a Block ASTNode, not a list. The schema in ast.orb now
+ *  says `body: ASTNode` -- matching IfNode, and matching the parser, which has
+ *  always handed parseBlock()'s single ASTNode to that field. Five models
+ *  declared it `list`, and `.len()` on the result read a model pointer as a list
+ *  header: -1184889136 for a one-statement body, while params, paramTypes and
+ *  genericParams beside it were all correct. Same model, same field type, wrong
+ *  offset. That is the ASTBODYLEN known defect.
+ *
+ *  The Block is unwrapped here, once. Nothing outside this file and sema.orb's
+ *  checkNode ever measures one.
+ */
+fn doctorStmtsOf(node: ASTNode) -> list {
+    var stmts = []
+    match node {
+        ASTNode.FunctionDecl(f) => {
+            match f.body {
+                ASTNode.Block(b) => { stmts = b.statements }
+                _ => {}
+            }
+        }
+        ASTNode.RouteDecl(r) => {
+            match r.body {
+                ASTNode.Block(b) => { stmts = b.statements }
+                _ => {}
+            }
+        }
+        ASTNode.While(w) => {
+            match w.body {
+                ASTNode.Block(b) => { stmts = b.statements }
+                _ => {}
+            }
+        }
+        ASTNode.For(fo) => {
+            match fo.body {
+                ASTNode.Block(b) => { stmts = b.statements }
+                _ => {}
+            }
+        }
+        ASTNode.MatchCase(c) => {
+            match c.body {
+                ASTNode.Block(b) => { stmts = b.statements }
+                _ => {}
+            }
+        }
+        ASTNode.Block(b) => { stmts = b.statements }
+        _ => {}
+    }
+    return stmts
+}
+
+/** @brief Element `i` of a node list, pinned to ASTNode.
+ *
+ *  `nodes.get(i)` on a bare `list` returns a value the backend has to cast to
+ *  some model, and it has no way to know which. Handing the result to a function
+ *  whose parameter is ASTNode is what makes the cast correct.
+ */
+fn doctorNodeAt(nodes: list, i: int) -> ASTNode {
+    return nodes.get(i)
+}
+
+/** @brief D017 complexity, D018 recursion without tail calls, D019 allocation in a loop.
+ *
+ *  One walk per function declaration, because all three need the same subtree.
+ *
+ *  Every access goes through doctorStmtsOf or a `match`. Reading a declaration's
+ *  fields directly is what produced the garbage lengths this file spent a while
+ *  working around, and sema.orb's checkNode is the shape that works.
+ */
+fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: list) {
+    match node {
+        ASTNode.Program(p) => {
+            var i = 0
+            val decls = p.decls
+            while i < decls.len() {
+                doctorScanFunctions(stats, doctorNodeAt(decls, i), file, lines)
+                i = i + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => {
+            doctorCheckComplexity(stats, node, f.name, file, lines)
+            doctorCheckRecursion(stats, node, f.name, file, lines)
+            doctorCheckLoopAllocs(stats, node, f.name, file, lines)
+        }
+        _ => {}
+    }
+}
+
+/** @brief Cyclomatic complexity: 1 + one per decision point.
+ *
+ *  Base 1 plus one per `if`, `while`, `for`, each match arm and each `try`, which
+ *  is the count ENGINEERING.md specifies. Thresholds: to 10 passes, 11 to 20 is a
+ *  warning, over 20 is an error. Over the error threshold means more independent
+ *  paths through the function than one reviewer can hold at once, and that is
+ *  worth failing on rather than noting.
+ */
+fn doctorCheckComplexity(stats: DoctorStats, node: ASTNode, fnName: string, file: string, lines: list) {
+    val body = doctorStmtsOf(node)
+    var complexity = 1
+    var i = 0
+    while i < body.len() {
+        complexity = complexity + doctorDecisionPoints(doctorNodeAt(body, i))
+        i = i + 1
+    }
+    val line = doctorFindDeclLine(lines, "fn", fnName)
+    if complexity > 20 {
+        doctorReport(stats, file, line, "D017", "fn " + fnName + " has a cyclomatic complexity of " + orbit_int_to_string_selfhost(complexity) + ", over the safe limit of 20.", "extract the branches into functions of their own; a path count this high is not reviewable, and it is usually one function doing three jobs.")
+    } else {
+        if complexity > 10 {
+            doctorReport(stats, file, line, "D017", "fn " + fnName + " has a cyclomatic complexity of " + orbit_int_to_string_selfhost(complexity) + ".", "consider extracting sub-functions; above 10 the branches stop being independently checkable.")
+        }
+    }
+}
+
+/** @brief Decision points in one subtree. */
+fn doctorDecisionPoints(node: ASTNode) -> int {
+    var n = 0
+    match node {
+        ASTNode.If(x) => { n = 1 }
+        ASTNode.Try(x) => { n = 1 }
+        ASTNode.Match(x) => {
+            val cases = x.cases
+            n = cases.len()
+        }
+        ASTNode.Block(b) => {
+            val stmts = b.statements
+            var i = 0
+            while i < stmts.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(stmts, i))
+                i = i + 1
+            }
+        }
+        ASTNode.MatchCase(c) => {
+            val stmts = doctorStmtsOf(c)
+            var i = 0
+            while i < stmts.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(stmts, i))
+                i = i + 1
+            }
+        }
+        ASTNode.While(w) => {
+            n = 1
+            val stmts = doctorStmtsOf(w)
+            var i = 0
+            while i < stmts.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(stmts, i))
+                i = i + 1
+            }
+        }
+        ASTNode.For(fo) => {
+            n = 1
+            val stmts = doctorStmtsOf(fo)
+            var i = 0
+            while i < stmts.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(stmts, i))
+                i = i + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => {
+            val stmts = doctorStmtsOf(f)
+            var i = 0
+            while i < stmts.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(stmts, i))
+                i = i + 1
+            }
+        }
+        ASTNode.RouteDecl(r) => {
+            val stmts = doctorStmtsOf(r)
+            var i = 0
+            while i < stmts.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(stmts, i))
+                i = i + 1
+            }
+        }
+        ASTNode.ExpressionStmt(e) => { n = doctorDecisionPoints(e.expr) }
+        ASTNode.Assignment(a) => {
+            n = doctorDecisionPoints(a.target)
+            n = n + doctorDecisionPoints(a.value)
+        }
+        ASTNode.Return(r) => { n = doctorDecisionPoints(r.expr) }
+        ASTNode.ReturnOk(r) => { n = doctorDecisionPoints(r.expr) }
+        ASTNode.ReturnErr(r) => { n = doctorDecisionPoints(r.expr) }
+        ASTNode.VarDecl(v) => { n = doctorDecisionPoints(v.value) }
+        ASTNode.Call(c) => {
+            val args = c.args
+            var i = 0
+            while i < args.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(args, i))
+                i = i + 1
+            }
+        }
+        ASTNode.BinaryOp(b) => {
+            n = doctorDecisionPoints(b.lhs)
+            n = n + doctorDecisionPoints(b.rhs)
+        }
+        ASTNode.UnaryOp(u) => { n = doctorDecisionPoints(u.expr) }
+        ASTNode.IndexAccess(ix) => { n = doctorDecisionPoints(ix.index) }
+        ASTNode.MemberAccess(m) => { n = doctorDecisionPoints(m.expr) }
+        ASTNode.ListLiteral(l) => {
+            val els = l.elements
+            var i = 0
+            while i < els.len() {
+                n = n + doctorDecisionPoints(doctorNodeAt(els, i))
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return n
+}
+
+/** @brief A recursive function whose recursive call is not the value it returns.
+ *
+ *  Tail position means the call IS the returned value: `return self(n - 1)` is
+ *  tail, `return 1 + self(n - 1)` is not, and neither is `val r = self(n); return
+ *  r`. The second shape holds a frame per level, so a deep input exhausts the
+ *  stack under load rather than under a test.
+ *
+ *  Only self-recursion is followed. A mutual cycle is real, but blaming the right
+ *  member of it needs a call graph doctor does not have here, and guessing which
+ *  member to name would be worse than silence.
+ */
+fn doctorCheckRecursion(stats: DoctorStats, node: ASTNode, fnName: string, file: string, lines: list) {
+    val body = doctorStmtsOf(node)
+    if doctorCallsName(body, fnName) == false { return }
+    if doctorHasTailSelfCall(body, fnName) { return }
+    doctorReport(stats, file, doctorFindDeclLine(lines, "fn", fnName), "D018", "fn " + fnName + " calls itself, but the call is not the value it returns.", "make the recursive call the whole of a return, so the frame is released before the next call; otherwise a deep input exhausts the stack under sustained load rather than under a test.")
+}
+
+/** @brief Whether any statement in a body calls `name`. */
+fn doctorCallsName(body: list, name: string) -> bool {
+    var i = 0
+    while i < body.len() {
+        if doctorNodeCalls(doctorNodeAt(body, i), name) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+/** @brief Whether a subtree contains a call to `name`. */
+fn doctorNodeCalls(node: ASTNode, name: string) -> bool {
+    var found = false
+    match node {
+        ASTNode.Call(c) => {
+            if doctorCalleeIsName(c.callee, name) { found = true }
+            val args = c.args
+            var i = 0
+            while i < args.len() {
+                if doctorNodeCalls(doctorNodeAt(args, i), name) { found = true }
+                i = i + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => { found = doctorCallsName(doctorStmtsOf(f), name) }
+        ASTNode.RouteDecl(r) => { found = doctorCallsName(doctorStmtsOf(r), name) }
+        ASTNode.While(w) => { found = doctorCallsName(doctorStmtsOf(w), name) }
+        ASTNode.For(fo) => { found = doctorCallsName(doctorStmtsOf(fo), name) }
+        ASTNode.MatchCase(c) => { found = doctorCallsName(doctorStmtsOf(c), name) }
+        ASTNode.Block(b) => { found = doctorCallsName(b.statements, name) }
+        ASTNode.ExpressionStmt(e) => { found = doctorNodeCalls(e.expr, name) }
+        ASTNode.Assignment(a) => { found = doctorNodeCalls(a.value, name) }
+        ASTNode.Return(r) => { found = doctorNodeCalls(r.expr, name) }
+        ASTNode.VarDecl(v) => { found = doctorNodeCalls(v.value, name) }
+        ASTNode.If(x) => { found = doctorNodeCalls(x.expr, name) }
+        ASTNode.Match(x) => {
+            val cases = x.cases
+            var i = 0
+            while i < cases.len() {
+                if doctorNodeCalls(doctorNodeAt(cases, i), name) { found = true }
+                i = i + 1
+            }
+        }
+        ASTNode.BinaryOp(b) => {
+            found = doctorNodeCalls(b.lhs, name)
+            if found == false { found = doctorNodeCalls(b.rhs, name) }
+        }
+        ASTNode.UnaryOp(u) => { found = doctorNodeCalls(u.expr, name) }
+        _ => {}
+    }
+    return found
+}
+
+/** @brief Whether a callee expression names exactly `name`.
+ *
+ *  `name`, not `obj.name`: a call through a receiver is not a call to the
+ *  method's own name, and treating it as one would make every method call look
+ *  like a self-recursive call.
+ */
+fn doctorCalleeIsName(callee: ASTNode, name: string) -> bool {
+    return doctorCalleeText(callee) == name
+}
+
+/** @brief A callee rendered as text, or "" when it is not a plain reference.
+ *
+ *  The callee is an ASTNode, not a list of tokens -- ast.orb said `callee: list`
+ *  while the parser has always passed a single parsed expression, and builder.orb
+ *  has always matched on it. A bare name comes through as a Literal; anything
+ *  computed (`getFn(i)()`) returns "", so it is not mistaken for a name.
+ */
+fn doctorCalleeText(callee: ASTNode) -> string {
+    var out = ""
+    match callee {
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" { out = l.text }
+        }
+        _ => {}
+    }
+    return out
+}
+
+/** @brief Whether some statement is exactly `return <name>(...)`. */
+fn doctorHasTailSelfCall(body: list, name: string) -> bool {
+    var i = 0
+    while i < body.len() {
+        if doctorIsTailSelfReturn(doctorNodeAt(body, i), name) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+/** @brief Whether this statement returns a self-call and nothing else. */
+fn doctorIsTailSelfReturn(node: ASTNode, name: string) -> bool {
+    var isTail = false
+    match node {
+        ASTNode.Return(r) => {
+            // The returned expression must BE the call. An operator wrapped around
+            // it, or a variable holding it, keeps the frame alive.
+            match r.expr {
+                ASTNode.Call(c) => {
+                    if doctorCalleeIsName(c.callee, name) { isTail = true }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    return isTail
+}
+
+/** @brief An allocation inside a loop body, repeated every iteration. */
+fn doctorCheckLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file: string, lines: list) {
+    val body = doctorStmtsOf(node)
+    val line = doctorFindDeclLine(lines, "fn", fnName)
+    var i = 0
+    while i < body.len() {
+        doctorScanLoopAllocs(stats, doctorNodeAt(body, i), fnName, file, line)
+        i = i + 1
+    }
+}
+
+/** @brief Walk a body for loops and report an allocating call in one. */
+fn doctorScanLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file: string, line: int) {
+    match node {
+        ASTNode.While(w) => {
+            val stmts = doctorStmtsOf(w)
+            var i = 0
+            while i < stmts.len() {
+                if doctorIsAllocating(doctorNodeAt(stmts, i)) {
+                    doctorReport(stats, file, line, "D019", "fn " + fnName + " allocates inside a while loop, so the allocation repeats on every iteration.", "build the collection once before the loop and reuse it, or pre-size it.")
+                }
+                doctorScanLoopAllocs(stats, doctorNodeAt(stmts, i), fnName, file, line)
+                i = i + 1
+            }
+        }
+        ASTNode.For(fo) => {
+            val stmts = doctorStmtsOf(fo)
+            var i = 0
+            while i < stmts.len() {
+                if doctorIsAllocating(doctorNodeAt(stmts, i)) {
+                    doctorReport(stats, file, line, "D019", "fn " + fnName + " allocates inside a for loop, so the allocation repeats on every iteration.", "build the collection once before the loop and reuse it, or pre-size it.")
+                }
+                doctorScanLoopAllocs(stats, doctorNodeAt(stmts, i), fnName, file, line)
+                i = i + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => { doctorScanLoopAllocs(stats, f, fnName, file, line) }
+        ASTNode.RouteDecl(r) => { doctorScanLoopAllocs(stats, r, fnName, file, line) }
+        ASTNode.MatchCase(c) => { doctorScanLoopAllocs(stats, c, fnName, file, line) }
+        ASTNode.Block(b) => {
+            val stmts = b.statements
+            var i = 0
+            while i < stmts.len() {
+                doctorScanLoopAllocs(stats, doctorNodeAt(stmts, i), fnName, file, line)
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+}
+
+/** @brief Whether a statement's expression allocates. */
+fn doctorIsAllocating(node: ASTNode) -> bool {
+    var isAlloc = false
+    match node {
+        ASTNode.Assignment(a) => { isAlloc = doctorExprAllocates(a.value) }
+        ASTNode.VarDecl(v) => { isAlloc = doctorExprAllocates(v.value) }
+        ASTNode.ExpressionStmt(e) => { isAlloc = doctorExprAllocates(e.expr) }
+        ASTNode.Return(r) => { isAlloc = doctorExprAllocates(r.expr) }
+        _ => {}
+    }
+    return isAlloc
+}
+
+/** @brief Whether an expression is an allocating call or a collection literal. */
+fn doctorExprAllocates(node: ASTNode) -> bool {
+    var isAlloc = false
+    match node {
+        ASTNode.Call(c) => {
+            if doctorIsAllocName(doctorCalleeText(c.callee)) { isAlloc = true }
+        }
+        ASTNode.ListLiteral(l) => { isAlloc = true }
+        ASTNode.ObjectLiteral(o) => { isAlloc = true }
+        _ => {}
+    }
+    return isAlloc
+}
+
+/** @brief Whether a callee name is one of the runtime's allocating constructors. */
+fn doctorIsAllocName(name: string) -> bool {
+    if name == "list_create" { return true }
+    if name == "map_create" { return true }
+    if name == "orbit_os_alloc" { return true }
+    if name == "orbit_os_create_arena" { return true }
+    if name == "orbit_list_create_selfhost" { return true }
+    if name == "orbit_cbuf_create_selfhost" { return true }
+    if doctorEndsWith(name, "_alloc") { return true }
+    if doctorEndsWith(name, "_create") { return true }
+    return false
+}
+
+/** @brief Whether `s` ends with `suffix`. */
+fn doctorEndsWith(s: string, suffix: string) -> bool {
+    val sn = orbit_string_len(s)
+    val xn = orbit_string_len(suffix)
+    if xn == 0 { return true }
+    if sn < xn { return false }
+    return orbit_string_slice(s, sn - xn, sn) == suffix
+}
+
 fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
     var a = 0
     while a < routes.len() {
@@ -2666,6 +3105,7 @@ fn doctorRun(opts: DoctorOptions) {
             if parser.diagnostics.len() == 0 {
                 doctorCollectDecls(ast, fplines, fp3, decls)
                 doctorWalkRefs(ast, refs)
+                doctorScanFunctions(stats, ast, fp3, fplines)
                 // Kept for the fingerprint pass below, which needs this file's
                 // imports. Without it the fingerprint re-parses every file in
                 // the tree, which is the parse the line above just paid for.

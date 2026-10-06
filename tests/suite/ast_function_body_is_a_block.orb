@@ -1,0 +1,59 @@
+// A function's `body` is a Block ASTNode, not a list.
+//
+// The schema in ast.orb declared `body: list` on five models -- FunctionDeclNode,
+// RouteDeclNode, WhileNode, ForNode and MatchCaseNode -- while the parser has
+// always handed them parseBlock()'s single ASTNode. IfNode got it right, with
+// `thenBody: ASTNode`, and those five did not.
+//
+// Nothing noticed, because no code called .len() on a body: sema.orb passes
+// f.body straight into checkNode, which matches on the value rather than
+// measuring it, so every AST walk in the compiler was correct by accident of
+// never asking the question.
+//
+// Doctor's D017 asks it. Reading `f.body.len()` returned -1184889136 for a
+// one-statement function while params, paramTypes and genericParams on the same
+// model returned correct lengths: same model, same field type, wrong offset --
+// a model pointer read as a list header.
+//
+// This test asserts the corrected schema. It is the reason the fix cannot be
+// reverted by someone who reads `body: list` as a convenience.
+import "../compiler/ast.orb"
+import "../compiler/parser.orb"
+
+extern fn print(s: string) -> int
+
+fn main() -> int {
+    val src = "fn f() -> int { return 1 }"
+    val p = initParser(src)
+    val ast = parseProgram(p)
+    match ast {
+        ASTNode.Program(prog) => {
+            match prog.decls.get(0) {
+                ASTNode.FunctionDecl(f) => {
+                    match f.body {
+                        ASTNode.Block(b) => {
+                            if b.statements.len() != 1 {
+                                print("body block should hold one statement\n")
+                                return 1
+                            }
+                            print("ok\n")
+                            return 0
+                        }
+                        _ => {
+                            print("body should be a Block, not a bare node\n")
+                            return 1
+                        }
+                    }
+                }
+                _ => {
+                    print("expected a FunctionDecl\n")
+                    return 1
+                }
+            }
+        }
+        _ => {
+            print("expected a Program\n")
+            return 1
+        }
+    }
+}

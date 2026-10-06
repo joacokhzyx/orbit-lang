@@ -1,0 +1,6 @@
+input.orb:1 warning [D018] fn sum calls itself, but the call is not the value it returns. fix: make the recursive call the whole of a return, so the frame is released before the next call; otherwise a deep input exhausts the stack under sustained load rather than under a test.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".
