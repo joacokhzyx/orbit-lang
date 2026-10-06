@@ -492,6 +492,12 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     } else {
         out = out + "    \n"
     }
+    // Arm ORBIT_LEDGER_OUT before any request is served. The dump is written
+    // from an atexit hook, and the cases worth finding -- a route nobody ever
+    // asked for, a route whose arena overflowed -- only exist after the service
+    // has been up. Arming it here is what lets `orbit doctor` read the ledger
+    // from a file instead of needing an HTTP client.
+    out = out + "    orbit_ledger_enable_file_dump();\n"
     out = out + "    orbit_arena_pool_init(16, 131072);\n"
     out = out + "    orbit_string_pool_init(2048);\n"
     out = out + "\n"

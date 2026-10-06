@@ -70,6 +70,48 @@ int main(void) {
     assert(strstr(html, "p50 µs") != NULL);
     assert(strstr(html, "log2-bucket boundaries") != NULL);
 
+    /* ORBIT_LEDGER_OUT: the same JSON, readable by a tool that is not an HTTP
+     * client. That is the whole point of the dump -- a static analyser can read
+     * a file, and cannot usefully start a server and drive traffic through it.
+     *
+     * Registered through orbit_ledger_enable_file_dump() and then written by an
+     * explicit call to the same hook atexit would invoke, because the test still
+     * has assertions left to run and cannot wait for exit(). Writing the file by
+     * hand here would pass even with the hook deleted. */
+    {
+        const char* path = "/tmp/orbit_test_ledger_dump.json";
+        remove(path);
+        setenv("ORBIT_LEDGER_OUT", path, 1);
+        orbit_ledger_enable_file_dump();
+        assert(orbit_ledger_out_path[0] != '\0');
+        assert(strcmp(orbit_ledger_out_path, path) == 0);
+
+        orbit_ledger_dump_at_exit();
+
+        FILE* f = fopen(path, "rb");
+        assert(f != NULL);            /* the hook wrote it */
+        char buf[4096];
+        size_t got = fread(buf, 1, sizeof(buf) - 1, f);
+        buf[got] = '\0';
+        fclose(f);
+        assert(strstr(buf, "\"routes\"") != NULL);
+        assert(strstr(buf, "/notes/:id") != NULL);
+        assert(strstr(buf, "\"p99_us\"") != NULL);
+        /* Atomic: the temporary is gone, only the final name remains. */
+        char tmp[512];
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        assert(fopen(tmp, "rb") == NULL);
+        remove(path);
+
+        /* Opt-in: an unset variable must leave the hook inert. */
+        unsetenv("ORBIT_LEDGER_OUT");
+        orbit_ledger_out_path[0] = '\0';
+        orbit_ledger_dump_at_exit();
+        f = fopen(path, "rb");
+        assert(f == NULL);
+        if (f) fclose(f);
+    }
+
     orbit_arena_destroy(arena);
     printf("test_ledger_percentiles: PASSED\n");
     return 0;

@@ -217,6 +217,66 @@ static uint64_t orbit_ledger_sum_cycles(void) {
     "cycles on 2.5 GHz RDTSC basis; ms approximate. " \
     "No power sensor: joules read 0 and avg_cycles is a labeled CPU proxy, not energy."
 
+/**
+ * Write the ledger to $ORBIT_LEDGER_OUT, once, at process exit.
+ *
+ * The telemetry exists only behind an HTTP endpoint on loopback, which means a
+ * static analyser cannot read it: it would have to start a server, drive it with
+ * traffic and know when to stop. That is why the production evidence this
+ * runtime collects was, until now, unreachable from a tool.
+ *
+ * Written from an atexit hook rather than on demand because the interesting
+ * cases are the ones a running service has seen and a fresh process has not --
+ * "this route has never been requested" is only knowable after the service has
+ * been up. The file is written atomically via a temporary and a rename, so a
+ * reader never sees a half-written snapshot.
+ *
+ * Off unless ORBIT_LEDGER_OUT names a path. Zero cost when unset.
+ */
+static char orbit_ledger_out_path[512] = {0};
+
+/* Defined below; the dump hook runs at exit and needs it from up here. */
+orbit_string orbit_ledger_json(OrbitArena* arena);
+
+static void orbit_ledger_dump_at_exit(void) {
+    if (orbit_ledger_out_path[0] == '\0') return;
+    orbit_string json = orbit_ledger_json(orbit_arena_get_global());
+    if (!json) return;
+
+    char tmp[544];
+    int n = snprintf(tmp, sizeof(tmp), "%s.tmp", orbit_ledger_out_path);
+    if (n <= 0 || (size_t)n >= sizeof(tmp)) return;
+
+    FILE* f = orbit_fopen(tmp, "wb");
+    if (!f) return;
+    size_t len = strlen(json);
+    size_t wrote = len ? fwrite(json, 1, len, f) : 0;
+    fflush(f);
+    fclose(f);
+    if (wrote != len) {
+        remove(tmp);
+        return;
+    }
+    /* rename() is the atomic step: a reader sees the old snapshot or the new
+     * one, never a truncated one. */
+    if (rename(tmp, orbit_ledger_out_path) != 0) remove(tmp);
+}
+
+/* Public, so the generated main() can arm it from the environment alone. */
+void orbit_ledger_enable_file_dump(void) {
+    const char* p = orbit_os_env(orbit_arena_get_global(), "ORBIT_LEDGER_OUT");
+    if (!p || !*p) return;
+    size_t n = strlen(p);
+    if (n >= sizeof(orbit_ledger_out_path)) return;
+    memcpy(orbit_ledger_out_path, p, n + 1);
+    /* Once. A second call from another entry point would register a second
+     * atexit hook and write the same file twice. */
+    static int registered = 0;
+    if (registered) return;
+    registered = 1;
+    atexit(orbit_ledger_dump_at_exit);
+}
+
 orbit_string orbit_ledger_json(OrbitArena* arena) {
     char* buf = (char*)orbit_alloc(arena, 32768);
     const char* src = ORBIT_LEDGER_SOURCE();

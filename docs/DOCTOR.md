@@ -195,6 +195,27 @@ compiler, `JwtHeader` and `JwtToken` in std.
 as one program's conflicting routes. That is the correct analysis of the wrong
 input: scan a single service, or a single file, when that is the question.
 
+## Reading production telemetry
+
+A running service records a per-route ledger: request counts, p50/p95/p99, a
+latency histogram and an energy estimate. Until now it was reachable only at
+`/_ledger/data`, on loopback, over HTTP -- which means a static tool could not
+read it. It would have to start a server, drive traffic through it and know when
+to stop, and the interesting cases only exist *after* the service has been up: "this
+route has never been requested" is not knowable from a fresh process.
+
+Set one environment variable and the service writes the same JSON to a file at
+exit:
+
+```sh
+ORBIT_LEDGER_OUT=/tmp/ledger.json ./my_service
+```
+
+The file is written atomically (temporary plus rename), so a reader sees the old
+snapshot or the new one and never half of one. With the variable unset nothing
+happens and there is no cost. `runtime/test_ledger_percentiles.c` covers the
+hook, the rename, and the opt-in default.
+
 ## Gates
 
 Doctor prints the contributor gate commands at the end of every run for reference. It never runs them itself.

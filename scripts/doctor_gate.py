@@ -122,6 +122,32 @@ def run_steps(compiler: str, case: pathlib.Path, work: str, env: dict) -> str:
     return out
 
 
+def cases_needing_c_step(case: pathlib.Path) -> bool:
+    """True when this case runs --fix, and so verifies through the C step."""
+    args = read_args(case)
+    return "--fix" in args
+
+
+def compiler_can_reach_runtime(compiler: str) -> bool:
+    """Whether the C step can work for a compiler at this path.
+
+    A case that runs --fix verifies its result by compiling it, and the emitted C
+    includes "socket_compat.h" by bare name. That resolves next to the COMPILER
+    binary, so a compiler in /tmp cannot compile anything and every --fix golden
+    fails with a confusing error about the user's file.
+
+    Checked here, and reported as a broken environment rather than as 6 failing
+    goldens: the two are very different things and only one of them is a bug in
+    the tree.
+    """
+    bindir = os.path.dirname(os.path.abspath(compiler))
+    repo = str(REPO)
+    return (
+        os.path.exists(os.path.join(bindir, "socket_compat.h"))
+        or os.path.abspath(compiler).startswith(repo + os.sep)
+    )
+
+
 def run_case(compiler: str, case: pathlib.Path, env: dict) -> tuple:
     if (case / "steps").exists():
         # A steps case names its own commands; it does not need a scan target,
@@ -201,6 +227,16 @@ def main() -> int:
     if not cases:
         print("doctor_gate: no cases found")
         return 1
+
+    needs_c = [c for c in cases if cases_needing_c_step(c)]
+    if needs_c and not compiler_can_reach_runtime(compiler):
+        print(f"doctor_gate: {len(needs_c)} case(s) verify through the C step, and the "
+              f"compiler at {compiler} cannot resolve the runtime headers.")
+        print("  The emitted C includes socket_compat.h by bare name, resolved next to "
+              "the binary. Build inside the repository, or point --compiler at a binary "
+              "that sits beside runtime/.")
+        print("  Skipping those cases; the other cases are still checked.")
+        cases = [c for c in cases if not cases_needing_c_step(c)]
 
     failures = []
     for case in cases:
