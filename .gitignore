@@ -65,3 +65,7 @@ fuzz_crashes/
 
 # Single-host cluster orchestration state (orbit cluster v1)
 .orbit/
+
+# locally built compilers
+/fp
+/fp_*

@@ -1578,7 +1578,7 @@ fn doctorDecisionPoints(node: ASTNode) -> int {
             }
         }
         ASTNode.MatchCase(c) => {
-            val stmts = doctorStmtsOf(c)
+            val stmts = doctorStmtsOf(node)
             var i = 0
             while i < stmts.len() {
                 n = n + doctorDecisionPoints(doctorNodeAt(stmts, i))
@@ -1794,34 +1794,29 @@ fn doctorCheckLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file
     }
 }
 
-/** @brief Walk a body for loops and report an allocating call in one. */
+/** @brief Walk a body for loops, and report an allocating statement inside one.
+ *
+ *  Every recursion passes `doctorNodeAt(stmts, i)` -- an ASTNode -- and never the
+ *  bound payload. That is the whole bug this function spent an afternoon on:
+ *  `ASTNode.While(w)` binds `w` to a WhileNode, not to an ASTNode, so passing
+ *  `w` to a function taking `ASTNode` casts a WhileNode* and the callee's match
+ *  falls through every arm to `_`, returning an empty statement list. D017 never
+ *  noticed because its walker recurses only through `doctorNodeAt`.
+ *
+ *  Descends through blocks and `if` branches so a loop nested inside an `if`
+ *  inside a loop is still found. `while` and `for` are the loops that allocate
+ *  per iteration; the descent exists only to reach them.
+ */
 fn doctorScanLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file: string, line: int) {
     match node {
         ASTNode.While(w) => {
-            val stmts = doctorStmtsOf(w)
-            var i = 0
-            while i < stmts.len() {
-                if doctorIsAllocating(doctorNodeAt(stmts, i)) {
-                    doctorReport(stats, file, line, "D019", "fn " + fnName + " allocates inside a while loop, so the allocation repeats on every iteration.", "build the collection once before the loop and reuse it, or pre-size it.")
-                }
-                doctorScanLoopAllocs(stats, doctorNodeAt(stmts, i), fnName, file, line)
-                i = i + 1
-            }
+            val stmts = doctorStmtsOf(node)
+            doctorReportAllocsIn(stats, stmts, fnName, file, line, "while")
         }
         ASTNode.For(fo) => {
-            val stmts = doctorStmtsOf(fo)
-            var i = 0
-            while i < stmts.len() {
-                if doctorIsAllocating(doctorNodeAt(stmts, i)) {
-                    doctorReport(stats, file, line, "D019", "fn " + fnName + " allocates inside a for loop, so the allocation repeats on every iteration.", "build the collection once before the loop and reuse it, or pre-size it.")
-                }
-                doctorScanLoopAllocs(stats, doctorNodeAt(stmts, i), fnName, file, line)
-                i = i + 1
-            }
+            val stmts = doctorStmtsOf(node)
+            doctorReportAllocsIn(stats, stmts, fnName, file, line, "for")
         }
-        ASTNode.FunctionDecl(f) => { doctorScanLoopAllocs(stats, f, fnName, file, line) }
-        ASTNode.RouteDecl(r) => { doctorScanLoopAllocs(stats, r, fnName, file, line) }
-        ASTNode.MatchCase(c) => { doctorScanLoopAllocs(stats, c, fnName, file, line) }
         ASTNode.Block(b) => {
             val stmts = b.statements
             var i = 0
@@ -1830,7 +1825,33 @@ fn doctorScanLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file:
                 i = i + 1
             }
         }
+        ASTNode.If(x) => {
+            doctorScanLoopAllocs(stats, x.thenBody, fnName, file, line)
+            if x.elseBody != NULL {
+                doctorScanLoopAllocs(stats, x.elseBody, fnName, file, line)
+            }
+        }
+        ASTNode.MatchCase(c) => {
+            val stmts = doctorStmtsOf(node)
+            var i = 0
+            while i < stmts.len() {
+                doctorScanLoopAllocs(stats, doctorNodeAt(stmts, i), fnName, file, line)
+                i = i + 1
+            }
+        }
         _ => {}
+    }
+}
+
+/** @brief Report allocating statements in one loop body, and keep descending. */
+fn doctorReportAllocsIn(stats: DoctorStats, stmts: list, fnName: string, file: string, line: int, kind: string) {
+    var i = 0
+    while i < stmts.len() {
+        val stmt = doctorNodeAt(stmts, i)
+        if doctorIsAllocating(stmt) {
+            doctorReport(stats, file, line, "D019", "fn " + fnName + " allocates inside a " + kind + " loop, so the allocation is repeated on every iteration.", "build the collection once before the loop and reuse it, or pre-size it.")
+        }
+        i = i + 1
     }
 }
 
@@ -1862,6 +1883,7 @@ fn doctorExprAllocates(node: ASTNode) -> bool {
 }
 
 /** @brief Whether a callee name is one of the runtime's allocating constructors. */
+
 fn doctorIsAllocName(name: string) -> bool {
     if name == "list_create" { return true }
     if name == "map_create" { return true }

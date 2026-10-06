@@ -1,0 +1,11 @@
+extern fn list_create(cap: int) -> list
+
+fn build(n: int) -> list {
+    val out = list_create(n)
+    var i = 0
+    while i < n {
+        val each = list_create(n)
+        i = i + 1
+    }
+    return out
+}
