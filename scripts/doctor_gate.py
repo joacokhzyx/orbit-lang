@@ -61,6 +61,29 @@ def read_args(case: pathlib.Path) -> list:
     return args_file.read_text().split()
 
 
+def inject_repo_paths(args: list) -> list:
+    """Point any path a case left implicit at the repository copy.
+
+    Each case runs from a throwaway copy of its own directory, so a case that
+    reads a file outside that directory -- ENGINEERING.md for the latency budget,
+    which D033 enforces -- would find nothing. The fixtures must not depend on the
+    runner's working directory, and the runner must not have to be run from the
+    repo root to work.
+    """
+    out = []
+    i = 0
+    while i < len(args):
+        if args[i] in ("--budget-doc",) and i + 1 < len(args):
+            if args[i + 1] == "ENGINEERING.md":
+                out.append(args[i])
+                out.append(str(REPO / "ENGINEERING.md"))
+                i = i + 2
+                continue
+        out.append(args[i])
+        i = i + 1
+    return out
+
+
 def read_rc(case: pathlib.Path) -> int:
     rc_file = case / "expect_rc"
     if not rc_file.exists():
@@ -171,7 +194,7 @@ def run_case(compiler: str, case: pathlib.Path, env: dict) -> tuple:
     rel = scan_file.read_text().strip()
     if not rel:
         return None, f"{case.name}: empty scan"
-    cmd = [compiler, "doctor", rel] + BASE_ARGS + read_args(case)
+    cmd = [compiler, "doctor", rel] + BASE_ARGS + inject_repo_paths(read_args(case))
     with tempfile.TemporaryDirectory(prefix="doctor_gate_") as work:
         stage_case(case, work)
         # cwd is the staged copy so the paths doctor prints -- and therefore the

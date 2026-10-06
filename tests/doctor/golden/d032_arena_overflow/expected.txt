@@ -1,0 +1,7 @@
+input.orb:1 warning [D032] route GET /hot overflowed its predicted arena 17 time(s) in the ledger at ledger.json. fix: the request needed more memory than the oracle predicted; either the prediction is too tight for this route or the handler allocates per request what it could reuse.
+input.orb:5 warning [D031] route GET /never-called is registered but the ledger at ledger.json has no record of it. fix: if nothing requests it, delete it; if it is only used by tests or by another service, say so here rather than leaving the snapshot to be guessed at.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (0 error(s), 2 warning(s)) in 1 files under "input.orb".

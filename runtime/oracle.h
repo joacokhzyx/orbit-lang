@@ -45,6 +45,9 @@ extern __thread OracleSession tls_oracle_session;
 void oracle_init(void);
 uint64_t oracle_route_hash(const char* method, const char* path);
 OracleRoutePrediction* oracle_get_prediction(uint64_t route_hash);
+uint64_t oracle_route_overflow(const char* method, const char* path);
+size_t oracle_route_max_seen(const char* method, const char* path);
+
 int oracle_begin_session(void* arena_ptr, uint64_t route_hash);
 void oracle_end_session(void* arena_ptr);
 

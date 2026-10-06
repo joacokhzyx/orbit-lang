@@ -1,0 +1,1 @@
+{"routes":[{"method":"GET","path":"/hot","req":10,"avg_ms":1.00,"db_share":0,"joules_total":0.1,"joules_per_req":0.01,"avg_cycles":2500000,"p50_us":1677,"p95_us":1677,"p99_us":1677,"arena_overflow":0,"arena_max_bytes":0,"latency_source":"log2","energy_source":"cpu-proxy"}],"energy_source":"cpu-proxy","energy_note":"cpu proxy"}

@@ -1,0 +1,7 @@
+input.orb:1 warning [D033] route GET /hot has a measured p99 of 9000 us, over the 2000 us budget in ENGINEERING.md. fix: the budget is a claim about production and this is production disagreeing with it: fix the route, or change the budget and say why it moved.
+input.orb:5 warning [D033] route GET /never-called has a measured p99 of 9000 us, over the 2000 us budget in ENGINEERING.md. fix: the budget is a claim about production and this is production disagreeing with it: fix the route, or change the budget and say why it moved.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (0 error(s), 2 warning(s)) in 1 files under "input.orb".

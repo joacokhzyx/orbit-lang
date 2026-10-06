@@ -22,6 +22,7 @@
 #define ORBIT_LEDGER_C
 
 #include "performance.h"
+#include "oracle.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -304,10 +305,19 @@ orbit_string orbit_ledger_json(OrbitArena* arena) {
             uint64_t p50 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 500);
             uint64_t p95 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 950);
             uint64_t p99 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 990);
+            /* arena_overflow and arena_max_bytes come from the prediction table,
+             * not from here: the ledger times requests, the oracle sizes them.
+             * A non-zero overflow is the one defect in this runtime that source
+             * reading cannot see and that this table knows exactly. */
+            uint64_t overflow = oracle_route_overflow(orbit_ledger_table[i].method,
+                                                      orbit_ledger_table[i].path);
+            size_t max_bytes = oracle_route_max_seen(orbit_ledger_table[i].method,
+                                                     orbit_ledger_table[i].path);
             off += (size_t)snprintf(buf + off, 32768 - off,
                 "%s{\"method\":\"%s\",\"path\":\"%s\",\"req\":%llu,\"avg_ms\":%llu.%02llu,"
                 "\"db_share\":%llu,\"joules_total\":%.6f,\"joules_per_req\":%.6f,"
                 "\"avg_cycles\":%llu,\"p50_us\":%llu,\"p95_us\":%llu,\"p99_us\":%llu,"
+                "\"arena_overflow\":%llu,\"arena_max_bytes\":%llu,"
                 "\"latency_source\":\"%s\",\"energy_source\":\"%s\"}",
                 first ? "" : ",",
                 orbit_ledger_table[i].method, orbit_ledger_table[i].path,
@@ -317,6 +327,7 @@ orbit_string orbit_ledger_json(OrbitArena* arena) {
                 rj, jpr,
                 (unsigned long long)avg_c,
                 (unsigned long long)p50, (unsigned long long)p95, (unsigned long long)p99,
+                (unsigned long long)overflow, (unsigned long long)max_bytes,
                 "log2-bucket boundaries, 2.5 GHz basis",
                 src);
             first = 0;

@@ -64,6 +64,13 @@ model DoctorOptions {
     minSeverity: string
     // Path to a baseline file whose entries do not fail the exit code.
     baseline: string
+    // Ledger snapshot to check routes against; "" falls back to
+    // $ORBIT_LEDGER_OUT, and an empty result there means the production checks
+    // stay silent rather than guessing.
+    telemetry: string
+    // Path to the ENGINEERING.md whose latency budget D033 enforces; "" falls
+    // back to ./ENGINEERING.md.
+    budgetDoc: string
 }
 
 model DoctorFinding {
@@ -751,6 +758,241 @@ fn doctorCollectRoutes(lines: list, file: string, routes: list) {
         }
         i = i + 1
     }
+}
+
+/** @brief Checks that carry a PRODUCTION NUMBER rather than a rule.
+ *
+ *  Every other check reasons about the source: a name is unused, a string looks
+ *  like a key. These three read a ledger snapshot -- what $ORBIT_LEDGER_OUT wrote
+ *  when a service exited -- and compare it against what the source claims. The
+ *  difference is the whole point, and it cuts both ways:
+ *
+ *    - a route the source registers but the ledger never recorded is dead code
+ *      that no amount of reading the source can find, because "nobody calls it"
+ *      is not the same claim as "nothing in the scanned files mentions it"
+ *    - an arena overflow on one route is a leak CONFIRMED, counted, not a
+ *      suspicion from reading allocations
+ *    - a p99 that exceeds the budget in ENGINEERING.md is the budget being
+ *      wrong about production, which is the opposite of the usual finding
+ *
+ *  Absent a snapshot they stay silent. Not "assume the best", but: a check that
+ *  reports production problems with no production data is guessing, and a guess
+ *  here would be a finding nobody can act on or refute. */
+fn doctorCheckTelemetry(stats: DoctorStats, routes: list, opts: DoctorOptions) {
+    val path = doctorTelemetryPath(opts)
+    if path == "" { return }
+    val text = orbit_file_read_selfhost(path)
+    if text == "" { return }
+
+    // A route in the source with no entry in the ledger. Compared on the
+    // NORMALISED path, because the ledger keys on the template the router
+    // registered and :id and {id} are the same route by then.
+    var i = 0
+    while i < routes.len() {
+        val r: DoctorRoute = routes.get(i)
+        if doctorTelemetryHasRoute(text, r.method, r.normPath) == false {
+            doctorReport(stats, r.file, r.line, "D031", "route " + r.method + " " + r.path + " is registered but the ledger at " + path + " has no record of it.", "if nothing requests it, delete it; if it is only used by tests or by another service, say so here rather than leaving the snapshot to be guessed at.")
+        } else {
+            val overflow = doctorTelemetryNumber(text, r.method, r.normPath, "arena_overflow")
+            if overflow > 0 {
+                doctorReport(stats, r.file, r.line, "D032", "route " + r.method + " " + r.path + " overflowed its predicted arena " + orbit_int_to_string_selfhost(overflow) + " time(s) in the ledger at " + path + ".", "the request needed more memory than the oracle predicted; either the prediction is too tight for this route or the handler allocates per request what it could reuse.")
+            }
+            val p99 = doctorTelemetryNumber(text, r.method, r.normPath, "p99_us")
+            val budget = doctorLatencyBudgetUs(opts)
+            if budget > 0 && p99 > budget {
+                doctorReport(stats, r.file, r.line, "D033", "route " + r.method + " " + r.path + " has a measured p99 of " + orbit_int_to_string_selfhost(p99) + " us, over the " + orbit_int_to_string_selfhost(budget) + " us budget in ENGINEERING.md.", "the budget is a claim about production and this is production disagreeing with it: fix the route, or change the budget and say why it moved.")
+            }
+        }
+        i = i + 1
+    }
+}
+
+/** @brief Where the telemetry snapshot is, or "" when there is none.
+ *
+ *  An explicit flag beats an environment variable: a doctor run whose findings
+ *  depend on a snapshot has to be able to say WHICH snapshot, or two runs of the
+ *  same command disagree with no visible difference. */
+fn doctorTelemetryPath(opts: DoctorOptions) -> string {
+    if opts.telemetry != "" { return opts.telemetry }
+    return orbit_os_env_selfhost("ORBIT_LEDGER_OUT")
+}
+
+/** @brief The p99 budget in microseconds, from ENGINEERING.md, or 0.
+ *
+ *  Read from the document rather than hard-coded here, so the budget and the
+ *  check cannot drift apart. A missing or unparseable budget yields 0, which
+ *  disables D033 instead of guessing a threshold -- a check with no stated
+ *  budget has no business inventing one. */
+fn doctorLatencyBudgetUs(opts: DoctorOptions) -> int {
+    val doc = orbit_file_read_selfhost(opts.budgetDoc)
+    if doc == "" {
+        // Fall back to the working directory, so running from inside the repo (the
+        // normal case) needs no flag, while the golden runner -- which runs each
+        // case from a throwaway directory -- can point at the repo's copy.
+        val here = orbit_file_read_selfhost("ENGINEERING.md")
+        if here == "" { return 0 }
+        return doctorLatencyBudgetFrom(here)
+    }
+    return doctorLatencyBudgetFrom(doc)
+}
+
+/** @brief The p99 budget in microseconds out of an ENGINEERING.md, or 0.
+ *
+ *  Split out so both the flag path and the cwd fallback share one parser. The
+ *  cell reads "<= 2 ms at 500K RPS sustained"; the first number and its unit are
+ *  the budget, and anything richer is not parseable without guessing. */
+fn doctorLatencyBudgetFrom(doc: string) -> int {
+    if doc == "" { return 0 }
+    val marker = "| Latency P99 |"
+    val at = orbit_string_indexOf(doc, marker)
+    if at == -1 { return 0 }
+    val lineEnd = orbit_string_indexOf(orbit_string_slice(doc, at, orbit_string_len(doc)), "\n")
+    if lineEnd == -1 { return 0 }
+    val line = orbit_string_slice(doc, at, at + lineEnd)
+    // The cell reads "<= 2 ms at 500K RPS sustained". Take the first number and
+    // its unit; anything richer than that is not parseable without guessing.
+    val atMs = orbit_string_indexOf(line, " ms")
+    if atMs == -1 { return 0 }
+    val numEnd = atMs
+    var numStart = numEnd
+    while numStart > 0 {
+        val c = orbit_string_char_at_selfhost(line, numStart - 1)
+        if c >= 48 && c <= 57 { numStart = numStart - 1 }
+        else { break }
+    }
+    if numEnd <= numStart { return 0 }
+    val numText = orbit_string_slice(line, numStart, numEnd)
+    val ms = doctorLeadingDigits(numText)
+    if ms == 0 { return 0 }
+    return ms * 1000
+}
+
+/** @brief The first index at or after `from` that is not a space.
+ *
+ *  JSON does not promise anything about the space after a colon, and the two
+ *  writers of this file already differ: the runtime emits no space and a
+ *  hand-written fixture usually has one. A parser that assumed the runtime's
+ *  spacing silently found nothing in every fixture, and the fixture is how the
+ *  check gets tested. */
+fn doctorSkipSpace(s: string, from: int) -> int {
+    var i = from
+    val n = orbit_string_len(s)
+    while i < n {
+        val c = orbit_string_char_at_selfhost(s, i)
+        if c == 32 || c == 9 { i = i + 1 }
+        else { break }
+    }
+    return i
+}
+
+/** @brief The integer at the start of `s`, or 0. */
+fn doctorLeadingDigits(s: string) -> int {
+    var acc = 0
+    var i = 0
+    val n = orbit_string_len(s)
+    while i < n {
+        val c = orbit_string_char_at_selfhost(s, i)
+        if c >= 48 && c <= 57 {
+            acc = acc * 10 + (c - 48)
+        } else {
+            break
+        }
+        i = i + 1
+    }
+    return acc
+}
+
+/** @brief The object for `method path` in the snapshot, or "" when absent.
+ *
+ *  Matching on the PATH alone and then reading the object it sits in, rather than
+ *  on the whole `"method": ..., "path": ...` prefix. Whitespace after a colon is
+ *  not specified by JSON, and the two producers of this file already disagree:
+ *  the runtime writes `"path":"/x"` and a hand-written fixture usually writes
+ *  `"path": "/x"`. Pinning the spacing made the check silently find nothing in
+ *  every fixture, and the fixtures are how the check is tested.
+ *
+ *  The quotes around the path are what make it safe: `"path": "/a"` cannot match
+ *  inside `"path": "/a/b"`, because the closing quote of the needle would have to
+ *  be a character that is not there. The method is verified afterwards rather
+ *  than in the needle, for the same reason.
+ *
+ *  A substring search over the raw JSON rather than a parser, because the shape
+ *  of this file is pinned by runtime/test_ledger_percentiles.c -- the risky half,
+ *  being wrong about what the producer emits, is covered there. A JSON parser
+ *  written in Orbit would be several hundred new lines to read five numbers. */
+fn doctorTelemetryObject(text: string, method: string, path: string) -> string {
+    // Every "path" key has to be tried, not just the first: with two routes in
+    // the snapshot the first match is route one, and a linear search that stops
+    // there reports the SECOND route as never requested while saying nothing
+    // about the first. The scan is bounded by the route count, which is 64.
+    val key = "\"path\":"
+    var from = 0
+    var guard = 0
+    while guard < 4096 {
+        guard = guard + 1
+        val at = orbit_string_indexOf(orbit_string_slice(text, from, orbit_string_len(text)), key)
+        if at == -1 { return "" }
+        val keyAt = from + at
+        val vs = doctorSkipSpace(text, keyAt + orbit_string_len(key))
+        if orbit_string_char_at_selfhost(text, vs) != 34 { from = keyAt + orbit_string_len(key) }
+        else {
+            val needle = path + "\""
+            val afterQuote = orbit_string_slice(text, vs + 1, orbit_string_len(text))
+            if doctorStartsWith(afterQuote, needle) {
+                // Found this route. Walk back to the object's opening brace so the
+                // method can be checked inside THIS object rather than guessed
+                // from the surrounding text.
+                var open = vs + 1
+                while open > 0 {
+                    if orbit_string_char_at_selfhost(text, open) == 123 { break }
+                    open = open - 1
+                }
+                if orbit_string_char_at_selfhost(text, open) == 123 {
+                    val rest = orbit_string_slice(text, open, orbit_string_len(text))
+                    val close = orbit_string_indexOf(rest, "}")
+                    if close != -1 {
+                        val obj = orbit_string_slice(rest, 0, close)
+                        val wantMethod = "\"method\":"
+                        val at2 = orbit_string_indexOf(obj, wantMethod)
+                        if at2 != -1 {
+                            val ms = doctorSkipSpace(obj, at2 + orbit_string_len(wantMethod))
+                            if orbit_string_char_at_selfhost(obj, ms) == 34 {
+                                val me = orbit_string_indexOf(orbit_string_slice(obj, ms + 1, orbit_string_len(obj)), "\"")
+                                if me != -1 {
+                                    val found = orbit_string_slice(obj, ms + 1, ms + 1 + me)
+                                    // Same method AND same path is a hit. The path
+                                    // alone would let GET /x match a POST /x row.
+                                    if found == method { return obj }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            from = keyAt + orbit_string_len(key)
+        }
+    }
+    return ""
+}
+
+/** @brief Whether the snapshot has a record for this route. */
+fn doctorTelemetryHasRoute(text: string, method: string, path: string) -> bool {
+    return doctorTelemetryObject(text, method, path) != ""
+}
+
+/** @brief One number out of a route's snapshot object, or 0 when absent.
+ *
+ *  0 for a missing key, which is the honest answer: no recorded overflow, no
+ *  recorded p99. Both checks treat 0 as "nothing to report" rather than "zero
+ *  violations measured on a service that may not have run". */
+fn doctorTelemetryNumber(text: string, method: string, path: string, key: string) -> int {
+    val obj = doctorTelemetryObject(text, method, path)
+    if obj == "" { return 0 }
+    val needle = "\"" + key + "\":"
+    val at = orbit_string_indexOf(obj, needle)
+    if at == -1 { return 0 }
+    val start = doctorSkipSpace(obj, at + orbit_string_len(needle))
+    return doctorLeadingDigits(orbit_string_slice(obj, start, orbit_string_len(obj)))
 }
 
 fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
@@ -1533,6 +1775,10 @@ fn doctorPrintHelp() {
     print("  --skip CODES    Every code but these.")
     print("  --min-severity warning|error  Hide anything below this severity.")
     print("  --baseline FILE Print findings listed in FILE but do not fail on them.")
+    print("  --telemetry FILE A ledger snapshot to check routes against; defaults to")
+    print("                  $ORBIT_LEDGER_OUT. Absent, D031-D033 stay silent.")
+    print("  --budget-doc FILE  The ENGINEERING.md whose latency budget D033 enforces;")
+    print("                      defaults to ./ENGINEERING.md.")
     print("  --quiet         Findings (and fixes) only; no summaries or gate list.")
     print("  --verbose       Also print the scan scope and the per-phase timings.")
     print("  --format text|json  Output format; json is a JSON array on stdout.")
@@ -1873,6 +2119,7 @@ fn doctorRun(opts: DoctorOptions) {
     }
     doctorCheckRoutes(stats, routes)
     doctorCheckUnused(stats, decls, refs, files, sources, fileLines)
+    doctorCheckTelemetry(stats, routes, opts)
 
     doctorApplyFixes(stats, opts, files, sources)
     val baseline = doctorLoadBaseline(opts.baseline)
@@ -2126,7 +2373,7 @@ fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list, source
 }
 
 fn runDoctor() {
-    val opts = DoctorOptions(".", false, false, false, false, "auto", false, false, false, "", "", "", "")
+    val opts = DoctorOptions(".", false, false, false, false, "auto", false, false, false, "", "", "", "", "", "")
     val seenFlags = []
     var dirSet = false
     var i = 2
@@ -2151,7 +2398,7 @@ fn runDoctor() {
             opts.verifyBuild = false
         } else if a == "--dry-run" {
             opts.dryRun = true
-        } else if a == "--format" || a == "--color" || a == "--only" || a == "--skip" || a == "--min-severity" || a == "--baseline" {
+        } else if a == "--format" || a == "--color" || a == "--only" || a == "--skip" || a == "--min-severity" || a == "--baseline" || a == "--telemetry" || a == "--budget-doc" {
             val name = a
             val v = orbit_os_argv_selfhost(i + 1)
             if v == "" {
@@ -2182,6 +2429,10 @@ fn runDoctor() {
                 else { doctorUsage() orbit_os_exit_selfhost(2) return }
             } else if name == "--baseline" {
                 opts.baseline = v
+            } else if name == "--telemetry" {
+                opts.telemetry = v
+            } else if name == "--budget-doc" {
+                opts.budgetDoc = v
             }
         } else if doctorStartsWith(a, "-") {
             doctorUsage()

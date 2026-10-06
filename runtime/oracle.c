@@ -37,6 +37,35 @@ uint64_t oracle_route_hash(const char* method, const char* path) {
     return h;
 }
 
+/**
+ * Overflow count for one route, by method and path.
+ *
+ * Exists so the ledger can carry it. An arena overflow is the one defect in this
+ * runtime that a source reader cannot see at all and that the prediction table
+ * knows exactly: the route asked for more memory than was predicted, and the
+ * number of times it did is a production measurement rather than an estimate.
+ *
+ * Returns 0 for an unknown route. That is deliberately indistinguishable from a
+ * known route that never overflowed, because the consumer's question is "does
+ * this route overflow" and both answer no.
+ */
+uint64_t oracle_route_overflow(const char* method, const char* path) {
+    OracleRoutePrediction* rp = oracle_get_prediction(oracle_route_hash(method, path));
+    return rp ? (uint64_t)rp->overflow_count : 0;
+}
+
+/**
+ * Bytes actually used on the last session of a route, or 0.
+ *
+ * The companion to the overflow count: a route whose peak sits at the edge of
+ * its prediction is about to overflow, and that shows up as predicted-vs-max
+ * long before it shows up as an overflow.
+ */
+size_t oracle_route_max_seen(const char* method, const char* path) {
+    OracleRoutePrediction* rp = oracle_get_prediction(oracle_route_hash(method, path));
+    return rp ? rp->max_seen : 0;
+}
+
 OracleRoutePrediction* oracle_get_prediction(uint64_t route_hash) {
     for (int i = 0; i < oracle_prediction_count; i++) {
         if (oracle_prediction_table[i].route_hash == route_hash) {

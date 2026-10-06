@@ -216,6 +216,29 @@ snapshot or the new one and never half of one. With the variable unset nothing
 happens and there is no cost. `runtime/test_ledger_percentiles.c` covers the
 hook, the rename, and the opt-in default.
 
+### Checks that carry a production number
+
+| Code | What it reports |
+|---|---|
+| `D031` | A route the source registers that the ledger has **no record of**. Dead code that reading the source cannot find: `D003` says "nothing in the scanned files calls this", which is a different and weaker claim than "no request has ever reached it". |
+| `D032` | A route whose **arena overflowed** -- `arena_overflow` non-zero in the snapshot. A leak counted in production, not inferred from reading allocations. |
+| `D033` | A route whose **measured p99 exceeds the budget** in `ENGINEERING.md`. The budget is a claim about production and this is production disagreeing with it. |
+
+These read a snapshot; they are silent without one, which is not "assume the
+best" but "a check that reports production problems with no production data is
+guessing, and a guess here cannot be acted on or refuted".
+
+```sh
+orbit doctor . --telemetry /tmp/ledger.json     # or just set ORBIT_LEDGER_OUT
+orbit doctor . --skip D031                       # not for you
+```
+
+The budget is read out of `ENGINEERING.md` rather than hard-coded, so the check
+and the document cannot drift apart. Change the document and the check follows.
+`--budget-doc` points at a different copy, which is how the goldens run from a
+throwaway directory. No budget found means `D033` stays off, rather than
+inventing a threshold.
+
 ## Gates
 
 Doctor prints the contributor gate commands at the end of every run for reference. It never runs them itself.
