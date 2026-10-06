@@ -789,30 +789,40 @@ fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
 fn doctorFindDeclLine(lines: list, keyword: string, name: string) -> int {
     var i = 0
     while i < lines.len() {
-        var rest = doctorTrimLeft(lines.get(i))
-        if doctorStartsWith(rest, "private ") {
-            rest = doctorTrimLeft(orbit_string_slice(rest, 8, orbit_string_len(rest)))
-        }
-        if doctorStartsWith(rest, "extern ") {
-            rest = doctorTrimLeft(orbit_string_slice(rest, 7, orbit_string_len(rest)))
-        }
-        if doctorStartsWith(rest, keyword) {
-            val after = orbit_string_slice(rest, orbit_string_len(keyword), orbit_string_len(rest))
-            if orbit_string_len(after) > 0 {
-                val c0 = orbit_string_char_at_selfhost(after, 0)
-                if c0 == 32 || c0 == 9 {
-                    val tail = doctorTrimLeft(after)
-                    if doctorStartsWith(tail, name) {
-                        if orbit_string_len(tail) == orbit_string_len(name) { return i + 1 }
-                        val ec = orbit_string_char_at_selfhost(tail, orbit_string_len(name))
-                        if doctorIsWordChar(ec) == false { return i + 1 }
+        // Cheap gate before the expensive path. Trimming a line and stripping
+        // "private "/"extern " allocates about five strings, and running that
+        // over every line of the file for every declaration is what this scan
+        // costs. A line whose trimmed text starts with the keyword necessarily
+        // CONTAINS it, so an indexOf miss is a certain miss: the filter can only
+        // skip work that could not have matched, which is what makes it safe to
+        // add in front of logic that decides a reported line number.
+        val raw = lines.get(i)
+        if orbit_string_indexOf(raw, keyword) != -1 {
+            var rest = doctorTrimLeft(raw)
+            if doctorStartsWith(rest, "private ") {
+                rest = doctorTrimLeft(orbit_string_slice(rest, 8, orbit_string_len(rest)))
+            }
+            if doctorStartsWith(rest, "extern ") {
+                rest = doctorTrimLeft(orbit_string_slice(rest, 7, orbit_string_len(rest)))
+            }
+            if doctorStartsWith(rest, keyword) {
+                val after = orbit_string_slice(rest, orbit_string_len(keyword), orbit_string_len(rest))
+                if orbit_string_len(after) > 0 {
+                    val c0 = orbit_string_char_at_selfhost(after, 0)
+                    if c0 == 32 || c0 == 9 {
+                        val tail = doctorTrimLeft(after)
+                        if doctorStartsWith(tail, name) {
+                            if orbit_string_len(tail) == orbit_string_len(name) { return i + 1 }
+                            val ec = orbit_string_char_at_selfhost(tail, orbit_string_len(name))
+                            if doctorIsWordChar(ec) == false { return i + 1 }
+                        }
                     }
                 }
             }
         }
         i = i + 1
     }
-    return 1
+    return 0
 }
 
 fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
@@ -971,6 +981,10 @@ fn doctorContainsWord(hay: string, word: string) -> bool {
     val wn = orbit_string_len(word)
     if wn == 0 { return false }
     if hn < wn { return false }
+    // Same reasoning as the gate in doctorFindDeclLine: the loop below slices a
+    // fresh string per offset, so a line that does not contain the word at all
+    // should not reach it. Measured 2.5x on the scan that does run.
+    if orbit_string_indexOf(hay, word) == -1 { return false }
     var i = 0
     while i + wn <= hn {
         if orbit_string_slice(hay, i, i + wn) == word {

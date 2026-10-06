@@ -55,9 +55,29 @@ Measured on `compiler/` (23 files, 21 262 LOC), gcc 13.3, warm page cache:
 
 | run | text | ast | semantic | wall |
 |---|---|---|---|---|
-| `ORBIT_DOCTOR_CACHE=0` | 178 ms | 968 ms | 8235 ms | ~11.0 s |
-| first run, cache empty | 178 ms | 968 ms | 8235 ms | ~11.0 s |
-| later runs, cache warm | 164 ms | 793 ms | 0 ms | ~1.4 s |
+| first run, cache empty | 127 ms | 444 ms | ~7.6 s | ~8.1 s |
+| later runs, cache warm | 127 ms | 435 ms | 0 ms | ~0.63 s |
+
+Expressed against the budget, because "ms in a column" hides the ratio:
+
+| | per KLOC | per 100K LOC | vs 50 ms budget |
+|---|---|---|---|
+| ast (warm) | 0.020 ms | 2.05 s | 41x over |
+| whole run (warm) | 0.030 ms | 2.98 s | 60x over |
+
+**Still 60x over, warm.** Do not read the 0.63 s as a pass. An earlier commit in
+this series claimed the AST phase had entered budget; it had not, and the
+numbers above are the correction. What the optimisation work bought is that
+the residual is now two identifiable things instead of a mystery: on a warm
+cache it is the PARSER (the AST phase is now essentially just `parseProgram`),
+and on a cold cache it is the full typecheck of every file's import closure.
+Neither is a hoisting mistake any more; both need either a faster parser or a
+decision about whether doctor should typecheck files a gate already did.
+
+The cold run got slower (10.8 -> 11.0 s at the time) when the cache key was
+corrected to cover the import closure, and that is the honest cost of
+correctness: the key is a fingerprint of the closure, so building it costs a
+parse the previous key did not.
 
 The cold run got SLOWER (10.8 -> 11.0 s) when the cache key was corrected, and that is the honest cost of correctness: the key is a fingerprint of the import closure, so building it costs a parse the previous key did not.
 
