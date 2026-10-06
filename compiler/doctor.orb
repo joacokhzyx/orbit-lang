@@ -742,8 +742,7 @@ fn doctorWildcardCovers(wild: string, specific: string) -> bool {
     return doctorStartsWith(specific, prefix + "/")
 }
 
-fn doctorCollectRoutes(file: string, source: string, routes: list) {
-    val lines = splitBuildLines(source)
+fn doctorCollectRoutes(lines: list, file: string, routes: list) {
     var i = 0
     while i < lines.len() {
         val rl = doctorParseRouteLine(lines.get(i))
@@ -787,8 +786,7 @@ fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
     }
 }
 
-fn doctorFindDeclLine(source: string, keyword: string, name: string) -> int {
-    val lines = splitBuildLines(source)
+fn doctorFindDeclLine(lines: list, keyword: string, name: string) -> int {
     var i = 0
     while i < lines.len() {
         var rest = doctorTrimLeft(lines.get(i))
@@ -817,20 +815,20 @@ fn doctorFindDeclLine(source: string, keyword: string, name: string) -> int {
     return 1
 }
 
-fn doctorCollectDecls(node: ASTNode, file: string, source: string, decls: list) {
+fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
     match node {
         ASTNode.Program(p) => {
             var i = 0
             while i < p.decls.len() {
-                doctorCollectDecls(p.decls.get(i), file, source, decls)
+                doctorCollectDecls(p.decls.get(i), lines, file, decls)
                 i = i + 1
             }
         }
         ASTNode.FunctionDecl(f) => {
-            decls.push(DoctorDecl(f.name, "fn", file, doctorFindDeclLine(source, "fn", f.name), f.isPrivate, f.isExtern))
+            decls.push(DoctorDecl(f.name, "fn", file, doctorFindDeclLine(lines, "fn", f.name), f.isPrivate, f.isExtern))
         }
         ASTNode.ModelDecl(m) => {
-            decls.push(DoctorDecl(m.name, "model", file, doctorFindDeclLine(source, "model", m.name), false, false))
+            decls.push(DoctorDecl(m.name, "model", file, doctorFindDeclLine(lines, "model", m.name), false, false))
         }
         _ => {}
     }
@@ -993,13 +991,16 @@ fn doctorContainsWord(hay: string, word: string) -> bool {
 
 // Text safety net for positions the AST walk does not model: a name is
 // only reported when no whole-word use exists outside its own decl line.
-fn doctorUsedInText(files: list, sources: list, declFile: string, declLine: int, word: string) -> bool {
+fn doctorUsedInText(files: list, sources: list, fileLines: list, declFile: string, declLine: int, word: string) -> bool {
     var i = 0
     while i < files.len() {
         val fp: string = files.get(i)
         val src: string = sources.get(i)
         if orbit_string_indexOf(src, word) != -1 {
-            val lines = splitBuildLines(src)
+            // The line list comes from the run, not from splitting here. This
+            // function runs once per unused declaration over every file, so
+            // splitting inside it made the search O(decls x files x bytes).
+            val lines: list = fileLines.get(i)
             var ln = 1
             while ln <= lines.len() {
                 var isDeclLine = false
@@ -1016,7 +1017,7 @@ fn doctorUsedInText(files: list, sources: list, declFile: string, declLine: int,
     return false
 }
 
-fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, sources: list) {
+fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, sources: list, fileLines: list) {
     var i = 0
     while i < decls.len() {
         val d: DoctorDecl = decls.get(i)
@@ -1026,7 +1027,7 @@ fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, s
         if d.kind == "fn" && d.isPrivate == false { reportable = false }
         if reportable {
             if doctorListContains(refs, d.name) == false {
-                if doctorUsedInText(files, sources, d.file, d.line, d.name) == false {
+                if doctorUsedInText(files, sources, fileLines, d.file, d.line, d.name) == false {
                     if d.kind == "fn" {
                         doctorReport(stats, d.file, d.line, "D003", "private fn '" + d.name + "' is never called in the scanned files.", "call it, or remove it if it is no longer needed.")
                     } else {
@@ -1123,8 +1124,7 @@ fn doctorScanSystemLine(line: string) -> string {
     return ""
 }
 
-fn doctorScanSystem(stats: DoctorStats, file: string, source: string) {
-    val lines = splitBuildLines(source)
+fn doctorScanSystem(stats: DoctorStats, lines: list, file: string) {
     var i = 0
     while i < lines.len() {
         val bad = doctorScanSystemLine(doctorCodePart(lines.get(i)))
@@ -1178,8 +1178,7 @@ fn doctorBuildFixedSource(source: string) -> string {
 // same engine every future fix will: apply the edits, verify the result, write
 // it. A fix engine first exercised on a hand-rolled path somewhere else is a
 // fix engine nobody has run.
-fn doctorScanStyle(stats: DoctorStats, file: string, source: string) {
-    val lines = splitBuildLines(source)
+fn doctorScanStyle(stats: DoctorStats, lines: list, file: string, eol: string, endsWithNewline: bool) {
     var i = 0
     while i < lines.len() {
         val raw = lines.get(i)
@@ -1190,15 +1189,13 @@ fn doctorScanStyle(stats: DoctorStats, file: string, source: string) {
         }
         i = i + 1
     }
-    val n = orbit_string_len(source)
-    if n > 0 {
-        if orbit_string_char_at_selfhost(source, n - 1) != 10 {
-            // A missing final newline is an append at the end of the file: an
-            // insertion in front of the line after the last one.
-            var endEdits = []
-            endEdits.push(DoctorEdit(lines.len() + 1, lines.len(), doctorEolOf(source), "safe"))
-            doctorReportFull(stats, file, lines.len(), 0, "D007", "file does not end with a newline.", "end the file with a single newline (doctor --fix does this).", "safe", endEdits)
-        }
+    // Whether the file ends with a newline is a fact about the BYTES, not about
+    // the line list: splitBuildLines drops the final newline, so "the last line
+    // exists" cannot tell a terminated file from an unterminated one.
+    if endsWithNewline == false {
+        var endEdits = []
+        endEdits.push(DoctorEdit(lines.len() + 1, lines.len(), eol, "safe"))
+        doctorReportFull(stats, file, lines.len(), 0, "D007", "file does not end with a newline.", "end the file with a single newline (doctor --fix does this).", "safe", endEdits)
     }
 }
 
@@ -1456,6 +1453,23 @@ fn doctorRun(opts: DoctorOptions) {
         fi2 = fi2 + 1
     }
     stats.ioMs = (orbit_clock_ms() - ioStart)
+    // Every file is split exactly once, here, and the list is threaded to every
+    // consumer. Splitting inside the consumers meant one split per declaration
+    // (780 of them over the compiler itself), because splitBuildLines slices
+    // the string once per line and every slice measures the whole string.
+    //
+    // This is a text pass, so it is charged to textMs rather than to ioMs: the
+    // io clock stops at the last read, and a phase that reports the wrong number
+    // is worse than one that reports nothing.
+    val textStart0 = orbit_clock_ms()
+    val fileLines = []
+    var li = 0
+    while li < files.len() {
+        val lsrc: string = sources.get(li)
+        fileLines.push(splitBuildLines(lsrc))
+        li = li + 1
+    }
+    stats.textMs = stats.textMs + (orbit_clock_ms() - textStart0)
     stats.files = files.len()
     doctorCheckToolchain(stats)
 
@@ -1483,15 +1497,21 @@ fn doctorRun(opts: DoctorOptions) {
             // "the rest of the loop": a total that wraps three phases is not a
             // measurement of any of them, and the budgets are per phase.
             val textStart = orbit_clock_ms()
-            doctorCollectRoutes(fp3, src3, routes)
-            doctorScanSystem(stats, fp3, src3)
-            doctorScanStyle(stats, fp3, src3)
+            val fplines: list = fileLines.get(i)
+            doctorCollectRoutes(fplines, fp3, routes)
+            doctorScanSystem(stats, fplines, fp3)
+            val slen = orbit_string_len(src3)
+            val endsNl = false
+            if slen > 0 {
+                if orbit_string_char_at_selfhost(src3, slen - 1) == 10 { endsNl = true }
+            }
+            doctorScanStyle(stats, fplines, fp3, doctorEolOf(src3), endsNl)
             stats.textMs = stats.textMs + (orbit_clock_ms() - textStart)
             val astStart = orbit_clock_ms()
             val parser = initParser(src3)
             val ast = parseProgram(parser)
             if parser.diagnostics.len() == 0 {
-                doctorCollectDecls(ast, fp3, src3, decls)
+                doctorCollectDecls(ast, fplines, fp3, decls)
                 doctorWalkRefs(ast, refs)
                 // Kept for the fingerprint pass below, which needs this file's
                 // imports. Without it the fingerprint re-parses every file in
@@ -1536,7 +1556,7 @@ fn doctorRun(opts: DoctorOptions) {
         pi = pi + 1
     }
     doctorCheckRoutes(stats, routes)
-    doctorCheckUnused(stats, decls, refs, files, sources)
+    doctorCheckUnused(stats, decls, refs, files, sources, fileLines)
 
     doctorApplyFixes(stats, opts, files, sources)
     val baseline = doctorLoadBaseline(opts.baseline)

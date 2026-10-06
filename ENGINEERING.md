@@ -55,13 +55,17 @@ Measured on `compiler/` (23 files, 21 262 LOC), gcc 13.3, warm page cache:
 
 | run | text | ast | semantic | wall |
 |---|---|---|---|---|
-| `ORBIT_DOCTOR_CACHE=0` | 175 ms | 3976 ms | 6834 ms | ~11.0 s |
-| first run, cache empty | 202 ms | 4454 ms | 7853 ms | ~13.9 s |
-| second run, cache warm | 217 ms | 4573 ms | 0 ms | ~5.7 s |
+| `ORBIT_DOCTOR_CACHE=0` | 178 ms | 968 ms | 8235 ms | ~11.0 s |
+| first run, cache empty | 178 ms | 968 ms | 8235 ms | ~11.0 s |
+| later runs, cache warm | 164 ms | 793 ms | 0 ms | ~1.4 s |
+
+The cold run got SLOWER (10.8 -> 11.0 s) when the cache key was corrected, and that is the honest cost of correctness: the key is a fingerprint of the import closure, so building it costs a parse the previous key did not.
 
 The cold run got SLOWER (10.8 -> 13.9 s) when the cache key was corrected, and that is the honest cost of correctness: the key is a fingerprint of the import closure, so building it costs a parse the previous key did not. Paying it once per run instead of once per file is what brings the warm run back down (7.3 s -> 5.7 s).
 
 **The budget is still not met, and the gap is now in the AST phase.** The semantic phase is cached on a hash of the file's contents, so it is paid once per distinct source; the AST phase is not cached and is ~4 s on this tree either way. Against a 50 ms / 100K LOC target, 4 s for 21K LOC is roughly 40x over. The first run on a freshly cloned tree pays ~11 s because the cache is cold; that is stated rather than hidden.
+
+The AST phase used to be 4454 ms, not 968 ms. `doctorFindDeclLine` called `splitBuildLines` once per declaration -- 780 calls over the compiler itself -- and `splitBuildLines` slices the source once per line while every slice measures the whole string, so the cost was O(bytes x lines) per declaration. Every file is now split once and the line list is threaded to every consumer, which also removed the same split from `doctorUsedInText`, where it ran once per unused declaration over every file in the tree. The findings are byte-identical before and after, which is the only acceptable outcome for a change like this: it is a hoist, not a rewrite.
 
 Two things this measurement decided:
 
