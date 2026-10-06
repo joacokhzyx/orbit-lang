@@ -1,0 +1,46 @@
+// known-defect: ASTBODYLEN
+//
+// `FunctionDeclNode.body.len()` returns garbage. `body` is a bare `list` field,
+// exactly like `params`, `paramTypes` and `genericParams` on the same model --
+// and those three return the right length:
+//
+//     prog.decls.len()  -> 1     correct
+//     f.name            -> "f"   correct
+//     f.paramTypes.len()-> 1     correct
+//     f.body.len()      -> -1184889136   garbage
+//
+// The C backend computes `body`'s offset against the wrong model. It goes
+// unnoticed today because no code in the compiler CALLS .len() on `body`:
+// sema.orb passes `f.body` straight into checkNode, which matches on the
+// elements instead of measuring the list. Doctor's D017 needs the length, and
+// cannot get it.
+//
+// This is why D017 is not shipped: a complexity count over a garbage length is
+// not a finding, it is a random number with a severity attached.
+//
+// The fix is on the backend, not here. Until then this case asserts the bug is
+// STILL present, which is what `known-defect:` means: when the backend is fixed
+// and check() starts rejecting this, the gate fails and tells you to delete this
+// file and finish D017.
+
+import "./compiler/ast.orb"
+import "./compiler/parser.orb"
+
+fn main() -> int {
+    val src = "fn f() -> int { return 1 }"
+    val p = initParser(src)
+    val ast = parseProgram(p)
+    match ast {
+        ASTNode.Program(prog) => {
+            val d0 = prog.decls.get(0)
+            match d0 {
+                ASTNode.FunctionDecl(f) => {
+                    print(orbit_int_to_string_selfhost(f.body.len()))
+                }
+                _ => { print("not a function\n") }
+            }
+        }
+        _ => { print("not a program\n") }
+    }
+    return 0
+}

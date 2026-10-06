@@ -133,7 +133,18 @@ Layer 1: Token and line stream analysis                [PARTIAL: D002, D005, D00
   Detects: Route conflicts, hardcoded secrets, SQL injection surface, unguarded routes
 ```
 
-Layer 2 currently does exactly one thing: it parses each file with `initParser`/`parseProgram`, walks the AST to collect declarations and references, and reports unused private functions and unused models. It then falls back to a whole-word text search (`doctorUsedInText`) before reporting anything. It is deliberately conservative, because a name may be used by a file outside the scan. Any analysis added to Layer 2 inherits that constraint: a false positive that silences a real dead-code report is worse than a missed one.
+Layer 2 is BLOCKED on a backend defect, recorded as `known-defect: ASTBODYLEN`
+in `tests/negative/`. `FunctionDeclNode.body.len()` returns garbage
+(-1184889136 for a one-statement function) while `params`, `paramTypes` and
+`genericParams` on the same model return correct lengths -- the backend computes
+`body`'s offset against the wrong model. It has gone unnoticed because no code in
+the compiler CALLS `.len()` on `body`: sema.orb hands `f.body` straight to
+checkNode, which matches on elements rather than measuring the list. Complexity
+(D017) needs the length and cannot get it, so the whole AST layer waits on a
+backend fix. A check that reports a path count computed from a garbage length is
+not a finding, it is a random number with a severity attached.
+
+Layer 2 otherwise does exactly one thing: it parses each file with `initParser`/`parseProgram`, walks the AST to collect declarations and references, and reports unused private functions and unused models. It then falls back to a whole-word text search (`doctorUsedInText`) before reporting anything. It is deliberately conservative, because a name may be used by a file outside the scan. Any analysis added to Layer 2 inherits that constraint: a false positive that silences a real dead-code report is worse than a missed one.
 
 ### 2.3 Layer 1: Text and Token Analyses
 
