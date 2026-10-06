@@ -1,0 +1,7 @@
+input.orb:5 warning [D014] a database query sits inside this loop, so it runs once per iteration. fix: fetch the rows once before the loop, or batch the query; this is the N+1 shape and its cost grows with the row count.
+input.orb:1 error [D008] this file does not pass the compiler's semantic checks. fix: run `orbit check input.orb` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (1 error(s), 1 warning(s)) in 1 files under "input.orb".

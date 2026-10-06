@@ -34,6 +34,10 @@
 // them; redeclaring one here is a "Duplicate symbol" build error.
 import "std/convert/convert.orb"
 
+extern fn orbit_cbuf_create_selfhost() -> string
+extern fn orbit_cbuf_append_selfhost(buf: string, s: string)
+extern fn orbit_cbuf_build_selfhost(buf: string) -> string
+
 extern fn orbit_string_indexOf(s: string, sub: string) -> int
 extern fn orbit_string_contains(s: string, sub: string) -> bool
 extern fn orbit_string_starts_with(s: string, prefix: string) -> bool
@@ -102,46 +106,56 @@ fn trim(s: string) -> string {
 }
 
 fn toUpper(s: string) -> string {
-    var out = ""
+    // A buffer and one build, not `out = out + c` per character. The old form
+    // copied the whole prefix every iteration, so this was quadratic in the
+    // length of its argument -- and case conversion is not a rare path.
+    val buf = orbit_cbuf_create_selfhost()
     var i = 0
     while i < s.len() {
         val c = s.at(i)
         if c >= 97 && c <= 122 {
-            out = out + orbit_string_from_char_selfhost(c - 32)
+            orbit_cbuf_append_selfhost(buf, orbit_string_from_char_selfhost(c - 32))
         } else {
-            out = out + orbit_string_from_char_selfhost(c)
+            orbit_cbuf_append_selfhost(buf, orbit_string_from_char_selfhost(c))
         }
         i = i + 1
     }
-    return out
+    return orbit_cbuf_build_selfhost(buf)
 }
 
 fn toLower(s: string) -> string {
-    var out = ""
+    // A buffer and one build, not `out = out + c` per character. The old form
+    // copied the whole prefix every iteration, so this was quadratic in the
+    // length of its argument -- and case conversion is not a rare path.
+    val buf = orbit_cbuf_create_selfhost()
     var i = 0
     while i < s.len() {
         val c = s.at(i)
         if c >= 65 && c <= 90 {
-            out = out + orbit_string_from_char_selfhost(c + 32)
+            orbit_cbuf_append_selfhost(buf, orbit_string_from_char_selfhost(c + 32))
         } else {
-            out = out + orbit_string_from_char_selfhost(c)
+            orbit_cbuf_append_selfhost(buf, orbit_string_from_char_selfhost(c))
         }
         i = i + 1
     }
-    return out
+    return orbit_cbuf_build_selfhost(buf)
 }
 
 fn join(parts: list, sep: string) -> string {
-    var out = ""
+    // One growable buffer and one join, instead of `out = out + part` per
+    // element. The old form copied the whole prefix on every iteration, so
+    // joining n parts was quadratic in the total length -- and joining is on the
+    // path of every SQL fragment and log line in the tree.
+    val buf = orbit_cbuf_create_selfhost()
     var i = 0
     while i < parts.len() {
         if i != 0 {
-            out = out + sep
+            orbit_cbuf_append_selfhost(buf, sep)
         }
-        out = out + parts.get(i)
+        orbit_cbuf_append_selfhost(buf, parts.get(i))
         i = i + 1
     }
-    return out
+    return orbit_cbuf_build_selfhost(buf)
 }
 
 fn split(s: string, sep: string) -> list {

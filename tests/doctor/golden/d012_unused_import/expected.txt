@@ -1,0 +1,6 @@
+input.orb:1 warning [D012] this file imports ./mod.orb but names none of its declarations, directly or through what they import. fix: delete the import, or use what it brings in; a module nothing in its own closure names here is dead weight in every file that pulls it.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".

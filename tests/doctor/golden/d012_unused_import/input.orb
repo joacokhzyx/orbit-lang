@@ -1,0 +1,5 @@
+import "./mod.orb"
+
+fn main() -> int {
+    return 0
+}

@@ -1,0 +1,11 @@
+route POST "/posts" {
+    if !orbit_auth_has_role("editor") {
+        err 403 "no"
+    }
+    val payload = req.body()
+    return ok 201 "created"
+}
+extern fn orbit_db_delete(t: string, c: string, v: string) -> bool
+extern fn orbit_auth_has_role(r: string) -> bool
+extern fn orbit_db_query_all(q: string) -> list
+

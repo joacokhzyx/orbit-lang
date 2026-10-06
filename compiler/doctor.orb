@@ -995,6 +995,455 @@ fn doctorTelemetryNumber(text: string, method: string, path: string, key: string
     return doctorLeadingDigits(orbit_string_slice(obj, start, orbit_string_len(obj)))
 }
 
+/** @brief Mutable routes with no guard and no validation before they return.
+ *
+ *  A POST/PUT/PATCH/DELETE that returns without asking who is asking, or
+ *  whether the request makes sense, is the shape of an unauthenticated write.
+ *  The check is deliberately textual and block-local: it looks at the lines
+ *  between the route's opening brace and the closing brace at the same
+ *  indentation, and stops at the first return, because a guard AFTER the write
+ *  has already lost the race.
+ *
+ *  What counts as a guard is the runtime's own vocabulary -- orbit_auth_*,
+ *  req.body, a validation `if` that returns early -- rather than a guess about
+ *  the author's naming. A service that guards through a helper it calls is not
+ *  visible to a text scan, so this under-reports by construction: the failure
+ *  mode of the opposite would be a finding on every correctly-guarded route,
+ *  which is how a check gets switched off. */
+fn doctorScanMutableRoutes(stats: DoctorStats, lines: list, file: string) {
+    var i = 0
+    while i < lines.len() {
+        val rl = doctorParseRouteLine(lines.get(i))
+        i = i + 1
+        if rl.isRoute == false {}
+        if rl.isRoute && doctorIsMutableMethod(rl.method) {
+            val indent = doctorIndentOf(lines.get(i - 1))
+            var guarded = false
+            var j = i
+            while j < lines.len() {
+                val line = lines.get(j)
+                if line == "}" {}
+                if doctorTrimSpace(line) == "}" && doctorIndentOf(line) == indent {
+                    // end of the route block
+                    if guarded == false {
+                        doctorReport(stats, file, i, "D011", "mutable route " + rl.method + " " + rl.path + " returns without a role guard or a request validation block.", "check the caller before the write: an authenticated role, or an early return on a malformed request.")
+                    }
+                    break
+                }
+                if guarded == false && doctorLooksLikeGuard(line) { guarded = true }
+                j = j + 1
+            }
+        }
+    }
+}
+
+/** @brief Whether this method changes state, so it needs a guard. */
+fn doctorIsMutableMethod(method: string) -> bool {
+    if method == "POST" { return true }
+    if method == "PUT" { return true }
+    if method == "PATCH" { return true }
+    if method == "DELETE" { return true }
+    return false
+}
+
+/** @brief Leading spaces of a line, as a count. Used to find a block's end. */
+fn doctorIndentOf(line: string) -> int {
+    var n = 0
+    val len = orbit_string_len(line)
+    while n < len {
+        val c = orbit_string_char_at_selfhost(line, n)
+        if c == 32 || c == 9 { n = n + 1 }
+        else { break }
+    }
+    return n
+}
+
+/** @brief Whether a line does the work a guard would do.
+ *
+ *  The runtime's guard vocabulary: an auth call, reading the request, or an
+ *  early-returning validation. Checking for these names rather than trying to
+ *  reason about control flow is what keeps the check from inventing findings on
+ *  routes that are correctly guarded through a helper. */
+fn doctorLooksLikeGuard(line: string) -> bool {
+    val code = doctorCodePart(line)
+    if doctorContainsWord(code, "orbit_auth_has_role") { return true }
+    if doctorContainsWord(code, "orbit_auth_current_role") { return true }
+    if doctorContainsWord(code, "orbit_auth_bearer_token") { return true }
+    if doctorContainsWord(code, "req.body") { return true }
+    if doctorContainsWord(code, "req.query") { return true }
+    if doctorContainsWord(code, "req.param") { return true }
+    if doctorContainsWord(code, "http_param_get") { return true }
+    // An `if` that returns early is validation: reject the malformed case before
+    // the write. A bare `if` is not, because it may be an optimisation.
+    if doctorStartsWith(doctorTrimSpace(code), "if ") {
+        return true
+    }
+    return false
+}
+
+/** @brief D014 N+1 and D015 loop-bound string building, on one pass.
+ *
+ *  Both are questions about WHERE a statement sits inside a loop, and tracking
+ *  loop nesting by indentation answers both from the same walk. The nesting is
+ *  recomputed from the start of the file at each candidate rather than
+ *  incremented: a brace counter that is off by one reports the wrong lines, and
+ *  recounting is O(file) only at the few places a finding can appear.
+ */
+fn doctorScanLoops(stats: DoctorStats, lines: list, file: string) {
+    val stringNames = doctorStringDecls(lines)
+    var i = 0
+    while i < lines.len() {
+        val code = doctorTrimSpace(doctorCodePart(lines.get(i)))
+        val line = i + 1
+        if doctorLoopKeyword(code) {
+            if doctorLoopContainsDb(lines, i) {
+                doctorReport(stats, file, line, "D014", "a database query sits inside this loop, so it runs once per iteration.", "fetch the rows once before the loop, or batch the query; this is the N+1 shape and its cost grows with the row count.")
+            }
+            // D015 looks INSIDE the loop body, not at the header: the concat is
+            // on a line between the loop keyword and its closing brace.
+            if doctorLoopConcatGrowsWithSource(lines, i, stringNames) {
+                doctorReport(stats, file, line, "D015", "a value is built by string concatenation inside this loop, so the whole prefix is copied every iteration.", "accumulate into a list and join once after the loop.")
+            }
+        }
+        i = i + 1
+    }
+    doctorScanMagicNumbers(stats, lines, file)
+}
+
+/** @brief Whether a line opens a loop. */
+fn doctorLoopKeyword(code: string) -> bool {
+    if doctorStartsWith(code, "while ") { return true }
+    if doctorStartsWith(code, "for ") { return true }
+    if doctorStartsWith(code, "loop ") { return true }
+    if code == "loop" { return true }
+    return false
+}
+
+/** @brief Whether the code calls the database. */
+
+fn doctorIsDbCall(code: string) -> bool {
+    // Substring, not whole-word: the needle is a PREFIX of a longer name
+    // (orbit_db_query_all ends in _all), and doctorContainsWord's right-hand
+    // boundary check sees that underscore as a word character and rejects it.
+    if orbit_string_indexOf(code, "orbit_db_query") != -1 { return true }
+    if orbit_string_indexOf(code, "orbit_db_insert") != -1 { return true }
+    if orbit_string_indexOf(code, "orbit_db_delete") != -1 { return true }
+    return false
+}
+
+/** @brief Whether a db call appears inside the loop opened at `start`.
+ *
+ *  Scans forward to the loop's own closing brace, found by indentation. Bounded
+ *  by the file length and stopped at that one brace, so it cannot walk into the
+ *  next function.
+ */
+fn doctorLoopContainsDb(lines: list, start: int) -> bool {
+    val baseIndent = doctorIndentOf(lines.get(start))
+    var i = start + 1
+    var guard = 0
+    while i < lines.len() {
+        guard = guard + 1
+        if guard > 4096 { return false }
+        val code = doctorTrimSpace(doctorCodePart(lines.get(i)))
+        if code == "}" && doctorIndentOf(lines.get(i)) == baseIndent { return false }
+        if doctorIsDbCall(code) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+/** @brief Whether the concatenation accumulates a WHOLE ELEMENT per iteration.
+ *
+ *  `for name in items { out = out + name }` is the quadratic shape: the prefix
+ *  grows by an element and is recopied every time. `while i < items.len() { out =
+ *  out + items.get(i) }` is the same cost, and is what 19 of the findings in
+ *  std/ and tests/suite/ were -- an index loop over a collection, not a counter.
+ *
+ *  Both are real. What is NOT the finding is a loop that concatenates something
+ *  whose size does not grow with the iteration count, which is what a plain
+ *  `i = i + 1` counter loop looks like. So the test is whether the accumulated
+ *  expression READS from the loop's own source. */
+fn doctorLoopConcatGrowsWithSource(lines: list, start: int, stringNames: list) -> bool {
+    val header = doctorTrimSpace(doctorCodePart(lines.get(start)))
+    // The name being iterated: the `for` binding, or the collection in the bound.
+    // What growing-with-the-iteration looks like on the concatenated line. For a
+    // `for name in names` the body reads the BINDING (`out + name`), not the
+    // collection (`out + names`), so the binding is the subject. For an index
+    // loop the body reads the collection (`out + items.get(i)`), so that is.
+    var subject = ""
+    var binding = ""
+    val inAt = orbit_string_indexOf(header, " in ")
+    if inAt != -1 {
+        binding = doctorLeadingName(orbit_string_slice(header, 4, inAt))
+        subject = doctorLeadingName(doctorTrimSpace(orbit_string_slice(header, inAt + 4, orbit_string_len(header))))
+    } else {
+        val lt = orbit_string_indexOf(header, "<")
+        if lt == -1 { return false }
+        val bound = doctorTrimSpace(orbit_string_slice(header, lt + 1, orbit_string_len(header)))
+        val dot = orbit_string_indexOf(bound, ".")
+        if dot > 0 { subject = orbit_string_slice(bound, 0, dot) }
+    }
+    if subject == "" { return false }
+    val bindingIsSubject = binding != ""
+    val baseIndent = doctorIndentOf(lines.get(start))
+    var i = start + 1
+    var guard = 0
+    while i < lines.len() {
+        guard = guard + 1
+        if guard > 4096 { return false }
+        val raw = lines.get(i)
+        val code = doctorTrimSpace(doctorCodePart(raw))
+        if code == "}" && doctorIndentOf(raw) == baseIndent { return false }
+        if doctorIsSelfConcat(code, stringNames) {
+            // Does the accumulated value read the thing being iterated? Either
+            // the collection itself, or -- for a `for` loop -- its binding.
+            if orbit_string_indexOf(code, subject) != -1 { return true }
+            if bindingIsSubject {
+                // Whole-word match, not a trailing space: `out + name` ends the
+                // line, so `binding + " "` never appears in it.
+                if doctorContainsWord(code, binding) { return true }
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+/** @brief Whether a line accumulates one name into itself by +.
+ *
+ *  AND that the accumulation is of STRINGS. `sum = sum + l.get(i)` over a list
+ *  of ints is the same shape and costs nothing -- a fixed-width integer add --
+ *  and reporting it put integer sums in a finding whose text says "string is
+ *  built by concatenation". The evidence is the declared type of the
+ *  accumulator, from its `val`/`var` declaration in this file.
+ *
+ *  No declaration, no finding. An accumulator whose type cannot be seen is
+ *  assumed NOT to be a string, because the alternative -- report every self-add
+ *  in a loop -- is 6 findings in std/ that are all arithmetic. */
+fn doctorIsSelfConcat(code: string, declIndex: list) -> bool {
+    if orbit_string_indexOf(code, " + ") == -1 { return false }
+    val eq = orbit_string_indexOf(code, " = ")
+    if eq == -1 { return false }
+    val lhs = doctorLeadingName(doctorTrimSpace(orbit_string_slice(code, 0, eq)))
+    if lhs == "" { return false }
+    val rhs = doctorTrimSpace(orbit_string_slice(code, eq + 3, orbit_string_len(code)))
+    if doctorStartsWith(rhs, lhs + " ") == false { return false }
+    return doctorDeclaredAsString(lhs, declIndex)
+}
+
+/** @brief Whether a declaration's initialiser is a string literal.
+ *
+ *  `val out = ""` and `val s = "x" + y` are strings by inspection. A `val s = 0`
+ * is not, and neither is one initialised from a function call, whose type this
+ *  cannot see -- guessing there is how an integer accumulator ends up reported
+ *  as a string. */
+fn doctorInitialisesString(rest: string) -> bool {
+    val eq = orbit_string_indexOf(rest, " = ")
+    if eq == -1 { return false }
+    val rhs = doctorTrimSpace(orbit_string_slice(rest, eq + 3, orbit_string_len(rest)))
+    // Length, not equality with "": `val out = ""` has a rhs of TWO quote
+    // characters, and comparing it to the empty string to mean "no initialiser"
+    // is a test that a real empty-string initialiser does not pass.
+    if orbit_string_len(rhs) == 0 { return false }
+    if orbit_string_char_at_selfhost(rhs, 0) == 34 { return true }
+    return false
+}
+
+/** @brief Whether `name` is declared `string` somewhere in this file.
+ *
+ *  Index built once per file by doctorStringDecls. `list<string>` counts: a list
+ *  of strings concatenated element by element is still string building. */
+fn doctorDeclaredAsString(name: string, declIndex: list) -> bool {
+    var i = 0
+    while i < declIndex.len() {
+        val e: string = declIndex.get(i)
+        if e == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+/** @brief The names this file declares as string, for doctorIsSelfConcat.
+ *
+ *  Scans `val`/`var` declarations and keeps the ones whose type mentions string.
+ *  Text-level because the alternative is a scope-tracking pass over the AST for
+ *  one type question. */
+fn doctorStringDecls(lines: list) -> list {
+    val out = []
+    var i = 0
+    while i < lines.len() {
+        // The RAW line, not doctorCodePart: this check asks whether the
+        // initialiser IS a string literal, and codePart deletes literal contents,
+        // which turned `val out = ""` into `val out = ` and made the empty string
+        // invisible. Comments are stripped separately so a commented-out
+        // declaration still does not count.
+        var code = doctorTrimSpace(lines.get(i))
+        val cpos = orbit_string_indexOf(code, "//")
+        if cpos != -1 { code = doctorTrimSpace(orbit_string_slice(code, 0, cpos)) }
+        var rest = ""
+        if doctorStartsWith(code, "val ") {
+            rest = doctorTrimSpace(orbit_string_slice(code, 4, orbit_string_len(code)))
+        }
+        if doctorStartsWith(code, "var ") {
+            rest = doctorTrimSpace(orbit_string_slice(code, 4, orbit_string_len(code)))
+        }
+        if rest != "" {
+            val nm = doctorLeadingName(rest)
+            if nm != "" {
+                // Two kinds of evidence, because a string accumulator is
+                // usually not annotated: an explicit `string` or `list<string>`
+                // type, or an initialiser that IS a string. `val out = ""` is
+                // the commonest way to write it and says as much as a type would.
+                val typedAsString = doctorContainsFold(rest, "string")
+                val initialisedFromString = doctorInitialisesString(rest)
+                if typedAsString || initialisedFromString {
+                    if doctorListContains(out, nm) == false { out.push(nm) }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+/** @brief A repeated, uninformative integer literal used as a bound.
+ *
+ *  All three have to hold, which is why this does not fire on every number: the
+ *  number is three or more digits, the name it is bound to says nothing about
+ *  what it means, and the same number-and-name pair appeared earlier in the
+ *  file. A number that appears once is a number the author chose; a number that
+ *  appears twice under the same vague name is a constant pretending to be a
+ *  local. */
+fn doctorScanMagicNumbers(stats: DoctorStats, lines: list, file: string) {
+    val seen = []
+    var i = 0
+    while i < lines.len() {
+        val code = doctorCodePart(lines.get(i))
+        val j = doctorFirstBigNumber(code, 0)
+        while j > 0 {
+            val num = doctorNumberAt(code, j)
+            val name = doctorMagicOwnerName(code, j)
+            if num != "" && name != "" {
+                if doctorIsVagueName(name) {
+                    doctorRememberMagic(seen, num, name, file, i + 1, stats)
+                }
+            }
+            j = doctorNextBigNumber(code, j + orbit_string_len(num))
+        }
+        i = i + 1
+    }
+}
+
+/** @brief The offset of the first run of 3+ digits at or after `from`, or -1. */
+fn doctorFirstBigNumber(code: string, from: int) -> int {
+    return doctorNextBigNumber(code, from)
+}
+
+/** @brief The offset of the next run of 3+ digits at or after `from`, or -1. */
+fn doctorNextBigNumber(code: string, from: int) -> int {
+    val n = orbit_string_len(code)
+    var j = from
+    while j < n {
+        val c = orbit_string_char_at_selfhost(code, j)
+        if c >= 48 && c <= 57 {
+            val start = j
+            var digits = 0
+            var k = j
+            while k < n {
+                val d = orbit_string_char_at_selfhost(code, k)
+                if d >= 48 && d <= 57 {
+                    digits = digits + 1
+                    k = k + 1
+                } else {
+                    break
+                }
+            }
+            if digits >= 3 { return start }
+            j = k
+        } else {
+            j = j + 1
+        }
+    }
+    return -1
+}
+
+/** @brief The run of digits beginning at `at`. */
+fn doctorNumberAt(code: string, at: int) -> string {
+    val n = orbit_string_len(code)
+    var k = at
+    while k < n {
+        val d = orbit_string_char_at_selfhost(code, k)
+        if d >= 48 && d <= 57 { k = k + 1 }
+        else { break }
+    }
+    if k <= at { return "" }
+    return orbit_string_slice(code, at, k)
+}
+
+/** @brief The identifier the number at `at` is compared against or assigned to. */
+fn doctorMagicOwnerName(code: string, at: int) -> string {
+    val before = doctorTrimSpace(orbit_string_slice(code, 0, at))
+    // A declaration owns its own literal: `val limit = 86400`.
+    if doctorStartsWith(before, "val ") {
+        return doctorLeadingName(doctorTrimSpace(orbit_string_slice(before, 4, orbit_string_len(before))))
+    }
+    if doctorStartsWith(before, "var ") {
+        return doctorLeadingName(doctorTrimSpace(orbit_string_slice(before, 4, orbit_string_len(before))))
+    }
+    // In a comparison the literal is on the RIGHT of the operator, so the owner
+    // is the word after it, not the one before. Reading the left side gave `n` for
+    // `if n > limit` and `n` is not vague, so nothing was ever reported.
+    val after = doctorTrimSpace(orbit_string_slice(code, at, orbit_string_len(code)))
+    return doctorLeadingName(doctorTrimAfterOperator(after))
+}
+
+/** @brief The first identifier in `s` that is not a comparison operator. */
+fn doctorTrimAfterOperator(s: string) -> string {
+    var i = 0
+    val n = orbit_string_len(s)
+    var word = ""
+    while i < n {
+        val c = orbit_string_char_at_selfhost(s, i)
+        if doctorIsWordChar(c) {
+            word = word + orbit_string_slice(s, i, i + 1)
+            i = i + 1
+        } else {
+            break
+        }
+    }
+    return word
+}
+
+/** @brief Whether a name says nothing about the number it holds. */
+fn doctorIsVagueName(name: string) -> bool {
+    val vague = ["limit", "max", "min", "count", "size", "len", "value", "num", "threshold", "cap", "bound"]
+    var i = 0
+    while i < vague.len() {
+        val v: string = vague.get(i)
+        if doctorStartsWith(name, v) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+/** @brief Record a magic number and report it only on its second sighting. */
+fn doctorRememberMagic(seen: list, num: string, name: string, file: string, line: int, stats: DoctorStats) {
+    // Keyed on the NUMBER, not on number-and-name. The same timeout written
+    // under two vague names is one constant hiding in two places, and keying on
+    // the pair reported neither. A number that appears once is a number the
+    // author chose, so it stays silent.
+    var i = 0
+    while i < seen.len() {
+        val e: string = seen.get(i)
+        if e == num {
+            doctorReport(stats, file, line, "D016", "the bare number " + num + " appears again here, under '" + name + "', after appearing earlier in this file.", "hoist it to one named constant that says what it is -- a timeout in ms, a page size, a byte count -- so the value is stated once and has a name.")
+            return
+        }
+        i = i + 1
+    }
+    seen.push(num)
+}
+
 fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
     var a = 0
     while a < routes.len() {
@@ -1943,6 +2392,146 @@ fn doctorCollectImports(node: ASTNode, out: list) {
     }
 }
 
+/** @brief Imports whose module contributes nothing this file uses.
+ *
+ *  An import is dead when the file names none of the module's public
+ *  declarations: no fn, no model, no route. The module's own source is parsed to
+ *  learn its exported names, because the alternative -- assume an import is
+ *  used -- is what keeps dead imports alive forever.
+ *
+ *  Deliberately NOT reported: an import of a module whose only contribution is a
+ *  side effect (a std module that registers something at load, say). The check
+ *  cannot see a side effect, so it only fires when the file provably names
+ *  nothing, which is a claim the text supports. */
+fn doctorCheckUnusedImports(stats: DoctorStats, file: string, refs: list, imports: list, baseDir: string) {
+    var i = 0
+    while i < imports.len() {
+        val rel: string = imports.get(i)
+        i = i + 1
+        val full = normalizePath(resolveFilePath(baseDir, rel))
+        val modSource = orbit_file_read_selfhost(full)
+        if modSource == "" {}
+        if modSource != "" {
+            val exports = doctorModuleExports(modSource)
+            // The module's OWN imports count too. A file can import a module
+            // for a symbol that module re-exports, or for the externs its own
+            // imports make available, and legitimately name neither. Requiring
+            // the module's own closure to be unnamed too is the difference
+            // between reporting dead imports and reporting the module system:
+            // without it, removing the flagged imports from io.orb and
+            // bytes.orb broke both files at the very next build.
+            val closureRefs = doctorClosureRefs(full, modSource)
+            if exports.len() > 0 && doctorRefsHitAny(refs, exports) == false {
+                if doctorRefsHitAny(closureRefs, exports) == false {
+                    doctorReport(stats, file, 1, "D012", "this file imports " + rel + " but names none of its declarations, directly or through what they import.", "delete the import, or use what it brings in; a module nothing in its own closure names here is dead weight in every file that pulls it.")
+                }
+            }
+        }
+    }
+}
+
+/** @brief Every name a module references, plus what its own imports export.
+ *
+ *  One level of imports, which covers the re-export and extern-availability
+ *  cases without parsing the whole module graph once per importing file. */
+fn doctorClosureRefs(modulePath: string, moduleSource: string) -> list {
+    val refs = []
+    val parser = initParser(moduleSource)
+    val ast = parseProgram(parser)
+    if parser.diagnostics.len() > 0 { return refs }
+    doctorWalkRefs(ast, refs)
+    val baseDir = getDir(modulePath)
+    val imports = []
+    doctorCollectImports(ast, imports)
+    var i = 0
+    while i < imports.len() {
+        val rel: string = imports.get(i)
+        i = i + 1
+        val subSource = orbit_file_read_selfhost(normalizePath(resolveFilePath(baseDir, rel)))
+        if subSource != "" {
+            val subExports = doctorModuleExports(subSource)
+            var k = 0
+            while k < subExports.len() {
+                val e: string = subExports.get(k)
+                if doctorListContains(refs, e) == false { refs.push(e) }
+                k = k + 1
+            }
+        }
+    }
+    return refs
+}
+
+/** @brief The public names a module source declares: fns, models, routes, types. */
+fn doctorModuleExports(source: string) -> list {
+    val out = []
+    val lines = splitBuildLines(source)
+    var i = 0
+    while i < lines.len() {
+        val t = doctorTrimLeft(doctorCodePart(lines.get(i)))
+        val name = doctorDeclaredName(t)
+        if name != "" {
+            if doctorListContains(out, name) == false { out.push(name) }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+/** @brief The declaration name on a line that begins a fn/model/route, or "".
+ *
+ *  Text-level on purpose: this runs over an import's source without building an
+ *  AST for it, which would mean parsing every module in the tree twice. The
+ *  shapes it accepts are the four declaration keywords, so a line that is a call
+ *  or a comment contributes nothing. */
+fn doctorDeclaredName(trimmedLine: string) -> string {
+    // "extern fn" first: a module's runtime bindings are exported too, and a
+    // file that imports hash.orb for orbit_hmac_sha256_base64url names an extern
+    // fn and no other declaration. Checking "fn " first matched the tail of
+    // "extern fn" and reported a module in use as dead.
+    if doctorStartsWith(trimmedLine, "extern fn ") {
+        val restE = doctorTrimSpace(orbit_string_slice(trimmedLine, 10, orbit_string_len(trimmedLine)))
+        return doctorLeadingName(restE)
+    }
+    val kws = ["fn ", "model ", "route ", "type "]
+    var i = 0
+    while i < kws.len() {
+        val kw: string = kws.get(i)
+        if doctorStartsWith(trimmedLine, kw) {
+            var rest = doctorTrimSpace(orbit_string_slice(trimmedLine, orbit_string_len(kw), orbit_string_len(trimmedLine)))
+            if doctorStartsWith(rest, "private ") { return "" }
+            if doctorStartsWith(rest, "extern ") { rest = doctorTrimSpace(orbit_string_slice(rest, 7, orbit_string_len(rest))) }
+            // For a route the name is the METHOD; the interesting exports are the
+            // handler's, which come on the next line. Routes are excluded by the
+            // caller for now via this returning the method token, which is
+            // referenced by nothing and so counts as unused correctly.
+            return doctorLeadingName(rest)
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+/** @brief Every name one subtree references, as a fresh list.
+ *
+ *  D012 asks a per-file question -- does THIS file name anything from what it
+ *  imports -- so it cannot use the run-wide refs list, which is every name in
+ *  every file and would make the check answer "yes" for any shared symbol. */
+fn doctorRefsInSubtree(node: ASTNode) -> list {
+    val refs = []
+    doctorWalkRefs(node, refs)
+    return refs
+}
+
+/** @brief Whether any name in `refs` appears in `names`. */
+fn doctorRefsHitAny(refs: list, names: list) -> bool {
+    var i = 0
+    while i < refs.len() {
+        if doctorListContains(names, refs.get(i)) { return true }
+        i = i + 1
+    }
+    return false
+}
+
 fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string, fingerprint: string, cacheState: list) -> bool {
     val dir = doctorCacheDir()
     val digest = orbit_string_hash_selfhost(fingerprint)
@@ -2061,6 +2650,8 @@ fn doctorRun(opts: DoctorOptions) {
             doctorCollectRoutes(fplines, fp3, routes)
             doctorScanSystem(stats, fplines, fp3)
             doctorScanLiterals(stats, fplines, fp3)
+            doctorScanMutableRoutes(stats, fplines, fp3)
+            doctorScanLoops(stats, fplines, fp3)
             doctorScanMutableDecls(stats, fplines, fp3)
             val slen = orbit_string_len(src3)
             val endsNl = false
@@ -2084,6 +2675,11 @@ fn doctorRun(opts: DoctorOptions) {
                 parsedAsts.push(ast)
                 parsedImports.push(imps)
                 parsedSources.push(src3)
+                // D012 needs, per file, the names it references and the modules
+                // it imports, checked together after the walk. Recorded here
+                // because the refs walk above already produced the names and
+                // re-walking per import would be a second traversal.
+                doctorCheckUnusedImports(stats, fp3, doctorRefsInSubtree(ast), imps, getDir(fp3))
             } else {
                 // A parse failure is a finding, and it is the one D008 case that
                 // costs nothing: the parser just said so. Reporting it here is

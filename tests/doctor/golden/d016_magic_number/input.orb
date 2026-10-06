@@ -1,0 +1,11 @@
+fn check(n: int) -> int {
+    val limit = 86400
+    if n > limit {
+        return 1
+    }
+    val cap = 86400
+    if n > cap {
+        return 2
+    }
+    return 0
+}
