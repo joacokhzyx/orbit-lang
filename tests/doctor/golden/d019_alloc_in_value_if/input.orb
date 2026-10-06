@@ -1,0 +1,10 @@
+extern fn list_create(cap: int) -> list
+fn f(n: int, m: int) -> list {
+    val out = list_create(n)
+    var i = 0
+    while i < n {
+        val picked = if m > 0 { list_create(n) } else { list_create(n) }
+        i = i + 1
+    }
+    return out
+}

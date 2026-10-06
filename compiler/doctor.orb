@@ -1485,9 +1485,12 @@ fn doctorStmtsOf(node: ASTNode) -> list {
             }
         }
         ASTNode.MatchCase(c) => {
+            // `1 => doThing()` parses the arm body as a bare statement, not a
+            // block. Unwrapping only the Block shape made every braceless arm
+            // invisible, which is the more common way people write short arms.
             match c.body {
                 ASTNode.Block(b) => { stmts = b.statements }
-                _ => {}
+                _ => { stmts.push(c.body) }
             }
         }
         ASTNode.Block(b) => { stmts = b.statements }
@@ -1640,9 +1643,9 @@ fn doctorDecisionPoints(node: ASTNode) -> int {
             n = doctorDecisionPoints(b.lhs)
             n = n + doctorDecisionPoints(b.rhs)
         }
-        ASTNode.UnaryOp(u) => { n = doctorDecisionPoints(u.expr) }
+        ASTNode.UnaryOp(u) => { n = doctorDecisionPoints(u.operand) }
         ASTNode.IndexAccess(ix) => { n = doctorDecisionPoints(ix.index) }
-        ASTNode.MemberAccess(m) => { n = doctorDecisionPoints(m.expr) }
+        ASTNode.MemberAccess(m) => { n = doctorDecisionPoints(m.object) }
         ASTNode.ListLiteral(l) => {
             val els = l.elements
             var i = 0
@@ -1707,7 +1710,7 @@ fn doctorNodeCalls(node: ASTNode, name: string) -> bool {
         ASTNode.Assignment(a) => { found = doctorNodeCalls(a.value, name) }
         ASTNode.Return(r) => { found = doctorNodeCalls(r.expr, name) }
         ASTNode.VarDecl(v) => { found = doctorNodeCalls(v.value, name) }
-        ASTNode.If(x) => { found = doctorNodeCalls(x.expr, name) }
+        ASTNode.If(x) => { found = doctorNodeCalls(x.condition, name) }
         ASTNode.Match(x) => {
             val cases = x.cases
             var i = 0
@@ -1720,7 +1723,7 @@ fn doctorNodeCalls(node: ASTNode, name: string) -> bool {
             found = doctorNodeCalls(b.lhs, name)
             if found == false { found = doctorNodeCalls(b.rhs, name) }
         }
-        ASTNode.UnaryOp(u) => { found = doctorNodeCalls(u.expr, name) }
+        ASTNode.UnaryOp(u) => { found = doctorNodeCalls(u.operand, name) }
         _ => {}
     }
     return found
@@ -1844,6 +1847,72 @@ fn doctorScanLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file:
         ASTNode.MatchCase(c) => {
             doctorScanLoopStmts(stats, doctorStmtsOf(node), fnName, file, line, inLoop, kind)
         }
+        ASTNode.Try(t) => {
+            doctorScanLoopAllocs(stats, t.expr, fnName, file, line, inLoop, kind)
+            doctorScanLoopAllocs(stats, t.catchBody, fnName, file, line, inLoop, kind)
+        }
+        // Value-position if/match. `val picked = if m > 0 { list_create(n) }
+        // else { list_create(n) }` allocates, but the VarDecl arm never descends
+        // into its value, so the `_` arm ate the whole subtree.
+        ASTNode.VarDecl(v) => {
+            doctorScanLoopAllocs(stats, v.value, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.ConstDecl(c) => {
+            doctorScanLoopAllocs(stats, c.value, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.Assignment(a) => {
+            doctorScanLoopAllocs(stats, a.value, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.Return(r) => {
+            doctorScanLoopAllocs(stats, r.expr, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.ReturnOk(r) => {
+            doctorScanLoopAllocs(stats, r.expr, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.ReturnErr(r) => {
+            doctorScanLoopAllocs(stats, r.expr, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.ExpressionStmt(e) => {
+            doctorScanLoopAllocs(stats, e.expr, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.BinaryOp(b) => {
+            doctorScanLoopAllocs(stats, b.lhs, fnName, file, line, inLoop, kind)
+            doctorScanLoopAllocs(stats, b.rhs, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.UnaryOp(u) => {
+            doctorScanLoopAllocs(stats, u.operand, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.Call(c) => {
+            val args = c.args
+            var i = 0
+            while i < args.len() {
+                doctorScanLoopAllocs(stats, doctorNodeAt(args, i), fnName, file, line, inLoop, kind)
+                i = i + 1
+            }
+        }
+        ASTNode.IndexAccess(ix) => {
+            doctorScanLoopAllocs(stats, ix.object, fnName, file, line, inLoop, kind)
+            doctorScanLoopAllocs(stats, ix.index, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.MemberAccess(m) => {
+            doctorScanLoopAllocs(stats, m.object, fnName, file, line, inLoop, kind)
+        }
+        ASTNode.ListLiteral(l) => {
+            val els = l.elements
+            var i = 0
+            while i < els.len() {
+                doctorScanLoopAllocs(stats, doctorNodeAt(els, i), fnName, file, line, inLoop, kind)
+                i = i + 1
+            }
+        }
+        ASTNode.Interp(inp) => {
+            val parts = inp.parts
+            var i = 0
+            while i < parts.len() {
+                doctorScanLoopAllocs(stats, doctorNodeAt(parts, i), fnName, file, line, inLoop, kind)
+                i = i + 1
+            }
+        }
         _ => {}
     }
 }
@@ -1877,6 +1946,14 @@ fn doctorAllocLine(node: ASTNode) -> int {
         ASTNode.ExpressionStmt(e) => {
             if doctorExprAllocates(e.expr) { at = -1 }
         }
+        // `parseStatementInner` returns a bare expression unwrapped, so a bare
+        // allocating call in a loop arrives as the Call itself, not as an
+        // ExpressionStmt. The arm above was therefore dead.
+        ASTNode.Call(c) => {
+            if doctorIsAllocName(doctorCalleeText(c.callee)) { at = -1 }
+        }
+        ASTNode.ListLiteral(l) => { at = -1 }
+        ASTNode.ObjectLiteral(o) => { at = -1 }
         ASTNode.Return(r) => {
             if doctorExprAllocates(r.expr) { at = -1 }
         }

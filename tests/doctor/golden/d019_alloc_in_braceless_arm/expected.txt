@@ -1,0 +1,7 @@
+input.orb:6 warning [D019] fn f allocates inside a while loop, so the allocation is repeated on every iteration. fix: build the collection once before the loop and reuse it, or reuse one collection across iterations.
+input.orb:6 warning [D019] fn f allocates inside a while loop, so the allocation is repeated on every iteration. fix: build the collection once before the loop and reuse it, or reuse one collection across iterations.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (0 error(s), 2 warning(s)) in 1 files under "input.orb".

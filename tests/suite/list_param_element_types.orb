@@ -1,4 +1,3 @@
-
 fn firstOrEmpty(l: list < int >, fallback: int) -> int {
     if l.len() == 0 { return fallback }
     return l.get(0)
