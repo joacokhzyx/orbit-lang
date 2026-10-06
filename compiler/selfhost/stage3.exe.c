@@ -43,7 +43,6 @@ void __main(void) {}
 #endif
 typedef struct Token Token;
 typedef struct Lexer Lexer;
-typedef struct Loc Loc;
 typedef struct ParamNode ParamNode;
 typedef struct FieldInitNode FieldInitNode;
 typedef struct TypeAnnotationNode TypeAnnotationNode;
@@ -113,7 +112,6 @@ typedef struct IRModelField IRModelField;
 typedef struct IRModelDecl IRModelDecl;
 typedef struct IRVariantField IRVariantField;
 typedef struct IRVariantDecl IRVariantDecl;
-typedef struct IRTraitMethod IRTraitMethod;
 typedef struct IRTypeDecl IRTypeDecl;
 typedef struct IRModule IRModule;
 typedef struct IRGlobal IRGlobal;
@@ -515,18 +513,6 @@ static inline Lexer* orbit_model_Lexer_create(OrbitArena* arena_, orbit_string s
     m->pos = pos;
     m->line = line;
     m->col = col;
-    return m;
-}
-
-typedef struct Loc {
-    orbit_int line;
-    orbit_int column;
-} Loc;
-#define Loc(...) (Loc*)orbit_model_Loc_create(arena, __VA_ARGS__)
-static inline Loc* orbit_model_Loc_create(OrbitArena* arena_, orbit_int line, orbit_int column) {
-    Loc* m = (Loc*)orbit_alloc(arena_, sizeof(Loc));
-    m->line = line;
-    m->column = column;
     return m;
 }
 
@@ -1505,20 +1491,6 @@ static inline IRVariantDecl* orbit_model_IRVariantDecl_create(OrbitArena* arena_
     m->hasPayload = hasPayload;
     m->payloadType = payloadType;
     m->fields = fields;
-    return m;
-}
-
-typedef struct IRTraitMethod {
-    orbit_string name;
-    OrbitList* params;
-    orbit_string returnType;
-} IRTraitMethod;
-#define IRTraitMethod(...) (IRTraitMethod*)orbit_model_IRTraitMethod_create(arena, __VA_ARGS__)
-static inline IRTraitMethod* orbit_model_IRTraitMethod_create(OrbitArena* arena_, orbit_string name, OrbitList* params, orbit_string returnType) {
-    IRTraitMethod* m = (IRTraitMethod*)orbit_alloc(arena_, sizeof(IRTraitMethod));
-    m->name = name;
-    m->params = params;
-    m->returnType = returnType;
     return m;
 }
 

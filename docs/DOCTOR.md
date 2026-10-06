@@ -170,6 +170,28 @@ A file that does not parse is reported by the parse pass and is not typechecked
 at all, which is why a syntax error no longer also produces a semantic error:
 there is nothing to typecheck yet.
 
+## Which directories are gated
+
+`orbit doctor .` over this repository reports 196 findings, and almost none of
+them is something to fix:
+
+| | n | what it is |
+|---|---|---|
+| D008 | 57 | files in `tests/negative`, `tests/doctor`, `tests/parity` that must NOT compile |
+| D002 | 105 | route collisions inside those corpora, plus 17 across `examples/` |
+| D006/D007 | 28 | whitespace, which were real and are fixed |
+
+So the gate names what must be clean instead of baselining the rest.
+`scripts/doctor_scope_gate.py` runs doctor over `compiler`, `std` and
+`tests/suite`, and those three are expected to produce nothing. Four dead
+models came out of making that true: `IRTraitMethod` and `Loc` in the
+compiler, `JwtHeader` and `JwtToken` in std.
+
+`examples/` is deliberately not in the list. It is a directory of
+**independent services**, and a tree scan reads five services' `GET /health`
+as one program's conflicting routes. That is the correct analysis of the wrong
+input: scan a single service, or a single file, when that is the question.
+
 ## Gates
 
 Doctor prints the contributor gate commands at the end of every run for reference. It never runs them itself.

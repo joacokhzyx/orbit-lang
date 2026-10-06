@@ -209,12 +209,6 @@ model IRVariantDecl {
     fields: list
 }
 
-model IRTraitMethod {
-    name: string
-    params: list
-    returnType: string
-}
-
 model IRTypeDecl {
     name: string
     kind: string // "enumeration", "union_type", "alias", "trait"

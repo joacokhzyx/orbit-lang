@@ -160,6 +160,15 @@ def registry(compiler, cc, work):
                              "--work", _tmp(work, "cli")),
              r"Finished cli-probe: \d+/\d+", 600, allow_rc=(0, 1),
              needs=("compiler",)),
+        # The scope gate: named directories must be clean. Not the whole repo --
+        # tests/negative, tests/doctor and tests/parity are deliberately broken
+        # fixtures, and examples/ is independent services whose routes collide
+        # when read as one program. See the CI step for the full reasoning.
+        Tool("doctor_scope_gate.py", "gate",
+             "the directories that must have no doctor findings: compiler, std, tests/suite",
+             lambda: _script("doctor_scope_gate.py", "--compiler", compiler),
+             r"Finished doctor_scope: \d+ director", 300, allow_rc=(0, 1),
+             needs=("compiler",)),
         Tool("doctor_gate.py", "gate",
              "doctor's exact output against the goldens in tests/doctor/golden/",
              lambda: _script("doctor_gate.py", "--compiler", compiler),

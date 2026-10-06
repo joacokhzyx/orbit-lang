@@ -1,11 +1,6 @@
 // Orbit Self-Hosted Compiler - Abstract Syntax Tree Definitions
 // compiler/ast.orb
 
-model Loc {
-    line: int
-    column: int
-}
-
 model ParamNode {
     name: string
     typeName: string

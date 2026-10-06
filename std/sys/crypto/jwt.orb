@@ -25,18 +25,6 @@ extern fn orbit_streq(a: string, b: string) -> bool
 // the same value without either objecting. E1005 compares them now, so the
 // declaration has to be true.
 
-model JwtHeader {
-    alg: string
-    typ: string
-}
-
-model JwtToken {
-    header: string
-    payload: string
-    signature: string
-    raw: string
-}
-
 fn signToken(payloadJson: string, secret: string) -> string {
     val headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
     val headerB64 = orbit_base64url_encode_str(headerJson)

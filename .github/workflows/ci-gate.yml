@@ -194,11 +194,29 @@ jobs:
             "$FP" fmt --check "$f"
           done
 
-      - name: Doctor gate (no findings on the behavior suite)
+      # Scope, not a baseline. `orbit doctor .` over the whole repo reports 196
+      # findings, and nearly all of them are directories that are SUPPOSED to be
+      # broken: 57 D008 in tests/negative, tests/doctor and tests/parity, which
+      # are deliberately uncompilable fixtures, and 105 D002 route collisions
+      # inside those same corpora. Baselining those would be a list of 196 lines
+      # vouching for a state nobody wants. What must be clean is named instead.
+      #
+      # examples/ is deliberately absent: it is a directory of INDEPENDENT
+      # services, and a tree scan reads their routes as one program's routes and
+      # calls five services' GET /health a conflict. That is correct behaviour
+      # and a wrong scope, and docs/DOCTOR.md says so.
+      - name: Doctor gate (scoped directories are clean)
         shell: bash
         run: |
           SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "${RUNNER_TEMP}/fixed_point${SUFFIX}" doctor tests/suite
+          FP="${RUNNER_TEMP}/fixed_point${SUFFIX}"
+          for d in compiler std tests/suite; do
+            "$FP" doctor "$d" --color never --quiet || {
+              echo "::error::orbit doctor reported findings in $d (a directory that must be clean)"
+              "$FP" doctor "$d" --color never
+              exit 1
+            }
+          done
 
       - name: Doctor goldens (exact output)
         shell: bash
