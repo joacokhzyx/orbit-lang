@@ -1,0 +1,12 @@
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: no findings in 2 files under "mod".
+b.orb:1 error [D008] this file does not pass the compiler's semantic checks. fix: run `orbit check mod/b.orb` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)
+a.orb:1 error [D008] this file does not pass the compiler's semantic checks. fix: run `orbit check mod/a.orb` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (2 error(s), 0 warning(s)) in 2 files under "mod".

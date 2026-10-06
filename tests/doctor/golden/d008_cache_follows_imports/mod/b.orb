@@ -1,0 +1,5 @@
+import "./a.orb"
+
+fn main() -> int {
+    return helper()
+}

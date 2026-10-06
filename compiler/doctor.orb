@@ -1262,12 +1262,136 @@ fn doctorCacheDir() -> string {
  *  reprint them; the finding text points at `orbit check` for the detail rather
  *  than claiming "see the error above", which would be a promise a cache hit
  *  cannot keep. */
-fn doctorTypecheckCached(stats: DoctorStats, file: string, source: string) -> bool {
+/** @brief A fingerprint of everything the semantic check of `file` depends on.
+ *
+ *  The dependency is NOT the file. checkSourceWithFile resolves and typechecks
+ *  the transitive import closure, so the answer changes when a module this file
+ *  imports changes. Keying the cache on this file's own bytes therefore kept a
+ *  stale "clean" answer alive across an edit to an imported module: doctor
+ *  called a file clean that `orbit check` rejected on the same tree, and the
+ *  only reason the compiler was right and the cache was wrong is that the key
+ *  was narrower than the computation.
+ *
+ *  The walk mirrors resolveModuleAST: same declaration order, same path
+ *  resolution, each module visited once. An approximation here would be worse
+ *  than no cache at all, because it errs in the direction that hides errors.
+ *
+ *  `memo` is shared across the run and holds one entry per module, so the tree
+ *  pays for one closure walk in total instead of one per file -- which is the
+ *  5.8x amplification the resolver's per-file traversal costs today.
+ */
+fn doctorClosureFingerprintReuse(path: string, source: string, imports: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
+    val seen = [path]
+    val acc = doctorClosureWalkReuse(path, source, imports, seen, knownFiles, knownImports, knownSources, memo)
+    return acc + ":" + orbit_string_hash_selfhost(source)
+}
+
+/** @brief doctorClosureWalk, but reading imports this run already parsed.
+ *
+ *  Same traversal and same order as doctorClosureWalk; the only difference is
+ *  where an import's own import list comes from. A module inside the scanned
+ *  tree was parsed in the pass above, so asking again costs a second parse of
+ *  the whole tree to rediscover a graph we already walked. A module outside it
+ *  is read and parsed, which is the same as the resolver will do. */
+fn doctorClosureWalkReuse(path: string, source: string, imports: list, seen: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
+    val baseDir = getDir(path)
+    var acc = ""
+    var i = 0
+    while i < imports.len() {
+        val rel: string = imports.get(i)
+        val full = normalizePath(resolveFilePath(baseDir, rel))
+        if doctorListContains(seen, full) {
+            // Already walked in this closure: reaching a module twice adds
+            // nothing, and recursing on it again is how a cyclic import becomes
+            // infinite.
+            i = i + 1
+        } else {
+            seen.push(full)
+            val at = doctorIndexOfFile(knownFiles, full)
+            if at >= 0 {
+                val sub: string = knownImports.get(at)
+                val subSource: string = knownSources.get(at)
+                acc = acc + "|" + doctorModuleFingerprintReuse(full, subSource, sub, seen, knownFiles, knownImports, knownSources, memo)
+            } else {
+                val subSource2 = orbit_file_read_selfhost(full)
+                if subSource2 == "" {
+                    // A MISSING import is part of the answer too, so its absence
+                    // is in the fingerprint: creating the file later turns an
+                    // import error into something else, and the entry written
+                    // before it must not survive that.
+                    acc = acc + "|missing:" + full
+                } else {
+                    val parser = initParser(subSource2)
+                    val ast2 = parseProgram(parser)
+                    val subImports = []
+                    doctorCollectImports(ast2, subImports)
+                    acc = acc + "|" + doctorModuleFingerprintReuse(full, subSource2, subImports, seen, knownFiles, knownImports, knownSources, memo)
+                }
+            }
+            i = i + 1
+        }
+    }
+    return acc
+}
+
+/** @brief One module's contribution, memoized across the whole run. */
+fn doctorModuleFingerprintReuse(path: string, source: string, imports: list, seen: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
+    val hit = doctorMemoLookup(memo, path)
+    if hit != "" { return hit }
+    val sub = doctorClosureWalkReuse(path, source, imports, seen, knownFiles, knownImports, knownSources, memo)
+    val digest = sub + ":" + orbit_string_hash_selfhost(source)
+    memo.push(path + "=" + digest)
+    return digest
+}
+
+/** @brief Where `path` sits in the parallel lists of the parse pass, or -1. */
+fn doctorIndexOfFile(knownFiles: list, path: string) -> int {
+    var i = 0
+    while i < knownFiles.len() {
+        val p: string = knownFiles.get(i)
+        if p == path { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+/** @brief The memoized digest for `path`, or "" when it is not there yet. */
+fn doctorMemoLookup(memo: list, path: string) -> string {
+    val prefix = path + "="
+    var i = 0
+    while i < memo.len() {
+        val e: string = memo.get(i)
+        if doctorStartsWith(e, prefix) {
+            return orbit_string_slice(e, orbit_string_len(prefix), orbit_string_len(e))
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+/** @brief Every import path in declaration order, which is resolution order. */
+fn doctorCollectImports(node: ASTNode, out: list) {
+    match node {
+        ASTNode.Program(p) => {
+            var i = 0
+            while i < p.decls.len() {
+                doctorCollectImports(p.decls.get(i), out)
+                i = i + 1
+            }
+        }
+        ASTNode.ImportStmt(imp) => {
+            out.push(stripQuotes(imp.path))
+        }
+        _ => {}
+    }
+}
+
+fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string, fingerprint: string, cacheState: list) -> bool {
     val dir = doctorCacheDir()
-    val digest = orbit_string_hash_selfhost(source)
+    val digest = orbit_string_hash_selfhost(fingerprint)
     var path = ""
     if dir != "" && digest != "" {
-        if doctorCacheReady(dir) {
+        if doctorCacheReady(dir, cacheState) {
             path = doctorJoinPath(dir, digest + ".ok")
         }
     }
@@ -1295,13 +1419,18 @@ fn doctorTypecheckCached(stats: DoctorStats, file: string, source: string) -> bo
  *  "does this path exist" but "will the writes that follow survive", and a
  *  directory that exists but is read-only answers differently. The probe is
  *  remembered so a large tree does not rewrite it once per file. */
-fn doctorCacheReady(dir: string) -> bool {
+fn doctorCacheReady(dir: string, cacheState: list) -> bool {
+    if doctorListContains(cacheState, dir) { return true }
     val probe = doctorJoinPath(dir, ".writable")
     val existing = orbit_file_read_selfhost(probe)
-    if existing == "yes" { return true }
+    if existing == "yes" {
+        cacheState.push(dir)
+        return true
+    }
     if orbit_os_mkdir_selfhost(dir) == false { return false }
-    if orbit_file_write_selfhost(probe, "yes") { return true }
-    return false
+    if orbit_file_write_selfhost(probe, "yes") == false { return false }
+    cacheState.push(dir)
+    return true
 }
 
 fn doctorRun(opts: DoctorOptions) {
@@ -1337,6 +1466,12 @@ fn doctorRun(opts: DoctorOptions) {
     var routes = []
     var decls = []
     var refs = []
+    // What the parse pass produced, kept for the fingerprint pass. Parsing a
+    // file twice to find its imports is the one cost the cache cannot absorb.
+    val parsedFiles = []
+    val parsedAsts = []
+    val parsedImports = []
+    val parsedSources = []
     var i = 0
     while i < files.len() {
         val fp3: string = files.get(i)
@@ -1344,15 +1479,6 @@ fn doctorRun(opts: DoctorOptions) {
         if src3 == "" {
             doctorReport(stats, fp3, 1, "D008", "file is empty or could not be read.", "add content, or drop the path from the scan.")
         } else {
-            // A file that does not parse is reported HERE, from diagnostics the
-            // AST pass below already produced, and costs nothing: it cannot be
-            // typechecked, and without this line the AST pass silently skips it
-            // and doctor reports a broken file as clean. The expensive semantic
-            // check is separate and cached; see doctorTypecheckCached.
-            val okRes = doctorTypecheckCached(stats, fp3, src3)
-            if okRes == false {
-                doctorReport(stats, fp3, 1, "D008", "this file does not pass the compiler's semantic checks.", "run `orbit check " + fp3 + "` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)")
-            }
             // The text scans get their own clock rather than being inferred as
             // "the rest of the loop": a total that wraps three phases is not a
             // measurement of any of them, and the budgets are per phase.
@@ -1367,6 +1493,15 @@ fn doctorRun(opts: DoctorOptions) {
             if parser.diagnostics.len() == 0 {
                 doctorCollectDecls(ast, fp3, src3, decls)
                 doctorWalkRefs(ast, refs)
+                // Kept for the fingerprint pass below, which needs this file's
+                // imports. Without it the fingerprint re-parses every file in
+                // the tree, which is the parse the line above just paid for.
+                val imps = []
+                doctorCollectImports(ast, imps)
+                parsedFiles.push(fp3)
+                parsedAsts.push(ast)
+                parsedImports.push(imps)
+                parsedSources.push(src3)
             } else {
                 // A parse failure is a finding, and it is the one D008 case that
                 // costs nothing: the parser just said so. Reporting it here is
@@ -1380,6 +1515,25 @@ fn doctorRun(opts: DoctorOptions) {
             stats.astMs = stats.astMs + ((orbit_clock_ms() - astStart))
         }
         i = i + 1
+    }
+    // Second pass, and it has to be a second pass: the fingerprint of a file
+    // depends on its import CLOSURE, so a file's key can need the import list of
+    // a module that has not been parsed yet. Doing it after the parse pass also
+    // means the closure reads parses this run already paid for, instead of
+    // re-parsing the whole tree to rediscover the edges of the graph.
+    val closureMemo = []
+    val cacheState = []
+    var pi = 0
+    while pi < parsedFiles.len() {
+        val pfile: string = parsedFiles.get(pi)
+        val psrc: string = parsedSources.get(pi)
+        val pimps: list = parsedImports.get(pi)
+        val fingerprint = doctorClosureFingerprintReuse(pfile, psrc, pimps, parsedFiles, parsedImports, parsedSources, closureMemo)
+        val okRes = doctorTypecheckByFingerprint(stats, pfile, psrc, fingerprint, cacheState)
+        if okRes == false {
+            doctorReport(stats, pfile, 1, "D008", "this file does not pass the compiler's semantic checks.", "run `orbit check " + pfile + "` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)")
+        }
+        pi = pi + 1
     }
     doctorCheckRoutes(stats, routes)
     doctorCheckUnused(stats, decls, refs, files, sources)
@@ -1395,26 +1549,35 @@ fn doctorRun(opts: DoctorOptions) {
     if opts.quiet == false && opts.jsonMode == false {
         doctorPrintGates()
     }
+    // Counts the findings the reader can SEE, which is what "1 error, 0 warnings"
+    // has to mean. Counting the unfiltered set made `--only D006` print one
+    // warning and then report the error it had just hidden, which is the kind of
+    // summary that teaches people not to read summaries.
     var errCount = 0
     var warnCount = 0
     var si = 0
     while si < stats.findItems.len() {
         val sf: DoctorFinding = stats.findItems.get(si)
-        if doctorFiltered(sf, opts) { si = si + 1 }
-        if sf.severity == "error" {
-            errCount = errCount + 1
-        } else {
-            warnCount = warnCount + 1
-        }
         si = si + 1
+        if doctorFiltered(sf, opts) {} else {
+            if sf.severity == "error" {
+                errCount = errCount + 1
+            } else {
+                warnCount = warnCount + 1
+            }
+        }
     }
+    val shownTotal = errCount + warnCount
     if stats.findings == 0 {
         if opts.quiet == false && opts.jsonMode == false {
             print("doctor: no findings in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
         }
     } else {
         if opts.quiet == false && opts.jsonMode == false {
-            print("doctor: " + orbit_int_to_string_selfhost(stats.findings) + " finding(s) (" + orbit_int_to_string_selfhost(errCount) + " error(s), " + orbit_int_to_string_selfhost(warnCount) + " warning(s)) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
+            print("doctor: " + orbit_int_to_string_selfhost(shownTotal) + " finding(s) (" + orbit_int_to_string_selfhost(errCount) + " error(s), " + orbit_int_to_string_selfhost(warnCount) + " warning(s)) in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
+            if shownTotal != stats.findings {
+                print("doctor: " + orbit_int_to_string_selfhost(stats.findings - shownTotal) + " finding(s) hidden by --only/--skip/--min-severity.")
+            }
         }
         if printed > 0 { orbit_os_exit_selfhost(1) }
     }
@@ -1571,27 +1734,34 @@ fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list, source
     var fi = 0
     while fi < stats.findItems.len() {
         val f: DoctorFinding = stats.findItems.get(fi)
+        fi = fi + 1
         val edits = f.edits
-        if edits.len() == 0 { fi = fi + 1 }
+        // Every branch below either moves on or opts out. The one thing this loop
+        // must never do is fall through: advancing the index AND carrying on
+        // processes the same finding twice, which is how `--fix` came to skip
+        // every finding that followed one without edits. Since D008 is reported
+        // first and carries no edits, that was most of them.
         if doctorEditsAreSafe(edits) == false && opts.unsafeMode == false {
             f.applied = "not applied: this fix is structural; re-run with --fix --unsafe to apply it"
-            fi = fi + 1
+        } else {
+            var target = -1
+            var gi = 0
+            while gi < files.len() {
+                if files.get(gi) == f.file { target = gi }
+                gi = gi + 1
+            }
+            if target < 0 {
+                f.applied = "not applied: doctor could not find " + f.file + " among the files it scanned"
+            } else {
+                val bucket = perFile.get(target)
+                var e = 0
+                while e < edits.len() {
+                    bucket.push(edits.get(e))
+                    e = e + 1
+                }
+                any = true
+            }
         }
-        var target = -1
-        var gi = 0
-        while gi < files.len() {
-            if files.get(gi) == f.file { target = gi }
-            gi = gi + 1
-        }
-        if target < 0 { fi = fi + 1 }
-        val bucket = perFile.get(target)
-        var e = 0
-        while e < edits.len() {
-            bucket.push(edits.get(e))
-            e = e + 1
-        }
-        any = true
-        fi = fi + 1
     }
     if any == false { return }
     var pi = 0

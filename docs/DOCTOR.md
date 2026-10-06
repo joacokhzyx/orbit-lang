@@ -137,10 +137,16 @@ says.
 The semantic half of `D008` runs the real typechecker, and that is the slowest
 thing doctor does. Its answer is cached on a **hash of the file's contents**:
 
-- a file you have not touched is not typechecked twice
+- a file you have not touched, and none of the modules it imports, is not
+  typechecked twice
 - a file you edited, even by one byte, is typechecked again
-- a file you moved keeps its answer, because the key is the content and not the
-  path or a timestamp
+- **a module you edited is followed through to every file that imports it**,
+  directly or not
+
+That last one is the whole reason the key is a fingerprint and not a hash: the
+semantic check resolves and typechecks the import closure, so the answer belongs
+to the file *and* everything it pulls in. A per-file cache key reported files
+clean that `orbit check` rejected, which is the worst thing a linter can do.
 
 ```sh
 ORBIT_DOCTOR_CACHE=0 orbit doctor .          # do not use or write the cache
@@ -151,6 +157,18 @@ The first run on a fresh clone pays for every file; later runs on the same tree
 do not. One consequence is worth knowing: a cached answer does not reprint the
 compiler's diagnostic, so that finding points you at `orbit check <file>` for
 the detail instead of showing it above the line.
+
+## Order of findings
+
+Findings are printed by the phase that produced them, not grouped by file: the
+text checks first, then the semantic check (`D008`). That is a consequence of
+the parse pass being shared — the fingerprint of one file depends on the imports
+of another, so the semantic pass has to come after the whole tree is parsed.
+Every finding is still reported, and the order is pinned by the goldens.
+
+A file that does not parse is reported by the parse pass and is not typechecked
+at all, which is why a syntax error no longer also produces a semantic error:
+there is nothing to typecheck yet.
 
 ## Gates
 

@@ -1,8 +1,7 @@
-input.orb:1 error [D008] this file does not pass the compiler's semantic checks. fix: run `orbit check input.orb` and address the first error. (The detail is not reprinted here: it comes from the typecheck, which a cached answer skips.)
 input.orb:2 warning [D006] trailing whitespace on this line. fix: remove the trailing spaces or tabs (doctor --fix does this).
 input.orb:3 error [D008] this file does not parse, so no analysis beyond the text checks could run on it (unexpected token 'KeywordReturn'). fix: run `orbit check input.orb` and fix the first parse error.
 gates: doctor never runs these itself; run them from the repository root:
   python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
   python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
   python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
-doctor: 3 finding(s) (2 error(s), 1 warning(s)) in 1 files under "input.orb".
+doctor: 2 finding(s) (1 error(s), 1 warning(s)) in 1 files under "input.orb".

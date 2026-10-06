@@ -1,0 +1,5 @@
+fn main() -> int {
+    val y: int = "no soy int"
+    print("a")   
+    return 0
+}

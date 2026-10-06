@@ -18,6 +18,11 @@ Each case in tests/doctor/golden/ is a directory holding:
   expect_unchanged  optional; asserts --dry-run really wrote nothing
   allow_stderr  optional; permits stderr, for cases whose finding IS a
                 compiler diagnostic printed by the compiler
+  steps         optional; shell commands run INSTEAD of one doctor run, one per
+                line, with {orbit} replaced by the compiler. expected.txt is
+                their concatenated stdout. This is the only way to test a cache:
+                a cache bug is by definition invisible to a single run, because
+                the wrong answer is the one already on disk.
 
 Each case runs against a throwaway COPY of its own directory. That is what lets
 a case pass --fix or --dry-run and still mean the same thing tomorrow: the
@@ -65,7 +70,7 @@ def read_rc(case: pathlib.Path) -> int:
 
 # Files that belong to the gate rather than to the scanned tree.
 META = {"expected.txt", "args", "expect_rc", "expect_crlf", "expect_unchanged",
-        "allow_stderr", "scan"}
+        "allow_stderr", "steps", "scan"}
 
 
 def stage_case(case: pathlib.Path, work: str) -> None:
@@ -104,7 +109,36 @@ def check_crlf(case: pathlib.Path, work: str) -> str:
     return ""
 
 
+def run_steps(compiler: str, case: pathlib.Path, work: str, env: dict) -> str:
+    """Runs the case's step list and returns the concatenated stdout."""
+    out = ""
+    for line in (case / "steps").read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        proc = subprocess.run(line.replace("{orbit}", compiler), shell=True,
+                              capture_output=True, text=True, cwd=work, env=env)
+        out += strip_toolchain(proc.stdout)
+    return out
+
+
 def run_case(compiler: str, case: pathlib.Path, env: dict) -> tuple:
+    if (case / "steps").exists():
+        # A steps case names its own commands; it does not need a scan target,
+        # and the exit code it asserts is the last command's.
+        with tempfile.TemporaryDirectory(prefix="doctor_gate_") as work:
+            stage_case(case, work)
+            combined = run_steps(compiler, case, work, env)
+            if (case / "expect_crlf").exists():
+                bad = check_crlf(case, work)
+                if bad:
+                    return None, f"{case.name}: {bad}"
+            if (case / "expect_unchanged").exists():
+                bad = check_unchanged(case, work)
+                if bad:
+                    return None, f"{case.name}: steps changed the tree: {bad}"
+        proc = subprocess.CompletedProcess(["steps"], 0, combined, "")
+        return proc, None
     scan_file = case / "scan"
     if not scan_file.exists():
         return None, f"{case.name}: missing scan"
