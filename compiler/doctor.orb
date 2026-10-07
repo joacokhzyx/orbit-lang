@@ -1833,6 +1833,21 @@ fn doctorCheckDuplicateMatchArms(stats: DoctorStats, node: ASTNode, file: string
         ASTNode.MemberAccess(m) => { doctorCheckDuplicateMatchArms(stats, m.object, file) }
         ASTNode.ListLiteral(l) => { doctorChildrenFrom(l.elements, stats, file) }
         ASTNode.TypedLiteral(t) => { doctorCheckDuplicateMatchArms(stats, t.value, file) }
+        // The parser parks an ObjectLiteral inside TypedLiteralNode.value, so
+        // descending TypedLiteral lands here. Without this arm a match in an
+        // object field's value is never reached, and a duplicate in it is dead
+        // code nobody is told about.
+        ASTNode.ObjectLiteral(o) => {
+            // o.fields holds FieldInit nodes, not expressions, so descending it
+            // lands on a node that needs its own arm. Without this the descent
+            // stops one level below the literal.
+            doctorChildrenFrom(o.fields, stats, file)
+        }
+        ASTNode.FieldInit(fi) => { doctorCheckDuplicateMatchArms(stats, fi.value, file) }
+        // Same hole through a string: `val t = "v=${match s { ... }}"`. The refs
+        // walk has had an Interp arm since D021; this one had not, which is
+        // what made the two walks disagree about the same file.
+        ASTNode.Interp(inp) => { doctorChildrenFrom(inp.parts, stats, file) }
         ASTNode.Try(t) => {
             doctorCheckDuplicateMatchArms(stats, t.expr, file)
             doctorCheckDuplicateMatchArms(stats, t.catchBody, file)

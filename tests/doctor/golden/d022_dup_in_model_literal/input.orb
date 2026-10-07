@@ -1,0 +1,6 @@
+union Shape { Circle(int), Square(int), Unit }
+model Point { v: int }
+fn f(s: Shape) -> int {
+    val x = Point { v: match s { Shape.Circle(r) => r, Shape.Square(a) => a, Shape.Unit => 0, Shape.Circle(r) => 999 } }
+    return x.v
+}

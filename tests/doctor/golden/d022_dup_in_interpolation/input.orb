@@ -1,0 +1,4 @@
+union Shape { Circle(int), Square(int), Unit }
+fn f(s: Shape) -> string {
+    return "v=${match s { Shape.Circle(r) => r, Shape.Square(a) => a, Shape.Unit => 0, Shape.Circle(r) => 999 }}"
+}

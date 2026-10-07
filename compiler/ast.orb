@@ -1,3 +1,15 @@
+// A field here holds ONE ASTNode unless it says `list`. The two are both
+// pointers in the generated C, so a single-node field declared `list`
+// typechecked and read back fine for as long as it existed -- and that is the
+// problem: it is a landmine, not a harmless mistake. Reading .len() off one is a
+// list length read from a node pointer. Fourteen such fields were corrected on
+// 2026-10-07 (ReturnNode.expr, VarDeclNode.value, MatchCaseNode.pattern,
+// MatchNode.expr among them) and the compiler found no reader that had relied on
+// the wrong type, which is the only reason the fix was safe to make blind.
+//
+// The list fields that remain are genuine lists OF nodes: cases, args, decls,
+// statements, elements, parts, fields, params.
+
 // Orbit Self-Hosted Compiler - Abstract Syntax Tree Definitions
 // compiler/ast.orb
 
@@ -8,7 +20,8 @@ model ParamNode {
 
 model FieldInitNode {
     name: string
-    value: list
+    // See the note at the head of this file.
+    value: ASTNode
 }
 
 model TypeAnnotationNode {
@@ -95,7 +108,8 @@ model ImplDeclNode {
 model VarDeclNode {
     name: string
     isMutable: bool
-    value: list
+    // See the note at the head of this file.
+    value: ASTNode
     typeAnnotation: string
     // Where the name was. A type annotation that does not match its value, or
     // that names a type nothing declares, is reported against this.
@@ -105,7 +119,8 @@ model VarDeclNode {
 
 model ConstDeclNode {
     name: string
-    value: list
+    // See the note at the head of this file.
+    value: ASTNode
     isPrivate: bool
     line: int
     col: int
@@ -136,7 +151,8 @@ model UseStmtNode {
 }
 
 model ExpressionStmtNode {
-    expr: list
+    // See the note at the head of this file.
+    expr: ASTNode
 }
 
 model ProgramNode {
@@ -198,16 +214,19 @@ model ForNode {
 }
 
 model ReturnNode {
-    expr: list
+    // See the note at the head of this file.
+    expr: ASTNode
 }
 
 model ReturnOkNode {
-    expr: list
+    // See the note at the head of this file.
+    expr: ASTNode
     status: string
 }
 
 model ReturnErrNode {
-    expr: list
+    // See the note at the head of this file.
+    expr: ASTNode
     code: string
 }
 
@@ -239,15 +258,19 @@ model MatchCaseNode {
 }
 
 model TryNode {
-    expr: list
-    catchBody: list
+    // See the note at the head of this file.
+    expr: ASTNode
+    // See the note at the head of this file.
+    catchBody: ASTNode
     errName: string
 }
 
 model BinaryOpNode {
     op: string
-    lhs: list
-    rhs: list
+    // See the note at the head of this file.
+    lhs: ASTNode
+    // See the note at the head of this file.
+    rhs: ASTNode
     // Where the operator was. A division by a zero divisor is reported
     // against this, and without it the diagnostic could only name the
     // function the expression was emitted into.
@@ -257,7 +280,8 @@ model BinaryOpNode {
 
 model UnaryOpNode {
     op: string
-    operand: list
+    // See the note at the head of this file.
+    operand: ASTNode
 }
 
 model CallNode {
@@ -272,7 +296,8 @@ model CallNode {
 }
 
 model MemberAccessNode {
-    object: list
+    // See the note at the head of this file.
+    object: ASTNode
     field: string
     // Where the '.' was. A field that a model does not declare is reported
     // against this, and without it the diagnostic could only name the
@@ -282,8 +307,10 @@ model MemberAccessNode {
 }
 
 model IndexAccessNode {
-    object: list
-    index: list
+    // See the note at the head of this file.
+    object: ASTNode
+    // See the note at the head of this file.
+    index: ASTNode
     line: int
     col: int
 }
@@ -293,8 +320,10 @@ model ListLiteralNode {
 }
 
 model AssignmentNode {
-    target: list
-    value: list
+    // See the note at the head of this file.
+    target: ASTNode
+    // See the note at the head of this file.
+    value: ASTNode
 }
 
 model BreakNode {}
