@@ -172,7 +172,14 @@ def registry(compiler, cc, work):
         Tool("doctor_gate.py", "gate",
              "doctor's exact output against the goldens in tests/doctor/golden/",
              lambda: _script("doctor_gate.py", "--compiler", compiler),
-             r"Finished doctor_gate: \d+ case", 300, allow_rc=(0, 1),
+             # 900, not 300: this gate used to SKIP the three cases that verify a
+             # --fix by compiling the result, and now it runs them, because the
+             # compiler in CI lives in RUNNER_TEMP and cannot otherwise reach the
+             # runtime headers. Three real compiles on a cold ccache do not fit
+             # in five minutes, and a timeout kills the process before it prints
+             # the closing line -- which reads, to the check below, as "did not do
+             # the work" rather than as the timeout it is.
+             r"Finished doctor_gate: \d+ case", 900, allow_rc=(0, 1),
              needs=("compiler",)),
         Tool("routes_probe.py", "gate",
              "MSYS2 argument-rewrite normalization; Windows CI only breaks "

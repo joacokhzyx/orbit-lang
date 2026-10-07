@@ -341,6 +341,21 @@ def main() -> int:
 
     for name, want, got in failures:
         print(f"FAIL {name}")
+        # Say WHICH assertion failed and where the two texts diverge, before
+        # dumping either. A CI log that shows 1200 characters of "expected" and
+        # then truncates answers no question; the first differing line answers
+        # it. When the assertion is not a text comparison ("exit 1", "no stderr")
+        # there is nothing to point at and the dump stands on its own.
+        if want and got and "\n" in want and "\n" in got:
+            wl, gl = want.splitlines(), got.splitlines()
+            for n in range(max(len(wl), len(gl))):
+                a = wl[n] if n < len(wl) else "<missing>"
+                b = gl[n] if n < len(gl) else "<missing>"
+                if a != b:
+                    print(f"  first difference at output line {n + 1}:")
+                    print(f"    expected: {a[:200]}")
+                    print(f"    actual:   {b[:200]}")
+                    break
         print("  expected: " + want.replace("\n", "\n  ")[:1200])
         print("  actual:   " + got.replace("\n", "\n  ")[:1200])
     if failures:

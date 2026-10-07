@@ -79,7 +79,12 @@ int main(void) {
      * has assertions left to run and cannot wait for exit(). Writing the file by
      * hand here would pass even with the hook deleted. */
     {
-        const char* path = "/tmp/orbit_test_ledger_dump.json";
+        /* Relative, like the other runtime tests ("note.txt", "a.txt"). The
+         * path is opened with fopen at the end of this block, and "/tmp" does
+         * not exist on the Windows runner, so the hook wrote a file nothing
+         * could open and the assertion below failed on a machine where every
+         * line above it had passed. */
+        const char* path = "orbit_test_ledger_dump.json";
         remove(path);
         orbit_env_set("ORBIT_LEDGER_OUT", path);
         orbit_ledger_enable_file_dump();
