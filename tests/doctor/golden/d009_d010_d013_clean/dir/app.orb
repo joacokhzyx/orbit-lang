@@ -5,7 +5,7 @@ fn handler(req: string) -> int {
     total = total + rows.len()
     var counter = 0
     counter = counter + 1
-    print(key + orbit_int_to_string_selfhost(total + counter))
+    print(req + key + orbit_int_to_string_selfhost(total + counter))
     return 0
 }
 extern fn print(s: string) -> int

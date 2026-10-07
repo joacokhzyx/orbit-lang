@@ -1,0 +1,6 @@
+input.orb:3 warning [D021] parameter neverRead of fn usesOne is never read. fix: remove it and update the callers, or use it: a parameter nobody reads is a promise the function does not keep, and every caller is still obliged to supply it.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".

@@ -1,0 +1,6 @@
+extern fn show(s: string)
+
+fn usesIt(level: string) -> string {
+    show("level is ${level}")
+    return level
+}

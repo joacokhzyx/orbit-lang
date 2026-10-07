@@ -16,6 +16,7 @@ import "./pipeline.orb"
 //   D006  trailing whitespace (fixed by --fix)
 //   D007  missing final newline (fixed by --fix)
 //   D008  file does not pass the compiler's own checks
+//   D021  function parameter never read by its body (extern fns skipped)
 //
 // --fix applies only D006/D007 whitespace tidies. Nothing semantic is
 // ever changed automatically.
@@ -1531,6 +1532,7 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
             doctorCheckComplexity(stats, node, f.name, file, lines)
             doctorCheckRecursion(stats, node, f.name, file, lines)
             doctorCheckLoopAllocs(stats, node, f.name, file, lines)
+            doctorCheckUnusedParams(stats, f, file, lines)
         }
         _ => {}
     }
@@ -1675,6 +1677,52 @@ fn doctorCheckRecursion(stats: DoctorStats, node: ASTNode, fnName: string, file:
     if doctorCallsName(body, fnName) == false { return }
     if doctorHasTailSelfCall(body, fnName) { return }
     doctorReport(stats, file, doctorFindDeclLine(lines, "fn", fnName), "D018", "fn " + fnName + " calls itself, but the call is not the value it returns.", "make the recursive call the whole of a return, so the frame is released before the next call; otherwise a deep input exhausts the stack under sustained load rather than under a test.")
+}
+
+/** @brief D021: report each parameter of this function that its body never reads.
+ *
+ *  `f.params` is a bare list of names, not ASTNode.Param values: the parser
+ *  pushes `parser.previousToken.text` (parser.orb:861) and drops the token, so
+ *  there is no per-parameter position to report against. The finding is located
+ *  on the `fn` line, as D017, D018 and D019 already do. ParamNode exists in
+ *  ast.orb:4 and nothing ever constructs it, so giving parameters a position is
+ *  a parser change, not something to fake here.
+ *
+ *  extern fn is skipped. The 54-odd extern declarations in compiler/ and std/
+ *  have an empty body by construction (parser.orb:896), so every parameter of
+ *  every one of them would report, and they are implemented in C where the
+ *  parameter name is documentation.
+ *
+ *  The refs are collected per function. A run-wide list would report nothing at
+ *  all: a parameter called `source` appears in dozens of other bodies.
+ */
+fn doctorCheckUnusedParams(stats: DoctorStats, f: FunctionDeclNode, file: string, lines: list) {
+    if f.isExtern { return }
+    val refs = doctorRefsInSubtree(f.body)
+    val declLine = doctorFindDeclLine(lines, "fn", f.name)
+    val params = f.params
+    var i = 0
+    while i < params.len() {
+        val pName: string = params.get(i)
+        if pName != "" {
+            if doctorListHasString(refs, pName) == false {
+                doctorReport(stats, file, declLine, "D021", "parameter " + pName + " of fn " + f.name + " is never read.", "remove it and update the callers, or use it: a parameter nobody reads is a promise the function does not keep, and every caller is still obliged to supply it.")
+            }
+        }
+        i = i + 1
+    }
+}
+
+/** @brief Whether a list contains an exact string. */
+fn doctorListHasString(items: list, want: string) -> bool {
+    var found = false
+    var i = 0
+    while i < items.len() {
+        val it: string = items.get(i)
+        if it == want { found = true }
+        i = i + 1
+    }
+    return found
 }
 
 /** @brief Whether any statement in a body calls `name`. */
@@ -2208,6 +2256,28 @@ fn doctorWalkRefs(node: ASTNode, refs: list) {
         }
         ASTNode.ExpressionStmt(n) => { doctorWalkRefs(n.expr, refs) }
         ASTNode.TypeAnnotation(n) => { refs.push(n.token) }
+        // These three carry identifiers that are genuine uses. Without the arms
+        // below, a parameter read only inside an interpolated string, an object
+        // literal or a model literal looks unused, and the first person to write
+        // `fn log(level: string) { print("level is ${level}") }` gets a finding
+        // that is simply false.
+        ASTNode.Interp(inp) => {
+            val parts = inp.parts
+            var i = 0
+            while i < parts.len() {
+                doctorWalkRefs(doctorNodeAt(parts, i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.ObjectLiteral(o) => {
+            val flds = o.fields
+            var i = 0
+            while i < flds.len() {
+                doctorWalkRefs(doctorNodeAt(flds, i), refs)
+                i = i + 1
+            }
+        }
+        ASTNode.TypedLiteral(t) => { doctorWalkRefs(t.value, refs) }
         ASTNode.ImplDecl(n) => {
             refs.push(n.traitName)
             refs.push(n.typeName)

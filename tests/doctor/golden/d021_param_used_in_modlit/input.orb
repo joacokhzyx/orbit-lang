@@ -1,0 +1,4 @@
+model Point { x: int }
+fn usesIt(m: int) -> Point {
+    return Point { x: m }
+}

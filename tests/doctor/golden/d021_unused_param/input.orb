@@ -1,0 +1,6 @@
+extern fn sink(v: int)
+
+fn usesOne(a: int, neverRead: int) -> int {
+    sink(a)
+    return a
+}

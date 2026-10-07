@@ -1,0 +1,7 @@
+extern fn sink(v: int)
+
+fn usesBoth(a: int, b: int) -> int {
+    sink(a)
+    sink(b)
+    return a
+}

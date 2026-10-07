@@ -1,0 +1,4 @@
+extern fn other(v: int) -> int
+fn usesIt(a: int) -> int {
+    return other(a)
+}

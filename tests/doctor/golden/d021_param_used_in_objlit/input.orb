@@ -1,0 +1,4 @@
+fn usesIt(k: string) -> string {
+    val o = { key: k }
+    return o.key
+}

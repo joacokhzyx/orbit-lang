@@ -45,10 +45,19 @@ CLEAN_DIRS = ["compiler", "std", "tests/suite"]
 # of complexity 20, and telling it to extract sub-functions would be advice
 # about the test, not the code.
 #
+# D021 joins them: tests/suite/call_arg_types.orb defines
+# `fn takesFloat(f: float) -> int { return 1 }`. The parameter exists so the
+# test can hand it a float and pin E1005 argument-type checking; the body
+# deliberately ignores it, because a return value that depended on the argument
+# would make `takesFloat(1.5)` and `takesFloat(2)` assert different things and
+# the test would stop being about types. Removing the parameter would remove the
+# coverage. The check is still true of that code, and it is not advisory
+# anywhere else: compiler/ and std/ are clean under it.
+#
 # A code goes here only when "the code is right and the check is still true" is
 # the normal case. That is not true of the other codes here, which is why this
 # list has one entry.
-ADVISORY_CODES = {"D015", "D017", "D018"}
+ADVISORY_CODES = {"D015", "D017", "D018", "D021"}
 
 
 def main() -> int:
