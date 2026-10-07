@@ -4,19 +4,19 @@
 // covering them; query strings keep working alongside.
 route GET "/notes/:id" {
     val id = req.param("id")
-    return ok 200 "{\"note\":\"" + id + "\"}"
+    return ok 200 """{"note":"${id}"}"""
 }
 
 route DELETE "/notes/{id}" {
     val id = req.param("id")
-    return ok 200 "{\"deleted\":\"" + id + "\"}"
+    return ok 200 """{"deleted":"${id}"}"""
 }
 
 route GET "/posts/search" {
-    return ok 200 "{\"static\":true}"
+    return ok 200 """{"static":true}"""
 }
 
 route GET "/posts/:id" {
     val id = req.param("id")
-    return ok 200 "{\"post\":\"" + id + "\"}"
+    return ok 200 """{"post":"${id}"}"""
 }

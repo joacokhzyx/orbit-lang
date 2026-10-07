@@ -31,14 +31,14 @@ route GET "/v1/catalog/featured" {
 }
 
 route GET "/v1/catalog/categories" {
-    return ok 200 "{\"categories\":[\"Developer Tools\",\"Security\",\"Databases\",\"Networking\"]}"
+    return ok 200 """{"categories":["Developer Tools","Security","Databases","Networking"]}"""
 }
 
 route POST "/v1/catalog/items" {
     val body = req.body()
     val created = Product.create(body)
     if (created) {
-        return ok 201 "{\"status\":\"created\",\"id\":\"" + body.id + "\",\"message\":\"Product saved to SQLite database\"}"
+        return ok 201 """{"status":"created","id":"${body.id}","message":"Product saved to SQLite database"}"""
     }
     err 400 "Failed to insert product into database"
 }

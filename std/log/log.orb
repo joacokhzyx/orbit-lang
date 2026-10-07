@@ -8,7 +8,7 @@ fn withReq(requestId: string, msg: string) -> string {
 }
 
 fn toJsonLine(level: string, msg: string) -> string {
-    return "{\"level\":\"" + level + "\",\"msg\":\"" + msg + "\"}"
+    return """{"level":"${level}","msg":"${msg}"}"""
 }
 
 fn info(msg: string) -> void {

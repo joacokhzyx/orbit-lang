@@ -6,7 +6,7 @@ import "std/string/string.orb"
 import "std/test/assert.orb"
 
 fn main() -> int {
-    val tok = signHs256("{\"sub\":\"demo\",\"exp\":2000000000}", "demo-secret")
+    val tok = signHs256("""{"sub":"demo","exp":2000000000}""", "demo-secret")
     if assertTrue(verifyHs256(tok, "demo-secret", 1000000000)) == false { return 1 }
     var frame = newBuffer()
     writeFrame(frame, tok)

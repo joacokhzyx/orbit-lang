@@ -51,7 +51,7 @@ route POST "/v1/products" {
         err 401 "a valid ?key= value is required to publish"
     }
     val payload = req.body()
-    if (payload == "" || payload == "{}") {
+    if (payload == "" || payload == """{}""") {
         err 400 "post a JSON body with the product fields"
     }
     return ok 201 payload
@@ -59,12 +59,12 @@ route POST "/v1/products" {
 
 route GET "/health" {
     val uptime = system.uptime()
-    return ok 200 "{\"status\":\"UP\",\"uptime_seconds\":" + uptime + "}"
+    return ok 200 """{"status":"UP","uptime_seconds":${uptime}}"""
 }
 
 route GET "/metrics" {
     val total = system.http_requests_total()
     val latency = system.latency_avg_us()
     val workers = system.active_workers()
-    return ok 200 "{\"metrics\":{\"http_requests_total\":" + total + ",\"latency_avg_us\":" + latency + ",\"active_workers\":" + workers + "}}"
+    return ok 200 """{"metrics":{"http_requests_total":${total},"latency_avg_us":${latency},"active_workers":${workers}}}"""
 }

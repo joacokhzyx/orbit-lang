@@ -12,14 +12,14 @@ model Post {
 
 route POST "/posts" {
     val payload = req.body()
-    if payload == "" || payload == "{}" {
+    if payload == "" || payload == """{}""" {
         err 400 "post a JSON body with id and title"
     }
     val created = Post.create(payload)
     if created {
         return ok 201 payload
     }
-    return ok 400 "{\"stored\":false}"
+    return ok 400 """{"stored":false}"""
 }
 
 route GET "/posts" {
@@ -37,7 +37,7 @@ route DELETE "/posts/:id" {
     val id = req.param("id")
     val gone = Post.delete(id)
     if gone {
-        return ok 200 "{\"deleted\":\"" + id + "\"}"
+        return ok 200 """{"deleted":"${id}"}"""
     }
-    return ok 404 "{\"deleted\":false}"
+    return ok 404 """{"deleted":false}"""
 }

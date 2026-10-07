@@ -5,16 +5,16 @@
 
 route GET "/health" {
     val uptime = system.uptime()
-    return ok 200 "{\"status\":\"UP\",\"version\":\"0.1.0-rc.2\",\"uptime_seconds\":" + uptime + "}"
+    return ok 200 """{"status":"UP","version":"0.1.0-rc.2","uptime_seconds":${uptime}}"""
 }
 
 route GET "/ready" {
-    return ok 200 "{\"ready\":true,\"accepting_traffic\":true}"
+    return ok 200 """{"ready":true,"accepting_traffic":true}"""
 }
 
 route GET "/metrics" {
     val total = system.http_requests_total()
     val latency = system.latency_avg_us()
     val workers = system.active_workers()
-    return ok 200 "{\"metrics\":{\"http_requests_total\":" + total + ",\"latency_avg_us\":" + latency + ",\"active_workers\":" + workers + "}}"
+    return ok 200 """{"metrics":{"http_requests_total":${total},"latency_avg_us":${latency},"active_workers":${workers}}}"""
 }

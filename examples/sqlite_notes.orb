@@ -36,9 +36,9 @@ route GET "/v1/notes/secured" {
 }
 
 route POST "/v1/notes" {
-    val saved = Note.create("{\"id\":\"note_103\",\"title\":\"New Orbit Note\",\"body\":\"Note dynamically inserted into SQLite database\",\"author_id\":\"usr_admin\",\"created_at\":\"2026-07-22T01:45:00Z\",\"is_private\":false}")
+    val saved = Note.create("""{"id":"note_103","title":"New Orbit Note","body":"Note dynamically inserted into SQLite database","author_id":"usr_admin","created_at":"2026-07-22T01:45:00Z","is_private":false}""")
     if (saved) {
-        return ok 201 "{\"status\":\"created\",\"id\":\"note_103\",\"message\":\"Note saved to SQLite database\"}"
+        return ok 201 """{"status":"created","id":"note_103","message":"Note saved to SQLite database"}"""
     }
     err 400 "Failed to save note to database"
 }
@@ -50,11 +50,11 @@ route DELETE "/v1/notes/:id" {
     }
     val deleted = Note.delete(id)
     if (deleted) {
-        return ok 200 "{\"status\":\"deleted\",\"id\":\"" + id + "\"}"
+        return ok 200 """{"status":"deleted","id":"${id}"}"""
     }
     err 404 "Note not found in database"
 }
 
 route GET "/health" {
-    return ok 200 "{\"status\":\"UP\",\"engine\":\"sqlite3\",\"database\":\"orbit.db\",\"pool_active\":true}"
+    return ok 200 """{"status":"UP","engine":"sqlite3","database":"orbit.db","pool_active":true}"""
 }

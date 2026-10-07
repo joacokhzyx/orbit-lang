@@ -14,9 +14,9 @@ route GET "/v1/sovereign/status" {
     val pid = system.pid()
     val workers = system.active_workers()
 
-    return ok 200 "{\"system\":{\"status\":\"Sovereign Active\",\"pid\":" + pid + ",\"uptime_seconds\":" + uptime + ",\"active_workers\":" + workers + ",\"engine\":\"Kynx Arena\"}}"
+    return ok 200 """{"system":{"status":"Sovereign Active","pid":${pid},"uptime_seconds":${uptime},"active_workers":${workers},"engine":"Kynx Arena"}}"""
 }
 
 route GET "/v1/sovereign/health" {
-    return ok 200 "{\"health\":\"UP\",\"zero_trust\":true}"
+    return ok 200 """{"health":"UP","zero_trust":true}"""
 }
