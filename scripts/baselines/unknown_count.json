@@ -2,22 +2,22 @@
   "schema": 1,
   "note": "Ratchet baseline for the unknown-type count. Every number in totals may only go down. Written by scripts/unknown_ratchet.py --write-baseline. Do not hand-edit a number up; that is what the gate is for.",
   "totals": {
-    "unknown_per_mille": 295,
-    "silent_per_mille": 136
+    "unknown_per_mille": 294,
+    "silent_per_mille": 135
   },
-  "files": 121,
-  "instructions": 53185,
+  "files": 122,
+  "instructions": 53934,
   "context": {
-    "unknown_instructions": 15699,
-    "unknown_without_diagnostic": 7229
+    "unknown_instructions": 15877,
+    "unknown_without_diagnostic": 7291
   },
   "by_file": {
     "compiler/ast.orb": 0,
     "compiler/builder.orb": 1282,
-    "compiler/c_backend.orb": 1727,
+    "compiler/c_backend.orb": 1725,
     "compiler/cluster.orb": 888,
     "compiler/cteval.orb": 794,
-    "compiler/doctor.orb": 2540,
+    "compiler/doctor.orb": 2716,
     "compiler/extern.orb": 0,
     "compiler/fmt.orb": 743,
     "compiler/frontend/frontend.orb": 29,
@@ -28,7 +28,7 @@
     "compiler/literal.orb": 60,
     "compiler/main.orb": 198,
     "compiler/optimizer.orb": 171,
-    "compiler/parser.orb": 2370,
+    "compiler/parser.orb": 2369,
     "compiler/pipeline.orb": 441,
     "compiler/resolver.orb": 74,
     "compiler/route_runtime.orb": 0,
@@ -80,6 +80,7 @@
     "tests/std/test_time_ns.orb": 113,
     "tests/suite/arena_sink_scope.orb": 16,
     "tests/suite/arith.orb": 0,
+    "tests/suite/ast_function_body_is_a_block.orb": 5,
     "tests/suite/bom_utf8.orb": 0,
     "tests/suite/bool_and_or.orb": 0,
     "tests/suite/call_arg_types.orb": 25,
