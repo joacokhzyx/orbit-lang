@@ -14,6 +14,7 @@ extern fn orbit_os_cwd_selfhost() -> string
 extern fn orbit_os_temp_dir_selfhost() -> string
 extern fn orbit_os_mkdir_selfhost(path: string) -> bool
 extern fn orbit_string_hash_selfhost(s: string) -> string
+extern fn orbit_string_cmp_selfhost(a: string, b: string) -> int
 extern fn orbit_file_write_selfhost(path: string, content: string) -> bool
 extern fn orbit_file_read_selfhost(path: string) -> string
 extern fn orbit_file_list_dir_selfhost(path: string) -> list

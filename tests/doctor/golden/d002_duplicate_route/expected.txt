@@ -1,4 +1,4 @@
-a.orb:1 warning [D002] duplicate route GET /dup (first seen at dir/b.orb:1). fix: keep one handler and remove the other.
+b.orb:1 warning [D002] duplicate route GET /dup (first seen at dir/a.orb:1). fix: keep one handler and remove the other.
 gates: doctor never runs these itself; run them from the repository root:
   python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
   python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>

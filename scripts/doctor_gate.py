@@ -197,6 +197,27 @@ def stage_compiler_with_runtime(compiler: str):
         return None
 
 
+def scratch_env(parent_env=None):
+    """A copy of the environment with TEMP/TMP pointing at a directory that exists.
+
+    Both used to default to /tmp/scent, which is a directory this machine
+    happens to have because of how the compiler was built here, and which does
+    not exist on a CI runner. The failure mode was silent and misattributed: the
+    compiler could not write its intermediate C file, so every --fix golden
+    reported "the result does not compile", which reads as a broken golden rather
+    than a missing directory, and the three goldens that need the C step failed
+    with nothing in the message about the actual cause.
+
+    Created here rather than assumed, and never reused, because a stale
+    orbit_selfhost_build.c from a previous run is worse than no directory.
+    """
+    env = dict(parent_env if parent_env is not None else os.environ)
+    scratch = tempfile.mkdtemp(prefix="orbit_gate_scratch_")
+    env["TEMP"] = scratch
+    env["TMP"] = scratch
+    return env, scratch
+
+
 def compiler_can_reach_runtime(compiler: str) -> bool:
     """Whether the C step can work for a compiler at this path.
 
@@ -285,9 +306,7 @@ def main() -> int:
         print(f"doctor_gate: no compiler at {compiler}")
         return 1
 
-    env = dict(os.environ)
-    env.setdefault("TEMP", "/tmp/scent")
-    env.setdefault("TMP", "/tmp/scent")
+    env, _scratch = scratch_env()
 
     if not GOLDEN.is_dir():
         print(f"doctor_gate: no goldens at {GOLDEN}")

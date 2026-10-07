@@ -138,6 +138,17 @@ bool orbit_os_mkdir_selfhost(orbit_string path) {
  * without a special case: caching the empty source would key every empty file
  * to one entry.
  */
+/* Lexicographic order, as strcmp: negative, zero or positive. Sorting a file
+ * list has to be byte order to be stable, and there was no way to ask. */
+orbit_int orbit_string_cmp_selfhost(orbit_string a, orbit_string b) {
+    const char* x = a ? a : "";
+    const char* y = b ? b : "";
+    int r = strcmp(x, y);
+    if (r < 0) return -1;
+    if (r > 0) return 1;
+    return 0;
+}
+
 orbit_string orbit_string_hash_selfhost(orbit_string s) {
     orbit_int n = orbit_string_len(s);
     if (n <= 0) return "";

@@ -602,7 +602,60 @@ fn doctorCollectOrbFiles(root: string) -> list {
         }
         di = di + 1
     }
-    return files
+    // Sorted, because orbit_file_list_dir_selfhost returns whatever order the
+    // filesystem hands back and that is not stable across machines. Two checks
+    // are order-sensitive by their nature -- D002 names the file that "first
+    // saw" the route, and D008 reports whichever import fails first -- so an
+    // unsorted walk makes doctor's own output depend on the machine, which is
+    // exactly what a golden cannot allow. It did: two D002 goldens passed on
+    // the development machine and on CI reported the same pair of routes with
+    // the two files swapped.
+    return doctorSortStrings(files)
+}
+
+/** @brief A new list holding `items` in ascending order.
+ *
+ *  Built by insertion into fresh lists rather than by swapping in place, which
+ *  is how doctorSortEdits does it too. The swap version needs list.set(), and
+ *  the element type of a bare list is not known, so the call emits a cast the
+ *  census counts as an unknown instruction -- one per call site, in a check
+ *  whose whole point is that doctor does not add unknown work.
+ */
+fn doctorSortStrings(items: list) -> list {
+    var out = []
+    var i = 0
+    while i < items.len() {
+        val v: string = items.get(i)
+        var at = 0
+        while at < out.len() {
+            val o: string = out.get(at)
+            if orbit_string_cmp_selfhost(v, o) < 0 { break }
+            at = at + 1
+        }
+        // Insertion, and the two halves are both copied: everything before the
+        // slot, then `v`, then everything from the slot on. Skipping index `at`
+        // instead -- which is what doctorSortEdits does -- drops that element,
+        // and it only goes unnoticed there because edits arrive already sorted
+        // so the slot is always the end. Here the slot is index 0 half the time,
+        // and the first version of this function silently lost one file in two.
+        val rest = []
+        var r = 0
+        var inserted = false
+        while r < out.len() {
+            if inserted == false {
+                if r == at {
+                    rest.push(v)
+                    inserted = true
+                }
+            }
+            rest.push(out.get(r))
+            r = r + 1
+        }
+        if inserted == false { rest.push(v) }
+        out = rest
+        i = i + 1
+    }
+    return out
 }
 
 fn doctorProbeCompiler(stats: DoctorStats, cand: string, origin: string) -> bool {
