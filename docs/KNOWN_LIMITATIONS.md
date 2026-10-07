@@ -39,6 +39,74 @@ Thirty-two programs that must be rejected, thirty-one of which are. The one
 that is not is [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
 which is a language design gap rather than a missing check.
 
+## A shadowed `val` is clobbered, because the emitted C has no scopes
+
+This one is not fixed, and it is in this section rather than further down
+because it is the same shape as the ones below: it typechecks, it runs, and it
+computes something other than what you wrote.
+
+```orbit
+fn f(flag: bool) -> int {
+    val v = 10
+    if flag {
+        val v = 20
+        print(orbit_int_to_string_selfhost(v))   // prints 20, correctly
+    }
+    return v                                     // returns 20. It should be 10.
+}
+```
+
+The checker resolves this correctly -- `v` inside the `if` is a different `val`,
+with its own scope, which is why `print` above says 20. The code generator does
+not. Locals are indexed by name (`IRValue.Sym` carries the source spelling,
+c_backend.orb emits it verbatim) and one C variable is declared per name, so both
+`val v` become a single `orbit_int v`:
+
+```c
+static orbit_int f(orbit_bool flag) {
+    orbit_int v;
+    v = (orbit_int)(uintptr_t)(10);
+    if (!(flag)) goto label_0;
+    v = (orbit_int)(uintptr_t)(20);      /* clobbers the outer one */
+label_0:;
+    return (orbit_int)(uintptr_t)(v);    /* 20 */
+}
+```
+
+The scope bookkeeping exists and is correct at the IR level -- `pushVariableScope`
+/ `popVariableScope` in builder.orb, `pushScope` / `popScope` in sema.orb -- but
+nothing renames the variable on the way out, so the scope is undone and the
+symbol is not.
+
+A function parameter is clobbered the same way, which is the case that costs the
+most in practice, because a parameter shadowed by a `val` inside a conditional is
+a natural thing to write:
+
+```orbit
+fn double(n: int) -> int {
+    if n > 0 {
+        val n = n * 2
+        return n
+    }
+    return n        // the caller sees the doubled value
+}
+```
+
+Workaround today: do not redeclare a name that already exists in an enclosing
+scope. Rename the inner one (`val doubled = ...`), which is also easier to read
+once the program is on screen. There is no flag to turn this off, because there
+is nothing to turn off: the code emitted is the code that runs.
+
+What would change it: a unique C symbol per declaration, minted where the IR
+value is created rather than where the C name is printed, so a parameter and a
+local that happen to share a spelling get distinct `orbit_*` variables. The IR
+already has the information -- the resolved declaration, not just the text -- and
+the compiler agrees with itself about which declaration each use refers to, which
+is why the checker is right and only the emitter is wrong. That is a change to
+`defineVariable` in builder.orb and the name lookup in c_backend.orb, and it
+touches every generated program, so it belongs to its own change with the
+bootstrap regenerated.
+
 ## Four bugs that typechecked, ran and were wrong
 
 None of these was a missing check. Every one compiled clean, ran, and produced

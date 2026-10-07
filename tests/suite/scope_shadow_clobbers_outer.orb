@@ -1,0 +1,58 @@
+// A `val` in an inner scope is a different variable, and using the outer one
+// after the inner scope ends must still read the outer one.
+//
+// known-failing: shadowed locals share one C variable
+//
+// This passes the checker and fails at run time, which is why it is here and
+// not in tests/negative/. `orbit check` resolves the two `val v` to two
+// declarations in two scopes -- that is why the `print` inside the `if` prints
+// 20 and not 10 -- and then the emitter declares one `orbit_int v` for both,
+// because locals are keyed by name on the way out to C. The `return v` below
+// therefore reads 20.
+//
+// Expected behaviour, and what the exit code pins:
+//
+//     return v        -> 10
+//
+// Workaround until it is fixed: do not redeclare a name that exists in an
+// enclosing scope. docs/KNOWN_LIMITATIONS.md has the emitted C.
+extern fn print(s: string) -> int
+extern fn orbit_int_to_string_selfhost(v: int) -> string
+
+fn shadowed(flag: bool) -> int {
+    val v = 10
+    if flag {
+        val v = 20
+        print("inner " + orbit_int_to_string_selfhost(v) + "\n")
+    }
+    return v
+}
+
+fn shadowedParam(n: int) -> int {
+    if n > 0 {
+        val n = n * 2
+        return n
+    }
+    return n
+}
+
+fn notShadowed(flag: bool) -> int {
+    val v = 10
+    if flag {
+        val w = 20
+        print("inner " + orbit_int_to_string_selfhost(w) + "\n")
+    }
+    return v
+}
+
+fn main() -> int {
+    // The control: a different name in the inner scope is unaffected, and this
+    // half passes today. It is here so the failure below is attributable to the
+    // shadowing and not to something about the conditional.
+    if notShadowed(true) != 10 { return 1 }
+
+    if shadowed(true) != 10 { return 2 }
+    if shadowed(false) != 10 { return 3 }
+    if shadowedParam(3) != 3 { return 4 }
+    return 0
+}
