@@ -66,6 +66,12 @@ fuzz_crashes/
 # Single-host cluster orchestration state (orbit cluster v1)
 .orbit/
 
-# locally built compilers
+# Locally built compilers. Every ad-hoc path used while iterating has to be
+# covered: /fp, /fp_* and /fpN, because a fixed-point binary that lands in the
+# tree under any of those names is 2 MB of noise in a commit whose subject is a
+# doctor check. fp4 was committed once before this pattern existed.
 /fp
 /fp_*
+/fp[0-9]*
+/fixed_point
+/fixed_point[0-9]*
