@@ -1969,7 +1969,19 @@ fn doctorExprAllocates(node: ASTNode) -> bool {
         ASTNode.Call(c) => {
             if doctorIsAllocName(doctorCalleeText(c.callee)) { isAlloc = true }
         }
-        ASTNode.ListLiteral(l) => { isAlloc = true }
+        // An EMPTY list literal is not a reportable allocation. `var acc = []`
+        // inside a loop is how an accumulator is written in this language, and
+        // this check's advice -- build it once before the loop and reuse it --
+        // is not merely unhelpful there, it is wrong: the accumulator has to
+        // start empty on every iteration or the results accumulate. Eight of
+        // the first D019 hits on this tree were all of this shape, which is what
+        // a check that reports the language's most common idiom looks like.
+        //
+        // A NON-empty literal is still an allocation built per iteration, so it
+        // is reported. Only `[]` is exempt.
+        ASTNode.ListLiteral(l) => {
+            if l.elements.len() > 0 { isAlloc = true }
+        }
         ASTNode.ObjectLiteral(o) => { isAlloc = true }
         _ => {}
     }

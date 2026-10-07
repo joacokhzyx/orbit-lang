@@ -1,0 +1,10 @@
+extern fn step(i: int) -> int
+
+fn f(n: int) -> int {
+    var i = 0
+    while i < n {
+        val scratch = []
+        i = i + 1
+    }
+    return i
+}
