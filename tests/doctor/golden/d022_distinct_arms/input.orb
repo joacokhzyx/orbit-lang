@@ -1,0 +1,8 @@
+union Shape { Circle(int), Square(int), Unit }
+fn f(s: Shape) -> int {
+    match s {
+        Shape.Circle(r) => { return r }
+        Shape.Square(a) => { return a }
+        Shape.Unit => { return 0 }
+    }
+}

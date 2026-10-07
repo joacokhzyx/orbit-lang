@@ -212,7 +212,14 @@ model ReturnErrNode {
 }
 
 model MatchNode {
-    expr: list
+    // The scrutinee is what parseExpression returns, which is an ASTNode, not a
+    // list. Every reader already passes it to something taking an ASTNode --
+    // checkNode(sema, m.expr) in sema.orb:1907, doctorWalkRefs(n.expr, refs) in
+    // doctor.orb:2218 -- so the declaration was describing the value wrongly
+    // while the code was right. A field declared list that holds an ASTNode is
+    // the same defect as FunctionDeclNode.body was: it typechecks, and it is
+    // one call away from reading a list length off a node pointer.
+    expr: ASTNode
     cases: list
     // The `match` keyword's own line and column. Sema reports a non-exhaustive
     // match against this position and no other node carries one, because no
@@ -223,7 +230,11 @@ model MatchNode {
 }
 
 model MatchCaseNode {
-    pattern: list
+    // Same correction as MatchNode.expr, for the same reason: parseExpression
+    // puts an ASTNode here (parser.orb:652, :762) and buildExpr(c.pattern),
+    // patternVariantName(..., c.pattern) and patternBinding(c.pattern) all read
+    // it as one.
+    pattern: ASTNode
     body: ASTNode
 }
 

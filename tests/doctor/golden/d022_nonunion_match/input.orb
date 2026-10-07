@@ -1,0 +1,7 @@
+fn f(n: int) -> int {
+    match n {
+        1 => { return 10 }
+        2 => { return 20 }
+        _ => { return 0 }
+    }
+}

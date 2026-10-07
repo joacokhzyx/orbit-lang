@@ -1,0 +1,6 @@
+input.orb:13 warning [D022] this match binds Color.Red in an arm that can never run, because an earlier arm already matches it. fix: delete the duplicate arm, or give it a distinct pattern; the first matching arm wins, so this one is dead code.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".

@@ -17,6 +17,7 @@ import "./pipeline.orb"
 //   D007  missing final newline (fixed by --fix)
 //   D008  file does not pass the compiler's own checks
 //   D021  function parameter never read by its body (extern fns skipped)
+//   D022  a match arm that an earlier arm already matches, so it cannot run
 //
 // --fix applies only D006/D007 whitespace tidies. Nothing semantic is
 // ever changed automatically.
@@ -1731,6 +1732,169 @@ fn doctorListHasString(items: list, want: string) -> bool {
     return found
 }
 
+/**
+ *  @brief D022: two match arms binding the same variant, so the second is dead.
+ *
+ *  Sema asks for exhaustiveness and nothing about order, and the backend
+ *  dispatches on the first matching arm. So a repeated variant compiles, runs,
+ *  and quietly never runs its second arm -- the shape of bug where the code you
+ *  wrote and the code that runs differ, with no diagnostic between them.
+ *
+ *  The key is the FULLY QUALIFIED pattern text, owner and field, and not the
+ *  bare variant name. sema can afford to compare bare names because
+ *  qualifiedVariantName (sema.orb:1782) discards a qualifier naming a
+ *  different type; doctor has no Sema and no match type to compare against, so
+ *  `Foo.Bar` and `Baz.Bar` must stay distinct keys rather than collide into one
+ *  "Bar" and be reported. Qualifying is the conservative choice, and a match
+ *  whose arms genuinely repeat a variant spells them identically.
+ *
+ *  `_` is skipped. It is a wildcard, not a variant, and it parses as an ordinary
+ *  identifier literal with the text "_" (sema.orb:1814 checks it that way), so
+ *  without this every `match` with two fall-through arms would report.
+ *
+ *  Anything whose variant cannot be read syntactically returns "" and is not
+ *  reported at all: a literal pattern, a binding, a nested structure this does
+ *  not model. Under-reporting is the direction to be wrong in.
+ */
+fn doctorCheckDuplicateMatchArms(stats: DoctorStats, node: ASTNode, file: string) {
+    match node {
+        ASTNode.Match(m) => {
+            val keys = []
+            val arms = m.cases
+            var i = 0
+            while i < arms.len() {
+                val caseNode = doctorNodeAt(arms, i)
+                match caseNode {
+                    ASTNode.MatchCase(c) => {
+                        val key = doctorPatternKey(c.pattern)
+                        if key != "" {
+                            if doctorIndexOfString(keys, key) >= 0 {
+                                doctorReport(stats, file, m.line, "D022", "this match binds " + key + " in an arm that can never run, because an earlier arm already matches it.", "delete the duplicate arm, or give it a distinct pattern; the first matching arm wins, so this one is dead code.")
+                            } else {
+                                keys.push(key)
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    // Recursion is spelled out per child rather than through a generic walker.
+    // A generic child-walker would have to match every ASTNode variant and read
+    // a field off each payload, and that is exactly where this file shipped ten
+    // reads of fields that do not exist: `ASTNode.While(w)` binds a WhileNode,
+    // not an ASTNode. Every arm below passes `node` or a node from doctorNodeAt.
+    match node {
+        ASTNode.Program(p) => {
+            val decls = p.decls
+            var d = 0
+            while d < decls.len() {
+                doctorCheckDuplicateMatchArms(stats, doctorNodeAt(decls, d), file)
+                d = d + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => { doctorCheckDuplicateMatchArms(stats, f.body, file) }
+        ASTNode.RouteDecl(r) => { doctorCheckDuplicateMatchArms(stats, r.body, file) }
+        ASTNode.Block(b) => { doctorChildrenFrom(stmtsOfBlock(b), stats, file) }
+        ASTNode.If(x) => {
+            doctorCheckDuplicateMatchArms(stats, x.thenBody, file)
+            if x.elseBody != NULL { doctorCheckDuplicateMatchArms(stats, x.elseBody, file) }
+        }
+        ASTNode.While(w) => { doctorChildrenFrom(doctorStmtsOf(node), stats, file) }
+        ASTNode.For(fo) => { doctorChildrenFrom(doctorStmtsOf(node), stats, file) }
+        // Without this the walk stops at a match: the reporting match above
+        // inspects Match, but without a Match arm here nothing ever descends
+        // into its cases, so a duplicate in a nested match is invisible.
+        ASTNode.Match(m) => { doctorChildrenFrom(m.cases, stats, file) }
+        ASTNode.MatchCase(c) => { doctorChildrenFrom(doctorStmtsOf(node), stats, file) }
+        ASTNode.Return(r) => { doctorCheckDuplicateMatchArms(stats, r.expr, file) }
+        ASTNode.ReturnOk(r) => { doctorCheckDuplicateMatchArms(stats, r.expr, file) }
+        ASTNode.ReturnErr(r) => { doctorCheckDuplicateMatchArms(stats, r.expr, file) }
+        ASTNode.VarDecl(v) => { doctorCheckDuplicateMatchArms(stats, v.value, file) }
+        ASTNode.ConstDecl(c) => { doctorCheckDuplicateMatchArms(stats, c.value, file) }
+        ASTNode.Assignment(a) => {
+            doctorCheckDuplicateMatchArms(stats, a.target, file)
+            doctorCheckDuplicateMatchArms(stats, a.value, file)
+        }
+        ASTNode.ExpressionStmt(e) => { doctorCheckDuplicateMatchArms(stats, e.expr, file) }
+        ASTNode.BinaryOp(b) => {
+            doctorCheckDuplicateMatchArms(stats, b.lhs, file)
+            doctorCheckDuplicateMatchArms(stats, b.rhs, file)
+        }
+        ASTNode.UnaryOp(u) => { doctorCheckDuplicateMatchArms(stats, u.operand, file) }
+        ASTNode.Call(c) => { doctorChildrenFrom(c.args, stats, file) }
+        ASTNode.IndexAccess(ix) => {
+            doctorCheckDuplicateMatchArms(stats, ix.object, file)
+            doctorCheckDuplicateMatchArms(stats, ix.index, file)
+        }
+        ASTNode.MemberAccess(m) => { doctorCheckDuplicateMatchArms(stats, m.object, file) }
+        ASTNode.ListLiteral(l) => { doctorChildrenFrom(l.elements, stats, file) }
+        ASTNode.TypedLiteral(t) => { doctorCheckDuplicateMatchArms(stats, t.value, file) }
+        ASTNode.Try(t) => {
+            doctorCheckDuplicateMatchArms(stats, t.expr, file)
+            doctorCheckDuplicateMatchArms(stats, t.catchBody, file)
+        }
+        _ => {}
+    }
+}
+
+/** @brief Visit each node of a statement list. */
+fn doctorChildrenFrom(stmts: list, stats: DoctorStats, file: string) {
+    var i = 0
+    while i < stmts.len() {
+        doctorCheckDuplicateMatchArms(stats, doctorNodeAt(stmts, i), file)
+        i = i + 1
+    }
+}
+
+/** @brief The statements of a block node. */
+fn stmtsOfBlock(b: BlockNode) -> list {
+    return b.statements
+}
+
+/** @brief The variant a match arm binds, fully qualified, or "" when it is not one. */
+fn doctorPatternKey(pattern: ASTNode) -> string {
+    var key = ""
+    match pattern {
+        ASTNode.MemberAccess(ma) => {
+            key = doctorOwnerText(ma.object) + "." + ma.field
+        }
+        ASTNode.Call(c) => {
+            match c.callee {
+                ASTNode.MemberAccess(ma2) => { key = doctorOwnerText(ma2.object) + "." + ma2.field }
+                ASTNode.Literal(l2) => {
+                    if l2.valType == "identifier" {
+                        if l2.text != "_" { key = l2.text }
+                    }
+                }
+                _ => {}
+            }
+        }
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" {
+                if l.text != "_" { key = l.text }
+            }
+        }
+        _ => {}
+    }
+    return key
+}
+
+/** @brief The type name a qualified pattern is written against, or "". */
+fn doctorOwnerText(owner: ASTNode) -> string {
+    var name = ""
+    match owner {
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" { name = l.text }
+        }
+        _ => {}
+    }
+    return name
+}
+
 /** @brief Whether any statement in a body calls `name`. */
 fn doctorCallsName(body: list, name: string) -> bool {
     var i = 0
@@ -3415,6 +3579,9 @@ fn doctorRun(opts: DoctorOptions) {
             if parser.diagnostics.len() == 0 {
                 doctorCollectDecls(ast, fplines, fp3, decls)
                 doctorWalkRefs(ast, refs)
+                // Per file rather than per function, because a match can sit in
+                // a route body or at the top level and not only inside a `fn`.
+                doctorCheckDuplicateMatchArms(stats, ast, fp3)
                 doctorScanFunctions(stats, ast, fp3, fplines)
                 // Kept for the fingerprint pass below, which needs this file's
                 // imports. Without it the fingerprint re-parses every file in
