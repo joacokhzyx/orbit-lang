@@ -465,7 +465,7 @@ fn parseObjectLiteralBody(parser: Parser) -> ASTNode {
     val fields = []
     val firstTag = parser.currentToken.tag
     if isObjectKeyStart(parser) == false {
-        return parseObjectLiteralFallback(parser, firstTag)
+        return parseObjectLiteralFallback(parser)
     }
     while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
         val key = consumeObjectKey(parser)
@@ -519,7 +519,7 @@ fn unquoteObjectKey(literal: string) -> string {
     return literal.slice(1, literal.len() - 1)
 }
 
-fn parseObjectLiteralFallback(parser: Parser, firstTag: TokType) -> ASTNode {
+fn parseObjectLiteralFallback(parser: Parser) -> ASTNode {
     parser.diagnostics.push(ParserDiagnostic("unexpected '{' in an expression", parser.currentToken.line, parser.currentToken.col, "E0301", "error.UnexpectedBrace"))
     if isAtEnd(parser) == false {
         advanceParser(parser)

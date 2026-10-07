@@ -57,7 +57,24 @@ CLEAN_DIRS = ["compiler", "std", "tests/suite"]
 # A code goes here only when "the code is right and the check is still true" is
 # the normal case. That is not true of the other codes here, which is why this
 # list has one entry.
-ADVISORY_CODES = {"D015", "D017", "D018", "D021"}
+# D021 is exempt from ONE file, not from the tree. It was listed in the plain set
+# above first, which looked right and was not: the set is global, so exempting
+# D021 for tests/suite/call_arg_types.orb also exempted it for compiler/, where
+# it has eight true findings. A gate that cannot say "clean here, except there"
+# will report clean everywhere the moment you exempt one file.
+ADVISORY_BY_FILE = {
+    "tests/suite/call_arg_types.orb": {"D021"},
+}
+
+# Codes exempt in every directory.
+GLOBAL_ADVISORY_CODES = {"D015", "D017", "D018"}
+
+
+def advisory_codes_for(rel_path: str) -> set:
+    """Codes that do not fail this specific file."""
+    out = set(GLOBAL_ADVISORY_CODES)
+    out |= ADVISORY_BY_FILE.get(rel_path, set())
+    return out
 
 
 def main() -> int:
@@ -85,6 +102,24 @@ def main() -> int:
             [compiler, "doctor", d, "--color", "never"],
             capture_output=True, text=True, cwd=repo, env=env,
         )
+        # A doctor that was OOM-killed, or died on a signal, produces no
+        # findings. Treating that as "clean" is the worst failure this gate can
+        # have: it is green because it checked nothing. `doctor compiler` needs
+        # ~1.4 GB on c_backend.orb alone, so on a loaded machine the process
+        # really does get SIGTERMed, and it has already happened here.
+        # doctor exits 1 when it has findings, which is the normal case here,
+        # so only a code outside {0, 1} means the run is untrustworthy: a
+        # negative code is a signal (OOM-killed or crashed), which is what turns
+        # an empty report into a green gate.
+        if proc.returncode not in (0, 1):
+            how = "was killed by a signal" if proc.returncode < 0 else "exited"
+            print(f"FAIL {d}: doctor {how} ({proc.returncode}), so its output "
+                  f"cannot be read as 'clean'")
+            if proc.stderr.strip():
+                print("  stderr: " + proc.stderr.strip().splitlines()[-1])
+            failures.append(d)
+            continue
+
         # A finding line reads "<file>:<line> <severity> [Dnnn] ...". Doctor
         # prints paths RELATIVE TO THE SCANNED DIRECTORY, so a finding in
         # examples/ starts with "sqlite_notes.orb", not "examples/sqlite_notes.
@@ -104,13 +139,13 @@ def main() -> int:
             if not (lineno.isdigit() and "[D" in parts[2]):
                 continue
             code = parts[2].split("[", 1)[1].split("]", 1)[0]
-            if code in ADVISORY_CODES:
+            exempt = advisory_codes_for(f"{d}/{loc.split(':', 1)[0]}")
+            if code in exempt:
                 advisory += 1
                 continue
             findings.append(line)
         if advisory:
-            print(f"note: {d}: {advisory} advisory finding(s) not counted "
-                  f"({', '.join(sorted(ADVISORY_CODES))})")
+            print(f"note: {d}: {advisory} advisory finding(s) not counted")
 
         if findings:
             print(f"FAIL {d}: {len(findings)} finding(s) in a directory that must be clean")

@@ -378,7 +378,7 @@ fn listReadCall(kind: int, listStr: string, idxStr: string) -> string {
  *  a `void*` register. Passing that straight to orbit_list_push_string is
  *  `incompatible pointer type` from the C compiler, and the cast through
  *  uintptr_t is the transport every register already uses. */
-fn listWriteCall(kind: int, base: string, listStr: string, valueStr: string, idxStr: string) -> string {
+fn listWriteCall(kind: int, listStr: string, valueStr: string, idxStr: string) -> string {
     if kind == 0 {
         if idxStr == "" {
             return "{ uintptr_t _tmp = (uintptr_t)(" + valueStr + "); orbit_list_push((OrbitList*)(" + listStr + "), &_tmp); }"
@@ -850,7 +850,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         _ => {}
                     }
                     if oFieldName != "" && oInst.dest >= 0 && oInst.dest < func.registerTypes.len() {
-                        val gotType = objectGetterReturnType(objectFieldGetter(func, oInst.operand1, oFieldName))
+                        val gotType = objectGetterReturnType(objectFieldGetter(func, oFieldName))
                         if gotType != "" {
                             func.registerTypes = setStrAt(func.registerTypes, oInst.dest, gotType)
                         }
@@ -2650,7 +2650,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     val receiverStr = backend.callArgs.get(startIdx)
                     val valStr = backend.callArgs.get(startIdx + 1)
                     while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
-                    orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(0, "orbit_list_push", receiverStr, valStr, "") + ";\n")
+                    orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(0, receiverStr, valStr, "") + ";\n")
                     return
                 }
             }
@@ -3060,7 +3060,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // wrong bytes at worst, since findFieldOwner answers from a
             // module-wide name table that any model can populate.
             if operandDefType(backend.currentFunction, instr.operand1) == "object" {
-                val getter = objectFieldGetter(backend.currentFunction, instr.operand1, fname)
+                val getter = objectFieldGetter(backend.currentFunction, fname)
                 // Reading a nested object has to leave the result known to be
                 // an object, or `a.b.c` stops at `a.b` and the next `.` is
                 // looked up on a register nothing has a type for.
@@ -3131,7 +3131,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // push stores the bit pattern, and it is also what records the
             // list's element type for the reads that follow.
             val stored = generateValue(instr.operand2)
-            orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(instr.elemKind, "orbit_list_push", generateValue(instr.operand1), stored, "") + ";\n")
+            orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(instr.elemKind, generateValue(instr.operand1), stored, "") + ";\n")
             return
         }
         IROpcode.list_get => {
@@ -3139,7 +3139,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.list_set => {
-            orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(instr.elemKind, "orbit_list_set", generateValue(instr.operand1), generateValue(instr.operand3), generateValue(instr.operand2)) + ";\n")
+            orbit_cbuf_append_selfhost(cb, "    " + listWriteCall(instr.elemKind, generateValue(instr.operand1), generateValue(instr.operand3), generateValue(instr.operand2)) + ";\n")
             return
         }
         IROpcode.list_len => {
@@ -3946,7 +3946,7 @@ fn functionNeedsArena(name: string) -> bool {
 // A key stored with two different kinds in one function -- `{a: 1}` and
 // `{a: "x"}` -- has no single answer, so it falls back to the raw getter
 // rather than picking the first one seen.
-fn objectFieldGetter(func: IRFunction, objOperand: IRValue, fieldName: string) -> string {
+fn objectFieldGetter(func: IRFunction, fieldName: string) -> string {
     var kind = ""
     var conflict = false
     var i = 0

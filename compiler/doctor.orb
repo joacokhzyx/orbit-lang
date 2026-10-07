@@ -350,7 +350,7 @@ fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bo
  *  different parts of one file do not each re-read a version the other has
  *  already changed. A conflict between two findings aborts both and says so,
  *  because "fixed" for one of them would be a lie about the other. */
-fn doctorFixFile(stats: DoctorStats, file: string, source: string, edits: list, unsafeMode: bool, verifyBuild: bool, dryRun: bool) -> string {
+fn doctorFixFile(file: string, source: string, edits: list, verifyBuild: bool, dryRun: bool) -> string {
     if edits.len() == 0 { return "" }
     val edited = doctorApplyEdits(source, edits)
     if edited == "" {
@@ -1529,10 +1529,18 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
             }
         }
         ASTNode.FunctionDecl(f) => {
-            doctorCheckComplexity(stats, node, f.name, file, lines)
-            doctorCheckRecursion(stats, node, f.name, file, lines)
-            doctorCheckLoopAllocs(stats, node, f.name, file, lines)
-            doctorCheckUnusedParams(stats, f, file, lines)
+            // One line lookup for four checks, not four. doctorFindDeclLine
+            // walks every line of the file and allocates in doctorTrimLeft on
+            // each candidate, so calling it per check per function is
+            // O(decls x lines) with a string allocation on the hot path. On
+            // compiler/c_backend.orb -- 300 functions over 4257 lines -- that
+            // was 1.3 GB of arena growth and the process was OOM-killed before
+            // it could finish scanning its own compiler.
+            val declLine = doctorFindDeclLine(lines, "fn", f.name)
+            doctorCheckComplexity(stats, node, f.name, file, declLine)
+            doctorCheckRecursion(stats, node, f.name, file, declLine)
+            doctorCheckLoopAllocs(stats, node, f.name, file, declLine)
+            doctorCheckUnusedParams(stats, f, file, declLine)
         }
         _ => {}
     }
@@ -1546,7 +1554,7 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
  *  paths through the function than one reviewer can hold at once, and that is
  *  worth failing on rather than noting.
  */
-fn doctorCheckComplexity(stats: DoctorStats, node: ASTNode, fnName: string, file: string, lines: list) {
+fn doctorCheckComplexity(stats: DoctorStats, node: ASTNode, fnName: string, file: string, line: int) {
     val body = doctorStmtsOf(node)
     var complexity = 1
     var i = 0
@@ -1554,7 +1562,6 @@ fn doctorCheckComplexity(stats: DoctorStats, node: ASTNode, fnName: string, file
         complexity = complexity + doctorDecisionPoints(doctorNodeAt(body, i))
         i = i + 1
     }
-    val line = doctorFindDeclLine(lines, "fn", fnName)
     if complexity > 20 {
         doctorReport(stats, file, line, "D017", "fn " + fnName + " has a cyclomatic complexity of " + orbit_int_to_string_selfhost(complexity) + ", over the safe limit of 20.", "extract the branches into functions of their own; a path count this high is not reviewable, and it is usually one function doing three jobs.")
     } else {
@@ -1672,11 +1679,11 @@ fn doctorDecisionPoints(node: ASTNode) -> int {
  *  member of it needs a call graph doctor does not have here, and guessing which
  *  member to name would be worse than silence.
  */
-fn doctorCheckRecursion(stats: DoctorStats, node: ASTNode, fnName: string, file: string, lines: list) {
+fn doctorCheckRecursion(stats: DoctorStats, node: ASTNode, fnName: string, file: string, line: int) {
     val body = doctorStmtsOf(node)
     if doctorCallsName(body, fnName) == false { return }
     if doctorHasTailSelfCall(body, fnName) { return }
-    doctorReport(stats, file, doctorFindDeclLine(lines, "fn", fnName), "D018", "fn " + fnName + " calls itself, but the call is not the value it returns.", "make the recursive call the whole of a return, so the frame is released before the next call; otherwise a deep input exhausts the stack under sustained load rather than under a test.")
+    doctorReport(stats, file, line, "D018", "fn " + fnName + " calls itself, but the call is not the value it returns.", "make the recursive call the whole of a return, so the frame is released before the next call; otherwise a deep input exhausts the stack under sustained load rather than under a test.")
 }
 
 /** @brief D021: report each parameter of this function that its body never reads.
@@ -1696,10 +1703,9 @@ fn doctorCheckRecursion(stats: DoctorStats, node: ASTNode, fnName: string, file:
  *  The refs are collected per function. A run-wide list would report nothing at
  *  all: a parameter called `source` appears in dozens of other bodies.
  */
-fn doctorCheckUnusedParams(stats: DoctorStats, f: FunctionDeclNode, file: string, lines: list) {
+fn doctorCheckUnusedParams(stats: DoctorStats, f: FunctionDeclNode, file: string, declLine: int) {
     if f.isExtern { return }
     val refs = doctorRefsInSubtree(f.body)
-    val declLine = doctorFindDeclLine(lines, "fn", f.name)
     val params = f.params
     var i = 0
     while i < params.len() {
@@ -1835,9 +1841,8 @@ fn doctorIsTailSelfReturn(node: ASTNode, name: string) -> bool {
 }
 
 /** @brief An allocation inside a loop body, repeated every iteration. */
-fn doctorCheckLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file: string, lines: list) {
+fn doctorCheckLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file: string, line: int) {
     val body = doctorStmtsOf(node)
-    val line = doctorFindDeclLine(lines, "fn", fnName)
     var i = 0
     while i < body.len() {
         doctorScanLoopAllocs(stats, doctorNodeAt(body, i), fnName, file, line, false, "")
@@ -2720,10 +2725,49 @@ fn doctorHasInterpolationOn(lines: list, i: int, lit: string) -> bool {
  *  checking every write to it. Only single-assignment text is considered, and
  *  the name is matched whole, so a same-named local in another function does
  *  not make this one look written. */
+/**
+ *  @brief D013: a `var` whose name is never written again.
+ *
+ *  This used to be, for every `var` line, a scan of every line in the file:
+ *  O(vars x lines), with a fresh string slice per offset inside the inner
+ *  helper. On compiler/c_backend.orb that was 1.3 GB of arena growth, and
+ *  `orbit doctor compiler` was OOM-killed before finishing its own compiler --
+ *  which is also why doctor_scope_gate used to report that directory clean: a
+ *  killed process prints nothing, and nothing reads as zero findings.
+ *
+ *  The counts are the same, because they were always file-wide rather than
+ *  function-wide. They are now collected in one pass: each line yields the
+ *  names it assigns to, and the var pass only looks the counts up.
+ *
+ *  The operator rules are deliberately identical to doctorAssignsTo, including
+ *  its requirement of whitespace between the name and the operator. `x=1` was
+ *  never counted as a write; making it one would be a semantic change to D013
+ *  dressed up as a performance fix.
+ */
 fn doctorScanMutableDecls(stats: DoctorStats, lines: list, file: string) {
+    val writeNames = []
+    val writeCounts = []
     var i = 0
     while i < lines.len() {
-        val raw = lines.get(i)
+        val assigned = doctorAssignedNamesOnLine(lines.get(i))
+        var k = 0
+        while k < assigned.len() {
+            val nm: string = assigned.get(k)
+            val at = doctorIndexOfString(writeNames, nm)
+            if at >= 0 {
+                val prev: int = writeCounts.get(at)
+                writeCounts.set(at, prev + 1)
+            } else {
+                writeNames.push(nm)
+                writeCounts.push(1)
+            }
+            k = k + 1
+        }
+        i = i + 1
+    }
+    var li = 0
+    while li < lines.len() {
+        val raw = lines.get(li)
         val trimmed = doctorTrimSpace(raw)
         if doctorStartsWith(trimmed, "var ") {
             // Slice the TRIMMED line. Slicing the raw one at a fixed offset
@@ -2736,32 +2780,100 @@ fn doctorScanMutableDecls(stats: DoctorStats, lines: list, file: string) {
             // against an explicit declaration of intent is exactly the false
             // positive that gets a check switched off, so it is not reported
             // either way -- not even when the truth is that it never is.
-            val name = ""
+            var name = ""
             if first == "mut" {
                 val afterMut = doctorTrimSpace(orbit_string_slice(rest, 3, orbit_string_len(rest)))
                 if doctorLeadingName(afterMut) == "" {
-                    i = i + 1
+                    li = li + 1
                 }
             } else {
                 name = first
             }
             if name != "" {
+                val at = doctorIndexOfString(writeNames, name)
                 var writes = 0
-                var j = 0
-                while j < lines.len() {
-                    if doctorAssignsTo(lines.get(j), name) { writes = writes + 1 }
-                    j = j + 1
-                }
+                if at >= 0 { writes = writeCounts.get(at) }
                 // One write is the declaration itself. Zero would mean the
                 // declaration line did not look like an assignment, which means
                 // we do not understand this form and must not report it.
                 if writes == 1 {
-                    doctorReport(stats, file, i + 1, "D013", "'" + name + "' is declared var but never assigned again.", "make it a val: nothing can reassign it, and the compiler stops checking every write.")
+                    doctorReport(stats, file, li + 1, "D013", "'" + name + "' is declared var but never assigned again.", "make it a val: nothing can reassign it, and the compiler stops checking every write.")
                 }
             }
         }
+        li = li + 1
+    }
+}
+
+/** @brief The names one line assigns to, each at most once. */
+fn doctorAssignedNamesOnLine(line: string) -> list {
+    val out = []
+    val code = doctorCodePart(line)
+    val n = orbit_string_len(code)
+    var i = 0
+    while i < n {
+        val c = orbit_string_char_at_selfhost(code, i)
+        if doctorIsWordChar(c) {
+            var j = i
+            while j < n {
+                if doctorIsWordChar(orbit_string_char_at_selfhost(code, j)) { j = j + 1 }
+                else { break }
+            }
+            val nm = orbit_string_slice(code, i, j)
+            // Same rule doctorAssignsTo applies: at least one space or tab
+            // between the name and the operator, and `==` is a comparison.
+            if doctorWriteFollows(code, j) {
+                if doctorIndexOfString(out, nm) < 0 { out.push(nm) }
+            }
+            i = j
+        } else {
+            i = i + 1
+        }
+    }
+    return out
+}
+
+/** @brief Whether an assignment operator follows the identifier ending at `after`. */
+fn doctorWriteFollows(code: string, after: int) -> bool {
+    val n = orbit_string_len(code)
+    if after >= n { return false }
+    val c = orbit_string_char_at_selfhost(code, after)
+    if c != 32 && c != 9 { return false }
+    var k = after
+    while k < n {
+        val sp = orbit_string_char_at_selfhost(code, k)
+        if sp != 32 && sp != 9 { break }
+        k = k + 1
+    }
+    if k >= n { return false }
+    val op = orbit_string_char_at_selfhost(code, k)
+    if op == 61 {
+        if k + 1 >= n { return true }
+        return orbit_string_char_at_selfhost(code, k + 1) != 61
+    }
+    if op == 43 || op == 45 || op == 42 || op == 47 {
+        var m = k + 1
+        while m < n {
+            val sp2 = orbit_string_char_at_selfhost(code, m)
+            if sp2 != 32 && sp2 != 9 { break }
+            m = m + 1
+        }
+        if m >= n { return false }
+        return orbit_string_char_at_selfhost(code, m) == 61
+    }
+    return false
+}
+
+/** @brief The index of `want` in a list of strings, or -1. */
+fn doctorIndexOfString(items: list, want: string) -> int {
+    var at = -1
+    var i = 0
+    while i < items.len() {
+        val it: string = items.get(i)
+        if it == want { at = i }
         i = i + 1
     }
+    return at
 }
 
 /** @brief The identifier at the start of `rest`, or "" when there is none. */
@@ -2925,7 +3037,7 @@ fn doctorCacheDir() -> string {
  */
 fn doctorClosureFingerprintReuse(path: string, source: string, imports: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
     val seen = [path]
-    val acc = doctorClosureWalkReuse(path, source, imports, seen, knownFiles, knownImports, knownSources, memo)
+    val acc = doctorClosureWalkReuse(path, imports, seen, knownFiles, knownImports, knownSources, memo)
     return acc + ":" + orbit_string_hash_selfhost(source)
 }
 
@@ -2936,7 +3048,7 @@ fn doctorClosureFingerprintReuse(path: string, source: string, imports: list, kn
  *  tree was parsed in the pass above, so asking again costs a second parse of
  *  the whole tree to rediscover a graph we already walked. A module outside it
  *  is read and parsed, which is the same as the resolver will do. */
-fn doctorClosureWalkReuse(path: string, source: string, imports: list, seen: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
+fn doctorClosureWalkReuse(path: string, imports: list, seen: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
     val baseDir = getDir(path)
     var acc = ""
     var i = 0
@@ -2981,7 +3093,7 @@ fn doctorClosureWalkReuse(path: string, source: string, imports: list, seen: lis
 fn doctorModuleFingerprintReuse(path: string, source: string, imports: list, seen: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
     val hit = doctorMemoLookup(memo, path)
     if hit != "" { return hit }
-    val sub = doctorClosureWalkReuse(path, source, imports, seen, knownFiles, knownImports, knownSources, memo)
+    val sub = doctorClosureWalkReuse(path, imports, seen, knownFiles, knownImports, knownSources, memo)
     val digest = sub + ":" + orbit_string_hash_selfhost(source)
     memo.push(path + "=" + digest)
     return digest
@@ -3585,7 +3697,7 @@ fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list, source
     while pi < files.len() {
         val edits = perFile.get(pi)
         if edits.len() > 0 {
-            val outcome = doctorFixFile(stats, files.get(pi), sources.get(pi), edits, opts.unsafeMode, opts.verifyBuild, opts.dryRun)
+            val outcome = doctorFixFile(files.get(pi), sources.get(pi), edits, opts.verifyBuild, opts.dryRun)
             var fi2 = 0
             while fi2 < stats.findItems.len() {
                 val f: DoctorFinding = stats.findItems.get(fi2)

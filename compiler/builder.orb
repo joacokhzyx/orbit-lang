@@ -1959,13 +1959,13 @@ fn emitLoopJump(builder: IRBuilder, labels: list) -> int {
 // two copies differed only in what the end-label instruction was called. A
 // missing pop means a `break` in the next loop jumps to the wrong place, and
 // that is not a crash you would blame on this file.
-fn jumpTo(builder: IRBuilder, label: int) -> IRInstruction {
+fn jumpTo(label: int) -> IRInstruction {
     val jmp = ir_init_instr(IROpcode.jump)
     jmp.operand1 = ir_label(label)
     return jmp
 }
 
-fn closeLoop(builder: IRBuilder, startLabel: int, endLabel: int) {
+fn closeLoop(builder: IRBuilder, endLabel: int) {
     val lblEnd = ir_init_instr(IROpcode.label)
     lblEnd.operand1 = ir_label(endLabel)
     ir_emit(builder.currentFunction, lblEnd)
@@ -2020,8 +2020,8 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             jmpFalse.operand2 = ir_label(endLabel)
             ir_emit(builder.currentFunction, jmpFalse)
             buildNode(builder, stmt.body)
-            ir_emit(builder.currentFunction, jumpTo(builder, startLabel))
-            closeLoop(builder, startLabel, endLabel)
+            ir_emit(builder.currentFunction, jumpTo(startLabel))
+            closeLoop(builder, endLabel)
         }
         ASTNode.For(stmt) => {
             val iterReg = buildExpr(builder, stmt.iterable)
@@ -2099,8 +2099,8 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             storeIdx.operand1 = ir_symbol(stmt.item + "_idx")
             storeIdx.operand2 = ir_register(incReg)
             ir_emit(builder.currentFunction, storeIdx)
-            ir_emit(builder.currentFunction, jumpTo(builder, startLabel))
-            closeLoop(builder, startLabel, endLabel)
+            ir_emit(builder.currentFunction, jumpTo(startLabel))
+            closeLoop(builder, endLabel)
         }
         ASTNode.Return(r) => {
             // Check for Empty expr
