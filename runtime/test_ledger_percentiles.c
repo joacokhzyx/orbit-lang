@@ -81,7 +81,7 @@ int main(void) {
     {
         const char* path = "/tmp/orbit_test_ledger_dump.json";
         remove(path);
-        setenv("ORBIT_LEDGER_OUT", path, 1);
+        orbit_env_set("ORBIT_LEDGER_OUT", path);
         orbit_ledger_enable_file_dump();
         assert(orbit_ledger_out_path[0] != '\0');
         assert(strcmp(orbit_ledger_out_path, path) == 0);
@@ -104,7 +104,7 @@ int main(void) {
         remove(path);
 
         /* Opt-in: an unset variable must leave the hook inert. */
-        unsetenv("ORBIT_LEDGER_OUT");
+        orbit_env_unset("ORBIT_LEDGER_OUT");
         orbit_ledger_out_path[0] = '\0';
         orbit_ledger_dump_at_exit();
         f = fopen(path, "rb");

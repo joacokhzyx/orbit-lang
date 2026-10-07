@@ -76,6 +76,50 @@ static inline FILE* orbit_fopen(const char* path, const char* mode) {
 
 #endif
 
+/* Setting and clearing an environment variable.
+ *
+ * Guarded on _WIN32 rather than _MSC_VER, unlike the two above, because the
+ * absence is not an MSVC deprecation: MinGW-w64 simply does not declare
+ * setenv()/unsetenv() unless the POSIX feature-test macros are turned on, and
+ * the Windows CI job compiles with clang against MinGW. The build there failed
+ * with -Wimplicit-function-declaration under -Werror, which is the same
+ * "correct code, wrong platform" shape the rest of this header exists for.
+ *
+ * _putenv_s() is the spelling both toolchains agree on. It has no overwrite
+ * flag -- the two-argument form always overwrites, which is what the callers
+ * mean -- and clearing a variable is setting it to the empty string, not a
+ * separate call. Both return 0 on success, like setenv(), so the wrappers keep
+ * that contract instead of leaking errno_t. */
+#ifdef _WIN32
+
+/* _putenv_s is declared by <process.h> on both toolchains, not by <stdlib.h>
+ * where setenv would have been, which is the same asymmetry that hid it. */
+#include <process.h>
+
+static inline int orbit_env_set(const char* name, const char* value) {
+    if (!name || !value) return -1;
+    return _putenv_s(name, value) == 0 ? 0 : -1;
+}
+
+static inline int orbit_env_unset(const char* name) {
+    if (!name) return -1;
+    return _putenv_s(name, "") == 0 ? 0 : -1;
+}
+
+#else
+
+static inline int orbit_env_set(const char* name, const char* value) {
+    if (!name || !value) return -1;
+    return setenv(name, value, 1);
+}
+
+static inline int orbit_env_unset(const char* name) {
+    if (!name) return -1;
+    return unsetenv(name);
+}
+
+#endif
+
 /* Append `suffix` to a fixed buffer, bounded, on every platform.
  *
  * strncat() is the obvious way to write this and it is the wrong one on

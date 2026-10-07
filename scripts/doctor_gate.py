@@ -151,13 +151,60 @@ def cases_needing_c_step(case: pathlib.Path) -> bool:
     return "--fix" in args
 
 
+def stage_compiler_with_runtime(compiler: str):
+    """A compiler invocation that sits beside the runtime headers, or None.
+
+    The emitted C includes socket_compat.h by bare name, and the C backend
+    resolves that next to the COMPILER binary. CI builds the fixed point into
+    RUNNER_TEMP, so it is nowhere near runtime/ and every --fix case cannot
+    compile its own result.
+
+    The earlier answer to that was to skip those cases and say so. That is what
+    made this gate fail in CI: doctor_gate.py then printed no
+    "Finished doctor_gate: N case(s)" line, alive_check.py saw no marker, and
+    reported the gate DEAD. A skipped check reported as a passed check, caught
+    by the tool that watches the other tools.
+
+    So the cases run. This makes a directory holding a link to the binary and
+    copies of the headers that the include names resolve to, and hands that
+    path back. The binary is linked, not copied: it is tens of megabytes and the
+    gate already rebuilds it upstream.
+    """
+    shim = pathlib.Path(tempfile.mkdtemp(prefix="doctor_gate_shim_"))
+    try:
+        link = shim / ("orbit_fixed_point" + (".exe" if os.name == "nt" else ""))
+        try:
+            link.symlink_to(compiler)
+        except OSError:
+            shutil.copy2(compiler, link)
+        # compilerRuntimeDir (compiler/pipeline.orb:205) resolves the runtime as
+        # <dir of argv[0]>/runtime and falls back to the relative "runtime", so
+        # the headers have to sit in a `runtime` SUBDIRECTORY next to the binary.
+        # Copying them flat next to it does not work, and does so quietly: the
+        # compile fails on socket_compat.h with no hint that the directory name
+        # was the difference.
+        # The whole tree, not just the headers: the generated C includes
+        # "socket_compat.h" AND "thread_pool.c", because the runtime's own
+        # sources are compiled into the unit. Copying *.h alone gets one step
+        # further and then fails on the first .c include, which looks like a
+        # different problem.
+        shutil.copytree(REPO / "runtime", shim / "runtime",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.o", "*.exe"))
+        return str(link)
+    except OSError as exc:
+        shutil.rmtree(shim, ignore_errors=True)
+        print(f"  shim failed: {exc}")
+        return None
+
+
 def compiler_can_reach_runtime(compiler: str) -> bool:
     """Whether the C step can work for a compiler at this path.
 
     A case that runs --fix verifies its result by compiling it, and the emitted C
-    includes "socket_compat.h" by bare name. That resolves next to the COMPILER
-    binary, so a compiler in /tmp cannot compile anything and every --fix golden
-    fails with a confusing error about the user's file.
+    includes "socket_compat.h" by bare name. compilerRuntimeDir resolves that
+    against <dir of argv[0]>/runtime, so a compiler outside the repository cannot
+    compile anything and every --fix golden fails with a confusing error about
+    the user's file.
 
     Checked here, and reported as a broken environment rather than as 6 failing
     goldens: the two are very different things and only one of them is a bug in
@@ -166,7 +213,7 @@ def compiler_can_reach_runtime(compiler: str) -> bool:
     bindir = os.path.dirname(os.path.abspath(compiler))
     repo = str(REPO)
     return (
-        os.path.exists(os.path.join(bindir, "socket_compat.h"))
+        os.path.isdir(os.path.join(bindir, "runtime"))
         or os.path.abspath(compiler).startswith(repo + os.sep)
     )
 
@@ -253,13 +300,12 @@ def main() -> int:
 
     needs_c = [c for c in cases if cases_needing_c_step(c)]
     if needs_c and not compiler_can_reach_runtime(compiler):
-        print(f"doctor_gate: {len(needs_c)} case(s) verify through the C step, and the "
-              f"compiler at {compiler} cannot resolve the runtime headers.")
-        print("  The emitted C includes socket_compat.h by bare name, resolved next to "
-              "the binary. Build inside the repository, or point --compiler at a binary "
-              "that sits beside runtime/.")
-        print("  Skipping those cases; the other cases are still checked.")
-        cases = [c for c in cases if not cases_needing_c_step(c)]
+        compiler = stage_compiler_with_runtime(compiler)
+        if compiler is None:
+            print(f"doctor_gate: {len(needs_c)} case(s) verify through the C step and "
+                  f"{args.compiler} cannot resolve the runtime headers, and the shim "
+                  f"could not be built either.")
+            return 1
 
     failures = []
     for case in cases:
