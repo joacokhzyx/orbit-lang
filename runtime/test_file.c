@@ -25,11 +25,19 @@
 
 #include "runtime.h"
 
+/* fflush after the banner, and after PASSED, because that is what makes a crash
+ * attributable. On Windows stdout is fully buffered when it is a pipe, not a
+ * console, so an access violation loses every buffered line and the CI log
+ * shows a bare "[ORBIT RUNTIME CRASH]" with no indication of which test died --
+ * which is how a crash in the migrations test was read as a crash in whichever
+ * test happened to be compiled last. The line is there to name the failure. */
 #define RUN_TEST(name) \
     do { \
         printf("Running test: %s... ", #name); \
+        fflush(stdout); \
         name(); \
         printf("PASSED\n"); \
+        fflush(stdout); \
     } while (0)
 
 static const char* TEST_PATH = "test_file_tmp.bin";
@@ -180,6 +188,7 @@ static void test_read_write_interop(void) {
 
 int main(void) {
     printf("=== Orbit runtime file-IO tests ===\n");
+    fflush(stdout); /* see RUN_TEST: a crash must name its test */
     RUN_TEST(test_write_read_roundtrip);
     RUN_TEST(test_large_content);
     RUN_TEST(test_refused_write_preserves_file);
