@@ -1,0 +1,6 @@
+extern fn orbit_http_body_get(k: string) -> string
+extern fn print(s: string) -> int
+fn f() -> int {
+    print(orbit_http_body_get("token"))
+    return 0
+}

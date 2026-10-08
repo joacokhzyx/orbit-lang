@@ -1,0 +1,7 @@
+extern fn orbit_http_body_get(k: string) -> string
+extern fn orbit_db_query_where(q: string) -> list
+fn f() -> list {
+    val id = orbit_http_body_get("id")
+    val rows = orbit_db_query_where("SELECT * FROM t WHERE id = " + id)
+    return rows
+}

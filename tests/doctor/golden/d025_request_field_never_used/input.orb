@@ -1,0 +1,7 @@
+extern fn orbit_http_body_get(k: string) -> string
+extern fn print(s: string) -> int
+fn f() -> int {
+    val secret = orbit_http_body_get("token")
+    print("done")
+    return 0
+}

@@ -1,0 +1,7 @@
+input.orb:5 warning [D010] a SQL statement starting with SELECT is built by string interpolation. fix: use a parameterised query instead of pasting values into the SQL text.
+input.orb:5 warning [D025] a value read from the request reaches orbit_db_query_where, so untrusted input is pasted into SQL. fix: parameterise the query and bind the value; every orbit_db_* entry point that takes a query has a form that does.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (0 error(s), 2 warning(s)) in 1 files under "input.orb".

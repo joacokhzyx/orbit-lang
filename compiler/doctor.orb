@@ -19,6 +19,7 @@ import "./pipeline.orb"
 //   D021  function parameter never read by its body (extern fns skipped)
 //   D022  a match arm that an earlier arm already matches, so it cannot run
 //   D023  a name shadowed in an inner scope and read again once it closes
+//   D025  a value read from the request reaching a database call
 //
 // --fix applies only D006/D007 whitespace tidies. Nothing semantic is
 // ever changed automatically.
@@ -1597,6 +1598,7 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
             doctorCheckLoopAllocs(stats, node, f.name, file, declLine)
             doctorCheckUnusedParams(stats, f, file, declLine)
             doctorCheckShadowedUses(stats, f, file, declLine)
+            doctorCheckTaint(stats, f.body, file, declLine, f.name)
         }
         ASTNode.RouteDecl(r) => {
             // Routes reach D023. They do not reach D017, D018, D019 or D021,
@@ -1605,6 +1607,7 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
             // because changing four checks at once is a different change with a
             // different blast radius.
             doctorCheckShadowedUsesInRoute(stats, r, file, doctorFindDeclLine(lines, "route", r.path))
+            doctorCheckTaint(stats, r.body, file, doctorFindDeclLine(lines, "route", r.path), r.http_method + " " + r.path)
         }
         _ => {}
     }
@@ -2319,6 +2322,232 @@ fn doctorPatternBindingName(pattern: ASTNode) -> string {
         _ => {}
     }
     return name
+}
+
+/**
+ *  @brief D025: a value read from the request reaching a database call.
+ *
+ *  Untrusted input pasted into SQL is the vulnerability class this is for, and
+ *  both ends are named in the emitted call: the sources are
+ *  orbit_http_body_get, orbit_auth_bearer_token and orbit_auth_current_role;
+ *  the sinks are the six orbit_db_* entry points that take a query. ENGINEERING
+ *  §2.5 lists both sets and says why this is the one §2.5 analysis worth
+ *  building.
+ *
+ *  On the AST, not the IR, and for the reason §2.5 gives: IRInstruction
+ *  (ir.orb:91) is opcode, dest and three operands, so an IR finding can name a
+ *  function and naming a line means guessing. CallNode carries line and col
+ *  (ast.orb:259), so the finding lands on the sink call itself.
+ *
+ *  Taint is direct, and the rule is one sentence: a name is tainted when it is
+ *  bound to something containing a source call or a tainted name, and it stops
+ *  being tainted when it is rebound to something containing neither. That last
+ *  half matters -- `val q = tainted` then `val q = "constant"` must go quiet,
+ *  or every later sink reports on a variable that no longer carries anything.
+ *
+ *  Taint is per function and per route body, and it does not follow scopes. A
+ *  shadowed tainted name would be tracked by name, which D023's finding on the
+ *  same code is the report for; this check does not need to resolve which one it
+ *  is to be useful, and a scope stack here would double the walk for a case that
+ *  already has an owner.
+ */
+fn doctorCheckTaint(stats: DoctorStats, body: ASTNode, file: string, declLine: int, label: string) {
+    val tainted = []
+    doctorTaintWalk(stats, body, file, declLine, label, tainted)
+}
+
+/** @brief Whether a callee name is one of the request-reading sources. */
+fn doctorIsTaintSource(name: string) -> bool {
+    if name == "orbit_http_body_get" { return true }
+    if name == "orbit_auth_bearer_token" { return true }
+    if name == "orbit_auth_current_role" { return true }
+    return false
+}
+
+/** @brief Whether a callee name is one of the database entry points. */
+fn doctorIsTaintSink(name: string) -> bool {
+    if name == "orbit_db_query_where" { return true }
+    if name == "orbit_db_query_where_p" { return true }
+    if name == "orbit_db_query_all" { return true }
+    if name == "orbit_db_query_get" { return true }
+    if name == "orbit_db_insert" { return true }
+    if name == "orbit_db_delete" { return true }
+    return false
+}
+
+/** @brief Whether an expression reads a source directly, or mentions a tainted name. */
+fn doctorExprIsTainted(node: ASTNode, tainted: list) -> bool {
+    var found = false
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" {
+                if doctorListContains(tainted, l.text) { found = true }
+            }
+        }
+        ASTNode.Call(c) => {
+            if doctorIsTaintSource(doctorCalleeText(c.callee)) { found = true }
+            val args = c.args
+            var i = 0
+            while i < args.len() {
+                if doctorExprIsTainted(doctorNodeAt(args, i), tainted) { found = true }
+                i = i + 1
+            }
+        }
+        ASTNode.BinaryOp(b) => {
+            if doctorExprIsTainted(b.lhs, tainted) { found = true }
+            if doctorExprIsTainted(b.rhs, tainted) { found = true }
+        }
+        ASTNode.UnaryOp(u) => { found = doctorExprIsTainted(u.operand, tainted) }
+        ASTNode.MemberAccess(m) => { found = doctorExprIsTainted(m.object, tainted) }
+        ASTNode.IndexAccess(ix) => {
+            if doctorExprIsTainted(ix.object, tainted) { found = true }
+            if doctorExprIsTainted(ix.index, tainted) { found = true }
+        }
+        ASTNode.ListLiteral(l) => { found = doctorExprListTainted(l.elements, tainted) }
+        ASTNode.Interp(inp) => { found = doctorExprListTainted(inp.parts, tainted) }
+        ASTNode.TypedLiteral(t) => { found = doctorExprIsTainted(t.value, tainted) }
+        _ => {}
+    }
+    return found
+}
+
+/** @brief Whether any expression in a list is tainted. */
+fn doctorExprListTainted(items: list, tainted: list) -> bool {
+    var found = false
+    var i = 0
+    while i < items.len() {
+        if doctorExprIsTainted(doctorNodeAt(items, i), tainted) { found = true }
+        i = i + 1
+    }
+    return found
+}
+
+/** @brief One node, tracking taint through bindings and reporting at sinks. */
+fn doctorTaintWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, label: string, tainted: list) {
+    match node {
+        ASTNode.VarDecl(v) => { doctorTaintBind(stats, v.name, v.value, file, declLine, label, tainted) }
+        ASTNode.ConstDecl(c) => { doctorTaintBind(stats, c.name, c.value, file, declLine, label, tainted) }
+        // A reassignment has to move the taint in BOTH directions. Descending
+        // into the value alone leaves the name tainted forever, so
+        // `val q = request_field` then `q = "constant"` still reported the next
+        // query -- which is the false positive that makes a taint check a thing
+        // people switch off.
+        ASTNode.Assignment(a) => {
+            doctorTaintRetarget(a.target, a.value, tainted)
+            doctorTaintWalk(stats, a.value, file, declLine, label, tainted)
+        }
+        ASTNode.Return(r) => { doctorTaintWalk(stats, r.expr, file, declLine, label, tainted) }
+        ASTNode.ReturnOk(r) => { doctorTaintWalk(stats, r.expr, file, declLine, label, tainted) }
+        ASTNode.ReturnErr(r) => { doctorTaintWalk(stats, r.expr, file, declLine, label, tainted) }
+        ASTNode.ExpressionStmt(e) => { doctorTaintWalk(stats, e.expr, file, declLine, label, tainted) }
+        ASTNode.BinaryOp(b) => {
+            doctorTaintWalk(stats, b.lhs, file, declLine, label, tainted)
+            doctorTaintWalk(stats, b.rhs, file, declLine, label, tainted)
+        }
+        ASTNode.UnaryOp(u) => { doctorTaintWalk(stats, u.operand, file, declLine, label, tainted) }
+        ASTNode.MemberAccess(m) => { doctorTaintWalk(stats, m.object, file, declLine, label, tainted) }
+        ASTNode.IndexAccess(ix) => {
+            doctorTaintWalk(stats, ix.object, file, declLine, label, tainted)
+            doctorTaintWalk(stats, ix.index, file, declLine, label, tainted)
+        }
+        ASTNode.ListLiteral(l) => { doctorTaintWalkList(stats, l.elements, file, declLine, label, tainted) }
+        ASTNode.Interp(inp) => { doctorTaintWalkList(stats, inp.parts, file, declLine, label, tainted) }
+        ASTNode.TypedLiteral(t) => { doctorTaintWalk(stats, t.value, file, declLine, label, tainted) }
+        ASTNode.Call(c) => { doctorTaintCall(stats, c, file, declLine, label, tainted) }
+        ASTNode.Block(b) => { doctorTaintWalkList(stats, b.statements, file, declLine, label, tainted) }
+        ASTNode.If(x) => {
+            doctorTaintWalk(stats, x.condition, file, declLine, label, tainted)
+            doctorTaintWalk(stats, x.thenBody, file, declLine, label, tainted)
+            if x.elseBody != NULL { doctorTaintWalk(stats, x.elseBody, file, declLine, label, tainted) }
+        }
+        ASTNode.While(w) => {
+            doctorTaintWalk(stats, w.condition, file, declLine, label, tainted)
+            doctorTaintWalk(stats, w.body, file, declLine, label, tainted)
+        }
+        ASTNode.For(fo) => {
+            doctorTaintWalk(stats, fo.iterable, file, declLine, label, tainted)
+            doctorTaintWalk(stats, fo.body, file, declLine, label, tainted)
+        }
+        ASTNode.Match(m) => {
+            doctorTaintWalk(stats, m.expr, file, declLine, label, tainted)
+            doctorTaintWalkList(stats, m.cases, file, declLine, label, tainted)
+        }
+        ASTNode.MatchCase(c) => { doctorTaintWalk(stats, c.body, file, declLine, label, tainted) }
+        ASTNode.Try(t) => {
+            doctorTaintWalk(stats, t.expr, file, declLine, label, tainted)
+            doctorTaintWalk(stats, t.catchBody, file, declLine, label, tainted)
+        }
+        _ => {}
+    }
+}
+
+/** @brief A list of nodes, in order. */
+fn doctorTaintWalkList(stats: DoctorStats, items: list, file: string, declLine: int, label: string, tainted: list) {
+    var i = 0
+    while i < items.len() {
+        doctorTaintWalk(stats, doctorNodeAt(items, i), file, declLine, label, tainted)
+        i = i + 1
+    }
+}
+
+/** @brief Apply the bind rule to an assignment target. */
+fn doctorTaintRetarget(target: ASTNode, value: ASTNode, tainted: list) {
+    match target {
+        ASTNode.Literal(l) => {
+            if l.valType != "identifier" { return }
+            if doctorExprIsTainted(value, tainted) {
+                if doctorListContains(tainted, l.text) == false { tainted.push(l.text) }
+            } else {
+                doctorClearTaint(tainted, l.text)
+            }
+        }
+        _ => {}
+    }
+}
+
+/** @brief Bind or rebind a name: tainted if what it is given is, clean if not. */
+fn doctorTaintBind(stats: DoctorStats, name: string, value: ASTNode, file: string, declLine: int, label: string, tainted: list) {
+    if name == "" { return }
+    val was = doctorListContains(tainted, name)
+    if doctorExprIsTainted(value, tainted) {
+        if was == false { tainted.push(name) }
+    } else {
+        if was == true { doctorClearTaint(tainted, name) }
+    }
+    doctorTaintWalk(stats, value, file, declLine, label, tainted)
+}
+
+/** @brief A call: the sink test, then into the arguments. */
+fn doctorTaintCall(stats: DoctorStats, c: CallNode, file: string, declLine: int, label: string, tainted: list) {
+    val callee = doctorCalleeText(c.callee)
+    if doctorIsTaintSink(callee) {
+        val args = c.args
+        if doctorExprListTainted(args, tainted) {
+            doctorReport(stats, file, c.line, "D025", "a value read from the request reaches " + callee + ", so untrusted input is pasted into SQL.", "parameterise the query and bind the value; every orbit_db_* entry point that takes a query has a form that does.")
+        }
+    }
+    doctorTaintWalkList(stats, c.args, file, declLine, label, tainted)
+}
+
+/**
+ *  @brief Clear one name from the taint set, in place.
+ *
+ *  In place, and not by building a new list and rebinding the parameter: the
+ *  parameter is a local name, so the caller kept pointing at the old list and
+ *  the taint was never cleared. That is the same shape as a pass-by-value bug in
+ *  any other language, and it showed up as `val q = request_field` followed by
+ *  `q = "constant"` still reporting the next query.
+ *
+ *  The entry is blanked rather than removed because a list has no removal, and
+ *  an empty string is never an identifier.
+ */
+fn doctorClearTaint(items: list, want: string) {
+    var i = 0
+    while i < items.len() {
+        val it: string = items.get(i)
+        if it == want { items.set(i, "") }
+        i = i + 1
+    }
 }
 
 /** @brief Visit each node of a statement list. */

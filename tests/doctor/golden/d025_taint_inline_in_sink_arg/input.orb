@@ -1,0 +1,5 @@
+extern fn orbit_http_body_get(k: string) -> string
+extern fn orbit_db_query_get(q: string) -> string
+fn f() -> string {
+    return orbit_db_query_get("SELECT * FROM t WHERE id = " + orbit_http_body_get("id"))
+}

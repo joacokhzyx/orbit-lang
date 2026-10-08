@@ -1,0 +1,4 @@
+extern fn orbit_db_query_where(q: string) -> list
+fn f() -> list {
+    return orbit_db_query_where("SELECT * FROM t WHERE id = 1")
+}
