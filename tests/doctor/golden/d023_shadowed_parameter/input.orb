@@ -1,0 +1,9 @@
+extern fn sink(v: int)
+
+fn f(n: int) -> int {
+    if n > 0 {
+        val n = n * 2
+        sink(n)
+    }
+    return n
+}

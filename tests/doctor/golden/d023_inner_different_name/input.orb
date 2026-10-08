@@ -1,0 +1,11 @@
+extern fn sink(v: int)
+extern fn flag() -> bool
+
+fn f() -> int {
+    val v = 10
+    if flag() {
+        val w = 20
+        sink(w)
+    }
+    return v
+}

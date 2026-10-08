@@ -1,0 +1,6 @@
+input.orb:3 warning [D023] 'n' is read again after the scope that redeclared it has closed, and the read returns the INNER value: the emitted C declares one variable per name, so both declarations are the same symbol. fix: rename one of them. The checker resolves this read to the outer declaration, but the generated C does not, so the two disagree and the inner value wins.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".

@@ -86,6 +86,13 @@ CLEAN_DIRS = ["compiler", "std", "tests/suite"]
 # will report clean everywhere the moment you exempt one file.
 ADVISORY_BY_FILE = {
     "tests/suite/call_arg_types.orb": {"D021"},
+    # This file exists to pin the shadowing bug: it declares `val v` inside an
+    # `if` and reads the outer one after, on purpose, because that program
+    # returns 20 where it means 10. D023 finds exactly those two clobbers and
+    # nothing else in the tree, which is the check working. Exempting the file is
+    # the same call as D021's: the code is wrong on purpose and the check is
+    # right about it.
+    "tests/suite/scope_shadow_clobbers_outer.orb": {"D023"},
 }
 
 # Codes exempt in every directory.

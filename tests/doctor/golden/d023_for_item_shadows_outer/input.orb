@@ -1,0 +1,10 @@
+extern fn sink(v: int)
+
+fn f() -> int {
+    val first = 99
+    val xs = [1, 2, 3]
+    for first in xs {
+        sink(first)
+    }
+    return first
+}

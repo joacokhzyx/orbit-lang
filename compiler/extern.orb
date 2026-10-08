@@ -1,5 +1,6 @@
 // External functions provided by the runtime for self-hosted compiler
 extern fn orbit_int_to_string_selfhost(value: int) -> string
+extern fn orbit_string_to_int(s: string) -> int
 extern fn orbit_float_to_string_selfhost(value: float) -> string
 extern fn orbit_string_char_at_selfhost(s: string, index: int) -> int
 extern fn orbit_string_from_char_selfhost(code: int) -> string
