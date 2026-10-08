@@ -93,6 +93,12 @@ ADVISORY_BY_FILE = {
     # the same call as D021's: the code is wrong on purpose and the check is
     # right about it.
     "tests/suite/scope_shadow_clobbers_outer.orb": {"D023"},
+    # These construct a `result` on purpose -- one ok, one err -- and call both
+    # without handling them, because building the values is what the test is for.
+    # `make_failure()` really does discard its error, which is D027's exact claim;
+    # the code is right for the file's purpose and the check is right about it.
+    "tests/suite/result_values.orb": {"D027"},
+    "tests/suite/result_try.orb": {"D027"},
 }
 
 # Codes exempt in every directory.

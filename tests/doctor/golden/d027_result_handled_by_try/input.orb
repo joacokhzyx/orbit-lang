@@ -1,0 +1,10 @@
+fn save() -> result {
+    return ok(1)
+}
+
+fn f() -> int {
+    val v = try save() catch e {
+        return 1
+    }
+    return 0
+}

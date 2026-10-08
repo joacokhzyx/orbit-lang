@@ -20,6 +20,7 @@ import "./pipeline.orb"
 //   D022  a match arm that an earlier arm already matches, so it cannot run
 //   D023  a name shadowed in an inner scope and read again once it closes
 //   D025  a value read from the request reaching a database call
+//   D027  a call returning a `result` and called as a statement
 //
 // --fix applies only D006/D007 whitespace tidies. Nothing semantic is
 // ever changed automatically.
@@ -480,6 +481,10 @@ model DoctorDecl {
     line: int
     isPrivate: bool
     isExtern: bool
+    // What the declaration returns, or "" for a model. D027 needs it: telling a
+    // call whose result is thrown away from one whose result is a `result` means
+    // knowing the callee's return type, and the name alone does not carry it.
+    returnType: string
 }
 
 model DoctorRoute {
@@ -2550,6 +2555,153 @@ fn doctorClearTaint(items: list, want: string) {
     }
 }
 
+/**
+ *  @brief D027: a call that returns a `result`, called as a statement.
+ *
+ *  `result` carries a value or an error, and the only way to read the error is
+ *  `try ... catch`. Calling such a function and dropping what it returns
+ *  discards the error silently -- the program continues as if the call had
+ *  succeeded, which is the failure mode a Result type exists to prevent.
+ *
+ *  It is scoped to `result` and not to every discarded value. A discarded `int`
+ *  is sometimes deliberate; a discarded `result` is a bug every time, because the
+ *  type's only purpose is to make the failure impossible to ignore and this is
+ *  the one way to ignore it.
+ *
+ *  The check needs the callee's return type, which is why DoctorDecl carries
+ *  one: a call's name does not say what it returns, and guessing from the
+ *  spelling of the function is how this check would have reported every
+ *  `push` and every `print`.
+ *
+ *  Only a call that IS the statement. `val v = f()` binds the result and is
+ *  then D021's business, and `return f()` hands it on. The bare statement is the
+ *  only shape where the value has nowhere to go.
+ *
+ *  The finding lands on the call, which carries line and col (ast.orb:259).
+ */
+fn doctorCheckIgnoredResults(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+    doctorIgnoredWalk(stats, node, file, decls)
+}
+
+/** @brief Walk for statements that are a call and throw the result away. */
+fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+    match node {
+        ASTNode.Program(p) => {
+            val ds = p.decls
+            var i = 0
+            while i < ds.len() {
+                doctorIgnoredStatement(stats, doctorNodeAt(ds, i), file, decls)
+                i = i + 1
+            }
+        }
+        ASTNode.FunctionDecl(f) => { doctorIgnoredWalk(stats, f.body, file, decls) }
+        ASTNode.RouteDecl(r) => { doctorIgnoredWalk(stats, r.body, file, decls) }
+        // A call reached from an EXPRESSION is not a discarded statement, and
+        // reporting it here is what made `val v = save()`, `return save()` and
+        // `try save() catch` all report. Only the statement positions below can
+        // discard a value, so only they ask.
+        ASTNode.Call(c) => {
+            val args = c.args
+            var i = 0
+            while i < args.len() {
+                doctorIgnoredWalk(stats, doctorNodeAt(args, i), file, decls)
+                i = i + 1
+            }
+        }
+        ASTNode.Block(b) => {
+            val stmts = b.statements
+            var i = 0
+            while i < stmts.len() {
+                doctorIgnoredStatement(stats, doctorNodeAt(stmts, i), file, decls)
+                i = i + 1
+            }
+        }
+        ASTNode.VarDecl(v) => { doctorIgnoredWalk(stats, v.value, file, decls) }
+        ASTNode.ConstDecl(c) => { doctorIgnoredWalk(stats, c.value, file, decls) }
+        ASTNode.Assignment(a) => { doctorIgnoredWalk(stats, a.value, file, decls) }
+        ASTNode.Return(r) => { doctorIgnoredWalk(stats, r.expr, file, decls) }
+        ASTNode.ReturnOk(r) => { doctorIgnoredWalk(stats, r.expr, file, decls) }
+        ASTNode.ReturnErr(r) => { doctorIgnoredWalk(stats, r.expr, file, decls) }
+        ASTNode.If(x) => {
+            doctorIgnoredWalk(stats, x.condition, file, decls)
+            doctorIgnoredWalk(stats, x.thenBody, file, decls)
+            if x.elseBody != NULL { doctorIgnoredWalk(stats, x.elseBody, file, decls) }
+        }
+        ASTNode.While(w) => {
+            doctorIgnoredWalk(stats, w.condition, file, decls)
+            doctorIgnoredWalk(stats, w.body, file, decls)
+        }
+        ASTNode.For(fo) => {
+            doctorIgnoredWalk(stats, fo.iterable, file, decls)
+            doctorIgnoredWalk(stats, fo.body, file, decls)
+        }
+        ASTNode.Match(m) => {
+            doctorIgnoredWalk(stats, m.expr, file, decls)
+            val cases = m.cases
+            var i = 0
+            while i < cases.len() {
+                doctorIgnoredWalk(stats, doctorNodeAt(cases, i), file, decls)
+                i = i + 1
+            }
+        }
+        ASTNode.MatchCase(c) => { doctorIgnoredWalk(stats, c.body, file, decls) }
+        ASTNode.Try(t) => {
+            doctorIgnoredWalk(stats, t.expr, file, decls)
+            doctorIgnoredWalk(stats, t.catchBody, file, decls)
+        }
+        ASTNode.BinaryOp(b) => {
+            doctorIgnoredWalk(stats, b.lhs, file, decls)
+            doctorIgnoredWalk(stats, b.rhs, file, decls)
+        }
+        ASTNode.ListLiteral(l) => { doctorIgnoredWalkList(stats, l.elements, file, decls) }
+        ASTNode.Interp(inp) => { doctorIgnoredWalkList(stats, inp.parts, file, decls) }
+        ASTNode.TypedLiteral(t) => { doctorIgnoredWalk(stats, t.value, file, decls) }
+        _ => {}
+    }
+}
+
+/** @brief A list of nodes, in order. */
+/** @brief One statement: a discarded result is only possible here.
+ *
+ *  parseStatementInner returns the expression unwrapped (parser.orb:1294), so a
+ *  bare `save()` is the Call node sitting in the statement list. That is the
+ *  shape with nowhere to put the value.
+ */
+fn doctorIgnoredStatement(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+    match node {
+        ASTNode.Call(c) => {
+            val callee = doctorCalleeText(c.callee)
+            if callee != "" {
+                if doctorReturnTypeOf(decls, callee) == "result" {
+                    doctorReport(stats, file, c.line, "D027", callee + "() returns a result and is called as a statement, so a failure it reports is discarded and the program continues as if it had succeeded.", "bind it with `try ... catch`, or assign it to a val and handle the error there.")
+                }
+            }
+        }
+        _ => {}
+    }
+    doctorIgnoredWalk(stats, node, file, decls)
+}
+
+fn doctorIgnoredWalkList(stats: DoctorStats, items: list, file: string, decls: list) {
+    var i = 0
+    while i < items.len() {
+        doctorIgnoredWalk(stats, doctorNodeAt(items, i), file, decls)
+        i = i + 1
+    }
+}
+
+/** @brief The declared return type of `name`, or "" when nothing declares it. */
+fn doctorReturnTypeOf(decls: list, name: string) -> string {
+    var out = ""
+    var i = 0
+    while i < decls.len() {
+        val d: DoctorDecl = decls.get(i)
+        if d.name == name && d.kind == "fn" { out = d.returnType }
+        i = i + 1
+    }
+    return out
+}
+
 /** @brief Visit each node of a statement list. */
 fn doctorChildrenFrom(stmts: list, stats: DoctorStats, file: string) {
     var i = 0
@@ -3019,10 +3171,10 @@ fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
             }
         }
         ASTNode.FunctionDecl(f) => {
-            decls.push(DoctorDecl(f.name, "fn", file, doctorFindDeclLine(lines, "fn", f.name), f.isPrivate, f.isExtern))
+            decls.push(DoctorDecl(f.name, "fn", file, doctorFindDeclLine(lines, "fn", f.name), f.isPrivate, f.isExtern, f.returnType))
         }
         ASTNode.ModelDecl(m) => {
-            decls.push(DoctorDecl(m.name, "model", file, doctorFindDeclLine(lines, "model", m.name), false, false))
+            decls.push(DoctorDecl(m.name, "model", file, doctorFindDeclLine(lines, "model", m.name), false, false, ""))
         }
         _ => {}
     }
@@ -4291,6 +4443,9 @@ fn doctorRun(opts: DoctorOptions) {
                 // Per file rather than per function, because a match can sit in
                 // a route body or at the top level and not only inside a `fn`.
                 doctorCheckDuplicateMatchArms(stats, ast, fp3)
+                // D027 needs every declaration in the file, not just this one, so
+                // it runs per file rather than per function like the others.
+                doctorCheckIgnoredResults(stats, ast, fp3, decls)
                 doctorScanFunctions(stats, ast, fp3, fplines)
                 // Kept for the fingerprint pass below, which needs this file's
                 // imports. Without it the fingerprint re-parses every file in

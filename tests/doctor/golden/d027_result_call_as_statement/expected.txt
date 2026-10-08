@@ -1,0 +1,6 @@
+input.orb:6 warning [D027] save() returns a result and is called as a statement, so a failure it reports is discarded and the program continues as if it had succeeded. fix: bind it with `try ... catch`, or assign it to a val and handle the error there.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".

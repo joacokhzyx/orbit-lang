@@ -1,0 +1,7 @@
+fn save() -> result {
+    return ok(1)
+}
+
+fn g() -> result {
+    return save()
+}

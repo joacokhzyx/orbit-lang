@@ -1,0 +1,8 @@
+fn compute() -> int {
+    return 7
+}
+
+fn f() -> int {
+    compute()
+    return 0
+}

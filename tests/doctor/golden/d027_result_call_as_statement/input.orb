@@ -1,0 +1,8 @@
+fn save() -> result {
+    return ok(1)
+}
+
+fn f() -> int {
+    save()
+    return 0
+}
