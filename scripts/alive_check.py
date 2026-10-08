@@ -110,6 +110,19 @@ def _tmp(work, *parts):
 def registry(compiler, cc, work):
     comp = lambda *extra: ["--compiler", compiler, "--cc", cc] + list(extra)
     tools = [
+        # ---- the entry point ------------------------------------------------
+        # `dev.py list` is the row, not `dev.py` bare. Bare means "run the tier
+        # the working tree implies", which for a clean tree is T0+T1: it builds
+        # the fixed point and runs the doctor and CLI gates, which turns a check
+        # about this tool into a check about everything else. `list` enumerates
+        # the tiers from the real diff and prints them, which is the part of
+        # dev.py that can rot on its own -- a tier that stopped being selected,
+        # or a gate renamed out from under it.
+        Tool("dev.py", "gate",
+             "the developer-loop entry point; `list` prints the tiers it "
+             "selected from the working tree",
+             lambda: _script("dev.py", "list"),
+             r"T\d:", 120, allow_rc=(0, 1)),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does

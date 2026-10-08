@@ -666,6 +666,7 @@ are prerequisites or independently valuable even if SOVER-1 is deferred.
 | PERF-1 | `compiler/fmt.orb`, `compiler/doctor.orb` | - | ~~String building was quadratic: ~21 `out = out + ...` sites in the formatter, one arena allocation per character in `fmtStripCR`, and O(depth^2) indentation. `orbit fmt --check compiler/c_backend.orb` was killed at 2.8 GB, and the whole directory needed 4.36 GB, so the CI formatter gate only passed on runners with a lot of memory.~~ Resolved (2026-09-25): routed through the same chunk buffer the C backend already used. Peak RSS for that file is now ~6.6 MB (from ~2.8 GB) and the whole `compiler/` tree is ~64 MB, with formatter output proven byte-identical on 139 of 140 files (the 140th being the one the old compiler could not process at all). | ✅ Resolved |
 | PERF-2 | `compiler/c_backend.orb` | - | ~~Module-wide feature scans were repeated: `moduleUsesDatabase` walked every instruction twice per build, `moduleHasFunction` twice per function, and `moduleConstructsVariants` multiplied instructions by types by variants.~~ Measured and deliberately NOT changed: after the PERF-0 work each of these is a single call and under 1% of the profile, and the language has no working module-level mutable state to memoize into (a top-level `var` is emitted as a function-local). Revisit only if a program large enough to matter shows the shape in a profile. | **Low** |
 | SOVER-1 | `compiler/` | - | x86-64 encoder, object writers, and register allocator not ported to Orbit source. `compiler/native/` does not exist. Note there is no predecessor implementation in the tree to port from: see §4 Phase S2. | **Medium** |
+| DX-1 | `scripts/dev.py`, `.github/workflows/ci-gate.yml` | - | The gate sequence had three copies -- prose in §8, twenty-four inline steps in CI, and whatever the author of the day remembered -- and they disagreed: §8 step 10 ran `orbit doctor tests/suite` while CI ran `doctor_scope_gate.py`, which is the disagreement §8's own note records. `scripts/dev.py` plus the root `Makefile` are now the executable form, and they are NOT yet the whole truth. Three things remain. **(1)** CI still carries its own inline copy; `make all` covers the Python gates only, not the runtime C tests, the Kynx live gate, `routes_probe.py`, the census, `diff_fuzz.py` or the gate self-tests, so a green `make all` is not a green CI and the two copies can drift again. **(2)** A failure in the inline runtime-C step still skips the fourteen steps after it, which is how the Windows half of the gate has been dark since it appeared: the last four CI runs are `failure` at `Runtime C tests` with everything below it `skipped`. **(3)** The fixed-point binary has to live outside the tree, and the reason is not obvious -- at the repository root it satisfies `doctor_gate`'s three `--fix` goldens and silently voids `cli_probe`'s `cc-include-failure-is-not-a-missing-toolchain` probe, because that probe asserts a C include failure that a compiler able to see `runtime/` never produces. That constraint is written down in `fp_path()`; it is load-bearing and load-bearing quietly. **(4)** `examples/` maps to T1, and nothing in T1 or T2 compiles an example: an edit there is checked for formatting and nothing else until the Kynx live gate builds `examples/blog_api.orb`, and that gate is item (1) of this entry. | **High** |
 
 ---
 
@@ -684,7 +685,47 @@ Read this entire document before writing any code. Then:
 
 ### The Gate Sequence
 
-Run in this order. Every step is a stock Python 3 script or a C compiler invocation; no other toolchain is required. The steps marked **[CI]** are the ones `.github/workflows/ci-gate.yml` runs on every push, on ubuntu/gcc and windows/clang.
+**Run it with `make`, not by copying commands out of this section.** The section
+below is the explanation of each gate: what it asserts, what it costs, why it
+exists. The executable form is the root `Makefile` over `scripts/dev.py`, which
+owns the things that used to be tribal knowledge and had to be re-derived per
+change:
+
+```sh
+make dev      # gates proportionate to what the working tree touched
+make check    # T0..T2 unconditionally
+make all      # T0..T3, including the root of trust
+make fp       # just the fixed-point compiler, and print its version
+make list     # show what dev would run, without running it
+make promote  # the only way to replace the committed canonical
+```
+
+`dev` reads `git diff --name-only` and picks a tier, erring toward running more:
+touching `tests/`, `compiler/`, `std/` or `runtime/` implies T2, touching
+`scripts/` or `examples/` implies T1, touching `docs/` implies nothing beyond
+fmt. `tests/` is T2 and not T1 because the suite lives there: an edit to a test
+that only ran the doctor and CLI gates would never learn whether the test still
+passes. **A green `make dev` is therefore not a green CI**, and
+`dev.py` prints which tiers it skipped at the end of every run. `check` and
+`all` name the missing tiers and the target that runs them.
+
+`dev.py` owns four things that had no owner: `TEMP`/`TMP` (pointed at
+`.orbit/tmp`, because the system temp is a different filesystem on some machines
+and is the first thing anyone cleans), `ORBIT_CCACHE_DIR`, the fixed-point binary
+path and its freshness stamp, and the flags each gate takes. Fourteen scripts
+accept `--cc`, fifteen accept `--compiler`, three accept neither, and
+`doctor_gate.py` accepts `--cc` and ignores it.
+
+Two things this does NOT do, both recorded as **DX-1** in §7: CI still carries
+its own inline copy of the sequence, and `make all` does not drive the runtime C
+tests, the Kynx live gate, `routes_probe.py`, the census, `diff_fuzz.py` or the
+gate self-tests. `make all` is a subset of CI, not a replacement for it, until
+CI calls this script.
+
+The list below is what the tiers run, and why each step is there. Every step is a
+stock Python 3 script or a C compiler invocation; no other toolchain is required.
+The steps marked **[CI]** are the ones `.github/workflows/ci-gate.yml` runs on
+every push, on ubuntu/gcc and windows/clang.
 
 ```sh
 # 0. [CI] Build the self-hosted compiler and confirm the sources still converge

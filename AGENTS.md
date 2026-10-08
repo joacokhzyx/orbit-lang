@@ -14,22 +14,27 @@ chmod +x /tmp/fp
 
 ## Verification gates (all local, all required)
 
-```bash
-export TEMP=/tmp/scent TMP=/tmp/scent  # fixed-point binary needs these
+`scripts/dev.py` is the entry point. It owns `TEMP`/`TMP`, `ORBIT_CCACHE_DIR`, the fixed-point binary and its freshness stamp, and each gate's flags -- all four used to be tribal knowledge. Do not export those variables by hand and do not pass `--cc`/`--compiler` by hand.
 
-/tmp/fixed_point fmt --check compiler                 # must be silent
-/tmp/fixed_point fmt --check tests/suite
-python3 scripts/test_suite.py --cc gcc --compiler /tmp/fixed_point       # tests/suite, last line `Finished suite:`
-python3 scripts/negative_gate.py --cc gcc --compiler /tmp/fixed_point    # tests/negative/*, each needs an `// expect-error: <substring>` header
-python3 scripts/parity_selfhost.py --cc gcc --compiler /tmp/fixed_point  # 32 probe goldens
-python3 scripts/werror_gate.py --cc gcc --compiler /tmp/fixed_point      # -Wall -Werror on generated C
-python3 scripts/alive_check.py --cc gcc --compiler /tmp/fixed_point
-python3 scripts/unknown_ratchet.py --cc gcc --compiler /tmp/fixed_point  # one-way: count may only go DOWN
-python3 scripts/diff_fuzz.py --cc gcc --compiler /tmp/fixed_point        # report-only by policy
-python3 scripts/verify_seed.py --cc gcc                                   # canonical C reproduces itself
+```bash
+make dev      # gates proportionate to what the working tree touched (default)
+make check    # T0..T2 unconditionally
+make all      # T0..T3, including the root of trust
+make fp       # just the fixed-point compiler, and print its version
+make list     # show what dev would run, without running it
 ```
 
-Order that fails the most informatively: fmt -> negative -> suite -> parity -> werror -> ratchet.
+`dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
+
+Note that `make all` covers the Python gates only. CI additionally runs the runtime C tests, the Kynx live gate, `routes_probe.py`, the census, `diff_fuzz.py` and the gate self-tests, and still carries its own inline copy of the sequence -- see DX-1 in `ENGINEERING.md` §7.
+
+Useful when something breaks:
+
+```bash
+python scripts/doctor_gate.py --compiler "$(make -s fp >/dev/null && echo /tmp/orbit-fp-*)"
+```
+
+If you need the raw commands, they are listed with their rationale in `ENGINEERING.md` §8. Do not copy them from there; that is the drift this script exists to end.
 
 ## Replace-the-world rule
 

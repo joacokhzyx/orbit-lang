@@ -13,6 +13,12 @@ last_generated.c
 # C compile cache (scripts/orbit_ccache.py); ORBIT_CCACHE_DIR points here in CI
 .ccache/
 
+# The developer loop's scratch: the compile cache, TEMP/TMP and gate work
+# directories, and the freshness stamp for the fixed-point compiler. The compiler
+# itself lives in the system temp and is rebuilt when it goes missing; see
+# fp_path() in scripts/dev.py for why it cannot live in the tree.
+/.orbit/
+
 # Prebuilt release binaries (regenerate with scripts/verify_seed.py --refresh)
 bin/
 
