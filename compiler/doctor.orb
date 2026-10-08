@@ -1835,13 +1835,15 @@ fn doctorCheckDuplicateMatchArms(stats: DoctorStats, node: ASTNode, file: string
         }
         _ => {}
     }
-    // Split so that neither half is over the complexity limit and neither calls
-    // itself. One function holding the reporting match and the whole descent had
-    // cyclomatic complexity 31 and a non-tail self-call, both of which doctor
-    // reported on doctor.orb itself: D017 and D018, fired by the checks written
-    // next to them.
+    // Split so that neither half is over the complexity limit. One function
+    // holding the reporting match and the whole descent had cyclomatic
+    // complexity 31, which doctor reported on doctor.orb itself.
     doctorDescendStatements(node, stats, file)
-    doctorDescendValues(node, stats, file)
+    // The last call is the return, so the descent is a tail call -- which is
+    // what D018 asks for, and what could not be written when the split was first
+    // made: `return f()` in a void function emitted `return (void*)(r_0)` with
+    // r_0 undeclared. Fixed in 2610bdf.
+    return doctorDescendValues(node, stats, file)
 }
 
 /** @brief Descend into the children that hold STATEMENTS.
