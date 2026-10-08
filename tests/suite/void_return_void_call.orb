@@ -1,0 +1,35 @@
+// `return f()` where `f` returns void is a tail call, and it has to compile.
+//
+// The codegen emitted `return (void*)(r_0);` for it, reading a register the
+// allocator never made, so the five-line program below produced C that gcc
+// rejected with `r_0 undeclared`. It went unnoticed because `return f()` in a
+// non-void function is fine, a bare `return` is fine, and calling `f()` as a
+// statement is fine -- only this one shape broke, and writing it is the natural
+// way to spell a tail call.
+//
+// Both `return` forms are here because they share the backend branch, and the
+// direct-call form is here because that is the one that did not compile.
+extern fn print(s: string) -> int
+
+fn target() {
+    print("target\n")
+}
+
+fn tailCall() {
+    return target()
+}
+
+fn plainStatement() {
+    target()
+    return
+}
+
+fn chained() {
+    return tailCall()
+}
+
+fn main() -> int {
+    chained()
+    plainStatement()
+    return 0
+}

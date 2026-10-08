@@ -2979,6 +2979,17 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     } else if rtype == "float" || rtype == "orbit_float" {
                         orbit_cbuf_append_selfhost(cb, "    return (orbit_float)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n")
                         return
+                    } else if rtype == "void" {
+                        // A void function returns nothing, and the value this
+                        // register names does not exist: the call that produced
+                        // it was emitted as its own statement already. Reading
+                        // the register here emits C that does not compile --
+                        // `return (void*)(r_0);` with r_0 undeclared -- for the
+                        // five-line program `fn beta() {} fn alpha() { return
+                        // beta() }`. The fallback below assumed a pointer return
+                        // and nothing ever said otherwise.
+                        orbit_cbuf_append_selfhost(cb, "    return;\n")
+                        return
                     } else {
                         orbit_cbuf_append_selfhost(cb, "    return (void*)(r_" + orbit_int_to_string_selfhost(v.value) + ");\n")
                         return
@@ -2998,6 +3009,12 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                         return
                     } else if rtype == "float" || rtype == "orbit_float" {
                         orbit_cbuf_append_selfhost(cb, "    return (orbit_float)(" + valStr + ");\n")
+                        return
+                    } else if rtype == "void" {
+                        // Same defect as the register arm above: the call has
+                        // already been emitted as a statement, so there is no
+                        // value to return.
+                        orbit_cbuf_append_selfhost(cb, "    return;\n")
                         return
                     } else {
                         orbit_cbuf_append_selfhost(cb, "    return (void*)(" + valStr + ");\n")
