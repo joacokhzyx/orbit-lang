@@ -1,0 +1,5 @@
+route GET "/live" {
+    var tmp = "x"
+    tmp = tmp + "y"
+    return ok 200 tmp
+}

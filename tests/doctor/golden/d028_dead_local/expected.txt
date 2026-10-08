@@ -1,0 +1,7 @@
+input.orb:2 warning [D013] 'tmp' is declared var but never assigned again. fix: make it a val: nothing can reassign it, and the compiler stops checking every write.
+input.orb:2 warning [D028] 'tmp' is assigned and never read after the last assignment, so the value is dead. fix: delete it, or read it. An unused `var` is also work the optimiser cannot remove, because it cannot prove nothing reads it.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 2 finding(s) (0 error(s), 2 warning(s)) in 1 files under "input.orb".

@@ -1,0 +1,10 @@
+extern fn sink(v: int)
+
+fn f(xs: list) -> bool {
+    var found = false
+    for e in xs {
+        sink(e)
+        found = true
+    }
+    return found
+}

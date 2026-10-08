@@ -1,0 +1,5 @@
+fn f(n: int) -> int {
+    var mut tmp = n * 2
+    tmp = tmp + 1
+    return 0
+}

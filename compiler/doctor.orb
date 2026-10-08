@@ -1604,15 +1604,18 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
             doctorCheckUnusedParams(stats, f, file, declLine)
             doctorCheckShadowedUses(stats, f, file, declLine)
             doctorCheckTaint(stats, f.body, file, declLine, f.name)
+            doctorCheckDeadStores(stats, f, file, declLine)
         }
         ASTNode.RouteDecl(r) => {
-            // Routes reach D023. They do not reach D017, D018, D019 or D021,
+            // Routes reach D023, D025 and D028. They do not reach D017, D018,
+            // D019 or D021,
             // which each take a FunctionDeclNode or a function name; that is a
             // shared gap and it is recorded rather than quietly widened here,
             // because changing four checks at once is a different change with a
             // different blast radius.
             doctorCheckShadowedUsesInRoute(stats, r, file, doctorFindDeclLine(lines, "route", r.path))
             doctorCheckTaint(stats, r.body, file, doctorFindDeclLine(lines, "route", r.path), r.http_method + " " + r.path)
+            doctorCheckDeadStoresIn(stats, r.body, file, doctorFindDeclLine(lines, "route", r.path))
         }
         _ => {}
     }
@@ -2700,6 +2703,246 @@ fn doctorReturnTypeOf(decls: list, name: string) -> string {
         i = i + 1
     }
     return out
+}
+
+/**
+ *  @brief D028: a value written to a `var` that nothing ever reads afterwards.
+ *
+ *  The rule is one sentence: take the last write to a mutable local, and if no
+ *  read comes after it, the value is dead. One finding per variable -- three
+ *  writes to a variable nobody reads is three of the same sentence at three
+ *  lines, which is a list nobody reads either.
+ *
+ *  Restricted to `var` locals. A `val` cannot be reassigned, so its only value
+ *  is its initialisation and a `val` nobody reads is D021's question. And a write
+ *  through a member access or a list element is not a store this can see:
+ *  `xs.set(0, v)` puts a value somewhere the code may never name, and calling
+ *  that dead would be a guess.
+ *
+ *  So the common case is silent --
+ *
+ *      var found = false
+ *      for e in xs { if e.ok { found = true } }
+ *      return found
+ *
+ *  because `found` is read -- while
+ *
+ *      var tmp = compute()
+ *      return other()
+ *
+ *  reports, and `tmp` is wasted work.
+ *
+ *  Reads and writes are separated by an index the walk counts, because this
+ *  language has no positions on the nodes involved: AssignmentNode carries
+ *  neither line nor col, and a use is a bare Literal. Ordering therefore has to
+ *  come from the traversal. Each entry is "name|declLine|lastWrite|maxRead",
+ *  rewritten in place, since a list has no update.
+ */
+fn doctorCheckDeadStores(stats: DoctorStats, f: FunctionDeclNode, file: string, declLine: int) {
+    if f.isExtern { return }
+    doctorCheckDeadStoresIn(stats, f.body, file, declLine)
+}
+
+/** @brief A body, from a `fn` or from a `route`. */
+fn doctorCheckDeadStoresIn(stats: DoctorStats, body: ASTNode, file: string, declLine: int) {
+    val stores = []
+    doctorDeadWalk(stats, body, file, declLine, stores, 0, 0)
+    doctorDeadReport(stats, stores, file)
+}
+
+/** @brief One node; returns the index the next node should use. */
+fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, stores: list, at: int, loopDepth: int) -> int {
+    var next = at
+    match node {
+        ASTNode.Program(p) => { next = doctorDeadList(stats, p.decls, file, declLine, stores, next, loopDepth) }
+        ASTNode.Block(b) => { next = doctorDeadList(stats, b.statements, file, declLine, stores, next, loopDepth) }
+        ASTNode.VarDecl(v) => {
+            if v.isMutable {
+                if doctorDeadIndexOf(stores, v.name) < 0 {
+                    stores.push(doctorDeadKey(v.name, v.line, -1, -1, 0))
+                }
+                doctorDeadNoteWrite(stores, v.name, next, loopDepth)
+            }
+            next = doctorDeadWalk(stats, v.value, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.ConstDecl(c) => { next = doctorDeadWalk(stats, c.value, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.Assignment(a) => {
+            next = doctorDeadWalk(stats, a.value, file, declLine, stores, next + 1, loopDepth)
+            match a.target {
+                ASTNode.Literal(l) => {
+                    if l.valType == "identifier" { doctorDeadNoteWrite(stores, l.text, next + 1, loopDepth) }
+                }
+                _ => {}
+            }
+            next = next + 2
+        }
+        ASTNode.Return(r) => { next = doctorDeadWalk(stats, r.expr, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.ReturnOk(r) => { next = doctorDeadWalk(stats, r.expr, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.ReturnErr(r) => { next = doctorDeadWalk(stats, r.expr, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.ExpressionStmt(e) => { next = doctorDeadWalk(stats, e.expr, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.BinaryOp(b) => {
+            next = doctorDeadWalk(stats, b.lhs, file, declLine, stores, next + 1, loopDepth)
+            next = doctorDeadWalk(stats, b.rhs, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.UnaryOp(u) => { next = doctorDeadWalk(stats, u.operand, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.MemberAccess(m) => { next = doctorDeadWalk(stats, m.object, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.IndexAccess(ix) => {
+            next = doctorDeadWalk(stats, ix.object, file, declLine, stores, next + 1, loopDepth)
+            next = doctorDeadWalk(stats, ix.index, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.Call(c) => {
+            next = doctorDeadWalk(stats, c.callee, file, declLine, stores, next + 1, loopDepth)
+            next = doctorDeadList(stats, c.args, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.ListLiteral(l) => { next = doctorDeadList(stats, l.elements, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.ObjectLiteral(o) => { next = doctorDeadList(stats, o.fields, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.FieldInit(fi) => { next = doctorDeadWalk(stats, fi.value, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.Interp(inp) => { next = doctorDeadList(stats, inp.parts, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.TypedLiteral(t) => { next = doctorDeadWalk(stats, t.value, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.If(x) => {
+            next = doctorDeadWalk(stats, x.condition, file, declLine, stores, next + 1, loopDepth)
+            next = doctorDeadWalk(stats, x.thenBody, file, declLine, stores, next + 1, loopDepth)
+            if x.elseBody != NULL { next = doctorDeadWalk(stats, x.elseBody, file, declLine, stores, next + 1, loopDepth) }
+        }
+        // Body BEFORE condition, and that order is the whole analysis. A loop
+        // counter is `while i < n { ... i = i + 1 }`: the condition re-reads `i`
+        // after every iteration, so the store inside the body is live. Walking
+        // the condition first put its read before the body's write, and every
+        // loop counter in the repository came out as a dead store -- 463
+        // findings, nearly all of them `i`. Walking the body first gives the
+        // condition the last word, which is what happens at run time.
+        ASTNode.While(w) => {
+            next = doctorDeadWalk(stats, w.body, file, declLine, stores, next + 1, loopDepth + 1)
+            next = doctorDeadWalk(stats, w.condition, file, declLine, stores, next + 1, loopDepth)
+        }
+        // Same for a for loop's iterable, and its item variable: the item is
+        // re-bound every iteration, so a write to it inside the body is only
+        // dead if the body never reads it.
+        ASTNode.For(fo) => {
+            next = doctorDeadWalk(stats, fo.body, file, declLine, stores, next + 1, loopDepth + 1)
+            next = doctorDeadWalk(stats, fo.iterable, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.Match(m) => {
+            next = doctorDeadWalk(stats, m.expr, file, declLine, stores, next + 1, loopDepth)
+            next = doctorDeadList(stats, m.cases, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.MatchCase(c) => { next = doctorDeadWalk(stats, c.body, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.Try(t) => {
+            next = doctorDeadWalk(stats, t.expr, file, declLine, stores, next + 1, loopDepth)
+            next = doctorDeadWalk(stats, t.catchBody, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" { doctorDeadNoteRead(stores, l.text, next) }
+        }
+        _ => {}
+    }
+    return next
+}
+
+/** @brief A list of nodes, in order; returns the next index. */
+fn doctorDeadList(stats: DoctorStats, items: list, file: string, declLine: int, stores: list, at: int, loopDepth: int) -> int {
+    var next = at
+    var i = 0
+    while i < items.len() {
+        next = doctorDeadWalk(stats, doctorNodeAt(items, i), file, declLine, stores, next + 1, loopDepth)
+        i = i + 1
+    }
+    return next
+}
+
+/** @brief "name|declLine|lastWrite|maxRead|lastWriteDepth". */
+fn doctorDeadKey(name: string, declLine: int, lastWrite: int, maxRead: int, lastWriteDepth: int) -> string {
+    return name + "|" + orbit_int_to_string_selfhost(declLine) + "|" + orbit_int_to_string_selfhost(lastWrite) + "|" + orbit_int_to_string_selfhost(maxRead) + "|" + orbit_int_to_string_selfhost(lastWriteDepth)
+}
+
+/** @brief The index of `name`'s entry, or -1. */
+fn doctorDeadIndexOf(stores: list, name: string) -> int {
+    var at = -1
+    var i = 0
+    while i < stores.len() {
+        val entry: string = stores.get(i)
+        val bar = orbit_string_indexOf(entry, "|")
+        if bar != -1 {
+            if orbit_string_slice(entry, 0, bar) == name { at = i }
+        }
+        i = i + 1
+    }
+    return at
+}
+
+/** @brief Read one field out of an entry. */
+fn doctorDeadField(entry: string, which: int) -> int {
+    var acc = ""
+    var field = 0
+    var i = 0
+    while i < orbit_string_len(entry) {
+        val c = orbit_string_char_at_selfhost(entry, i)
+        // 124 is the character code of "|". Comparing the char to the STRING
+        // "|" is always false, so this loop never split anything and
+        // doctorDeadField returned to_int() of the whole entry, which is 0 for
+        // every entry. That is why the check reported nothing at all: the
+        // decision it was built to make saw lastWrite = 0 and maxRead = 0.
+        if c == 124 {
+            if field == which { return orbit_string_to_int(acc) }
+            field = field + 1
+            acc = ""
+        } else {
+            acc = acc + orbit_string_slice(entry, i, i + 1)
+        }
+        i = i + 1
+    }
+    if field == which { return orbit_string_to_int(acc) }
+    return 0
+}
+
+/** @brief Note a write at `at`. */
+fn doctorDeadNoteWrite(stores: list, name: string, at: int, loopDepth: int) {
+    val i = doctorDeadIndexOf(stores, name)
+    if i < 0 { return }
+    val entry: string = stores.get(i)
+    stores.set(i, doctorDeadKey(name, doctorDeadField(entry, 1), at, doctorDeadField(entry, 3), loopDepth))
+}
+
+/** @brief Note a read at `at`, keeping the latest. */
+fn doctorDeadNoteRead(stores: list, name: string, at: int) {
+    val i = doctorDeadIndexOf(stores, name)
+    if i < 0 { return }
+    val entry: string = stores.get(i)
+    val seen = doctorDeadField(entry, 3)
+    if at > seen {
+        stores.set(i, doctorDeadKey(name, doctorDeadField(entry, 1), doctorDeadField(entry, 2), at, doctorDeadField(entry, 4)))
+    }
+}
+
+/** @brief Every tracked local whose last write nothing read afterwards. */
+fn doctorDeadReport(stats: DoctorStats, stores: list, file: string) {
+    var i = 0
+    while i < stores.len() {
+        val entry: string = stores.get(i)
+        val lastWrite = doctorDeadField(entry, 2)
+        val maxRead = doctorDeadField(entry, 3)
+        // >= 0, not > 0: a variable declared as the very first statement is
+        // written at index 0, and treating that as "never written" is why the
+        // check reported nothing on the case it was written for.
+        // A store inside a loop body is not provably dead: the loop can come
+        // back around and re-read the value the store left there. Proving
+        // otherwise needs a fixpoint over the loop, which is not this check --
+        // `var p = 1; while k < 16 { use p; p = p * 2 }` reads `p` on the next
+        // iteration and a single linear pass calls it dead. Suppressing every
+        // loop write took the tree from 463 findings to 38.
+        val lastWriteDepth = doctorDeadField(entry, 4)
+        if lastWrite >= 0 {
+            if lastWriteDepth == 0 {
+                if lastWrite > maxRead {
+                    val bar = orbit_string_indexOf(entry, "|")
+                    val name = orbit_string_slice(entry, 0, bar)
+                    val at = doctorDeadField(entry, 1)
+                    doctorReport(stats, file, at, "D028", "'" + name + "' is assigned and never read after the last assignment, so the value is dead.", "delete it, or read it. An unused `var` is also work the optimiser cannot remove, because it cannot prove nothing reads it.")
+                }
+            }
+        }
+        i = i + 1
+    }
 }
 
 /** @brief Visit each node of a statement list. */

@@ -1,0 +1,4 @@
+route GET "/dead" {
+    var tmp = 1
+    return ok 200 "x"
+}

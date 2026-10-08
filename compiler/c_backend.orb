@@ -2541,7 +2541,6 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.call => {
-            var line = ""
             var calleeName = ""
             match instr.operand1 {
                 IRValue.String(s) => { calleeName = s.value }
@@ -2560,11 +2559,6 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             var destNeeded = instr.dest != -1
             if destNeeded && (functionReturnsVoid(backend, calleeName) || calleeName == "orbit_list_set") {
                 destNeeded = false
-            }
-            if destNeeded {
-                line = "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = "
-            } else {
-                line = "    "
             }
             if calleeName == "print" {
                 if backend.callArgs.len() == 1 {

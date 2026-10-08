@@ -1,0 +1,10 @@
+extern fn sink(v: int)
+
+fn f(xs: list) -> int {
+    var seen = 0
+    for e in xs {
+        sink(e)
+        seen = 1
+    }
+    return 0
+}

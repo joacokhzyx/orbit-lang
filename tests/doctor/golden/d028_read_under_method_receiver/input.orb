@@ -1,0 +1,7 @@
+extern fn pick(xs: list, key: string) -> list
+
+fn f(xs: list) -> bool {
+    var bare = "name"
+    bare = bare + "x"
+    return pick(xs, bare).len() > 0
+}
