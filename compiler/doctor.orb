@@ -2837,7 +2837,23 @@ fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int
             next = doctorDeadWalk(stats, m.expr, file, declLine, stores, next + 1, loopDepth)
             next = doctorDeadList(stats, m.cases, file, declLine, stores, next + 1, loopDepth)
         }
-        ASTNode.MatchCase(c) => { next = doctorDeadWalk(stats, c.body, file, declLine, stores, next + 1, loopDepth) }
+        ASTNode.MatchCase(c) => {
+            // The builder evaluates a match pattern only when it is a bare name,
+            // and compares it against the scrutinee -- see builder.orb, the
+            // `ASTNode.Literal` arm of the per-case pattern match. `target =>`
+            // therefore READS `target`, and walking only the body lost that.
+            // A constructor pattern binds names and evaluates nothing, which is
+            // why `S.Circle(xs[idx])` genuinely leaves `idx` unread. Mirror the
+            // builder's split instead of walking the whole pattern, or every
+            // binding would look like a read.
+            match c.pattern {
+                ASTNode.Literal(l) => {
+                    if l.valType == "identifier" && l.text != "_" { doctorDeadNoteRead(stores, l.text, next) }
+                }
+                _ => {}
+            }
+            next = doctorDeadWalk(stats, c.body, file, declLine, stores, next + 1, loopDepth)
+        }
         ASTNode.Try(t) => {
             next = doctorDeadWalk(stats, t.expr, file, declLine, stores, next + 1, loopDepth)
             next = doctorDeadWalk(stats, t.catchBody, file, declLine, stores, next + 1, loopDepth)

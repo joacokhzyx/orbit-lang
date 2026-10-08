@@ -1,0 +1,6 @@
+input.orb:13 warning [D028] 'idx' is assigned and never read after the last assignment, so the value is dead. fix: delete it, or read it. An unused `var` is also work the optimiser cannot remove, because it cannot prove nothing reads it.
+gates: doctor never runs these itself; run them from the repository root:
+  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
+  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".

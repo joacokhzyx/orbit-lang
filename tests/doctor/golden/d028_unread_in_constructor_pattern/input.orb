@@ -1,0 +1,19 @@
+// A constructor pattern BINDS its names and evaluates nothing, so `idx` is
+// genuinely unread and D028 is right to call it dead. This is the counterpart to
+// d028_read_in_match_pattern: a bare-name pattern is a comparison and is read,
+// this shape binds and is not.
+//
+// Verified at run time rather than read off the builder: with `idx = 9` on a
+// two-element list, reading it says "list index out of range, index 9, length 2"
+// and exits 2. Matched against a Square and a Circle, this program exits 1 and
+// says nothing, so the payload was never evaluated.
+enum Shape { Circle(int), Square(int) }
+
+fn f(xs: list, s: Shape) -> int {
+    var idx = 9
+    idx = idx - 1
+    match s {
+        Shape.Circle(xs[idx]) => { return 1 }
+        _ => { return 0 }
+    }
+}

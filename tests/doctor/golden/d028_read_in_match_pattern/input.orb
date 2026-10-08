@@ -1,0 +1,7 @@
+fn f(n: int) -> int {
+    var target = 1
+    match n {
+        target => { return 10 }
+        _ => { return 20 }
+    }
+}
