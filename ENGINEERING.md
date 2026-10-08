@@ -51,45 +51,108 @@ No performance number is published until it comes with the command that produced
 
 **Note on the doctor row.** `DoctorStats` carries a duration per phase (`textMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them. Read the phases from `orbit_clock_ms()`, never a nanosecond clock: `orbit_int` is a 32-bit `int`, so nanoseconds wrap every 4.29 s and a subtraction across the wrap returns a NEGATIVE duration. It printed `-417 ms text` before this was fixed.
 
-Measured on `compiler/` (23 files, 21 262 LOC), gcc 13.3, warm page cache:
+Measured on `compiler/` (23 files, 23 714 LOC), gcc 13.3.0, warm page cache,
+Linux, fixed-point compiler, `orbit doctor compiler --verbose`. Cache forced
+cold and warm with `ORBIT_DOCTOR_CACHE`:
 
 | run | text | ast | semantic | wall |
 |---|---|---|---|---|
-| first run, cache empty | 127 ms | 444 ms | ~7.6 s | ~8.1 s |
-| later runs, cache warm | 127 ms | 435 ms | 0 ms | ~0.63 s |
+| first run, cache empty | 419 ms | 1666 ms | 6196 ms | 8.32 s |
+| later runs, cache warm | 405 ms | 1608 ms | 0 ms | 2.23 s |
 
-Expressed against the budget, because "ms in a column" hides the ratio:
+Expressed against the budget, because "ms in a column" hides the ratio. The
+budget row is per 100 000 LOC, so a 23 714 LOC tree has an allowance of 11.9 ms
+of wall clock; the per-100K columns scale the measurement up rather than
+comparing a quarter-size tree to a full-size allowance:
 
-| | per KLOC | per 100K LOC | vs 50 ms budget |
-|---|---|---|---|
-| ast (warm) | 0.020 ms | 2.05 s | 41x over |
-| whole run (warm) | 0.030 ms | 2.98 s | 60x over |
+| | measured here | per KLOC | per 100K LOC | vs 50 ms budget |
+|---|---|---|---|---|
+| ast (cold) | 1666 ms | 70.3 ms | 7.03 s | 141x over |
+| ast (warm) | 1608 ms | 67.8 ms | 6.78 s | 136x over |
+| whole run (cold) | 8320 ms | 350.8 ms | 35.08 s | 702x over |
+| whole run (warm) | 2230 ms | 94.0 ms | 9.40 s | 188x over |
 
-**Still 60x over, warm.** Do not read the 0.63 s as a pass. An earlier commit in
-this series claimed the AST phase had entered budget; it had not, and the
-numbers above are the correction. What the optimisation work bought is that
-the residual is now two identifiable things instead of a mystery: on a warm
-cache it is the PARSER (the AST phase is now essentially just `parseProgram`),
-and on a cold cache it is the full typecheck of every file's import closure.
-Neither is a hoisting mistake any more; both need either a faster parser or a
-decision about whether doctor should typecheck files a gate already did.
+**A scaling error, corrected.** This table previously carried "2.05 s" and
+"2.98 s" in the per-100K-LOC columns with ratios of "41x" and "60x". Those
+numbers were this tree's whole-tree cost placed under a per-100K heading, and
+the ratios divided a 23 714 LOC measurement by a 100 000 LOC allowance. The
+result read 136x as 41x and 188x as 60x -- a quarter-size tree compared to a
+full-size budget, which flattered the tool by about 4x. The "per KLOC" column
+in the same table was separately wrong by 1000x (0.020 ms where the arithmetic
+gives 67.8). Both columns were wrong in the direction that made doctor look
+better, and both are corrected above. A budget table is the one place in this
+document where an arithmetic error is a lie rather than a typo.
 
-The cold run got slower (10.8 -> 11.0 s at the time) when the cache key was
-corrected to cover the import closure, and that is the honest cost of
-correctness: the key is a fingerprint of the closure, so building it costs a
-parse the previous key did not.
+**Still 188x over, warm.** Do not read the 2.23 s as a pass. What the
+optimisation work bought is that the residual is two identifiable things rather
+than a mystery, and this measurement says which is which:
 
-The cold run got SLOWER (10.8 -> 11.0 s) when the cache key was corrected, and that is the honest cost of correctness: the key is a fingerprint of the import closure, so building it costs a parse the previous key did not.
+- **Warm, the AST phase is the parser.** Measured by disabling every
+  AST-based check (D017, D018, D019, D021, D022) and re-running: the AST phase
+  moved from ~1820 ms to ~1830 ms, which is inside the run-to-run spread. No
+  check is the bottleneck. The phase is `initParser` + `parseProgram`, and at
+  23 714 lines that is 77 us per line. Bringing the AST phase inside 20 ms per
+  10K LOC means the parser has to get about 6x faster, which is a parser change
+  and not a doctor change.
+- **Cold, it is D008 typechecking each file's import closure separately.**
+  6196 ms against a 0 ms warm floor, and it is the single largest number in the
+  run. The tree's whole module graph typechecks in 1.59 s (`orbit check
+  compiler/main.orb`, whose closure is every module), so doctor is paying about
+  3.9x the cost of typechecking the graph, once per file rather than once per
+  graph.
 
-The cold run got SLOWER (10.8 -> 13.9 s) when the cache key was corrected, and that is the honest cost of correctness: the key is a fingerprint of the import closure, so building it costs a parse the previous key did not. Paying it once per run instead of once per file is what brings the warm run back down (7.3 s -> 5.7 s).
+### Proposed: D008 asks about the graph, not about each file
 
-**The budget is still not met, and the gap is now in the AST phase.** The semantic phase is cached on a hash of the file's contents, so it is paid once per distinct source; the AST phase is not cached and is ~4 s on this tree either way. Against a 50 ms / 100K LOC target, 4 s for 21K LOC is roughly 40x over. The first run on a freshly cloned tree pays ~11 s because the cache is cold; that is stated rather than hidden.
+The contract today is per file. For each scanned file, D008 asks
+`checkSourceWithFile(source, file)`, which resolves and typechecks that file's
+transitive import closure. Twenty-three files therefore produce twenty-three
+closure resolutions over a graph with a 1.59 s union.
 
-The AST phase used to be 4454 ms, not 968 ms. `doctorFindDeclLine` called `splitBuildLines` once per declaration -- 780 calls over the compiler itself -- and `splitBuildLines` slices the source once per line while every slice measures the whole string, so the cost was O(bytes x lines) per declaration. Every file is now split once and the line list is threaded to every consumer, which also removed the same split from `doctorUsedInText`, where it ran once per unused declaration over every file in the tree. The findings are byte-identical before and after, which is the only acceptable outcome for a change like this: it is a hoist, not a rewrite.
+The contract should be per graph. Typecheck the scanned module graph once,
+record which modules passed, and answer D008 for a file from that table. The
+measured effect of the current contract is the difference between 6.19 s and
+1.59 s on this tree, so this is the single largest available win and it does not
+touch the parser.
+
+What it does not fix, stated so the proposal is not oversold: the warm run stays
+at ~2.2 s, because warm D008 already costs nothing and the residual is the
+parse. A cold run would land near 3.6 s. Neither is inside 50 ms per 100K LOC,
+and no contract change gets there -- at 23 714 LOC the budget allows 11.9 ms of
+total wall clock, and this tool spends 2.2 s of it on a tree a quarter of the
+size. The budget is only reachable with a materially faster parser, or with the
+budget restated to say what doctor is: a per-file report whose cost is one parse
+per file.
+
+The two honest options are therefore (a) make the parser faster, which is real
+work with a real payoff for the compiler and not just for doctor, or (b) restate
+the row as "one parse per file plus the typechecks, cached", which is what the
+tool actually is. Option (b) is a sentence; option (a) is not. Neither is
+decided here.
+
+The AST phase used to be 4454 ms, not 968 ms. `doctorFindDeclLine` called
+`splitBuildLines` once per declaration -- 780 calls over the compiler itself --
+and `splitBuildLines` slices the source once per line while every slice measures
+the whole string, so the cost was O(bytes x lines) per declaration. Every file
+is now split once and the line list is threaded to every consumer, which also
+removed the same split from `doctorUsedInText`, where it ran once per unused
+declaration over every file in the tree. The findings are byte-identical before
+and after, which is the only acceptable outcome for a change like this: it is a
+hoist, not a rewrite.
+
+D013 was the same bug wearing a different hat and it was worse, because it was
+found by the gate rather than by a profiler. For every `var` line it rescanned
+every line of the file, and the inner helper slices a fresh string at each
+offset: 1.3 GB of arena growth on `c_backend.orb` alone, and `orbit doctor
+compiler` was OOM-killed at 9 seconds. `doctor_scope_gate.py` had been reporting
+that directory clean for exactly that long, because a killed process prints
+nothing and nothing reads as zero findings. It is now 317 MB for the whole
+directory, and the counts are unchanged -- verified by diffing D013 output for
+the new compiler against the old one over every `.orb` in `compiler/`, `std/`
+and `tests/suite/`, zero differences.
 
 Two things this measurement decided:
 
-1. **Dropping the typecheck was rejected, on evidence.** It was measured: removing it takes the run to 4.85 s, still ~460x over, because the parse dominates what remains. And it loses real signal -- a file with a syntax error, a type error, or a broken import then reports `no findings`, because the AST pass skips unparseable files and the typecheck is the only other thing looking. A linter that reports a broken file as clean is worse than a slow one.
+1. **Dropping the typecheck was rejected, on evidence.** It was measured, and re-measured on the current tree: removing it leaves the warm run at ~2.2 s, still 188x over, because the parse dominates what remains and nothing else moves the ratio. And it loses real signal -- a file with a syntax error, a type error, or a broken import then reports `no findings`, because the AST pass skips unparseable files and the typecheck is the only other thing looking. A linter that reports a broken file as clean is worse than a slow one.
 2. **The parse-error half of D008 is now free.** A file that does not parse is reported from `parser.diagnostics`, which the AST pass already produced, so the guarantee survives without paying for a typecheck that cannot succeed anyway. `d008_parse_error` and `d008_semantic_error` in the goldens pin both halves.
 
 The cache is keyed on the CONTENT hash, not the path or an mtime: move a file and its answer still applies; change one byte and it does not (`d008_survives_edit`). `ORBIT_DOCTOR_CACHE=0` turns it off. Its only limitation is that a cache hit does not reprint the compiler diagnostic, so the finding points at `orbit check` rather than promising "see the error above" -- a promise a cache hit cannot keep.
