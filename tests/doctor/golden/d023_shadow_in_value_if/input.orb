@@ -1,0 +1,14 @@
+extern fn sink(v: int)
+extern fn flag() -> bool
+
+fn f() -> int {
+    val n = 1
+    val y = if flag() {
+        val n = 2
+        n
+    } else {
+        0
+    }
+    sink(y)
+    return n
+}

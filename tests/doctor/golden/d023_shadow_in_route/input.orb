@@ -1,0 +1,12 @@
+extern fn sink(v: int)
+extern fn flag() -> bool
+extern fn orbit_int_to_string_selfhost(v: int) -> string
+
+route GET "/x" {
+    val v = 10
+    if flag() {
+        val v = 20
+        sink(v)
+    }
+    return ok 200 orbit_int_to_string_selfhost(v)
+}

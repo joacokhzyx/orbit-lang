@@ -1,0 +1,13 @@
+extern fn sink(v: int)
+extern fn flag() -> bool
+model Point { v: int }
+
+fn f() -> int {
+    val n = 1
+    if flag() {
+        val n = 2
+    }
+    val p = Point { v: n }
+    sink(p.v)
+    return n
+}

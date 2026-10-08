@@ -1598,6 +1598,14 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
             doctorCheckUnusedParams(stats, f, file, declLine)
             doctorCheckShadowedUses(stats, f, file, declLine)
         }
+        ASTNode.RouteDecl(r) => {
+            // Routes reach D023. They do not reach D017, D018, D019 or D021,
+            // which each take a FunctionDeclNode or a function name; that is a
+            // shared gap and it is recorded rather than quietly widened here,
+            // because changing four checks at once is a different change with a
+            // different blast radius.
+            doctorCheckShadowedUsesInRoute(stats, r, file, doctorFindDeclLine(lines, "route", r.path))
+        }
         _ => {}
     }
 }
@@ -1971,18 +1979,35 @@ fn doctorDescendValues(node: ASTNode, stats: DoctorStats, file: string) {
  */
 fn doctorCheckShadowedUses(stats: DoctorStats, f: FunctionDeclNode, file: string, declLine: int) {
     if f.isExtern { return }
+    doctorShadowEntry(stats, f.body, f.params, f.name, file, declLine)
+}
+
+/**
+ *  @brief D023 over a route body.
+ *
+ *  A route is a function with no signature: RouteDeclNode carries http_method,
+ *  path and body, and no params and no name. So this analysis cannot be driven
+ *  from a FunctionDeclNode, and a separate entry is the honest shape. The
+ *  alternative was to leave routes unexamined because D017 to D021 do the same,
+ *  which is a shared gap rather than a reason.
+ */
+fn doctorCheckShadowedUsesInRoute(stats: DoctorStats, r: RouteDeclNode, file: string, declLine: int) {
+    doctorShadowEntry(stats, r.body, [], r.http_method + " " + r.path, file, declLine)
+}
+
+/** @brief Open the function frame, declare `params`, and walk `body`. */
+fn doctorShadowEntry(stats: DoctorStats, body: ASTNode, params: list, fnName: string, file: string, declLine: int) {
     val frames = []
     val marks = []
     val shadows = []
     val pending = []
-    val pendingLines = []
     doctorShadowPushFrame(frames, marks, shadows)
     var i = 0
-    while i < f.params.len() {
-        doctorShadowDeclare(frames, shadows, f.params.get(i), 0)
+    while i < params.len() {
+        doctorShadowDeclare(frames, shadows, params.get(i), 0)
         i = i + 1
     }
-    doctorShadowBody(stats, f.body, file, declLine, f.name, frames, marks, shadows, pending, pendingLines)
+    doctorShadowBody(stats, body, file, declLine, fnName, frames, marks, shadows, pending)
 }
 
 /** @brief Open a scope frame, remembering how many shadows exist so far. */
@@ -2091,49 +2116,49 @@ fn doctorShadowUse(name: string, stats: DoctorStats, file: string, declLine: int
 }
 
 /** @brief Walk a function or route body with scope tracking. */
-fn doctorShadowBody(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list, pendingLines: list) {
+fn doctorShadowBody(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     match node {
         ASTNode.Block(b) => {
             doctorShadowPushFrame(frames, marks, shadows)
             val stmts = b.statements
             var i = 0
             while i < stmts.len() {
-                doctorShadowStmt(stats, doctorNodeAt(stmts, i), file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+                doctorShadowStmt(stats, doctorNodeAt(stmts, i), file, declLine, fnName, frames, marks, shadows, pending)
                 i = i + 1
             }
             doctorShadowPopFrame(frames, marks, shadows, pending)
         }
-        _ => { doctorShadowStmt(stats, node, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
+        _ => { doctorShadowStmt(stats, node, file, declLine, fnName, frames, marks, shadows, pending) }
     }
 }
 
 /** @brief One statement, with the scope frames a statement introduces. */
-fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list, pendingLines: list) {
+fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     match node {
         ASTNode.VarDecl(v) => {
             doctorShadowDeclare(frames, shadows, v.name, v.line)
-            doctorShadowExpr(stats, v.value, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, v.value, file, declLine, fnName, frames, marks, shadows, pending)
         }
         ASTNode.ConstDecl(c) => {
             doctorShadowDeclare(frames, shadows, c.name, c.line)
-            doctorShadowExpr(stats, c.value, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, c.value, file, declLine, fnName, frames, marks, shadows, pending)
         }
         ASTNode.If(x) => {
-            doctorShadowExpr(stats, x.condition, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
-            doctorShadowBody(stats, x.thenBody, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, x.condition, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowBody(stats, x.thenBody, file, declLine, fnName, frames, marks, shadows, pending)
             if x.elseBody != NULL {
-                doctorShadowBody(stats, x.elseBody, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+                doctorShadowBody(stats, x.elseBody, file, declLine, fnName, frames, marks, shadows, pending)
             }
         }
         ASTNode.While(w) => {
-            doctorShadowExpr(stats, w.condition, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
-            doctorShadowBody(stats, w.body, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, w.condition, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowBody(stats, w.body, file, declLine, fnName, frames, marks, shadows, pending)
         }
         ASTNode.For(fo) => {
-            doctorShadowExpr(stats, fo.iterable, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, fo.iterable, file, declLine, fnName, frames, marks, shadows, pending)
             doctorShadowPushFrame(frames, marks, shadows)
             doctorShadowDeclare(frames, shadows, fo.item, 0)
-            doctorShadowBody(stats, fo.body, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowBody(stats, fo.body, file, declLine, fnName, frames, marks, shadows, pending)
             doctorShadowPopFrame(frames, marks, shadows, pending)
         }
         ASTNode.Block(b) => {
@@ -2141,46 +2166,58 @@ fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: i
             val stmts = b.statements
             var i = 0
             while i < stmts.len() {
-                doctorShadowStmt(stats, doctorNodeAt(stmts, i), file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+                doctorShadowStmt(stats, doctorNodeAt(stmts, i), file, declLine, fnName, frames, marks, shadows, pending)
                 i = i + 1
             }
             doctorShadowPopFrame(frames, marks, shadows, pending)
         }
         ASTNode.Match(m) => {
-            doctorShadowExpr(stats, m.expr, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, m.expr, file, declLine, fnName, frames, marks, shadows, pending)
             val cases = m.cases
             var i = 0
             while i < cases.len() {
-                doctorShadowArm(stats, doctorNodeAt(cases, i), file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+                doctorShadowArm(stats, doctorNodeAt(cases, i), file, declLine, fnName, frames, marks, shadows, pending)
                 i = i + 1
             }
         }
-        ASTNode.Return(r) => { doctorShadowExpr(stats, r.expr, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
-        ASTNode.ReturnOk(r) => { doctorShadowExpr(stats, r.expr, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
-        ASTNode.ReturnErr(r) => { doctorShadowExpr(stats, r.expr, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
+        ASTNode.Return(r) => { doctorShadowExpr(stats, r.expr, file, declLine, fnName, frames, marks, shadows, pending) }
+        ASTNode.ReturnOk(r) => { doctorShadowExpr(stats, r.expr, file, declLine, fnName, frames, marks, shadows, pending) }
+        ASTNode.ReturnErr(r) => { doctorShadowExpr(stats, r.expr, file, declLine, fnName, frames, marks, shadows, pending) }
         ASTNode.Assignment(a) => {
-            doctorShadowExpr(stats, a.target, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
-            doctorShadowExpr(stats, a.value, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, a.target, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowExpr(stats, a.value, file, declLine, fnName, frames, marks, shadows, pending)
         }
-        ASTNode.ExpressionStmt(e) => { doctorShadowExpr(stats, e.expr, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
+        // Kept for file-scope statements, which parseDeclaration does wrap. It
+        // is NOT the shape a bare statement has inside a body: parseStatementInner
+        // returns parseExpression's node unwrapped (parser.orb:1294), so
+        // `sink(n)` arrives as the Call itself. The arm that matters for that is
+        // the fall-through below, and leaving it as `_ => {}` is how the most
+        // idiomatic read in the language -- calling a function with a shadowed
+        // variable -- went unexamined.
+        ASTNode.ExpressionStmt(e) => { doctorShadowExpr(stats, e.expr, file, declLine, fnName, frames, marks, shadows, pending) }
         ASTNode.Try(t) => {
-            doctorShadowExpr(stats, t.expr, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, t.expr, file, declLine, fnName, frames, marks, shadows, pending)
             doctorShadowPushFrame(frames, marks, shadows)
             doctorShadowDeclare(frames, shadows, t.errName, 0)
-            doctorShadowBody(stats, t.catchBody, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowBody(stats, t.catchBody, file, declLine, fnName, frames, marks, shadows, pending)
             doctorShadowPopFrame(frames, marks, shadows, pending)
         }
-        _ => {}
+        // A bare expression statement is the node itself, so anything this
+        // function does not recognise as a declaration or a control structure is
+        // handed to the expression walk. Enumerating those shapes here instead
+        // would mean keeping this list in step with the AST, which is the same
+        // mistake as a generic walker, just with more places to forget.
+        _ => { doctorShadowExpr(stats, node, file, declLine, fnName, frames, marks, shadows, pending) }
     }
 }
 
 /** @brief A match arm: its own frame, and its binding declared into it. */
-fn doctorShadowArm(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list, pendingLines: list) {
+fn doctorShadowArm(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     match node {
         ASTNode.MatchCase(c) => {
             doctorShadowPushFrame(frames, marks, shadows)
             doctorShadowDeclare(frames, shadows, doctorPatternBindingName(c.pattern), 0)
-            doctorShadowBody(stats, c.body, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowBody(stats, c.body, file, declLine, fnName, frames, marks, shadows, pending)
             doctorShadowPopFrame(frames, marks, shadows, pending)
         }
         _ => {}
@@ -2188,7 +2225,7 @@ fn doctorShadowArm(stats: DoctorStats, node: ASTNode, file: string, declLine: in
 }
 
 /** @brief One expression, where a bare identifier is a read of a name. */
-fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list, pendingLines: list) {
+fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     match node {
         ASTNode.Literal(l) => {
             if l.valType == "identifier" {
@@ -2196,31 +2233,69 @@ fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: i
             }
         }
         ASTNode.BinaryOp(b) => {
-            doctorShadowExpr(stats, b.lhs, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
-            doctorShadowExpr(stats, b.rhs, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, b.lhs, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowExpr(stats, b.rhs, file, declLine, fnName, frames, marks, shadows, pending)
         }
-        ASTNode.UnaryOp(u) => { doctorShadowExpr(stats, u.operand, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
-        ASTNode.MemberAccess(m) => { doctorShadowExpr(stats, m.object, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
+        ASTNode.UnaryOp(u) => { doctorShadowExpr(stats, u.operand, file, declLine, fnName, frames, marks, shadows, pending) }
+        ASTNode.MemberAccess(m) => { doctorShadowExpr(stats, m.object, file, declLine, fnName, frames, marks, shadows, pending) }
         ASTNode.IndexAccess(ix) => {
-            doctorShadowExpr(stats, ix.object, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
-            doctorShadowExpr(stats, ix.index, file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+            doctorShadowExpr(stats, ix.object, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowExpr(stats, ix.index, file, declLine, fnName, frames, marks, shadows, pending)
         }
-        ASTNode.ListLiteral(l) => { doctorShadowExprList(stats, l.elements, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
+        ASTNode.ListLiteral(l) => { doctorShadowExprList(stats, l.elements, file, declLine, fnName, frames, marks, shadows, pending) }
         // The callee is deliberately not descended: `n()` names a function, not
         // a variable, and counting it would report a shadow whose only later use
         // is a call of something else that happens to share the spelling.
-        ASTNode.Call(c) => { doctorShadowExprList(stats, c.args, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
-        ASTNode.TypedLiteral(t) => { doctorShadowExpr(stats, t.value, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
-        ASTNode.Interp(inp) => { doctorShadowExprList(stats, inp.parts, file, declLine, fnName, frames, marks, shadows, pending, pendingLines) }
+        ASTNode.Call(c) => { doctorShadowExprList(stats, c.args, file, declLine, fnName, frames, marks, shadows, pending) }
+        ASTNode.TypedLiteral(t) => { doctorShadowExpr(stats, t.value, file, declLine, fnName, frames, marks, shadows, pending) }
+        ASTNode.Interp(inp) => { doctorShadowExprList(stats, inp.parts, file, declLine, fnName, frames, marks, shadows, pending) }
+        // Statement-shaped nodes reach here from value position: `val y = if c
+        // { val n = 1 } else { 2 }` compiles, and the `if` is an expression in
+        // this language. Dropping them on the floor meant a shadow declared
+        // inside an if-expression was invisible, and the emitted C confirmed the
+        // clobber. Each opens the frame its statement form would.
+        ASTNode.If(x) => {
+            doctorShadowExpr(stats, x.condition, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowPushFrame(frames, marks, shadows)
+            doctorShadowBody(stats, x.thenBody, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowPopFrame(frames, marks, shadows, pending)
+            if x.elseBody != NULL {
+                doctorShadowPushFrame(frames, marks, shadows)
+                doctorShadowBody(stats, x.elseBody, file, declLine, fnName, frames, marks, shadows, pending)
+                doctorShadowPopFrame(frames, marks, shadows, pending)
+            }
+        }
+        ASTNode.Match(m) => {
+            doctorShadowExpr(stats, m.expr, file, declLine, fnName, frames, marks, shadows, pending)
+            val cases = m.cases
+            var ci = 0
+            while ci < cases.len() {
+                doctorShadowArm(stats, doctorNodeAt(cases, ci), file, declLine, fnName, frames, marks, shadows, pending)
+                ci = ci + 1
+            }
+        }
+        ASTNode.Try(t) => {
+            doctorShadowExpr(stats, t.expr, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowPushFrame(frames, marks, shadows)
+            doctorShadowDeclare(frames, shadows, t.errName, 0)
+            doctorShadowBody(stats, t.catchBody, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowPopFrame(frames, marks, shadows, pending)
+        }
+        // `Point { v: n }` is a TypedLiteral whose value is an ObjectLiteral, and
+        // the object literal's fields are FieldInit nodes, each with its own
+        // value expression to walk.
+        ASTNode.ObjectLiteral(o) => { doctorShadowExprList(stats, o.fields, file, declLine, fnName, frames, marks, shadows, pending) }
+        ASTNode.FieldInit(fi) => { doctorShadowExpr(stats, fi.value, file, declLine, fnName, frames, marks, shadows, pending) }
+        ASTNode.Block(b) => { doctorShadowBody(stats, node, file, declLine, fnName, frames, marks, shadows, pending) }
         _ => {}
     }
 }
 
 /** @brief A list of expressions, visited in order. */
-fn doctorShadowExprList(stats: DoctorStats, items: list, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list, pendingLines: list) {
+fn doctorShadowExprList(stats: DoctorStats, items: list, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     var i = 0
     while i < items.len() {
-        doctorShadowExpr(stats, doctorNodeAt(items, i), file, declLine, fnName, frames, marks, shadows, pending, pendingLines)
+        doctorShadowExpr(stats, doctorNodeAt(items, i), file, declLine, fnName, frames, marks, shadows, pending)
         i = i + 1
     }
 }
