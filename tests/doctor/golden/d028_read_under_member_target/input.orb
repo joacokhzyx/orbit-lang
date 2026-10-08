@@ -1,0 +1,8 @@
+model Box { v: int }
+
+fn f(n: int) -> int {
+    var tmp = Box { v: 0 }
+    tmp = Box { v: 1 }
+    tmp.v = n
+    return 0
+}

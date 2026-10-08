@@ -2768,11 +2768,22 @@ fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int
         ASTNode.ConstDecl(c) => { next = doctorDeadWalk(stats, c.value, file, declLine, stores, next + 1, loopDepth) }
         ASTNode.Assignment(a) => {
             next = doctorDeadWalk(stats, a.value, file, declLine, stores, next + 1, loopDepth)
+            // A bare identifier target is a pure write. Anything else is a
+            // place being written THROUGH, and the expressions inside it are
+            // reads: `xs[i] = 7` reads `i` and reads `xs`, `tmp.v = n` reads
+            // `tmp`. Walking only the identifier case dropped the whole target
+            // subtree, which cost the read of `i` in `xs[i] = 7` and reported a
+            // live store as dead -- the same hole `Call.callee` was, on the
+            // other side of the `=`.
             match a.target {
                 ASTNode.Literal(l) => {
-                    if l.valType == "identifier" { doctorDeadNoteWrite(stores, l.text, next + 1, loopDepth) }
+                    if l.valType == "identifier" {
+                        doctorDeadNoteWrite(stores, l.text, next + 1, loopDepth)
+                    } else {
+                        next = doctorDeadWalk(stats, a.target, file, declLine, stores, next + 1, loopDepth)
+                    }
                 }
-                _ => {}
+                _ => { next = doctorDeadWalk(stats, a.target, file, declLine, stores, next + 1, loopDepth) }
             }
             next = next + 2
         }

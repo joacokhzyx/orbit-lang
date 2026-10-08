@@ -1,0 +1,6 @@
+fn f(xs: list) -> int {
+    var i = 1
+    i = i + 1
+    xs[i] = 7
+    return 0
+}
