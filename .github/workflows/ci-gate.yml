@@ -95,60 +95,6 @@ jobs:
           "$PY" scripts/parity_selfhost.py --cc "${{ matrix.cc }}" \
             --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
 
-      - name: Runtime C tests (arena + file + http + kynx)
-        shell: bash
-        run: |
-          CC="${{ matrix.cc }}"
-          LDFLAGS=""
-          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32"; fi
-          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin $LDFLAGS
-          ./t_arena_bin
-          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_file.c -o t_file_bin $LDFLAGS
-          ./t_file_bin
-          # test_oom observes the abort-on-exhaustion policy in a child
-          # process, so it needs fork/waitpid and is POSIX-only.
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_oom.c -o t_oom_bin $LDFLAGS
-            ./t_oom_bin
-          fi
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
-          ./t_http_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_upload.c -o t_upload_bin $LDFLAGS
-          ./t_upload_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_params_decode.c -o t_params_bin $LDFLAGS
-          ./t_params_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_latency_percentiles.c -o t_pct_bin $LDFLAGS
-          ./t_pct_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_ledger_percentiles.c -o t_led_bin $LDFLAGS
-          ./t_led_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o t_kynx_bin $LDFLAGS
-          ./t_kynx_bin
-          # No -w here on purpose, and that is the whole point of compiling this
-          # one differently from its five neighbours. The line it exists to
-          # cover was a strncat in orbit_float_to_string, and no warning flag
-          # on gcc would have caught it -- MSVC is the only toolchain here that
-          # calls strncat unsafe, so this is the one runtime test that has to
-          # reach the Windows leg with its diagnostics intact. -Wall and not
-          # -Wextra, because -Wextra reports unrelated unused parameters in
-          # files this change did not touch.
-          $CC -O0 -Wall -I runtime -DORBIT_WITH_NET runtime/test_float_format.c -o t_ffmt_bin $LDFLAGS
-          ./t_ffmt_bin
-          LDDB=""
-          if [ "${{ runner.os }}" = "Windows" ]; then LDDB="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDDB="-lsqlite3"; fi
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB runtime/test_migrations.c -o t_mig_bin $LDDB
-          ./t_mig_bin
-
-      - name: Auth unit gate (bearer/role/has_role)
-        shell: bash
-        run: |
-          CC="${{ matrix.cc }}"
-          CFLAGS="-O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB"
-          LDFLAGS=""
-          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDFLAGS="-lsqlite3"; fi
-          $CC $CFLAGS tests/auth/auth_harness.c -o t_auth_bin $LDFLAGS
-          if [ "${{ runner.os }}" = "Windows" ]; then export PATH="$PWD/runtime/vendor/win-x64:$PATH"; fi
-          ./t_auth_bin
-
       - name: Strict warning gate (-Werror on generated C)
         shell: bash
         run: |
@@ -459,6 +405,77 @@ jobs:
           "$PY" scripts/werror_gate.py --self-test
           "$PY" scripts/alive_check.py --self-test
 
+
+      - name: Auth unit gate (bearer/role/has_role)
+        shell: bash
+        run: |
+          CC="${{ matrix.cc }}"
+          CFLAGS="-O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB"
+          LDFLAGS=""
+          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDFLAGS="-lsqlite3"; fi
+          $CC $CFLAGS tests/auth/auth_harness.c -o t_auth_bin $LDFLAGS
+          if [ "${{ runner.os }}" = "Windows" ]; then export PATH="$PWD/runtime/vendor/win-x64:$PATH"; fi
+          ./t_auth_bin
+
+      # LAST step on purpose. A `run:` that fails aborts the step and every step
+      # after it is skipped, so in a single job the order IS the coverage policy.
+      # This step is the one that dies (Windows: an access violation in
+      # runtime/test_migrations.c), and while it sat sixth it took fourteen gates
+      # down with it -- the doctor gates, the CLI probe, the suite, the negative
+      # corpus, the frontend goldens, -Werror and the ratchet have not run on
+      # Windows at all since it appeared. Nothing here is weaker than it was; it
+      # is the same gate, asked last, so a crash in it costs one gate instead of
+      # fifteen. Splitting this into parallel jobs would be the real fix; see
+      # DX-1 in ENGINEERING.md section 7.
+      - name: Runtime C tests (arena + file + http + kynx)
+        shell: bash
+        run: |
+          CC="${{ matrix.cc }}"
+          LDFLAGS=""
+          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32"; fi
+          # The auth step and the Kynx step both put sqlite3.dll on PATH before
+          # linking a DB program. This one linked sqlite3.lib and did not, so the
+          # loader had to find it by whatever the runner's environment happened to
+          # offer. Copy it, and the step stops depending on ambient PATH.
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp runtime/vendor/win-x64/sqlite3.dll . 2>/dev/null || true
+          fi
+          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin $LDFLAGS
+          ./t_arena_bin
+          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_file.c -o t_file_bin $LDFLAGS
+          ./t_file_bin
+          # test_oom observes the abort-on-exhaustion policy in a child
+          # process, so it needs fork/waitpid and is POSIX-only.
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_oom.c -o t_oom_bin $LDFLAGS
+            ./t_oom_bin
+          fi
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
+          ./t_http_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_upload.c -o t_upload_bin $LDFLAGS
+          ./t_upload_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_params_decode.c -o t_params_bin $LDFLAGS
+          ./t_params_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_latency_percentiles.c -o t_pct_bin $LDFLAGS
+          ./t_pct_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_ledger_percentiles.c -o t_led_bin $LDFLAGS
+          ./t_led_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o t_kynx_bin $LDFLAGS
+          ./t_kynx_bin
+          # No -w here on purpose, and that is the whole point of compiling this
+          # one differently from its five neighbours. The line it exists to
+          # cover was a strncat in orbit_float_to_string, and no warning flag
+          # on gcc would have caught it -- MSVC is the only toolchain here that
+          # calls strncat unsafe, so this is the one runtime test that has to
+          # reach the Windows leg with its diagnostics intact. -Wall and not
+          # -Wextra, because -Wextra reports unrelated unused parameters in
+          # files this change did not touch.
+          $CC -O0 -Wall -I runtime -DORBIT_WITH_NET runtime/test_float_format.c -o t_ffmt_bin $LDFLAGS
+          ./t_ffmt_bin
+          LDDB=""
+          if [ "${{ runner.os }}" = "Windows" ]; then LDDB="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDDB="-lsqlite3"; fi
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB runtime/test_migrations.c -o t_mig_bin $LDDB
+          ./t_mig_bin
   # Flakiness detector for the self-host chain. Each leg is an independent
   # fixed-point run on its own runner, so the 8 repetitions run concurrently
   # instead of serially: the flakiness being hunted is run-to-run variation, and
@@ -468,6 +485,12 @@ jobs:
   stress-gate:
     name: Self-host chain stress (iteration ${{ matrix.iteration }})
     needs: selfhost-gate
+    # `always()` on purpose. This job exists to hunt flakiness in the bootstrap
+    # chain, which is a different property from the runtime C tests failing on
+    # Windows. Under plain `needs` a Windows-only crash skipped all eight legs, so
+    # the one gate whose whole job is run-to-run variation stopped running at the
+    # exact moment there was something new to check.
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
