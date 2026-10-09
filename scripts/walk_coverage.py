@@ -37,9 +37,14 @@ Two findings, both about the declaration rather than the code:
                  added to a model, or an arm was added to a walk, and the
                  declaration was not updated with it.
 
-What it cannot do, stated so nobody over-trusts it: it cannot tell you a
-declared gap is wrong, because that is a judgement about intent. It guarantees
-only that no gap is unremarked. The companion that measures real visits is
+What it cannot do, stated so nobody over-trusts it, twice, because both were
+learned by using it: it cannot tell you a declared gap is wrong, because that is
+a judgement about intent; and it cannot tell you an UNDECLARED gap is real,
+because "has no arm of its own" and "is never visited" are different questions.
+Three walks that declare a gap were probed by hand and all three were correct --
+doctorShadowStmt through match arms, D023 through constructor patterns, and D025
+through a method call's arguments -- and the gaps were the measurement's, not the
+code's. It guarantees only that no gap is unremarked. The companion that measures real visits is
 `tests/doctor/golden/walk_coverage_all_child_fields`, which plants a read in
 every field and fails when a walk cannot see one -- and which covers doctor's
 walks, not the compiler's, because the compiler's walks have no observable
@@ -161,10 +166,15 @@ def check(root: pathlib.Path) -> list:
             findings.append((
                 w["loc"], "undeclared",
                 f"fn {w['fn']} walks the AST and does not declare what it skips. "
-                f"Its arms leave these unvisited: "
-                f"{', '.join(w['missing']) or 'nothing'}. If that is right, say so "
-                f"with a `// orbit-walk-misses: ...` line above the function; if it "
-                f"is not, that is a dropped subtree.",
+                f"It has no arm of its own for: "
+                f"{', '.join(w['missing']) or 'nothing'}. That is a CANDIDATE, not "
+                f"a verdict: a walk can reach a node by iterating its parent's "
+                f"list field instead of arming it. doctorShadowStmt declares "
+                f"MatchCaseNode as skipped and is wrong -- it reaches every arm "
+                f"body through `m.cases`, and D023 fires on a `val` shadowed in "
+                f"a match arm and read after it. Declare the gap with "
+                f"`// orbit-walk-misses: ...` if it is intended, and treat the "
+                f"list as the work queue for judging whether it is.",
             ))
             continue
         if declared_differs(w["declared"], w["missing"]):

@@ -164,16 +164,29 @@ def registry(compiler, cc, work):
         # needs to be able to fail, and each has to be runnable by hand: the
         # runtime one because it is the whole C test suite, the Kynx one because
         # it is the only gate that builds a service and starts it.
+        # These two run their SELF-TESTS, and the reason is a measurement.
+        # alive_check took 11 minutes on windows-latest against 2.5 on ubuntu,
+        # and 8 of those 11 were kynx_live_gate re-running its load phase. Both
+        # tools are gates that already ran, moments earlier, in this same job --
+        # alive_check re-executing them proves nothing the previous line did not,
+        # and it doubles the most expensive thing in CI.
+        #
+        # What D8 actually asks is whether the tool can still FAIL, and both
+        # carry a --self-test that asserts exactly that: runtime_c_tests builds
+        # a file that does not compile and a program that exits non-zero, and
+        # kynx_live_gate asserts its readiness loop reports "not ready" in
+        # bounded time. That is the guarantee, at three seconds instead of eight
+        # minutes.
         Tool("runtime_c_tests.py", "gate",
-             "the eleven runtime C test programs, compiled and run",
-             lambda: _script("runtime_c_tests.py", "--cc", cc),
-             r"Finished runtime-c", 600, allow_rc=(0, 1)),
+             "the eleven runtime C test programs; self-test here because the "
+             "real run is a gate that just executed",
+             lambda: _script("runtime_c_tests.py", "--self-test"),
+             r"Finished runtime-c self-test", 120, allow_rc=(0, 1)),
         Tool("kynx_live_gate.py", "gate",
-             "builds examples/blog_api.orb, starts it, and bursts a guarded "
-             "route at it",
-             lambda: _script("kynx_live_gate.py", "--cc", cc,
-                             "--compiler", compiler),
-             r"Finished kynx-gate", 600, allow_rc=(0, 1)),
+             "builds and bursts a live service; self-test here because the real "
+             "run is a gate that just executed",
+             lambda: _script("kynx_live_gate.py", "--self-test"),
+             r"Finished kynx-gate self-test", 120, allow_rc=(0, 1)),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does
