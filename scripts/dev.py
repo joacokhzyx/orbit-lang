@@ -384,6 +384,10 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
             ("doctor_scope", [py, f"{s}/doctor_scope_gate.py", "--compiler", fp]),
             ("cli_probe", [py, f"{s}/cli_probe.py", "--compiler", fp,
                            "--work", str(work / "cli")]),
+            # Needs a C compiler and nothing else -- no orbit binary, no
+            # bootstrap. It was forty lines of shell inside ci-gate.yml, which
+            # is why it was the one gate nobody could run locally.
+            ("runtime_c", [py, f"{s}/runtime_c_tests.py", "--cc", cc]),
         ],
         2: [
             ("suite", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp]),
@@ -394,6 +398,12 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
             ("parity", [py, f"{s}/parity_selfhost.py", "--cc", cc, "--compiler", fp]),
             ("werror", [py, f"{s}/werror_gate.py", "--cc", cc, "--compiler", fp]),
             ("fuzz_frontend", [py, f"{s}/fuzz_frontend.py", "--compiler", fp]),
+            # The only gate that builds a service and runs it. It was the other
+            # shell block in CI, and being unable to run the gate that proves
+            # the compiler produces a working server is how a compiler ends up
+            # green on every unit test and broken in the way that matters.
+            ("kynx_live", [py, f"{s}/kynx_live_gate.py", "--cc", cc,
+                           "--compiler", fp]),
         ],
         3: [
             ("check_stale", [py, f"{s}/build_selfhost.py", "--cc", cc, "--check-stale"]),

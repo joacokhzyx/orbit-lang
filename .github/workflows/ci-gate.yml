@@ -18,21 +18,22 @@ concurrency:
 jobs:
   # SOVER-1 primary gate: the compiler bootstraps itself from the committed
   # canonical C using any C compiler. No toolchain beyond cc and python3.
-  selfhost-gate:
-    name: Self-host fixed-point gate (${{ matrix.os }})
+  #
+  # This job used to be twenty-four sequential steps, and in GitHub Actions a
+  # failing `run:` skips every step after it -- so the step order WAS the
+  # coverage policy, and a crash in runtime/test_migrations.c on Windows cost
+  # fourteen gates rather than one. The order stopped mattering when the gates
+  # became independent jobs: each builds what it needs and shares nothing.
+  bootstrap:
+    name: Bootstrap and root of trust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    # Git Bash on Windows runners is an MSYS2 host: without this, every
-    # argument that looks like an absolute POSIX path (`--burst-path /gate-burst`)
-    # is rewritten to `<Git install>/gate-burst` before a native program such as
-    # python.exe sees it, and the gate fails with "URL can't contain control
-    # characters". scripts/orbit_routes.py repairs such values as a second line
-    # of defence; this stops the rewrite at the source.
     env:
       MSYS2_ARG_CONV_EXCL: '*'
       MSYS_NO_PATHCONV: 1
       ORBIT_CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
+      # fail-fast is off so one flaky leg does not hide the state of the other.
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -62,6 +63,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
 
+      # Git Bash on Windows runners is an MSYS2 host: without this, every
+      # argument that looks like an absolute POSIX path is rewritten to
+      # `<Git install>/...` before a native program such as python.exe sees it,
+      # and the gate fails with "URL can't contain control characters".
       - name: Route argument normalization probe
         shell: bash
         run: |
@@ -79,432 +84,156 @@ jobs:
           tail -n 40 gate_output.log
           exit $rc
 
-      - name: Hermetic seed verification + emit fixed-point compiler
+      - name: Hermetic seed verification (STAB-1)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/verify_seed.py --cc "${{ matrix.cc }}" \
-            --emit-fixed-point "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+          "$PY" scripts/verify_seed.py --cc "${{ matrix.cc }}"
 
-      - name: Probe stability gate (32 goldens)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/parity_selfhost.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+  # The Python gates, by blast radius, through the one entry point. This is
+  # `make all && make report`: doctor goldens, doctor scope, the CLI contract,
+  # the language and std suites, the negative corpus, the frontend TIR, parity,
+  # -Werror on generated C, the fuzzers, the schema and walk-coverage checks, the
+  # tool aliveness check, the runtime C tests, the Kynx live gate and the gate
+  # self-tests.
+  #
+  # It builds its own fixed point rather than consuming one from `bootstrap`. An
+  # artifact would save about 34 seconds per job and cost a download, an upload,
+  # and a dependency edge that can fail for reasons unrelated to the thing being
+  # tested -- which is the property this split exists to remove.
+  gates:
+    name: Gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    needs: []
+    env:
+      MSYS2_ARG_CONV_EXCL: '*'
+      MSYS_NO_PATHCONV: 1
+      ORBIT_CCACHE_DIR: ${{ github.workspace }}/.ccache
+    strategy:
+      # fail-fast is off so one flaky leg does not hide the state of the other.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+          - os: windows-latest
+            cc: clang
 
-      - name: Strict warning gate (-Werror on generated C)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/werror_gate.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+    steps:
+      - uses: actions/checkout@v4
 
-      # Every program here must FAIL to compile. Until this existed the repo
-      # had no test asserting a type error at all, which is how three audit
-      # rounds in a row found defects every gate passed: a union match missing
-      # a variant, `.at()` on a list of ints, `print(undeclaredThing)`. All
-      # three compile clean. The gate also fails when a diagnostic IMPROVES, so
-      # the wording of every rejection is pinned.
-      - name: Negative-compilation gate (programs that must not compile)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/negative_gate.py \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
+      - name: Restore C compile cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-gcc-${{ runner.os }}-${{ hashFiles('compiler/selfhost/stage3.exe.c') }}
+          restore-keys: |
+            ccache-gcc-${{ runner.os }}-
 
-      # `orbit frontend` had no CI coverage at all: the only thing that
-      # mentioned it was one usage-string case in cli_probe.py. These are the
-      # four canonical TIR expectations from tests/frontend/expected/.
-      - name: Frontend TIR gate (orbit frontend vs tests/frontend/expected/)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/frontend_gate.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
-
-      - name: Formatter gate (checked-in form)
-        shell: bash
-        run: |
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          FP="${RUNNER_TEMP}/fixed_point${SUFFIX}"
-          "$FP" fmt --check compiler
-          "$FP" fmt --check tests/suite
-          for f in examples/*.orb; do
-            case "$f" in *orbit_full_expansion.orb) continue;; esac
-            "$FP" fmt --check "$f"
-          done
-
-      # Scope, not a baseline. `orbit doctor .` over the whole repo reports 196
-      # findings, and nearly all of them are directories that are SUPPOSED to be
-      # broken: 57 D008 in tests/negative, tests/doctor and tests/parity, which
-      # are deliberately uncompilable fixtures, and 105 D002 route collisions
-      # inside those same corpora. Baselining those would be a list of 196 lines
-      # vouching for a state nobody wants. What must be clean is named instead.
-      #
-      # examples/ is deliberately absent: it is a directory of INDEPENDENT
-      # services, and a tree scan reads their routes as one program's routes and
-      # calls five services' GET /health a conflict. That is correct behaviour
-      # and a wrong scope, and docs/DOCTOR.md says so.
-      # This used to be an inline `for d in compiler std tests/suite; do
-      # "$FP" doctor "$d" ... || exit 1`. It was a second, stricter definition of
-      # "clean" living next to scripts/doctor_scope_gate.py, and the two
-      # disagreed: this one counted D015/D017/D018 as failures, so it went red
-      # the moment those checks shipped, and it could never be satisfied without
-      # deleting the advisory policy that says a test verifying a pattern must
-      # not be told to stop using it. One definition of clean, in the script that
-      # documents it.
-      - name: Doctor gate (scoped directories are clean)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/doctor_scope_gate.py --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
-
-      - name: Doctor goldens (exact output)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/doctor_gate.py --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}"
-
-      - name: CLI contract probe
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/cli_probe.py --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" --work "${RUNNER_TEMP}/cliwork"
-
-      - name: Orbit test suite (language behavior)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          set +e
-          "$PY" scripts/test_suite.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > suite_output.log 2>&1
-          rc=$?
-          set -e
-          cat suite_output.log
-          {
-            echo "### orbit suite rc=$rc"
-            echo '```'
-            tail -n 60 suite_output.log
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-          exit $rc
-
-      - name: Orbit std suite (standard library)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/test_suite.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" --dir tests/std
-
-      - name: Kynx route-limit live gate (blog_api + kynx_route_limit_gate.py)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          FP="${RUNNER_TEMP}/fixed_point${SUFFIX}"
-          SRV="${RUNNER_TEMP}/gate_srv${SUFFIX}"
-          if [ "${{ runner.os }}" = "Windows" ]; then cp runtime/vendor/win-x64/sqlite3.dll "${RUNNER_TEMP}/sqlite3.dll"; fi
-          ORBIT_CC="${{ matrix.cc }}" "$FP" build examples/blog_api.orb -o "$SRV"
-          PORT=4102
-          "$SRV" $PORT &
-          SRV_PID=$!
-          trap "kill $SRV_PID 2>/dev/null" EXIT
-          READY=0
-          for i in $(seq 1 30); do
-            if curl -sf "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then READY=1; break; fi
-            sleep 1
-          done
-          if [ "$READY" != "1" ]; then echo "gate server on port $PORT never became ready"; exit 1; fi
-          "$PY" scripts/kynx_route_limit_gate.py --port $PORT --burst-path /gate-burst
-
-      # REPORT ONLY, not a gate. Counts how much of the corpus the front end
-      # types as `unknown`, which is the number "make unknown an error" has to
-      # be scoped against. It never fails the build -- `continue-on-error` is
-      # not decoration, it is the contract -- so its output goes to the job
-      # summary where it is read rather than to a red X nobody investigates.
-      # What HOLDS the number is the ratchet in the next step; this step is the
-      # measurement, and it is `if: always()` so it still runs when something
-      # earlier in the job has already gone red.
-      - name: Unknown-type census (report only, never fails the build)
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/unknown_census.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > census.log 2>&1 || true
-          cat census.log
-          {
-            echo "### unknown-type census (report only)"
-            echo '```'
-            cat census.log
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-
-      # D7. The census above is a measurement; this is the gate, and the only
-      # thing it fails on is the count going UP against
-      # scripts/baselines/unknown_count.json. It does not fail because the count
-      # is high -- 29.0% of inferred types are `unknown` today and a zero-bar
-      # gate is a gate everybody disables. A number that can only go down turns
-      # "do not regress this" into something the build enforces instead of
-      # something people remember.
-      #
-      # This is a HARD step. A ratchet wired with `continue-on-error` is a
-      # number in a file nobody reads, which is the state D7 exists to end.
-      - name: Unknown-count ratchet (one-way, D7)
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          set +e
-          "$PY" scripts/unknown_ratchet.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > ratchet.log 2>&1
-          rc=$?
-          set -e
-          cat ratchet.log
-          {
-            echo "### unknown-count ratchet rc=$rc"
-            echo '```'
-            tail -n 30 ratchet.log
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-          exit $rc
-
-      # D8. Every tool in scripts/ has to prove it still works: it runs, it does
-      # not crash, it does not hang, and its output contains a marker that only
-      # appears when it did the actual work. That last part is the one the
-      # census incident turned on -- a probe that stopped building printed
-      # "the probe did not build" and exited 0, and non-empty output is not
-      # evidence of anything.
-      #
-      # `if: always()` on purpose: a tool that rotted is exactly the case where
-      # something else has also gone wrong, and the rot is the more useful of
-      # the two facts. Linux only -- this is repo hygiene rather than a language
-      # property, and running it on both legs doubles the slowest steps.
-      - name: Tool aliveness (every tool in scripts/ still works, D8)
-        if: always() && runner.os == 'Linux'
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          set +e
-          "$PY" scripts/alive_check.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > alive.log 2>&1
-          rc=$?
-          set -e
-          tail -n 60 alive.log
-          {
-            echo "### tool aliveness rc=$rc"
-            echo '```'
-            tail -n 40 alive.log
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-          exit $rc
-
-      # The crash fuzzer only ever looked for crashes, which are loud. This one
-      # compares Orbit's arithmetic against a reference implementation and
-      # reports the quiet failures: a program that compiles clean, runs, and
-      # gives the wrong number. REPORT ONLY, and deliberately so -- a fuzzer that
-      # fails the build the day a finding appears is one that gets switched off
-      # the day a finding appears. The summary is the deliverable; the exit code
-      # is not. What HOLDS the number is the ratchet in the next step.
-      #
-      # Same corpus as the ratchet below (seeded, default `--iterations`, no
-      # override), so the two numbers in this log are the same number and not
-      # two measurements of two different things. It runs on both legs, including
-      # Windows, which is where the report is worth having.
-      #
-      # Cost, measured: 676 cases in 36-45 s with gcc, 92 compiled programs
-      # (a build costs the same whatever the program contains, so 40 cases share
-      # one program). `--iterations` is the knob and the ratchet owns it.
-      - name: Differential fuzzer (Orbit vs a reference implementation)
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/diff_fuzz.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" \
-            --json diff_fuzz.json > diff_fuzz.log 2>&1 || true
-          cat diff_fuzz.log
-          {
-            echo "### differential fuzzer (report only, never fails the build)"
-            echo '```'
-            cat diff_fuzz.log
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-
-      # D9. The fuzzer above is the measurement; this is the gate, and the only
-      # things it fails on are the disagreement count going UP against
-      # scripts/baselines/diff_fuzz.json and the corpus not being the one that
-      # baseline was taken at. It does not fail because the count is high -- 75
-      # disagreements in 5 classes is today's real state and a zero-bar gate is
-      # a gate everybody disables. A count that can only go down is the
-      # difference between "we found this" and "this cannot come back without a
-      # line in a commit message".
-      #
-      # A HARD step, for the same reason unknown_ratchet.py above is one: a
-      # ratchet wired with `continue-on-error` is a number in a file nobody
-      # reads. The corpus is not a flag here -- it is read out of the baseline --
-      # so a check run cannot measure something the baseline does not describe.
-      #
-      # Linux only, and that is a judgement worth arguing with: 16 of the 75 are
-      # `div-zero/signal-instead-of-a-diagnostic`, and whether the emitted C
-      # raises or exits is a property of the C toolchain and the OS, not of the
-      # compiler. One baseline, two runners, one of which can count a different
-      # number for a reason that is not a defect is a gate that goes red for
-      # weather and gets disabled. The step above still runs on both legs, so
-      # the Windows numbers stay visible without being a gate.
-      # The one-way ratchet is gone. The fuzzer reached 0 disagreements in 678
-      # cases, and its own rule is why that retires the gate rather than
-      # setting it: the baseline must carry a non-empty by_class map so every
-      # row is a count that can only fall, and a corpus with no disagreements
-      # has no rows. A ratchet whose floor is zero cannot catch a regression,
-      # because a regression is the number going up. Report-only from here --
-      # the count is still printed, the corpus is still the evidence.
-      - name: Diff-fuzz disagreement count (report-only)
+      - name: Install SQLite development library (Linux)
         if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+
+      # `make all` is T0..T3 and `make report` is the report-only measurements
+      # CI prints but never fails on. Both are the same entry point a developer
+      # runs locally, which is the entire point: the gate sequence lived in
+      # three places and they drifted.
+      - name: make all and make report
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          SUFFIX=""; if [ "${{ runner.os }}" = "Windows" ]; then SUFFIX=".exe"; fi
-          "$PY" scripts/diff_fuzz.py --cc "${{ matrix.cc }}" \
-            --compiler "${RUNNER_TEMP}/fixed_point${SUFFIX}" > difffuzz.log 2>&1 || true
-          tail -n 60 difffuzz.log
-          {
-            echo "### diff-fuzz disagreement count"
-            echo '```'
-            tail -n 40 difffuzz.log
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          set +e
+          "$PY" scripts/dev.py all 2>&1 | tee gates.log
+          rc=${{ PIPESTATUS[0] }}
+          "$PY" scripts/dev.py report 2>&1 | tee report.log
+          set -e
+          cat gates.log report.log
+          exit $rc
 
-      # The new gates have to be able to fail, and the only way to know that is
-      # to assert it: each self-test feeds its own checker a tool that crashes,
-      # one that hangs, one that prints nothing, one whose output is stale, and
-      # one with a broken baseline, and requires each to be reported. Three
-      # seconds, and it is the difference between a gate and a hope.
-      # No compiler, no bootstrap, a second of wall clock. It compares
-      # compiler/ast.orb against the code that builds nodes: a field's declared
-      # type against the arity and the operations applied to it. Seventeen fields
-      # once declared `list` while the parser handed them a single ASTNode, and
-      # `f.body.len()` returned -1184889136 -- a model pointer read as a list
-      # header -- while `orbit check` was clean. It is cheap precisely because it
-      # reads two files of text, which is the reason it is worth running on every
-      # push rather than discovering it by hand.
+  # Two checks that read two files of text and need no compiler: what
+  # compiler/ast.orb declares against the code that builds nodes, and what each
+  # AST walk in the compiler declares about the fields it skips. About a second
+  # between them, which is why they are worth running on every push instead of
+  # being discovered by hand.
+  #
+  # Linux only: they analyse Orbit source, so a second runner would prove that
+  # Python reads the same file identically twice, at the cost of a runner.
+  static:
+    name: Schema and walk coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
       - name: AST schema conformance (ast.orb vs the code that builds nodes)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/schema_conformance.py
 
-      # The companion check. The corpus above MEASURES whether a walk reaches a
-      # field, but only for doctor's walks: the compiler's own walks have no
-      # observable output to probe from outside. This covers the other half --
-      # every AST walk in compiler/ declares which fields it skips, and the
-      # declaration still matches the arms, so a field added to a model cannot
-      # silently widen a gap. It reports on declarations, not on correctness: it
-      # cannot tell you a declared gap is wrong, and says so in its own output.
       - name: AST walk coverage (every walk declares the fields it skips)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/walk_coverage.py
 
-      - name: Gate self-tests (the new gates can say no)
-        if: always()
+      - name: Gate self-tests (the gates can say no)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" scripts/unknown_ratchet.py --self-test
           "$PY" scripts/schema_conformance.py --self-test
           "$PY" scripts/walk_coverage.py --self-test
+          "$PY" scripts/runtime_c_tests.py --self-test
+          "$PY" scripts/kynx_live_gate.py --self-test
+          "$PY" scripts/unknown_ratchet.py --self-test
           "$PY" scripts/werror_gate.py --self-test
           "$PY" scripts/alive_check.py --self-test
 
+  # The runtime C tests and the auth harness. They compile C with a C compiler
+  # and need nothing from the Orbit toolchain, which is why they are their own
+  # job: when test_migrations crashed on Windows it used to abort this block and
+  # take fourteen Python gates with it, and now it costs this job alone.
+  runtime-c:
+    name: Runtime C and auth (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+          - os: windows-latest
+            cc: clang
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Auth unit gate (bearer/role/has_role)
+      - name: Install SQLite development library (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+
+      - name: Runtime C tests and auth harness
         shell: bash
         run: |
-          CC="${{ matrix.cc }}"
-          CFLAGS="-O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB"
-          LDFLAGS=""
-          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDFLAGS="-lsqlite3"; fi
-          $CC $CFLAGS tests/auth/auth_harness.c -o t_auth_bin $LDFLAGS
-          if [ "${{ runner.os }}" = "Windows" ]; then export PATH="$PWD/runtime/vendor/win-x64:$PATH"; fi
-          ./t_auth_bin
-
-      # LAST step on purpose. A `run:` that fails aborts the step and every step
-      # after it is skipped, so in a single job the order IS the coverage policy.
-      # This step is the one that dies (Windows: an access violation in
-      # runtime/test_migrations.c), and while it sat sixth it took fourteen gates
-      # down with it -- the doctor gates, the CLI probe, the suite, the negative
-      # corpus, the frontend goldens, -Werror and the ratchet have not run on
-      # Windows at all since it appeared. Nothing here is weaker than it was; it
-      # is the same gate, asked last, so a crash in it costs one gate instead of
-      # fifteen. Splitting this into parallel jobs would be the real fix; see
-      # DX-1 in ENGINEERING.md section 7.
-      - name: Runtime C tests (arena + file + http + kynx)
-        shell: bash
-        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          set +e
+          "$PY" scripts/runtime_c_tests.py --cc "${{ matrix.cc }}"
+          rc=$?
           CC="${{ matrix.cc }}"
           LDFLAGS=""
-          if [ "${{ runner.os }}" = "Windows" ]; then LDFLAGS="-lws2_32"; fi
-          # The auth step and the Kynx step both put sqlite3.dll on PATH before
-          # linking a DB program. This one linked sqlite3.lib and did not, so the
-          # loader had to find it by whatever the runner's environment happened to
-          # offer. Copy it, and the step stops depending on ambient PATH.
           if [ "${{ runner.os }}" = "Windows" ]; then
+            LDFLAGS="-lws2_32"
             cp runtime/vendor/win-x64/sqlite3.dll . 2>/dev/null || true
           fi
-          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin $LDFLAGS
-          ./t_arena_bin
-          $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_file.c -o t_file_bin $LDFLAGS
-          ./t_file_bin
-          # test_oom observes the abort-on-exhaustion policy in a child
-          # process, so it needs fork/waitpid and is POSIX-only.
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            $CC -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_oom.c -o t_oom_bin $LDFLAGS
-            ./t_oom_bin
-          fi
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o t_http_bin $LDFLAGS
-          ./t_http_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_upload.c -o t_upload_bin $LDFLAGS
-          ./t_upload_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_params_decode.c -o t_params_bin $LDFLAGS
-          ./t_params_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_latency_percentiles.c -o t_pct_bin $LDFLAGS
-          ./t_pct_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_ledger_percentiles.c -o t_led_bin $LDFLAGS
-          ./t_led_bin
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o t_kynx_bin $LDFLAGS
-          ./t_kynx_bin
-          # No -w here on purpose, and that is the whole point of compiling this
-          # one differently from its five neighbours. The line it exists to
-          # cover was a strncat in orbit_float_to_string, and no warning flag
-          # on gcc would have caught it -- MSVC is the only toolchain here that
-          # calls strncat unsafe, so this is the one runtime test that has to
-          # reach the Windows leg with its diagnostics intact. -Wall and not
-          # -Wextra, because -Wextra reports unrelated unused parameters in
-          # files this change did not touch.
-          $CC -O0 -Wall -I runtime -DORBIT_WITH_NET runtime/test_float_format.c -o t_ffmt_bin $LDFLAGS
-          ./t_ffmt_bin
-          LDDB=""
-          if [ "${{ runner.os }}" = "Windows" ]; then LDDB="-lws2_32 runtime/vendor/win-x64/sqlite3.lib"; else LDDB="-lsqlite3"; fi
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB runtime/test_migrations.c -o t_mig_bin $LDDB
-          ./t_mig_bin
+          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB \
+            tests/auth/auth_harness.c -o t_auth_bin $LDFLAGS
+          ./t_auth_bin || rc=1
+          set -e
+          exit $rc
+
   # Flakiness detector for the self-host chain. Each leg is an independent
   # fixed-point run on its own runner, so the 8 repetitions run concurrently
   # instead of serially: the flakiness being hunted is run-to-run variation, and
@@ -513,13 +242,6 @@ jobs:
   # one flaky leg does not hide the state of the other seven.
   stress-gate:
     name: Self-host chain stress (iteration ${{ matrix.iteration }})
-    needs: selfhost-gate
-    # `always()` on purpose. This job exists to hunt flakiness in the bootstrap
-    # chain, which is a different property from the runtime C tests failing on
-    # Windows. Under plain `needs` a Windows-only crash skipped all eight legs, so
-    # the one gate whose whole job is run-to-run variation stopped running at the
-    # exact moment there was something new to check.
-    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:

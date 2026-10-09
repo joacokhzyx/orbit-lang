@@ -141,6 +141,21 @@ def registry(compiler, cc, work):
              "every declaration matches the arms",
              lambda: _script("walk_coverage.py"),
              r"Finished walk-coverage", 120, allow_rc=(0, 1)),
+        # Both of these were inline shell in ci-gate.yml, which is the shape
+        # where a flag quietly stops being applied and nothing notices. Each
+        # needs to be able to fail, and each has to be runnable by hand: the
+        # runtime one because it is the whole C test suite, the Kynx one because
+        # it is the only gate that builds a service and starts it.
+        Tool("runtime_c_tests.py", "gate",
+             "the eleven runtime C test programs, compiled and run",
+             lambda: _script("runtime_c_tests.py", "--cc", cc),
+             r"Finished runtime-c", 600, allow_rc=(0, 1)),
+        Tool("kynx_live_gate.py", "gate",
+             "builds examples/blog_api.orb, starts it, and bursts a guarded "
+             "route at it",
+             lambda: _script("kynx_live_gate.py", "--cc", cc,
+                             "--compiler", compiler),
+             r"Finished kynx-gate", 600, allow_rc=(0, 1)),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does

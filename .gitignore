@@ -25,6 +25,13 @@ bin/
 # Local runtime data
 orbit.db
 /sqlite3.dll
+# Runtime C test artifacts. scripts/runtime_c_tests.py runs each program in a
+# scratch dir so these do not appear at all; they are listed because a test
+# run by hand from the repository root still produces them, and an
+# untracked file is a `git add -A` away from a commit.
+note.txt
+test_migrations_tmp.db*
+
 
 # Local logs and diagnostic dumps
 *.log
