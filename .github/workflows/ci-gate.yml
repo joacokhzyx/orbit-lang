@@ -105,7 +105,6 @@ jobs:
     name: Gates (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    needs: []
     env:
       MSYS2_ARG_CONV_EXCL: '*'
       MSYS_NO_PATHCONV: 1
