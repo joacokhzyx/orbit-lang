@@ -141,6 +141,15 @@ def registry(compiler, cc, work):
              "every declaration matches the arms",
              lambda: _script("walk_coverage.py"),
              r"Finished walk-coverage", 120, allow_rc=(0, 1)),
+        # This one exists to be read, not to fail. It diffs the canonical with
+        # the generated register numbering flattened, so a reviewer can see what
+        # a promote did without reading 20 000 lines of renumbering. Its
+        # self-test is the row that matters; the full run needs a pending
+        # promote to say anything.
+        Tool("promote_diff.py", "gate",
+             "the canonical's diff with register and label numbering flattened",
+             lambda: _script("promote_diff.py", "--self-test"),
+             r"Finished promote-diff", 120, allow_rc=(0, 1)),
         # Both of these were inline shell in ci-gate.yml, which is the shape
         # where a flag quietly stops being applied and nothing notices. Each
         # needs to be able to fail, and each has to be runnable by hand: the

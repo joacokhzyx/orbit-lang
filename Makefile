@@ -13,7 +13,7 @@ PY ?= python3
 DEV = $(PY) scripts/dev.py
 CC ?= gcc
 
-.PHONY: dev check all fp fp-path promote report list fmt doctor suite parity werror negative help
+.PHONY: dev check all fp fp-path promote promote-diff report list fmt doctor suite parity werror negative help
 
 ## dev:     gates proportionate to what the working tree touched (T0+T1 default)
 dev:
@@ -38,6 +38,10 @@ fp-path:
 ## promote: replace the committed canonical and PUBLISHED_C (the only way to)
 promote:
 	$(DEV) promote
+
+## promote-diff: what the canonical actually did, with register renumbering flattened
+promote-diff:
+	$(DEV) promote-diff
 
 ## report:  the CI report-only measurements (census, diff-fuzz, routes probe)
 report:

@@ -48,7 +48,11 @@ python3 scripts/parity_selfhost.py --cc gcc --compiler /tmp/fp --update   # ONLY
 
 Commit canonical + refreshed goldens + sources + `scripts/verify_seed.py` (PUBLISHED_C) together.
 
-**Do not read the canonical's diff.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured: 37 of the last 60 commits touch it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004. Review the `.orb` diff and the commit's evidence block; treat the canonical as the mechanical artifact it is, and check only its hash.
+**Do not read the canonical's diff, read `make promote-diff` instead.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured: 37 of the last 60 commits touch it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004.
+
+After `make promote` and before committing, run it. It diffs the canonical against `HEAD` with `r_N` and `label_N` flattened to `r` and `label` -- the only two generated-name families in 4.7 MB -- and reports the raw line count, the count after flattening, the hunks, and the functions they land in. On the commit that removed the phantom `ParamNode`, that is 24 342 lines raw against **40** after flattening, in 9 hunks across 3 functions. The same flattening is applied by hand in the STAB-3 entry of `ENGINEERING.md`, which is where the technique came from.
+
+So review the `.orb` diff, the commit's evidence block, and `make promote-diff` -- three things, all readable. Treat the canonical itself as the mechanical artifact it is and check only its hash.
 
 ## Enforced, not remembered
 

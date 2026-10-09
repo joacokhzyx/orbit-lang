@@ -431,7 +431,8 @@ def main() -> int:
         description="Developer loop for Orbit: one entry point for the gates."
     )
     ap.add_argument("target", nargs="?", default="dev",
-                    choices=["dev", "check", "all", "fp", "fp-path", "promote", "report", "list"])
+                    choices=["dev", "check", "all", "fp", "fp-path", "promote", "promote-diff",
+                             "report", "list"])
     ap.add_argument("--cc", default=None, help="C compiler (default: ORBIT_CC/CC/gcc/clang/cc)")
     ap.add_argument("--filter", default=None,
                     help="only run gates whose name contains this substring")
@@ -494,6 +495,16 @@ def main() -> int:
                 ", ".join(f"T{t}" for t in skipped) +
                 " -- so this is not a green CI)")
         return 0
+
+    if args.target == "promote-diff":
+        # After `make promote`, before committing: what did the generated C
+        # actually do, once the register renumbering is flattened. No compiler,
+        # no bootstrap -- it reads git and a text file.
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "promote_diff.py")] +
+            (["--expect-none"] if args.filter == "none" else []),
+            cwd=str(ROOT),
+        ).returncode
 
     if args.target == "promote":
         # The stamp is deliberately left alone. --promote rewrites
