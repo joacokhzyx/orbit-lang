@@ -410,6 +410,19 @@ jobs:
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/schema_conformance.py
 
+      # The companion check. The corpus above MEASURES whether a walk reaches a
+      # field, but only for doctor's walks: the compiler's own walks have no
+      # observable output to probe from outside. This covers the other half --
+      # every AST walk in compiler/ declares which fields it skips, and the
+      # declaration still matches the arms, so a field added to a model cannot
+      # silently widen a gap. It reports on declarations, not on correctness: it
+      # cannot tell you a declared gap is wrong, and says so in its own output.
+      - name: AST walk coverage (every walk declares the fields it skips)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/walk_coverage.py
+
       - name: Gate self-tests (the new gates can say no)
         if: always()
         shell: bash
@@ -417,6 +430,7 @@ jobs:
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/unknown_ratchet.py --self-test
           "$PY" scripts/schema_conformance.py --self-test
+          "$PY" scripts/walk_coverage.py --self-test
           "$PY" scripts/werror_gate.py --self-test
           "$PY" scripts/alive_check.py --self-test
 

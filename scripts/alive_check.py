@@ -132,6 +132,15 @@ def registry(compiler, cc, work):
              "phantom models and variants, and a node read with a list operation",
              lambda: _script("schema_conformance.py"),
              r"Finished schema-conformance", 120, allow_rc=(0, 1)),
+        # The companion to the corpus: it does not measure visits, it checks that
+        # every AST walk in the compiler DECLARES the fields it skips, and that
+        # the declaration still matches the arms. A walk that silently stopped
+        # reaching a field is invisible everywhere else.
+        Tool("walk_coverage.py", "gate",
+             "every AST walk in compiler/ declares the fields it skips, and "
+             "every declaration matches the arms",
+             lambda: _script("walk_coverage.py"),
+             r"Finished walk-coverage", 120, allow_rc=(0, 1)),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does

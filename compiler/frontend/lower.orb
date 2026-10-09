@@ -51,6 +51,7 @@ fn copyBindings(bindings: list) -> list {
     return copied
 }
 
+// orbit-walk: none -- asks what type an expression is
 fn typeOfExpression(bindings: list, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(literal) => {
@@ -96,6 +97,7 @@ fn typeOfExpression(bindings: list, node: ASTNode) -> string {
     }
 }
 
+// orbit-walk-misses: AssignmentNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
@@ -169,6 +171,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list, node: ASTNode) -> int {
     if blockId < 0 { return blockId }
     match node {

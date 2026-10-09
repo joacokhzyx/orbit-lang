@@ -1377,6 +1377,7 @@ fn constBoundLen(sema: Sema, name: string, wantKind: string) -> int {
  *  runtime symbol, and it only has to read the one shape a literal index can
  *  take. Anything else -- a computed index, a negative one, a hex literal --
  *  answers -1 and is left to the runtime, which stops the process. */
+// orbit-walk: none -- asks the value behind an index literal
 fn literalIndexValue(node: list) -> int {
     match node {
         // A negative literal is a unary minus over a positive one -- the lexer
@@ -1452,6 +1453,7 @@ fn isIntMinSpelling(node: list) -> bool {
 // Literal, negation of a literal, and sums and differences of those. That is
 // the whole set that can reach INT_MIN in a program, since the value itself
 // cannot be written down.
+// orbit-walk: none -- asks whether a literal folds to an int
 fn canFoldInt(node: list) -> bool {
     // `-2147483648` is INT_MIN: a negation of a literal one past INT_MAX. The
     // Literal arm in checkNode returns "int" for exactly that spelling, so the
@@ -1475,6 +1477,7 @@ fn canFoldInt(node: list) -> bool {
 }
 
 // The value of an operand already known to satisfy canFoldInt.
+// orbit-walk: none -- asks the folded value of a literal
 fn foldedIntValue(node: list) -> int {
     if isIntMinSpelling(node) { return 0 - 2147483647 - 1 }
     val lit = literalIndexValue(node)
@@ -2444,6 +2447,7 @@ fn stringLiteralHasNul(literalText: string) -> bool {
     return false
 }
 
+// orbit-walk-misses: none
 fn checkNode(sema: Sema, node: ASTNode) -> string {
     match node {
         ASTNode.Program(prog) => {

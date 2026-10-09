@@ -140,6 +140,7 @@ fn normalizePath(p: string) -> string {
     return s
 }
 
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, VarDeclNode, WhileNode
 fn resolveModuleAST(resolver: ModuleResolver, ast: ASTNode, basePath: string) -> ASTNode {
     match ast {
         ASTNode.Program(p) => {

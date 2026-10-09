@@ -348,6 +348,7 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
     return result
 }
 
+// orbit-walk: none -- builds nodes; it has no children to visit
 fn parsePrimary(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.Bang) {
         val operand = parsePrimary(parser)
@@ -536,6 +537,7 @@ fn parseObjectLiteralFallback(parser: Parser) -> ASTNode {
 // is whether a missing `else` is legal. `wantValue` is that one difference: an
 // `if` used where a value is required has to have an `else`, because without one
 // the false path has no value to give.
+// orbit-walk: none -- builds an IfNode; it does not descend into one
 fn parseIf(parser: Parser, wantValue: bool) -> ASTNode {
     // The `if` keyword itself: the diagnostic below points at the `if`, which
     // is what a reader has to change, not at the end of the branches.

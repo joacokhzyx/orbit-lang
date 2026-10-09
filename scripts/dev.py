@@ -354,6 +354,7 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     # node -- so it belongs where it runs every time, including for a clean tree.
     cmds = [
         ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
+        ("walk_coverage", [py, f"{s_dir}/walk_coverage.py"]),
     ]
     for target in ("compiler", "tests/suite"):
         cmds.append((f"fmt --check {target}", [exe, "fmt", "--check", target]))

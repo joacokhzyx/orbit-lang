@@ -837,6 +837,7 @@ fn registerTypeForElemKind(code: int) -> string {
  *  "unknown", which leaves the list untyped and the read undecoded. A wrong
  *  answer here would be worse than no answer: it would emit a typed accessor
  *  for a slot holding something else. */
+// orbit-walk: none -- asks what type an expression is
 fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(lit) => {
@@ -976,6 +977,7 @@ fn listReadElemKindName(builder: IRBuilder, node: ASTNode) -> string {
     return ""
 }
 
+// orbit-walk: none -- asks which list kind an expression is
 fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.ListLiteral(ll) => { return listLiteralKindName(builder, ll) }
@@ -1151,6 +1153,7 @@ fn memberElemType(builder: IRBuilder, receiver: ASTNode) -> string {
     return "unknown"
 }
 
+// orbit-walk: none -- asks what type an expression is
 fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(lit) => {
@@ -1211,6 +1214,7 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
 // is its own value. This is the same rule sema's checkBlock types a block by
 // ("the type of the last statement"), so the type layer and the builder agree
 // on what `if c { 1 } else { 2 }` is worth.
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, WhileNode
 fn branchValueNode(node: ASTNode) -> ASTNode {
     match node {
         ASTNode.Block(b) => {
@@ -1525,6 +1529,7 @@ fn getOrCreateFunction(builder: IRBuilder, name: string) -> IRFunction {
 // mutable slot, so nothing that has to be computed belongs here. Sema refuses
 // the rest with a diagnostic rather than letting it silently become a local --
 // see checkTopLevelDeclaration.
+// orbit-walk: none -- asks the value of a top-level literal
 fn topLevelConstantValue(node: ASTNode) -> string {
     match node {
         ASTNode.Literal(l) => {
@@ -1992,6 +1997,7 @@ fn ensureTrailingRet(func: IRFunction) {
     ir_emit(func, ret)
 }
 
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn buildNode(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.Block(b) => {
@@ -3220,6 +3226,7 @@ fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
     return ""
 }
 
+// orbit-walk-misses: ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     // A type annotation is not a runtime operation: the value underneath is the
     // expression, and the annotation only says which declared type it has. A
