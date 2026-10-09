@@ -52,10 +52,10 @@ NET = ["-DORBIT_WITH_NET"]
 
 
 def prog(name: str, *, vendor: bool = False, defines=(), warnings=False,
-         posix_only=False, db=False):
+         posix_only=False, db=False, src=None):
     return {
         "name": name,
-        "src": f"runtime/test_{name}.c",
+        "src": src or f"runtime/test_{name}.c",
         "vendor": vendor,
         "defines": list(defines),
         "warnings": warnings,
@@ -78,6 +78,15 @@ PROGRAMS = [
     prog("kynx", vendor=True, defines=["-DORBIT_KYNX_TEST"]),
     prog("float_format", warnings=True),
     prog("migrations", vendor=True, db=True, defines=["-DORBIT_WITH_DB"]),
+    # The auth harness is a runtime test that happens to live under tests/auth
+    # rather than runtime/, and it is the same shape as the ten above: compile a
+    # C program against the runtime, link it, run it, check the exit code. It
+    # was four lines of shell in ci-gate.yml with its own LDFLAGS block, and the
+    # transcription that carried it into this table's job dropped the `-lsqlite3`
+    # and failed at link time on both platforms. A gate that is a row in a table
+    # cannot lose its link flags; a gate that is shell can.
+    prog("auth", vendor=True, db=True, defines=["-DORBIT_WITH_DB"],
+         src="tests/auth/auth_harness.c"),
 ]
 
 

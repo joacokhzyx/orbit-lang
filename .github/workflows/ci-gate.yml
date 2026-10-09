@@ -214,24 +214,14 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
 
+      # No shell beyond picking the interpreter. Every program, every -D and
+      # every link flag lives in one table in the script, which is what stopped
+      # the auth harness from arriving here without its -lsqlite3.
       - name: Runtime C tests and auth harness
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
-          set +e
           "$PY" scripts/runtime_c_tests.py --cc "${{ matrix.cc }}"
-          rc=$?
-          CC="${{ matrix.cc }}"
-          LDFLAGS=""
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            LDFLAGS="-lws2_32"
-            cp runtime/vendor/win-x64/sqlite3.dll . 2>/dev/null || true
-          fi
-          $CC -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_WITH_DB \
-            tests/auth/auth_harness.c -o t_auth_bin $LDFLAGS
-          ./t_auth_bin || rc=1
-          set -e
-          exit $rc
 
   # Flakiness detector for the self-host chain. Each leg is an independent
   # fixed-point run on its own runner, so the 8 repetitions run concurrently
