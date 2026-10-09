@@ -230,13 +230,23 @@ def compiler_can_reach_runtime(compiler: str) -> bool:
     Checked here, and reported as a broken environment rather than as 6 failing
     goldens: the two are very different things and only one of them is a bug in
     the tree.
+
+    The predicate used to be `startswith(repo + os.sep)`, which was wrong and
+    cost a confusing failure. It claims that ANY compiler inside the repository
+    can reach the runtime, which is true of a binary at the repository root --
+    `runtime/` sits beside it -- and false of everything deeper in the tree. A
+    compiler at `.orbit/tmp/orbit-fp-...` is inside the repo, bindir is
+    `<repo>/.orbit/tmp`, no runtime is beside it, and the lookup falls through to
+    the relative "runtime", which for a --fix golden means the throwaway staged
+    copy. Three goldens then failed with "the result does not compile", a message
+    that says nothing about the cause, and the real cause was one directory level
+    of this function. The predicate is now: a runtime beside the binary, or the
+    binary at the repository root itself.
     """
     bindir = os.path.dirname(os.path.abspath(compiler))
-    repo = str(REPO)
-    return (
-        os.path.isdir(os.path.join(bindir, "runtime"))
-        or os.path.abspath(compiler).startswith(repo + os.sep)
-    )
+    if os.path.isdir(os.path.join(bindir, "runtime")):
+        return True
+    return os.path.abspath(bindir) == str(REPO)
 
 
 def run_case(compiler: str, case: pathlib.Path, env: dict) -> tuple:

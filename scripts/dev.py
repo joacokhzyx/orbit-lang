@@ -195,7 +195,31 @@ def fp_path() -> pathlib.Path:
     """
     tag = hashlib.sha256(str(ROOT).encode()).hexdigest()[:10]
     name = f"orbit-fp-{tag}" + (".exe" if os.name == "nt" else "")
-    return pathlib.Path(tempfile.gettempdir()) / name
+    return system_temp() / name
+
+
+def system_temp() -> pathlib.Path:
+    """The system temp, ignoring TEMP/TMP.
+
+    tempfile.gettempdir() reads TMPDIR, TEMP and TMP from the environment, and
+    dev.py exports TEMP and TMP to `.orbit/tmp` for every child it runs. So
+    consulting it here put the fixed-point binary INSIDE the repository, at
+    `.orbit/tmp/orbit-fp-...`, which is exactly the placement the docstring above
+    explains breaks things: bindir became `<repo>/.orbit/tmp`, the runtime lookup
+    fell through to the relative "runtime", and doctor_gate's three --fix
+    goldens reported "the result does not compile" over a missing
+    socket_compat.h. It looked exactly like a broken golden.
+
+    So the temp this uses must be the one dev.py does not control. On POSIX that
+    is /tmp. On Windows there is no such guarantee, so it falls back to the
+    ambient value and accepts the risk rather than inventing a path that may not
+    exist; the doctor_gate predicate below is what makes the failure legible
+    rather than silent if it ever goes wrong there too.
+    """
+    if os.name != "nt":
+        return pathlib.Path("/tmp")
+    drive = os.environ.get("SYSTEMDRIVE", "C:")
+    return pathlib.Path(f"{drive}\\Temp")
 
 
 def fp_is_fresh(cc: str) -> bool:
@@ -320,7 +344,17 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     stricter than CI is free, being looser is not.
     """
     exe = str(binary.resolve())
-    cmds = []
+    py = sys.executable
+    s_dir = str(ROOT / "scripts")
+    # schema_conformance belongs in T0 and not T1: it compares two files of text
+    # and needs no compiler at all, so running it inside a tier that pays for a
+    # bootstrap would be charging a second for the same check. It is the cheapest
+    # gate in the repo and the one that catches a whole class of silent wrong
+    # answers -- the schema declaring a field a list when the parser hands it a
+    # node -- so it belongs where it runs every time, including for a clean tree.
+    cmds = [
+        ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
+    ]
     for target in ("compiler", "tests/suite"):
         cmds.append((f"fmt --check {target}", [exe, "fmt", "--check", target]))
     for path in sorted(ROOT.glob("examples/*.orb")):
