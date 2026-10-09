@@ -1,0 +1,182 @@
+// Walk coverage: a read planted in every child field the AST schema declares.
+//
+// The rule this file exists to enforce is that a correct AST walk reaches every
+// field of every node it handles. Three bugs in compiler/doctor.orb were all one
+// mistake wearing three costumes: an arm existed for the node and the walk never
+// descended into one of its fields. Call.callee dropped the receiver's own
+// arguments. Assignment.target dropped the index of `xs[i] = 7`. MatchCase.pattern
+// dropped the comparison of `target =>`. In all three a live value read as
+// never-read and the check reported a dead store that was not dead, while all
+// 90 goldens were green.
+//
+// Counting arms cannot find that class. An arm for Call existed and was correct;
+// what was wrong was that it read `c.args` and stopped. So this file measures
+// visits instead: each probe is declared here and read exactly once, deep inside
+// one child field. A walk that reaches the field sees the read and stays silent
+// about the variable. A walk that cannot reach it never sees the read, and D028
+// reports the probe as dead -- which is the failure, surfaced as a diff of this
+// golden rather than as a reviewer's suspicion.
+//
+// Correct behaviour is therefore total silence: rc 0, no findings. Every finding
+// here is a blind field. Probes are `var mut` for a reason twice over: D013
+// reports a `var` that is never reassigned, and D028 does not track a `val` at
+// all. `var mut` is the one declaration both checks ignore.
+//
+// Do not put a probe inside a loop: D028 suppresses writes made in a loop body,
+// because a value stored there can be loop-carried, and that suppression would
+// hide the very blindness this file is looking for. Do not declare two probes in
+// one statement, and do not read a probe twice: one read, one field, or the test
+// stops being about that field.
+//
+// What this file does NOT cover, and why:
+//
+//   * RouteDeclNode.body. A probe must be written where the check already reaches
+//     and read somewhere else, and a function local is not visible in a route
+//     while a module-scope var is E1007. A probe declared and read inside the
+//     route proves nothing: if D028 stopped reaching routes it would not look,
+//     and a variable it never looked at is silent either way. Routes are pinned
+//     instead by d028_route_dead_local, which must report, and
+//     d028_route_local_read, which must not.
+//   * A BlockNode nested as a statement. A bare `{` is not a statement in Orbit:
+//     the parser reads it as an object literal and asks for a ':' after the key.
+//     BlockNode only ever appears as the body of a function, a route or a branch,
+//     and the If probes below traverse those.
+//   * The models with no child nodes: Literal, ImportStmt, UseStmt, Break,
+//     Continue, Param, TypeAnnotation, GenericParam and Empty. There is nowhere
+//     in them to put a read.
+//   * FunctionDeclNode.params and paramTypes. The parser pushes bare names and
+//     drops the token (parser.orb:861), so they hold strings, not nodes. That is
+//     the same fact that keeps D021 reporting on the `fn` line.
+
+model Box { v: int }
+
+extern fn sink(v: int)
+extern fn makeOk(n: int) -> result
+
+fn walk_coverage(xs: list<int>, words: list, strArg: string, intArg: int) -> int {
+    // One write per probe, never reassigned, so the verdict depends only on
+    // whether the read below is visible.
+    var mut pVarDecl = 1
+    var mut pConstDecl = 2
+    var mut pExprStmt = 3
+    var mut pAssignValue = 4
+    var mut pAssignIndex = 5
+    var mut pIfCond = 6
+    var mut pIfThen = 7
+    var mut pIfElse = 8
+    var mut pWhileCond = 9
+    var mut pWhileBody = 10
+    var mut pForIterable = 11
+    var mut pForBody = 12
+    var mut pMatchExpr = 13
+    var mut pMatchPattern = 14
+    var mut pMatchBody = 15
+    var mut pTryExpr = 16
+    var mut pTryCatch = 17
+    var mut pBinLhs = 18
+    var mut pBinRhs = 19
+    var mut pBinary = 20
+    var mut pCallArg = 21
+    var mut pCallCallee = xs
+    var mut pMemberObj = strArg
+    var mut pIndexObj = words
+    var mut pIndexIdx = 25
+    var mut pListElem = 26
+    var mut pFieldInit = 27
+    var mut pTypedValue = 28
+    var mut pInterp = intArg
+
+    // VarDeclNode.value
+    sink(pVarDecl)
+
+    // ConstDeclNode.value
+    const c = pConstDecl
+    sink(c)
+
+    // ExpressionStmtNode.expr
+    sink(pExprStmt)
+
+    // AssignmentNode.value, then .target reached through its index
+    sink(pAssignValue)
+    xs[pAssignIndex] = 1
+
+    // IfNode.condition, .thenBody, .elseBody. The two bodies are BlockNodes, so
+    // these also cover traversal of a nested block.
+    if pIfCond > 0 {
+        sink(pIfThen)
+    } else {
+        sink(pIfElse)
+    }
+
+    // WhileNode.condition, then .body. The read in the body is not a write, so
+    // the probe's own write stays outside the loop and is not suppressed.
+    var mut guard = 0
+    while pWhileCond < 0 && guard < 1 {
+        sink(pWhileBody)
+        guard = guard + 1
+    }
+
+    // ForNode.iterable, then .body
+    for e in words {
+        if pForIterable < 1 {
+            sink(pForBody)
+        }
+    }
+
+    // MatchNode.expr, MatchCaseNode.pattern, MatchCaseNode.body. A bare-name
+    // pattern is a comparison, so reading pMatchPattern there is a real read.
+    match pMatchExpr {
+        pMatchPattern => { sink(pMatchBody) }
+        _ => { sink(0) }
+    }
+
+    // TryNode.expr, then .catchBody
+    val t = try makeOk(pTryExpr) catch {
+        sink(pTryCatch)
+        return 0
+    }
+    sink(t.len())
+
+    // BinaryOpNode.lhs, .rhs
+    sink(pBinLhs + pBinary)
+    sink(pBinRhs * 2)
+
+    // CallNode.args, and CallNode.callee. `pCallCallee` sits in the receiver of
+    // a method call, which is the subtree under `callee` -- the field the walk
+    // that started this file failed to descend into.
+    sink(pCallArg)
+    val c2 = pCallCallee.at(0)
+
+    // MemberAccessNode.object
+    val ms = pMemberObj.len()
+
+    // IndexAccessNode.object, then .index
+    val io = pIndexObj[0]
+    val ix = xs[pIndexIdx]
+
+    // ListLiteralNode.elements
+    val lst = [pListElem, 2]
+
+    // ObjectLiteralNode.fields -> FieldInitNode.value
+    val obj = Box { v: pFieldInit }
+
+    // TypedLiteralNode.value, which is the object literal, and the model name
+    // that rides beside it
+    val obj2 = Box { v: pTypedValue }
+    val obj3 = Box { v: pInterp }
+
+    val interp = "v=${pInterp}"
+
+    sink(c2 + ms + io + ix + lst.len() + obj.v + obj2.v + obj3.v)
+    return 1
+}
+
+fn returns_try_node() -> result {
+    var mut pReturnOk = 40
+    return makeOk(pReturnOk)
+}
+
+fn returns_catch() -> result {
+    var mut pReturnErr = 41
+    return err("no", pReturnErr)
+}
