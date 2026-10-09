@@ -396,12 +396,27 @@ jobs:
       # one that hangs, one that prints nothing, one whose output is stale, and
       # one with a broken baseline, and requires each to be reported. Three
       # seconds, and it is the difference between a gate and a hope.
+      # No compiler, no bootstrap, a second of wall clock. It compares
+      # compiler/ast.orb against the code that builds nodes: a field's declared
+      # type against the arity and the operations applied to it. Seventeen fields
+      # once declared `list` while the parser handed them a single ASTNode, and
+      # `f.body.len()` returned -1184889136 -- a model pointer read as a list
+      # header -- while `orbit check` was clean. It is cheap precisely because it
+      # reads two files of text, which is the reason it is worth running on every
+      # push rather than discovering it by hand.
+      - name: AST schema conformance (ast.orb vs the code that builds nodes)
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/schema_conformance.py
+
       - name: Gate self-tests (the new gates can say no)
         if: always()
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/unknown_ratchet.py --self-test
+          "$PY" scripts/schema_conformance.py --self-test
           "$PY" scripts/werror_gate.py --self-test
           "$PY" scripts/alive_check.py --self-test
 

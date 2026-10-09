@@ -123,6 +123,15 @@ def registry(compiler, cc, work):
              "selected from the working tree",
              lambda: _script("dev.py", "list"),
              r"T\d:", 120, allow_rc=(0, 1)),
+        # The schema gate. It needs no compiler, which is the point: it compares
+        # two files of text, so it runs in a second where a doctor check would
+        # cost a bootstrap. `allow_rc=(0, 1)` because it is allowed to report a
+        # real disagreement -- that is a finding, not a broken tool.
+        Tool("schema_conformance.py", "gate",
+             "compiler/ast.orb against the code that builds nodes: arity, "
+             "phantom models and variants, and a node read with a list operation",
+             lambda: _script("schema_conformance.py"),
+             r"Finished schema-conformance", 120, allow_rc=(0, 1)),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does

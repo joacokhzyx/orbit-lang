@@ -2894,7 +2894,6 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         ASTNode.Continue(c) => { return "" }
         ASTNode.ImportStmt(i) => { return "" }
         ASTNode.UseStmt(u) => { return "" }
-        ASTNode.Param(p) => { return "" }
         ASTNode.Decorator(d) => { return "" }
         ASTNode.TypeAnnotation(ta) => { return "" }
         // A model literal is checked as that model: keys against declared

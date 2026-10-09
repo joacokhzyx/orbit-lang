@@ -13,11 +13,6 @@
 // Orbit Self-Hosted Compiler - Abstract Syntax Tree Definitions
 // compiler/ast.orb
 
-model ParamNode {
-    name: string
-    typeName: string
-}
-
 model FieldInitNode {
     name: string
     // See the note at the head of this file.
@@ -330,4 +325,4 @@ model BreakNode {}
 
 model ContinueNode {}
 
-type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | MigrationDecl(MigrationDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | Param(ParamNode) | FieldInit(FieldInitNode) | TypedLiteral(TypedLiteralNode) | Empty
+type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | MigrationDecl(MigrationDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | FieldInit(FieldInitNode) | TypedLiteral(TypedLiteralNode) | Empty

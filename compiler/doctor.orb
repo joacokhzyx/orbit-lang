@@ -1766,9 +1766,18 @@ fn doctorCheckRecursion(stats: DoctorStats, node: ASTNode, fnName: string, file:
  *  `f.params` is a bare list of names, not ASTNode.Param values: the parser
  *  pushes `parser.previousToken.text` (parser.orb:861) and drops the token, so
  *  there is no per-parameter position to report against. The finding is located
- *  on the `fn` line, as D017, D018 and D019 already do. ParamNode exists in
- *  ast.orb:4 and nothing ever constructs it, so giving parameters a position is
- *  a parser change, not something to fake here.
+ *  on the `fn` line, as D017, D018 and D019 already do. Parameters are a bare
+ *  list of names -- the parser pushes `parser.previousToken.text`
+ *  (parser.orb:861) and drops the token -- so there is no per-parameter
+ *  position to report against, and giving one is a parser change, not
+ *  something to fake here. The union used to carry a `Param` variant with a
+ *  `ParamNode { name, typeName }` model describing the structure that change
+ *  would need, and nothing ever constructed it: phantom schema, the shape
+ *  ENGINEERING.md section 0 forbids, which is why every match over ASTNode
+ *  carried a dead arm for it. It is gone, and
+ *  `scripts/schema_conformance.py` fails if a declared model or variant is
+ *  ever constructed nowhere again. Whoever makes the parser change adds the
+ *  model back with the code that builds it.
  *
  *  extern fn is skipped. The 54-odd extern declarations in compiler/ and std/
  *  have an empty body by construction (parser.orb:896), so every parameter of
