@@ -52,6 +52,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import build_env  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND = os.path.join(ROOT, "tests", "frontend")
@@ -158,11 +160,7 @@ def run_emit(compiler, work, name, source, golden_path):
 def run_run(compiler, cc, work, name, golden_path):
     """Build the harness and diff its stdout against the golden."""
     exe = os.path.join(work, os.path.splitext(name)[0] + (".exe" if os.name == "nt" else ""))
-    env = dict(os.environ)
-    env["ORBIT_CC"] = cc
-    env["CC"] = cc
-    env["TEMP"] = work
-    env["TMP"] = work
+    env = build_env(work, cc=cc)
     rel = os.path.relpath(os.path.join(FRONTEND, name), ROOT).replace("\\", "/")
     p = subprocess.run([compiler, "build", rel, "-o", exe], cwd=ROOT, env=env,
                        capture_output=True, text=True, errors="replace")
@@ -182,11 +180,7 @@ def run_run(compiler, cc, work, name, golden_path):
 def run_empty(compiler, cc, work, name, needle):
     """The contract is that TIR is suppressed and the fixture says so."""
     exe = os.path.join(work, os.path.splitext(name)[0] + (".exe" if os.name == "nt" else ""))
-    env = dict(os.environ)
-    env["ORBIT_CC"] = cc
-    env["CC"] = cc
-    env["TEMP"] = work
-    env["TMP"] = work
+    env = build_env(work, cc=cc)
     rel = os.path.relpath(os.path.join(FRONTEND, name), ROOT).replace("\\", "/")
     p = subprocess.run([compiler, "build", rel, "-o", exe], cwd=ROOT, env=env,
                        capture_output=True, text=True, errors="replace")
@@ -219,11 +213,7 @@ def assert_still_broken(compiler, cc, work, name, why):
     When it starts building, that is good news and a gate failure: the
     contract it claims to assert has never actually been checked.
     """
-    env = dict(os.environ)
-    env["ORBIT_CC"] = cc
-    env["CC"] = cc
-    env["TEMP"] = work
-    env["TMP"] = work
+    env = build_env(work, cc=cc)
     rel = os.path.relpath(os.path.join(FRONTEND, name), ROOT).replace("\\", "/")
     exe = os.path.join(work, "probe_unbuildable")
     p = subprocess.run([compiler, "build", rel, "-o", exe], cwd=ROOT, env=env,

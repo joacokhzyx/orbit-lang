@@ -60,6 +60,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import build_env  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -476,11 +478,7 @@ class Runner:
 
     def _env(self):
         env = dict(os.environ)
-        env["ORBIT_CC"] = self.cc
-        env["CC"] = self.cc
-        env["TEMP"] = self.work
-        env["TMP"] = self.work
-        return env
+        return build_env(self.work, cc=self.cc)
 
     def _build(self, source, index):
         """Write a program and run it. Returns (status, stdout_bytes, note)."""

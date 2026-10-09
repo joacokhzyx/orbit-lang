@@ -150,6 +150,15 @@ def registry(compiler, cc, work):
              "the canonical's diff with register and label numbering flattened",
              lambda: _script("promote_diff.py", "--self-test"),
              r"Finished promote-diff", 120, allow_rc=(0, 1)),
+        # Not exempt, despite being a module rather than a tool. It is imported
+        # by every gate that builds a compiler, so a defect in build_env or
+        # resolve_cc is seven gates failing with a traceback through a shared
+        # frame. The self-test names the broken helper; "this file cannot fail"
+        # is true of nothing.
+        Tool("_common.py", "gate",
+             "the shared helpers every gate uses: build_env, resolve_cc, tail",
+             lambda: _script("_common.py"),
+             r"Finished _common self-test", 120, allow_rc=(0, 1)),
         # Both of these were inline shell in ci-gate.yml, which is the shape
         # where a flag quietly stops being applied and nothing notices. Each
         # needs to be able to fail, and each has to be runnable by hand: the

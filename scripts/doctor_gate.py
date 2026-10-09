@@ -40,6 +40,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _common import build_env, scratch  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 GOLDEN = REPO / "tests" / "doctor" / "golden"
@@ -211,11 +213,8 @@ def scratch_env(parent_env=None):
     Created here rather than assumed, and never reused, because a stale
     orbit_selfhost_build.c from a previous run is worse than no directory.
     """
-    env = dict(parent_env if parent_env is not None else os.environ)
-    scratch = tempfile.mkdtemp(prefix="orbit_gate_scratch_")
-    env["TEMP"] = scratch
-    env["TMP"] = scratch
-    return env, scratch
+    tmp = scratch()
+    return build_env(tmp, parent=parent_env), tmp
 
 
 def compiler_can_reach_runtime(compiler: str) -> bool:

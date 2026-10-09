@@ -49,6 +49,8 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import build_env  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROBE = os.path.join(ROOT, "scripts", "unknown_census.orb")
@@ -92,10 +94,7 @@ def group_of(path):
 def build_probe(compiler, cc, work):
     exe = os.path.join(work, "census" + (".exe" if os.name == "nt" else ""))
     env = dict(os.environ)
-    env["ORBIT_CC"] = cc
-    env["CC"] = cc
-    env["TEMP"] = work
-    env["TMP"] = work
+    env = build_env(work, cc=cc)
     env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
     p = subprocess.run([compiler, "build", rel(PROBE), "-o", exe], cwd=ROOT,
                        env=env, capture_output=True, text=True, errors="replace")

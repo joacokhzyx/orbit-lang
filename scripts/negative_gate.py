@@ -75,6 +75,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import build_env  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEGATIVE = os.path.join(ROOT, "tests", "negative")
@@ -220,11 +222,9 @@ def build_program(compiler, case, cc, work):
     exe = os.path.join(work, case.name + (".exe" if os.name == "nt" else ""))
     env = dict(os.environ)
     env["ORBIT_CC"] = cc
-    env["CC"] = cc
     # Every build writes its intermediate C to $TMP/orbit_selfhost_build.c, so a
     # shared TEMP is a race between two gates in the same job. Own it.
-    env["TEMP"] = work
-    env["TMP"] = work
+    env = build_env(work, cc=cc)
     p = subprocess.run([compiler, "build", case.rel, "-o", exe], cwd=ROOT,
                        env=env, capture_output=True, text=True, errors="replace")
     return p.returncode == 0, (p.stdout or "") + (p.stderr or ""), exe

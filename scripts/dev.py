@@ -56,6 +56,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _common import build_env, resolve_cc  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ORBIT = ROOT / ".orbit"
 FP_STAMP = ORBIT / "fp.stamp"
@@ -87,43 +90,20 @@ def child_env() -> dict:
     """The environment every gate runs under.
 
     TEMP and TMP are pointed inside the repository on purpose. They have to be
-    set at all -- the fixed-point binary reads them -- but the system temp is
-    not where a compile cache or a 90k-line C file belongs: it is a different
-    filesystem on some machines, and it is the first thing anyone cleans up.
+    set at all -- the fixed-point binary reads them, and every build writes its
+    intermediate C to $TEMP/orbit_selfhost_build.c -- but the system temp is not
+    where a compile cache or a 90k-line C file belongs: it is a different
+    filesystem on some machines, and it is the first thing anyone cleans up. Two
+    runnable compilers were lost that way in one session, and doctor_scope_gate
+    was writing scratch to a different disk from the cache.
     """
-    env = dict(os.environ)
-    scratch = ORBIT / "tmp"
-    scratch.mkdir(parents=True, exist_ok=True)
+    scratch_dir = ORBIT / "tmp"
     ccache = ORBIT / "ccache"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     ccache.mkdir(parents=True, exist_ok=True)
-    env["TEMP"] = str(scratch)
-    env["TMP"] = str(scratch)
-    env["ORBIT_CCACHE_DIR"] = str(ccache)
-    env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    env = build_env(scratch_dir, ccache=ccache)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
-
-
-def resolve_cc(explicit: str = None) -> str:
-    """The C compiler, in the order the bootstrap itself uses.
-
-    ORBIT_CC, then CC, then the usual names. Duplicated from
-    build_selfhost.py on purpose rather than imported: importing a bootstrap
-    script from the tool that drives it couples the tool's lifetime to the
-    script's import-time behaviour, and the order here is three lines.
-    """
-    for candidate in (explicit, os.environ.get("ORBIT_CC"), os.environ.get("CC")):
-        if candidate:
-            name = candidate.split()[0]
-            if shutil.which(name):
-                return candidate
-    for name in ("gcc", "clang", "cc"):
-        if shutil.which(name):
-            return name
-    print(
-        "Failed: no C compiler found; set ORBIT_CC or pass --cc (gcc/clang/cc).",
-        file=sys.stderr,
-    )
-    raise SystemExit(2)
 
 
 def cc_identity(cc: str) -> str:
