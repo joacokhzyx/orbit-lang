@@ -145,7 +145,7 @@ jobs:
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           set +e
           "$PY" scripts/dev.py all 2>&1 | tee gates.log
-          rc=${{ PIPESTATUS[0] }}
+          rc=${PIPESTATUS[0]}
           "$PY" scripts/dev.py report 2>&1 | tee report.log
           set -e
           cat gates.log report.log
