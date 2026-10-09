@@ -111,7 +111,17 @@ def main() -> int:
         if build_rc != 0:
             failed.append(name)
             out.fail(f"Failed {name}: did not build (rc={build_rc})")
-            tail = "\n".join((proc.stdout or "").strip().splitlines()[-8:])
+            # stderr FIRST, and this was the bug. `orbit build` writes its
+            # diagnostics to stderr -- DX-0 moved them there deliberately, so
+            # that `orbit check` and `orbit build` agree -- and this runner
+            # captured stderr and then printed stdout, which for a failed build
+            # is empty. Every build failure in this suite reported
+            # "did not build (rc=1) :: (no output)" and the actual diagnostic
+            # went nowhere, on every platform. It went unnoticed because the
+            # suite has had no build failure since the diagnostic move, which
+            # is why it took the first Windows-only one to surface it.
+            diag = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+            tail = "\n".join(diag.splitlines()[-8:])
             for line in tail.splitlines():
                 print("  " + line, file=sys.stderr)
             payload = (tail or "(no output)").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1200]
