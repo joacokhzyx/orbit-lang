@@ -26,6 +26,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | How does memory management work? | [Arena Design](ARENA.md) and [Orbit Arena](architecture/ORBIT_ARENA.md) |
 | How are HTTP protections implemented? | [Kynx](KYNX.md) |
 | What is experimental or still being researched? | [Superluminal](SUPERLUMINAL.md) |
+| Something fails only on Windows? | [Windows](WINDOWS.md) - the two open Windows gates, how to reproduce them, and what has already been ruled out |
 | What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the honest list, with workarounds. **Start with the first section**: nineteen programs `orbit check` accepts and computes the wrong answer |
 | What changed? | [Changelog](CHANGELOG.md) and [0.1.0 Release Notes](RELEASE_NOTES_0_1_0.md) |
 | What do people ask? | [FAQ](FAQ.md) - twenty honest questions |

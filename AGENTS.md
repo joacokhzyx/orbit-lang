@@ -26,7 +26,7 @@ make list     # show what dev would run, without running it
 
 `dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
 
-Note that `make all` covers the Python gates only. CI additionally runs the runtime C tests, the Kynx live gate, `routes_probe.py`, the census, `diff_fuzz.py` and the gate self-tests, and still carries its own inline copy of the sequence -- see DX-1 in `ENGINEERING.md` §7.
+**If a gate fails only on windows-latest, read [docs/WINDOWS.md](docs/WINDOWS.md) first.** It has the two open Windows gates, how to reproduce them, what has already been ruled out, and what is NOT open -- the `0xC0000005` in `test_migrations` is fixed and the runtime C tests are green on both platforms. Those two failures are recorded as DX-1(7) in `ENGINEERING.md` §7 and they are not diagnosed.
 
 Useful when something breaks:
 
