@@ -68,14 +68,25 @@ def phase_a(args):
     with open(tmp, encoding="utf-8") as f:
         rep = json.load(f)
     ok = rep.get("completed") == 200 and rep.get("error_rate") == 0.0
+    # transport_errors and duration_s are the two fields that decide which
+    # mechanism this is, and this line used to print neither. A run that
+    # completes 34 of 200 with status={'200': 34} looks like a slow runner
+    # until you divide it out: failed == transport_errors, so 34 + 166 == 200
+    # means 166 attempts died at the transport layer and none of them were
+    # refusals or denials. p95 is here because latency is computed over the
+    # successes only -- a sub-millisecond p95 next to a four-figure transport
+    # count is the signature of a server that stopped answering rather than
+    # one that got slower.
+    detail = ("completed=%s/%s transport_errors=%s error_rate=%s "
+              "elapsed=%ss p95=%sms status=%s" % (
+                  rep.get("completed"), rep.get("completed", 0) + rep.get("transport_errors", 0),
+                  rep.get("transport_errors"), rep.get("error_rate"),
+                  rep.get("duration_s"), rep.get("p95_ms"),
+                  rep.get("status_counts")))
     if ok:
-        out.say("Phase A passed: completed=%s error_rate=%s status=%s" % (
-            rep.get("completed"), rep.get("error_rate"),
-            rep.get("status_counts")))
+        out.say("Phase A passed: " + detail)
     else:
-        out.fail("Phase A failed: completed=%s error_rate=%s status=%s" % (
-            rep.get("completed"), rep.get("error_rate"),
-            rep.get("status_counts")))
+        out.fail("Phase A failed: " + detail)
     return ok
 
 
@@ -144,9 +155,17 @@ def main(argv=None) -> int:
     except RoutePathError as e:
         out.fail("Failed: %s" % e)
         return 2
+    # All three phases run whatever the others did. This used to be
+    # `b = phase_b(args) if a else False`, which meant a Phase A failure
+    # suppressed the two phases that would have described it -- and the
+    # handoff for the Windows Kynx gate recorded "phases B and C pass on
+    # Windows" from a run in which neither had executed. A phase that cannot
+    # run cannot report, and the gate then looks like it knows less than it
+    # does. Phase B stops at its first unexpected status, so a dead server
+    # costs it nothing.
     a = phase_a(args)
-    b = phase_b(args) if a else False
-    c = phase_c(args) if b else False
+    b = phase_b(args)
+    c = phase_c(args)
     passed = bool(a and b and c)
     if passed:
         print("Finished kynx gate: PASS")
