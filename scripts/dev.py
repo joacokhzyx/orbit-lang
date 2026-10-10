@@ -23,10 +23,12 @@ What it owns, because it used to be tribal knowledge:
     --compiler, three accept neither, and doctor_gate.py accepts --cc and
     ignores it.
 
-What it deliberately does not do, in this cut: drive the runtime C tests, the
-Kynx live gate, routes_probe, the census, the differential fuzzer or the gate
-self-tests. Those still live only in ci-gate.yml. Until they move here, `make
-all` is NOT the same set CI runs, and this script says so on every run.
+What it deliberately does not put in a failing tier: routes_probe, the census
+and the differential fuzzer. Those measure, they do not gate, so they live in
+the report-only tier and run under `make report`. CI runs `make all && make
+report`, and both halves come from here now -- the runtime C tests and the
+Kynx live gate are T1 and T2, not ci-gate.yml's business. `make all` on its own
+is therefore still not a green CI, and this script says so on every run.
 
 Tiers, and the reasoning behind the split:
 
