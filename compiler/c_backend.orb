@@ -2708,6 +2708,17 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     // (void*)(uintptr_t)(x) is a legal argument for an int or
                     // a string but not for a double, so the cast has to follow
                     // the kind being stored.
+                    //
+                    // Every member of the family needs an arm. Falling through
+                    // to the string cast below is not a safe default: it hands
+                    // a const char* to an OrbitObject* parameter, and the cast
+                    // is only harmless at run time because the callee re-wraps
+                    // the word. A toolchain that promotes the incompatible
+                    // pointer warning to an error then refuses the build, and
+                    // only one construct reaches the object setter at all --
+                    // a literal whose field value is itself a literal -- so a
+                    // single missing arm reads as a whole platform being
+                    // broken.
                     if argIdx == 0 {
                         callExpr = callExpr + "(OrbitObject*)(" + aStr + ")"
                     } else if argIdx == 1 {
@@ -2718,6 +2729,8 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                         callExpr = callExpr + "(orbit_int)(" + aStr + ")"
                     } else if calleeName == "orbit_object_set_bool" {
                         callExpr = callExpr + "(orbit_bool)(" + aStr + ")"
+                    } else if calleeName == "orbit_object_set_object" {
+                        callExpr = callExpr + "(OrbitObject*)(" + aStr + ")"
                     } else {
                         callExpr = callExpr + "(const char*)(" + aStr + ")"
                     }

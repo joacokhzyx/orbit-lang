@@ -23,6 +23,16 @@ PROBES = [
      ("-DORBIT_WITH_NET",)),
     ("bool_logic", "fn main() -> int {\n    if 1 < 2 && 2 < 3 {\n        return 5\n    }\n    return 6\n}", 5),
     ("model_ctor", "model Rect {\n    width: int\n    height: int\n}\nfn main() -> int {\n    val r = Rect(3, 4)\n    return r.width + r.height\n}", 7),
+    # A nested object literal is the only construct that reaches
+    # orbit_object_set_object: the setter is chosen by the value register's
+    # type, and "object" is only the type of a field whose value is itself a
+    # literal. The cast chain in c_backend.orb had an arm each for int, float
+    # and bool and fell through to (const char*) for everything after them, so
+    # this one line handed a const char* to an OrbitObject* parameter. Every
+    # other probe here is a model, a route or an arithmetic expression, so
+    # STAB-3 never reached it and the language suite was the only red thing --
+    # on the toolchains that promote the warning, and only on those.
+    ("object_literal_nested", 'fn main() -> int {\n    val o = { deep: { deeper: 7 } }\n    return o.deep.deeper\n}', 7),
     # A response body reaches orbit_response_json as a `const char*`. Sema can
     # only reject a body whose type it can prove, so an expression inferring as
     # `unknown` used to arrive as a bare register and hand an int to a pointer
