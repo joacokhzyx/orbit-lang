@@ -123,9 +123,21 @@ def main() -> int:
         print("Failed: blog_api.orb did not build.", file=sys.stderr)
         return 1
 
+    # The server's output goes to a file, never to a pipe nobody reads. This
+    # gate used to pass stdout=PIPE and then never read it, and on Windows that
+    # pipe holds 4352 bytes against Linux's 65536. The service writes about
+    # 118 bytes per request, so the pipe filled at request ~38 and the server
+    # blocked in write() for good: every later request timed out, Phase A
+    # reported completed=34 error_rate=0.83, and the log showed p50=0.2ms --
+    # a perfectly healthy server that had stopped answering. Linux needed ~554
+    # requests to fill the pipe and Phase A only asks for 200, which is the
+    # whole reason it read as a Windows defect. The file also means the
+    # service's own output is readable when the gate fails, instead of being
+    # discarded.
+    srv_log_path = work / "gate_srv.log"
+    srv_log = open(srv_log_path, "w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen([str(srv), str(args.port)], cwd=str(ROOT),
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)
+                            stdout=srv_log, stderr=subprocess.STDOUT)
     try:
         if not wait_ready(args.port):
             print(f"Failed: the gate server on port {args.port} never became "
@@ -138,7 +150,19 @@ def main() -> int:
         sys.stdout.write(gate.stdout)
         sys.stderr.write(gate.stderr)
         if gate.returncode != 0:
-            print(f"\nFinished kynx-gate: FAILED (exit {gate.returncode})")
+            print("\nFinished kynx-gate: FAILED "
+                  f"(exit {gate.returncode})")
+            srv_log.flush()
+            try:
+                tail = srv_log_path.read_text(
+                    encoding="utf-8", errors="replace").splitlines()[-25:]
+                if tail:
+                    print(f"\n--- last {len(tail)} lines of {srv_log_path.name} ---",
+                          file=sys.stderr)
+                    for line in tail:
+                        print("  " + line, file=sys.stderr)
+            except OSError:
+                pass
             return 1
     finally:
         # Always, including on an exception. The shell used a `trap ... EXIT`,
@@ -148,6 +172,7 @@ def main() -> int:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+        srv_log.close()
 
     print("\nFinished kynx-gate: the route-limit burst answered as specified.")
     return 0
