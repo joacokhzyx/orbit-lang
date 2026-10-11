@@ -133,6 +133,17 @@ OrbitResult orbit_list_create_typed(OrbitArena* arena, size_t elem_size, size_t 
         fprintf(stderr, "[collections] list_create FAILED: arena=%p elem_size=%zu\n", (void*)arena, elem_size);
         return orbit_result_err(ORBIT_ERR_INVALID_ARG, "list: null arena or zero elem_size");
     }
+    // Every typed accessor moves a whole machine word per slot
+    // (orbit_list_store, orbit_list_get_value, json_put_list): a list whose
+    // slots are narrower would be over-read and one whose slots are wider
+    // would be truncated. All in-tree callers and all generated code use
+    // pointer-sized slots, so anything else is refused here with an
+    // argument error instead of corrupting silently downstream.
+    if (elem_size != sizeof(uintptr_t)) {
+        fprintf(stderr, "[collections] list_create FAILED: elem_size=%zu, want %zu (one word per slot)\n",
+                elem_size, sizeof(uintptr_t));
+        return orbit_result_err(ORBIT_ERR_INVALID_ARG, "list: elem_size must be one machine word");
+    }
     if (initial_capacity == 0) initial_capacity = 8;
 
     OrbitList* list = (OrbitList*)orbit_alloc(arena, sizeof(OrbitList));

@@ -154,6 +154,17 @@ static void test_missing_key_quiet(void) {
     orbit_arena_destroy(arena);
 }
 
+/* A list whose slots are not one machine word cannot be stored or read:
+   every typed accessor moves sizeof(uintptr_t) per slot. Creation refuses
+   it with an argument error instead of corrupting silently downstream. */
+static void test_create_rejects_non_word_elem_size(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    assert(!orbit_list_create(arena, 4, 2).ok);
+    assert(!orbit_list_create(arena, 16, 2).ok);
+    assert(orbit_list_create(arena, sizeof(uintptr_t), 2).ok);
+    orbit_arena_destroy(arena);
+}
+
 #ifndef _WIN32
 /* A present field read through the wrong getter aborts (exit 2) instead of
    reinterpreting the bits. Fork like test_oom: the contract under test is
@@ -208,5 +219,6 @@ int main(void) {
     RUN_TEST(test_mismatch_aborts);
     RUN_TEST(test_float_mismatch_aborts);
 #endif
+    RUN_TEST(test_create_rejects_non_word_elem_size);
     return 0;
 }
