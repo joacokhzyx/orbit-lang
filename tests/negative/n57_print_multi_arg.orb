@@ -1,0 +1,9 @@
+// case: print-multi-arg
+// what: print takes exactly one value. A call with two or more arguments
+//      emits nothing at all (the backend lowers it to a comment), so a
+//      program that looks like it prints two values runs silent.
+// expect-error: print takes exactly 1 argument
+fn main() -> int {
+    print("a", "b")
+    return 0
+}

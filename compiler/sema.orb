@@ -2728,7 +2728,16 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     if l.valType == "identifier" {
                         if l.text == "ok" { return "result" }
                         if l.text == "err" { return "result" }
-                        if l.text == "print" { return "void" }
+                        if l.text == "print" {
+                            // Multi-argument print emits nothing at all: the
+                            // backend lowers `print(a, b)` to a comment, so a
+                            // program that looks like it prints two values
+                            // runs silent. One argument is the whole contract.
+                            if c.args.len() != 1 {
+                                reportErrorAt(sema, "E1003", "Print one value: concatenate or interpolate the rest into a single string.", c.line, c.col, "print takes exactly 1 argument, got " + orbit_int_to_string_selfhost(c.args.len()) + ".")
+                            }
+                            return "void"
+                        }
                         // A call whose callee names a model is that model's
                         // construction, not a function call, so it has that
                         // model's type. Reporting it as unknown is how a model
