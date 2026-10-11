@@ -91,6 +91,12 @@ model Token {
     text: string
     line: int
     col: int
+    // Range of this token inside the lexed source: text always equals
+    // source.slice(start, start + len). The range is what a zero-copy
+    // front end keys on; text stays materialized because fmt re-emits it
+    // verbatim and the parser hands it to AST literals downstream.
+    start: int
+    len: int
 }
 
 fn tokTagName(tag: TokType) -> string {

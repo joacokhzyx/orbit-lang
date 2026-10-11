@@ -23,7 +23,7 @@ model Parser {
 
 fn initParser(source: string) -> Parser {
     val lex = initLexer(source)
-    val dummy = Token(TokType.EOF, "", 1, 1)
+    val dummy = Token(TokType.EOF, "", 1, 1, 0, 0)
     val mut parser = Parser(lex, dummy, dummy, [], 0, source, [])
     advanceParser(parser)
     return parser
@@ -89,22 +89,23 @@ fn interpMarker() -> string {
 }
 
 // Find the "}" that closes an interpolation whose "${" sits at openIdx, and
-// return its index, or -1 if there is none.
+// return its index, or -1 if there is none. Works on the token text with an
+// explicit end bound, so neither the body nor the hole is ever copied out.
 //
 // Braces nest, so "${ {"a": 1} }" is a map and not a syntax error, and quotes
 // are skipped so a "}" inside an interpolated string does not close early:
 // "${ ok("}") }" is a call whose argument is the string "}".
-fn findInterpClose(body: string, openIdx: int) -> int {
+fn findInterpCloseRange(text: string, openIdx: int, endIdx: int) -> int {
     var depth = 0
     var i = openIdx + 2
-    while i < body.len() {
-        val c = orbit_string_char_at_selfhost(body, i)
+    while i < endIdx {
+        val c = orbit_string_char_at_selfhost(text, i)
         if c == 34 || c == 39 { // '"' '\''
             val quote = c
             i = i + 1
             var closed = false
-            while i < body.len() && !closed {
-                val q = orbit_string_char_at_selfhost(body, i)
+            while i < endIdx && !closed {
+                val q = orbit_string_char_at_selfhost(text, i)
                 if q == 92 { // '\\'
                     i = i + 2
                 } else {
@@ -125,38 +126,83 @@ fn findInterpClose(body: string, openIdx: int) -> int {
 }
 
 // Split a string literal that contained "${" into literal chunks and
-// expressions. The chunks keep their source text, unprocessed: an ordinary
-// string still has to be unescaped and a raw one must not be, and that is the
-// builder's job, so all this decides is where the pieces are.
-fn parseInterpolation(parser: Parser, text: string) -> ASTNode {
-    val isRaw = text.len() >= 6 && text.slice(0, 3) == "\"\"\""
-    val body = selectInterpBody(text, isRaw)
+// expressions, in one pass over the token text. The chunks keep their source
+// text, unprocessed: an ordinary string still has to be unescaped and a raw
+// one must not be, and that is the builder's job, so all this decides is
+// where the pieces are.
+//
+// A hole parses in place: the shared lexer is bound to the hole, one
+// expression is parsed, and every bit of lexer and parser state is restored.
+// No copy of the body, no copy of the hole, no second parser. A hole that
+// holds another interpolated string recurses through this same function, so
+// nesting is bounded by the expression depth guard like any other nesting.
+fn parseInterpolation(parser: Parser, text: string, tokStart: int) -> ASTNode {
+    val textLen = text.len()
+    // Raw literals open with three quotes; comparing characters keeps any
+    // literal "${" out of this function's own source, which the lexer would
+    // otherwise read as an interpolation when compiling this compiler.
+    var isRaw = false
+    var bodyStart = 1
+    var bodyEnd = textLen - 1
+    if textLen >= 6 && orbit_string_char_at_selfhost(text, 0) == 34 && orbit_string_char_at_selfhost(text, 1) == 34 && orbit_string_char_at_selfhost(text, 2) == 34 {
+        isRaw = true
+        bodyStart = 3
+        bodyEnd = textLen - 3
+    }
     val parts = []
-    var chunkStart = 0
-    var i = 0
-    while i + 1 < body.len() {
-        if orbit_string_char_at_selfhost(body, i) == 36 && orbit_string_char_at_selfhost(body, i + 1) == 123 {
-            val close = findInterpClose(body, i)
+    var chunkStart = bodyStart
+    var i = bodyStart
+    while i + 1 < bodyEnd {
+        if orbit_string_char_at_selfhost(text, i) == 36 && orbit_string_char_at_selfhost(text, i + 1) == 123 {
+            val close = findInterpCloseRange(text, i, bodyEnd)
             if close == -1 {
                 parserError(parser, "unterminated interpolation: missing closing brace")
                 return ASTNode.Literal(LiteralNode("string", "\"\""))
             }
             if i > chunkStart {
-                parts.push(ASTNode.Literal(LiteralNode("string_chunk", body.slice(chunkStart, i))))
+                parts.push(ASTNode.Literal(LiteralNode("string_chunk", orbit_string_slice_known_len(text, chunkStart, i, textLen))))
             }
-            val exprSource = body.slice(i + 2, close)
-            if exprSource.len() == 0 {
+            val holeStart = i + 2
+            if close == holeStart {
                 parserError(parser, "empty interpolation: nothing between " + interpMarker() + " and the closing brace")
             } else {
-                val sub = initParser(exprSource)
-                val expr = parseExpression(sub)
+                val savePos = parser.lexer.pos
+                val saveLine = parser.lexer.line
+                val saveCol = parser.lexer.col
+                val saveLen = parser.lexer.sourceLen
+                val saveCurrent = parser.currentToken
+                val savePrevious = parser.previousToken
+                val saveDiags = parser.diagnostics
+                parser.diagnostics = []
+                // Token-text indices are relative to the token; the lexer
+                // reads the file source, so the hole window is rebased onto
+                // the token's own start. That range is what Token.start is for.
+                parser.lexer.pos = tokStart + holeStart
+                parser.lexer.sourceLen = tokStart + close
+                parser.lexer.line = 1
+                parser.lexer.col = 1
+                advanceParser(parser)
+                val expr = parseExpression(parser)
+                var trailing = false
+                if parser.currentToken.tag != TokType.EOF { trailing = true }
+                val holeDiags = parser.diagnostics
+                parser.diagnostics = saveDiags
+                parser.lexer.pos = savePos
+                parser.lexer.line = saveLine
+                parser.lexer.col = saveCol
+                parser.lexer.sourceLen = saveLen
+                parser.currentToken = saveCurrent
+                parser.previousToken = savePrevious
+                // Hole diagnostics keep pointing at the literal, where they
+                // always did: positions inside the hole mean nothing to the
+                // reader without the copy they used to be relative to.
                 var di = 0
-                while di < sub.diagnostics.len() {
-                    val d: ParserDiagnostic = sub.diagnostics.get(di)
+                while di < holeDiags.len() {
+                    val d: ParserDiagnostic = holeDiags.get(di)
                     parser.diagnostics.push(ParserDiagnostic(d.message, parser.previousToken.line, parser.previousToken.col, d.code, d.kind))
                     di = di + 1
                 }
-                if sub.currentToken.tag != TokType.EOF {
+                if trailing {
                     parserError(parser, "unexpected text after the expression inside " + interpMarker())
                 }
                 parts.push(expr)
@@ -167,23 +213,14 @@ fn parseInterpolation(parser: Parser, text: string) -> ASTNode {
             i = i + 1
         }
     }
-    if chunkStart < body.len() {
-        parts.push(ASTNode.Literal(LiteralNode("string_chunk", body.slice(chunkStart, body.len()))))
+    if chunkStart < bodyEnd {
+        parts.push(ASTNode.Literal(LiteralNode("string_chunk", orbit_string_slice_known_len(text, chunkStart, bodyEnd, textLen))))
     }
     // A literal with no chunks at all is the empty string, not the empty list.
     if parts.len() == 0 {
         parts.push(ASTNode.Literal(LiteralNode("string_chunk", "")))
     }
     return ASTNode.Interp(InterpNode(parts, isRaw))
-}
-
-fn selectInterpBody(text: string, isRaw: bool) -> string {
-    if isRaw {
-        if text.len() < 6 { return "" }
-        return text.slice(3, text.len() - 3)
-    }
-    if text.len() < 2 { return "" }
-    return text.slice(1, text.len() - 1)
 }
 
 fn parseTypeName(parser: Parser) -> string {
@@ -371,7 +408,7 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         return ASTNode.Literal(LiteralNode("string_raw", parser.previousToken.text))
     }
     if matchToken(parser, TokType.InterpStringLiteral) {
-        return parseInterpolation(parser, parser.previousToken.text)
+        return parseInterpolation(parser, parser.previousToken.text, parser.previousToken.start)
     }
     if matchToken(parser, TokType.CharLiteral) {
         return ASTNode.Literal(LiteralNode("char", parser.previousToken.text))

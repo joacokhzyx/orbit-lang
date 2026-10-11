@@ -4097,6 +4097,7 @@ fn isStringReturningFunction(name: string) -> bool {
     if name == "mapTypeToC" { return true }
     if name == "tokTypeToString" { return true }
     if name == "orbit_string_slice" { return true }
+    if name == "orbit_string_slice_known_len" { return true }
     if name == "orbit_string_concat" { return true }
     if name == "orbit_string_split" { return true }
     if name == "orbit_string_replace" { return true }

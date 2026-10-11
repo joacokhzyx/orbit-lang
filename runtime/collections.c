@@ -691,6 +691,28 @@ static ORBIT_UNUSED orbit_string orbit_string_slice(OrbitArena* arena, orbit_str
     return buf;
 }
 
+static ORBIT_UNUSED orbit_string orbit_string_slice_known_len(orbit_string s, orbit_int start, orbit_int end, orbit_int totalLen) {
+    // Same contract as orbit_string_slice, but the caller already knows the
+    // length, so there is no strlen: the lexer slices every token out of a
+    // source whose length it holds, and paying strlen(source) per token made
+    // lexing quadratic in file size. Allocates from the global arena, like
+    // the other selfhost helpers, so callers pass exactly the slice bounds
+    // and no arena. Bounds are still clamped defensively; every current
+    // caller passes 0 <= start <= end <= totalLen.
+    if (!s) return "";
+    OrbitArena* ar = orbit_arena_get_global();
+    if (start < 0) start = 0;
+    if (end > totalLen) end = totalLen;
+    if (start >= end) return "";
+
+    orbit_int slice_len = end - start;
+    char* buf = (char*)orbit_alloc(ar, slice_len + 1);
+    if (!buf) return "";
+    memcpy(buf, s + start, slice_len);
+    buf[slice_len] = '\0';
+    return buf;
+}
+
 orbit_string orbit_int_to_string(OrbitArena* arena, orbit_int value) {
     if (!arena) return "";
 
