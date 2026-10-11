@@ -800,7 +800,12 @@ def main():
     # ---- the rest of scripts/: not python, or not scripts at all -----------
     for name, why in SHELL_ROWS:
         label = "%-28s %-12s" % (name, "shell")
-        problems = shell_checks(name)
+        found = shell_checks(name)
+        # Advisories are notes, never verdicts: a POSIX parse of a CRLF
+        # checkout must not fail a Windows run that has bash and pass one
+        # that does not. self_test strips them the same way.
+        notes = [p for p in found if p.startswith("advisory:")]
+        problems = [p for p in found if not p.startswith("advisory:")]
         checked += 1
         if problems:
             failures += 1
@@ -809,6 +814,8 @@ def main():
                 out.fail("    %s" % p)
         else:
             out.say("%s alive  (%s)" % (label, why))
+        for n in notes:
+            out.say("%s note: %s" % (label, n))
 
     for name, why, checker in STATIC_ROWS:
         label = "%-28s %-12s" % (name, "static")
