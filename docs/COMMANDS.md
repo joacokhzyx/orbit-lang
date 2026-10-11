@@ -19,10 +19,35 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
 | `orbit --help` | Display the command-line help | `orbit --help` |
 | `orbit --version` | Display the compiler version | `orbit --version` |
+| `orbit` (no arguments) | Short help with next steps | `orbit` |
+
+## Appearance: palette, color and progress
+
+One palette everywhere: red for errors, yellow for warnings and tips,
+green for success, cyan for codes and paths, bold for locations, dim for
+secondary text. The compiler owns it in `compiler/palette.orb`, the repo
+scripts mirror it in `scripts/orbit_output.py`, and the generated server
+banner uses the same roles.
+
+Color fires only on a live terminal. Piped and redirected output stays
+plain (byte-identical), as do CI logs. `NO_COLOR` set or `TERM=dumb`
+always win; `--color always` forces styled output anywhere (for docs and
+snapshots) and `--color never` forces plain text. The one gradient lives
+on the word `Kynx` in the generated server banner; diagnostics, findings,
+help and summaries never use gradients (they must stay greppable).
+
+Progress: `orbit build` prints `Building <in> -> <out>` first and
+`wrote <out> in <N> ms` last (both suppressed by `--quiet`). `orbit
+doctor` closes text runs with a score box (`N / 100` with a 40-cell bar
+plus `N issues across M/F files in Ts`); the box prints on live
+terminals, so golden files stay plain. Bare `orbit` prints short help to
+stdout and exits 0.
 
 `build`, `run` and `check` accept `--quiet` (less success chatter; errors
-always print) and `--verbose` (echoes the C compiler invocation on build
-and run, the input size on check). `fmt` accepts `--quiet` (single-file
+always print), `--verbose` (echoes the C compiler invocation on build
+and run, the input size on check) and `--color always|never|auto` (styled
+output; `auto` paints only on a live terminal and stays plain in pipes).
+`fmt` accepts `--quiet` (single-file
 mode) and `--verbose` (scan totals with `--check`). `doctor` accepts
 `--fix` (whitespace only: trailing whitespace and a missing final
 newline), `--quiet`, `--verbose` (scan scope), `--format json` (findings
