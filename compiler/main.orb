@@ -11,6 +11,7 @@
 import "./extern.orb"
 import "./fmt.orb"
 import "./frontend/frontend.orb"
+import "./palette.orb"
 import "./pipeline.orb"
 import "./doctor.orb"
 import "./cluster.orb"
@@ -81,36 +82,50 @@ fn orbitVersion() -> string {
     return "0.1.0-rc.2"
 }
 
-fn helpText() -> string {
+fn helpText(useColor: bool) -> string {
     var h = "Usage: orbit <command> [options]\n"
     h = h + "\n"
     h = h + "Commands:\n"
-    h = h + "  build <file.orb> [-o out] [--quiet] [--verbose]\n"
+    h = h + "  " + palettePaint(paletteBold(), "build", useColor) + " <file.orb> [-o out] [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Compile to a native executable\n"
-    h = h + "  run <file.orb> [--quiet] [--verbose]\n"
+    h = h + "  " + palettePaint(paletteBold(), "run", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Build and run it (shares your terminal)\n"
-    h = h + "  check <file.orb> [--quiet] [--verbose]\n"
+    h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Parse and typecheck, no code emitted\n"
-    h = h + "  fmt <file.orb>             Format a file (writes only on success)\n"
-    h = h + "  fmt --check <file|dir>     List files that need formatting\n"
-    h = h + "  doctor [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)\n"
-    h = h + "  frontend <input.orb> [-o output.tir]\n"
-    h = h + "  cluster up --nodes N --port-base P [--log-dir D] [--service S]\n"
-    h = h + "  cluster status|drain <node>|restart --rolling|down|logs <node>\n"
+    h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " <file.orb>             Format a file (writes only on success)\n"
+    h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " --check <file|dir>     List files that need formatting\n"
+    h = h + "  " + palettePaint(paletteBold(), "doctor", useColor) + " [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)\n"
+    h = h + "  " + palettePaint(paletteBold(), "frontend", useColor) + " <input.orb> [-o output.tir]\n"
+    h = h + "  " + palettePaint(paletteBold(), "cluster", useColor) + " up --nodes N --port-base P [--log-dir D] [--service S]\n"
+    h = h + "  " + palettePaint(paletteBold(), "cluster", useColor) + " status|drain <node>|restart --rolling|down|logs <node>\n"
     h = h + "                           Single-host multiprocess orchestration (see docs/CLUSTER.md)\n"
-    h = h + "  --help, -h                 Show this help\n"
-    h = h + "  --version, -v              Show version\n"
+    h = h + "  " + palettePaint(paletteBold(), "--help, -h", useColor) + "                 Show this help\n"
+    h = h + "  " + palettePaint(paletteBold(), "--version, -v", useColor) + "              Show version\n"
     h = h + "\n"
-    h = h + "Developer inspection: lextrace <file.orb>\n"
+    h = h + "Developer inspection: " + palettePaint(paletteBold(), "lextrace", useColor) + " <file.orb>\n"
+    return h
+}
+
+fn bareHelpText(useColor: bool) -> string {
+    var h = palettePaint(paletteBold(), "Orbit " + orbitVersion(), useColor) + "  " + palettePaint(paletteDim(), "self-hosted compiler, C to native", useColor) + "\n"
+    h = h + "\n"
+    h = h + "Usage: orbit <command> [options]  (orbit --help for full help)\n"
+    h = h + "\n"
+    h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " hello.orb          " + palettePaint(paletteDim(), "typecheck only", useColor) + "\n"
+    h = h + "  " + palettePaint(paletteBold(), "build", useColor) + " hello.orb -o hello " + palettePaint(paletteDim(), "compile to native", useColor) + "\n"
+    h = h + "  " + palettePaint(paletteBold(), "run", useColor) + " hello.orb            " + palettePaint(paletteDim(), "build and run", useColor) + "\n"
+    h = h + "  " + palettePaint(paletteBold(), "doctor", useColor) + "                   " + palettePaint(paletteDim(), "project checks", useColor) + "\n"
+    h = h + "\n"
+    h = h + palettePaint(paletteDim(), "No input given. Next step: `orbit check hello.orb` then `orbit build hello.orb -o hello`", useColor) + "\n"
     return h
 }
 
 fn printHelp() {
-    print(helpText())
+    print(helpText(paletteUseColorStdout("auto")))
 }
 
 fn printHelpErr() {
-    orbit_os_write_stderr_selfhost(helpText())
+    orbit_os_write_stderr_selfhost(helpText(paletteUseColorStderr("auto")))
 }
 
 fn isKnownCommand(cmd: string) -> bool {
@@ -140,13 +155,15 @@ fn wantsHelp() -> bool {
 
 fn runRun() {
     if wantsHelp() {
-        print("Usage: orbit run <file.orb> [--quiet] [--verbose]\n  Build and run it (shares your terminal)\n")
+        print("Usage: orbit run <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n  Build and run it (shares your terminal)\n")
         return
     }
-    // --quiet is accepted for uniformity but changes nothing here: the
-    // child program owns the terminal and its output always passes through.
+    // --quiet silences the compiler's own progress lines, but changes
+    // nothing else: the child program owns the terminal and its output
+    // always passes through.
     var runQuiet = false
     var runVerbose = false
+    var runColor = "auto"
     var inputPath = ""
     var ri = 2
     while true {
@@ -154,16 +171,26 @@ fn runRun() {
         if ra == "" { break }
         if ra == "--quiet" { runQuiet = true }
         else if ra == "--verbose" { runVerbose = true }
-        else if inputPath == "" { inputPath = ra }
+        else if ra == "--color" {
+            val rc = orbit_os_argv_selfhost(ri + 1)
+            if rc == "always" || rc == "never" || rc == "auto" {
+                runColor = rc
+                ri = ri + 1
+            } else {
+                orbit_os_write_stderr_selfhost("Usage: orbit run <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
+                orbit_os_exit_selfhost(2)
+                return
+            }
+        } else if inputPath == "" { inputPath = ra }
         else {
-            orbit_os_write_stderr_selfhost("Usage: orbit run <file.orb> [--quiet] [--verbose]\n")
+            orbit_os_write_stderr_selfhost("Usage: orbit run <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
             orbit_os_exit_selfhost(2)
             return
         }
         ri = ri + 1
     }
     if inputPath == "" {
-        orbit_os_write_stderr_selfhost("Usage: orbit run <file.orb> [--quiet] [--verbose]\n")
+        orbit_os_write_stderr_selfhost("Usage: orbit run <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
         orbit_os_exit_selfhost(2)
         return
     }
@@ -179,7 +206,7 @@ fn runRun() {
     if osName == "Windows_NT" || winDir != "" {
         outputPath = outputPath + ".exe"
     }
-    if compileSourceWithFile(source, inputPath, outputPath, runVerbose) == false {
+    if compileSourceWithFile(source, inputPath, outputPath, runVerbose, runQuiet, runColor) == false {
         orbit_os_exit_selfhost(1)
         return
     }
@@ -189,11 +216,12 @@ fn runRun() {
 
 fn runCheck() {
     if wantsHelp() {
-        print("Usage: orbit check <file.orb> [--quiet] [--verbose]\n  Parse and typecheck, no code emitted\n")
+        print("Usage: orbit check <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n  Parse and typecheck, no code emitted\n")
         return
     }
     var checkQuiet = false
     var checkVerbose = false
+    var checkColor = "auto"
     var inputPath = ""
     var ci = 2
     while true {
@@ -201,16 +229,26 @@ fn runCheck() {
         if ca == "" { break }
         if ca == "--quiet" { checkQuiet = true }
         else if ca == "--verbose" { checkVerbose = true }
-        else if inputPath == "" { inputPath = ca }
+        else if ca == "--color" {
+            val cc = orbit_os_argv_selfhost(ci + 1)
+            if cc == "always" || cc == "never" || cc == "auto" {
+                checkColor = cc
+                ci = ci + 1
+            } else {
+                orbit_os_write_stderr_selfhost("Usage: orbit check <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
+                orbit_os_exit_selfhost(2)
+                return
+            }
+        } else if inputPath == "" { inputPath = ca }
         else {
-            orbit_os_write_stderr_selfhost("Usage: orbit check <file.orb> [--quiet] [--verbose]\n")
+            orbit_os_write_stderr_selfhost("Usage: orbit check <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
             orbit_os_exit_selfhost(2)
             return
         }
         ci = ci + 1
     }
     if inputPath == "" {
-        orbit_os_write_stderr_selfhost("Usage: orbit check <file.orb> [--quiet] [--verbose]\n")
+        orbit_os_write_stderr_selfhost("Usage: orbit check <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
         orbit_os_exit_selfhost(2)
         return
     }
@@ -223,17 +261,26 @@ fn runCheck() {
     if checkVerbose {
         print("check " + inputPath + " (" + orbit_int_to_string_selfhost(orbit_string_len(source)) + " bytes)")
     }
-    if checkSourceWithFile(source, inputPath) == false {
+    val checkStart = orbit_clock_ms()
+    if checkSourceWithFile(source, inputPath, checkColor) == false {
         orbit_os_exit_selfhost(1)
         return
     }
     if checkQuiet == false {
-        print("Checked " + inputPath + ": no errors.")
+        val useOut = paletteUseColorStdout(checkColor)
+        val ms = orbit_clock_ms() - checkStart
+        val check = palettePaint(paletteOk(), "✓", useOut)
+        val timing = palettePaint(paletteDim(), "(" + orbit_int_to_string_selfhost(ms) + " ms)", useOut)
+        print(check + " Checked " + inputPath + ": no errors. " + timing)
     }
 }
 
 fn main() {
     val cmd = orbit_os_argv_selfhost(1)
+    if cmd == "" {
+        print(bareHelpText(paletteUseColorStdout("auto")))
+        return
+    }
     if cmd == "--help" || cmd == "-h" {
         printHelp()
         return
@@ -257,7 +304,7 @@ fn main() {
         }
     }
     if cmd == "build" && wantsHelp() {
-        print("Usage: orbit build <file.orb> [-o out]\n  Compile to a native executable\n")
+        print("Usage: orbit build <file.orb> [-o out] [--quiet] [--verbose] [--color always|never|auto]\n  Compile to a native executable\n")
         return
     }
     if cmd == "run" {
@@ -285,10 +332,11 @@ fn main() {
     }
     var outputPath = ""
     var inputPath = ""
-    // --quiet is accepted for uniformity (a successful build is already
-    // silent); --verbose echoes the C compiler invocation and the output.
+    // --quiet silences the progress and result lines (a successful build
+    // is quiet); --verbose echoes the C compiler invocation and the output.
     var buildQuiet = false
     var buildVerbose = false
+    var buildColor = "auto"
     var i = 1
     while true {
         val arg = orbit_os_argv_selfhost(i)
@@ -314,11 +362,21 @@ fn main() {
             buildQuiet = true
         } else if arg == "--verbose" {
             buildVerbose = true
+        } else if arg == "--color" {
+            val bc = orbit_os_argv_selfhost(i + 1)
+            if bc == "always" || bc == "never" || bc == "auto" {
+                buildColor = bc
+                i = i + 1
+            } else {
+                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--quiet] [--verbose] [--color always|never|auto]\n")
+                orbit_os_exit_selfhost(2)
+                return
+            }
         } else {
             if arg != "build" && inputPath == "" {
                 inputPath = arg
             } else if arg != "build" {
-                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--quiet] [--verbose]\n")
+                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--quiet] [--verbose] [--color always|never|auto]\n")
                 orbit_os_exit_selfhost(2)
                 return
             }
@@ -327,7 +385,7 @@ fn main() {
     }
 
     if inputPath == "" {
-        orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--quiet] [--verbose]\n")
+        orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--quiet] [--verbose] [--color always|never|auto]\n")
         orbit_os_exit_selfhost(2)
         return
     }
@@ -343,7 +401,7 @@ fn main() {
         return
     }
 
-    if compileSourceWithFile(source, inputPath, outputPath, buildVerbose) == false {
+    if compileSourceWithFile(source, inputPath, outputPath, buildVerbose, buildQuiet, buildColor) == false {
         orbit_os_exit_selfhost(1)
     }
 }

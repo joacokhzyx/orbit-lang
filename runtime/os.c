@@ -18,6 +18,7 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
+#include <io.h>
 #else
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -67,6 +68,19 @@ bool orbit_os_mkdir_p(const char* path) {
     if (mkdir(buf, 0777) != 0 && errno != EEXIST) return false;
 #endif
     return true;
+}
+
+// Whether fd is a live terminal. The compiler's auto color needs the real
+// answer per stream, not TERM alone: piped output stays plain even when TERM
+// names a color terminal, and a redirected stdout with a live stderr still
+// paints its cards. Windows speaks _isatty, everything else isatty.
+static ORBIT_UNUSED bool orbit_os_isatty_selfhost(orbit_int fd) {
+    if (fd < 0) return false;
+#ifdef _WIN32
+    return _isatty((int)fd) != 0;
+#else
+    return isatty((int)fd) != 0;
+#endif
 }
 
 orbit_string orbit_os_cwd(OrbitArena* arena) {

@@ -64,10 +64,30 @@ fn paletteSeverity(severity: string, useColor: bool) -> string {
 }
 
 // Whether styled output may be emitted. "always" and "never" are orders;
-// anything else reads the room: NO_COLOR wins, a dumb terminal loses, an
-// empty TERM only passes on terminals that name themselves (Windows
-// Terminal, ConEmu), and anything mentioning color depth passes.
-fn paletteUseColor(mode: string) -> bool {
+// anything else reads the room: NO_COLOR wins, a dumb terminal loses, then
+// auto demands a live TTY on the stream in question, so piped output stays
+// plain even when TERM names a color terminal. An empty TERM only passes on
+// terminals that name themselves (Windows Terminal, ConEmu) or on Windows
+// with a TTY, whose modern consoles speak ANSI.
+fn paletteStdoutTty() -> bool {
+    return orbit_os_isatty_selfhost(1)
+}
+
+fn paletteStderrTty() -> bool {
+    return orbit_os_isatty_selfhost(2)
+}
+
+fn paletteIsWindows() -> bool {
+    if orbit_os_env_selfhost("OS") == "Windows_NT" {
+        return true
+    }
+    if orbit_os_env_selfhost("WINDIR") != "" {
+        return true
+    }
+    return false
+}
+
+fn paletteUseColorOnStream(mode: string, isStderr: bool) -> bool {
     if mode == "always" {
         return true
     }
@@ -81,11 +101,21 @@ fn paletteUseColor(mode: string) -> bool {
     if term == "dumb" {
         return false
     }
+    var tty = paletteStdoutTty()
+    if isStderr {
+        tty = paletteStderrTty()
+    }
+    if tty == false {
+        return false
+    }
     if term == "" {
         if orbit_os_env_selfhost("WT_SESSION") != "" {
             return true
         }
         if orbit_os_env_selfhost("ConEmuANSI") == "ON" {
+            return true
+        }
+        if paletteIsWindows() {
             return true
         }
         return false
@@ -103,4 +133,16 @@ fn paletteUseColor(mode: string) -> bool {
         return true
     }
     return false
+}
+
+fn paletteUseColorStdout(mode: string) -> bool {
+    return paletteUseColorOnStream(mode, false)
+}
+
+fn paletteUseColorStderr(mode: string) -> bool {
+    return paletteUseColorOnStream(mode, true)
+}
+
+fn paletteUseColor(mode: string) -> bool {
+    return paletteUseColorStdout(mode)
 }

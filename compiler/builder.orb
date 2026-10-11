@@ -179,6 +179,7 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_delete" { return "bool" }
     if name == "orbit_string_slice" { return "string" }
     if name == "orbit_string_slice_known_len" { return "string" }
+    if name == "orbit_os_isatty_selfhost" { return "bool" }
     if name == "orbit_response_json" { return "response" }
     if name == "orbit_response_error" { return "response" }
     if name == "system_uptime" { return "int" }
@@ -210,6 +211,7 @@ fn registerBuiltinFunctionReturnTypes(builder: IRBuilder) {
     registerFunctionReturnType(builder, "orbit_hmac_sha256_base64url", "string")
     registerFunctionReturnType(builder, "orbit_string_slice", "string")
     registerFunctionReturnType(builder, "orbit_string_slice_known_len", "string")
+    registerFunctionReturnType(builder, "orbit_os_isatty_selfhost", "bool")
     registerFunctionReturnType(builder, "orbit_auth_bearer_token", "string")
     registerFunctionReturnType(builder, "orbit_auth_role", "string")
     registerFunctionReturnType(builder, "orbit_auth_current_role", "string")

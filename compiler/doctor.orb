@@ -333,16 +333,16 @@ fn doctorEndsWithNewline(s: string) -> bool {
  *    passed `orbit check`: a fix that typechecks and miscompiles is worse than
  *    no fix, because it is a fix nobody re-reads.
  */
-fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bool) -> string {
-    if checkSourceWithFile(before, file) == false {
+fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bool, colorMode: string) -> string {
+    if checkSourceWithFile(before, file, colorMode) == false {
         return "skipped: this file does not pass the compiler's own checks, so a fix could not be verified"
     }
-    if checkSourceWithFile(edited, file) == false {
+    if checkSourceWithFile(edited, file, colorMode) == false {
         return "not applied: the result no longer passes the compiler's checks"
     }
     if verifyBuild {
         val tmp = orbit_os_temp_dir_selfhost() + "/orbit_doctor_fix_check"
-        if compileSourceWithFile(edited, file, tmp, false) == false {
+        if compileSourceWithFile(edited, file, tmp, false, true, colorMode) == false {
             return "not applied: the result does not compile (front end passed, C step failed)"
         }
     }
@@ -355,7 +355,7 @@ fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bo
  *  different parts of one file do not each re-read a version the other has
  *  already changed. A conflict between two findings aborts both and says so,
  *  because "fixed" for one of them would be a lie about the other. */
-fn doctorFixFile(file: string, source: string, edits: list, verifyBuild: bool, dryRun: bool) -> string {
+fn doctorFixFile(file: string, source: string, edits: list, verifyBuild: bool, dryRun: bool, colorMode: string) -> string {
     if edits.len() == 0 { return "" }
     val edited = doctorApplyEdits(source, edits)
     if edited == "" {
@@ -364,7 +364,7 @@ fn doctorFixFile(file: string, source: string, edits: list, verifyBuild: bool, d
     if edited == source {
         return "no change"
     }
-    val why = doctorVerifyFix(source, edited, file, verifyBuild)
+    val why = doctorVerifyFix(source, edited, file, verifyBuild, colorMode)
     if why != "" { return why }
     if dryRun {
         return "would apply (dry run; not written)"
@@ -382,7 +382,11 @@ fn doctorSeverity(code: string) -> string {
 }
 
 fn doctorUseColor(stats: DoctorStats) -> bool {
-    return paletteUseColor(stats.color)
+    return paletteUseColorStdout(stats.color)
+}
+
+fn doctorUseColorStderr(stats: DoctorStats) -> bool {
+    return paletteUseColorStderr(stats.color)
 }
 
 fn doctorDisplayPath(dir: string, file: string) -> string {
@@ -403,7 +407,7 @@ fn doctorRenderText(stats: DoctorStats, dir: string, f: DoctorFinding) -> string
     if doctorUseColor(stats) == false {
         return loc + " " + f.severity + " [" + f.code + "] " + f.message + " fix: " + f.fix
     }
-    var sev = paletteSeverity(f.severity, true)
+    val sev = paletteSeverity(f.severity, true)
     return palettePaint(paletteBold(), loc, true) + " " + sev + " " + palettePaint(paletteCode(), "[" + f.code + "]", true) + " " + f.message + " fix: " + f.fix
 }
 
@@ -4600,7 +4604,7 @@ fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string
         if probe == "bad" { return false }
     }
     val start = orbit_clock_ms()
-    val okRes = checkSourceWithFile(source, file)
+    val okRes = checkSourceWithFile(source, file, stats.color)
     stats.semaMs = stats.semaMs + (orbit_clock_ms() - start)
     if path != "" {
         if okRes {
@@ -4630,6 +4634,146 @@ fn doctorCacheReady(dir: string, cacheState: list) -> bool {
     if orbit_file_write_selfhost(probe, "yes") == false { return false }
     cacheState.push(dir)
     return true
+}
+
+// The closing score box. Findings stay byte-identical in plain mode; the box
+// is TTY-only, so piped runs (goldens, gates, CI logs) see exactly what they
+// saw before. On a live terminal it closes the run with a score, a word, a
+// 40-cell bar and the totals, in color only when the stream allows it.
+fn doctorScore(errCount: int, warnCount: int) -> int {
+    var s = 100 - 10 * errCount - 2 * warnCount
+    if s < 0 {
+        s = 0
+    }
+    return s
+}
+
+fn doctorScoreWord(score: int) -> string {
+    if score >= 90 {
+        return "Great"
+    }
+    if score >= 70 {
+        return "Good"
+    }
+    if score >= 50 {
+        return "Fair"
+    }
+    if score >= 25 {
+        return "Poor"
+    }
+    return "Critical"
+}
+
+fn doctorScoreStyle(word: string) -> string {
+    if word == "Great" {
+        return paletteOk()
+    }
+    if word == "Good" {
+        return paletteCode()
+    }
+    if word == "Fair" {
+        return paletteWarning()
+    }
+    return paletteError()
+}
+
+fn doctorBar(score: int, useColor: bool, style: string) -> string {
+    val filled = (score * 40) / 100
+    var out = ""
+    var i = 0
+    while i < 40 {
+        if i < filled {
+            out = out + palettePaint(style, "█", useColor)
+        } else {
+            out = out + palettePaint(paletteDim(), "░", useColor)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn doctorPad(s: string, width: int) -> string {
+    var out = s
+    while orbit_string_len(out) < width {
+        out = out + " "
+    }
+    return out
+}
+
+fn doctorBoxEdge(left: string, right: string, width: int) -> string {
+    var out = left
+    var i = 0
+    while i < width {
+        out = out + "─"
+        i = i + 1
+    }
+    out = out + right
+    return out
+}
+
+fn doctorDistinctFiles(stats: DoctorStats, opts: DoctorOptions) -> int {
+    var count = 0
+    val seen = []
+    var i = 0
+    while i < stats.findItems.len() {
+        val f: DoctorFinding = stats.findItems.get(i)
+        if doctorFiltered(f, opts) {} else {
+            var has = false
+            var j = 0
+            while j < seen.len() {
+                if seen.get(j) == f.file {
+                    has = true
+                }
+                j = j + 1
+            }
+            if has == false {
+                seen.push(f.file)
+                count = count + 1
+            }
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fn doctorPrintBox(stats: DoctorStats, opts: DoctorOptions, errCount: int, warnCount: int, shownTotal: int) {
+    if opts.quiet {
+        return
+    }
+    if opts.jsonMode {
+        return
+    }
+    val useColor = paletteUseColorStdout(opts.color)
+    if paletteStdoutTty() == false && useColor == false {
+        return
+    }
+    val score = doctorScore(errCount, warnCount)
+    val word = doctorScoreWord(score)
+    val style = doctorScoreStyle(word)
+    val totalMs = stats.textMs + stats.astMs + stats.semaMs + stats.ioMs
+    val distinct = doctorDistinctFiles(stats, opts)
+    val inside = 44
+    print(doctorBoxEdge("╭", "╮", inside + 2))
+    print("│ " + palettePaint(paletteBold(), doctorPad("Orbit Doctor", inside), useColor) + " │")
+    val plainScore = "Score: " + orbit_int_to_string_selfhost(score) + " " + word
+    var padCount = inside - orbit_string_len(plainScore)
+    if padCount < 0 {
+        padCount = 0
+    }
+    var pad = ""
+    var pi = 0
+    while pi < padCount {
+        pad = pad + " "
+        pi = pi + 1
+    }
+    val scoreLine = "Score: " + orbit_int_to_string_selfhost(score) + " " + palettePaint(style, word, useColor) + pad
+    print("│ " + scoreLine + " │")
+    print("│ " + doctorBar(score, useColor, style) + "    " + " │")
+    val plainIssues = orbit_int_to_string_selfhost(shownTotal) + " issues across " + orbit_int_to_string_selfhost(distinct) + "/" + orbit_int_to_string_selfhost(stats.files) + " files in " + orbit_int_to_string_selfhost(totalMs) + " ms"
+    print("│ " + doctorPad(plainIssues, inside) + " │")
+    val hint = doctorPad("Run orbit doctor --fix to apply fixes.", inside)
+    print("│ " + palettePaint(paletteDim(), hint, useColor) + " │")
+    print(doctorBoxEdge("╰", "╯", inside + 2))
 }
 
 fn doctorRun(opts: DoctorOptions) {
@@ -4810,6 +4954,7 @@ fn doctorRun(opts: DoctorOptions) {
     if stats.findings == 0 {
         if opts.quiet == false && opts.jsonMode == false {
             print("doctor: no findings in " + orbit_int_to_string_selfhost(stats.files) + " files under \"" + opts.dir + "\".")
+            doctorPrintBox(stats, opts, errCount, warnCount, shownTotal)
         }
     } else {
         if opts.quiet == false && opts.jsonMode == false {
@@ -4817,6 +4962,7 @@ fn doctorRun(opts: DoctorOptions) {
             if shownTotal != stats.findings {
                 print("doctor: " + orbit_int_to_string_selfhost(stats.findings - shownTotal) + " finding(s) hidden by --only/--skip/--min-severity.")
             }
+            doctorPrintBox(stats, opts, errCount, warnCount, shownTotal)
         }
         if printed > 0 { orbit_os_exit_selfhost(1) }
     }
@@ -5007,7 +5153,7 @@ fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list, source
     while pi < files.len() {
         val edits = perFile.get(pi)
         if edits.len() > 0 {
-            val outcome = doctorFixFile(files.get(pi), sources.get(pi), edits, opts.verifyBuild, opts.dryRun)
+            val outcome = doctorFixFile(files.get(pi), sources.get(pi), edits, opts.verifyBuild, opts.dryRun, opts.color)
             var fi2 = 0
             while fi2 < stats.findItems.len() {
                 val f: DoctorFinding = stats.findItems.get(fi2)

@@ -121,6 +121,9 @@ CASES = [
     ("cc-absent-names-the-toolchain",
      ["build", "tiny.orb", "-o", "x.exe"], 1, "err", "was not found", "",
      {"ORBIT_CC": "orbit-no-such-c-compiler"}),
+    # Bare `orbit` with no args prints the short help plus next steps on
+    # stdout and exits 0, instead of the build usage on stderr.
+    ("bare-noarg", [], 0, "out", "Usage:", ""),
 ]
 
 # The not-found wording is not unique to a missing toolchain: clang reports a

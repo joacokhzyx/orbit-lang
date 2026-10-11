@@ -7,6 +7,7 @@ import "./ir.orb"
 import "./optimizer.orb"
 import "./cteval.orb"
 import "./c_backend.orb"
+import "./palette.orb"
 
 fn cteEnabled() -> bool {
     return orbit_os_env_selfhost("ORBIT_NO_CTE") == ""
@@ -43,10 +44,12 @@ fn getSourceLine(source: string, lineNum: int) -> string {
     return ""
 }
 
-fn renderErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string) -> string {
+fn renderErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, colorMode: string) -> string {
+    val useColor = paletteUseColorStderr(colorMode)
+    val loc = file + ":" + orbit_int_to_string_selfhost(line) + ":" + orbit_int_to_string_selfhost(col)
     var out = "\n"
-    out = out + "error[" + code + "]: " + message + "\n"
-    out = out + "  --> " + file + ":" + orbit_int_to_string_selfhost(line) + ":" + orbit_int_to_string_selfhost(col) + "\n"
+    out = out + palettePaint(paletteError(), "error[" + code + "]:", useColor) + " " + message + "\n"
+    out = out + "  --> " + palettePaint(paletteBold(), loc, useColor) + "\n"
     out = out + "   |\n"
     if sourceLine != "" {
         var lineStr = orbit_int_to_string_selfhost(line)
@@ -60,17 +63,17 @@ fn renderErrorCard(code: string, message: string, file: string, line: int, col: 
             out = out + " "
             sp = sp + 1
         }
-        out = out + "^-- here\n"
+        out = out + palettePaint(paletteError(), "^-- here", useColor) + "\n"
         out = out + "   |\n"
     }
     out = out + "   = help: " + hint + "\n"
     return out
 }
 
-fn reportErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, kind: string) {
-    val card = renderErrorCard(code, message, file, line, col, sourceLine, hint)
+fn reportErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, kind: string, colorMode: string) {
+    val card = renderErrorCard(code, message, file, line, col, sourceLine, hint, colorMode)
     orbit_os_write_stderr_selfhost(card)
-    orbit_os_write_stderr_selfhost("\nERROR: " + kind + "\n")
+    orbit_os_write_stderr_selfhost("\n" + palettePaint(paletteError(), "ERROR:", paletteUseColorStderr(colorMode)) + " " + kind + "\n")
 }
 
 // The hint under a parser diagnostic.
@@ -96,14 +99,15 @@ fn parserDiagnosticHint(diag: ParserDiagnostic) -> string {
 // that ran over a positioned node prints the card, pointing at the line; the
 // rest have no position to point at and print the one-line form, which is
 // what they printed before cards existed and is the only honest option.
-fn printSemaErrors(sema: Sema, source: string, inputPath: string) {
+fn printSemaErrors(sema: Sema, source: string, inputPath: string, colorMode: string) {
+    val useColor = paletteUseColorStderr(colorMode)
     var ei = 0
     while ei < sema.errors.len() {
         val diag: SemaError = sema.errors.get(ei)
         if diag.code != "" && diag.line > 0 {
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.col, getSourceLine(source, diag.line), diag.hint, "error.SemanticAnalysisFailed")
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.col, getSourceLine(source, diag.line), diag.hint, "error.SemanticAnalysisFailed", colorMode)
         } else {
-            orbit_os_write_stderr_selfhost("Semantic error: " + diag.message + "\n")
+            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "Semantic error:", useColor) + " " + diag.message + "\n")
         }
         ei = ei + 1
     }
@@ -158,19 +162,20 @@ fn reportMemStage(stage: string) {
 
 // Parse + resolve + typecheck only. No C is emitted and no C compiler
 // runs, so `orbit check` stays fast even on modest machines.
-fn checkSourceWithFile(source: string, inputPath: string) -> bool {
+fn checkSourceWithFile(source: string, inputPath: string, colorMode: string) -> bool {
+    val useColor = paletteUseColorStderr(colorMode)
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
     if parser.diagnostics.len() > 0 {
         val diag: ParserDiagnostic = parser.diagnostics.get(0)
         if diag.code != "" {
             val srcLine = getSourceLine(source, diag.line)
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind, colorMode)
         } else {
             var i = 0
             while i < parser.diagnostics.len() {
                 val d: ParserDiagnostic = parser.diagnostics.get(i)
-                orbit_os_write_stderr_selfhost("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
+                orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "Parser error", useColor) + " at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
                 i = i + 1
             }
         }
@@ -182,7 +187,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
     if resolver.errors.len() > 0 {
         var ri = 0
         while ri < resolver.errors.len() {
-            orbit_os_write_stderr_selfhost("Import error: " + resolver.errors.get(ri) + "\n")
+            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "Import error", useColor) + ": " + resolver.errors.get(ri) + "\n")
             ri = ri + 1
         }
         return false
@@ -192,7 +197,7 @@ fn checkSourceWithFile(source: string, inputPath: string) -> bool {
     analyze(sema, ast)
     reportResolutionGaps(sema)
     if hasErrors(sema) {
-        printSemaErrors(sema, source, inputPath)
+        printSemaErrors(sema, source, inputPath, colorMode)
         return false
     }
     return true
@@ -342,22 +347,40 @@ fn reportCStepFailure(inputPath: string, cPath: string, rtDir: string, tmpDir: s
     orbit_os_write_stderr_selfhost("  Tip: run `orbit check " + inputPath + "` first - if that passes, file an issue with the .orb file and I'll read it.\n")
 }
 
-fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool) -> bool {
+// The line under a failed build. Additive: the card and the ERROR line stay
+// exactly as they were, and this names the file, the count and the time on
+// stderr in dim, so a script reading stdout still sees nothing.
+fn compileFailed(inputPath: string, errCount: int, startMs: int, colorMode: string) {
+    val useErr = paletteUseColorStderr(colorMode)
+    val ms = orbit_clock_ms() - startMs
+    var noun = "errors"
+    if errCount == 1 {
+        noun = "error"
+    }
+    val line = "Failed to compile " + inputPath + " with " + orbit_int_to_string_selfhost(errCount) + " " + noun + " in " + orbit_int_to_string_selfhost(ms) + " ms"
+    orbit_os_write_stderr_selfhost(palettePaint(paletteDim(), line, useErr) + "\n")
+}
+
+fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string) -> bool {
+    val useColorOut = paletteUseColorStdout(colorMode)
+    val useColorErr = paletteUseColorStderr(colorMode)
+    val startMs = orbit_clock_ms()
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
     if parser.diagnostics.len() > 0 {
         val diag: ParserDiagnostic = parser.diagnostics.get(0)
         if diag.code != "" {
             val srcLine = getSourceLine(source, diag.line)
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind, colorMode)
         } else {
             var i = 0
             while i < parser.diagnostics.len() {
                 val d: ParserDiagnostic = parser.diagnostics.get(i)
-                orbit_os_write_stderr_selfhost("Parser error at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
+                orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "Parser error", useColorErr) + " at line " + orbit_int_to_string_selfhost(d.line) + ": " + d.message + "\n")
                 i = i + 1
             }
         }
+        compileFailed(inputPath, parser.diagnostics.len(), startMs, colorMode)
         return false
     }
 
@@ -368,9 +391,10 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if resolver.errors.len() > 0 {
         var ri = 0
         while ri < resolver.errors.len() {
-            orbit_os_write_stderr_selfhost("Import error: " + resolver.errors.get(ri) + "\n")
+            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "Import error", useColorErr) + ": " + resolver.errors.get(ri) + "\n")
             ri = ri + 1
         }
+        compileFailed(inputPath, resolver.errors.len(), startMs, colorMode)
         return false
     }
     reportMemStage("resolve")
@@ -381,10 +405,11 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if hasErrors(sema) {
         val firstErr: SemaError = sema.errors.get(0)
         if orbit_string_indexOf(firstErr.message, "Non-void function must return a value") != -1 {
-            reportErrorCard("return/missing-value", "Non-void function must return a value", "<unknown>", 1, 1, "", "Ensure type consistency and scope rules are satisfied.", "error.SemanticAnalysisFailed")
+            reportErrorCard("return/missing-value", "Non-void function must return a value", "<unknown>", 1, 1, "", "Ensure type consistency and scope rules are satisfied.", "error.SemanticAnalysisFailed", colorMode)
         } else {
-            printSemaErrors(sema, source, inputPath)
+            printSemaErrors(sema, source, inputPath, colorMode)
         }
+        compileFailed(inputPath, sema.errors.len(), startMs, colorMode)
         return false
     }
     reportMemStage("sema")
@@ -416,7 +441,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if irErrs.len() > 0 {
         var ie = 0
         while ie < irErrs.len() {
-            orbit_os_write_stderr_selfhost("orbit build: type verification: " + irErrs.get(ie) + "\n")
+            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " type verification: " + irErrs.get(ie) + "\n")
             ie = ie + 1
         }
         return false
@@ -528,7 +553,13 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
             return false
         }
     }
-    if verbose {
+    if quiet == false {
+        val ms = orbit_clock_ms() - startMs
+        val check = palettePaint(paletteOk(), "✓", useColorOut)
+        val word = palettePaint(paletteOk(), "Compiled", useColorOut)
+        val file = palettePaint(paletteBright(), inputPath, useColorOut)
+        val timing = palettePaint(paletteDim(), "in " + orbit_int_to_string_selfhost(ms) + " ms", useColorOut)
+        print(check + " " + word + " " + file + " " + timing)
         print("wrote " + outputPath)
     }
     return true

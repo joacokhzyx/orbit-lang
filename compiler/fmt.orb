@@ -1006,7 +1006,7 @@ fn fmtFormatFile(path: string, quiet: bool) {
         orbit_os_exit_selfhost(1)
         return
     }
-    if checkSourceWithFile(source, path) == false {
+    if checkSourceWithFile(source, path, "auto") == false {
         orbit_os_write_stderr_selfhost("fmt: cannot format " + path + ": input has errors; file left unchanged.\n")
         orbit_os_exit_selfhost(1)
         return
@@ -1043,7 +1043,7 @@ fn fmtCheckOne(path: string) -> bool {
         orbit_os_exit_selfhost(1)
         return false
     }
-    if checkSourceWithFile(source, path) == false {
+    if checkSourceWithFile(source, path, "auto") == false {
         orbit_os_write_stderr_selfhost("fmt: cannot format " + path + ": input has errors; file left unchanged.\n")
         return false
     }

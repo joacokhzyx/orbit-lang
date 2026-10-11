@@ -25,6 +25,7 @@ extern fn orbit_file_read_selfhost(path: string) -> string
 extern fn orbit_file_list_dir_selfhost(path: string) -> list
 extern fn orbit_os_exit_selfhost(code: int)
 extern fn orbit_os_write_stderr_selfhost(content: string)
+extern fn orbit_os_isatty_selfhost(fd: int) -> bool
 // Chunk buffer for codegen: the handle rides in a string-typed local
 // (never inspected as text) because self-host int is 32 bits.
 extern fn orbit_cbuf_create_selfhost() -> string
