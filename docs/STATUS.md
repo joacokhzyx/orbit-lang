@@ -31,8 +31,8 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
 | `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `compiler/parser.orb:1023`, `compiler/route_runtime.orb:544` |
-| Standard library | **13 modules, 13 of 13 compile and merge into one program.** Was 20, with 13 compiling. Six were deleted because each was a function that returned a value and was not computing it; two are quarantined as `*.orb.quarantined`, because the language cannot express them and the alternative was to ship something that looked like the feature. One module (`std/convert/`) is new. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
-| `std/` test coverage | **17 files, 17/17 pass**, one of them declared `known-failing` so a fix arrives as a red run | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
+| Standard library | **14 modules, 14 of 14 compile and merge into one program.** Was 20, with 13 compiling. Six were deleted because each was a function that returned a value and was not computing it; two are quarantined as `*.orb.quarantined`, because the language cannot express them and the alternative was to ship something that looked like the feature. Two modules (`std/convert/`, `std/json/`) are new. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
+| `std/` test coverage | **18 files, 18/18 pass**, one of them declared `known-failing` so a fix arrives as a red run | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
 | Sockets / threads / bitwise / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
 
 ## Verification Workflow

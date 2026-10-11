@@ -48,6 +48,7 @@ import "std/sys/proc/process.orb"
 import "std/log/log.orb"
 import "std/sys/crypto/jwt.orb"
 import "std/sys/term/color.orb"
+import "std/json/json.orb"
 
 fn main() -> int {
     // string.orb, reached directly and through three importers
@@ -85,9 +86,9 @@ fn main() -> int {
 
     // jwt.orb, in the same program as byte framing: this pair is what
     // used to be unbuildable
-    val tok = signHs256("{\"sub\":\"u1\",\"exp\":2000000000}", "s3cr3t")
+    val tok = signHs256("""{"sub":"u1","exp":2000000000}""", "s3cr3t")
     if assertTrue(verifyHs256(tok, "s3cr3t", 1000000000)) == false { return 9 }
-    if assertEqStr(decodePayload(tok), "{\"sub\":\"u1\",\"exp\":2000000000}") == false { return 10 }
+    if assertEqStr(decodePayload(tok), """{"sub":"u1","exp":2000000000}""") == false { return 10 }
 
     // io/io.orb -- system_env now comes from process.orb, and gradient
     // styles through color.orb's wrapRgbForeground rather than a
@@ -105,5 +106,10 @@ fn main() -> int {
 
     // log/log.orb
     if assertEqStr(toJsonLine("info", "m"), "{\"level\":\"info\",\"msg\":\"m\"}") == false { return 16 }
+
+    // json/json.orb -- quoting for hand-built bodies; the backslash goes
+    // first so later replacements are escaped exactly once
+    if assertEqStr(jsonQuote("a\"b"), "\"a\\\"b\"") == false { return 20 }
+    if assertEqStr(jsonQuote("a\\b"), "\"a\\\\b\"") == false { return 21 }
     return 0
 }

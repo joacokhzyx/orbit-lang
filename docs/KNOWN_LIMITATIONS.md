@@ -374,12 +374,12 @@ twice walked straight into it. The read is now typed from the model the
 field reference names, which the builder had been writing down and the
 backend had been discarding.
 
-## `std/` is 13 modules, and 8 of the 20 it used to be are not coming back
+## `std/` is 14 modules, and 8 of the 20 it used to be are not coming back
 
-**13 modules, 13 of 13 compile and merge into one program.** Verified:
-`tests/std/test_imports.orb` imports all thirteen into a single binary and
-calls into each, and it passes. `tests/std/` is 17 files and runs
-17/17 green, one of them declared `known-failing` so that a fix arrives
+**14 modules, 14 of 14 compile and merge into one program.** Verified:
+`tests/std/test_imports.orb` imports all fourteen into a single binary and
+calls into each, and it passes. `tests/std/` is 18 files and runs
+18/18 green, one of them declared `known-failing` so that a fix arrives
 as a red run rather than as a silent behaviour change.
 
 `std/` was 20 modules. **Six were deleted, and deleting them was the
@@ -412,9 +412,11 @@ git history alone does not say *which* feature or *why* it is
 impossible. `std/quarantine/README.md` has the convention and the
 "what does not belong here" list.
 
-So there is **no `std/json`**, no `std/fs` directory creation, no
-`parseFloat`, and no `Option`. Not "not yet documented" — the modules
-that claimed them are gone or quarantined, and
+So there is no `std/fs` directory creation, no `parseFloat`, and no
+`Option`. `std/json` exists but is one function (`jsonQuote`): quoting
+for hand-built bodies, not parsing, not traversal. Not "not yet
+documented" — the modules that claimed the rest are gone or
+quarantined, and
 [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#stdquarantine-specified-not-implemented)
 names the absences.
 

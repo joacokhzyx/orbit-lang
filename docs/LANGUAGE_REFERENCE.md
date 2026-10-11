@@ -799,6 +799,11 @@ were told about a file that never worked.
   `exitProcess` (named to never shadow libc `exit`).
 - `std/log/log.orb`: `info`, `warn`, `error`, `debug(msg, enabled)`,
   `withReq`, `toJsonLine`. No globals: context travels explicitly.
+- `std/json/json.orb`: `jsonQuote` — JSON-escape a runtime string for
+  hand-built bodies (`"""{"hello":${jsonQuote(name)}}"""`). Escapes
+  backslash (first), quote, newline, CR and tab; remaining control
+  bytes are out of scope by design. Object literals already escape on
+  serialization; this is for the interpolation case, which does not.
 
 ## Standard library (Wave 4)
 

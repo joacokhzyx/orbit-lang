@@ -1,0 +1,22 @@
+// JSON text helpers for hand-built bodies. Object literals already escape
+// on the way out (the runtime serializes them), so this module is for the
+// other case: interpolating a runtime string into a raw JSON template,
+// where an embedded quote would break the document:
+//
+//   return ok 200 """{"hello":${jsonQuote(name)}}"""
+//
+// Only quote/backslash/newline/CR/tab are escaped. Remaining control bytes
+// (< 0x20) pass through raw -- the runtime serializer covers those, this
+// does not, and the boundary is stated here rather than discovered.
+import "std/string/string.orb"
+
+fn jsonQuote(s: string) -> string {
+    // Backslash first: every replacement below introduces one, and escaping
+    // them again would double-escape the document.
+    val e1 = replace(s, "\\", "\\\\")
+    val e2 = replace(e1, "\"", "\\\"")
+    val e3 = replace(e2, "\n", "\\n")
+    val e4 = replace(e3, "\r", "\\r")
+    val e5 = replace(e4, "\t", "\\t")
+    return "\"" + e5 + "\""
+}

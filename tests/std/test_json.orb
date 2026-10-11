@@ -1,0 +1,19 @@
+// jsonQuote contract: the five escapes, their order, and the boundary.
+// Backslash goes first (every later replacement introduces one); remaining
+// control bytes are out of scope by design, see std/json/json.orb.
+import "std/json/json.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertEqStr(jsonQuote("hi"), "\"hi\"") == false { return 1 }
+    if assertEqStr(jsonQuote(""), "\"\"") == false { return 2 }
+    if assertEqStr(jsonQuote("a\"b"), "\"a\\\"b\"") == false { return 3 }
+    if assertEqStr(jsonQuote("a\\b"), "\"a\\\\b\"") == false { return 4 }
+    // Backslash-then-quote: the backslash doubles first, so the quote it
+    // introduces is escaped exactly once, not twice.
+    if assertEqStr(jsonQuote("\\\""), "\"\\\\\\\"\"") == false { return 5 }
+    if assertEqStr(jsonQuote("a\nb"), "\"a\\nb\"") == false { return 6 }
+    if assertEqStr(jsonQuote("a\rb"), "\"a\\rb\"") == false { return 7 }
+    if assertEqStr(jsonQuote("a\tb"), "\"a\\tb\"") == false { return 8 }
+    return 0
+}
