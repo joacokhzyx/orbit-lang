@@ -16,6 +16,11 @@
 
 #include "runtime.h"
 
+#ifndef _WIN32
+#include <unistd.h>
+#include <sys/wait.h>
+#endif
+
 /* fflush after the banner, and after PASSED, because that is what makes a crash
  * attributable. On Windows stdout is fully buffered when it is a pipe, not a
  * console, so an access violation loses every buffered line and the CI log
@@ -121,6 +126,73 @@ static void test_get_list(void) {
     orbit_arena_destroy(arena);
 }
 
+/* Every typed getter round-trips its own kind. */
+static void test_getters_match(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    OrbitObject* o = orbit_object_create(arena);
+    orbit_object_set_int(o, "n", 42);
+    orbit_object_set_float(o, "f", 1.5);
+    orbit_object_set_bool(o, "b", 1);
+    orbit_object_set_string(o, "s", "hi");
+    assert(orbit_object_get_int(o, "n") == 42);
+    assert(orbit_object_get_float(o, "f") == 1.5);
+    assert(orbit_object_get_bool(o, "b") == 1);
+    assert(strcmp(orbit_object_get_string(o, "s"), "hi") == 0);
+    orbit_arena_destroy(arena);
+}
+
+/* A missing key keeps the quiet defaults: absence is not a mismatch. */
+static void test_missing_key_quiet(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    OrbitObject* o = orbit_object_create(arena);
+    assert(orbit_object_get_int(o, "nope") == 0);
+    assert(orbit_object_get_float(o, "nope") == 0.0);
+    assert(orbit_object_get_bool(o, "nope") == 0);
+    assert(strcmp(orbit_object_get_string(o, "nope"), "") == 0);
+    assert(orbit_object_get_object(o, "nope") == NULL);
+    assert(orbit_object_get_list(o, "nope") == NULL);
+    orbit_arena_destroy(arena);
+}
+
+#ifndef _WIN32
+/* A present field read through the wrong getter aborts (exit 2) instead of
+   reinterpreting the bits. Fork like test_oom: the contract under test is
+   "does not return". */
+static void test_mismatch_aborts(void) {
+    pid_t pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        OrbitArena* arena = orbit_arena_create(65536);
+        OrbitObject* o = orbit_object_create(arena);
+        orbit_object_set_int(o, "n", 42);
+        /* Must not return: an int word read as a pointer truncates. */
+        (void)orbit_object_get_string(o, "n");
+        _exit(3);
+    }
+    int status = 0;
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 2);
+}
+
+static void test_float_mismatch_aborts(void) {
+    pid_t pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        OrbitArena* arena = orbit_arena_create(65536);
+        OrbitObject* o = orbit_object_create(arena);
+        orbit_object_set_string(o, "s", "hi");
+        /* Must not return: chars decoded as double bits are garbage. */
+        (void)orbit_object_get_float(o, "s");
+        _exit(3);
+    }
+    int status = 0;
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 2);
+}
+#endif
+
 int main(void) {
     printf("test_json\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -130,5 +202,11 @@ int main(void) {
     RUN_TEST(test_object_list);
     RUN_TEST(test_empty_list);
     RUN_TEST(test_get_list);
+    RUN_TEST(test_getters_match);
+    RUN_TEST(test_missing_key_quiet);
+#ifndef _WIN32
+    RUN_TEST(test_mismatch_aborts);
+    RUN_TEST(test_float_mismatch_aborts);
+#endif
     return 0;
 }

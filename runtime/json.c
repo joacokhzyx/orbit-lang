@@ -29,6 +29,8 @@
 #include "collections.c"
 #include "inline.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 typedef enum {
     ORBIT_VAL_NULL = 0,
@@ -188,15 +190,49 @@ ORBIT_UNUSED OrbitValue orbit_object_get(OrbitObject* o, const char* key) {
 /* Typed getters, one per kind, so a field read compiles to a typed call
    instead of a pointer the caller has to cast. orbit_object_get_raw is the
    fallback for a field whose kind is not known where it is read -- an object
-   that arrived from a function rather than a literal beside it. */
+   that arrived from a function rather than a literal beside it.
+   A present field read through the wrong getter aborts with a diagnostic
+   instead of reinterpreting the bits: an int read as a pointer truncates
+   to 32 bits, a pointer read as a float decodes garbage as a double, and
+   any nonzero word read as a bool is true. A missing key keeps the old
+   quiet defaults (0, 0.0, "", NULL): absence is not a mismatch. */
+static const char* orbit_value_kind_name(OrbitValueKind k) {
+    switch (k) {
+        case ORBIT_VAL_NULL: return "null";
+        case ORBIT_VAL_INT: return "int";
+        case ORBIT_VAL_FLOAT: return "float";
+        case ORBIT_VAL_BOOL: return "bool";
+        case ORBIT_VAL_STRING: return "string";
+        case ORBIT_VAL_OBJECT: return "object";
+        case ORBIT_VAL_LIST: return "list";
+        default: return "unknown";
+    }
+}
+
+static ORBIT_UNUSED void orbit_object_kind_error(OrbitValueKind have, OrbitValueKind want, const char* key) {
+    fprintf(stderr,
+            "orbit: object field type mismatch\n"
+            "  field    %s\n"
+            "  holds    %s, read as %s\n"
+            "  a field has one type, so the getter must match the setter\n",
+            key ? key : "<null>",
+            orbit_value_kind_name(have), orbit_value_kind_name(want));
+    fflush(stderr);
+    exit(2);
+}
+
 ORBIT_UNUSED orbit_int orbit_object_get_int(OrbitObject* o, const char* key) {
     OrbitValue v = orbit_object_get(o, key);
+    if (v.kind == ORBIT_VAL_NULL) return 0;
+    if (v.kind != ORBIT_VAL_INT) orbit_object_kind_error(v.kind, ORBIT_VAL_INT, key);
     return (orbit_int)v.raw;
 }
 
 ORBIT_UNUSED orbit_float orbit_object_get_float(OrbitObject* o, const char* key) {
     OrbitValue v = orbit_object_get(o, key);
     orbit_float f = 0;
+    if (v.kind == ORBIT_VAL_NULL) return f;
+    if (v.kind != ORBIT_VAL_FLOAT) orbit_object_kind_error(v.kind, ORBIT_VAL_FLOAT, key);
     uint64_t bits = (uint64_t)v.raw;
     memcpy(&f, &bits, sizeof(f));
     return f;
@@ -204,24 +240,32 @@ ORBIT_UNUSED orbit_float orbit_object_get_float(OrbitObject* o, const char* key)
 
 ORBIT_UNUSED orbit_bool orbit_object_get_bool(OrbitObject* o, const char* key) {
     OrbitValue v = orbit_object_get(o, key);
+    if (v.kind == ORBIT_VAL_NULL) return 0;
+    if (v.kind != ORBIT_VAL_BOOL) orbit_object_kind_error(v.kind, ORBIT_VAL_BOOL, key);
     return v.raw ? 1 : 0;
 }
 
 ORBIT_UNUSED const char* orbit_object_get_string(OrbitObject* o, const char* key) {
     OrbitValue v = orbit_object_get(o, key);
     if (v.kind == ORBIT_VAL_STRING) return (const char*)v.raw;
+    if (v.kind == ORBIT_VAL_NULL) return "";
+    orbit_object_kind_error(v.kind, ORBIT_VAL_STRING, key);
     return "";
 }
 
 ORBIT_UNUSED OrbitObject* orbit_object_get_object(OrbitObject* o, const char* key) {
     OrbitValue v = orbit_object_get(o, key);
     if (v.kind == ORBIT_VAL_OBJECT) return (OrbitObject*)v.raw;
+    if (v.kind == ORBIT_VAL_NULL) return NULL;
+    orbit_object_kind_error(v.kind, ORBIT_VAL_OBJECT, key);
     return NULL;
 }
 
 ORBIT_UNUSED const OrbitList* orbit_object_get_list(OrbitObject* o, const char* key) {
     OrbitValue v = orbit_object_get(o, key);
     if (v.kind == ORBIT_VAL_LIST) return (const OrbitList*)v.raw;
+    if (v.kind == ORBIT_VAL_NULL) return NULL;
+    orbit_object_kind_error(v.kind, ORBIT_VAL_LIST, key);
     return NULL;
 }
 
