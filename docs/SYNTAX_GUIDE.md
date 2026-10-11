@@ -42,7 +42,7 @@ Integer literals are decimal, `0x` hexadecimal, and `_` is a digit separator
 ## Types
 
 The builtin types are `int` (32-bit), `float`, `string`, `bool`, `list`,
-`result`, and `unit`. Annotate when the type is not inferable:
+`result`, and `void`. Annotate when the type is not inferable:
 
 ```orbit
 fn classify(n: int) -> string {
@@ -58,8 +58,11 @@ fn main() -> int {
 }
 ```
 
-`list` is the dynamic array. `map` is the string-keyed hash map. Both are in
-the [standard library](../std) and documented in the reference.
+`list` is the dynamic array. There is no hash-map module in `std/`: a
+`{ key: value }` literal is an object (see the reference), and an object
+field cannot hold a map. `map` is a known type name but has no runtime
+collection or std module behind it; use models for fixed shapes and
+objects for dynamic ones.
 
 ## Functions
 
@@ -211,8 +214,9 @@ it before accepting connections, and its return value becomes the exit code
 when it returns.
 
 Route patterns support `:name` and `{name}` parameters. `req` exposes
-`req.query`, `req.body`, `req.json`, `req.param`, `req.header`,
-`req.bearer_token`, `req.role` and `req.has_role`. Responses are
+`req.query`, `req.body` (`req.json` is the same body), `req.param`,
+`req.header`, `req.bearer_token`, `req.role`, `req.has_role` and
+`req.file(field, dir)` for multipart uploads. Responses are
 `ok <status> <body>` or `err <code> <message>`.
 
 Route annotations control admission: `route GET "/x" limit 20 / s burst 20`
@@ -237,11 +241,13 @@ helpers the suite uses.
 ## The CLI
 
 `orbit build`, `orbit run`, `orbit check`, `orbit fmt`, `orbit doctor`,
-`orbit frontend`, `orbit cluster`. [Commands](COMMANDS.md) has the flags and
-exit codes; [FAQ](FAQ.md) has the common questions.
+`orbit frontend`, `orbit cluster`, and `orbit lextrace` (developer lexer
+trace; output is unstable by design). [Commands](COMMANDS.md) has the
+flags and exit codes; [FAQ](FAQ.md) has the common questions.
 
 ## What is not here yet
 
-Multipart uploads, DB migrations, and latency percentiles in the built-in
-telemetry. [Known Limitations](KNOWN_LIMITATIONS.md) is the honest list, and
-[Status](STATUS.md) says what is being worked on.
+Raw sockets, threads, bitwise operators, and generic unions — the
+`std/quarantine/` directory names the exact missing language feature
+for each. [Known Limitations](KNOWN_LIMITATIONS.md) is the honest
+list, and [Status](STATUS.md) says what is being worked on.

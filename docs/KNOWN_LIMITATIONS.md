@@ -508,21 +508,21 @@ them, so a key that was never written still answers with the type of whatever
 was, and a getter chosen from no setter is the raw one. That is the remaining
 gap here, and it needs the object's own field types recorded.
 
-## 29.2% of instructions are `unknown`, and 46.8% of those are silent
+## 29.4% of instructions are `unknown`, and 45.9% of those are silent
 
-`scripts/unknown_census.py`, run over 110 files and 42,017
-instructions on this build:
+`scripts/unknown_census.py`, run over 122 files and 53,934
+instructions — the committed ratchet baseline
+(`scripts/baselines/unknown_count.json`), which is the current truth
+when this section and that file disagree:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 12,613 | **29.2%** |
-| ...with no diagnostic at all | 5,684 | **46.6% of the unknown** |
-| ...of those, opcode `call` | 2,904 | |
-| ...of those, opcode `member` | 2,428 | |
+| instructions the front end types `unknown` | 15,877 | **29.4%** |
+| ...with no diagnostic at all | 7,291 | **45.9% of the unknown** |
 
 The silent half is the honest number. E2001/E2002/E2003 account for
 the rest to the unit - their counts equal the unknown `load` /
-binary / unary counts exactly - so 5,332 is measured, not
+binary / unary counts exactly - so 8,586 is measured, not
 estimated. Those are `call` and `member` expressions: the two
 places where the front end does not know it has failed, and the same
 name-and-shape classification as the list problem above. This is the
@@ -530,19 +530,21 @@ same measurement as the root-cause table in
 [nineteen programs the compiler should reject](#nineteen-programs-the-compiler-should-reject-and-does-not),
 and it is what the nineteen entries there are made of.
 
-Separately, E3001 "expression cannot be lowered to TIR" fires 4,190
-times. That is a whole class of expression the front end gives up
-on, and it is not in the unknown total because there is no
-instruction to type. Worst file by share: `compiler/parser.orb` at
-49.7% (2,146 of 4,316).
+Separately, E3001 "expression cannot be lowered to TIR" fired 4,190
+times on the earlier corpus. That is a whole class of expression the
+front end gives up on, and it is not in the unknown total because there
+is no instruction to type. Worst file by share then:
+`compiler/parser.orb` at 49.7% (2,146 of 4,316). Re-run the census
+rather than trusting these two sentences.
 
 Two tools, and the difference matters. `unknown_census.py` is the
 **measurement** and never fails anything. `scripts/unknown_ratchet.py`
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-29.2% is the number the type work has to be scoped against, and a
-zero-bar gate is a gate everybody deletes. Verified here:
+29.4% is the number the type work has to be scoped against, and a
+zero-bar gate is a gate everybody deletes. Example run (numbers move;
+the baseline file is current, this transcript is not):
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc

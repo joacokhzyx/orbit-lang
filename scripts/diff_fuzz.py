@@ -443,7 +443,10 @@ def escape_cases(rng, n_escapes):
 
 
 def float_cases(rng, n_floats):
-    """Float round-tripping. Floats do not work at all today (F-0016)."""
+    """Float round-tripping. Literals, arithmetic, calls, comparisons, model
+    fields, lists, interpolation and exponents all round-trip on the current
+    tree (measured); what remains of F-0016 is the transport holes, e.g. a
+    float the backend cannot see as one falling into the uintptr_t cast."""
     lits = ["1.5", "2.0", "0.1", "3.14159", "100.0", "0.5", "-2.25", "1e0" ]
     for _ in range(max(0, n_floats - len(lits))):
         lits.append("%d.%02d" % (rng.randrange(0, 1000), rng.randrange(0, 100)))

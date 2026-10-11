@@ -850,7 +850,7 @@ would let them land.
 ## System telemetry
 
 `system.*` calls read live runtime counters. Every value is measured; what is
-not measured is not exposed (no success/error split, no p50/p95/p99 yet).
+not measured is not exposed (no success/error split).
 
 | Call | Returns | Source |
 |---|---|---|

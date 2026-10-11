@@ -205,12 +205,14 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-37 cases: 20 are `expect-error:` — the program is rejected, with a pinned
-diagnostic — and 17 are `known-defect:` ratchets. Of those 17, 9 also pin what
-the program does: 6 a wrong value, 2 the C step's rejection, 1 that it dies
-without a message. The split is not a balance to aim for: the priority list for
-this corpus was the census's silent class, and a silent defect is by definition
-one the compiler accepts.
+46 cases: 45 are `expect-error:` — the program is rejected, with a pinned
+diagnostic — and 1 is a `known-defect:` ratchet (F-0009, `n39`). The
+`wrong-value:` and `no-diagnostic:` pins live on `n41`, which is an
+`expect-error:` case for a literal zero divisor and pins the SIGFPE
+behaviour of the remaining sub-cases alongside it. The split is not a
+balance to aim for: the priority list for this corpus was the census's
+silent class, and a silent defect is by definition one the compiler
+accepts.
 
 A number in a document goes stale, which is F-0021 and it is why this section
 exists at all. Recompute it rather than trust it:

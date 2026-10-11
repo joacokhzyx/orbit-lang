@@ -204,9 +204,12 @@ Real run after three requests:
 {"metrics":{"http_requests_total":3,"latency_avg_us":358,"active_workers":8}}
 ```
 
-Every value is measured. There's no p50/p99 yet - what isn't
-measured isn't exposed. `/_ledger` and `/_ledger/data` add a
-per-route table (requests, mean ms, DB share) with no code.
+Every value is measured. Percentiles are bucket edges, not single-request
+measurements: `system.latency_p50_us()`, `latency_p95_us()` and
+`latency_p99_us()` read a 100 µs-resolution histogram, so a reported p99 is
+the boundary of the bucket holding 99% of requests. `/_ledger` and
+`/_ledger/data` add a per-route table (requests, mean ms, DB share) with
+no code.
 
 ## Where next (in order)
 

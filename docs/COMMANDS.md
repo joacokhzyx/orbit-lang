@@ -14,6 +14,8 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
 | `orbit doctor [dir]` | Project checks; read-only unless `--fix` | `orbit doctor ./examples` |
+| `orbit frontend <file>` | Emit the typed IR (TIR) without building | `orbit frontend main.orb` |
+| `orbit lextrace <file>` | Developer lexer trace; output is unstable by design | `orbit lextrace main.orb` |
 | `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
 | `orbit --help` | Display the command-line help | `orbit --help` |
 | `orbit --version` | Display the compiler version | `orbit --version` |
