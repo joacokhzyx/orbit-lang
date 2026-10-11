@@ -502,8 +502,8 @@ is a check with no reason. The other direction truncates, and is refused.
 
 `{ "a": 1 }.get("a")` no longer lowers to a list read. It reads the field the
 same way a dynamic object is written, and the emitter picks the getter from the
-setter that wrote that key, so an int field reads back an int and a string field
-a string. An object literal's field types are still not recorded: nothing knows
+setter that wrote that key, so an int field reads back an int, a string field
+a string, and a list field a list. An object literal's field types are still not recorded: nothing knows
 them, so a key that was never written still answers with the type of whatever
 was, and a getter chosen from no setter is the raw one. That is the remaining
 gap here, and it needs the object's own field types recorded.

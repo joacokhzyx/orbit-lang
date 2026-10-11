@@ -116,7 +116,7 @@ confuse them with the route forms `return ok 200 …` and
 ```orbit
 route GET "/health" {
     val uptime = system.uptime()
-    return ok 200 "{\"status\":\"UP\",\"uptime_seconds\":" + uptime + "}"
+    return ok { status: "UP", uptime_seconds: uptime }
 }
 ```
 
@@ -144,9 +144,9 @@ picture here - this service uses no database, so it needs none.
 route GET "/greet" {
     val name = req.query("name")
     if (name == "") {
-        return ok 401 "{\"error\":\"pass ?name=\"}"
+        err 401 """{"error":"pass ?name="}"""
     } else {
-        return ok 200 "{\"hello\":\"" + name + "\"}"
+        return ok { hello: name }
     }
 }
 ```
@@ -194,7 +194,7 @@ route GET "/metrics" {
     val total = system.http_requests_total()
     val latency = system.latency_avg_us()
     val workers = system.active_workers()
-    return ok 200 "{\"metrics\":{\"http_requests_total\":" + total + ",\"latency_avg_us\":" + latency + ",\"active_workers\":" + workers + "}}"
+    return ok { metrics: { http_requests_total: total, latency_avg_us: latency, active_workers: workers } }
 }
 ```
 

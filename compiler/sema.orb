@@ -2322,6 +2322,15 @@ fn checkReturn(sema: Sema, node: ASTNode) {
             }
         }
         ASTNode.ReturnOk(r) => {
+            // An ok response carries success. A 4xx/5xx status through ok
+            // compiles and serves the wrong semantics: clients and the ledger
+            // read the status, not the keyword. Say so at check time.
+            if r.status != "" {
+                val klass = orbit_string_slice(r.status, 0, 1)
+                if klass == "4" || klass == "5" {
+                    reportError(sema, "ok response with error status " + r.status + ": use err " + r.status + " instead of return ok " + r.status)
+                }
+            }
             match r.expr {
                 ASTNode.Empty => {
                     reportError(sema, "ok response must include a value")
@@ -2347,6 +2356,14 @@ fn checkReturn(sema: Sema, node: ASTNode) {
             }
         }
         ASTNode.ReturnErr(r) => {
+            // Mirror of the ok rule: err carries failure, so a 2xx/3xx code
+            // through err is the same wrong-semantics program spelled backwards.
+            if r.code != "" {
+                val klass = orbit_string_slice(r.code, 0, 1)
+                if klass == "2" || klass == "3" {
+                    reportError(sema, "err response with success status " + r.code + ": use return ok " + r.code + " instead of err " + r.code)
+                }
+            }
             match r.expr {
                 ASTNode.Empty => {
                     reportError(sema, "err response must include a message")
@@ -2631,12 +2648,19 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 match field {
                     ASTNode.FieldInit(fi) => {
                         val fieldType = checkNode(sema, fi.value)
-                        // A list or a map has no value type to store, and the
-                        // alternative -- keeping the pointer and calling it a
-                        // string -- writes a pointer's digits into the JSON
-                        // body. Refuse it until there is a real answer.
-                        if fieldType == "list" || fieldType == "map" {
+                        // Lists are JSON arrays: scalars and objects serialize
+                        // through orbit_object_set_list, so they are allowed.
+                        // Maps have no JSON form in the runtime and nested
+                        // lists would mis-serialize (a ref slot holds one
+                        // pointer with no tag for object-vs-list), so both
+                        // stay rejected with a diagnostic, not silent bytes.
+                        if compatTypeBase(fieldType) == "map" {
                             reportError(sema, "an object field cannot hold a " + fieldType + " yet: { " + fi.name + ": ... }")
+                        } else if compatTypeBase(fieldType) == "list" {
+                            val inner = compatTypeListElement(fieldType)
+                            if compatTypeBase(inner) == "list" || compatTypeBase(inner) == "map" {
+                                reportError(sema, "an object field cannot hold a nested " + inner + " yet: { " + fi.name + ": ... }")
+                            }
                         }
                     }
                     _ => {}

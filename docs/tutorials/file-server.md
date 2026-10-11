@@ -18,7 +18,7 @@ without touching the filesystem in the walkthrough.
 
 ```orbit
 route GET "/files" {
-    return ok 200 "{\"files\":[{\"name\":\"welcome.txt\",\"size\":29},{\"name\":\"notes.txt\",\"size\":41}]}"
+    return ok { files: [{ name: "welcome.txt", size: 29 }, { name: "notes.txt", size: 41 }] }
 }
 
 route GET "/files/content" {
@@ -42,7 +42,7 @@ route POST "/upload" {
         err 400 "post the file content as the raw request body"
     }
     val size = payload.len()
-    return ok 201 "{\"received_bytes\":" + size + "}"
+    return ok 201 { received_bytes: size }
 }
 ```
 

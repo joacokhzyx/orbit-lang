@@ -2731,6 +2731,8 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                         callExpr = callExpr + "(orbit_bool)(" + aStr + ")"
                     } else if calleeName == "orbit_object_set_object" {
                         callExpr = callExpr + "(OrbitObject*)(" + aStr + ")"
+                    } else if calleeName == "orbit_object_set_list" {
+                        callExpr = callExpr + "(OrbitList*)(" + aStr + ")"
                     } else {
                         callExpr = callExpr + "(const char*)(" + aStr + ")"
                     }
@@ -3445,7 +3447,7 @@ fn isStringOperand(backend: CBackend, operand: IRValue) -> bool {
 fn feBuildTimeCallType(name: string) -> string {
     if name == "print" || name == "orbit_os_exit_selfhost" || name == "orbit_os_exit" || name == "orbit_os_destroy" || name == "orbit_os_reset" || name == "orbit_list_push" || name == "orbit_list_clear" || name == "orbit_map_set" || name == "orbit_cbuf_append_selfhost" { return "void" }
     if name == "orbit_object_create" { return "object" }
-    if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" { return "void" }
+    if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" || name == "orbit_object_set_list" { return "void" }
     if name == "ok" || name == "err" { return "result" }
     if name == "orbit_object_to_json" || name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
     if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_clock_ms" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return "int" }
@@ -3914,7 +3916,7 @@ fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
     // F-0004, and the same fix: the return type belongs where the call is
     // emitted, and this is that place.
     if name == "orbit_list_clear" { return true }
-    if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" { return true }
+    if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" || name == "orbit_object_set_list" { return true }
     var fi = 0
     while fi < backend.module.functions.len() {
         val f: IRFunction = backend.module.functions.get(fi)
@@ -3995,6 +3997,7 @@ fn objectFieldGetter(func: IRFunction, fieldName: string) -> string {
                 if callee == "orbit_object_set_float" { found = "float" }
                 if callee == "orbit_object_set_bool" { found = "bool" }
                 if callee == "orbit_object_set_object" { found = "object" }
+                if callee == "orbit_object_set_list" { found = "list" }
                 if callee == "orbit_object_set_string" { found = "string" }
                 if kind == "" { kind = found }
                 if kind != found { conflict = true }
@@ -4007,6 +4010,7 @@ fn objectFieldGetter(func: IRFunction, fieldName: string) -> string {
     if kind == "float" { return "orbit_object_get_float" }
     if kind == "bool" { return "orbit_object_get_bool" }
     if kind == "object" { return "orbit_object_get_object" }
+    if kind == "list" { return "orbit_object_get_list" }
     if kind == "string" { return "orbit_object_get_string" }
     return "orbit_object_get_raw"
 }
@@ -4051,6 +4055,7 @@ fn objectGetterReturnType(getter: string) -> string {
     if getter == "orbit_object_get_bool" { return "bool" }
     if getter == "orbit_object_get_string" { return "string" }
     if getter == "orbit_object_get_object" { return "object" }
+    if getter == "orbit_object_get_list" { return "list" }
     return ""
 }
 
@@ -4060,6 +4065,7 @@ fn isObjectFieldSetter(name: string) -> bool {
     if name == "orbit_object_set_bool" { return true }
     if name == "orbit_object_set_string" { return true }
     if name == "orbit_object_set_object" { return true }
+    if name == "orbit_object_set_list" { return true }
     return false
 }
 

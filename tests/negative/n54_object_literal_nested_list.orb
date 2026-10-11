@@ -1,0 +1,9 @@
+// case: object-literal-nested-list-field
+// what: a list inside an object is a JSON array, but a list inside that
+//      list has no tag in a ref slot to say object-vs-list, so it would
+//      mis-serialize. Refuse it with a diagnostic instead of guessing.
+// expect-error: an object field cannot hold a nested
+fn main() -> int {
+    val o = { name: "x", matrix: [[1, 2], [3, 4]] }
+    return 0
+}

@@ -36,7 +36,8 @@ typedef enum {
     ORBIT_VAL_FLOAT,
     ORBIT_VAL_BOOL,
     ORBIT_VAL_STRING,
-    ORBIT_VAL_OBJECT
+    ORBIT_VAL_OBJECT,
+    ORBIT_VAL_LIST
 } OrbitValueKind;
 
 typedef struct {
@@ -96,6 +97,13 @@ static ORBIT_UNUSED OrbitValue orbit_value_object(OrbitObject* o) {
     OrbitValue v;
     v.kind = ORBIT_VAL_OBJECT;
     v.raw = (uintptr_t)o;
+    return v;
+}
+
+static ORBIT_UNUSED OrbitValue orbit_value_list(const OrbitList* l) {
+    OrbitValue v;
+    v.kind = ORBIT_VAL_LIST;
+    v.raw = (uintptr_t)l;
     return v;
 }
 
@@ -164,6 +172,10 @@ ORBIT_UNUSED void orbit_object_set_object(OrbitObject* o, const char* key, Orbit
     orbit_object_set(o, key, orbit_value_object(v));
 }
 
+ORBIT_UNUSED void orbit_object_set_list(OrbitObject* o, const char* key, const OrbitList* v) {
+    orbit_object_set(o, key, orbit_value_list(v));
+}
+
 ORBIT_UNUSED OrbitValue orbit_object_get(OrbitObject* o, const char* key) {
     OrbitValue missing = orbit_value_null();
     if (!o || !key) return missing;
@@ -204,6 +216,12 @@ ORBIT_UNUSED const char* orbit_object_get_string(OrbitObject* o, const char* key
 ORBIT_UNUSED OrbitObject* orbit_object_get_object(OrbitObject* o, const char* key) {
     OrbitValue v = orbit_object_get(o, key);
     if (v.kind == ORBIT_VAL_OBJECT) return (OrbitObject*)v.raw;
+    return NULL;
+}
+
+ORBIT_UNUSED const OrbitList* orbit_object_get_list(OrbitObject* o, const char* key) {
+    OrbitValue v = orbit_object_get(o, key);
+    if (v.kind == ORBIT_VAL_LIST) return (const OrbitList*)v.raw;
     return NULL;
 }
 
@@ -259,6 +277,7 @@ static ORBIT_UNUSED void json_putc(OrbitJsonBuf* b, char c) {
    object. Declared here so neither needs the other's body first. */
 static ORBIT_UNUSED void json_put_value(OrbitJsonBuf* b, OrbitValue v);
 static ORBIT_UNUSED void orbit_object_to_json_buf(OrbitJsonBuf* b, OrbitObject* o);
+static ORBIT_UNUSED void json_put_list(OrbitJsonBuf* b, const OrbitList* l);
 
 /* Same rules as the database row serializer, so a string that survives one
    survives the other: quote, backslash, the three short escapes, and \u00XX
@@ -317,7 +336,61 @@ static ORBIT_UNUSED void json_put_value(OrbitJsonBuf* b, OrbitValue v) {
         case ORBIT_VAL_OBJECT:
             orbit_object_to_json_buf(b, (OrbitObject*)v.raw);
             break;
+        case ORBIT_VAL_LIST:
+            json_put_list(b, (const OrbitList*)v.raw);
+            break;
+        default:
+            json_puts(b, "null");
+            break;
     }
+}
+
+/* A list inside an object is a JSON array. Elements are read by the list's own
+   element kind, the same mapping the typed accessors use: strings as pointers,
+   ints sign-extended, floats by bit pattern, bools as 0/1, refs as embedded
+   objects. An empty or untyped list has no elements to disagree on, so it is
+   simply []. A ref element is an object pointer: lists of objects are the JSON
+   array-of-records shape, and nested lists stay unsupported rather than
+   mis-serialized (sema rejects them with a diagnostic). */
+static ORBIT_UNUSED void json_put_list(OrbitJsonBuf* b, const OrbitList* l) {
+    if (!l || !l->data) {
+        json_puts(b, "[]");
+        return;
+    }
+    char tmp[64];
+    json_putc(b, '[');
+    for (size_t i = 0; i < l->len; i++) {
+        if (i) json_putc(b, ',');
+        uintptr_t word = 0;
+        memcpy(&word, (const char*)l->data + i * l->elem_size, sizeof(uintptr_t));
+        switch (l->elem_kind) {
+            case ORBIT_ELEM_STRING:
+                json_put_string(b, (const char*)word);
+                break;
+            case ORBIT_ELEM_INT:
+                snprintf(tmp, sizeof(tmp), "%lld", (long long)(orbit_int)(intptr_t)word);
+                json_puts(b, tmp);
+                break;
+            case ORBIT_ELEM_FLOAT: {
+                orbit_float f = 0;
+                uint64_t bits = (uint64_t)word;
+                memcpy(&f, &bits, sizeof(f));
+                snprintf(tmp, sizeof(tmp), "%g", (double)f);
+                json_puts(b, tmp);
+                break;
+            }
+            case ORBIT_ELEM_BOOL:
+                json_puts(b, word ? "true" : "false");
+                break;
+            case ORBIT_ELEM_REF:
+                orbit_object_to_json_buf(b, (OrbitObject*)word);
+                break;
+            default:
+                json_puts(b, "null");
+                break;
+        }
+    }
+    json_putc(b, ']');
 }
 
 static ORBIT_UNUSED void orbit_object_to_json_buf(OrbitJsonBuf* b, OrbitObject* o) {

@@ -19,7 +19,7 @@ route POST "/posts" {
     if created {
         return ok 201 payload
     }
-    return ok 400 """{"stored":false}"""
+    err 400 """{"stored":false}"""
 }
 
 route GET "/posts" {
@@ -39,5 +39,5 @@ route DELETE "/posts/:id" {
     if gone {
         return ok 200 """{"deleted":"${id}"}"""
     }
-    return ok 404 """{"deleted":false}"""
+    err 404 """{"deleted":false}"""
 }

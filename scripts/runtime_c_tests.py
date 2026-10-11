@@ -76,6 +76,7 @@ PROGRAMS = [
     prog("latency_percentiles", vendor=True),
     prog("ledger_percentiles", vendor=True),
     prog("kynx", vendor=True, defines=["-DORBIT_KYNX_TEST"]),
+    prog("json"),
     prog("float_format", warnings=True),
     prog("migrations", vendor=True, db=True, defines=["-DORBIT_WITH_DB"]),
     # The auth harness is a runtime test that happens to live under tests/auth

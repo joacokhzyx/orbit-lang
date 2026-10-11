@@ -3199,7 +3199,7 @@ fn buildObjectLiteral(builder: IRBuilder, node: ASTNode) -> int {
 // One setter per value type, named for it, so the runtime never has to guess
 // and the C call is typed. A register whose type is not known falls back to
 // the string setter, which is what the rest of the compiler does for an
-// unidentifiable value.
+// unidentifiable value. Lists are JSON arrays through orbit_object_set_list.
 fn objectFieldSetter(builder: IRBuilder, valueReg: int) -> string {
     if valueReg < 0 || valueReg >= builder.currentFunction.registerTypes.len() {
         return "orbit_object_set_string"
@@ -3209,6 +3209,7 @@ fn objectFieldSetter(builder: IRBuilder, valueReg: int) -> string {
     if t == "float" { return "orbit_object_set_float" }
     if t == "bool" { return "orbit_object_set_bool" }
     if t == "object" { return "orbit_object_set_object" }
+    if t == "list" || orbit_string_slice(t, 0, 4) == "list" { return "orbit_object_set_list" }
     return "orbit_object_set_string"
 }
 

@@ -1,0 +1,7 @@
+// case: err-with-success-status
+// what: err carries failure semantics; a 2xx status through err is the
+//      same wrong-semantics program spelled backwards. Use return ok.
+// expect-error: err response with success status 200
+route GET "/ok" {
+    err 200 "all good"
+}

@@ -1,0 +1,7 @@
+// case: ok-with-error-status
+// what: return ok carries success semantics; a 4xx/5xx status through ok
+//      compiles and serves the wrong meaning. Use err for failures.
+// expect-error: ok response with error status 404
+route GET "/missing" {
+    return ok 404 """{"deleted":false}"""
+}

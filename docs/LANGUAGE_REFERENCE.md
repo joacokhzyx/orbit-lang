@@ -443,12 +443,11 @@ if inner.deep.deeper == 7 { ... }
 
 What to know:
 
-- **Fields may be string, int, float, bool or another object.** A list or a map
-  is a compile error, not a guess: there is no value type to store, and
-  keeping the pointer would write a pointer's digits into the response. If you
-  need a list in a response body, interpolate it into a raw string - and read
-  [Arrays: elements and accessors](#arrays-elements-and-accessors) first, so
-  you know what a list actually holds.
+- **Fields may be string, int, float, bool, a list of those or of objects,
+  or another object.** A map is a compile error, not a guess, and a nested
+  list (a list inside a list) is refused the same way: a ref slot holds one
+  pointer with no tag for object-vs-list. If you need a list in a response body,
+  write it as a field: `{ files: [{ name: "a.txt", size: 29 }] }`.
 - **Key order is the order you wrote**, not a hash order, so a response body is
   byte-for-byte what the source says.
 - **Everything inside is escaped on the way out**, which is the thing a
@@ -636,16 +635,28 @@ fn read_value() -> int {
 
 Routes declare an HTTP method and a literal path. A route can return a successful
 response with `return ok`, or terminate with an HTTP error through `err`.
+`return ok` carries success: a 4xx/5xx status through `ok` is rejected at
+check time (use `err` for failures), and `err` with a 2xx/3xx status is
+rejected the same way.
 
 ```orbit
 route GET "/health" {
-    return ok 200 "{\"status\":\"ok\"}"
+    return ok { status: "ok" }
+}
+
+route GET "/files" {
+    return ok { files: [{ name: "welcome.txt", size: 29 }, { name: "notes.txt", size: 41 }] }
 }
 
 route GET "/private" {
     err 401 "unauthorized"
 }
 ```
+
+A raw string is still the form for an error body or a payload that is
+mostly static text (`err 401 """{"error":"pass ?name="}"""`); objects are
+the canonical form for success bodies, because every value inside is
+escaped on the way out, which a hand-written JSON string cannot promise.
 
 Path segments starting with `:` or wrapped in `{...}` capture one
 non-empty segment, readable with `req.param("name")`; `*` matches one
@@ -656,7 +667,7 @@ percent-decoded by `req.param`; a trailing slash is tolerated.
 ```orbit
 route GET "/notes/:id" {
     val id = req.param("id")
-    return ok 200 "{\"note\":\"" + id + "\"}"
+    return ok { note: id }
 }
 ```
 
@@ -664,7 +675,7 @@ Routes can carry a per-route rate annotation after the path, before the body:
 
 ```orbit
 route GET "/heavy" limit 100/min burst 20 {
-    return ok 200 "{\"status\":\"ok\"}"
+    return ok { status: "ok" }
 }
 ```
 

@@ -317,8 +317,8 @@ missing final newline, and files that do not compile). See
 
 Two subsystems that earlier revisions of this document described no longer exist.
 There is no compiled-binary cache keyed on a source hash: every build runs the
-pipeline. And nothing reads an `orbit.atlas` project file, so the output name,
-port, and the arena/Kynx/logging knobs are not currently read from a config
+pipeline. There is no project config file: the output name,
+port, and the arena/Kynx/logging knobs are not currently read from any config
 file. `scripts/orbit_ccache.py` caches C compilations for the **bootstrap gates
 only**; it does not cache user builds, and it is not part of the compiler.
 

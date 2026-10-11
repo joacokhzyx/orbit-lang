@@ -42,9 +42,17 @@ fn main() -> int {
     // Nesting, both ways round.
     val inner = { deep: { deeper: 7 } }
     if inner.deep.deeper != 7 { return 8 }
-    // A list inside an object is refused rather than guessed: there is no
-    // value type to store for it, and keeping the pointer would write a
-    // pointer's digits into the response body.
+
+    // Lists are JSON arrays: a field may hold a list of scalars or a list
+    // of objects, and the runtime serializes it on the way out. Nested
+    // lists stay rejected (sema diagnostic), because a ref slot holds one
+    // pointer with no tag for object-vs-list.
+    val config = { name: "x", tags: ["a", "b"] }
+    if config.name != "x" { return 9 }
+    val tags: list < string > = config.get("tags")
+    if tags.len() != 2 { return 10 }
+    if tags.get(0) != "a" { return 11 }
+    if tags.get(1) != "b" { return 12 }
 
     // Reading a field of an object that came out of a function is not
     // supported yet: the getter has to know the field's kind, and it learns
