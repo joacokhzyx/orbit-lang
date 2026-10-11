@@ -114,10 +114,55 @@ static void test_missing_field(void) {
     orbit_arena_destroy(arena);
 }
 
+/* A traversal filename cannot escape the destination directory: the path
+   is stripped to its base and only safe characters survive, so the saved
+   file lands inside dest_dir. */
+static void test_traversal_filename_stays_inside(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    char hdr[512];
+    char ending[256];
+    char body[1024];
+    strcpy(body, part_headers(hdr, sizeof(hdr), "file", "../../etc/passwd"));
+    strcat(body, "x");
+    strcat(body, part_end(ending, sizeof(ending)));
+    OrbitRequest* r = parse_multipart(arena, body);
+    const char* saved = orbit_file_upload_save(arena, r, "file", ".");
+    assert(saved && *saved);
+    /* dest_dir is ".": the saved path must be ./<base> with no separators. */
+    assert(saved[0] == '.' && saved[1] == '/');
+    assert(strchr(saved + 2, '/') == NULL);
+    assert(strchr(saved + 2, '\\') == NULL);
+    remove(saved);
+
+    orbit_arena_destroy(arena);
+}
+
+/* An empty part saves an empty file rather than failing or writing junk. */
+static void test_empty_part_saves_empty_file(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    char hdr[512];
+    char ending[256];
+    char body[1024];
+    strcpy(body, part_headers(hdr, sizeof(hdr), "file", "empty.txt"));
+    strcat(body, part_end(ending, sizeof(ending)));
+    OrbitRequest* r = parse_multipart(arena, body);
+    const char* saved = orbit_file_upload_save(arena, r, "file", ".");
+    assert(saved && *saved);
+    FILE* f = orbit_fopen(saved, "rb");
+    assert(f != NULL);
+    assert(fgetc(f) == EOF);
+    fclose(f);
+    remove(saved);
+
+    orbit_arena_destroy(arena);
+}
+
 int main(void) {
     printf("test_upload\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
     RUN_TEST(test_saves_file_part);
     RUN_TEST(test_missing_field);
+    RUN_TEST(test_traversal_filename_stays_inside);
+    RUN_TEST(test_empty_part_saves_empty_file);
     return 0;
 }
