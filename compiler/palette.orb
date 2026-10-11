@@ -1,0 +1,106 @@
+import "./extern.orb"
+
+// Orbit's own palette: the one place that names output styles.
+//
+// Doctor used to carry these codes inline (red error, yellow warning, cyan
+// code, bold location) while the generated server banner carried its own
+// (green ok, dim, bright headings, per-method request colors). Two copies of
+// one decision, so a new style meant editing two places and hoping they
+// agreed. The C banner keeps its codes -- it is emitted text, not compiler
+// output -- but every compiler renderer paints through the functions below,
+// and the codes match the banner's on purpose.
+fn paletteReset() -> string {
+    return "\x1b[0m"
+}
+
+fn paletteBold() -> string {
+    return "\x1b[1m"
+}
+
+fn paletteError() -> string {
+    return "\x1b[31m"
+}
+
+fn paletteWarning() -> string {
+    return "\x1b[33m"
+}
+
+fn paletteOk() -> string {
+    return "\x1b[32m"
+}
+
+fn paletteCode() -> string {
+    return "\x1b[36m"
+}
+
+fn paletteDim() -> string {
+    return "\x1b[90m"
+}
+
+fn paletteBright() -> string {
+    return "\x1b[1;37m"
+}
+
+// One style around one span, or the span untouched when color is off. The
+// caller decides per stream; a finding on stdout and a card on stderr can
+// disagree, and neither has to know why.
+fn palettePaint(style: string, text: string, useColor: bool) -> string {
+    if useColor == false {
+        return text
+    }
+    return style + text + paletteReset()
+}
+
+// A severity word in its color. Anything that is not an error paints as a
+// warning, which is what the renderers did before this function existed.
+fn paletteSeverity(severity: string, useColor: bool) -> string {
+    if useColor == false {
+        return severity
+    }
+    if severity == "error" {
+        return paletteError() + severity + paletteReset()
+    }
+    return paletteWarning() + severity + paletteReset()
+}
+
+// Whether styled output may be emitted. "always" and "never" are orders;
+// anything else reads the room: NO_COLOR wins, a dumb terminal loses, an
+// empty TERM only passes on terminals that name themselves (Windows
+// Terminal, ConEmu), and anything mentioning color depth passes.
+fn paletteUseColor(mode: string) -> bool {
+    if mode == "always" {
+        return true
+    }
+    if mode == "never" {
+        return false
+    }
+    if orbit_os_env_selfhost("NO_COLOR") != "" {
+        return false
+    }
+    val term = orbit_os_env_selfhost("TERM")
+    if term == "dumb" {
+        return false
+    }
+    if term == "" {
+        if orbit_os_env_selfhost("WT_SESSION") != "" {
+            return true
+        }
+        if orbit_os_env_selfhost("ConEmuANSI") == "ON" {
+            return true
+        }
+        return false
+    }
+    if orbit_string_indexOf(term, "color") != -1 {
+        return true
+    }
+    if orbit_string_indexOf(term, "256") != -1 {
+        return true
+    }
+    if orbit_string_indexOf(term, "xterm") != -1 {
+        return true
+    }
+    if orbit_string_indexOf(term, "ansi") != -1 {
+        return true
+    }
+    return false
+}

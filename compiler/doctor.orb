@@ -1,6 +1,7 @@
 import "./ast.orb"
 import "./parser.orb"
 import "./pipeline.orb"
+import "./palette.orb"
 
 // orbit doctor: read-only project checks with optional whitespace fixes.
 //
@@ -381,21 +382,7 @@ fn doctorSeverity(code: string) -> string {
 }
 
 fn doctorUseColor(stats: DoctorStats) -> bool {
-    if stats.color == "always" { return true }
-    if stats.color == "never" { return false }
-    if orbit_os_env_selfhost("NO_COLOR") != "" { return false }
-    val term = orbit_os_env_selfhost("TERM")
-    if term == "dumb" { return false }
-    if term == "" {
-        if orbit_os_env_selfhost("WT_SESSION") != "" { return true }
-        if orbit_os_env_selfhost("ConEmuANSI") == "ON" { return true }
-        return false
-    }
-    if orbit_string_indexOf(term, "color") != -1 { return true }
-    if orbit_string_indexOf(term, "256") != -1 { return true }
-    if orbit_string_indexOf(term, "xterm") != -1 { return true }
-    if orbit_string_indexOf(term, "ansi") != -1 { return true }
-    return false
+    return paletteUseColor(stats.color)
 }
 
 fn doctorDisplayPath(dir: string, file: string) -> string {
@@ -416,13 +403,8 @@ fn doctorRenderText(stats: DoctorStats, dir: string, f: DoctorFinding) -> string
     if doctorUseColor(stats) == false {
         return loc + " " + f.severity + " [" + f.code + "] " + f.message + " fix: " + f.fix
     }
-    var sev = f.severity
-    if sev == "error" {
-        sev = "\x1b[31merror\x1b[0m"
-    } else {
-        sev = "\x1b[33mwarning\x1b[0m"
-    }
-    return "\x1b[1m" + loc + "\x1b[0m " + sev + " \x1b[36m[" + f.code + "]\x1b[0m " + f.message + " fix: " + f.fix
+    var sev = paletteSeverity(f.severity, true)
+    return palettePaint(paletteBold(), loc, true) + " " + sev + " " + palettePaint(paletteCode(), "[" + f.code + "]", true) + " " + f.message + " fix: " + f.fix
 }
 
 // Only ever ADDS fields. The existing six are a contract: `cli_probe.py` reads
