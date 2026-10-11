@@ -7,3 +7,4 @@ error[return/missing-value]: Non-void function must return a value
    = help: Ensure type consistency and scope rules are satisfied.
 
 ERROR: error.SemanticAnalysisFailed
+Failed to compile tests/parity/probes/e2_bad_ret.orb with 1 error in 1 ms

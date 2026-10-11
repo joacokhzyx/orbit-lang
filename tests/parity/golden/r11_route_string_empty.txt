@@ -10,3 +10,4 @@ error[E0301]: unexpected token 'StringLiteral'
    = help: Check for missing brackets, quotes, or keywords before this token.
 
 ERROR: error.ExpectedHttpMethod
+Failed to compile tests/parity/probes/r11_route_string_empty.orb with 1 error in 0 ms
