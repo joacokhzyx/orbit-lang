@@ -55,7 +55,10 @@ compiler/selfhost/snippet-*.c
 # Package and installer outputs
 node_modules/
 package.json
+!editors/vscode/package.json
 package-lock.json
+!editors/vscode/package-lock.json
+*.vsix
 scratch/
 dist/
 scripts/dist/

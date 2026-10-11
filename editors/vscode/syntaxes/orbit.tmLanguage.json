@@ -12,9 +12,15 @@
     { "include": "#http-methods" },
     { "include": "#types" },
     { "include": "#constants" },
+    { "include": "#route-decl" },
     { "include": "#strings" },
+    { "include": "#object-keys" },
     { "include": "#numbers" },
+    { "include": "#rate-limit" },
+    { "include": "#schedule" },
+    { "include": "#import-path" },
     { "include": "#operators" },
+    { "include": "#builtins" },
     { "include": "#functions" }
   ],
   "repository": {
@@ -28,18 +34,27 @@
           "name": "comment.block.documentation.orbit",
           "begin": "/\\*\\*(?!/)",
           "end": "\\*/",
-          "patterns": [{ "include": "#comments" }]
+          "patterns": [{ "include": "#doc-tags" }, { "include": "#comments" }]
         },
         {
           "name": "comment.block.orbit",
           "begin": "/\\*",
           "end": "\\*/",
-          "patterns": [{ "include": "#comments" }]
+          "patterns": [{ "include": "#doc-tags" }, { "include": "#comments" }]
+        }
+      ]
+    },
+    "doc-tags": {
+      "comment": "The compiler's own doc convention (builder.orb, sema.orb, doctor.orb use /** @brief ... @p ... */). The outer #annotations rule never fires inside comments, so tags need their own rule here.",
+      "patterns": [
+        {
+          "name": "entity.name.tag.doc.orbit",
+          "match": "@(brief|p|param|returns|deprecated)\\b"
         }
       ]
     },
     "annotations": {
-      "comment": "Decorators: @name before a declaration or a field. The parser accepts any identifier here, so this highlights whatever is written rather than a fixed list.",
+      "comment": "Decorators: @name before a declaration or a field. The parser builds DecoratorNode(name, []) with no args, so there is no arg scope to add. @auth alone carries no semantics; auth is req.bearer_token()/req.has_role().",
       "patterns": [
         {
           "name": "entity.name.tag.annotation.orbit",
@@ -48,16 +63,19 @@
       ]
     },
     "config-keys": {
-      "comment": "compiler/parser.orb matches exactly these four before it tries anything else. `database` is not one of them, and there is no `kynx`/`rate_limit` declaration: the config value is parsed and then dropped, so these are syntax, not settings.",
+      "comment": "compiler/parser.orb parseConfigDecl plus MigrationDecl, top-level only. port/cors/db/env/migrations parse and are then discarded (server hardcodes 3000 + argv[1]); `database` is not one of them.",
       "patterns": [
         {
-          "name": "keyword.other.config.orbit",
-          "match": "(?<=^|\\n)\\s*(port|cors|db|env)(?=\\s)"
+          "name": "meta.config.orbit",
+          "match": "^\\s*(port|cors|db|env|migrations)\\b",
+          "captures": {
+            "1": { "name": "keyword.other.config.orbit" }
+          }
         }
       ]
     },
     "http-methods": {
-      "comment": "Route methods, lexed as keywords by compiler/lexer.orb matchKeyword.",
+      "comment": "Route methods, lexed as keywords by compiler/lexer.orb matchKeyword. The #route-decl rule captures them with the path; this covers stray mentions.",
       "patterns": [
         {
           "name": "keyword.operator.http-method.orbit",
@@ -65,8 +83,30 @@
         }
       ]
     },
+    "route-decl": {
+      "comment": "compiler/parser.orb parseRouteDecl: `route METHOD \"path\" [limit ...] {`. Placed before #strings so the path keeps route scope. :id and {id} both capture one segment (doctor.orb); * matches without capture.",
+      "patterns": [
+        {
+          "name": "meta.route.orbit",
+          "match": "\\b(route)\\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\\s+(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "keyword.declaration.orbit" },
+            "2": { "name": "keyword.operator.http-method.orbit" },
+            "3": {
+              "name": "string.quoted.double.route-path.orbit",
+              "patterns": [
+                {
+                  "name": "variable.parameter.route-param.orbit",
+                  "match": ":[a-zA-Z_][a-zA-Z0-9_]*|\\{[a-zA-Z_][a-zA-Z0-9_]*\\}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "keywords-control": {
-      "comment": "compiler/lexer.orb matchKeyword, control half.",
+      "comment": "compiler/lexer.orb matchKeyword, control half. There is no `loop {}` body: the keyword is reserved but parsing one is an error, so use `while true`.",
       "patterns": [
         {
           "name": "keyword.control.orbit",
@@ -75,7 +115,7 @@
       ]
     },
     "keywords-declaration": {
-      "comment": "compiler/lexer.orb matchKeyword, declaration half. `mut` is the mutable-binding modifier, not a type.",
+      "comment": "compiler/lexer.orb matchKeyword, declaration half. `mut` is the mutable-binding modifier, not a type. `then` stays an ordinary identifier (contextual branch introducer).",
       "patterns": [
         {
           "name": "keyword.declaration.orbit",
@@ -84,16 +124,16 @@
       ]
     },
     "keywords-result": {
-      "comment": "ok/err/with belong to the result type; without this they read as ordinary identifiers.",
+      "comment": "ok/err are contextual (ordinary identifiers except after `return`, parser.orb): excluded after `.` (flags.ok) and before `:` ({ ok: ... }). `with` lexes but is reserved-unused (only fmt.orb names it).",
       "patterns": [
         {
           "name": "keyword.operator.result.orbit",
-          "match": "\\b(ok|err|with)\\b"
+          "match": "(?<!\\.)\\b(ok|err|with)\\b(?!\\s*:)"
         }
       ]
     },
     "types": {
-      "comment": "The names compiler/c_backend.orb mapTypeToC knows. `List`/`Map`/`Result`/`Response` really are types. A capitalised name it does NOT know - `Int`, `String`, `Any`, `DateTime` - becomes `Name*` in the emitted C, so it type-checks and then gcc says `unknown type name 'Int'`. The word is still a type-looking word here because that is how it reads, but see docs/LANGUAGE_REFERENCE.md.",
+      "comment": "The names compiler/c_backend.orb mapTypeToC knows: lowercase plus List/Map/Result/Response. Any other capitalised spelling (Int, String, Float, Bool, Void, Any, DateTime) is E1006, not a type. See docs/LANGUAGE_REFERENCE.md.",
       "patterns": [
         {
           "name": "storage.type.orbit",
@@ -102,10 +142,11 @@
       ]
     },
     "constants": {
+      "comment": "true/false are the only literals. null has no lexer keyword and no parser literal; a bare `null` is an undeclared identifier, so it is not highlighted.",
       "patterns": [
         {
           "name": "constant.language.orbit",
-          "match": "\\b(true|false|null)\\b"
+          "match": "\\b(true|false)\\b"
         }
       ]
     },
@@ -125,48 +166,140 @@
             { "include": "#interpolation" },
             {
               "name": "constant.character.escape.orbit",
-              "match": "\\\\(x[0-9A-Fa-f]{2}|[nrt\\\\\"'])"
+              "match": "\\\\(x[0-9A-Fa-f]{2}|[ntr0\\\\\"'])"
             }
           ]
         },
         {
-          "name": "constant.character.escape.char.orbit",
-          "match": "'(\\\\(x[0-9A-Fa-f]{2}|[nrt\\\\\"'])|[^\\\\'])'"
+          "comment": "Char literal: plain char or one escape \\n \\t \\r \\0 \\\\ \\' \\\". No \\xHH here (lexer char arm has no x branch).",
+          "name": "string.quoted.single.char.orbit",
+          "match": "'(\\\\[ntr0\\\\'\"]|[^\\\\'])'",
+          "captures": {
+            "1": { "name": "constant.character.escape.orbit" }
+          }
+        }
+      ]
+    },
+    "object-keys": {
+      "comment": "Object literal keys (parser.orb consumeObjectKey): bare identifiers and keywords (ok/err included), or quoted strings for dashed names. Placed after #strings; the {/, lookbehind wins at key position and never fires inside a string body.",
+      "patterns": [
+        {
+          "name": "entity.name.tag.object-key.orbit",
+          "match": "(?<=\\{|,)\\s*\\b([a-zA-Z_][a-zA-Z0-9_]*|ok|err)\\b\\s*(?=\\:)"
+        },
+        {
+          "name": "entity.name.tag.object-key.quoted.orbit",
+          "match": "(?<=\\{|,)\\s*(\"[^\"]*\")\\s*(?=\\:)"
         }
       ]
     },
     "interpolation": {
+      "comment": "One nesting level of braces is modelled; deeper nesting falls back to source.orbit until the first `}`. The language itself nests fully (parser.orb).",
       "patterns": [
         {
           "name": "meta.embedded.expression.orbit",
           "begin": "\\$\\{",
           "end": "\\}",
-          "patterns": [{ "include": "source.orbit" }]
+          "patterns": [
+            {
+              "name": "punctuation.section.braces.orbit",
+              "begin": "\\{",
+              "end": "\\}",
+              "patterns": [{ "include": "source.orbit" }]
+            },
+            { "include": "source.orbit" }
+          ]
         }
       ]
     },
     "numbers": {
-      "comment": "Decimal, digit separators, and one optional fractional part - which is all the lexer reads (compiler/lexer.orb isDigit branch: 0x hex, then digits with `_`, then `.` + a digit). There is NO exponent: `1.5e2` is the number 1 followed by junk and prints 1, and `2.5E3` declares a variable called E3 whose type is unknown to the C compiler. Highlighting the exponent here would teach a form the language cannot parse.",
+      "comment": "compiler/lexer.orb isDigit branch + literal.orb: 0x hex, 0b binary, 0o octal, decimal with `_` separators, optional fraction, optional e/E exponent which always forces float (1e2 is 100.0).",
       "patterns": [
         {
           "name": "constant.numeric.hex.orbit",
           "match": "\\b0[xX][0-9A-Fa-f](_?[0-9A-Fa-f])*\\b"
         },
         {
+          "name": "constant.numeric.binary.orbit",
+          "match": "\\b0[bB][01](_?[01])*\\b"
+        },
+        {
+          "name": "constant.numeric.octal.orbit",
+          "match": "\\b0[oO][0-7](_?[0-7])*\\b"
+        },
+        {
           "name": "constant.numeric.decimal.orbit",
-          "match": "\\b[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?\\b"
+          "match": "\\b[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?([eE][+-]?[0-9]+)?\\b"
+        }
+      ]
+    },
+    "rate-limit": {
+      "comment": "compiler/parser.orb route limit clause: `limit N[/unit] [burst M]`. Only min/sec/s/ms widen the window; any other unit silently defaults to 1000ms, so an unknown unit here reads as plain text on purpose. Placed before #numbers so the whole clause wins.",
+      "patterns": [
+        {
+          "name": "meta.rate-limit.orbit",
+          "match": "\\b(limit)\\s+([0-9][0-9_]*)\\s*(/\\s*(min|sec|s|ms))?\\s*(burst\\s+[0-9][0-9_]*)?",
+          "captures": {
+            "1": { "name": "keyword.operator.rate-limit.orbit" },
+            "2": { "name": "constant.numeric.decimal.rate.orbit" },
+            "4": { "name": "storage.type.time-unit.orbit" },
+            "5": { "name": "keyword.operator.rate-limit.orbit" }
+          }
+        }
+      ]
+    },
+    "schedule": {
+      "comment": "compiler/parser.orb ScheduleDecl: `every N unit [at T] => handler`. The unit is any identifier (not an enum), so it is scoped generically.",
+      "patterns": [
+        {
+          "name": "meta.schedule.orbit",
+          "match": "\\b(every)\\s+([0-9][0-9_]*)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(at\\s+[0-9][0-9_]*)?",
+          "captures": {
+            "1": { "name": "keyword.declaration.orbit" },
+            "2": { "name": "constant.numeric.decimal.orbit" },
+            "3": { "name": "storage.type.time-unit.orbit" },
+            "4": { "name": "keyword.control.orbit" }
+          }
+        }
+      ]
+    },
+    "import-path": {
+      "comment": "compiler/parser.orb: `import \"path\"`. A distinct path scope is affordance for Ctrl+click, not a language claim.",
+      "patterns": [
+        {
+          "match": "\\b(import)\\s+(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "keyword.declaration.orbit" },
+            "2": { "name": "string.quoted.double.import-path.orbit" }
+          }
         }
       ]
     },
     "operators": {
+      "comment": "compiler/lexer.orb + token.orb. No compound assigns (+= etc), no `?`, no bitwise/shift operators. Bare `|` separates union variants, `&` is the &T prefix, `: ; . ,` are delimiters.",
       "patterns": [
         {
           "name": "keyword.operator.orbit",
-          "match": "(==|!=|<=|>=|->|=>|\\+=|-=|\\*=|/=|&&|\\|\\||=|\\+|-|\\*|/|%|<|>|!|\\?)"
+          "match": "(==|!=|<=|>=|->|=>|&&|\\|\\||=|\\+|-|\\*|/|%|<|>|!|&|\\||:|;|\\.|,)"
+        }
+      ]
+    },
+    "builtins": {
+      "comment": "The req/system I/O surface (compiler/builder.orb). Placed before #functions so `query` in `req.query(` keeps builtin scope instead of the generic function one. Exactly these members lower to builtins; anything else (req.path, system.total, ...) is a generic member read.",
+      "patterns": [
+        {
+          "name": "meta.builtin-call.orbit",
+          "match": "\\b(req|system)\\s*(\\.)\\s*(file|param|body|json|query|bearer_token|has_role|role|header|uptime|pid|active_workers|http_requests_total|latency_avg_us|latency_p50_us|latency_p95_us|latency_p99_us)\\b",
+          "captures": {
+            "1": { "name": "support.class.orbit" },
+            "2": { "name": "punctuation.accessor.orbit" },
+            "3": { "name": "support.function.builtin.orbit" }
+          }
         }
       ]
     },
     "functions": {
+      "comment": "Catch-all, deliberately last: at the same start position an earlier rule (keywords, types, builtins) wins, so `if (`, `ok(` and `req.query(` keep their scopes.",
       "patterns": [
         {
           "name": "entity.name.function.orbit",

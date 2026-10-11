@@ -30,16 +30,28 @@ do.
 ## What it does
 
 - **Highlighting** for the keywords `orbit` actually lexes, taken from
-  `matchKeyword` in `compiler/lexer.orb` - including hex and
-  digit-separated numbers, `"""` raw strings, `'c'` character literals and
-  `${...}` interpolation holes.
+  `matchKeyword` in `compiler/lexer.orb` - including hex, binary and octal,
+  digit-separated numbers with `e/E` exponents, `"""` raw strings, `'c'`
+  character literals and `${...}` interpolation holes.
 - **Diagnostics on save.** The extension runs `orbit check <file>` and puts
   what comes back in the Problems panel. Save a clean file and the list
   empties.
 - **`Orbit: Check File`** from the Command Palette, or click the status bar
-  item.
-- **`Orbit: Build and Run File`**, which opens a terminal and runs
+  item. Saves first, because `check` reads from disk.
+- **`Orbit: Format File`**, which runs `orbit fmt <file>` (`fmt` rewrites only
+  on success; a parse error warns and leaves the buffer alone). Also wired as
+  the document formatter, so "Format Document" works.
+- **`Orbit: Build and Run File`**, which reuses one terminal and runs
   `orbit run <file>` so the server keeps the terminal.
+- **Completion without a language server.** A static provider suggests the 14
+  real `std/` paths inside `import "..."`, the 8 `req.*` and 8 `system.*`
+  members after their dot, the 5 model methods after `Note.`, HTTP methods
+  after `route `, and keywords/types/builtins at top level - plus 24 snippets.
+  There is deliberately no hover or go-to-definition: without the compiler's
+  type table those would be guesses, and a guessed type is how `check`-clean
+  programs segfault.
+- **Output channel `Orbit`** for skipped-check text; the status bar shows
+  checking, clean, N problems, or not-found.
 
 If no `orbit` binary is found, the extension says so once, leaves the status
 bar greyed out, and keeps highlighting. It does not throw.
@@ -69,7 +81,7 @@ bash scripts/install.sh
    ```
 2. Install in VS Code:
    ```bash
-   code --install-extension orbit-0.1.0.vsix
+   code --install-extension orbit-0.1.0-rc.2.vsix
    ```
 
 ---
@@ -78,16 +90,23 @@ bash scripts/install.sh
 
 | Setting | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `orbit.executablePath` | `string` | `""` | Absolute path to the `orbit` or `orbit.exe` binary. Empty searches `PATH`, then `~/.orbit/bin`, then the workspace root. |
+| `orbit.executablePath` | `string` | `""` | Absolute path to the `orbit` or `orbit.exe` binary. Empty searches `PATH`, then `~/.orbit/bin`, then the workspace root. A path that does not exist warns once and falls back to the search. |
+| `orbit.checkOnSave` | `boolean` | `true` | Run `orbit check` on save and show diagnostics in the Problems panel. |
+| `orbit.maxProblems` | `number` | `100` | Maximum diagnostics kept per file. |
+
+Run builds from the repository root so `std/` imports resolve (the compiler
+checks the binary dir, its parent, then the working directory).
 
 ---
 
 ## Syntax Highlighting Preview
 
 Everything below is a program `orbit check` accepts. The declaration forms
-`port`, `cors`, `db` and `env` are **parsed and then discarded** - the
+`port`, `cors`, `db`, `env` and `migrations` are **parsed and then discarded** - the
 generated server hardcodes port 3000 and takes an override from `argv[1]` -
-so they are syntax to read, not settings to rely on.
+so they are syntax to read, not settings to rely on. There is no `database`
+declaration (only `db`), and decorators such as `@auth` carry no semantics on
+their own; auth is `req.bearer_token()` / `req.has_role()`.
 
 ```orbit
 // A config declaration parses. It does not configure anything today.
@@ -99,17 +118,21 @@ model User {
     role: string
 }
 
-@auth
 route GET "/users" {
     val users = User.all()
-    return users
+    return ok 200 users
 }
 
-// Types are the six lowercase names. `Int` is accepted and becomes `void*`.
-fn count(list: list) -> int {
-    return list.len()
+// Types are lowercase, plus List/Map/Result/Response. `Int` is E1006, not a type.
+fn count(xs: list<string>) -> int {
+    return xs.len()
 }
 ```
+
+Types the compiler knows: `int`, `float`, `string`, `bool`, `void`,
+`list`/`map`/`object`/`result`/`response` (plus `list<T>` element
+annotations), with `List`, `Map`, `Result`, `Response` as the same four
+capitalised spellings. See [the language reference](../../docs/LANGUAGE_REFERENCE.md).
 
 ## Running the parser test
 
@@ -117,7 +140,19 @@ The diagnostic parser has no VS Code dependency and no test framework:
 
 ```bash
 node editors/vscode/test/diagnostics_test.js
+# or from editors/vscode:
+npm test
 ```
+
+## Developing
+
+```bash
+cd editors/vscode
+node ./test/diagnostics_test.js   # parser fixtures, verbatim `orbit check` output
+npx @vscode/vsce package          # produces orbit-0.1.0-rc.2.vsix
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in this package.
 
 ---
 

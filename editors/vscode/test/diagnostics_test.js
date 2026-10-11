@@ -95,6 +95,36 @@ test('C step failure text does not become a phantom diagnostic', () => {
     assert.deepStrictEqual(out, []);
 });
 
+test('hyphenated/slashed code still parses', () => {
+    const out = parseDiagnostics(
+        'error[return/missing-value]: missing value\n' +
+        '  --> a.orb:2:4\n'
+    );
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].code, 'orbit-return/missing-value');
+    assert.strictEqual(out[0].line, 1);
+    assert.strictEqual(out[0].column, 3);
+});
+
+test('windows drive path keeps its location', () => {
+    const out = parseDiagnostics(
+        'error[E0301]: unexpected token \'CloseBrace\'\n' +
+        '  --> C:\\proj\\d4.orb:1:34\n'
+    );
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].line, 0);
+    assert.strictEqual(out[0].column, 33);
+});
+
+test('usage and unreadable text produce no diagnostics', () => {
+    assert.deepStrictEqual(parseDiagnostics('Usage: orbit check <file.orb> [--quiet] [--verbose]\n'), []);
+    assert.deepStrictEqual(
+        parseDiagnostics('orbit check: could not read input file \'Untitled-1\'.\n'),
+        []
+    );
+    assert.deepStrictEqual(parseDiagnostics('Unknown command: lsp\n'), []);
+});
+
 if (failures > 0) {
     console.log('\n' + failures + ' failing');
     process.exit(1);

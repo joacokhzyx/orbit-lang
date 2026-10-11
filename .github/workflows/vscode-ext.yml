@@ -1,0 +1,39 @@
+name: vscode-ext
+
+# Hermetic and fast: pure node tests plus `vsce package` (file collect + zip).
+# No compiler build, no display server. Publishing stays manual (`vsce publish`
+# needs VSCE_PAT); this job only proves the extension tests green and packs.
+on:
+  push:
+    paths:
+      - 'editors/vscode/**'
+      - '.github/workflows/vscode-ext.yml'
+  pull_request:
+    paths:
+      - 'editors/vscode/**'
+
+jobs:
+  ext:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Extension tests (no framework, plain node)
+        run: npm --prefix editors/vscode test
+      - name: Extension and compiler versions move together
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('editors/vscode/package.json', 'utf8'));
+          const log = fs.readFileSync('editors/vscode/CHANGELOG.md', 'utf8');
+          if (!log.includes('## [' + pkg.version + ']')) {
+            console.error('CHANGELOG has no ## [' + pkg.version + '] header for package.json ' + pkg.version);
+            process.exit(1);
+          }
+          console.log('version sync ok: ' + pkg.version);
+          "
+      - name: Package (.vsix, not published)
+        run: npx -y @vscode/vsce@4.0.0 package --no-yarn
+        working-directory: editors/vscode

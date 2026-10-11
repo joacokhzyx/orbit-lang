@@ -8,15 +8,34 @@
     ],
     "description": "A main that returns an int exit code"
   },
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:add}(left: int, right: int) -> int {",
+      "    return left + right",
+      "}"
+    ],
+    "description": "A typed function. Annotate bindings at string/int boundaries."
+  },
+  "Immutable binding": {
+    "prefix": "val",
+    "body": ["val ${1:name}: ${2:int} = ${3:0}"],
+    "description": "An immutable binding. Top-level val needs an int/bool literal; var at file scope is E1007."
+  },
   "ORM Model": {
     "prefix": "model",
     "body": [
-      "model ${1:User} {",
+      "model ${1:Note} {",
       "    id: string",
-      "    ${2:username}: string",
+      "    ${2:title}: string",
       "}"
     ],
     "description": "A model. Its table is created at startup; field types are string, int, float or bool."
+  },
+  "Model read": {
+    "prefix": "modelread",
+    "body": ["val ${1:posts} = ${2:Note}.all()"],
+    "description": "Read all rows: Note.all(), Note.where(\"author_id = ?\", who)"
   },
   "HTTP Route": {
     "prefix": "route",
@@ -27,10 +46,103 @@
     ],
     "description": "A route handler. Return ok/err, a string, or an object literal."
   },
-  "Result error": {
+  "Route with path param": {
+    "prefix": "routeparam",
+    "body": [
+      "route GET \"${1:/notes/:id}\" {",
+      "    val ${2:id} = req.param(\"${2:id}\")",
+      "    return ok { ${3:note}: ${2:id} }",
+      "}"
+    ],
+    "description": "A route capturing :id (or {id}); static routes win, * matches without capture"
+  },
+  "Route error": {
     "prefix": "err",
-    "body": ["err ${1:400} \"${2:message}\""],
-    "description": "Return a failed result from a handler"
+    "body": ["err ${1:401} \"${2:unauthorized}\""],
+    "description": "Route-only error reply. In a -> result fn use err(\"msg\", code) instead."
+  },
+  "Route success with status": {
+    "prefix": "okret",
+    "body": ["return ok ${1:200} ${2:payload}"],
+    "description": "Route success response with explicit status. Use err for 4xx/5xx (ok rejects them at check time)."
+  },
+  "Rate-limited route": {
+    "prefix": "routelimit",
+    "body": [
+      "route ${1|GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS|} \"${2:/heavy}\" limit ${3:100}/min burst ${4:20} {",
+      "    return ok { ${5:status}: \"ok\" }",
+      "}"
+    ],
+    "description": "Route with limit rate/unit (min/sec/s/ms) plus optional burst. At most 32 annotated routes."
+  },
+  "Model CRUD": {
+    "prefix": "modelcrud",
+    "body": [
+      "val ${1:rows} = ${2:Note}.all()",
+      "val ${3:filtered} = ${2:Note}.where(\"${4:author_id} = ?\", ${5:author})",
+      "val ${6:saved} = ${2:Note}.create(${7:payload})",
+      "val ${8:gone} = ${2:Note}.delete(${9:id})"
+    ],
+    "description": "Model ORM: all, where (2-arg form is parameterized), create, delete."
+  },
+  "Request helper": {
+    "prefix": "req",
+    "body": ["req.${1|param,query,body,header,bearer_token,has_role,role,file|}(${2})"],
+    "description": "Request builtin. Only these members lower to builtins; anything else is a generic member read."
+  },
+  "System telemetry": {
+    "prefix": "system",
+    "body": ["system.${1|uptime,pid,active_workers,http_requests_total,latency_avg_us,latency_p50_us,latency_p95_us,latency_p99_us|}()"],
+    "description": "Live runtime counter, always () -> int. Percentiles are bucket edges."
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": ["enum ${1:Role} { ${2:Admin}, ${3:Member} }"],
+    "description": "Closed alternatives. union for tagged variants, type X = Y for an alias."
+  },
+  "While loop": {
+    "prefix": "while",
+    "body": ["while ${1:cond} {", "    ${2}", "}"],
+    "description": "Loop form. There is no loop {} body (parse error); use while true."
+  },
+  "For loop": {
+    "prefix": "for",
+    "body": ["for ${1:item} in ${2:items} {", "    ${3}", "}"],
+    "description": "Iterate a list; the loop variable takes the element type."
+  },
+  "Result value": {
+    "prefix": "ok",
+    "body": ["val ${1:value}: result = ok(${2:41})"],
+    "description": "Construct a result value. In a -> result fn, bind first: return ok(expr) parses as a route response."
+  },
+  "Try catch": {
+    "prefix": "try",
+    "body": [
+      "val ${1:value}: int = try ${2:load_value()} catch ${3:e} {",
+      "    print(${3:e})",
+      "    return 0",
+      "}"
+    ],
+    "description": "Unwrap a result. catch runs on the failed branch; naming it binds the error string."
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:s} {",
+      "    ${2:Shape}.Circle(${3:r}) => {",
+      "        return ${3:r} * 3",
+      "    }",
+      "    ${2:Shape}.Empty => {",
+      "        return 0",
+      "    }",
+      "}"
+    ],
+    "description": "Exhaustive match on a union variant. Expression arms use _ for the default."
+  },
+  "Typed list": {
+    "prefix": "list",
+    "body": ["val ${1:xs}: list<${2:int}> = [${3:10}, ${4:20}]"],
+    "description": "A list with a declared element type. Bare list takes it from the first push."
   },
   "Object literal": {
     "prefix": "obj",
@@ -40,32 +152,21 @@
       "    ${2:count}: ${3:0}",
       "}"
     ],
-    "description": "A value, not text. Fields may be string, int, float, bool or another object."
-  },
-  "Path parameter": {
-    "prefix": "param",
-    "body": ["req.param(\"${1:id}\")"],
-    "description": "Read a captured :id or {id} segment"
+    "description": "A value, not text. Fields may be string, int, float, bool, a list of those, or another object."
   },
   "Raw string": {
     "prefix": "raw",
     "body": ["\"\"\"${1:body}\"\"\""],
     "description": "A triple-quoted string with no escape processing; ${holes} still interpolate"
   },
-  "Match": {
-    "prefix": "match",
-    "body": [
-      "match ${1:subject} {",
-      "    ${2:Variant}(${3:payload}) => {",
-      "        ${4:print(payload)}",
-      "    }",
-      "}"
-    ],
-    "description": "One arm of a match. An arm is Variant(binding) => { ... }; name a real variant of the union or result you are matching."
-  },
   "Standard library import": {
     "prefix": "import",
-    "body": ["import \"std/${1:string/string}.orb\""],
-    "description": "A std import. It resolves against the compiler binary's directory, its parent, then the working directory."
+    "body": ["import \"std/${1:area}/${2:module}.orb\""],
+    "description": "A std import (all lowercase). Resolves against the binary dir, its parent, then cwd; build from the repo root."
+  },
+  "Relative import": {
+    "prefix": "importrel",
+    "body": ["import \"./${1:helpers}.orb\""],
+    "description": "A relative import. Flat global namespace; duplicate symbols are an error."
   }
 }

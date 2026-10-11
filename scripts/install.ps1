@@ -77,7 +77,7 @@ if (Test-Path $ExtensionSrc) {
         New-Item -ItemType Directory -Path $VsCodeDir -Force | Out-Null
     }
     Copy-Item -Path "$ExtensionSrc\*" -Destination $VsCodeDir -Recurse -Force
-    Write-Host "[+] Registered Orbit VS Code Extension & LSP in: $VsCodeDir" -ForegroundColor Green
+    Write-Host "[+] Registered Orbit VS Code Extension (syntax + orbit check; no language server) in: $VsCodeDir" -ForegroundColor Green
 }
 
 Write-Host ""

@@ -71,7 +71,7 @@ VSCODE_EXT_DIR="$HOME/.vscode/extensions/orbit-lang"
 if [ -d "$ROOT_DIR/editors/vscode" ]; then
     mkdir -p "$VSCODE_EXT_DIR"
     cp -r "$ROOT_DIR/editors/vscode/"* "$VSCODE_EXT_DIR/"
-    echo "[+] Registered Orbit VS Code Extension & LSP in $VSCODE_EXT_DIR"
+    echo "[+] Registered Orbit VS Code Extension (syntax + orbit check; no language server) in $VSCODE_EXT_DIR"
 fi
 
 echo ""

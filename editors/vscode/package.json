@@ -1,0 +1,106 @@
+{
+  "publisher": "orbit-lang",
+  "name": "orbit",
+  "displayName": "Orbit",
+  "description": "Syntax highlighting and `orbit check` diagnostics for the Orbit language (.orb). No language server: `orbit` has no `lsp` subcommand.",
+  "version": "0.1.0-rc.2",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joacokhzyx/orbit-lang.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/joacokhzyx/orbit-lang/tree/main/editors/vscode",
+  "bugs": {
+    "url": "https://github.com/joacokhzyx/orbit-lang/issues"
+  },
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#0b0e14",
+    "theme": "dark"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "orbit",
+    "orb",
+    "linter",
+    "check",
+    "diagnostics"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "activationEvents": [
+    "onLanguage:orbit"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "orbit",
+        "aliases": [
+          "Orbit"
+        ],
+        "extensions": [
+          ".orb"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "orbit",
+        "scopeName": "source.orbit",
+        "path": "./syntaxes/orbit.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "orbit",
+        "path": "./snippets/orbit.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "orbit.checkActiveFile",
+        "title": "Orbit: Check File"
+      },
+      {
+        "command": "orbit.formatActiveFile",
+        "title": "Orbit: Format File"
+      },
+      {
+        "command": "orbit.runActiveFile",
+        "title": "Orbit: Build and Run File"
+      }
+    ],
+    "configuration": {
+      "title": "Orbit",
+      "properties": {
+        "orbit.executablePath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the `orbit` (or `orbit.exe`) binary. Empty searches PATH, then ~/.orbit/bin, then the workspace root."
+        },
+        "orbit.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run `orbit check` on save and show diagnostics in the Problems panel."
+        },
+        "orbit.maxProblems": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum diagnostics kept per file. The rest are dropped, not queued."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node ./test/diagnostics_test.js && node ./test/extension_test.js && node ./test/grammar_test.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {}
+}

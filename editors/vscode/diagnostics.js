@@ -10,8 +10,11 @@
 
 // error[E0301]: unexpected token 'CloseBrace'
 //   --> d4.orb:1:34
-const HEAD = /^error\[([A-Za-z0-9]+)\]:\s*(.*)$/;
-const LOCATION = /^\s*-->\s*(.+?):(\d+):(\d+)\s*$/;
+// Codes may contain `-`, `/` or `.` (e.g. build-only `return/missing-value`),
+// so the class is wider than alphanumerics.
+const HEAD = /^error\[([A-Za-z0-9_.\/-]+)\]:\s*(.*)$/;
+// Greedy file group so a Windows `C:\...:line:col` path keeps its drive colon.
+const LOCATION = /^\s*-->\s*(.+):(\d+):(\d+)\s*$/;
 const PARSER = /^Parser error at line (\d+):\s*(.*)$/;
 const SEMANTIC = /^Semantic error:\s*(.*?)(?:\s*\[in [^[\]]+\])?\s*$/;
 const IMPORT = /^Import error:\s*(.*)$/;
