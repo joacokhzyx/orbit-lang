@@ -3,12 +3,17 @@
 
 Usage:
     python scripts/cli_probe.py --compiler <orbit-binary> [--work DIR]
+    python scripts/cli_probe.py --specimen
 
 Exits 0 iff every case matches its expectation. Cases run in an empty
 work directory so ambient state (.orbit/, repo files) cannot leak in.
 Expected table derives from docs/COMMANDS.md plus the CLI-1 decisions:
 unknown top-level command -> usage on stderr, exit 2; operational
 errors go to stderr with an `orbit <cmd>:` prefix; --help exits 0.
+
+--specimen prints the static output-grammar specimen (one section per
+tool) so tone can be reviewed without running a bootstrap. Nothing
+there executes a gate.
 """
 
 import argparse
@@ -22,6 +27,42 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SPECIMEN = """\
+--- suite -----------------------------------------------
+Testing arith ... exit 0 as expected
+Failed notes_write: got exit 1, want 0
+Finished suite: 20/21 pass
+
+--- parity ----------------------------------------------
+Checking r1_route_only ... match (C)
+Failed r12_route_err: mismatch (line 2: expected 'kind=DIAG' got 'kind=C')
+Finished parity: 30/31 match goldens
+
+--- cli-probe -------------------------------------------
+Probing build-quiet ... ok
+Failed check-missing: rc=0 (want 1)
+Finished cli-probe: 34/35 pass
+
+--- verify / bootstrap ----------------------------------
+Running build seed from canonical C ...
+Verified seed C fixed point (seed C == canonical C) ... ok
+Finished bootstrap: converged (matches canonical).
+
+--- load / gates ----------------------------------------
+Loading 127.0.0.1:4102 /health x2 (source ips: 0) ...
+  completed=200 ok_2xx=200 transport_errors=0 error_rate=0.000% elapsed=20.03s
+Phase B passed: ok=5 denied=20 retry_after='1' elapsed=0.21s
+Finished kynx gate: PASS
+
+--- orbit build, C step fails ---------------------------
+orbit build: couldn't finish the C step - this one is on me, not your code.
+  Your program translated cleanly; the C compiler rejected my output:
+  <build>:35703:12: error: assignment to integer from pointer without a cast
+  ... 34 more lines (full log: <tmp>/orbit_build.cc.log)
+  Tip: run `orbit check app.orb` first - if that passes, file an issue
+  with the .orb file and I'll read it.
+"""
 
 SETUP = {
     "files/case.orb": "fn main() -> int {\nreturn 0\n}\n",
@@ -277,9 +318,16 @@ def one(compiler, work, name, argv, exp_rc, stream, needle, absent="", env_extra
 
 def main():
     ap = argparse.ArgumentParser(description="Probe the orbit CLI contract")
-    ap.add_argument("--compiler", required=True)
+    ap.add_argument("--compiler", default=None)
     ap.add_argument("--work", default=None)
+    ap.add_argument("--specimen", action="store_true",
+                    help="print the static output-grammar specimen and exit")
     args = ap.parse_args()
+    if args.specimen:
+        print(SPECIMEN, end="")
+        return 0
+    if not args.compiler:
+        ap.error("--compiler is required unless --specimen is given")
     work = os.path.abspath(args.work) if args.work else tempfile.mkdtemp(prefix="orbit_cli_")
     os.makedirs(work, exist_ok=True)
     for rel, content in SETUP.items():

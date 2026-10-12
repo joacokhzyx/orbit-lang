@@ -166,7 +166,7 @@ def registry(compiler, cc, work):
         # it is the only gate that builds a service and starts it.
         # These two run their SELF-TESTS, and the reason is a measurement.
         # alive_check took 11 minutes on windows-latest against 2.5 on ubuntu,
-        # and 8 of those 11 were kynx_live_gate re-running its load phase. Both
+        # and 8 of those 11 were the Kynx gate re-running its load phase. Both
         # tools are gates that already ran, moments earlier, in this same job --
         # alive_check re-executing them proves nothing the previous line did not,
         # and it doubles the most expensive thing in CI.
@@ -174,19 +174,20 @@ def registry(compiler, cc, work):
         # What D8 actually asks is whether the tool can still FAIL, and both
         # carry a --self-test that asserts exactly that: runtime_c_tests builds
         # a file that does not compile and a program that exits non-zero, and
-        # kynx_live_gate asserts its readiness loop reports "not ready" in
-        # bounded time. That is the guarantee, at three seconds instead of eight
-        # minutes.
+        # kynx_gate asserts its readiness loop reports "not ready" in
+        # bounded time plus every subcommand failing cleanly on a dead port.
+        # That is the guarantee, at seconds instead of eight minutes.
         Tool("runtime_c_tests.py", "gate",
              "the eleven runtime C test programs; self-test here because the "
              "real run is a gate that just executed",
              lambda: _script("runtime_c_tests.py", "--self-test"),
              r"Finished runtime-c self-test", 120, allow_rc=(0, 1)),
-        Tool("kynx_live_gate.py", "gate",
-             "builds and bursts a live service; self-test here because the real "
-             "run is a gate that just executed",
-             lambda: _script("kynx_live_gate.py", "--self-test"),
-             r"Finished kynx-gate self-test", 120, allow_rc=(0, 1)),
+        Tool("kynx_gate.py", "gate",
+             "builds and bursts a live service; --self-test proves the "
+             "readiness loop plus all four subcommands (live shares it, "
+             "route-limit, burst, load) without starting a server",
+             lambda: _script("kynx_gate.py", "--self-test"),
+             r"Finished kynx-gate self-test", 300),
         # ---- gates that already fail on their own in CI -------------------
         # Every row in this block allows a non-zero exit as well as zero, and
         # that is a change of question, not a loosening. This check asks "does
@@ -240,10 +241,15 @@ def registry(compiler, cc, work):
         # The scope gate: named directories must be clean. Not the whole repo --
         # tests/negative, tests/doctor and tests/parity are deliberately broken
         # fixtures, and examples/ is independent services whose routes collide
-        # when read as one program. See the CI step for the full reasoning.
-        Tool("doctor_scope_gate.py", "gate",
-             "the directories that must have no doctor findings: compiler, std, tests/suite",
-             lambda: _script("doctor_scope_gate.py", "--compiler", compiler),
+        # when read as one program. A second row for doctor_gate.py on purpose:
+        # the goldens and the scope check are different code paths in one file.
+        # Was scripts/doctor_scope_gate.py, folded in because the two shared
+        # everything but the scan loop.
+        Tool("doctor_gate.py", "gate",
+             "scope-only mode: the directories that must have no doctor "
+             "findings: compiler, std, tests/suite",
+             lambda: _script("doctor_gate.py", "--scope-only",
+                             "--compiler", compiler),
              r"Finished doctor_scope: \d+ director", 300, allow_rc=(0, 1),
              needs=("compiler",)),
         Tool("doctor_gate.py", "gate",
@@ -280,10 +286,11 @@ def registry(compiler, cc, work):
              "being right, not the tool being dead",
              lambda: _script("verify_seed.py", "--cc", cc),
              r"fixed point", 900, allow_rc=(0, 1), cost="heavy"),
-        Tool("kynx_route_limit_gate.py", "gate",
-             "live route-limit gate; needs the blog_api server, which CI starts "
-             "and this check does not",
-             lambda: _script("kynx_route_limit_gate.py", "--port", "9",
+        Tool("kynx_gate.py", "gate",
+             "live route-limit gate; the live server is started by the live "
+             "subcommand, which CI runs; this row asserts the route-limit "
+             "phase fails cleanly with no server",
+             lambda: _script("kynx_gate.py", "route-limit", "--port", "9",
                              "--burst-path", "/gate-burst"),
              r"Finished kynx gate: FAIL", 120, allow_rc=(1,), expect_fail=True),
 
@@ -322,10 +329,13 @@ def registry(compiler, cc, work):
              "repo's dist/, so 'just run it to see if it works' is not free",
              lambda: _script("amalgamate.py", "--out", _tmp(work, "amalg", "seed.c")),
              r"Wrote .*seed\.c \(\d+\.\d+ MB\)", 300),
-        Tool("preview_output.py", "measurement",
-             "the style specimen; it prints examples and executes no gate, so "
-             "the only thing that can rot is the file itself",
-             lambda: _script("preview_output.py"),
+        Tool("cli_probe.py", "measurement",
+             "the style specimen (--specimen): static examples of the output "
+             "grammar, so tone can be reviewed without running a bootstrap. "
+             "A second row for cli_probe.py on purpose -- the probe and the "
+             "specimen are different code paths in one file, and one row only "
+             "proves one of them runs",
+             lambda: _script("cli_probe.py", "--specimen"),
              r"--- suite -+", 60),
 
         # ---- report-only: this check is their only coverage -----------------
@@ -356,17 +366,17 @@ def registry(compiler, cc, work):
                              "--phases", "1", "--interval-ms", "1"),
              r"^Finished measure: \d+ phase record\(s\) written$", 900,
              allow_rc=(0, 1, 2), cost="heavy"),
-        Tool("night_load.py", "report",
+        Tool("kynx_gate.py", "report",
              "HTTP load generator, in NO CI step, and it USED to exit 0 against "
              "a dead port having measured nothing. Now it must fail when zero "
              "requests completed, which is what the marker below is checking",
-             lambda: _script("night_load.py", "--port", "9", "--requests", "2",
+             lambda: _script("kynx_gate.py", "load", "--port", "9", "--requests", "2",
                              "--duration", "1"),
              r"Failed night_load|Finished night-load: \d+ completed", 120,
              allow_rc=(0, 1)),
-        Tool("kynx_burst_probe.py", "report",
+        Tool("kynx_gate.py", "report",
              "429 admission-control probe, in NO CI step",
-             lambda: _script("kynx_burst_probe.py", "--port", "9",
+             lambda: _script("kynx_gate.py", "burst", "--port", "9",
                              "--requests", "2", "--threads", "1",
                              "--timeout", "1"),
              r"Finished burst probe: FAIL", 120, allow_rc=(1,), expect_fail=True),
@@ -422,9 +432,10 @@ STATIC_ROWS = [
     ("unknown_census.orb", "the census probe program. THIS is the file that "
      "rotted silently in D8: the F-0004 fix stopped it building and the only "
      "symptom was a line on stderr", None),
-    ("demo-ledger-server.c", "a C fixture for a demo, not compiled by any gate. "
-     "Recorded rather than checked: compiling it needs the demo's own inputs",
-     None),
+    ("../examples/demo-ledger-server.c", "a C fixture for a demo, not "
+     "compiled by any gate. Recorded rather than checked: compiling it needs "
+     "the demo's own inputs. It lives in examples/ because that is what it "
+     "is; the ../ is the row reaching outside scripts/", None),
     ("baselines/unknown_count.json", "the D7 ratchet baseline. Checked against "
      "the shape the gate that reads it requires", _check_unknown_baseline),
     # baselines/diff_fuzz.json was here and is not any more. The D9 ratchet is
@@ -445,16 +456,6 @@ COVERAGE_EXEMPT = {
                       "--self-test (eight broken tools, each failure class "
                       "required) and the coverage assertion below, which is the "
                       "one thing only this file can do.",
-    "diff_fuzz_ratchet.py": "retired when the differential fuzzer reached 0 "
-                            "disagreements in 678 cases. Its own rule is the "
-                            "reason: the baseline has to carry a non-empty "
-                            "by_class map so every row is a count that can "
-                            "only fall, and a corpus with no disagreements has "
-                            "no rows. A ratchet floored at zero cannot catch a "
-                            "regression, because a regression is the number "
-                            "going up. The tool is kept and still readable; it "
-                            "is not run by anything, and the corpus is the "
-                            "evidence now rather than a baseline.",
 }
 
 SHELL_ROWS = [
@@ -693,45 +694,6 @@ def ctx_cache():
                           os.path.join(os.environ.get("TMPDIR", "/tmp"), "orbit_ccache"))
 
 
-# --------------------------------------------------------------------------
-def seed_diff_fuzz_reader(work):
-    """Write the one-finding document the D9 ratchet row is driven with.
-
-    It carries the REAL baseline's corpus_sha and a count of 1, so the ratchet
-    reaches the "held" verdict through its real reader and its real baseline
-    loader. Any other sha and the row would be asserting the corpus-moved path,
-    which is a different branch and a much weaker aliveness question.
-
-    Written from the baseline rather than hard-coded so this cannot rot into
-    asserting nothing: if the baseline moves, the document moves with it, and a
-    baseline whose shape changed makes this fail loudly here rather than make
-    the ratchet row pass for the wrong reason.
-    """
-    import json
-    base = os.path.join(SCRIPTS, "baselines", "diff_fuzz.json")
-    path = os.path.join(work, "difffuzz_alive.json")
-    try:
-        with open(base, encoding="utf-8") as fh:
-            committed = json.load(fh)
-        doc = {"seed": committed["seed"], "iterations": committed["iterations"],
-               "batch": 40, "corpus_sha": committed["corpus_sha"],
-               "cases": committed["cases"], "agree": committed["cases"] - 1,
-               "findings": [{"class": "aliveness/one-synthetic-finding",
-                             "source": "print(0)", "kind": "value",
-                             "expect": "0", "note": "",
-                             "problem": "synthetic, written by alive_check.py",
-                             "status": "ok", "observed": "0"}]}
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh)
-    except (OSError, ValueError, KeyError):
-        # Leave the file absent. The ratchet row then fails, which is the
-        # correct outcome: a synthetic document that could not be built must not
-        # turn into a skipped check.
-        if os.path.exists(path):
-            os.remove(path)
-    return path
-
-
 def main():
     ap = argparse.ArgumentParser(
         description="Every tool in scripts/ has to prove it still works (D8)")
@@ -758,8 +720,6 @@ def main():
     os.makedirs(work, exist_ok=True)
     have_compiler = bool(args.compiler) and os.path.isfile(args.compiler)
     ctx = {"cc": args.cc, "ccache": ctx_cache()}
-
-    seed_diff_fuzz_reader(work)
 
     tools = registry(args.compiler, args.cc, work)
     if args.only:

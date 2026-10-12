@@ -199,7 +199,7 @@ them is something to fix:
 | D006/D007 | 28 | whitespace, which were real and are fixed |
 
 So the gate names what must be clean instead of baselining the rest.
-`scripts/doctor_scope_gate.py` runs doctor over `compiler`, `std` and
+`scripts/doctor_gate.py --scope-only` runs doctor over `compiler`, `std` and
 `tests/suite`, and those three are expected to produce nothing. Four dead
 models came out of making that true: `IRTraitMethod` and `Loc` in the
 compiler, `JwtHeader` and `JwtToken` in std.

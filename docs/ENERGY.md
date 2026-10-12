@@ -79,9 +79,9 @@ never depends on a package install:
 
 | Tool | Used for |
 |---|---|
-| `scripts/night_load.py` | keep-alive HTTP load with latency percentiles and per-source-IP control |
+| `scripts/kynx_gate.py load` | keep-alive HTTP load with latency percentiles and per-source-IP control |
 | `scripts/measure_selfhost.py` | per-phase wall time, peak RSS and output size of the self-host bootstrap |
-| `scripts/demo-ledger-server.c` | a loopback fixture that exercises the cost ledger and the energy sampler |
+| `examples/demo-ledger-server.c` | a loopback fixture that exercises the cost ledger and the energy sampler |
 | `runtime/pulse.c` | the `/_pulse` and `/_pulse/data` telemetry surface |
 
 A report adds the machine and configuration record required above and does not
@@ -162,7 +162,7 @@ from the repository, so the magnitudes are gone and the findings are kept.
   `energy_source cpu-proxy` and `joules_total 0.0`, and idle watts are
   reported as absent rather than as a number. Joule figures are never
   synthesised from cycle counts on a platform with no meter.
-- **The ledger counts every request.** Driving `scripts/demo-ledger-server.c`
+- **The ledger counts every request.** Driving `examples/demo-ledger-server.c`
   with keep-alive traffic, the ledger's per-route request count matched the
   driver's count exactly, with no drift over thousands of requests. The few
   connection resets observed came from the fixture's own keep-alive cap, not
@@ -185,7 +185,7 @@ from the repository, so the magnitudes are gone and the findings are kept.
 2. Idle 10 s with no traffic, fetch `/_ledger/data`, confirm `energy_source
    rapl-estimate` and note `idle_watts` behavior.
 3. Drive a fixed load (for example 2000 keep-alive requests) with
-   `scripts/night_load.py`, confirm per-route `joules_total` sums to
+   `scripts/kynx_gate.py load`, confirm per-route `joules_total` sums to
    approximately the attributable joules, and confirm `joules_per_req` is
    stable across repeats.
 4. Re-run the whole measurement and confirm the per-route figures stay inside

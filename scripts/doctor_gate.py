@@ -217,6 +217,168 @@ def scratch_env(parent_env=None):
     return build_env(tmp, parent=parent_env), tmp
 
 
+# --------------------------------------------------------------------------
+# --scope-only: doctor over the directories that must have no findings.
+#
+# The interesting thing this encodes is what it does NOT cover. `orbit doctor .`
+# over this repository reports 196 findings, and nearly all of them are
+# directories that are supposed to be broken:
+#
+#   57 D008  in tests/negative, tests/doctor and tests/parity -- fixtures that
+#            must not compile, and whose whole purpose is to not compile
+#  105 D002  route collisions inside those same corpora, plus 17 across
+#            examples/, which is a directory of INDEPENDENT services and whose
+#            five GET /health handlers are five services, not one bug
+#
+# Baselining those would mean a file of 196 lines vouching for a state nobody
+# wants. Naming the directories that must be clean says what we actually mean,
+# and says it in one screen instead of 196.
+#
+# examples/ is absent on purpose. A tree scan reads independent services as one
+# program's route table, which is the correct analysis of the wrong input; scan it
+# per service when that is the question. docs/DOCTOR.md documents this.
+#
+# This used to be scripts/doctor_scope_gate.py. It is a mode of this gate now
+# because the two shared everything but the scan loop: the scratch environment,
+# the compiler, and the finding-line parser. One file, one row.
+# --------------------------------------------------------------------------
+
+# Directories that must produce zero findings. Adding one here is a claim that
+# the directory is clean, so it belongs in the same commit as whatever made it
+# clean.
+SCOPE_CLEAN_DIRS = ["compiler", "std", "tests/suite"]
+
+# Codes that do NOT fail the scope gate even though the directories are clean.
+#
+# D015 is a performance observation, not a defect to fix. It fires on
+# `joined = joined + tag` inside a loop, which is quadratic in the collection's
+# length -- true, and correct in a five-element test whose whole purpose is to
+# assert that the concatenation produces "red,blue,". A test that verifies a
+# pattern cannot also be told to stop using it. It fired on real code too:
+# std/string/string.orb had three quadratic loops, now fixed, and those fixes
+# are worth more than the rule that found them.
+#
+# D017 joins it: a test whose main asserts fifteen separate behaviours IS a function
+# of complexity 20, and telling it to extract sub-functions would be advice
+# about the test, not the code.
+#
+# D021 joins them: tests/suite/call_arg_types.orb defines
+# `fn takesFloat(f: float) -> int { return 1 }`. The parameter exists so the
+# test can hand it a float and pin E1005 argument-type checking; the body
+# deliberately ignores it, because a return value that depended on the argument
+# would make `takesFloat(1.5)` and `takesFloat(2)` assert different things and
+# the test would stop being about types. Removing the parameter would remove the
+# coverage. The check is still true of that code, and it is not advisory
+# anywhere else: compiler/ and std/ are clean under it.
+#
+# A code goes here only when "the code is right and the check is still true" is
+# the normal case. That is not true of the other codes here, which is why this
+# list has one entry.
+# D021 is exempt from ONE file, not from the tree. It was listed in the plain set
+# above first, which looked right and was not: the set is global, so exempting
+# D021 for tests/suite/call_arg_types.orb also exempted it for compiler/, where
+# it has eight true findings. A gate that cannot say "clean here, except there"
+# will report clean everywhere the moment you exempt one file.
+SCOPE_ADVISORY_BY_FILE = {
+    "tests/suite/call_arg_types.orb": {"D021"},
+    # This file exists to pin the shadowing bug: it declares `val v` inside an
+    # `if` and reads the outer one after, on purpose, because that program
+    # returns 20 where it means 10. D023 finds exactly those two clobbers and
+    # nothing else in the tree, which is the check working. Exempting the file is
+    # the same call as D021's: the code is wrong on purpose and the check is
+    # right about it.
+    "tests/suite/scope_shadow_clobbers_outer.orb": {"D023"},
+    # These construct a `result` on purpose -- one ok, one err -- and call both
+    # without handling them, because building the values is what the test is for.
+    # `make_failure()` really does discard its error, which is D027's exact claim;
+    # the code is right for the file's purpose and the check is right about it.
+    "tests/suite/result_values.orb": {"D027"},
+    "tests/suite/result_try.orb": {"D027"},
+}
+
+# Codes exempt in every directory.
+SCOPE_GLOBAL_ADVISORY_CODES = {"D015", "D017", "D018"}
+
+
+def scope_advisory_codes_for(rel_path: str) -> set:
+    """Codes that do not fail this specific file."""
+    out = set(SCOPE_GLOBAL_ADVISORY_CODES)
+    out |= SCOPE_ADVISORY_BY_FILE.get(rel_path, set())
+    return out
+
+
+def run_scope(compiler: str) -> int:
+    """Doctor over the clean dirs; fail on any non-advisory finding."""
+    env, _scratch = scratch_env()
+
+    failures = []
+    for d in SCOPE_CLEAN_DIRS:
+        target = REPO / d
+        if not target.is_dir():
+            print(f"doctor_gate --scope-only: {d} does not exist; the list is stale")
+            return 1
+        proc = subprocess.run(
+            [compiler, "doctor", d, "--color", "never"],
+            capture_output=True, text=True, cwd=REPO, env=env,
+        )
+        # A doctor that was OOM-killed, or died on a signal, produces no
+        # findings. Treating that as "clean" is the worst failure this gate can
+        # have: it is green because it checked nothing. `doctor compiler` needs
+        # ~1.4 GB on c_backend.orb alone, so on a loaded machine the process
+        # really does get SIGTERMed, and it has already happened here.
+        # doctor exits 1 when it has findings, which is the normal case here,
+        # so only a code outside {0, 1} means the run is untrustworthy: a
+        # negative code is a signal (OOM-killed or crashed), which is what turns
+        # an empty report into a green gate.
+        if proc.returncode not in (0, 1):
+            how = "was killed by a signal" if proc.returncode < 0 else "exited"
+            print(f"FAIL {d}: doctor {how} ({proc.returncode}), so its output "
+                  f"cannot be read as 'clean'")
+            if proc.stderr.strip():
+                print("  stderr: " + proc.stderr.strip().splitlines()[-1])
+            failures.append(d)
+            continue
+
+        # A finding line reads "<file>:<line> <severity> [Dnnn] ...". Doctor
+        # prints paths RELATIVE TO THE SCANNED DIRECTORY, so a finding in
+        # examples/ starts with "sqlite_notes.orb", not "examples/sqlite_notes.
+        # orb" -- filtering on the directory prefix matches nothing at all, which
+        # is how this gate would have passed forever while checking nothing. The
+        # reliable signal is the shape: a colon, digits, then a severity word.
+        findings = []
+        advisory = 0
+        for line in proc.stdout.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) < 3:
+                continue
+            loc, severity = parts[0], parts[1]
+            if severity not in ("error", "warning"):
+                continue
+            _, _, lineno = loc.rpartition(":")
+            if not (lineno.isdigit() and "[D" in parts[2]):
+                continue
+            code = parts[2].split("[", 1)[1].split("]", 1)[0]
+            exempt = scope_advisory_codes_for(f"{d}/{loc.split(':', 1)[0]}")
+            if code in exempt:
+                advisory += 1
+                continue
+            findings.append(line)
+        if advisory:
+            print(f"note: {d}: {advisory} advisory finding(s) not counted")
+
+        if findings:
+            print(f"FAIL {d}: {len(findings)} finding(s) in a directory that must be clean")
+            for line in findings:
+                print("  " + line)
+            failures.append(d)
+
+    if failures:
+        print(f"doctor_gate --scope-only: {len(failures)} of {len(SCOPE_CLEAN_DIRS)} directory(ies) not clean")
+        return 1
+    print(f"Finished doctor_scope: {len(SCOPE_CLEAN_DIRS)} directories clean ({', '.join(SCOPE_CLEAN_DIRS)}).")
+    return 0
+
+
 def compiler_can_reach_runtime(compiler: str) -> bool:
     """Whether the C step can work for a compiler at this path.
 
@@ -308,12 +470,18 @@ def main() -> int:
     ap.add_argument("--compiler", required=True)
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--cc", default=None)
+    ap.add_argument("--scope-only", action="store_true",
+                    help="only the clean-directories check over compiler, std "
+                         "and tests/suite (was scripts/doctor_scope_gate.py)")
     args = ap.parse_args()
 
     compiler = os.path.abspath(args.compiler)
     if not os.path.exists(compiler):
         print(f"doctor_gate: no compiler at {compiler}")
         return 1
+
+    if args.scope_only:
+        return run_scope(compiler)
 
     env, _scratch = scratch_env()
 

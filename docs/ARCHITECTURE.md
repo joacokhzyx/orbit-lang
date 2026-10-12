@@ -264,7 +264,7 @@ keep an emergency budget and the rest are rejected. See [KYNX.md](KYNX.md).
 
 The lease and admission API lives in `runtime/kynx.c`; the unit tests are
 `runtime/test_kynx.c`, built with `-DORBIT_KYNX_TEST`. A live route-limit gate
-runs against a real server: `scripts/kynx_route_limit_gate.py`.
+runs against a real server: `scripts/kynx_gate.py route-limit`.
 
 ---
 
@@ -441,13 +441,13 @@ imports the owner.
 | `scripts/fuzz_frontend.py` | Frontend fuzzing |
 | `scripts/cli_probe.py` | CLI subcommand, help, and exit-code contract |
 | `scripts/routes_probe.py` | Route argument normalisation |
-| `scripts/kynx_route_limit_gate.py` | Live Kynx route-limit gate against a running server |
+| `scripts/kynx_gate.py` | Live Kynx gate (live/route-limit/burst) + stdlib load generator (load) |
 | `scripts/amalgamate.py` | Inline the project includes into `dist/orbit_bootstrap.c` |
 | `scripts/orbit_ccache.py` | Content-addressed C compile cache for the bootstrap gates |
 | `scripts/orbit_routes.py` | Path normalisation shared by gates and the server |
 | `scripts/orbit_output.py` | Shared gate output helpers |
 | `scripts/measure_selfhost.py` | Bootstrap-side measurement |
-| `scripts/night_load.py` | Load generator for live-service measurement |
+| `scripts/kynx_gate.py load` | Load generator for live-service measurement |
 | `scripts/build_seed.sh`, `.bat` | Detect a C compiler and build the seed |
 | `scripts/install.sh`, `install.ps1` | Install the fixed-point compiler on `PATH` |
 

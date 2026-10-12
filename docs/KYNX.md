@@ -102,13 +102,13 @@ uint64_t         orbit_kynx_get_total_blocked(void);
 ```sh
 python scripts/build_selfhost.py --cc gcc --out orbit_fp
 ./orbit_fp build examples/catalog_service.orb -o srv && ./srv # port 3000
-python scripts/kynx_burst_probe.py                            # burst -> expect 429s
+python scripts/kynx_gate.py burst                            # burst -> expect 429s
 ```
 
-`scripts/kynx_burst_probe.py` hammers a running server past its configured
+`scripts/kynx_gate.py burst` hammers a running server past its configured
 `rate_limit` and asserts that Kynx answers 429 once the window budget is spent.
 It is manual-only (needs a live server on a chosen port): the same burst
-behavior is covered automatically by `scripts/kynx_route_limit_gate.py`,
+behavior is covered automatically by `scripts/kynx_gate.py route-limit`,
 which runs in CI (see `.github/workflows/ci-gate.yml`).
 
 ## Per-route limits

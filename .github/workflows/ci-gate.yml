@@ -185,7 +185,7 @@ jobs:
           "$PY" scripts/schema_conformance.py --self-test
           "$PY" scripts/walk_coverage.py --self-test
           "$PY" scripts/runtime_c_tests.py --self-test
-          "$PY" scripts/kynx_live_gate.py --self-test
+          "$PY" scripts/kynx_gate.py --self-test
           "$PY" scripts/unknown_ratchet.py --self-test
           "$PY" scripts/werror_gate.py --self-test
           "$PY" scripts/alive_check.py --self-test

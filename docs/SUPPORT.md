@@ -52,7 +52,7 @@ python3 scripts/build_selfhost.py --cc "$ORBIT_CC" --out orbit
 | `curl` | Readiness polling before a live gate, and manual request checks |
 | `python3` (standard library only) | Every gate script; no third-party packages are needed |
 
-None of these are required to build, verify, install or release Orbit. `scripts/night_load.py` and `scripts/measure_selfhost.py` are stdlib-only on purpose, so a measurement never depends on a package install.
+None of these are required to build, verify, install or release Orbit. `scripts/kynx_gate.py load` and `scripts/measure_selfhost.py` are stdlib-only on purpose, so a measurement never depends on a package install.
 
 ## Database Notes
 

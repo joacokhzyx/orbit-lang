@@ -363,7 +363,8 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
     return {
         1: [
             ("doctor_gate", [py, f"{s}/doctor_gate.py", "--compiler", fp]),
-            ("doctor_scope", [py, f"{s}/doctor_scope_gate.py", "--compiler", fp]),
+            ("doctor_scope", [py, f"{s}/doctor_gate.py", "--scope-only",
+                             "--compiler", fp]),
             ("cli_probe", [py, f"{s}/cli_probe.py", "--compiler", fp,
                            "--work", str(work / "cli")]),
             # Needs a C compiler and nothing else -- no orbit binary, no
@@ -377,6 +378,7 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
                            "--dir", "tests/std"]),
             ("negative", [py, f"{s}/negative_gate.py", "--cc", cc, "--compiler", fp]),
             ("frontend", [py, f"{s}/frontend_gate.py", "--cc", cc, "--compiler", fp]),
+            ("dispatch", [py, f"{s}/dispatch_coverage.py"]),
             ("parity", [py, f"{s}/parity_selfhost.py", "--cc", cc, "--compiler", fp]),
             ("werror", [py, f"{s}/werror_gate.py", "--cc", cc, "--compiler", fp]),
             ("fuzz_frontend", [py, f"{s}/fuzz_frontend.py", "--compiler", fp]),
@@ -384,7 +386,7 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
             # shell block in CI, and being unable to run the gate that proves
             # the compiler produces a working server is how a compiler ends up
             # green on every unit test and broken in the way that matters.
-            ("kynx_live", [py, f"{s}/kynx_live_gate.py", "--cc", cc,
+            ("kynx_live", [py, f"{s}/kynx_gate.py", "live", "--cc", cc,
                            "--compiler", fp]),
         ],
         3: [
