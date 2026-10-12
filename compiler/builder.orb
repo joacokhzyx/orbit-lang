@@ -3321,11 +3321,22 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         ASTNode.Literal(lit) => {
             if lit.valType == "identifier" {
                 val varType = lookupVariable(builder, lit.text)
-                if varType != "unknown" {
+                // The symbol resolves by NAME, the register by TYPE, and the
+                // two answers are independent: a live declaration with an
+                // uninferrable type (a `val t0 = h0 * 435`, BinOp has no
+                // resolveExprType arm) still owns its C symbol. Gating the
+                // read on a known type falls through to the spelling, which
+                // is a different variable when this one shadows -- the read
+                // silently goes stale while the define minted. An undefined
+                // name resolves to its own spelling, so the fallthrough below
+                // runs exactly as before for globals, enum constants and
+                // genuine unknowns.
+                val sym = variableSymbol(builder, lit.text)
+                if varType != "unknown" || sym != lit.text {
                     val varReg = ir_alloc_register(builder.currentFunction, varType)
                     val loadVar = ir_init_instr(IROpcode.load_var)
                     loadVar.dest = varReg
-                    loadVar.operand1 = ir_symbol(variableSymbol(builder, lit.text))
+                    loadVar.operand1 = ir_symbol(sym)
                     ir_emit(builder.currentFunction, loadVar)
                     return varReg
                 }
