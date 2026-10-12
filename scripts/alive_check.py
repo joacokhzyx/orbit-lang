@@ -42,6 +42,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
@@ -347,14 +349,16 @@ def registry(compiler, cc, work):
                              "--iterations", "3"),
              r"^Fuzzed 3 iterations: ", 600, needs=("compiler",)),
         Tool("diff_fuzz.py", "report",
-             "the differential fuzzer, report-only in CI with the count held "
-             "one way by diff_fuzz_ratchet.py. 40 iterations, not the gate's "
-             "400: this row asks whether the tool still works, and 40 already "
-             "compiles 196 programs. The marker is the closing line INCLUDING "
-             "the corpus sha, because a fuzzer that measured nothing still "
-             "prints a line and non-empty output is not evidence (D8)",
+             "the differential fuzzer, report-only in CI. Two categories at 8 "
+             "iterations (~30 cases in 2 programs), not the gate's 400: this "
+             "row asks whether the tool still works, and int-arith plus "
+             "string-escape exercise both batch mechanisms (value lines and "
+             "sentinel-framed bytes). The marker is the closing line "
+             "INCLUDING the corpus sha, because a fuzzer that measured nothing "
+             "still prints a line and non-empty output is not evidence (D8)",
              lambda: _script("diff_fuzz.py", "--compiler", compiler,
-                             "--cc", cc, "--iterations", "40"),
+                             "--cc", cc, "--only", "int-arith",
+                             "--only", "string-escape", "--iterations", "8"),
              r"^Finished diff-fuzz: \d+/\d+ agree with the reference across \d+ "
              r"cases \(seed \d+, sha [0-9a-f]{16}\)$", 600,
              needs=("compiler",)),
@@ -704,6 +708,9 @@ def main():
                     help="only the checks that need no compile")
     ap.add_argument("--only", action="append", default=None,
                     help="run only this tool (repeatable)")
+    ap.add_argument("--workers", type=int, default=None,
+                    help="registry rows to run at once (default: up to 4; "
+                         "1 runs them one by one)")
     ap.add_argument("--list", action="store_true",
                     help="print the registry and exit")
     ap.add_argument("--self-test", action="store_true",
@@ -733,6 +740,14 @@ def main():
     failures = 0
     skipped = []
 
+    workers = args.workers
+    if workers is None:
+        workers = min(4, os.cpu_count() or 1)
+    if workers < 1:
+        out.fail("Failed aliveness: --workers must be >= 1")
+        return 2
+
+    runnable = []
     for tool in tools:
         label = "%-28s %-12s" % (tool.name, tool.kind)
         if args.quick and tool.cost == "heavy":
@@ -743,19 +758,40 @@ def main():
             skipped.append((tool.name, "no compiler at %s" % args.compiler))
             out.say("%s skipped (no compiler; pass --compiler)" % label)
             continue
-        if tool.kind == "library":
-            problems = library_checks(tool.name)
-        else:
-            problems = check(tool, ctx)
+        runnable.append((tool, label))
+
+    def run_one(pair):
+        # Subprocess-bound: the GIL is released while the tool runs, so
+        # threads parallelise this for real. Nothing here mutates shared
+        # state -- check() and library_checks() build their own env -- and
+        # all printing stays on the main thread below, in registry order.
+        tool, label = pair
+        t0 = time.monotonic()
+        try:
+            if tool.kind == "library":
+                problems = library_checks(tool.name)
+            else:
+                problems = check(tool, ctx)
+        except Exception as exc:  # noqa: BLE001 - a harness crash is a finding
+            problems = ["harness exception: %r" % (exc,)]
+        return (tool, label, problems, time.monotonic() - t0)
+
+    if workers == 1:
+        results = [run_one(pair) for pair in runnable]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(run_one, runnable))
+
+    for tool, label, problems, dt in results:
         checked += 1
         if problems:
             failures += 1
-            out.fail("%s DEAD" % label)
+            out.fail("%s DEAD [%ds]" % (label, dt))
             for p in problems:
                 out.fail("    %s" % p)
             out.ci_error(out.scrub_ci("aliveness: %s: %s" % (tool.name, problems[0])))
         else:
-            out.say("%s alive  (%s)" % (label, tool.why))
+            out.say("%s alive  (%s) [%ds]" % (label, tool.why, dt))
 
     # ---- the rest of scripts/: not python, or not scripts at all -----------
     for name, why in SHELL_ROWS:

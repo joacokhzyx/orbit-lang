@@ -484,12 +484,20 @@ class Runner:
         return build_env(self.work, cc=self.cc)
 
     def _build(self, source, index):
-        """Write a program and run it. Returns (status, stdout_bytes, note)."""
+        """Write a program and run it. Returns (status, stdout_bytes, note).
+
+        --quiet is load-bearing, not cosmetic: `orbit run` prints build
+        chatter (Compiled ..., wrote ...) to stdout, and stdout is what the
+        batch comparison reads. Without it every batch mislines (the chatter
+        counts as program lines), attribution falls back to one program per
+        case, and every value compares wrong. That is how a CLI restyle
+        silently retires the fuzzer's batching.
+        """
         path = os.path.join(self.work, "case_%05d.orb" % index)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(source)
         try:
-            proc = subprocess.run([self.compiler, "run", path], cwd=ROOT,
+            proc = subprocess.run([self.compiler, "run", "--quiet", path], cwd=ROOT,
                                   env=self._env(), capture_output=True,
                                   timeout=self.timeout)
         except subprocess.TimeoutExpired:
@@ -502,7 +510,13 @@ class Runner:
         if proc.returncode != 0:
             return "error", proc.stdout, "rc=%d: %s" % (
                 proc.returncode, (proc.stderr or b"").decode("utf-8", "replace")[-200:])
-        return "ok", proc.stdout, ""
+        # Windows C-runtime text-mode translation: the program's \n arrives as
+        # \r\n. The reference computes logical lines, so compare those: the
+        # sentinel framing splits on b"\n" and every body would otherwise keep
+        # a stray \r (23 false disagreements on every Windows run, plus the
+        # batch falling back to one program per case). A body that really
+        # contains \r still compares right: only the line ending collapses.
+        return "ok", proc.stdout.replace(b"\r\n", b"\n"), ""
 
     def run_source(self, source, index):
         return self._build(source, index)
