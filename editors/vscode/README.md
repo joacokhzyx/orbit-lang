@@ -7,6 +7,11 @@
 Syntax highlighting and `orbit check` diagnostics for **Orbit** - a statically
 typed language for APIs and microservices.
 
+File icons for `.orb` come from the bundled **Orbit Icons** theme: on first
+activation the extension offers to switch to it (once, never again), or pick
+it by hand with `Preferences: File Icon Theme > Orbit Icons`. VSCode does not
+let an extension repaint other themes, so the icon lives in its own theme.
+
 ## There is no language server
 
 This extension does not start one, and it is not a missing feature waiting on

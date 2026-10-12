@@ -563,6 +563,54 @@ function activate(context) {
     if (executablePath) {
         refreshAllOpen();
     }
+
+    suggestFileIcons(context);
+}
+
+// Pure decision for the one-time file-icon suggestion: suggest only when the
+// user is not already on the Orbit theme and has not been asked before.
+// Kept pure so node test/extension_test.js covers it without the editor.
+function shouldSuggestFileIcons(currentTheme, alreadyAsked) {
+    if (alreadyAsked) {
+        return false;
+    }
+    return currentTheme !== 'orbit-icons';
+}
+
+function suggestFileIcons(context) {
+    try {
+        if (!vscode.window || !vscode.window.showInformationMessage) {
+            return;
+        }
+        const workbench = vscode.workspace.getConfiguration('workbench');
+        const current = workbench ? workbench.get('iconTheme') : undefined;
+        const asked = context.globalState
+            ? context.globalState.get('orbit.iconsSuggested', false)
+            : true;
+        if (!shouldSuggestFileIcons(current, asked)) {
+            return;
+        }
+        vscode.window
+            .showInformationMessage(
+                'Use Orbit file icons for .orb files?',
+                'Use Orbit Icons',
+                'Not now'
+            )
+            .then(choice => {
+                try {
+                    if (context.globalState) {
+                        context.globalState.update('orbit.iconsSuggested', true);
+                    }
+                    if (choice === 'Use Orbit Icons' && workbench) {
+                        workbench.update('iconTheme', 'orbit-icons', true);
+                    }
+                } catch (ignored) {
+                    // A failed opt-in must never break activation.
+                }
+            });
+    } catch (ignored) {
+        // Suggesting is cosmetic; activation is not.
+    }
 }
 
 function deactivate() {
@@ -588,4 +636,5 @@ module.exports = {
     checkDocument,
     formatDocument,
     maxProblems,
+    shouldSuggestFileIcons,
 };

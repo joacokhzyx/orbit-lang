@@ -1,0 +1,22 @@
+{
+    "file": "_file",
+    "folder": "_folder",
+    "folderExpanded": "_folder_open",
+    "fileExtensions": {
+        "orb": "_orb"
+    },
+    "iconDefinitions": {
+        "_file": {
+            "iconPath": "./icons/file.png"
+        },
+        "_folder": {
+            "iconPath": "./icons/folder.png"
+        },
+        "_folder_open": {
+            "iconPath": "./icons/folder-open.png"
+        },
+        "_orb": {
+            "iconPath": "./icons/orb.png"
+        }
+    }
+}
