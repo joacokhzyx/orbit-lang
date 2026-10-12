@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
@@ -77,6 +78,8 @@ def main() -> int:
     failed = []
     ratchets = []
     exe_suffix = ".exe" if os.name == "nt" else ""
+
+    plans = []
     for path in tests:
         name = os.path.splitext(os.path.basename(path))[0]
         if len(suite_dirs) > 1:
@@ -95,22 +98,30 @@ def main() -> int:
             expected = None
         else:
             expected = int(m.group(1)) if m else 0
+        plans.append((path, name, expected, ratchet.group(1) if ratchet else None))
 
+    def run_one(plan):
+        # Each case owns a TEMP subdir: the intermediate C has a fixed name
+        # (orbit_selfhost_build.c in $TEMP), so a shared TEMP lets one case's
+        # cc read another's half-written C. Exes keep unique names in the
+        # shared work dir. Returns (name, kind, *payload) for ordered
+        # reporting below; only the main thread prints.
+        path, name, expected, ratchet_ref = plan
+        case_env = dict(env)
+        tmp = os.path.join(work, "t_" + name.replace("/", "_"))
+        os.makedirs(tmp, exist_ok=True)
+        case_env.update({"TEMP": tmp, "TMP": tmp})
         out_exe = os.path.join(work, name.replace("/", "_") + exe_suffix)
         try:
             proc = subprocess.run(
                 [args.compiler, "build", path, "-o", out_exe],
-                cwd=ROOT, env=env, capture_output=True, text=True,
+                cwd=ROOT, env=case_env, capture_output=True, text=True,
                 errors="replace", timeout=args.timeout,
             )
             build_rc = proc.returncode
         except subprocess.TimeoutExpired:
-            failed.append(name)
-            out.fail(f"Failed {name}: timed out building")
-            continue
+            return (name, "timeout-build")
         if build_rc != 0:
-            failed.append(name)
-            out.fail(f"Failed {name}: did not build (rc={build_rc})")
             # stderr FIRST, and this was the bug. `orbit build` writes its
             # diagnostics to stderr -- DX-0 moved them there deliberately, so
             # that `orbit check` and `orbit build` agree -- and this runner
@@ -121,36 +132,52 @@ def main() -> int:
             # suite has had no build failure since the diagnostic move, which
             # is why it took the first Windows-only one to surface it.
             diag = (proc.stderr or "").strip() or (proc.stdout or "").strip()
-            tail = "\n".join(diag.splitlines()[-8:])
-            for line in tail.splitlines():
-                print("  " + line, file=sys.stderr)
-            payload = (tail or "(no output)").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1200]
-            out.ci_error(f"[suite build {name}] rc={build_rc} :: {payload}")
-            continue
-
+            tail = "\r\n".join(diag.splitlines()[-8:])
+            return (name, "nobuild", tail, build_rc)
         run = subprocess.run([out_exe], cwd=work, capture_output=True,
                              timeout=args.timeout)
         if expected is None:
-            ref = (" " + ratchet.group(1)) if ratchet.group(1) else ""
+            ref = (" " + ratchet_ref) if ratchet_ref else ""
             if run.returncode != 0:
-                ok += 1
-                ratchets.append(name)
-                out.say(f"Testing {name} ... exit {run.returncode}, still red as "
-                        f"declared (known-failing:{ref})")
-            else:
-                failed.append(name)
-                out.fail(f"Failed {name}: known-failing but it now exits 0 -- the "
-                         f"defect it was pinning is fixed, or the test asserts "
-                         f"nothing. Delete the known-failing: directive and this "
-                         f"becomes ordinary coverage.")
-                out.ci_error(f"[suite ratchet {name}] known-failing now exits 0")
-            continue
+                return (name, "ratchet-red", run.returncode, ref)
+            return (name, "ratchet-fixed")
         if run.returncode == expected:
-            ok += 1
-            out.say(f"Testing {name} ... exit {run.returncode} as expected")
-        else:
+            return (name, "ok", run.returncode)
+        return (name, "wrong-exit", run.returncode, expected)
+
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, plans))
+    for name, kind, *rest in results:
+        if kind == "timeout-build":
             failed.append(name)
-            out.fail(f"Failed {name}: got exit {run.returncode}, want {expected}")
+            out.fail(f"Failed {name}: timed out building")
+        elif kind == "nobuild":
+            tail, build_rc = rest
+            failed.append(name)
+            out.fail(f"Failed {name}: did not build (rc={build_rc})")
+            for line in tail.splitlines():
+                print("  " + line, file=sys.stderr)
+            payload = (tail or "(no output)").replace("%", "%25").replace("\r", "%0D").replace("\r\n", "%0A")[:1200]
+            out.ci_error(f"[suite build {name}] rc={build_rc} :: {payload}")
+        elif kind == "ratchet-red":
+            rc, ref = rest
+            ok += 1
+            ratchets.append(name)
+            out.say(f"Testing {name} ... exit {rc}, still red as "
+                    f"declared (known-failing:{ref})")
+        elif kind == "ratchet-fixed":
+            failed.append(name)
+            out.fail(f"Failed {name}: known-failing but it now exits 0 -- the "
+                     f"defect it was pinning is fixed, or the test asserts "
+                     f"nothing. Delete the known-failing: directive and this "
+                     f"becomes ordinary coverage.")
+            out.ci_error(f"[suite ratchet {name}] known-failing now exits 0")
+        elif kind == "ok":
+            ok += 1
+            out.say(f"Testing {name} ... exit {rest[0]} as expected")
+        elif kind == "wrong-exit":
+            failed.append(name)
+            out.fail(f"Failed {name}: got exit {rest[0]}, want {rest[1]}")
 
     total = len(tests)
     extra = ("(%d known-failing, asserted still red)" % len(ratchets)
@@ -163,7 +190,7 @@ def main() -> int:
         out.say("When one starts exiting 0, the defect is fixed -- delete the "
                 "known-failing: directive and let the test be ordinary coverage.")
     if failed:
-        payload = ", ".join(failed).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1500]
+        payload = ", ".join(failed).replace("%", "%25").replace("\r", "%0D").replace("\r\n", "%0A")[:1500]
         out.fail("Failed: " + ", ".join(failed))
         out.ci_error(f"[orbit-suite] failed: {payload}")
     return 0 if not failed else 1

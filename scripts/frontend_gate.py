@@ -49,6 +49,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
@@ -256,6 +257,7 @@ def main():
     ok = 0
     total = 0
     fails = []
+    tasks = []
     for name in names:
         path = os.path.join(FRONTEND, name)
         kind, golden_path = classify(path, read(path))
@@ -269,26 +271,41 @@ def main():
             out.say("Skipping %s ... needs building (--emit-only)" % name)
             continue
         total += 1
+        tasks.append((name, kind, golden_path))
+
+    def run_one(task):
+        # Each fixture owns a work subdir: builds share the fixed
+        # intermediate-C name via $TEMP, so a shared dir lets one fixture's
+        # cc read another's half-written C. Only the main thread prints.
+        name, kind, golden_path = task
+        unit = os.path.join(work, "u_" + name.replace(".", "_"))
+        os.makedirs(unit, exist_ok=True)
         if name in KNOWN_UNBUILDABLE:
             # Ratchet, not waiver: the gate now requires this fixture to stay
             # broken, and tells whoever fixes it what to do next.
-            good, detail = assert_still_broken(args.compiler, args.cc, work, name,
-                                               KNOWN_UNBUILDABLE[name])
+            return (name, "ratchet") + assert_still_broken(
+                args.compiler, args.cc, unit, name, KNOWN_UNBUILDABLE[name])
+        if kind == "emit":
+            return (name, "check") + run_emit(
+                args.compiler, unit, name, read(os.path.join(FRONTEND, name)),
+                golden_path)
+        if kind == "run":
+            return (name, "check") + run_run(
+                args.compiler, args.cc, unit, name, golden_path)
+        return (name, "check") + run_empty(
+            args.compiler, args.cc, unit, name, EMPTY_EXPECTATIONS[name])
+
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, tasks))
+    for name, kind, good, detail in results:
+        if kind == "ratchet":
             if good:
                 ok += 1
             else:
                 fails.append(name)
                 out.ci_error("[frontend %s] %s" % (name, out.scrub_ci(detail)))
             out.say("Checking tests/frontend/%s ... %s" % (name, detail))
-            continue
-        if kind == "emit":
-            good, detail = run_emit(args.compiler, work, name, read(path), golden_path)
-        elif kind == "run":
-            good, detail = run_run(args.compiler, args.cc, work, name, golden_path)
-        else:
-            good, detail = run_empty(args.compiler, args.cc, work, name,
-                                     EMPTY_EXPECTATIONS[name])
-        if good:
+        elif good:
             ok += 1
             out.say("Checking tests/frontend/%s ... %s" % (name, detail))
         else:

@@ -375,7 +375,7 @@ def registry(compiler, cc, work):
              "a dead port having measured nothing. Now it must fail when zero "
              "requests completed, which is what the marker below is checking",
              lambda: _script("kynx_gate.py", "load", "--port", "9", "--requests", "2",
-                             "--duration", "1"),
+                             "--duration", "1", "--warmup", "0", "--timeout", "1"),
              r"Failed night_load|Finished night-load: \d+ completed", 120,
              allow_rc=(0, 1)),
         Tool("kynx_gate.py", "report",

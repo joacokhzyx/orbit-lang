@@ -6,6 +6,7 @@ db-shaped (SQLite, skipped if unavailable), and builtin-heavy probes.
 Usage: python scripts/werror_gate.py [--compiler PATH] [--cc gcc] [--list]
 """
 import argparse, os, subprocess, sys, tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -99,12 +100,15 @@ def run_probe(compiler, cc, name, src, expect, extra_flags=()):
         if p2.returncode != 0:
             return (name, "WERROR-FAIL", tail_with_head(p2.stdout + p2.stderr, 1400))
         try:
+            # 3s, not 15: what this proves is "the server did not die on
+            # startup" (the STAB case), and a binary that survives 3s linked
+            # gives the same signal as one that survives 15s.
             p3 = subprocess.run([str(exe)], capture_output=True, text=True, errors="replace",
-                                timeout=15)
+                                timeout=3)
         except subprocess.TimeoutExpired:
             if expect == "serve":
-                return (name, "OK", "server kept running past 15s, -Werror compile clean")
-            return (name, "EXIT-FAIL", "timed out after 15s")
+                return (name, "OK", "server kept running past 3s, -Werror compile clean")
+            return (name, "EXIT-FAIL", "timed out after 3s")
         if p3.returncode != expect:
             return (name, "EXIT-FAIL", f"exit={p3.returncode} want={expect}")
         return (name, "OK", f"exit={p3.returncode}")
@@ -175,10 +179,15 @@ def main():
             print(probe[0])
         return 0
     fails = 0
-    for probe in PROBES:
+    # Probes are independent (each owns its TemporaryDirectory, including its
+    # TEMP/TMP), so they run in a pool and report in PROBES order.
+    def run_one(probe):
         name, src, expect = probe[0], probe[1], probe[2]
         flags = probe[3] if len(probe) > 3 else ()
-        name, status, detail = run_probe(args.compiler, args.cc, name, src, expect, flags)
+        return run_probe(args.compiler, args.cc, name, src, expect, flags)
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, PROBES))
+    for name, status, detail in results:
         if status == "OK":
             out.say(f"Checking {name} ... ok ({detail})")
         else:

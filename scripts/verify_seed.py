@@ -211,7 +211,9 @@ def main() -> int:
     amal = os.path.join(work, "orbit_bootstrap.c")
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"), "--entry", seed_src_c, "--out", amal], ROOT, label="amalgamate")
 
-    seed_exe = os.path.join(work, "orbit_seed" + exe)
+    # Fixed -o basename shared with build_selfhost.py: see the comment there.
+    # Same content, same flags, same cc -> same cache entry (~12s per make all).
+    seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
     orbit_ccache.compile_cached(cc_cmd, [*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal,
                                         *PLATFORM_LINK_FLAGS], [amal], log=out.say)
     check("seed builds", os.path.isfile(seed_exe))

@@ -10,4 +10,4 @@ error[E0301]: unexpected token 'CloseBrace'
    = help: Check for missing brackets, quotes, or keywords before this token.
 
 ERROR: error.UnexpectedToken
-Failed to compile tests/parity/probes/e3_bad_expr.orb with 2 errors in 0 ms
+Failed to compile tests/parity/probes/e3_bad_expr.orb with 2 errors in N ms

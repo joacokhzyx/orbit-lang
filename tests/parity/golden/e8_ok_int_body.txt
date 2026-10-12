@@ -1,4 +1,4 @@
 exit=1
 kind=DIAG
 Semantic error: ok response body must be a string or an object, got int [in helper]
-Failed to compile tests/parity/probes/e8_ok_int_body.orb with 1 error in 1 ms
+Failed to compile tests/parity/probes/e8_ok_int_body.orb with 1 error in N ms

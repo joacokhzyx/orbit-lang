@@ -10,4 +10,4 @@ error[E0301]: unexpected token 'OpenBrace'
    = help: Check for missing brackets, quotes, or keywords before this token.
 
 ERROR: error.UnexpectedToken
-Failed to compile tests/parity/probes/e1_bad_fn.orb with 3 errors in 0 ms
+Failed to compile tests/parity/probes/e1_bad_fn.orb with 3 errors in N ms

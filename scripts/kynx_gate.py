@@ -71,14 +71,19 @@ def wait_ready(port: int, attempts: int = READY_ATTEMPTS) -> bool:
     coming up -- refused before it binds, and reset if it dies mid-probe.
     """
     url = f"http://127.0.0.1:{port}/health"
-    for _ in range(attempts):
+    for i in range(attempts):
         try:
-            with urllib.request.urlopen(url, timeout=2) as r:
+            with urllib.request.urlopen(url, timeout=1) as r:
                 if r.status == 200:
                     return True
         except (urllib.error.URLError, ConnectionError, OSError):
             pass
-        time.sleep(1)
+        # No sleep after the last attempt: the verdict is already known.
+        # timeout=1 (not 2): a healthy local /health answers in ms; only a
+        # hung or dead server ever reaches the timeout, and failing fast
+        # there is the point.
+        if i < attempts - 1:
+            time.sleep(1)
     return False
 
 
@@ -327,6 +332,10 @@ def load_parse_args(argv):
 
 def load_warmup(args):
     """Open one keep-alive connection and issue a few requests (discarded)."""
+    if args.warmup <= 0:
+        # Nothing to warm: the loop below would not iterate once, so all a
+        # warmup=0 run does here is open and close one TCP connection.
+        return
     try:
         sock = socket.create_connection((args.host, args.port), timeout=args.timeout)
         sock.settimeout(args.timeout)
@@ -448,7 +457,8 @@ def phase_a(args):
             rc = load_main(["--host", args.host, "--port", str(args.port),
                             "--path", args.path, "--connections", "2",
                             "--requests", "200", "--rps", "10",
-                            "--warmup", "0", "--json", args._json_tmp])
+                            "--warmup", "0", "--timeout", "1",
+                            "--json", args._json_tmp])
     except SystemExit as e:
         rc = e.code if isinstance(e.code, int) else 2
     except Exception as e:  # noqa: BLE001 - a load crash is a failed phase
@@ -491,7 +501,7 @@ def phase_b(args):
     bad_body = 0
     t0 = time.time()
     for _ in range(25):
-        status, ra, body = get(url)
+        status, ra, body = get(url, timeout=1.0)
         if status == 200:
             ok200 += 1
         elif status == 429:
@@ -521,7 +531,7 @@ def phase_b(args):
 def phase_c(args):
     time.sleep(2.0)
     url = url_for(args.host, args.port, args.burst_path)
-    results = [get(url)[0] for _ in range(5)]
+    results = [get(url, timeout=1.0)[0] for _ in range(5)]
     ok = all(s == 200 for s in results)
     if ok:
         out.say("Phase C passed: post-burst statuses=%s" % (results,))
@@ -749,9 +759,10 @@ def self_test() -> int:
         ("route-limit", lambda: routelimit_main(
             ["--port", "9", "--burst-path", "/gate-burst"])),
         ("burst", lambda: burst_main(
-            ["--port", "9", "--requests", "2", "--threads", "1", "--timeout", "1"])),
+            ["--port", "9", "--requests", "2", "--threads", "2", "--timeout", "1"])),
         ("load", lambda: load_main(
-            ["--port", "9", "--requests", "2", "--duration", "1"])),
+            ["--port", "9", "--requests", "2", "--duration", "1",
+             "--warmup", "0", "--timeout", "1"])),
     ]
     for name, fn in probes:
         try:

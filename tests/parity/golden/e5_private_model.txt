@@ -1,4 +1,4 @@
 exit=1
 kind=DIAG
 Parser error at line 1: 'private' is not supported on models yet.
-Failed to compile tests/parity/probes/e5_private_model.orb with 1 error in 0 ms
+Failed to compile tests/parity/probes/e5_private_model.orb with 1 error in N ms

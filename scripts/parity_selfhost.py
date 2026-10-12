@@ -25,10 +25,12 @@ Exit code 0 iff every probe matches its golden.
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
@@ -46,6 +48,10 @@ def normalize_diag(text: str) -> str:
     """Make diagnostics machine-independent: LF endings and forward slashes."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\\", "/")
+    # Wall-clock is not a diagnostic: `Failed to compile ... in 3 ms` pins
+    # the machine's mood, not the compiler's answer, and turns this gate
+    # into a lottery (e2/e5 flip 0/1 ms between runs on a clean tree).
+    text = re.sub(r"in \d+ ms", "in N ms", text)
     return text
 
 
@@ -104,10 +110,28 @@ def main() -> int:
 
     ok = 0
     failed = []
+    outcomes = {}
+    if not args.update:
+        # Probes are independent: each builds in its own work/<name> dir, so
+        # they run in a pool and report in probe order. (A noop cc is NOT how:
+        # the pipeline resolves ORBIT_CC as a path, so a multi-token noop
+        # fails with "was not found" and every C golden goes red. Measured.)
+        def run_one(pf):
+            name = pf[:-4]
+            rc, kind, payload = probe_outcome(
+                args.compiler, os.path.join(PROBES, pf), name, work,
+                args.cc or "")
+            return (name, rc, kind, payload)
+        with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+            for name, rc, kind, payload in pool.map(run_one, probes):
+                outcomes[name] = (rc, kind, payload)
     for pf in probes:
         name = pf[:-4]
         probe_path = os.path.join(PROBES, pf)
-        rc, kind, payload = probe_outcome(args.compiler, probe_path, name, work, args.cc or "")
+        if args.update:
+            rc, kind, payload = probe_outcome(args.compiler, probe_path, name, work, args.cc or "")
+        else:
+            rc, kind, payload = outcomes[name]
         golden_path = os.path.join(args.goldens, name + ".txt")
         golden = f"exit={rc}\nkind={kind}\n{payload}"
 
@@ -154,7 +178,7 @@ def main() -> int:
             if name in failed:
                 gp = os.path.join(args.goldens, name + ".txt")
                 exp = open(gp, encoding="utf-8", newline="").read() if os.path.isfile(gp) else "<missing>"
-                rc, kind, payload = probe_outcome(args.compiler, os.path.join(PROBES, pf), name, work, args.cc or "")
+                rc, kind, payload = outcomes[name]
                 parts.append(f"{name}: rc={rc} kind={kind} | GOLDEN={exp[:150]!r} | GOT={payload[:150]!r}")
         blob = " || ".join(parts)
         out.ci_error(f"[parity diffs] {out.scrub_ci(blob, 3500)}")

@@ -322,7 +322,12 @@ def main() -> int:
     amal = os.path.join(work, "orbit_bootstrap.c")
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"),
          "--entry", CANONICAL_C, "--out", amal], label="amalgamate canonical")
-    seed_exe = os.path.join(work, "seed" + exe)
+    # Fixed -o basename shared with verify_seed.py: the ccache key hashes
+    # argv basenames, so "seed" vs "orbit_seed" was a permanent cross-miss
+    # (~12s per make all). Safe because the key is still content-bound
+    # (canonical C hash + flags + cc identity), and the mingw-gcc binary was
+    # verified name-independent by hash.
+    seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
     out.say("Building seed from canonical C")
     orbit_ccache.compile_cached(cc_cmd,
                                 [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS],
