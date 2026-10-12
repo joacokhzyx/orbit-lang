@@ -284,7 +284,7 @@ has the measured list.
 **Rule: annotate the binding when you read it back.** `val xs: list = …`
 and `val n: int = f()` cost one token each, and they are the difference
 between a guess and a check. An unannotated `val` is `unknown` for the
-rest of the pipeline, and **29.4% of the instructions the front end emits
+rest of the pipeline, and **29.6% of the instructions the front end emits
 are `unknown`** (committed census baseline) - so the unannotated case is the common one, not the
 exotic one. Annotating a binding is therefore not a nicety: it is what
 lets the next check fire.

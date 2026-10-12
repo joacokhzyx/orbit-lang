@@ -147,7 +147,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#294-of-instructions-are-unknown-and-459-of-those-are-silent).
+[below](#296-of-instructions-are-unknown-and-455-of-those-are-silent).
 
 
 ## Writes work; duplicates and missing tables fail honestly
@@ -422,21 +422,21 @@ them, so a key that was never written still answers with the type of whatever
 was, and a getter chosen from no setter is the raw one. That is the remaining
 gap here, and it needs the object's own field types recorded.
 
-## 29.4% of instructions are `unknown`, and 45.9% of those are silent
+## 29.6% of instructions are `unknown`, and 45.5% of those are silent
 
-`scripts/unknown_census.py`, run over 122 files and 53,934
+`scripts/unknown_census.py`, run over 127 files and 57,011
 instructions — the committed ratchet baseline
 (`scripts/baselines/unknown_count.json`), which is the current truth
 when this section and that file disagree:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 15,877 | **29.4%** |
-| ...with no diagnostic at all | 7,291 | **45.9% of the unknown** |
+| instructions the front end types `unknown` | 16,888 | **29.6%** |
+| ...with no diagnostic at all | 7,689 | **45.5% of the unknown** |
 
 The silent half is the honest number. E2001/E2002/E2003 account for
-the rest to the unit - their counts equal the unknown `load` /
-binary / unary counts exactly - so 8,586 is measured, not
+the rest to the unit — their counts equal the unknown `load` /
+binary / unary counts exactly — so 9,199 is measured, not
 estimated. Those are `call` and `member` expressions: the two
 places where the front end does not know it has failed, and the same
 name-and-shape classification as the list problem above. This is the
@@ -456,15 +456,15 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-29.4% is the number the type work has to be scoped against, and a
+29.6% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Example run (numbers move;
 the baseline file is current, this transcript is not):
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
-  unknown_per_mille               294  baseline    294  +0
+  unknown_per_mille               296  baseline    296  +0
   silent_per_mille                135  baseline    135  +0
-Finished unknown-count: 294 (baseline 294, ratchet holds)
+Finished unknown-count: 296 (baseline 296, ratchet holds)
 ```
 
 Raising a baseline is a deliberate act: `--write-baseline` refuses to
