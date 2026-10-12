@@ -146,12 +146,23 @@ model Sema {
     // is a different list from the outer one of the same name.
     listElems: list
     listElemMarks: list
+    // Where the value under check was written, as a fallback position for
+    // literals the parser records no position for. ObjectLiteralNode,
+    // FieldInitNode, TypedLiteralNode and ReturnNode carry no line/col, so a
+    // diagnostic about a generic literal's fields cannot point at the literal
+    // itself. The nearest enclosing declaration can: checkVarDecl and
+    // checkConstDecl stamp it before descending, and the unpositioned arms
+    // (checkReturn, the ExpressionStmt dispatch) reset it to 0,0 so a stale
+    // line never misleads. checkGenericModelFields reads it; 0,0 keeps the
+    // honest one-line form, which printSemaErrors chooses on line == 0.
+    valueSiteLine: int
+    valueSiteCol: int
 }
 
 fn initSema() -> Sema {
     val initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0)
 }
 
 fn listContainsValue(items: list, value: string) -> bool {
@@ -1233,6 +1244,8 @@ fn isDeclaredTypeName(sema: Sema, name: string) -> bool {
 fn checkVarDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.VarDecl(v) => {
+            sema.valueSiteLine = v.line
+            sema.valueSiteCol = v.col
             val valueType = checkNode(sema, v.value)
             checkAnnotation(sema, v.name, v.typeAnnotation, valueType, v.line, v.col)
             declareSymbol(sema, v.name, bindingTypeName(v.typeAnnotation, valueType), v.isMutable, false)
@@ -1291,6 +1304,8 @@ fn isTopLevelConstantExpr(node: ASTNode) -> bool {
 fn checkConstDecl(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.ConstDecl(c) => {
+            sema.valueSiteLine = c.line
+            sema.valueSiteCol = c.col
             val valueType = checkNode(sema, c.value)
             declareSymbol(sema, c.name, valueType, false, false)
             recordConstBound(sema, c.name, c.value)
@@ -2269,7 +2284,7 @@ fn checkGenericModelFields(sema: Sema, modelName: string, node: ASTNode) {
     var i = 0
     while i < bindings.len() {
         if bindingTail(bindings.get(i)) == "unknown" {
-            reportError(sema, "Model '" + modelName + "' cannot infer type parameter '" + bindingHead(bindings.get(i)) + "': no field's declared type mentions it, so there is no value to take the argument from. Declare one model per type, or use the parameter in a field.")
+            reportErrorAt(sema, "E1006", "Use the type parameter in a field's declared type, or declare one model per type.", sema.valueSiteLine, sema.valueSiteCol, "Model '" + modelName + "' cannot infer type parameter '" + bindingHead(bindings.get(i)) + "': no field's declared type mentions it, so there is no value to take the argument from. Declare one model per type, or use the parameter in a field.")
         }
         i = i + 1
     }
@@ -2286,7 +2301,7 @@ fn checkGenericModelFields(sema: Sema, modelName: string, node: ASTNode) {
                 val got = checkNode(sema, valueNode)
                 if !argTypeFits(got, substituted) {
                     if param >= 0 {
-                        reportError(sema, "Model '" + modelName + "': field '" + fieldName + "' is declared " + declared + ", which this literal fixes as " + bindingTail(bindings.get(param)) + ", but the value is " + got)
+                        reportErrorAt(sema, "E1006", "Change the value, or change the field's declared type.", sema.valueSiteLine, sema.valueSiteCol, "Model '" + modelName + "': field '" + fieldName + "' is declared " + declared + ", which this literal fixes as " + bindingTail(bindings.get(param)) + ", but the value is " + got)
                     } else {
                         reportError(sema, "Field '" + modelName + "." + fieldName + "' is declared " + substituted + " but the value is " + got)
                     }
@@ -2298,6 +2313,11 @@ fn checkGenericModelFields(sema: Sema, modelName: string, node: ASTNode) {
 }
 
 fn checkReturn(sema: Sema, node: ASTNode) {
+    // ReturnNode carries no position, so a stale valueSite would point at an
+    // unrelated line. Reset: a generic literal returned directly keeps the
+    // honest one-line form until the parser records literal positions.
+    sema.valueSiteLine = 0
+    sema.valueSiteCol = 0
     match node {
         ASTNode.Return(r) => {
             var expectedType = sema.currentReturnType
@@ -2971,7 +2991,12 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         // checkNode, not inferType: an expression statement reaches the
         // checker only through here, so a check that lives in checkNode is
         // not run for `print(7 / 0)` unless this dispatches to it.
-        ASTNode.ExpressionStmt(e) => { checkNode(sema, e.expr)
+        ASTNode.ExpressionStmt(e) => {
+            // Unpositioned dispatch like checkReturn: reset valueSite so a
+            // literal standing alone as a statement never inherits a line.
+            sema.valueSiteLine = 0
+            sema.valueSiteCol = 0
+            checkNode(sema, e.expr)
             return ""
         }
         ASTNode.Assignment(a) => { checkNode(sema, a.value)

@@ -112,11 +112,16 @@ backend widens it). Pinned by
 Fires in `compiler/sema.orb`, `reportErrorAt`, for: a pushed value that
 contradicts the list's element type, a type name nothing declares (types are
 lower case, or declared with `model`/`union`), a binding whose value
-contradicts its annotation, and a bare generic model in a signature (`Box`
-with no argument — write `Box<int>`). Fix hint: change the value or the
+contradicts its annotation, a bare generic model in a signature (`Box`
+with no argument — write `Box<int>`), an undeterminable generic type
+parameter (`n52`), and a generic field fixed to one type by an earlier field
+(`n50`). The last two point at the enclosing declaration: object literals
+carry no parser position, so `checkGenericModelFields` reports against the
+declaration site stamped by `checkVarDecl`/`checkConstDecl` (`valueSite`);
+a literal returned directly keeps the one-line form until literal positions
+exist. Fix hint: change the value or the
 annotation; write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
-and `n51`. Note `n50`'s message comes from an *uncoded* `reportError`
-(`sema.orb:2289`), so it has no E-code despite reading like this family.
+`n50`, `n51`, and `n52`.
 
 ## E1007 — bad top-level declaration
 
@@ -208,8 +213,6 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `an object field cannot hold a nested ...` | `n54` |
 | `ok response with error status` / `err response with success status` | `n55`, `n56` |
 | `cannot interpolate a value of type` | `n02` |
-| `Model 'Same': field 'b' is declared T, which this literal fixes as int, ...` | `n50` |
-| `Model 'Phantom' cannot infer type parameter 'T' ...` | `n52` |
 | `'model Box[T: int]' is not supported ...` | `n53` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |
 

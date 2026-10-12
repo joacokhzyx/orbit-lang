@@ -47,7 +47,7 @@ silence.
 | [`std_imports.orb`](std_imports.orb) | Canonical `std` import paths | None | check |
 | [`health_service.orb`](health_service.orb) | Health, readiness, and metrics endpoints | None | check + build + run (`/health`, `/metrics` 200) |
 | [`params_service.orb`](params_service.orb) | Path parameters, static-routes-win rule | None | check |
-| [`posts_crud.orb`](posts_crud.orb) | Post CRUD plus `/posts/count` | SQLite (`sqlite3.dll` on Windows) | check (`build` hits a pre-existing C-step error on `PUT /posts/:id`, identical on unmodified HEAD) |
+| [`posts_crud.orb`](posts_crud.orb) | Post CRUD plus `/posts/count` | SQLite (`sqlite3.dll` on Windows) | check + build + run (full cycle: POST, `:id` read, partial PUT, DELETE, count 1→0) |
 | [`sqlite_notes.orb`](sqlite_notes.orb) | Notes and user management API | SQLite (`sqlite3.dll` on Windows) | check + build + run (reads, auth 401/403, `:id`, writes) |
 | [`blog_api.orb`](blog_api.orb) | Blog API with key-checked publishing | SQLite (`sqlite3.dll` on Windows) | check + build + run (GET, search, POST 201/401/400) |
 | [`file_server.orb`](file_server.orb) | File listing, content, raw-body uploads | None | check + build + run (all routes) |
@@ -121,6 +121,10 @@ silence.
   router tries static paths before param patterns, so the static
   route wins and `count` is never read as an `:id`.
 - Needs SQLite (`sqlite3.dll` on Windows).
+- Try it (PowerShell: single quotes, no backslashes — `\"` escapes
+  hide every key from the JSON parser and store an empty row):
+  `curl -X POST localhost:3000/posts -H 'Content-Type: application/json' -d '{"id":"a1","title":"hi"}'`,
+  then `PUT localhost:3000/posts/a1` with `'{"title":"yo"}'`.
 
 ### `blog_api.orb`
 
