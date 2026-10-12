@@ -702,6 +702,27 @@ embedded service storage, but migrations, transaction boundaries, backups, and
 input validation remain application responsibilities. Do not build SQL strings
 from untrusted input; prefer the parameterized runtime operations where available.
 
+Every model maps to one table (lowercase plural: `Note` → `notes`,
+`string`→`TEXT`, `int`/`bool`→`INTEGER`, `float`→`REAL`, an `id` field is
+the primary key) and carries these static methods:
+
+| Method | Returns | Notes |
+|---|---|---|
+| `M.all()` | JSON array string | full scan |
+| `M.where(cond)` | JSON array string | raw fragment; keep it constant |
+| `M.where(cond, p1..pn)` | JSON array string | one `?` per param, `%Q`-escaped in order |
+| `M.find(id)` | JSON object string | single row by key |
+| `M.first()` | JSON object string | first row, `LIMIT 1` |
+| `M.count()` / `M.count(cond, p...)` | `int` | `COUNT(*)` without fetching rows |
+| `M.create(json)` | `bool` | false on duplicate id or unusable payload |
+| `M.update(id, json)` | `bool` | partial: only present keys are written, `id` never; false when no row changed |
+| `M.delete(id)` | `bool` | true only when a row was removed |
+
+Reads answer JSON strings, not typed model values; `count` answers `int`.
+Indexes ride `migrations "CREATE INDEX ..."` lines (see
+`docs/guides/migrations.md`). There are no joins, no `ORDER BY`/`LIMIT`
+modifiers, and no transactions: one writer per file.
+
 ## Modules
 
 Import by path. Relative imports resolve against the importing file,

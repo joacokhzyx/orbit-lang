@@ -79,6 +79,7 @@ PROGRAMS = [
     prog("json"),
     prog("float_format", warnings=True),
     prog("migrations", vendor=True, db=True, defines=["-DORBIT_WITH_DB"]),
+    prog("db_ops", vendor=True, db=True, defines=["-DORBIT_WITH_DB"]),
     # The auth harness is a runtime test that happens to live under tests/auth
     # rather than runtime/, and it is the same shape as the ten above: compile a
     # C program against the runtime, link it, run it, check the exit code. It

@@ -1175,6 +1175,7 @@ fn doctorIsDbCall(code: string) -> bool {
     // boundary check sees that underscore as a word character and rejects it.
     if orbit_string_indexOf(code, "orbit_db_query") != -1 { return true }
     if orbit_string_indexOf(code, "orbit_db_insert") != -1 { return true }
+    if orbit_string_indexOf(code, "orbit_db_update") != -1 { return true }
     if orbit_string_indexOf(code, "orbit_db_delete") != -1 { return true }
     return false
 }
@@ -2377,9 +2378,13 @@ fn doctorIsTaintSource(name: string) -> bool {
 fn doctorIsTaintSink(name: string) -> bool {
     if name == "orbit_db_query_where" { return true }
     if name == "orbit_db_query_where_p" { return true }
+    if name == "orbit_db_query_where_v" { return true }
     if name == "orbit_db_query_all" { return true }
     if name == "orbit_db_query_get" { return true }
+    if name == "orbit_db_count_all" { return true }
+    if name == "orbit_db_count_v" { return true }
     if name == "orbit_db_insert" { return true }
+    if name == "orbit_db_update" { return true }
     if name == "orbit_db_delete" { return true }
     return false
 }

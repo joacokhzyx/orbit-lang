@@ -12,6 +12,7 @@
 #define ORBIT_DATABASE_H
 
 #include <sqlite3.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include "arena.c"
@@ -527,25 +528,80 @@ bool orbit_db_add(orbit_collection col, const char* json_data) {
     return success;
 }
 
-/** @brief Update the JSON_DATA column for the row with the given @p id in @p col. */
-bool orbit_db_set(orbit_collection col, const char* id, const char* json_updates) {
-    KYNX_DB_QUERY_CHECK(false);
-    size_t query_len = strlen("UPDATE  SET JSON_DATA = ? WHERE id = ?;") + strlen(col.table_name) + 1;
-    char* query = (char*)malloc(query_len);
-    if (!query) return false;
-    snprintf(query, query_len, "UPDATE %s SET JSON_DATA = ? WHERE id = ?;", col.table_name);
+/** @brief Update the row with the given @p id in @p col from a JSON document.
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK) {
-        free(query);
+Only keys present in @p json_data are written (partial update); the `id`
+column itself is never overwritten, so a payload without `id` cannot wipe
+the key. Returns true iff a row actually changed. */
+bool orbit_db_set(orbit_collection col, const char* id, const char* json_data) {
+    KYNX_DB_QUERY_CHECK(false);
+    if (!col.table_name || !id || !json_data) return false;
+    if (!orbit_db_valid_identifier(col.table_name)) return false;
+
+    /* Same column walk as orbit_db_add: the schema is the table's, not the
+     * payload's. Absent keys are skipped (not blanked); only `id` is key. */
+    char pragma_sql[512];
+    snprintf(pragma_sql, sizeof(pragma_sql), "PRAGMA table_info(%s);", col.table_name);
+
+    sqlite3_stmt* col_stmt = NULL;
+    if (sqlite3_prepare_v2(orbit_db_conn, pragma_sql, -1, &col_stmt, NULL) != SQLITE_OK) {
         return false;
     }
 
-    sqlite3_bind_text(stmt, 1, json_updates, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, id, -1, SQLITE_STATIC);
-    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
-    sqlite3_finalize(stmt);
+    enum { kMaxCols = 64 };
+    const char* col_names[kMaxCols];
+    int ncols = 0;
+    while (sqlite3_step(col_stmt) == SQLITE_ROW && ncols < kMaxCols) {
+        const char* name = (const char*)sqlite3_column_text(col_stmt, 1);
+        if (name && strcmp(name, "id") != 0) {
+            char* value = orbit_json_get_value(json_data, name);
+            if (value) {
+                char* copy = (char*)malloc(strlen(name) + 1);
+                if (copy) {
+                    memcpy(copy, name, strlen(name) + 1);
+                    col_names[ncols] = copy;
+                    ncols++;
+                }
+                free(value);
+            }
+        }
+    }
+    sqlite3_finalize(col_stmt);
+    if (ncols == 0) return false;
+
+    /* "UPDATE <table> SET c1=?,c2=? WHERE id = ?;" */
+    size_t qlen = strlen("UPDATE  SET  WHERE id = ?;") + strlen(col.table_name) + 1;
+    for (int i = 0; i < ncols; i++) qlen += strlen(col_names[i]) + 4;
+    char* query = (char*)malloc(qlen);
+    if (!query) {
+        for (int i = 0; i < ncols; i++) free((void*)col_names[i]);
+        return false;
+    }
+
+    char* p = query;
+    p += snprintf(p, (size_t)(query + qlen - p), "UPDATE %s SET ", col.table_name);
+    for (int i = 0; i < ncols; i++) {
+        if (i > 0) *(p++) = ',';
+        p += snprintf(p, (size_t)(query + qlen - p), "%s=?", col_names[i]);
+    }
+    p += snprintf(p, (size_t)(query + qlen - p), " WHERE id = ?;");
+
+    sqlite3_stmt* stmt = NULL;
+    bool success = false;
+    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) == SQLITE_OK) {
+        for (int i = 0; i < ncols; i++) {
+            char* value = orbit_json_get_value(json_data, col_names[i]);
+            sqlite3_bind_text(stmt, i + 1, value ? value : "", -1, SQLITE_TRANSIENT);
+            free(value);
+        }
+        sqlite3_bind_text(stmt, ncols + 1, id, -1, SQLITE_STATIC);
+        success = (sqlite3_step(stmt) == SQLITE_DONE)
+            && (sqlite3_changes(orbit_db_conn) > 0);
+        sqlite3_finalize(stmt);
+    }
+
     free(query);
+    for (int i = 0; i < ncols; i++) free((void*)col_names[i]);
     return success;
 }
 
@@ -617,7 +673,143 @@ static char* orbit_replace_first(OrbitArena* arena, const char* haystack, const 
     return out;
 }
 
-/** @brief Parameterized WHERE query: binds @p param as an escaped SQL literal into the first `?` of @p condition. */
+/** @brief Substitute the N '?' placeholders of @p condition with %Q-escaped
+ *         params in a single pass. One pass (not repeated replace-first) so
+ *         a '?' inside an already-substituted literal is never re-read as a
+ *         placeholder. Returns NULL on placeholder/param count mismatch or
+ *         on ';' (statement chaining is never a WHERE fragment). */
+static char* orbit_db_subst_params(OrbitArena* arena, const char* condition, const char** params, int nparams) {
+    int qmarks = 0;
+    for (const char* c = condition; *c; c++) {
+        if (*c == '?') qmarks++;
+    }
+    if (qmarks != nparams) return NULL;
+    if (strstr(condition, ";") != NULL) return NULL;
+    char** escaped = NULL;
+    if (nparams > 0) {
+        escaped = (char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
+        if (!escaped) return NULL;
+        for (int i = 0; i < nparams; i++) {
+            escaped[i] = sqlite3_mprintf("%Q", params[i] ? params[i] : "");
+            if (!escaped[i]) return NULL;
+        }
+    }
+    size_t out_len = strlen(condition) + 1;
+    for (int i = 0; i < nparams; i++) out_len += strlen(escaped[i]);
+    char* out = (char*)orbit_alloc(arena, out_len);
+    if (!out) return NULL;
+    char* p = out;
+    int used = 0;
+    for (const char* c = condition; *c; c++) {
+        if (*c == '?' && used < nparams) {
+            size_t len = strlen(escaped[used]);
+            memcpy(p, escaped[used], len);
+            p += len;
+            used++;
+        } else {
+            *(p++) = *c;
+        }
+    }
+    *p = '\0';
+    return out;
+}
+
+/** @brief Parameterized WHERE with N params: binds each param as an escaped
+ *         SQL literal into the '?' placeholders of @p condition, in order. */
+orbit_string orbit_db_query_where_v(OrbitArena* arena, const char* table_name, const char* condition, int nparams, ...) {
+    if (!orbit_db_valid_identifier(table_name)) return "[]";
+    if (!condition || !*condition) return "[]";
+    if (nparams < 0) return "[]";
+    KYNX_DB_QUERY_CHECK("[]");
+    const char** params = NULL;
+    if (nparams > 0) {
+        params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
+        if (!params) return "[]";
+        va_list ap;
+        va_start(ap, nparams);
+        for (int i = 0; i < nparams; i++) {
+            params[i] = va_arg(ap, const char*);
+        }
+        va_end(ap);
+    }
+    char* cond = orbit_db_subst_params(arena, condition, params, nparams);
+    if (!cond) return "[]";
+    orbit_collection col = { table_name, NULL };
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_where(arena, col, cond);
+    orbit_ledger_db_end(t0);
+    return r;
+}
+
+/** @brief COUNT(*) over @p table_name. */
+orbit_int orbit_db_count_all(OrbitArena* arena, const char* table_name) {
+    (void)arena;
+    if (!orbit_db_valid_identifier(table_name)) return 0;
+    KYNX_DB_QUERY_CHECK(0);
+    size_t query_len = strlen("SELECT COUNT(*) FROM ;") + strlen(table_name) + 1;
+    char* query = (char*)malloc(query_len);
+    if (!query) return 0;
+    snprintf(query, query_len, "SELECT COUNT(*) FROM %s;", table_name);
+    sqlite3_stmt* stmt = NULL;
+    orbit_int result = 0;
+    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) == SQLITE_OK) {
+        orbit_perf_stats.db_queries++;
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            result = (orbit_int)sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_finalize(stmt);
+    }
+    free(query);
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_ledger_db_end(t0);
+    return result;
+}
+
+/** @brief COUNT(*) over @p table_name with an optional parameterized filter
+ *         (same placeholder contract as where_v; "" counts every row). */
+orbit_int orbit_db_count_v(OrbitArena* arena, const char* table_name, const char* condition, int nparams, ...) {
+    if (!orbit_db_valid_identifier(table_name)) return 0;
+    if (!condition) return 0;
+    if (nparams < 0) return 0;
+    KYNX_DB_QUERY_CHECK(0);
+    char* cond = NULL;
+    if (*condition) {
+        const char** params = NULL;
+        if (nparams > 0) {
+            params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
+            if (!params) return 0;
+            va_list ap;
+            va_start(ap, nparams);
+            for (int i = 0; i < nparams; i++) {
+                params[i] = va_arg(ap, const char*);
+            }
+            va_end(ap);
+        }
+        cond = orbit_db_subst_params(arena, condition, params, nparams);
+        if (!cond) return 0;
+    }
+    size_t query_len = strlen("SELECT COUNT(*) FROM  ;") + strlen(table_name)
+        + (cond ? strlen(cond) + strlen(" WHERE ") : 0) + 1;
+    char* query = (char*)orbit_alloc(arena, query_len);
+    if (!query) return 0;
+    if (cond) {
+        snprintf(query, query_len, "SELECT COUNT(*) FROM %s WHERE %s;", table_name, cond);
+    } else {
+        snprintf(query, query_len, "SELECT COUNT(*) FROM %s;", table_name);
+    }
+    sqlite3_stmt* stmt = NULL;
+    orbit_int result = 0;
+    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) == SQLITE_OK) {
+        orbit_perf_stats.db_queries++;
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            result = (orbit_int)sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_finalize(stmt);
+    }
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_ledger_db_end(t0);
+    return result;
+}
 orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, const char* condition, const char* param) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
     /* Single-parameter contract: exactly one '?' placeholder (extras would
@@ -654,6 +846,15 @@ orbit_string orbit_db_query_get(OrbitArena* arena, const char* table_name, const
     return r;
 }
 
+orbit_string orbit_db_query_first(OrbitArena* arena, const char* table_name) {
+    if (!orbit_db_valid_identifier(table_name)) return NULL;
+    orbit_collection col = { table_name, NULL };
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_first(arena, col);
+    orbit_ledger_db_end(t0);
+    return r;
+}
+
 bool orbit_db_insert(const char* table_name, const char* json_data) {
     if (!orbit_db_valid_identifier(table_name)) return false;
     orbit_collection col = { table_name, NULL };
@@ -668,6 +869,15 @@ bool orbit_db_delete(const char* table_name, const char* id) {
     orbit_collection col = { table_name, NULL };
     uint64_t t0 = orbit_ledger_db_begin();
     bool r = orbit_db_del(col, id);
+    orbit_ledger_db_end(t0);
+    return r;
+}
+
+bool orbit_db_update(const char* table_name, const char* id, const char* json_data) {
+    if (!orbit_db_valid_identifier(table_name)) return false;
+    orbit_collection col = { table_name, NULL };
+    uint64_t t0 = orbit_ledger_db_begin();
+    bool r = orbit_db_set(col, id, json_data);
     orbit_ledger_db_end(t0);
     return r;
 }

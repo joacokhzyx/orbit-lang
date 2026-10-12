@@ -238,8 +238,13 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_query_all" { return "string" }
     if name == "orbit_db_query_where" { return "string" }
     if name == "orbit_db_query_where_p" { return "string" }
+    if name == "orbit_db_query_where_v" { return "string" }
     if name == "orbit_db_query_get" { return "string" }
+    if name == "orbit_db_query_first" { return "string" }
+    if name == "orbit_db_count_all" { return "int" }
+    if name == "orbit_db_count_v" { return "int" }
     if name == "orbit_db_insert" { return "bool" }
+    if name == "orbit_db_update" { return "bool" }
     if name == "orbit_db_delete" { return "bool" }
     if name == "orbit_string_slice" { return "string" }
     if name == "orbit_string_slice_known_len" { return "string" }
@@ -2612,6 +2617,43 @@ fn buildInterpString(builder: IRBuilder, parts: list, isRaw: bool) -> int {
 // `system.*` tables produce: fixed prefix arguments, then one per user
 // argument, one result register typed as the native's return type, and the
 // call. These three tables used to each transcribe that around their lookup.
+// Model.where(cond, p1..pn) / Model.count(cond, p1..pn): the param count
+// travels explicitly so the C side validates placeholders before touching
+// varargs (a bare ... call cannot detect a short argument list).
+fn emitModelCountedCall(builder: IRBuilder, nativeName: string, modelName: string, args: list) -> int {
+    val tableArg = ir_init_instr(IROpcode.arg)
+    tableArg.operand1 = ir_string(modelTableName(modelName))
+    ir_emit(builder.currentFunction, tableArg)
+    val condArg = ir_init_instr(IROpcode.arg)
+    condArg.operand1 = buildCallArgValue(builder, args.get(0))
+    ir_emit(builder.currentFunction, condArg)
+    val nArg = ir_init_instr(IROpcode.arg)
+    nArg.operand1 = ir_int(args.len() - 1)
+    ir_emit(builder.currentFunction, nArg)
+    var pi = 1
+    while pi < args.len() {
+        val pa = ir_init_instr(IROpcode.arg)
+        pa.operand1 = buildCallArgValue(builder, args.get(pi))
+        ir_emit(builder.currentFunction, pa)
+        pi = pi + 1
+    }
+    val resReg = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, nativeName))
+    val call = ir_init_instr(IROpcode.call)
+    call.dest = resReg
+    call.operand1 = ir_string(nativeName)
+    call.operand2 = ir_int(args.len() + 2)
+    ir_emit(builder.currentFunction, call)
+    return resReg
+}
+
+fn emitModelWhereV(builder: IRBuilder, modelName: string, args: list) -> int {
+    return emitModelCountedCall(builder, "orbit_db_query_where_v", modelName, args)
+}
+
+fn emitModelCountV(builder: IRBuilder, modelName: string, args: list) -> int {
+    return emitModelCountedCall(builder, "orbit_db_count_v", modelName, args)
+}
+
 fn emitNativeCall(builder: IRBuilder, nativeName: string, fixedArgs: list, userArgs: list) -> int {
     var fai = 0
     while fai < fixedArgs.len() {
@@ -2724,13 +2766,28 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 } else if memberName == "where" {
                     if c.args.len() == 2 {
                         modelBuiltin = "orbit_db_query_where_p"
+                    } else if c.args.len() > 2 {
+                        // N params ride a varargs call: (table, cond, n, p...).
+                        // emitNativeCall cannot insert the computed n between
+                        // cond and the params, so this one is emitted by hand.
+                        return emitModelWhereV(builder, modelName, c.args)
                     } else {
                         modelBuiltin = "orbit_db_query_where"
                     }
                 } else if memberName == "find" {
                     modelBuiltin = "orbit_db_query_get"
+                } else if memberName == "first" {
+                    modelBuiltin = "orbit_db_query_first"
+                } else if memberName == "count" {
+                    if c.args.len() == 0 {
+                        modelBuiltin = "orbit_db_count_all"
+                    } else {
+                        return emitModelCountV(builder, modelName, c.args)
+                    }
                 } else if memberName == "create" {
                     modelBuiltin = "orbit_db_insert"
+                } else if memberName == "update" {
+                    modelBuiltin = "orbit_db_update"
                 } else if memberName == "delete" {
                     modelBuiltin = "orbit_db_delete"
                 }

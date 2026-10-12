@@ -154,7 +154,10 @@ and the measurement that says how much of the front end is still untyped is
 
 `Model.create()` stores the row and returns `true`. It returns
 `false` when the `id` already exists (PRIMARY KEY) or the JSON
-payload has no usable fields. `Model.delete()` returns `true` only
+payload has no usable fields. `Model.update(id, json)` writes only the
+keys present in the payload (never `id`) and returns `true` only when a
+row actually changed; a missing id or a fieldless payload is `false`.
+`Model.delete()` returns `true` only
 when a row was actually removed. Verified live with literal JSON
 and `req.body()` input, including round-trip reads
 (`examples/posts_crud.orb`).

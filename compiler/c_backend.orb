@@ -3350,11 +3350,11 @@ fn feBuildTimeCallType(name: string) -> string {
     if name == "orbit_object_create" { return "object" }
     if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" || name == "orbit_object_set_list" { return "void" }
     if name == "ok" || name == "err" { return "result" }
-    if name == "orbit_object_to_json" || name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
-    if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_clock_ms" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return "int" }
+    if name == "orbit_object_to_json" || name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
+    if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_clock_ms" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "orbit_db_count_all" || name == "orbit_db_count_v" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return "int" }
     if name == "orbit_os_mkdir_selfhost" || name == "orbit_os_isatty_selfhost" { return "bool" }
     if name == "orbit_string_hash_selfhost" { return "string" }
-    if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
+    if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_update" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
     if name == "orbit_file_list_dir" || name == "orbit_file_list_dir_selfhost" { return "list" }
     if name == "orbit_os_alloc" || name == "orbit_os_create_arena" { return "ptr" }
     if name == "orbit_response_json" { return "response" }
@@ -3854,7 +3854,7 @@ fn functionNeedsArena(name: string) -> bool {
     if name == "orbit_http_query_get" || name == "orbit_http_header_get" || name == "orbit_http_param_get" || name == "orbit_http_body_get" { return true }
     if name == "orbit_db_get" || name == "orbit_db_all" || name == "orbit_db_where" || name == "orbit_db_first" { return true }
     if name == "orbit_auth_bearer_token" || name == "orbit_auth_role" || name == "orbit_auth_current_role" || name == "orbit_auth_has_role" { return true }
-    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" { return true }
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_db_count_all" || name == "orbit_db_count_v" { return true }
     if name == "orbit_http_client_fetch" || name == "orbit_cache_get" || name == "orbit_file_upload_save" { return true }
     if name == "orbit_base64url_encode_str" || name == "orbit_sha256_hex" || name == "orbit_hmac_sha256_base64url" { return true }
     return false
@@ -3973,8 +3973,8 @@ fn isObjectFieldSetter(name: string) -> bool {
 fn isRouteRuntimeBuiltin(name: string) -> bool {
     if name == "orbit_http_client_fetch" { return true }
     if name == "orbit_http_query_get" || name == "orbit_http_body_get" || name == "orbit_http_param_get" || name == "orbit_http_header_get" { return true }
-    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" { return true }
-    if name == "orbit_db_insert" || name == "orbit_db_delete" { return true }
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_db_count_all" || name == "orbit_db_count_v" { return true }
+    if name == "orbit_db_insert" || name == "orbit_db_update" || name == "orbit_db_delete" { return true }
     if name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_auth_has_role" { return true }
     if name == "orbit_response_json" || name == "orbit_response_error" { return true }
     if name == "orbit_file_upload_save" { return true }
@@ -4020,7 +4020,7 @@ fn isStringReturningFunction(name: string) -> bool {
     if name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_query_get" || name == "orbit_http_header_get" { return true }
     if name == "orbit_base64url_encode_str" || name == "orbit_sha256_hex" || name == "orbit_hmac_sha256_base64url" { return true }
     if name == "orbit_auth_bearer_token" || name == "orbit_auth_role" || name == "orbit_auth_current_role" { return true }
-    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" { return true }
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_get" || name == "orbit_db_query_first" { return true }
     return false
 }
 
@@ -4064,7 +4064,7 @@ fn moduleHasFunction(backend: CBackend, name: string) -> bool {
 }
 
 fn isDbBuiltin(name: string) -> bool {
-    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_get" || name == "orbit_db_insert" || name == "orbit_db_delete" {
+    if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_db_count_all" || name == "orbit_db_count_v" || name == "orbit_db_insert" || name == "orbit_db_update" || name == "orbit_db_delete" {
         return true
     }
     return false

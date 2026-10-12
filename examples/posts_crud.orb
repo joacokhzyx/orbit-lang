@@ -33,6 +33,21 @@ route GET "/posts/:id" {
     return ok 200 found
 }
 
+route PUT "/posts/:id" {
+    val id = req.param("id")
+    val payload = req.body()
+    val saved = Post.update(id, payload)
+    if saved {
+        return ok 200 payload
+    }
+    err 404 """{"updated":false}"""
+}
+
+route GET "/posts/count" {
+    val n = Post.count()
+    return ok 200 """{"count":${n}}"""
+}
+
 route DELETE "/posts/:id" {
     val id = req.param("id")
     val gone = Post.delete(id)
