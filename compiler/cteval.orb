@@ -1,4 +1,4 @@
-// Orbit Self-Hosted Compiler - Superluminal CTE (Compile-Time Evaluation)
+// Orbit Self-Hosted Compiler - Compile-time evaluator
 // compiler/cteval.orb
 //
 // Scans IR for calls to pure functions with statically-known integer

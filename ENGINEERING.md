@@ -637,6 +637,14 @@ are prerequisites or independently valuable even if native-backend is deferred.
 
 ## 7. Debt Catalogue
 
+This table is the single log of known debt: each row records one defect or gap with file, line, description, and priority.
+The ID is a stable slug for referencing the row, not a codename for new work; never mint codename-style IDs.
+An open row ends in a priority (**High**/**Medium**/**Low**); a finished row strikes through the ID (`~~slug~~`) and ends in ✅ Resolved/closed.
+Read `~~struck~~` + ✅ Resolved as done (notes like coverage thin/manual are caveats, not reopenings); read a priority label as still open.
+The executable gate order is not here; it lives in §8 (`make dev`/`make check`/`make all` via `scripts/dev.py`).
+
+Count: 8 open, 22 resolved/closed, 30 rows total.
+
 | ID | File | Line | Description | Priority |
 |---|---|---|---|---|
 | ~~cluster-supervisor~~ | `compiler/cluster.orb` | - | ~~`runClusterMode` stub removed from CLI dispatch and help text. (2026-08-15)~~ Superseded rather than merely closed: `cluster` is now a real single-host supervisor (up/status/drain/restart/down/logs, state in `.orbit/cluster.json`). The binding constraint is now §3.1 - the documented contract must match what the commands do. | ✅ Resolved |

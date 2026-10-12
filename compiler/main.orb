@@ -5,7 +5,11 @@
 //   - `run <input.orb>`: Build, then run it with inherited stdio.
 //   - `check <input.orb>`: Parse and typecheck only, no code emitted.
 //   - `doctor [dir] [--fix]`: Read-only project checks, whitespace fixes with --fix.
+//   - `fmt [file.orb]`: Token-based source formatter, whitespace only.
 //   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
+//   - `cluster ...`: Single-host multiprocess orchestration.
+//   - `start [file.orb]` / `dev [file.orb]`: Build into .orbit/ and run; dev adds watch/restart.
+//   - `lextrace <input.orb>`: Debug lexer trace (first 2000 tokens).
 //   - `--help, -h` / `--version, -v`
 
 import "./extern.orb"

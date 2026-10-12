@@ -9,6 +9,9 @@
 // The style contract lives in docs/FMT.md. Validation accepts exactly what
 // `orbit check` accepts: anything else is reported and the file is left
 // untouched. Output is built fully in memory and written only on success.
+//
+// Product tooling living in compiler/ for self-host imports, not a
+// compile phase.
 
 import "./token.orb"
 import "./lexer.orb"

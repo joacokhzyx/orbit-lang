@@ -1,3 +1,5 @@
+// AST->IR lowering with variable scopes and list-kind tracking.
+// Large by intent (~3900 lines); the scale is declared, not hidden.
 import "./ast.orb"
 import "./extern.orb"
 import "./ir.orb"

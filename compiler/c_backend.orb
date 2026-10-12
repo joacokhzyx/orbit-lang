@@ -1,3 +1,5 @@
+// IR->C emission, register type inference, and IR verifier.
+// Large by intent (~4200 lines); the scale is declared, not hidden.
 import "./builder.orb"
 import "./extern.orb"
 import "./ir.orb"

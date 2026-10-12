@@ -5,6 +5,9 @@
 // the compiler already lives by: a program WITH routes is a service, one
 // WITHOUT routes is a general program (like Python). The backend already
 // branches on moduleHasRoute; start/dev only make the mode visible.
+//
+// Product tooling living in compiler/ for self-host imports, not a
+// compile phase.
 
 import "./extern.orb"
 import "./pipeline.orb"

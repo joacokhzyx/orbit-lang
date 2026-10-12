@@ -1,4 +1,4 @@
-// Orbit Self-Hosted Compiler - Superluminal Optimizer Pass
+// Orbit Self-Hosted Compiler - Optimizer pass
 // compiler/optimizer.orb
 
 import "./ir.orb"
@@ -27,7 +27,7 @@ fn isMovableConst(op: IRValue) -> bool {
 }
 
 // list.get yields an untyped slot, so integer tables are read through
-// this typed accessor (the same shape ceval.orb uses for its tables).
+// this typed accessor (the same shape cteval.orb uses for its tables).
 fn sinkGetInt(l: list, i: int) -> int {
     return l.get(i)
 }

@@ -1,3 +1,10 @@
+// Orbit Self-Hosted Compiler - Semantic analyzer (sema = semantic analysis)
+// compiler/sema.orb
+//
+// Phase: typechecking and name resolution; runs on the AST after parsing,
+// before IR building. Input: AST plus extern/literal tables; output: scopes,
+// type/variant registries, and SemaError diagnostics. Scale note: largest
+// compiler module (~3000 lines); checkNode is the single entry for typing.
 import "./ast.orb"
 import "./extern.orb"
 import "./literal.orb"

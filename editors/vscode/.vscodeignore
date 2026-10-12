@@ -1,5 +1,4 @@
 # Keep the shipped extension small: code, grammar, snippets, docs.
-# banner.png stays: README embeds it and the Marketplace renders from the vsix.
 .vscode/**
 .vscode-test/**
 src/**

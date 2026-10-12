@@ -1,3 +1,6 @@
+// Split from c_backend: C string templates for preamble, router, and
+// server-main emission. Callers in c_backend own the IR; this file owns
+// only the emitted C text shapes.
 // globals carries ready-made "#define NAME value" lines (one per top-level
 // val/const), rendered by the backend where IRGlobal/IRValue live.
 fn routePreambleText(hasRoutes: bool, globals: string) -> string {

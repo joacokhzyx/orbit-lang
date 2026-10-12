@@ -5,6 +5,9 @@
 // pid probe (orbit_os_kill_selfhost with mode 2). Health is process
 // liveness only: fetch() is a route-context builtin and is currently a
 // stub, so no HTTP check is performed.
+//
+// Product tooling living in compiler/ for self-host imports, not a
+// compile phase.
 
 import "./extern.orb"
 import "./pipeline.orb"

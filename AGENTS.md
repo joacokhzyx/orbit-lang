@@ -130,6 +130,7 @@ Stop and ask rather than push on, when:
 
 - Preserve existing shapes: 4-space, no `var` vs `val` concessions; comments explain why code is like this, not what the code says. No new comments unless they say something the code cannot.
 - Name things by what they are. Files, doc sections, examples, tests and gates carry descriptive names (`std_crypto_demo.orb`, not `std_wave4.orb`). Do not invent batch, phase or journey codenames for new work. Component names (`Kynx`) and diagnostic/defect codes (`D001`, `F-000N`) are stable identifiers, not codenames: keep them, and define a new identifier in docs before using it in code. Retired debt-table IDs (`STAB-N`, `PAR-N`, ...) stay retired; do not mint new ones.
-- Changes to the emitted C need the "diff the whole prelude/program" eldritch check: track one program byte-for-byte; only expected fragments (one register renumber, one removed line) should differ.
+  - Day-0 read: codename (never invent, e.g. `std_wave4.orb`) vs stable identifier (keep, e.g. `Kynx`, `D001`, `F-000N`) vs retired slug (stay retired, e.g. `STAB-N`).
+- Changes to the emitted C need the whole-prelude byte-diff check: track one program byte-for-byte; only expected fragments (one register renumber, one removed line) should differ.
 - `gh` is the source of truth for CI state: `gh run list --limit 3; gh run view <id> --log` for the failing step's name. The failing step name is the finding; the step text is often as enough.
 - Register-name number shifts (`r_N`) in emitted C are benign renumbering; hash goldens will still flip, which is one probe, not a proof.

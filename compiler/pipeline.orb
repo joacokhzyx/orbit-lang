@@ -1,3 +1,7 @@
+// Compile pipeline driver: check/build/run entry points, diagnostics
+// rendering (error cards, sema errors), and C toolchain probing.
+// Large by intent (~750 lines); the size is the driver surface,
+// not hidden coupling.
 import "./lexer.orb"
 import "./parser.orb"
 import "./resolver.orb"

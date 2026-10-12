@@ -1,50 +1,33 @@
 #!/usr/bin/env python3
-"""One entry point for the developer loop.
+"""Developer entry point for local verification gates.
 
-The gate sequence used to live in three places at once: prose in ENGINEERING.md
-section 8, twenty-four inline steps in .github/workflows/ci-gate.yml, and what
-the author of the day could remember. They disagreed -- section 8 step 10 ran
-`orbit doctor tests/suite` while CI ran doctor_scope_gate.py, and ENGINEERING.md
-records that the two "disagreed" and one of them went red. This script is the
-fourth thing that knows the sequence, and the only one meant to be authoritative
-for local work.
+Owns the local gate configuration:
 
-What it owns, because it used to be tribal knowledge:
+  * TEMP/TMP directory selection for gate scratch files.
+  * ORBIT_CCACHE_DIR selection for compiler bootstrap caching.
+  * Fixed-point binary path and freshness tracking.
+  * Flags and tier assignment for each gate.
 
-  * TEMP/TMP. The fixed-point binary reads them at run time, and doctor_scope_gate
-    created its scratch under the system temp. On a machine where the system temp
-    is a different disk from /tmp, that both splits the compile cache across two
-    filesystems and leaves runnable compilers behind when /tmp is cleaned.
-  * ORBIT_CCACHE_DIR. Without it every bootstrap recompiles the 3.9 MB compiler
-    unit from scratch: 24 s, versus a file copy.
-  * The fixed-point binary path, and whether it is still fresh. Hand-named fp2,
-    fp3, ... fp13 in the repository root were the previous mechanism.
-  * Which flags each gate takes. Fourteen scripts accept --cc, fifteen accept
-    --compiler, three accept neither, and doctor_gate.py accepts --cc and
-    ignores it.
+Tiers:
 
-What it deliberately does not put in a failing tier: routes_probe, the census
-and the differential fuzzer. Those measure, they do not gate, so they live in
-the report-only tier and run under `make report`. CI runs `make all && make
-report`, and both halves come from here now -- the runtime C tests and the
-Kynx live gate are T1 and T2, not ci-gate.yml's business. `make all` on its own
-is therefore still not a green CI, and this script says so on every run.
+  T0  static, no compiler. Format check and Python syntax.
+  T1  existing orbit binary. Doctor goldens, doctor scope, CLI contract.
+  T2  freshly built fixed point. Language behaviour, negative corpus,
+      parity, -Werror on generated C.
+  T3  root of trust. build_selfhost --check-stale and verify_seed.
 
-Tiers, and the reasoning behind the split:
+Tier selection: `dev` selects tiers from `git diff --name-only` and errs
+toward running more. `check` runs T0..T2 unconditionally. `all` adds T3.
 
-  T0  static, no compiler. fmt on the checked-in form, Python syntax.
-  T1  an existing orbit binary. Doctor goldens, doctor scope, CLI contract.
-      These are the gates that caught the D028 false positives.
-  T2  a freshly built fixed point. Language behaviour, negative corpus, parity,
-      -Werror on generated C.
-  T3  the root of trust. build_selfhost --check-stale and verify_seed.
+Make targets:
 
-`dev` picks a tier from what the working tree touched and always errs toward
-running more. `check` runs T0..T2 unconditionally. `all` adds T3.
+  make dev    tiers proportionate to what the working tree touched.
+  make check  T0..T2 unconditionally.
+  make all    T0..T3, including the root of trust.
+  make fp     build only the fixed-point compiler and print its version.
+  make list   show what dev would run, without running it.
 
-Consequence stated once, here, because it is the thing most likely to be
-misread: a green `make dev` is NOT a green CI. dev runs T0+T1 by default and
-says so at the end of every run.
+Note: a green `make dev` is not a green CI.
 """
 
 import argparse

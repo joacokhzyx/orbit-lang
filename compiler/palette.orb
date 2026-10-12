@@ -1,6 +1,6 @@
 import "./extern.orb"
 
-// Orbit's own palette: the one place that names output styles.
+// Orbit's own palette: terminal output styles (ANSI), not art assets.
 //
 // Doctor used to carry these codes inline (red error, yellow warning, cyan
 // code, bold location) while the generated server banner carried its own

@@ -111,8 +111,11 @@ bash scripts/install.sh
    ```
 2. Install in VS Code:
    ```bash
-   code --install-extension orbit-0.1.0-rc.2.vsix
+   code --install-extension orbit-*.vsix
    ```
+
+> Run from the repository root so `std/` imports resolve (the compiler
+> checks the binary dir, its parent, then the working directory).
 
 ---
 
@@ -123,9 +126,6 @@ bash scripts/install.sh
 | `orbit.executablePath` | `string` | `""` | Absolute path to the `orbit` or `orbit.exe` binary. Empty searches `PATH`, then `~/.orbit/bin`, then the workspace root. A path that does not exist warns once and falls back to the search. |
 | `orbit.checkOnSave` | `boolean` | `true` | Run `orbit check` on save and show diagnostics in the Problems panel. |
 | `orbit.maxProblems` | `number` | `100` | Maximum diagnostics kept per file. |
-
-Run builds from the repository root so `std/` imports resolve (the compiler
-checks the binary dir, its parent, then the working directory).
 
 ---
 
@@ -179,7 +179,7 @@ npm test
 ```bash
 cd editors/vscode
 node ./test/diagnostics_test.js   # parser fixtures, verbatim `orbit check` output
-npx @vscode/vsce package          # produces orbit-0.1.0-rc.2.vsix
+npx @vscode/vsce package          # produces orbit-*.vsix
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in this package.
@@ -188,4 +188,4 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in this package.
 
 ## License
 
-Distributed under the **MIT License**. See [LICENSE](../../LICENSE) for more information.
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for more information.
