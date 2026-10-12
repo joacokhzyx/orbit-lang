@@ -320,6 +320,11 @@ OrbitResponse* orbit_response_json(OrbitArena* arena, int status, const char* js
     return orbit_response_create(arena, status, "application/json", json);
 }
 
+/** @brief Convenience wrapper: create an HTML response with Content-Type text/html. */
+OrbitResponse* orbit_response_html(OrbitArena* arena, int status, const char* html) {
+    return orbit_response_create(arena, status, "text/html", html);
+}
+
 
 /** @brief Convenience wrapper: create an error response with Content-Type text/plain. */
 OrbitResponse* orbit_response_error(OrbitArena* arena, int status, const char* message) {

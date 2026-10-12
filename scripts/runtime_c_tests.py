@@ -71,6 +71,7 @@ PROGRAMS = [
     prog("file"),
     prog("oom", posix_only=True),
     prog("http_parse", vendor=True),
+    prog("response", vendor=True),
     prog("upload", vendor=True),
     prog("params_decode", vendor=True),
     prog("latency_percentiles", vendor=True),

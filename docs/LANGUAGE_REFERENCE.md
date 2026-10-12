@@ -588,6 +588,21 @@ mostly static text (`err 401 """{"error":"pass ?name="}"""`); objects are
 the canonical form for success bodies, because every value inside is
 escaped on the way out, which a hand-written JSON string cannot promise.
 
+HTML answers keep the same `return` shape through an extern binding, not a
+new keyword: `ok` always sends `application/json`, so a page needs the
+`text/html` wrapper explicitly.
+
+```orbit
+extern fn orbit_response_html(status: int, body: string) -> Response
+
+route GET "/" {
+    return orbit_response_html(200, "<h1>hi</h1>")
+}
+```
+
+The body is sent as-is (no escaping, no JSON encoding); a page built from
+user input must escape it first.
+
 Path segments starting with `:` or wrapped in `{...}` capture one
 non-empty segment, readable with `req.param("name")`; `*` matches one
 segment without capturing. A static route always wins over a param

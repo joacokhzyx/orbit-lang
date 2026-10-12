@@ -2642,7 +2642,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 } else if isRouteRuntimeBuiltin(calleeName) {
                     // The body of a response is the one argument here that is
                     // a `const char*` in C and a bare value in Orbit.
-                    if argIdx == 1 && (calleeName == "orbit_response_json" || calleeName == "orbit_response_error") {
+                    if argIdx == 1 && (calleeName == "orbit_response_json" || calleeName == "orbit_response_error" || calleeName == "orbit_response_html") {
                         callExpr = callExpr + responseBodyArg(backend, aStr)
                     } else {
                         callExpr = callExpr + aStr
@@ -3849,7 +3849,7 @@ fn functionNeedsArena(name: string) -> bool {
     // Deliberately not here: the orbit_object_set* family takes the object as
     // its first parameter, not an arena. It reaches the arena through the
     // object, so prepending one gave every field write four arguments.
-    if name == "orbit_response_create" || name == "orbit_response_json" || name == "orbit_response_error" { return true }
+    if name == "orbit_response_create" || name == "orbit_response_json" || name == "orbit_response_error" || name == "orbit_response_html" { return true }
     if name == "orbit_string_slice" || name == "orbit_string_split" || name == "orbit_string_replace" || name == "orbit_string_concat" { return true }
     if name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_argv" { return true }
     if name == "orbit_int_to_string" || name == "orbit_float_to_string" { return true }
@@ -3978,7 +3978,7 @@ fn isRouteRuntimeBuiltin(name: string) -> bool {
     if name == "orbit_db_query_all" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_db_count_all" || name == "orbit_db_count_v" { return true }
     if name == "orbit_db_insert" || name == "orbit_db_update" || name == "orbit_db_delete" { return true }
     if name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_auth_has_role" { return true }
-    if name == "orbit_response_json" || name == "orbit_response_error" { return true }
+    if name == "orbit_response_json" || name == "orbit_response_error" || name == "orbit_response_html" { return true }
     if name == "orbit_file_upload_save" { return true }
     return false
 }
