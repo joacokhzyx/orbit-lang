@@ -234,6 +234,7 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_http_body_get" { return "string" }
     if name == "orbit_http_query_get" { return "string" }
     if name == "orbit_http_header_get" { return "string" }
+    if name == "orbit_http_client_fetch" { return "string" }
     if name == "orbit_db_query_all" { return "string" }
     if name == "orbit_db_query_where" { return "string" }
     if name == "orbit_db_query_where_p" { return "string" }
@@ -253,50 +254,18 @@ fn builtinReturnType(name: string) -> string {
     if name == "system_latency_p50_us" { return "int" }
     if name == "system_latency_p95_us" { return "int" }
     if name == "system_latency_p99_us" { return "int" }
+    if name == "ok" || name == "err" { return "result" }
     return ""
 }
 
 fn lookupFunctionReturnType(builder: IRBuilder, name: string) -> string {
-    return lookupLastVariableType(builder.returnTypes, name, "unknown")
-}
-
-fn registerBuiltinFunctionReturnTypes(builder: IRBuilder) {
-    registerFunctionReturnType(builder, "orbit_http_client_fetch", "string")
-    registerFunctionReturnType(builder, "orbit_cache_get", "string")
-    registerFunctionReturnType(builder, "orbit_cache_set", "bool")
-    registerFunctionReturnType(builder, "orbit_file_upload_save", "string")
-    registerFunctionReturnType(builder, "orbit_http_param_get", "string")
-    registerFunctionReturnType(builder, "orbit_http_body_get", "string")
-    registerFunctionReturnType(builder, "orbit_http_query_get", "string")
-    registerFunctionReturnType(builder, "orbit_http_header_get", "string")
-    registerFunctionReturnType(builder, "orbit_base64url_encode_str", "string")
-    registerFunctionReturnType(builder, "orbit_sha256_hex", "string")
-    registerFunctionReturnType(builder, "orbit_hmac_sha256_base64url", "string")
-    registerFunctionReturnType(builder, "orbit_string_slice", "string")
-    registerFunctionReturnType(builder, "orbit_string_slice_known_len", "string")
-    registerFunctionReturnType(builder, "orbit_os_isatty_selfhost", "bool")
-    registerFunctionReturnType(builder, "orbit_auth_bearer_token", "string")
-    registerFunctionReturnType(builder, "orbit_auth_role", "string")
-    registerFunctionReturnType(builder, "orbit_auth_current_role", "string")
-    registerFunctionReturnType(builder, "orbit_auth_has_role", "bool")
-    registerFunctionReturnType(builder, "orbit_db_query_all", "string")
-    registerFunctionReturnType(builder, "orbit_db_query_where", "string")
-    registerFunctionReturnType(builder, "orbit_db_query_where_p", "string")
-    registerFunctionReturnType(builder, "orbit_db_query_get", "string")
-    registerFunctionReturnType(builder, "orbit_db_insert", "bool")
-    registerFunctionReturnType(builder, "orbit_db_delete", "bool")
-    registerFunctionReturnType(builder, "orbit_response_json", "response")
-    registerFunctionReturnType(builder, "orbit_response_error", "response")
-    registerFunctionReturnType(builder, "system_uptime", "int")
-    registerFunctionReturnType(builder, "system_pid", "int")
-    registerFunctionReturnType(builder, "system_active_workers", "int")
-    registerFunctionReturnType(builder, "system_http_requests_total", "int")
-    registerFunctionReturnType(builder, "system_latency_avg_us", "int")
-    registerFunctionReturnType(builder, "system_latency_p50_us", "int")
-    registerFunctionReturnType(builder, "system_latency_p95_us", "int")
-    registerFunctionReturnType(builder, "system_latency_p99_us", "int")
-    registerFunctionReturnType(builder, "ok", "result")
-    registerFunctionReturnType(builder, "err", "result")
+    val fromTable = lookupLastVariableType(builder.returnTypes, name, "unknown")
+    if fromTable != "unknown" { return fromTable }
+    // Builtins live in builtinReturnType, not in a startup table, so there is
+    // only one list that can drift. User functions still come from the table.
+    val builtin = builtinReturnType(name)
+    if builtin != "" { return builtin }
+    return "unknown"
 }
 
 fn lowercaseModelChar(c: int, source: string, idx: int) -> string {
@@ -1545,7 +1514,6 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
     match rootNode {
         ASTNode.Program(p) => {
             // Pass 1: Register models and types
-            registerBuiltinFunctionReturnTypes(builder)
             var i = 0
             while i < p.decls.len() {
                 val decl = p.decls.get(i)
