@@ -443,7 +443,7 @@ fn parsePrimary(parser: Parser) -> ASTNode {
         return parsePostfix(parser, node)
     }
     if matchToken(parser, TokType.KeywordMatch) {
-        return parseMatchExpr(parser)
+        return parseMatch(parser, true)
     }
     if matchToken(parser, TokType.KeywordTry) {
         val expr = parseExpression(parser)
@@ -681,21 +681,37 @@ fn isStatementOnlyToken(tag: TokType) -> bool {
     return false
 }
 
-fn parseMatchExpr(parser: Parser) -> ASTNode {
+fn parseMatch(parser: Parser, wantValue: bool) -> ASTNode {
     val atLine = parser.previousToken.line
     val atCol = parser.previousToken.col
     val expr = parseExpression(parser)
     consume(parser, TokType.OpenBrace, "Expected '{' after match expression.")
     var cases = []
     while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
+        val armTag = parser.currentToken.tag
+        val armLine = parser.currentToken.line
+        val armCol = parser.currentToken.col
         val pattern = parseExpression(parser)
         consume(parser, TokType.FatArrow, "Expected '=>' in match case.")
-        val body = parseExpression(parser)
+        val body = parseMatchArmBody(parser, wantValue)
         matchToken(parser, TokType.Comma)
         cases.push(ASTNode.MatchCase(MatchCaseNode(pattern, body)))
+        if parser.currentToken.tag == armTag && parser.currentToken.line == armLine && parser.currentToken.col == armCol && isAtEnd(parser) == false {
+            advanceParser(parser)
+        }
     }
     consume(parser, TokType.CloseBrace, "Expected '}' after match cases.")
     return ASTNode.Match(MatchNode(expr, cases, atLine, atCol))
+}
+
+fn parseMatchArmBody(parser: Parser, wantValue: bool) -> ASTNode {
+    if wantValue {
+        return parseExpression(parser)
+    }
+    if matchToken(parser, TokType.OpenBrace) {
+        return parseBlockBody(parser)
+    }
+    return parseStatement(parser)
 }
 
 fn parseBinary(parser: Parser, precedence: int) -> ASTNode {
@@ -789,42 +805,6 @@ fn parseForStatement(parser: Parser) -> ASTNode {
     val iterable = parseExpression(parser)
     val body = parseBlock(parser)
     return ASTNode.For(ForNode(item, iterable, body))
-}
-
-fn parseMatchStatement(parser: Parser) -> ASTNode {
-    val atLine = parser.previousToken.line
-    val atCol = parser.previousToken.col
-    val expr = parseExpression(parser)
-    consume(parser, TokType.OpenBrace, "Expected '{' after match expression.")
-    var cases = []
-    while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
-        val pattern = parseExpression(parser)
-        consume(parser, TokType.FatArrow, "Expected '=>' in match case.")
-        var body = ASTNode.Empty
-        if matchToken(parser, TokType.OpenBrace) {
-            val stmts = []
-            var parsingBody = true
-            while parsingBody {
-                if check(parser, TokType.CloseBrace) {
-                    parsingBody = false
-                } else {
-                    if isAtEnd(parser) {
-                        parsingBody = false
-                    } else {
-                        stmts.push(parseStatement(parser))
-                    }
-                }
-            }
-            consume(parser, TokType.CloseBrace, "Expected '}' after block.")
-            body = ASTNode.Block(BlockNode(stmts))
-        } else {
-            body = parseStatement(parser)
-        }
-        matchToken(parser, TokType.Comma)
-        cases.push(ASTNode.MatchCase(MatchCaseNode(pattern, body)))
-    }
-    consume(parser, TokType.CloseBrace, "Expected '}' after match cases.")
-    return ASTNode.Match(MatchNode(expr, cases, atLine, atCol))
 }
 
 fn parseBlock(parser: Parser) -> ASTNode {
@@ -1322,7 +1302,7 @@ fn parseStatementInner(parser: Parser) -> ASTNode {
         return parseForStatement(parser)
     }
     if matchToken(parser, TokType.KeywordMatch) {
-        return parseMatchStatement(parser)
+        return parseMatch(parser, false)
     }
     if matchToken(parser, TokType.KeywordBreak) {
         return ASTNode.Break(BreakNode())
