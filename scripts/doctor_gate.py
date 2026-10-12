@@ -281,12 +281,11 @@ SCOPE_CLEAN_DIRS = ["compiler", "std", "tests/suite"]
 # will report clean everywhere the moment you exempt one file.
 SCOPE_ADVISORY_BY_FILE = {
     "tests/suite/call_arg_types.orb": {"D021"},
-    # This file exists to pin the shadowing bug: it declares `val v` inside an
-    # `if` and reads the outer one after, on purpose, because that program
-    # returns 20 where it means 10. D023 finds exactly those two clobbers and
-    # nothing else in the tree, which is the check working. Exempting the file is
-    # the same call as D021's: the code is wrong on purpose and the check is
-    # right about it.
+    # This file pins shadowing semantics: it declares `val v` inside an
+    # `if` and reads the outer one after, on purpose. D023 finds exactly
+    # those two declarations and nothing else in the tree. The clobber bug
+    # behind the pin is fixed (distinct C symbol per declaration); the
+    # exemption stays because the pattern is still in the file by design.
     "tests/suite/scope_shadow_clobbers_outer.orb": {"D023"},
     # These construct a `result` on purpose -- one ok, one err -- and call both
     # without handling them, because building the values is what the test is for.

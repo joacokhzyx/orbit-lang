@@ -32,16 +32,23 @@ model IRBuilder {
     // and a declaration's field types are not C types until a use fixes them.
     // An instantiation is pushed back into module.models under its own name.
     genericModels: list
+    // Disambiguator for shadowed locals. Minted C names come from here, in
+    // AST walk order, so they are deterministic across runs.
+    varSeq: int
 }
 
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [])
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], 0)
 }
 
 model Variable {
     name: string
+    // The C name this declaration owns. Usually the spelling; when a live
+    // outer scope already declares `name`, `name__sN`. The backend declares
+    // one C variable per cname, so shadowing can no longer clobber.
+    cname: string
     typeVal: string
 }
 
@@ -72,8 +79,8 @@ fn popVariableScope(builder: IRBuilder) {
     }
 }
 
-fn currentScopeAdd(scope: VarScope, name: string, typeVal: string) {
-    scope.variables.push(Variable(name, typeVal))
+fn currentScopeAdd(scope: VarScope, name: string, cname: string, typeVal: string) {
+    scope.variables.push(Variable(name, cname, typeVal))
 }
 
 // The last declaration of `name` wins, walking backwards -- which is what both
@@ -114,13 +121,69 @@ fn scopeGet(scope: VarScope, name: string) -> string {
     return "unknown"
 }
 
-fn defineVariable(builder: IRBuilder, name: string, typeVal: string) {
+fn defineVariable(builder: IRBuilder, name: string, typeVal: string) -> string {
     val len = builder.variableScopes.len()
     if len == 0 {
         pushVariableScope(builder)
     }
+    val cname = mintVariableName(builder, name)
     val currentScope = builder.variableScopes.get(builder.variableScopes.len() - 1)
-    currentScopeAdd(currentScope, name, typeVal)
+    currentScopeAdd(currentScope, name, cname, typeVal)
+    return cname
+}
+
+// True when any live scope declares `name`. Scopes pop, so a declaration in
+// a closed block is not live and does not force a mint.
+fn scopeHasName(builder: IRBuilder, name: string) -> bool {
+    var i = builder.variableScopes.len()
+    while i > 0 {
+        i = i - 1
+        val scope: VarScope = builder.variableScopes.get(i)
+        var j = scope.variables.len()
+        while j > 0 {
+            j = j - 1
+            val v: Variable = scope.variables.get(j)
+            if checkVariableName(v, name) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+// The C name for a declaration of `name` here: the spelling, unless a live
+// outer scope already owns it, in which case `name__sN`. The counter lives
+// on the builder so mints follow AST walk order and stay deterministic.
+// Without shadowing the cname IS the spelling, which is what keeps the
+// emitted C byte-identical for every program that never redeclares.
+fn mintVariableName(builder: IRBuilder, name: string) -> string {
+    if scopeHasName(builder, name) == false {
+        return name
+    }
+    val n = builder.varSeq
+    builder.varSeq = n + 1
+    return name + "__s" + n
+}
+
+// The C name a read or write of `name` means here: the innermost live
+// declaration's cname, or the spelling when nothing declares it (globals,
+// enum constants, and anything genuinely unknown pass through unchanged,
+// so converting a site that is not a variable is a no-op by construction).
+fn variableSymbol(builder: IRBuilder, name: string) -> string {
+    var i = builder.variableScopes.len()
+    while i > 0 {
+        i = i - 1
+        val scope: VarScope = builder.variableScopes.get(i)
+        var j = scope.variables.len()
+        while j > 0 {
+            j = j - 1
+            val v: Variable = scope.variables.get(j)
+            if checkVariableName(v, name) {
+                return v.cname
+            }
+        }
+    }
+    return name
 }
 
 fn lookupVariable(builder: IRBuilder, name: string) -> string {
@@ -137,7 +200,7 @@ fn lookupVariable(builder: IRBuilder, name: string) -> string {
 }
 
 fn registerFunctionReturnType(builder: IRBuilder, name: string, typeVal: string) {
-    builder.returnTypes.push(Variable(name, typeVal))
+    builder.returnTypes.push(Variable(name, name, typeVal))
 }
 
 // What type does the frontend say a builtin call returns, without a builder in
@@ -995,7 +1058,7 @@ fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
             if lit.valType == "identifier" {
                 val vt = lookupVariable(builder, lit.text)
                 if annotationBaseType(vt) == "list" {
-                    val recorded = lookupListKind(builder, lit.text)
+                    val recorded = lookupListKind(builder, variableSymbol(builder, lit.text))
                     if recorded != "" { return recorded }
                     return annotationListElement(vt)
                 }
@@ -1032,7 +1095,7 @@ fn annotationListElement(t: string) -> string {
 fn recordListKind(builder: IRBuilder, name: string, kindName: string) {
     if name == "" || kindName == "" { return }
     if lookupListKind(builder, name) != "" { return }
-    builder.listKinds.push(Variable(name, kindName))
+    builder.listKinds.push(Variable(name, name, kindName))
 }
 
 /** @brief Remember the element type a write into a named list implies.
@@ -1050,7 +1113,7 @@ fn recordPushListKind(builder: IRBuilder, node: ASTNode, kindCode: int) {
             if lit.valType == "identifier" {
                 val vt = lookupVariable(builder, lit.text)
                 if vt == "list" || vt == "List" {
-                    recordListKind(builder, lit.text, elemKindTypeName(kindCode))
+                    recordListKind(builder, variableSymbol(builder, lit.text), elemKindTypeName(kindCode))
                 }
             }
         }
@@ -1586,29 +1649,30 @@ fn buildDecl(builder: IRBuilder, node: ASTNode) {
             }
             val func = builder.currentFunction
             val varVal = buildCallArgValue(builder, v.value)
-            val instr = ir_init_instr(IROpcode.decl_var)
-            instr.operand1 = ir_symbol(v.name)
-            instr.operand2 = varVal
-            ir_emit(func, instr)
             var vType = v.typeAnnotation
             if vType == "" {
                 vType = inferValueType(builder, v.value)
             }
             val vInstance = declaredTypeInstanceName(builder, vType)
+            var vc = ""
             if vInstance != "" {
-                defineVariable(builder, v.name, vInstance)
+                vc = defineVariable(builder, v.name, vInstance)
             } else {
-                defineVariable(builder, v.name, annotationBaseType(vType))
+                vc = defineVariable(builder, v.name, annotationBaseType(vType))
             }
+            val instr = ir_init_instr(IROpcode.decl_var)
+            instr.operand1 = ir_symbol(vc)
+            instr.operand2 = varVal
+            ir_emit(func, instr)
             val vElem = annotationListElement(v.typeAnnotation)
             if vElem != "" {
-                recordListKind(builder, v.name, vElem)
+                recordListKind(builder, vc, vElem)
             } else {
                 val topElem = annotationListElement(vType)
                 if topElem != "" {
-                    recordListKind(builder, v.name, topElem)
+                    recordListKind(builder, vc, topElem)
                 } else {
-                    recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+                    recordListKind(builder, vc, listKindNameOf(builder, v.value))
                 }
             }
         }
@@ -1650,9 +1714,6 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
             pType = f.paramTypes.get(i)
         }
         val pElem = annotationListElement(pType)
-        if pElem != "" {
-            recordListKind(builder, p, pElem)
-        }
         // `Box<int>` as a parameter is the instance, and the instance has to
         // exist before struct emission reads the module: a signature may be the
         // only mention of the type in the program. Every other annotation keeps
@@ -1662,10 +1723,14 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
         // declared.
         val pInstance = declaredTypeInstanceName(builder, pType)
         val pBase = annotationBaseType(pType)
+        var pc = ""
         if pInstance != "" {
-            defineVariable(builder, p, pInstance)
+            pc = defineVariable(builder, p, pInstance)
         } else {
-            defineVariable(builder, p, pBase)
+            pc = defineVariable(builder, p, pBase)
+        }
+        if pElem != "" {
+            recordListKind(builder, pc, pElem)
         }
         val instr = ir_init_instr(IROpcode.arg)
         val regType = pInstance
@@ -1743,10 +1808,6 @@ fn isTerminatorInstr(instr: IRInstruction) -> bool {
 // rule branchTypeName types it by.
 fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     val varVal = buildCallArgValue(builder, v.value)
-    val varInstr = ir_init_instr(IROpcode.decl_var)
-    varInstr.operand1 = ir_symbol(v.name)
-    varInstr.operand2 = varVal
-    ir_emit(builder.currentFunction, varInstr)
     var vType = v.typeAnnotation
     if vType == "" {
         vType = inferValueType(builder, v.value)
@@ -1755,20 +1816,25 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     // keeps its base type, because `list<int>` is a list with an element and
     // the element is recorded separately.
     val vInstance = ""
+    var vc = ""
     if vInstance != "" {
-        defineVariable(builder, v.name, vInstance)
+        vc = defineVariable(builder, v.name, vInstance)
     } else {
-        defineVariable(builder, v.name, annotationBaseType(vType))
+        vc = defineVariable(builder, v.name, annotationBaseType(vType))
     }
+    val varInstr = ir_init_instr(IROpcode.decl_var)
+    varInstr.operand1 = ir_symbol(vc)
+    varInstr.operand2 = varVal
+    ir_emit(builder.currentFunction, varInstr)
     val vElem = annotationListElement(v.typeAnnotation)
     if vElem != "" {
-        recordListKind(builder, v.name, vElem)
+        recordListKind(builder, vc, vElem)
     } else {
         val inferredElem = annotationListElement(vType)
         if inferredElem != "" {
-            recordListKind(builder, v.name, inferredElem)
+            recordListKind(builder, vc, inferredElem)
         } else {
-            recordListKind(builder, v.name, listKindNameOf(builder, v.value))
+            recordListKind(builder, vc, listKindNameOf(builder, v.value))
         }
     }
     match varVal {
@@ -2057,12 +2123,12 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             zeroConst.operand1 = ir_int(0)
             ir_emit(builder.currentFunction, zeroConst)
 
+            val idxC = defineVariable(builder, stmt.item + "_idx", "int")
+            val itemC = defineVariable(builder, stmt.item, iterElemType)
             val idxInit = ir_init_instr(IROpcode.decl_var)
-            idxInit.operand1 = ir_symbol(stmt.item + "_idx")
+            idxInit.operand1 = ir_symbol(idxC)
             idxInit.operand2 = ir_register(zeroReg)
             ir_emit(builder.currentFunction, idxInit)
-            defineVariable(builder, stmt.item + "_idx", "int")
-            defineVariable(builder, stmt.item, iterElemType)
             val startLabel = allocLabel(builder)
             val endLabel = allocLabel(builder)
             builder.loopStartLabels.push(startLabel)
@@ -2074,7 +2140,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             val idxLoadReg = ir_alloc_register(builder.currentFunction, "int")
             val idxLoad = ir_init_instr(IROpcode.load_var)
             idxLoad.dest = idxLoadReg
-            idxLoad.operand1 = ir_symbol(stmt.item + "_idx")
+            idxLoad.operand1 = ir_symbol(idxC)
             ir_emit(builder.currentFunction, idxLoad)
             val condReg = ir_alloc_register(builder.currentFunction, "bool")
             val condInstr = ir_init_instr(IROpcode.lt)
@@ -2094,7 +2160,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             getInstr.elemKind = iterKind
             ir_emit(builder.currentFunction, getInstr)
             val declItem = ir_init_instr(IROpcode.decl_var)
-            declItem.operand1 = ir_symbol(stmt.item)
+            declItem.operand1 = ir_symbol(itemC)
             declItem.operand2 = ir_register(itemReg)
             ir_emit(builder.currentFunction, declItem)
             buildNode(builder, stmt.body)
@@ -2106,7 +2172,7 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             incInstr.operand2 = ir_int(1)
             ir_emit(builder.currentFunction, incInstr)
             val storeIdx = ir_init_instr(IROpcode.store_var)
-            storeIdx.operand1 = ir_symbol(stmt.item + "_idx")
+            storeIdx.operand1 = ir_symbol(idxC)
             storeIdx.operand2 = ir_register(incReg)
             ir_emit(builder.currentFunction, storeIdx)
             ir_emit(builder.currentFunction, jumpTo(startLabel))
@@ -2389,11 +2455,11 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             match argNode {
                                 ASTNode.Literal(argLit) => {
                                     if argLit.valType == "identifier" {
+                                        val argC = defineVariable(builder, argLit.text, variantPayloadType(builder, tagName))
                                         val declVar = ir_init_instr(IROpcode.decl_var)
-                                        declVar.operand1 = ir_symbol(argLit.text)
+                                        declVar.operand1 = ir_symbol(argC)
                                         declVar.operand2 = ir_register(dataReg)
                                         ir_emit(builder.currentFunction, declVar)
-                                        defineVariable(builder, argLit.text, variantPayloadType(builder, tagName))
                                     }
                                 }
                                 _ => {}
@@ -3259,7 +3325,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     val varReg = ir_alloc_register(builder.currentFunction, varType)
                     val loadVar = ir_init_instr(IROpcode.load_var)
                     loadVar.dest = varReg
-                    loadVar.operand1 = ir_symbol(lit.text)
+                    loadVar.operand1 = ir_symbol(variableSymbol(builder, lit.text))
                     ir_emit(builder.currentFunction, loadVar)
                     return varReg
                 }
@@ -3324,7 +3390,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 match bin.lhs {
                     ASTNode.Literal(lit) => {
                         val storeInstr = ir_init_instr(IROpcode.store_var)
-                        storeInstr.operand1 = ir_symbol(lit.text)
+                        storeInstr.operand1 = ir_symbol(variableSymbol(builder, lit.text))
                         storeInstr.operand2 = ir_register(rhsReg)
                         ir_emit(builder.currentFunction, storeInstr)
                         return rhsReg
@@ -3560,7 +3626,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             match a.target {
                 ASTNode.Literal(lit) => {
                     val storeInstr = ir_init_instr(IROpcode.store_var)
-                    storeInstr.operand1 = ir_symbol(lit.text)
+                    storeInstr.operand1 = ir_symbol(variableSymbol(builder, lit.text))
                     storeInstr.operand2 = ir_register(rhsReg)
                     ir_emit(builder.currentFunction, storeInstr)
                     return rhsReg
@@ -3637,11 +3703,11 @@ fn buildTryExpr(builder: IRBuilder, t: TryNode) -> int {
         unwrapErr.dest = errStrReg
         unwrapErr.operand1 = ir_register(exprReg)
         ir_emit(func, unwrapErr)
+        val errC = defineVariable(builder, t.errName, "string")
         val declErr = ir_init_instr(IROpcode.decl_var)
-        declErr.operand1 = ir_symbol(t.errName)
+        declErr.operand1 = ir_symbol(errC)
         declErr.operand2 = ir_register(errStrReg)
         ir_emit(func, declErr)
-        defineVariable(builder, t.errName, "string")
     }
     match t.catchBody {
         ASTNode.Empty => {
