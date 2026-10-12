@@ -79,7 +79,7 @@ PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by scripts/build_selfhost.py --promote,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "3207176558757492C85B3DA0DBF386D8D74E353322EB483FD7E1B104C86A9C06"
+PUBLISHED_C = "0FFA735E47D1323F652465C962F0DCDB27FF932D69833B778491B838A67A3304"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says
@@ -214,8 +214,10 @@ def main() -> int:
     # Fixed -o basename shared with build_selfhost.py: see the comment there.
     # Same content, same flags, same cc -> same cache entry (~12s per make all).
     seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
-    orbit_ccache.compile_cached(cc_cmd, [*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal,
-                                        *PLATFORM_LINK_FLAGS], [amal], log=out.say)
+    seed_argv = [*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
+    seed_argv, seed_sources = orbit_ccache.windows_stamp(
+        seed_argv, [amal], work, "Orbit compiler", log=out.say)
+    orbit_ccache.compile_cached(cc_cmd, seed_argv, seed_sources, log=out.say)
     check("seed builds", os.path.isfile(seed_exe))
 
     def orb_build(compiler, out_name, snapshot_c):
@@ -262,11 +264,11 @@ def main() -> int:
         if os.path.abspath(c) != os.path.abspath(shared):
             shutil.copyfile(c, shared)
         fixed_out = os.path.join(work, "fixed_point_build" + exe)
-        _, reused = orbit_ccache.compile_cached(
-            cc_cmd,
-            [*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
-             "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS],
-            [shared], log=out.say)
+        fixed_argv = [*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
+                      "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS]
+        fixed_argv, fixed_sources = orbit_ccache.windows_stamp(
+            fixed_argv, [shared], work, "Orbit compiler", log=out.say)
+        _, reused = orbit_ccache.compile_cached(cc_cmd, fixed_argv, fixed_sources, log=out.say)
         out.say(f"deterministic rebuild {out_name}"
                 + ("  (from cache)" if reused else ""))
         shutil.move(fixed_out, os.path.join(work, out_name))
@@ -337,11 +339,11 @@ def main() -> int:
         os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
         shutil.copyfile(amal, os.path.join(ROOT, "dist", "orbit_bootstrap.c"))
         out.say("Refreshing dist/orbit_seed")
-        orbit_ccache.compile_cached(
-            cc_cmd,
-            [*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe),
-             amal, *PLATFORM_LINK_FLAGS],
-            [amal], log=out.say)
+        dist_argv = [*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe),
+                     amal, *PLATFORM_LINK_FLAGS]
+        dist_argv, dist_sources = orbit_ccache.windows_stamp(
+            dist_argv, [amal], work, "Orbit compiler", log=out.say)
+        orbit_ccache.compile_cached(cc_cmd, dist_argv, dist_sources, log=out.say)
 
     if args.emit_fixed_point:
         os.makedirs(os.path.dirname(os.path.abspath(args.emit_fixed_point)), exist_ok=True)

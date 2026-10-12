@@ -218,6 +218,181 @@ fn compilerRuntimeDir() -> string {
     return "runtime"
 }
 
+fn orbitVersion() -> string {
+    return "0.1.0-rc.2"
+}
+
+fn appLeadingDigits(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val c = s.at(i)
+        if c < 48 || c > 57 { break }
+        out = out + s.slice(i, i + 1)
+        i = i + 1
+    }
+    if out == "" { return "0" }
+    return out
+}
+
+fn appTrailingDigits(s: string) -> string {
+    var out = ""
+    var i = s.len() - 1
+    while i >= 0 {
+        val c = s.at(i)
+        if c < 48 || c > 57 { break }
+        out = s.slice(i, i + 1) + out
+        i = i - 1
+    }
+    if out == "" { return "0" }
+    return out
+}
+
+fn appSplitDots(s: string) -> list {
+    val parts = []
+    var rest = s
+    while true {
+        val pos = orbit_string_indexOf(rest, ".")
+        if pos == -1 { break }
+        parts.push(rest.slice(0, pos))
+        rest = rest.slice(pos + 1, rest.len())
+    }
+    parts.push(rest)
+    return parts
+}
+
+// "0.1.0-rc.2" -> "0,1,0,2": leading digits of the first three dot parts,
+// trailing digits of the last part. The -rc tail drops out of the numeric
+// fields; the full string stays in the text fields below.
+fn appVersionNums() -> string {
+    val parts = appSplitDots(orbitVersion())
+    var a = "0"
+    var b = "0"
+    var c = "0"
+    var d = "0"
+    if parts.len() > 0 {
+        val p0: string = parts.get(0)
+        a = appLeadingDigits(p0)
+    }
+    if parts.len() > 1 {
+        val p1: string = parts.get(1)
+        b = appLeadingDigits(p1)
+    }
+    if parts.len() > 2 {
+        val p2: string = parts.get(2)
+        c = appLeadingDigits(p2)
+        d = appTrailingDigits(p2)
+    }
+    if parts.len() > 3 {
+        val p3: string = parts.get(3)
+        d = appTrailingDigits(p3)
+    }
+    return a + "," + b + "," + c + "," + d
+}
+
+fn appBaseName(path: string) -> string {
+    var base = path
+    var i = 0
+    while i < base.len() {
+        val ch = base.slice(i, i + 1)
+        if ch == "/" || ch == "\\" {
+            base = base.slice(i + 1, base.len())
+            i = 0
+            continue
+        }
+        i = i + 1
+    }
+    return base
+}
+
+fn appDirHasFile(dir: string, name: string) -> bool {
+    val items = orbit_file_list_dir_selfhost(dir)
+    var i = 0
+    while i < items.len() {
+        val item: string = items.get(i)
+        if item == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The mark travels with the install: orbit.ico beside the compiler binary
+// (installed layout), else the repo asset (dev loop). Empty when neither
+// exists: version info still stamps, the icon just stays out.
+fn appFindIcon() -> string {
+    val selfDir = getDir(orbit_os_argv_selfhost(0))
+    if selfDir != "" && appDirHasFile(selfDir, "orbit.ico") {
+        return selfDir + "/orbit.ico"
+    }
+    if appDirHasFile("assets", "orbit.ico") {
+        return "assets/orbit.ico"
+    }
+    return ""
+}
+
+// Windows version resource + mark. Fixed Orbit branding, no user input:
+// there is deliberately no syntax for this, so a .orb file cannot fake it.
+fn appRcText(exeBase: string, description: string, iconPath: string) -> string {
+    val nums = appVersionNums()
+    val ver = orbitVersion()
+    var rc = "1 VERSIONINFO\n"
+    rc = rc + "FILEVERSION " + nums + "\n"
+    rc = rc + "PRODUCTVERSION " + nums + "\n"
+    rc = rc + "FILEFLAGSMASK 0x3fL\n"
+    rc = rc + "FILEFLAGS 0x0L\n"
+    rc = rc + "FILEOS 0x40004L\n"
+    rc = rc + "FILETYPE 0x1L\n"
+    rc = rc + "FILESUBTYPE 0x0L\n"
+    rc = rc + "BEGIN\n"
+    rc = rc + "    BLOCK \"StringFileInfo\"\n"
+    rc = rc + "    BEGIN\n"
+    rc = rc + "        BLOCK \"040904b0\"\n"
+    rc = rc + "        BEGIN\n"
+    rc = rc + "            VALUE \"CompanyName\", \"orbit-lang\"\n"
+    rc = rc + "            VALUE \"FileDescription\", \"" + description + "\"\n"
+    rc = rc + "            VALUE \"FileVersion\", \"" + ver + "\"\n"
+    rc = rc + "            VALUE \"InternalName\", \"" + exeBase + "\"\n"
+    rc = rc + "            VALUE \"LegalCopyright\", \"MIT\"\n"
+    rc = rc + "            VALUE \"OriginalFilename\", \"" + exeBase + "\"\n"
+    rc = rc + "            VALUE \"ProductName\", \"Orbit\"\n"
+    rc = rc + "            VALUE \"ProductVersion\", \"" + ver + "\"\n"
+    rc = rc + "        END\n"
+    rc = rc + "    END\n"
+    rc = rc + "    BLOCK \"VarFileInfo\"\n"
+    rc = rc + "    BEGIN\n"
+    rc = rc + "        VALUE \"Translation\", 0x409, 1200\n"
+    rc = rc + "    END\n"
+    rc = rc + "END\n"
+    if iconPath != "" {
+        rc = rc + "IDI_ICON1 ICON \"" + iconPath + "\"\n"
+    }
+    return rc
+}
+
+// Returns the link fragment (" \"<res>\"") or "": windres, then llvm-rc,
+// else an honest note and an unstamped binary. The build never fails for
+// branding alone.
+fn appResourceFragment(tmpDir: string, outputPath: string, description: string, verbose: bool) -> string {
+    val rcPath = tmpDir + "/orbit_app.rc"
+    val resPath = tmpDir + "/orbit_app.res"
+    val rc = appRcText(appBaseName(outputPath), description, appFindIcon())
+    if orbit_file_write_selfhost(rcPath, rc) == false {
+        return ""
+    }
+    if verbose {
+        print("rc " + rcPath)
+    }
+    val ignoredW = orbit_os_exec_selfhost("windres \"" + rcPath + "\" -O coff -o \"" + resPath + "\"")
+    if appDirHasFile(tmpDir, "orbit_app.res") == false {
+        val ignoredL = orbit_os_exec_selfhost("llvm-rc /FO \"" + resPath + "\" \"" + rcPath + "\"")
+    }
+    if appDirHasFile(tmpDir, "orbit_app.res") == false {
+        orbit_os_write_stderr_selfhost("orbit build: note: no resource compiler (windres/llvm-rc); binary ships without Orbit metadata.\n")
+        return ""
+    }
+    return " \"" + resPath + "\""
+}
+
 fn splitBuildLines(source: string) -> list {
     var lines = []
     var start = 0
@@ -533,6 +708,16 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         warnFlags = ""
     }
     var compCmd = cCompiler + " -s -O0" + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
+    // Orbit branding: every binary linked on Windows carries the version
+    // resource + mark. Fixed metadata, never user input (there is no syntax
+    // for it), so services and plain programs alike are recognisably Orbit's.
+    if isWindowsHost && tmpDir != "" {
+        var appDesc = "Orbit program"
+        if moduleHasRoute(backend) {
+            appDesc = "Orbit service"
+        }
+        compCmd = compCmd + appResourceFragment(tmpDir, outputPath, appDesc, verbose)
+    }
 
     val ccExtra = orbit_os_env_selfhost("ORBIT_CCFLAGS_EXTRA")
     if ccExtra != "" {

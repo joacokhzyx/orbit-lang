@@ -329,9 +329,10 @@ def main() -> int:
     # verified name-independent by hash.
     seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
     out.say("Building seed from canonical C")
-    orbit_ccache.compile_cached(cc_cmd,
-                                [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS],
-                                [amal], log=out.say)
+    seed_argv = [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
+    seed_argv, seed_sources = orbit_ccache.windows_stamp(
+        seed_argv, [amal], work, "Orbit compiler", log=out.say)
+    orbit_ccache.compile_cached(cc_cmd, seed_argv, seed_sources, log=out.say)
 
     # Iterate: current compiler builds the sources; repeat until C stabilises.
     prev_c_hash = None
@@ -347,11 +348,11 @@ def main() -> int:
         # Generated C is not amalgamated: it needs the runtime headers on the
         # include path (pipeline.orb does the same when building user programs).
         out.say(f"Building iter{i} compiler from its own C")
-        _, reused = orbit_ccache.compile_cached(
-            cc_cmd,
-            [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-I", os.path.join(ROOT, "runtime"),
-             "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS],
-            [c_i], log=out.say)
+        iter_argv = [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-I", os.path.join(ROOT, "runtime"),
+                     "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS]
+        iter_argv, iter_sources = orbit_ccache.windows_stamp(
+            iter_argv, [c_i], work, "Orbit compiler", log=out.say)
+        _, reused = orbit_ccache.compile_cached(cc_cmd, iter_argv, iter_sources, log=out.say)
         out.say(f"Iteration {i}: {h_i}"
                 + ("  (fixed point)" if h_i == prev_c_hash else "")
                 + ("  (cc from cache)" if reused else ""))

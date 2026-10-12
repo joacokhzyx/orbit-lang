@@ -79,10 +79,6 @@ fn runFrontend() {
     }
 }
 
-fn orbitVersion() -> string {
-    return "0.1.0-rc.2"
-}
-
 fn helpText(useColor: bool) -> string {
     var h = "Usage: orbit <command> [options]\n"
     h = h + "\n"

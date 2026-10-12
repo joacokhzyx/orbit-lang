@@ -118,6 +118,153 @@ def _out_target(argv):
     return None
 
 
+# --------------------------------------------------------------------------
+# Windows binary branding: every .exe linked on Windows carries Orbit's own
+# version resource + mark. Fixed metadata, never user input: there is no
+# syntax for it, so a .orb file cannot fake the brand.
+# --------------------------------------------------------------------------
+
+_ORBIT_COMPANY = "orbit-lang"
+_ORBIT_PRODUCT = "Orbit"
+_ORBIT_COPYRIGHT = "MIT"
+
+
+def _orbit_version():
+    """The compiler's own version string, read from its source of truth.
+
+    pipeline.orb owns fn orbitVersion; parse it rather than duplicating the
+    literal here. None when unparseable: callers skip stamping rather than
+    stamping a wrong version.
+    """
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(os.path.dirname(here), "compiler", "pipeline.orb")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    import re
+    m = re.search(r'fn orbitVersion\(\) -> string \{\s*return "([^"]+)"', text)
+    return m.group(1) if m else None
+
+
+def _version_nums(version):
+    """'0.1.0-rc.2' -> '0,1,0,2': leading digits of the first three dot parts,
+    trailing digits of the last part. The -rc tail drops out of the numeric
+    fields; the full string stays in the text fields."""
+    import re
+    parts = version.split(".")
+    nums = []
+    for p in parts[:3]:
+        m = re.match(r"\d+", p)
+        nums.append(m.group(0) if m else "0")
+    last = parts[3] if len(parts) > 3 else (parts[-1] if parts else "")
+    m = re.search(r"(\d+)$", last)
+    nums.append(m.group(1) if m else "0")
+    while len(nums) < 4:
+        nums.append("0")
+    return ",".join(nums[:4])
+
+
+def _orbit_rc_text(exe_base, description, version, icon_path):
+    nums = _version_nums(version)
+    lines = [
+        "1 VERSIONINFO",
+        "FILEVERSION " + nums,
+        "PRODUCTVERSION " + nums,
+        "FILEFLAGSMASK 0x3fL",
+        "FILEFLAGS 0x0L",
+        "FILEOS 0x40004L",
+        "FILETYPE 0x1L",
+        "FILESUBTYPE 0x0L",
+        "BEGIN",
+        '    BLOCK "StringFileInfo"',
+        "    BEGIN",
+        '        BLOCK "040904b0"',
+        "        BEGIN",
+        '            VALUE "CompanyName", "%s"' % _ORBIT_COMPANY,
+        '            VALUE "FileDescription", "%s"' % description,
+        '            VALUE "FileVersion", "%s"' % version,
+        '            VALUE "InternalName", "%s"' % exe_base,
+        '            VALUE "LegalCopyright", "%s"' % _ORBIT_COPYRIGHT,
+        '            VALUE "OriginalFilename", "%s"' % exe_base,
+        '            VALUE "ProductName", "%s"' % _ORBIT_PRODUCT,
+        '            VALUE "ProductVersion", "%s"' % version,
+        "        END",
+        "    END",
+        '    BLOCK "VarFileInfo"',
+        "    BEGIN",
+        '        VALUE "Translation", 0x409, 1200',
+        "    END",
+        "END",
+    ]
+    if icon_path:
+        lines.append('IDI_ICON1 ICON "%s"' % icon_path.replace("\\", "/"))
+    return "\n".join(lines) + "\n"
+
+
+def _which_resource_compiler():
+    for name in ("windres", "llvm-rc"):
+        if shutil.which(name):
+            return name
+    return None
+
+
+def windows_stamp(argv, sources, workdir, description, log=None):
+    """Append Orbit branding to a cc link: (argv, sources) -> (argv, sources).
+
+    No-op off Windows, when the version is unparseable, or when neither
+    windres nor llvm-rc exists (logged; the build proceeds unstamped rather
+    than failing for branding alone). The .res joins both argv and sources
+    so the content cache keys on it.
+    """
+    if os.name != "nt":
+        return argv, sources
+    target = _out_target(argv)
+    if target is None:
+        return argv, sources
+    version = _orbit_version()
+    if not version:
+        if log:
+            log("orbit metadata: cannot parse orbitVersion; shipping unstamped")
+        return argv, sources
+    rc_tool = _which_resource_compiler()
+    if rc_tool is None:
+        if log:
+            log("orbit metadata: no resource compiler (windres/llvm-rc); shipping unstamped")
+        return argv, sources
+    exe_base = os.path.basename(target)
+    stem = os.path.splitext(exe_base)[0] or "orbit"
+    try:
+        os.makedirs(workdir, exist_ok=True)
+    except OSError:
+        return argv, sources
+    here = os.path.dirname(os.path.abspath(__file__))
+    icon_cand = os.path.join(os.path.dirname(here), "assets", "orbit.ico")
+    icon = icon_cand if os.path.isfile(icon_cand) else ""
+    rc_path = os.path.join(workdir, stem + ".orbit.rc")
+    res_path = os.path.join(workdir, stem + ".orbit.res")
+    try:
+        with open(rc_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(_orbit_rc_text(exe_base, description, version, icon))
+    except OSError:
+        return argv, sources
+    try:
+        if rc_tool == "windres":
+            subprocess.run([rc_tool, rc_path, "-O", "coff", "-o", res_path],
+                           capture_output=True, timeout=120)
+        else:
+            subprocess.run([rc_tool, "/FO", res_path, rc_path],
+                           capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if not os.path.isfile(res_path):
+        if log:
+            log("orbit metadata: %s failed; shipping unstamped" % rc_tool)
+        return argv, sources
+    return argv + [res_path], sources + [res_path]
+
+
 def _entry(key: str) -> str:
     return os.path.join(cache_root(), key[:2], key)
 

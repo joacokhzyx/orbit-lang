@@ -60,6 +60,16 @@ only); `up` and `restart` echo spawned commands with `--verbose`. The
 child program owns the terminal under `run`, so its output is never
 silenced.
 
+On Windows, every binary the compiler links carries Orbit's own metadata:
+a version resource (CompanyName `orbit-lang`, ProductName `Orbit`,
+FileDescription `Orbit program` / `Orbit service` / `Orbit compiler`,
+the compiler version throughout) plus the Orbit mark as its icon whenever
+`orbit.ico` sits beside the compiler (installed layout) or in `assets/`
+(dev checkout). There is deliberately no syntax for this: the branding is
+fixed so a `.orb` file cannot fake it. It needs `windres` or `llvm-rc` on
+PATH; without either the build succeeds unstamped with a note on stderr.
+Other platforms skip it silently.
+
 `orbit start` builds to `.orbit/<name>[.exe]` (plus `.orbit/data/` for
 the database and `.orbit/logs/` for dev output) and runs it, so the
 binary never lands next to your source. With no file argument it uses
