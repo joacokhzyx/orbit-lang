@@ -224,6 +224,24 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, "    _orbit_argv = argv;\n")
         orbit_cbuf_append_selfhost(cbTop, "    _orbit_argc = argc;\n")
         orbit_cbuf_append_selfhost(cbTop, "    \n")
+        // Windows consoles default to a legacy codepage, which mojibakes the
+        // UTF-8 the compiler emits (doctor's score box, ✓/✗ marks), and to a
+        // mode without ANSI processing. Same setup the generated servers
+        // already do (route_runtime.orb); every other program needs it too,
+        // including the compiler itself. Best-effort and TTY-only by
+        // construction: GetConsoleMode fails on pipes, and SetConsoleOutputCP
+        // is harmless there.
+        orbit_cbuf_append_selfhost(cbTop, "#ifdef _WIN32\n")
+        orbit_cbuf_append_selfhost(cbTop, "    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);\n")
+        orbit_cbuf_append_selfhost(cbTop, "    if (hOut != INVALID_HANDLE_VALUE) {\n")
+        orbit_cbuf_append_selfhost(cbTop, "        DWORD dwMode = 0;\n")
+        orbit_cbuf_append_selfhost(cbTop, "        if (GetConsoleMode(hOut, &dwMode)) {\n")
+        orbit_cbuf_append_selfhost(cbTop, "            SetConsoleMode(hOut, dwMode | 0x0001 | 0x0004);\n")
+        orbit_cbuf_append_selfhost(cbTop, "        }\n")
+        orbit_cbuf_append_selfhost(cbTop, "        SetConsoleOutputCP(65001);\n")
+        orbit_cbuf_append_selfhost(cbTop, "    }\n")
+        orbit_cbuf_append_selfhost(cbTop, "#endif\n")
+        orbit_cbuf_append_selfhost(cbTop, "    \n")
         if backend.module.migrations.len() > 0 || moduleUsesDatabase(backend.module) {
             orbit_cbuf_append_selfhost(cbTop, "    orbit_db_init(\"orbit.db\");\n")
             orbit_cbuf_append_selfhost(cbTop, generateModelDDL(backend))
