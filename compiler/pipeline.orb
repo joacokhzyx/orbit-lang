@@ -593,7 +593,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val irModule = buildAST(builder, ast)
     reportMemStage("build")
 
-    // Wave 0 STAB: both optimization passes honor the same kill switch
+    // Both optimization passes honor the same kill switch
     // (ORBIT_NO_CTE=1 skips them and emits pre-pass IR), and their
     // counters are reported instead of dropped.
     var optPatterns = 0

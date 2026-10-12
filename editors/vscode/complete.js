@@ -9,10 +9,10 @@
 
 'use strict';
 
-// std/**/*.orb, all 14 modules. Detail lines name the Wave section of
-// docs/LANGUAGE_REFERENCE.md. Removed modules are never listed:
+// std/**/*.orb, all 14 modules. Detail lines name the LANGUAGE_REFERENCE.md
+// standard-library section. Removed modules are never listed:
 // std/core/result.orb, std/sys/crypto/hash.orb, std/sys/bytes/buffer.orb,
-// std/sys/net/socket.orb (see Wave 4 + std/quarantine/README.md).
+// std/sys/net/socket.orb (see the cryptography section + std/quarantine/README.md).
 const STD_MODULES = [
     { path: 'std/test/assert.orb', detail: 'assertTrue, assertEqInt, assertEqStr' },
     { path: 'std/string/string.orb', detail: 'trim, split, join, toUpper, toLower, parseIntChecked, .to_int()' },
@@ -27,7 +27,7 @@ const STD_MODULES = [
     { path: 'std/sys/crypto/jwt.orb', detail: 'signHs256, verifyHs256, decodePayload, getExp, verifyWithKeys' },
     { path: 'std/bytes/bytes.orb', detail: 'newBuffer, appendByte/Slice, writeFrame/readFrame, readAt (-1 OOR)' },
     { path: 'std/sys/term/color.orb', detail: 'wrapRgbForeground + styling' },
-    { path: 'std/convert/convert.orb', detail: 'see LANGUAGE_REFERENCE Wave 2' },
+    { path: 'std/convert/convert.orb', detail: 'see LANGUAGE_REFERENCE standard library' },
 ];
 
 // compiler/builder.orb req members. Only these 8 lower to builtins.

@@ -123,7 +123,7 @@ def main() -> int:
             return (name, "timeout-build")
         if build_rc != 0:
             # stderr FIRST, and this was the bug. `orbit build` writes its
-            # diagnostics to stderr -- DX-0 moved them there deliberately, so
+            # diagnostics to stderr -- stderr-diagnostics moved them there deliberately, so
             # that `orbit check` and `orbit build` agree -- and this runner
             # captured stderr and then printed stdout, which for a failed build
             # is empty. Every build failure in this suite reported

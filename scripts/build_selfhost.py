@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild the self-hosted Orbit compiler from the committed canonical C (SOVER-1).
+"""Rebuild the self-hosted Orbit compiler from the committed canonical C.
 
 The root of trust is the committed canonical C source
 (``compiler/selfhost/stage3.exe.c``). Any conforming C compiler can turn it
@@ -53,7 +53,7 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # No blanket suppressions: generated C must compile warning-free under -Werror
 # on the supported toolchains. -Werror itself stays out of the bootstrap path
 # (exotic toolchains must never brick the build); it runs as an explicit CI gate
-# step instead (STAB-3, scripts/werror_gate.py).
+# step instead (the clean-emission work, scripts/werror_gate.py).
 # The two -Wno-error= downgrades below are load-bearing, not cruft: GCC 14+
 # raises int-conversion / incompatible-pointer-types as ERRORS by default,
 # so without them any remaining instance bricks the bootstrap (and user

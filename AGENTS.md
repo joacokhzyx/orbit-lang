@@ -26,7 +26,7 @@ make list     # show what dev would run, without running it
 
 `dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
 
-**If a gate fails only on windows-latest, read [docs/WINDOWS.md](docs/WINDOWS.md) first.** It records the two Windows gate failures (diagnosed and fixed, 2026-10-09), how to reproduce them, what has already been ruled out, and what is NOT open -- the `0xC0000005` in `test_migrations` is fixed and the runtime C tests are green on both platforms. Those two failures are recorded as DX-1(7) in `ENGINEERING.md` §7, diagnosed and fixed there.
+**If a gate fails only on windows-latest, read [docs/WINDOWS.md](docs/WINDOWS.md) first.** It records the two Windows gate failures (diagnosed and fixed, 2026-10-09), how to reproduce them, what has already been ruled out, and what is NOT open -- the `0xC0000005` in `test_migrations` is fixed and the runtime C tests are green on both platforms. Those two failures are recorded as gate-sequence(7) in `ENGINEERING.md` §7, diagnosed and fixed there.
 
 Useful when something breaks:
 
@@ -50,7 +50,7 @@ Commit canonical + refreshed goldens + sources + `scripts/verify_seed.py` (PUBLI
 
 **Do not read the canonical's diff, read `make promote-diff` instead.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured: 37 of the last 60 commits touch it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004.
 
-After `make promote` and before committing, run it. It diffs the canonical against `HEAD` with `r_N` and `label_N` flattened to `r` and `label` -- the only two generated-name families in 4.7 MB -- and reports the raw line count, the count after flattening, the hunks, and the functions they land in. On the commit that removed the phantom `ParamNode`, that is 24 342 lines raw against **40** after flattening, in 9 hunks across 3 functions. The same flattening is applied by hand in the STAB-3 entry of `ENGINEERING.md`, which is where the technique came from.
+After `make promote` and before committing, run it. It diffs the canonical against `HEAD` with `r_N` and `label_N` flattened to `r` and `label` -- the only two generated-name families in 4.7 MB -- and reports the raw line count, the count after flattening, the hunks, and the functions they land in. On the commit that removed the phantom `ParamNode`, that is 24 342 lines raw against **40** after flattening, in 9 hunks across 3 functions. The same flattening is applied by hand in the clean-emission entry of `ENGINEERING.md`, which is where the technique came from.
 
 So review the `.orb` diff, the commit's evidence block, and `make promote-diff` -- three things, all readable. Treat the canonical itself as the mechanical artifact it is and check only its hash.
 
@@ -129,6 +129,7 @@ Stop and ask rather than push on, when:
 ## Style / workflow
 
 - Preserve existing shapes: 4-space, no `var` vs `val` concessions; comments explain why code is like this, not what the code says. No new comments unless they say something the code cannot.
+- Name things by what they are. Files, doc sections, examples, tests and gates carry descriptive names (`std_crypto_demo.orb`, not `std_wave4.orb`). Do not invent batch, phase or journey codenames for new work. Component names (`Kynx`) and diagnostic/defect codes (`D001`, `F-000N`) are stable identifiers, not codenames: keep them, and define a new identifier in docs before using it in code. Retired debt-table IDs (`STAB-N`, `PAR-N`, ...) stay retired; do not mint new ones.
 - Changes to the emitted C need the "diff the whole prelude/program" eldritch check: track one program byte-for-byte; only expected fragments (one register renumber, one removed line) should differ.
 - `gh` is the source of truth for CI state: `gh run list --limit 3; gh run view <id> --log` for the failing step's name. The failing step name is the finding; the step text is often as enough.
 - Register-name number shifts (`r_N`) in emitted C are benign renumbering; hash goldens will still flip, which is one probe, not a proof.

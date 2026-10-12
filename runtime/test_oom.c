@@ -1,6 +1,6 @@
 /**
  * @file  test_oom.c
- * @brief Runtime allocation-failure policy tests (FMT-1).
+ * @brief Runtime allocation-failure policy tests (oom-policy).
  *
  * orbit_alloc used to return NULL on exhaustion and left the decision to the
  * caller, but of 107 orbit_alloc call sites in the runtime only 5 checked the
@@ -14,7 +14,7 @@
  * orbit_alloc_try. These tests pin all four halves of that contract, including
  * the one that is easy to get wrong: a bad *argument* must stay a quiet NULL
  * rather than aborting, because argument validation is a recoverable path and
- * orbit_file_write's NULL checks depend on it (FMT-0).
+ * orbit_file_write's NULL checks depend on it (fmt-no-clobber).
  *
  * The abort is observed in a child process, since it is not supposed to
  * return. Conventions follow runtime/test_arena.c.

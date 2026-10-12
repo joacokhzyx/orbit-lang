@@ -16,7 +16,7 @@ Naming:
 - `cN_*` model / combined route+model programs
 - `eN_*` intentional compile errors (diagnostics stability)
 - `trivial*` minimal `fn main` programs (non-route preamble)
-- `stab2_probe` the full STAB-2 drift probe (routes + models + unions)
+- `stab2_probe` the full single-pipeline drift probe (routes + models + unions)
 
 The goldens were seeded from the original validated state, so the historical
 cross-lineage assurance carries over.

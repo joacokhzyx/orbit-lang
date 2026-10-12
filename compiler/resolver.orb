@@ -52,7 +52,7 @@ fn getDir(filePath: string) -> string {
     return filePath.slice(0, lastSlash)
 }
 
-// Wave 0 std: canonical `std/...` and `lib/...` imports resolve against
+// Canonical `std/...` and `lib/...` imports resolve against
 // the std roots (compiler binary dir, its parent, then CWD), so std
 // works no matter where the importing file lives. Plain relative
 // imports keep the legacy base-dir-then-CWD order below.

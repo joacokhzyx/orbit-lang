@@ -31,7 +31,7 @@ PROBES = [
     # and bool and fell through to (const char*) for everything after them, so
     # this one line handed a const char* to an OrbitObject* parameter. Every
     # other probe here is a model, a route or an arithmetic expression, so
-    # STAB-3 never reached it and the language suite was the only red thing --
+    # the clean-emission gate never reached it and the language suite was the only red thing --
     # on the toolchains that promote the warning, and only on those.
     ("object_literal_nested", 'fn main() -> int {\n    val o = { deep: { deeper: 7 } }\n    return o.deep.deeper\n}', 7),
     # A response body reaches orbit_response_json as a `const char*`. Sema can

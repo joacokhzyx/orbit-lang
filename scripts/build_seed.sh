@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# build_seed.sh - Build the C bootstrap seed (Phase S1, SOVER-0).
+# build_seed.sh - Build the C bootstrap seed (bootstrap-seed flow).
 #
 #   dist/orbit_bootstrap.c  self-contained C source (compiler + runtime)
 #   dist/orbit_seed         the resulting bootstrap compiler

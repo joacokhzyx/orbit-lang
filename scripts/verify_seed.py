@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the C bootstrap fixed point (STAB-1).
+"""Verify the C bootstrap fixed point (the seed-verifier flow).
 
 Reproduces the verification end to end in a hermetic work directory and
 reports whether the compiler's reproducibility contract still holds:

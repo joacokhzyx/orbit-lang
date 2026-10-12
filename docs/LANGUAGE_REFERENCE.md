@@ -750,7 +750,7 @@ pin the compiler version in CI.
 one.** The import namespace is global, a name may be declared only once across
 the whole import graph, and `private` does not restrict anything.
 
-## Standard library (Wave 1)
+## Standard library: test, strings and hashing
 
 Shipped and tested under `tests/std/` (run with
 `test_suite.py --dir tests/std`):
@@ -758,7 +758,7 @@ Shipped and tested under `tests/std/` (run with
 - `std/test/assert.orb`: `assertTrue`, `assertEqInt`, `assertEqStr`
   for exit-code tests. No `assertErr`: a result passed as an
   argument works, and try/catch on a result parameter works
-  inline, but the pair is not yet exercised (STAB-9).
+  inline, but the pair is not yet exercised (result-values).
 - `std/string/string.orb`: `trim`, `startsWith`, `endsWith`, `join`,
   `split`, `padLeft`, `padRight`, `toUpper`, `toLower` (byte-wise,
   ASCII-only), `parseIntChecked` (canonical decimal only; returns
@@ -775,7 +775,7 @@ Bind a fallible std result to a `val` if you need to use it twice, or
 pass it straight to a function that takes a `result`; both are
 supported. What is not supported is `return ok(expr)` directly in a
 function returning `result`: the parser reads `ok` after `return` as
-the route response form (STAB-9), so assign it first.
+the route response form (result-values), so assign it first.
 
 `result` is a **builtin type**, not a std module. `ok` and `err` are
 lexer keywords (`compiler/lexer.orb:199-200`) and the type name is one
@@ -783,7 +783,7 @@ of the six the backend knows. A `std/core/result.orb` used to shadow
 it and did not parse; it is gone. If you were told to `import` it, you
 were told about a file that never worked.
 
-## Standard library (Wave 2)
+## Standard library: collections, files, IO, time and logging
 
 - `std/collections/lists.orb`: `getOr`, `firstOr`, `lastOr`,
   `containsStr`, `containsInt`, `indexOfStr`, `indexOfInt`, `reverse`
@@ -826,7 +826,7 @@ were told about a file that never worked.
   bytes are out of scope by design. Object literals already escape on
   serialization; this is for the interpolation case, which does not.
 
-## Standard library (Wave 4)
+## Standard library: cryptography and bytes
 
 - `std/sys/crypto/jwt.orb`: `signHs256`, `verifyHs256` (HS256 only,
   no `alg:none`; time travels explicitly as `nowUnix` because Orbit

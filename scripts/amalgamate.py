@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Amalgamate the self-hosted Orbit compiler into a single self-contained C file.
 
-Phase S1 (SOVER-0): produce `dist/orbit_bootstrap.c` by inlining every
+Bootstrap seed flow: produce `dist/orbit_bootstrap.c` by inlining every
 project-relative `#include "..."` reachable from `compiler/selfhost/stage3.exe.c`.
 System includes (`#include <...>`) are left untouched.
 

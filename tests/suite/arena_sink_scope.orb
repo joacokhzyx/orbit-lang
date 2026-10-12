@@ -1,4 +1,4 @@
-// Wave 3: pure-temporary motion scope tests. Constant temporaries
+// Pure-temporary motion scope tests. Constant temporaries
 // may sink toward their sole use over clear regions; alloc,
 // strings, responses, collections, and calls never move. Every case
 // below asserts the VALUE, which holds whether motion fired or

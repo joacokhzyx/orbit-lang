@@ -1,4 +1,4 @@
-// Wave 1 demo: string shaping, hashing, and assertions composed.
+// Strings demo: string shaping, hashing, and assertions composed.
 import "std/string/string.orb"
 import "std/hash/hash.orb"
 import "std/test/assert.orb"

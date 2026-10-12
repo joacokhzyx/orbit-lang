@@ -299,7 +299,7 @@ def classify(changed: list) -> list:
     would never find out whether the test still passes. That was a hole in the
     table this was first written from, found by using it.
 
-    `examples/` stays at T1 and is a real gap, recorded in DX-1: nothing in T1
+    `examples/` stays at T1 and is a real gap, recorded in gate-sequence: nothing in T1
     or T2 compiles an example, so an edit to one is checked for formatting and
     nothing else until the Kynx live gate runs, and that gate does not live in
     dev.py yet.

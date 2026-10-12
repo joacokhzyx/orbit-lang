@@ -1,4 +1,4 @@
-// Wave 1: narrowed peephole rules fire only on proven int/bool
+// Narrowed peephole rules fire only on proven int/bool
 // constants (literals or single-def chains over clear regions).
 // Every case asserts the VALUE, which holds whether the rule fired
 // or (conservatively) did not. Excluded on purpose: x*0, all div/mod

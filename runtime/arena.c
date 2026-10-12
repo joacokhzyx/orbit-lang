@@ -266,7 +266,7 @@ void orbit_arena_destroy(OrbitArena* arena) {
 /* ── Allocation ─────────────────────────────────────────────────────── */
 
 /*
- * Allocation failure policy (FMT-1).
+ * Allocation failure policy (oom-policy).
  *
  * orbit_alloc historically returned NULL when the arena was exhausted, and
  * almost nothing looked: of 107 orbit_alloc call sites in the runtime, 5
@@ -276,7 +276,7 @@ void orbit_arena_destroy(OrbitArena* arena) {
  * a NUL-terminated const char*, so a NULL result is also indistinguishable
  * from a legitimately empty string at most boundaries; that conflation is
  * what let `orbit fmt` report success after reducing a source file to zero
- * bytes (FMT-0).
+ * bytes (fmt-no-clobber).
  *
  * Failure is therefore loud by default. The default handler reports what was
  * requested and what the arena held, then aborts, so the 102 unchecked sites
@@ -290,7 +290,7 @@ void orbit_arena_destroy(OrbitArena* arena) {
  *
  * Only exhaustion reaches the handler. A NULL arena or a zero-byte request is
  * an argument error, not an out-of-memory condition, and stays a quiet NULL so
- * that argument validation (including orbit_file_write's, which FMT-0 pinned)
+ * that argument validation (including orbit_file_write's, which fmt-no-clobber pinned)
  * keeps reporting false rather than aborting the process.
  */
 typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);

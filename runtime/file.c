@@ -37,7 +37,7 @@ OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
      * the NULL came back as ORBIT_ERR_OUT_OF_MEMORY, and callers that probe a
      * path with orbit_file_read before deciding whether it is a directory
      * (`orbit fmt <dir>` does exactly that) read that as "not a file" and
-     * carried on. Once allocation failure became loud (FMT-1) the same path
+     * carried on. Once allocation failure became loud (oom-policy) the same path
      * aborted the process, so the directory is rejected up front instead. */
     {
         int is_dir = 0;

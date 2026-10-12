@@ -189,7 +189,7 @@ fn reportErrorAt(sema: Sema, code: string, hint: string, line: int, col: int, me
 // user wanting a `read` helper should get one diagnostic naming the collision
 // and suggesting a rename, not a C toolchain message. The better long-term
 // answer is to mangle emitted user symbols so no name can ever collide; that
-// touches every call site in every program and is tracked as CODE-1.
+// touches every call site in every program and is tracked as c-name-collisions.
 fn reservedCFunctionName(name: string) -> bool {
     if name == "read" { return true }
     if name == "write" { return true }

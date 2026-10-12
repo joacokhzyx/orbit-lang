@@ -1,4 +1,4 @@
-# Compiler Sovereignty (SOVER-1)
+# Compiler Sovereignty
 
 > How Orbit bootstraps itself from committed C source with nothing but a C
 > compiler and a stock `python3`.

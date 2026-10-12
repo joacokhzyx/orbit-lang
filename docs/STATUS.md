@@ -21,14 +21,14 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | C code generation | Primary backend | `compiler/c_backend.orb`, `runtime/` |
 | HTTP service runtime | Available for supported service features | `runtime/http.c`, `compiler/route_runtime.orb`, examples |
 | Arena-based allocation | Available | `runtime/arena.c`, `runtime/arena_pool.c`, `docs/ARENA.md` |
-| Database integration | Reads, writes and auto-created model tables; migrations still open | `runtime/database.c`, `examples/posts_crud.orb`, `STAB-6` |
+| Database integration | Reads, writes and auto-created model tables; migrations still open | `runtime/database.c`, `examples/posts_crud.orb`, `schema-migrations` |
 | Path parameters | `:id`/`{id}`/`*` match with capture, static routes win | `examples/params_service.orb` |
 | Bearer auth and roles | Token extraction, role lookup, expiry; `has_role` enforced | `examples/sqlite_notes.orb`, `tests/auth/` |
 | CLI consistency | Errors to stderr, per-command help, `--quiet`/`--verbose`, doctor JSON | `scripts/cli_probe.py` |
 | Behavior suite | Executable programs, one behavior each | `tests/suite/`, `tests/suite/README.md` |
 | Parity and stability probes | Documented gate against committed goldens | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension: highlighting, and `orbit check` diagnostics on save. No language server - `orbit` has no `lsp` subcommand. | `editors/vscode/` |
-| Native machine-code backend | Not available in the current tree | `SOVER-1` in `ENGINEERING.md` |
+| Native machine-code backend | Not available in the current tree | `native-backend` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
 | `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `compiler/parser.orb:1023`, `compiler/route_runtime.orb:544` |
 | Standard library | **14 modules, 14 of 14 compile and merge into one program.** Was 20, with 13 compiling. Six were deleted because each was a function that returned a value and was not computing it; two are quarantined as `*.orb.quarantined`, because the language cannot express them and the alternative was to ship something that looked like the feature. Two modules (`std/convert/`, `std/json/`) are new. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
@@ -137,10 +137,10 @@ A native backend is a long-term sovereignty and performance project. It depends 
 
 | Risk | Impact | Current response |
 |---|---|---|
-| Generated C relies on warning suppression and broad casts | Silent miscompilation or toolchain-specific failures | Track as `STAB-3`; add strict compilation incrementally |
+| Generated C relies on warning suppression and broad casts | Silent miscompilation or toolchain-specific failures | Track as `clean-emission`; add strict compilation incrementally |
 | Engineering catalog contains historical paths and stale status details | Contributors may choose the wrong implementation surface | Use this snapshot and `docs/README.md` as navigation; reconcile the catalog progressively |
 | Behavior suite is small relative to the language surface | Regressions can escape CI | Grow the suite by contract area, starting with focused tests |
-| Database schema evolution is not a complete public contract | Existing services may not upgrade safely | Track as `STAB-6`; specify migrations before implementation |
+| Database schema evolution is not a complete public contract | Existing services may not upgrade safely | Track as `schema-migrations`; specify migrations before implementation |
 | Native backend and multi-host clustering have large dependency chains | High cost and broad failure surface | Keep them behind the compiler-trust and runtime milestones |
 
 ## Definition of a Meaningful Milestone

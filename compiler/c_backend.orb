@@ -964,7 +964,7 @@ fn irVerifierOperandType(func: IRFunction, v: IRValue) -> string {
     }
 }
 
-// STAB-5: walk the built IR and reject type contradictions before any C is
+// Walk the built IR and reject type contradictions before any C is
 // emitted. The point is the three silent-degradation classes the ratchet
 // cannot see: a call whose destination register disagrees with the callee's
 // declared return type, a member read on a string typed as a model, and a
@@ -3757,7 +3757,7 @@ fn registerVarDefType(backend: CBackend, func: IRFunction, regId: int) -> string
     return "unknown"
 }
 
-// Wave 0 STAB: the string-propagation tattoos below consult
+// The string-propagation tattoos below consult
 // registerVarDefType, which answers "unknown" for constants defined by
 // load_const. A register the inference already proved int/float/bool
 // must never be re-tattooed "string" (it produced `(orbit_string)(0)`

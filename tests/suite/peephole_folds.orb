@@ -1,4 +1,4 @@
-// Wave 0 STAB: peephole rules must pin BOTH operand types to int
+// Peephole rules must pin BOTH operand types to int
 // literals. The backend overloads `add` on strings (concat) and
 // floats, so folding on operand-2 shape alone corrupts programs
 // (`"n=" + 0` used to fold to `"n="`). Every case below asserts the

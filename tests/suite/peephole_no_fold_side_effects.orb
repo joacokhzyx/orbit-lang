@@ -1,4 +1,4 @@
-// Wave 0 STAB: dead calls with effects must survive DCE, and folded
+// Dead calls with effects must survive DCE, and folded
 // constants must not cross control-flow barriers. hasSideEffects now
 // covers db_*, http_response, alloc, fields, switch, result and union
 // opcodes; propagation stops at label/jump/call/ret.

@@ -896,7 +896,7 @@ fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -
     if !okEval { return false }
     val resultVal = st.result
 
-    // Wave 0 STAB: no CFG exists, so a folded constant must not cross
+    // No CFG exists, so a folded constant must not cross
     // control flow. If any label/jump/jump_if_false follows the call,
     // skip the fold entirely and keep the call: the unconditional
     // nop below is only sound when every later use is substituted,

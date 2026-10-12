@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # SOVER-1 primary gate: the compiler bootstraps itself from the committed
+  # Primary gate: the compiler bootstraps itself from the committed
   # canonical C using any C compiler. No toolchain beyond cc and python3.
   #
   # This job used to be twenty-four sequential steps, and in GitHub Actions a
@@ -73,7 +73,7 @@ jobs:
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/routes_probe.py
 
-      - name: Build and verify the self-host bootstrap (STAB-0 / STAB-1)
+      - name: Build and verify the self-host bootstrap (fixed-point gate, seed verifier)
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
@@ -84,7 +84,7 @@ jobs:
           tail -n 40 gate_output.log
           exit $rc
 
-      - name: Hermetic seed verification (STAB-1)
+      - name: Hermetic seed verification
         shell: bash
         run: |
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python

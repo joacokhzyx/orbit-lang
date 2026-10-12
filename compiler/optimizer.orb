@@ -9,7 +9,7 @@ model OptStats {
     span_saved: int
 }
 
-// Wave 3: sink pure-constant temporaries toward their sole use to
+// Sink pure-constant temporaries toward their sole use to
 // shorten live ranges. Only load_const definitions move, only to a
 // single use, only over regions with no label/jump/jump_if_false.
 // Calls and rets are not barriers (constants survive them); alloc,
@@ -215,7 +215,7 @@ fn isOne(v: IRValue) -> bool {
     }
 }
 
-// Wave 1 shapes: the builder materializes integer, float, and bool
+// The builder materializes integer, float, and bool
 // literals as Sym holding the literal TEXT (builder.orb buildExpr:
 // only strings, chars, and call args become typed values), so the
 // pins below accept strict decimal/bool text as well as typed
@@ -251,13 +251,13 @@ fn parseDecLit(text: string) -> int {
     return num
 }
 
-// Wave 0 STAB: every arithmetic rewrite below must pin BOTH operands to
+// Every arithmetic rewrite below must pin BOTH operands to
 // int literals (typed values or strict-decimal symbols; the builder
 // materializes source literals as Sym text). The backend overloads
 // `add` on strings (orbit_string_concat) and floats, so folding on
 // operand-2 shape alone corrupts programs (`"n=" + 0` folded to
 // `"n="`). Register operands fold only through single-def use-def
-// proofs (Wave 1 below).
+// proofs (int-literal resolution below).
 fn isIntLit(v: IRValue) -> bool {
     match v {
         IRValue.Int(m) => return true
@@ -281,7 +281,7 @@ fn isBoolLit(v: IRValue) -> bool {
     }
 }
 
-// Wave 1: no CFG exists, so constant/copy knowledge dies at control
+// No CFG exists, so constant/copy knowledge dies at control
 // flow. A substitution is allowed only over regions with no label,
 // jump, or jump_if_false between definition and use. Calls and rets
 // are NOT barriers: an already-computed pure value survives them
@@ -310,7 +310,7 @@ fn regionClear(func: IRFunction, fromIdx: int, toIdx: int) -> bool {
     return true
 }
 
-// Wave 1: resolve a Register operand to an int literal through
+// Resolve a Register operand to an int literal through
 // single-definition chains (load_const Int, copy forwarding, load_var
 // fed by one const store), depth-bounded. Anything else (including
 // multi-defined registers and unknown shapes) returns the operand

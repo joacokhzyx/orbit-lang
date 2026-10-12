@@ -145,7 +145,7 @@ static void test_read_missing_file(void) {
 // bytes. A directory opens fine in read mode on POSIX and ftell reports
 // LONG_MAX on it, so `size + 1` overflowed into a huge size_t. That used to be
 // survivable only because the allocation failed and the NULL was reported as
-// out-of-memory; once allocation failure became loud (FMT-1) it aborted. Code
+// out-of-memory; once allocation failure became loud (oom-policy) it aborted. Code
 // that probes a path to find out whether it is a directory -- `orbit fmt <dir>`
 // does exactly that -- depends on this returning an error promptly.
 static void test_read_directory_fails_cleanly(void) {

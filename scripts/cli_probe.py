@@ -78,7 +78,7 @@ SETUP = {
     "fmt/blank.orb": "   \n\n  \n",
     # A function named after a C library symbol. `orbit check` and `orbit build`
     # both report this on stderr: diagnostics never go to stdout, so a script
-    # reading stdout sees only real output and artifacts (see DX-0).
+    # reading stdout sees only real output and artifacts (see stderr-diagnostics).
     "reserved/read.orb": "fn read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return read(\"hi\")\n}\n",
     # The same program with a safe name, which must still build.
     "reserved/safe.orb": "fn user_read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return user_read(\"hi\")\n}\n",
@@ -149,7 +149,7 @@ CASES = [
      "C library function name", ""),
     ("reserved-name-suggests-rename", ["check", "reserved/read.orb"], 1, "err",
      "user_read", ""),
-    # DX-0: stdout must stay clean when a check fails, so anything reading only
+    # stderr-diagnostics: stdout must stay clean when a check fails, so anything reading only
     # stdout cannot mistake a failed check for a successful one.
     ("check-failure-keeps-stdout-clean", ["check", "reserved/read.orb"], 1, "out",
      "", "out:Semantic error"),

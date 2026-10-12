@@ -1,4 +1,4 @@
-// Wave 4 demo: sign a token, verify it against explicit time,
+// Crypto demo: sign a token, verify it against explicit time,
 // frame it length-prefixed, print the frame size.
 import "std/sys/crypto/jwt.orb"
 import "std/bytes/bytes.orb"

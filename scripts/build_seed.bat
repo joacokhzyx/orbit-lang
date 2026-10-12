@@ -1,5 +1,5 @@
 @echo off
-rem build_seed.bat - Build the C bootstrap seed (Phase S1, SOVER-0).
+rem build_seed.bat - Build the C bootstrap seed (bootstrap-seed flow).
 rem
 rem   dist/orbit_bootstrap.c  self-contained C source (compiler + runtime)
 rem   orbit_seed.exe          the resulting bootstrap compiler

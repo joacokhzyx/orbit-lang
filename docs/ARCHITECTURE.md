@@ -480,7 +480,7 @@ run-to-run flakiness. The full gate sequence, in order, is in
 directory, and no `orbit bootstrap` subcommand. The only backend is C, and the
 only build entry points are `orbit build`, `run`, and `check`.
 
-It remains the largest open architecture item, tracked as SOVER-1 in
+It remains the largest open architecture item, tracked as native-backend in
 [ENGINEERING.md](../ENGINEERING.md) and as Phase S2 in that document's
 self-hosting roadmap. The design it would have to satisfy, including the
 component breakdown and the parity requirement, is recorded there. The current

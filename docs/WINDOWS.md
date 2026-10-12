@@ -216,5 +216,5 @@ could not report, and the record written from that run was wrong in three
 places. A gate that suppresses its own evidence is the same defect as a job that
 skips its steps.
 
-Recorded as **DX-1** in `ENGINEERING.md` §7, along with the measured cost:
+Recorded as **gate-sequence** in `ENGINEERING.md` §7, along with the measured cost:
 the `gates` job is 5 minutes on ubuntu and about 14 on windows-latest.
