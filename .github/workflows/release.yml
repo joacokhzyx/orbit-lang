@@ -42,6 +42,24 @@ jobs:
           fi
           echo "[Release] Fixed-point compiler (self-hosted seed chain): dist/${{ matrix.asset }}"
 
+      - name: Build Linux bundle (binary + std/ + runtime/)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="dist/bundle/orbit"
+          rm -rf dist/bundle "dist/${{ matrix.asset }}.tar.gz"
+          mkdir -p "$STAGE"
+          cp "dist/${{ matrix.asset }}" "$STAGE/orbit"
+          chmod +x "$STAGE/orbit"
+          cp -r std "$STAGE/std"
+          cp -r runtime "$STAGE/runtime"
+          rm -f "$STAGE"/runtime/test_*.c
+          cp LICENSE "$STAGE/LICENSE.txt"
+          tar -czf "dist/${{ matrix.asset }}.tar.gz" -C dist/bundle orbit
+          echo "[Release] Linux bundle: dist/${{ matrix.asset }}.tar.gz"
+          tar -tzf "dist/${{ matrix.asset }}.tar.gz" | head -n 8
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -52,6 +70,14 @@ jobs:
             dist/orbit_seed*
           if-no-files-found: error
 
+      - name: Upload Linux bundle
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-bundle
+          path: dist/${{ matrix.asset }}.tar.gz
+          if-no-files-found: error
+
       # The Setup Wizard is what installs Orbit "to perfection" (PATH, .orb
       # icon + association, std/ + runtime/ beside the binary). Built only on
       # Windows, only from the verified fixed-point binary staged above.
@@ -59,7 +85,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          choco install innosetup -y --no-progress
+          # Inno Setup is pinned so the wizard is reproducible.
+          # Bump this version deliberately, never float it.
+          choco install innosetup --version=6.3.3 -y --no-progress --allow-downgrade
+          choco list --local-only innosetup
           $ver = '0.0.0-dev'
           if ('${{ github.ref }}' -like 'refs/tags/v*') { $ver = '${{ github.ref_name }}'.TrimStart('v') }
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /DOrbitVersion=$ver installer\orbit.iss
@@ -91,11 +120,21 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Generate SHA256SUMS for all release assets
+        shell: bash
+        run: |
+          cd release-assets
+          rm -f SHA256SUMS
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+          test -s SHA256SUMS
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ contains(github.ref_name, '-rc') }}
           generate_release_notes: true
+          # release-assets/* now includes SHA256SUMS from the step above.
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

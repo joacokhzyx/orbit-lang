@@ -11,6 +11,11 @@ Releases publish a fixed-point compiler and the source you need to verify its tr
 
 The current release workflow does not publish a macOS compiler artifact. macOS users can build the compiler locally with the POSIX bootstrap scripts described in [Platform Support](SUPPORT.md).
 
+Linux additionally ships `orbit-linux-x86_64.tar.gz`: the same binary bundled
+with `std/` + `runtime/` beside it (plus `LICENSE.txt`), so Linux users who
+take the bundle skip the install trap entirely. Windows users get the equivalent
+via the Setup Wizard below.
+
 ## Release Files
 
 A release contains:
@@ -20,6 +25,10 @@ A release contains:
   admin) that installs `orbit.exe` on PATH, registers the `.orb` icon and
   `orbit check` double-click verb, and ships `std/` + `runtime/` beside the
   binary so imports and builds work outside a source checkout;
+- on Linux, `orbit-linux-x86_64.tar.gz`: the same compiler bundled with `std/`
+  + `runtime/` beside the binary (extract and run, nothing to copy);
+- `SHA256SUMS`: SHA-256 hashes of every other file in the release, generated
+  in the publish job before upload - check your download against it;
 - `orbit_bootstrap.c`, the amalgamated C bootstrap source;
 - `orbit_seed*`, the seed compiler artifacts produced by verification when available;
 - generated release notes from the tagged revision.
@@ -60,13 +69,15 @@ download, not to a wizard install: the wizard is what closes it. `ovm`
 (Orbit Version Manager) will own upgrades later; there is intentionally no
 `orbit install` command.
 
-## The release does not ship `std/`, so the verification has to prove it knows that
+## The raw binary does not ship `std/`, so the verification has to prove it knows that
 
 A `std/...` import resolves against three roots, in order: the compiler
 binary's directory, that directory's parent, then the **current working
-directory** (`compiler/resolver.orb:69-90`). The release contains the platform
-binary, `orbit_bootstrap.c` and the seed artifacts. There is no `std/` in it
-and no install step that puts one next to the binary.
+directory** (`compiler/resolver.orb:69-90`). The raw platform binary ships
+alone: no `std/` in it and no install step that puts one next to the binary.
+(The Windows wizard install and the Linux bundle tarball both close this trap
+by placing `std/` + `runtime/` beside the binary - the trap below is about the
+bare-binary download only.)
 
 So a verification that only builds a program which imports nothing from `std/`
 proves nothing about what a user can do with the artifact they just downloaded.
@@ -98,18 +109,42 @@ import](LIBRARIES.md#4-std-resolves-against-three-roots-and-that-is-the-install-
 
 After downloading a release:
 
-1. Confirm that the filename matches the target platform.
-2. Run `orbit --help` to verify that the executable starts.
-3. Build a small Orbit program from [Getting Started](GETTING_STARTED.md).
-4. If you want to use `std/`, put a copy of `std/` beside the binary or beside
-   its parent directory first. A downloaded compiler cannot resolve a `std/`
-   import on its own, and `orbit check` will tell you so with
+1. Check the hashes. Every release publishes a `SHA256SUMS` file alongside the
+   assets - verify your download against it before running anything:
+   ```sh
+   sha256sum -c SHA256SUMS   # from the directory holding the downloads
+   ```
+   On Windows, `certutil -hashfile <file> SHA256` prints the hash to compare
+   by eye against the `SHA256SUMS` entry.
+2. Confirm that the filename matches the target platform.
+3. Run `orbit --help` to verify that the executable starts.
+4. Build a small Orbit program from [Getting Started](GETTING_STARTED.md).
+5. Keep `orbit_bootstrap.c` with the release records when independent
+   verification is required.
+
+Then pick your path:
+
+### Wizard path (trap closed, nothing to copy)
+
+- **Windows:** run `Orbit-Setup-<version>.exe`. It puts `std/` + `runtime/`
+  beside `orbit.exe`, so `std/` imports and `orbit build` work out of the box.
+- **Linux:** extract `orbit-linux-x86_64.tar.gz` and use the `orbit` inside:
+  `std/` + `runtime/` sit beside it for the same reason.
+- No hand-copying, no `Import error` workaround. If a `std/` import fails on
+  this path, that is a bug - report it.
+
+### Raw-binary path (trap applies, hand-copy workaround)
+
+If you downloaded the bare `orbit-windows-x86_64.exe` or
+`orbit-linux-x86_64` instead of the wizard/bundle:
+
+1. If you want to use `std/`, put a copy of `std/` beside the binary or beside
+   its parent directory first. A bare downloaded compiler cannot resolve a
+   `std/` import on its own, and `orbit check` will tell you so with
    `Import error: Could not read imported module: ...` rather than crashing.
-5. Run `orbit build` from a directory that contains `runtime/`, or copy the
+2. Run `orbit build` from a directory that contains `runtime/`, or copy the
    runtime headers next to your project. The generated C is compiled with a
    relative `-I"runtime"`.
-6. Keep `orbit_bootstrap.c` with the release records when independent
-   verification is required.
 
 For source-level verification, compare the published canonical C hash with the `PUBLISHED_C` contract in `scripts/verify_seed.py`, then run the seed verification command with a locally available C compiler.
 
