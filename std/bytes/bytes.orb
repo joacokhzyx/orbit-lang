@@ -1,27 +1,4 @@
-// Byte buffer over a string accumulator with an explicit read
-// cursor. Bytes are 1-255 (C strings cannot hold NUL), so there is
-// deliberately NO fixed-width binary framing: a 0x00 byte would
-// vanish. Lengths travel as decimal text instead (writeFrame).
-// No capacity reservation exists, so none is promised.
-// Shared C string externs (incl. from_char) live in
-// std/string/string.orb; redeclaring them collides on merge.
-//
-// DO NOT RE-ADD A SECOND `readAt`. std/sys/bytes/buffer.orb had one
-// with the same name and the opposite contract -- it returned 1 for
-// in-range and 0 for out-of-range and never returned the byte at all
-// -- and it was deleted. The rule that survives: `readAt` returns the
-// byte, or -1 if the index is outside [0, size). A caller that has to
-// range-check twice has the wrong function; use `availableRead`.
-//
-// The NUL limitation is not theoretical, it is measurable:
-//   orbit_string_from_char_selfhost(65) + orbit_string_from_char_selfhost(0)
-//     + orbit_string_from_char_selfhost(66)
-//   -> len 2, prints "AB". The middle byte is gone.
-// That is why writeU16LE/writeU32LE from the deleted module could not
-// have been repaired here: little-endian packing of 0x01000000 writes a
-// NUL as its last byte and would silently return a 3-byte buffer whose
-// every index after the gap reads the wrong byte. Fixed-width binary
-// framing needs a byte buffer the language does not have yet.
+// Byte buffer over a string accumulator with an explicit read cursor (bytes 1-255, no NUL; lengths travel as decimal text via writeFrame; readAt answers the byte or -1 outside [0, size)); the shared C string externs are owned by std/string/string.orb -- import the owner, one definition per program.
 import "std/string/string.orb"
 
 model Buffer {

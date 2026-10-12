@@ -1,4 +1,6 @@
 // Files demo: file round-trip, structured logging, uptime clock.
+// Scratch path is .orbit/tmp (run from the repository root), not
+// the current directory, so runs leave no litter behind.
 import "std/fs/file.orb"
 import "std/log/log.orb"
 import "std/time/time.orb"
@@ -7,11 +9,11 @@ import "std/test/assert.orb"
 fn main() -> int {
     val t0 = uptimeSeconds()
     info("files demo start")
-    if writeAll("files_demo.txt", "orbit") == false { return 1 }
-    val body: string = try readAll("files_demo.txt") catch { return 2 }
+    if writeAll(".orbit/tmp/files_demo.txt", "orbit") == false { return 1 }
+    val body: string = try readAll(".orbit/tmp/files_demo.txt") catch { return 2 }
     val tagged = withReq("demo", body)
     info(tagged)
-    removeFile("files_demo.txt")
+    removeFile(".orbit/tmp/files_demo.txt")
     val doneLine = toJsonLine("done", "ok")
     info(doneLine)
     if assertTrue(elapsedSince(t0, uptimeSeconds()) >= 0) == false { return 3 }

@@ -1,42 +1,4 @@
-// Clocks and durations. Two of them, and they answer different
-// questions:
-//
-//   uptimeSeconds() / system.uptime()  whole seconds since process
-//                                      start. 68 years before an
-//                                      int32 overflow, exact.
-//   tickNs() / sinceNs() / sinceMs()   sub-second spans, from the
-//                                      monotonic clock at
-//                                      runtime/builtins.c:295.
-//
-// The second one exists because the first one cannot time anything
-// short: a benchmark that runs for 400 ms reads 0 seconds before and
-// 0 seconds after, and the difference is 0, which is a wrong answer
-// rather than a missing one. orbit_monotonic_ns is a `static` in the
-// runtime and no Orbit program could name it; the extern below is the
-// whole reason this module grew.
-//
-// WHAT THE NS CLOCK IS NOT, read before using it:
-//
-//   * The absolute value is meaningless. orbit_monotonic_ns counts
-//     nanoseconds from an unspecified epoch since boot in a uint64_t
-//     and the backend truncates it into Orbit's 32-bit int, so
-//     tickNs() is `ns mod 2^32` read as signed: on a machine up for
-//     more than ~71 minutes it is a large negative number. Only
-//     DIFFERENCES are meaningful.
-//   * A difference is exact while the true span is under 2^31 ns
-//     (~2.15 s). Past that the subtraction wraps. sinceNs and sinceMs
-//     answer -1 rather than a wrapped number, so the first ~2 s of
-//     overrun is reported as an error instead of as a plausible lie.
-//     Past 2^32 ns (~4.29 s) even the guard is fooled, because the
-//     wrapped difference can land back in the positive range.
-//   * A span longer than the cap is measurable in chunks: read the
-//     clock every couple of seconds and add the deltas with
-//     sinceNsBetween. See tests/std/test_time_ns.orb.
-//
-// There is still no wall clock and no sleep in this module: the
-// runtime exposes neither, and uptimeSeconds is a process-relative
-// monotonic count, not a date, so a token stamped with it is good for
-// 68 years.
+// Clocks and durations: uptimeSeconds for whole seconds since process start, tickNs/sinceNs/sinceMs/sinceNsBetween for sub-second spans (differences only, -1 past the wrap cap); no wall clock and no sleep.
 extern fn system_uptime() -> int
 extern fn orbit_monotonic_ns() -> int
 

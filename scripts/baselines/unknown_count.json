@@ -8,8 +8,8 @@
   "files": 127,
   "instructions": 57011,
   "context": {
-    "unknown_instructions": 16888,
-    "unknown_without_diagnostic": 7689
+    "unknown_instructions": 16892,
+    "unknown_without_diagnostic": 7691
   },
   "by_file": {
     "compiler/ast.orb": 0,
@@ -40,6 +40,7 @@
     "examples/catalog_service.orb": 0,
     "examples/file_server.orb": 0,
     "examples/health_service.orb": 0,
+    "examples/hello.orb": 4,
     "examples/orbit_full_expansion.orb": 0,
     "examples/params_service.orb": 0,
     "examples/posts_crud.orb": 0,

@@ -1,0 +1,10 @@
+// Hello step: the smallest Orbit program; no routes, DB, or dll.
+// Build it with: orbit build examples/hello.orb -o hello
+// Run it with: ./hello (Windows: .\hello.exe, no sqlite3.dll needed)
+// Step 1 of the examples ladder in examples/README.md.
+
+fn main() -> int {
+    print("hello, orbit")
+    print("no services, no database, no setup")
+    return 0
+}

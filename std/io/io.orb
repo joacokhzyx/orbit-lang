@@ -1,20 +1,4 @@
-// Console output home. Styling itself lives in
-// std/sys/term/color.orb; this module adds capability detection and
-// one honest gradient with a real hex parser. No readLine (needs an
-// arena-taking input binding that the compiler will not inject) and
-// no eprint (no stderr builtin). println is deliberately absent:
-// builtin print already newlines.
-//
-// system_env is declared by std/sys/proc/process.orb and the C string
-// externs by std/string/string.orb. This module used to repeat both
-// declarations; a program importing this and either owner then failed
-// check with "Duplicate symbol". Import the owner instead -- one
-// definition per program is the rule.
-//
-// This module also used to define its own `wrapRgb(text, r, g, b)`,
-// byte-identical to color.orb's `wrapRgbForeground(r, g, b, text)` with
-// the arguments reversed. Two spellings of one escape sequence, in
-// opposite orders, is a trap; gradient now calls wrapRgbForeground.
+// Console output: capability detection (supportsColor) and hex gradient over the styling owned by std/sys/term/color.orb; system_env is owned by std/sys/proc/process.orb and the C string externs by std/string/string.orb -- import the owner, one definition per program.
 import "std/string/string.orb"
 import "std/sys/proc/process.orb"
 import "std/sys/term/color.orb"

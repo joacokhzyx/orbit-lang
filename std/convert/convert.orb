@@ -1,20 +1,4 @@
-// Number <-> text, and the char constructor the case-mapping helpers
-// are built on. These bindings used to be private externs inside
-// std/string/string.orb, which meant the only way for a second module
-// to reach them was to import all of std/string or to redeclare them
-// and take a "Duplicate symbol" error. They are declared here so there
-// is exactly one owner.
-//
-// THERE IS NO FLOAT CONVERSION, and the reason is narrow: printing and
-// comparing floats works (literals, calls, arithmetic and model fields
-// all round-trip; measured on this tree), but the transport has holes.
-// A float argument that the backend cannot see as a float travels through
-// uintptr_t, and orbit_string_to_float is also a bare atof: it answers
-// 0.0 for "abc" and 1.5 for "1.5abc", with no way to tell a parse
-// failure from a zero. Until the transport is total and the parser
-// reports failures, this module refuses to ship a float parser.
-// orbit_string_to_float (runtime/builtins.c:74) is reachable -- declare
-// it extern and it links -- but nothing here can vouch for its result.
+// Number <-> text and the char constructor (intToString, charFromCode); this module owns these bindings -- import it, one definition per program. No float conversion and no unchecked stringToInt; use parseIntChecked in std/string/string.orb.
 extern fn orbit_int_to_string(value: int) -> string
 extern fn orbit_string_to_int(s: string) -> int
 extern fn orbit_string_from_char_selfhost(code: int) -> string

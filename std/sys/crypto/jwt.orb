@@ -1,15 +1,4 @@
-// Orbit Sovereign Cryptography - JWT Engine
-// std/sys/crypto/jwt.orb
-//
-// HS256 only, no `alg:none`. Time travels explicitly: verification
-// takes nowUnix because Orbit has no wall clock; tests inject it,
-// services pass whatever epoch they agree on.
-
-// Shared C string externs live in std/string/string.orb and the
-// SHA-256/HMAC bindings in std/hash/hash.orb; both are imported
-// rather than repeated, because a program declaring the same extern
-// twice fails check with "Duplicate symbol" and one definition per
-// program is the rule.
+// HS256 JWT sign/verify (no alg:none) with explicit nowUnix for expiry; SHA-256/HMAC is owned by std/hash/hash.orb and the C string externs by std/string/string.orb -- import the owner, one definition per program.
 import "std/string/string.orb"
 import "std/hash/hash.orb"
 
@@ -17,13 +6,6 @@ extern fn orbit_base64url_encode_str(str: string) -> string
 extern fn orbit_string_len(s: string) -> int
 extern fn orbit_string_slice(s: string, start: int, end: int) -> string
 extern fn orbit_streq(a: string, b: string) -> bool
-
-// The three `-> int` here used to say `-> string`, and the C returns
-// orbit_int. Nothing noticed, because nothing compared a declared parameter
-// type against the argument passed: totalLen was typed string, went on to be
-// orbit_string_slice's `end: int`, and the two declarations disagreed about
-// the same value without either objecting. E1005 compares them now, so the
-// declaration has to be true.
 
 fn signToken(payloadJson: string, secret: string) -> string {
     val headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"

@@ -44,6 +44,8 @@ route PUT "/posts/:id" {
 }
 
 route GET "/posts/count" {
+    // Static wins: /posts/count matches here even though /posts/:id
+    // is declared first; param patterns only catch the rest.
     val n = Post.count()
     return ok 200 """{"count":${n}}"""
 }
