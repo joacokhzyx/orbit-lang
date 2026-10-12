@@ -112,7 +112,7 @@ orbit_int orbit_clock_ms(void) {
 #ifndef ORBIT_HTTP_H
 /* Fallback mirror of the http.c declaration (which also carries path-param
  * slots); keep both in sync. */
-#define ORBIT_MAX_PATH_PARAMS 8
+#define ORBIT_MAX_PATH_PARAMS 32
 typedef struct {
     char* method;
     char* path;

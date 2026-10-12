@@ -105,6 +105,23 @@ int main(void) {
         assert(rq->param_count == 2);
         assert(strcmp(orbit_http_param_get(arena, rq, "a"), "notes") == 0);
         assert(strcmp(orbit_http_param_get(arena, rq, "b"), "abc-123") == 0);
+        /* Ten captures bind: the limit is 32, so the 9th and 10th bind too. */
+        {
+            const char* raw10 = "GET /s0/s1/s2/s3/s4/s5/s6/s7/s8/s9 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+            size_t rl10 = strlen(raw10);
+            char* mbuf10 = (char*)malloc(rl10 + 1);
+            assert(mbuf10 != NULL);
+            memcpy(mbuf10, raw10, rl10 + 1);
+            OrbitRequest* rq10 = NULL;
+            assert(orbit_http_parse_request_ex(arena, mbuf10, rl10, &rq10, NULL) == rl10);
+            assert(rq10 != NULL);
+            assert(orbit_route_match(arena, rq10, "GET", "/:p0/:p1/:p2/:p3/:p4/:p5/:p6/:p7/:p8/:p9") == true);
+            assert(rq10->param_count == 10);
+            assert(strcmp(orbit_http_param_get(arena, rq10, "p0"), "s0") == 0);
+            assert(strcmp(orbit_http_param_get(arena, rq10, "p8"), "s8") == 0);
+            assert(strcmp(orbit_http_param_get(arena, rq10, "p9"), "s9") == 0);
+            free(mbuf10);
+        }
         /* Empty segment never captures; degenerate patterns rejected. */
         assert(orbit_route_match(arena, rq, "GET", "/notes/:") == false);
         assert(orbit_route_match(arena, rq, "GET", "/notes/{}") == false);

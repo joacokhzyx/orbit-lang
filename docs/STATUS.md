@@ -1,7 +1,7 @@
 # Orbit Project Status
 
-**Snapshot date:** 2026-09-19  
-**Repository revision:** `25cfe6c` (`main`)
+**Snapshot date:** 2026-10-12  
+**Repository revision:** `6f45452` (`main`)
 
 This document is a dated project snapshot. It is intended to answer "what is true now?" without replacing the detailed engineering contract, language reference, or architecture records. Update it when a milestone changes the supported workflow or the status of a major workstream.
 
@@ -66,10 +66,10 @@ aliveness check, because a tool that cannot fail is not a tool.
 
 | gate | enforces | what it is | today |
 |---|---|---|---|
-| `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, with **19 known defects the compiler still accepts** on the released canonical — the gate fails if one starts being rejected. 17 of them remain on the current tree, where signed division (`672151c`) and the integer-literal range check are fixed but not yet promoted. All nineteen are written up with their wrong values in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
+| `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, with **1 known defect the compiler still accepts** (F-0009, a `list` parameter with no element type) - the gate fails if it starts being rejected. It is written up with its wrong value in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
 | `scripts/frontend_gate.py` | **blocking** | `orbit frontend` against `tests/frontend/expected/`. `orbit frontend` previously had **no** CI coverage at all | **6/6.** Two fixtures could not build for most of this cycle (`compiler/lexer.orb` called `orbit_os_write_stderr_selfhost` without importing `compiler/extern.orb`); both missing imports are fixed and both fixtures now run |
-| `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.2%** of 43,208 instructions, **46.8%** of those with no diagnostic at all |
-| `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high — 29.0% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | holds: `unknown_per_mille` 292, `silent_per_mille` 137 |
+| `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.4%** of 53,934 instructions, **45.9%** of those with no diagnostic at all (committed baseline) |
+| `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high - 29.4% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | baseline `unknown_per_mille` 294, `silent_per_mille` 135 (live reads 296/135 as new files joined the corpus) |
 
 `ci-gate.yml` is the authority on which of these runs on every push; the two
 `unknown_*` tools are the pair to look up there, because "the census is a gate"
@@ -77,10 +77,10 @@ and "the census is a measurement" were both true at different times and only one
 of them is true now.
 
 The census number is the honest measure of how far the type system has to
-go, and it is what nineteen of the compiler's accepted defects are made
+go, and it is what the compiler's one accepted defect is made
 of. `checkCompatibility` (`compiler/sema.orb:326`) returns true when
 *either* side is `unknown`, and that one line is why most of the list
-exists; see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#nineteen-programs-the-compiler-should-reject-and-does-not).
+exists; see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#the-silent-group-is-empty).
 
 ## Active Workstreams
 

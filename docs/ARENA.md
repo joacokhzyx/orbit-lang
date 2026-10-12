@@ -166,3 +166,44 @@ Different tradeoffs, not a ranking:
 - **Tracing GC (Go, V8)**: scans live objects. Flexible for general heaps, can introduce pauses under pressure.
 - **Borrow Checker (Rust)**: checks lifetimes at compile time. Precise, with more annotations to write.
 - **Orbit Arena**: ties lifetime to task scope (one request = one region). No per-object tracking and no compile-time lifetime annotations for this pattern, but it's only a good fit when work really is request-scoped. If you hold data across requests, you need a different strategy.
+
+---
+
+## Appendix: design history and testing
+
+This used to be `docs/architecture/ORBIT_ARENA.md`, folded here so the
+allocator is described once. What that file added over this page:
+
+**Why the previous arena was replaced.** Chained-block allocator with
+`malloc()` in the hot path (heap contention), $O(N)$ reset by block-list
+traversal, 16-byte alignment broken by the block header size, a global
+fixed-capacity string pool that left dangling pointers after reset, and
+non-atomic global metrics. The current design answers each of those;
+measure, don't assume.
+
+**Configuration** (macros in `runtime/arena.c`): `ORBIT_ARENA_ALIGN` (16),
+`ORBIT_ARENA_DEFAULT_RESERVE` (64 MB), `ORBIT_ARENA_DEFAULT_COMMIT`
+(64 KB), `ORBIT_ARENA_GROWTH_GRANULARITY` (64 KB),
+`ORBIT_ARENA_HOT_RETENTION_LIMIT` (256 KB kept hot after reset).
+
+**Telemetry** (`runtime/performance.h`): `arena_alloc_count`,
+`arena_requested_bytes`, `arena_aligned_bytes`,
+`arena_virtual_reserved_bytes`, `arena_committed_bytes`,
+`arena_peak_used_bytes`, `arena_resets`, `arena_overflow_allocations`,
+`arena_checkpoint_count`, `arena_rewind_count` (the last two are always
+zero in a running server — see above).
+
+**Running the arena tests.** The invariants live in one C test program
+CI runs on every push (`runtime/test_arena.c`):
+
+```sh
+# POSIX
+cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin
+./t_arena_bin
+
+# Windows (add the Winsock import library)
+cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o t_arena_bin.exe -lws2_32
+.\t_arena_bin.exe
+```
+
+Exit status 0 means every assertion held; one line per invariant.

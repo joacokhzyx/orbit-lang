@@ -108,7 +108,7 @@ them and emits pre-pass IR, and their counters are reported rather than dropped.
 `compiler/pipeline.orb` writes the generated C to `orbit_selfhost_build.c` under
 `TEMP`, not to a name derived from the output. C compilers embed the source path
 in anonymous-struct names and in type diagnostics, so a name derived from the
-output (`stage2.exe.c` versus `stage3.exe.c`) would break the fixed-point
+output (rather than the fixed `orbit_selfhost_build.c`) would break the fixed-point
 comparison even when the emitted code is byte-identical. This one choice is what
 makes "did the compiler change its mind?" answerable as a hash comparison.
 
@@ -215,8 +215,7 @@ drift afterwards.
 There is exactly one lineage. `scripts/build_selfhost.py --promote` is the only
 operation that replaces the canonical, and it is deliberate and reviewable. See
 [architecture/SOVEREIGNTY.md](architecture/SOVEREIGNTY.md) for the full trust
-model and [architecture/BOOTSTRAP_STAGES.md](architecture/BOOTSTRAP_STAGES.md)
-for what each stage is.
+model including what each stage is.
 
 ---
 
@@ -240,15 +239,14 @@ retention watermark (`runtime/arena.c:526`).
 (`runtime/arena.c:582,592`) and a rewind *is* an O(1) bump-pointer restore, but
 nothing in the tree calls them outside `runtime/arena.c` and
 `runtime/test_arena.c`. I checked: their only other references are the counter
-fields in `runtime/performance.h` and the prose in
-[architecture/ORBIT_ARENA.md](architecture/ORBIT_ARENA.md), so
+fields in `runtime/performance.h`, so
 `arena_checkpoint_count` and `arena_rewind_count` are always zero in a real
 server. Treat the checkpoint API as available to hand-written C, not as the
 mechanism the HTTP path is using.
 
 `runtime/arena_pool.c` keeps a pool of arenas so a worker borrows one per request
 instead of creating it.
-See [architecture/ORBIT_ARENA.md](architecture/ORBIT_ARENA.md) and [ARENA.md](ARENA.md).
+See [ARENA.md](ARENA.md).
 
 ---
 

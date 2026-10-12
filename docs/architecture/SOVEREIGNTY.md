@@ -141,8 +141,41 @@ Invariants that must hold afterwards:
 
 ## Related
 
-- [Bootstrap Stages](BOOTSTRAP_STAGES.md) - what each stage is and what
-  promotion between stages requires.
 - [Self Hosting](SELF_HOSTING.md) - why the compiler is written in its own
   language.
 - `docs/PERF.md` - the measured cost of the self-build, with the commands.
+
+## Appendix: stages in detail
+
+This used to be `BOOTSTRAP_STAGES.md`, folded here so the chain is described
+once. A stage is a working Orbit compiler built by the previous stage, and
+both compile the same source (`compiler/main.orb`):
+
+```
+seed    (canonical C, compiled by cc)
+  │  builds main.orb, emits C
+  ▼
+seed2   (compiled from the emitted C, by cc)
+  │  builds main.orb, emits C
+  ▼
+chain2
+  │  builds main.orb, emits C
+  ▼
+chain3
+```
+
+Per stage: `amalgamate.py` inlines the `#include "..."` graph from the
+canonical into one self-contained C file (system includes left alone); a C
+compiler turns it into `seed` with `-DORBIT_WITH_EXEC` so the compiler can
+spawn its own `cc` (the only step needing more than a C compiler and
+Python); each stage builds `main.orb`, writes one intermediate C file of a
+fixed name (`compilers embed the source path in the binary, so a per-stage
+name would break byte-comparability`), and `verify_seed.py` recompiles that
+C itself with known-good flags.
+
+Promotion between stages: canonical -> seed needs any conforming C
+compiler; seed -> seed2 must emit C byte-identical to the canonical;
+seed2 -> chain2 -> chain3 must rebuild without any host toolchain, each
+emitting the canonical. **Do not let the intermediate C land in the working
+directory** (megabytes, racy under concurrent builds) and **do not promote
+to make a gate green** (a promote replaces the root of trust).

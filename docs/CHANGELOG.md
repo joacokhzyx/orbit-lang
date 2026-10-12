@@ -159,7 +159,8 @@ Developer commands and runtime hardening:
 - C bootstrap amalgamation and seed verification.
 - HTTP runtime, arena allocation, SQLite integration,
   JWT/crypto groundwork.
-- `orbit fmt`, `orbit doctor`, and `orbit init` first
+- `orbit fmt`, `orbit doctor`, and an `orbit init` sketch (later removed;
+  0.1.0 has no `init` subcommand) first
   implementations; VS Code extension and syntax grammar.
 - Native x86-64 backend experiments (lowering, encoder,
   register allocation) - still experimental.

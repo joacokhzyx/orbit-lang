@@ -40,7 +40,7 @@
 /* Path-parameter slots filled by orbit_route_match (route_runtime patterns
  * such as "/notes/:id"). The same fields exist on the fallback declaration
  * in builtins.c; keep both in sync. */
-#define ORBIT_MAX_PATH_PARAMS 8
+#define ORBIT_MAX_PATH_PARAMS 32
 typedef struct {
     char* method;
     char* path;

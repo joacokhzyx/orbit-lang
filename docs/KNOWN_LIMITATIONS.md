@@ -6,8 +6,8 @@ what happens today, how to work around it, and what would change it.
 Nothing here is a roadmap promise with a date - it's what I measured
 on this build.
 
-Verified on: `orbit 0.1.0-rc.2` (fixed-point build, gcc 13.3.0),
-Windows x86-64 and Linux x86-64, September 2026. Linux paths are
+Verified on: `orbit 0.1.0-rc.2` (fixed-point build, gcc 16.2.0),
+Windows x86-64 and Linux x86-64, October 2026. Linux paths are
 marked UNTESTED below where I couldn't run them.
 
 **Start with the first section.** Everything below that one is a feature
@@ -32,7 +32,7 @@ rot quietly:
 ```console
 $ python scripts/negative_gate.py --compiler <orbit>
 ...
-Finished negative: 32/32 pass (1 known defect still accepted)
+Finished negative: 47/47 pass (1 known defect still accepted)
 ```
 
 Thirty-two programs that must be rejected, thirty-one of which are. The one
@@ -189,7 +189,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#290-of-instructions-are-unknown-and-466-of-those-are-silent).
+[below](#294-of-instructions-are-unknown-and-459-of-those-are-silent).
 
 
 ## Writes work; duplicates and missing tables fail honestly
@@ -217,7 +217,7 @@ Routes with `:id` or `{id}` segments match at runtime and bind
 through `req.param("id")` (verified with GET and DELETE, including
 static-over-param precedence and trailing slashes). Captured
 values are percent-decoded by `req.param()`. One limit remains:
-at most 8 captures bind per request. Query values (`?id=`) keep
+at most 32 captures bind per request. Query values (`?id=`) keep
 working alongside.
 
 ## Custom tables are created, and forward DDL migrates
@@ -420,61 +420,15 @@ quarantined, and
 [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#stdquarantine-specified-not-implemented)
 names the absences.
 
-## `orbit fmt` no longer splits a negative literal (fixed)
-
-This entry was stale. The formatter keeps `return -1` as `return -1`:
-a minus straight after a keyword starts a new expression and is
-unary (F-0008, in `compiler/fmt.orb`). The tree no longer carries
-the spread `- 1` sites the old entry warned about.
-
 ## A list carries an element type now, and the checker enforces it
 
-This entry used to be a description of a hole. The hole is closed for the
-receivers the checker can name, and what is left is a different and smaller
-one, so the entry is rewritten rather than deleted.
-
-`OrbitList` is `{ void* data; size_t len, capacity, elem_size; ... }`
-(`runtime/types.c:195-201`): one pointer per element, and the header carries an
-element *kind* rather than a type. The kind was already there (F-0002) and the
-runtime already refused a push that disagreed with it. What was missing was that
-nothing in the front end knew what the slot held, so the annotation and the
-literal were parsed, carried on the AST, and never compared with anything. Every
-row of the old table is now decided while compiling:
-
-| program | before | now |
-|---|---|---|
-| `getOr([1,2,3], 0, "d")` bound to a `string` | **segfault** | `error[E1005]` at the call |
-| `indexOfStr([[1,2],[3,4]], "x")` | `-1`, silently | `error[E1005]` at the call |
-| `[10,20,30].at(0)` | the low byte of the `data` pointer - 48, 144 and 0 in three programs differing only in what else they allocated | `10` |
-| `val xs: list<int> = [1,2,3]`, then `xs.push("nope")` | compiled; died at run time with `orbit: list element type mismatch` | `error[E1006]` at the push |
-| `val xs: list<int> = []`, then `xs.push("nope")` | compiled; **exit 0**, with a string in an int slot | `error[E1006]` at the push |
-| `var xs = []`, `xs.push(1)`, `xs.push("two")` | compiled; `exit 2` from the runtime refusal | `error[E1006]` at the second push |
-| `val v: string = xs.get(0)` where `xs: list<int>` | compiled clean; **segfault** | `error[E1006]: 'v' is declared string but the value is int` |
-| an object `{ "a": 1 }`, with `.get("a")` bound to an `int` | segfault | `1`, and typed by the setter that wrote the key |
-
-**Where the element type comes from.** Four places, and they agree because each
-one asks the same question in the same order. A `list<T>` annotation is a
-declaration and outranks everything else - including the value it is bound to,
-which is what makes `val xs: list<int> = []` work: the literal is empty and
-types as a bare `list`, and the annotation is what the binding records. A list
-literal whose elements all agree is `list<T>` statically. An empty `[]` plus
-pushes has no declaration, so the **first** push decides, and every later push is
-checked against it - first-push-wins because the checker approves a slot and the
-emitter reads it back, and two answers are one bug. Assigning the name a
-different list forgets the adopted type, the same way a push forgets a recorded
-length.
-
-**What the element type buys a read.** `.get(i)`, `.at(i)`, `xs[i]` and `.pop()`
-answer with the slot's element, and a `for` loop declares its variable as the
-element of the iterable. A read used to answer `unknown`, and `unknown` is
-compatible with every annotation, so nothing could be checked at a read at all:
-the annotation went on to the emitter as the destination register's type and
-`print` dereferenced a number. `std/collections/lists.orb` is written in exactly
-that style and its reads are now typed inside the helpers.
-
-**One widening is allowed and one is not.** An `int` goes into a `list<float>`
-and the emitter converts it on the way in, because a check with no bug behind it
-is a check with no reason. The other direction truncates, and is refused.
+This entry used to be a description of a hole: eight programs that segfaulted
+or silently misbehaved. The hole is closed for the receivers the checker can
+name. Annotations, literals, pushes and reads are all compared while compiling
+(`E1005` at calls, `E1006` at pushes, reads and bindings); an empty `[]` plus
+pushes is typed by first-push-wins; `int` widens into `list<float>` but the
+reverse is refused. The before/after table was the fix's own evidence and now
+lives in git history with it. What is left is a different and smaller hole:
 
 ### What is still untyped
 
@@ -528,9 +482,9 @@ binary / unary counts exactly - so 8,586 is measured, not
 estimated. Those are `call` and `member` expressions: the two
 places where the front end does not know it has failed, and the same
 name-and-shape classification as the list problem above. This is the
-same measurement as the root-cause table in
-[nineteen programs the compiler should reject](#nineteen-programs-the-compiler-should-reject-and-does-not),
-and it is what the nineteen entries there are made of.
+same measurement as the root-cause table that used to live in
+[nineteen programs the compiler should reject](#the-silent-group-is-empty),
+and it is what the nineteen entries there were made of.
 
 Separately, E3001 "expression cannot be lowered to TIR" fired 4,190
 times on the earlier corpus. That is a whole class of expression the
@@ -550,9 +504,9 @@ the baseline file is current, this transcript is not):
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
-  unknown_per_mille               290  baseline    293  -3
-  silent_per_mille                135  baseline    137  -2
-Finished unknown-count: 290 (baseline 293, ratchet holds)
+  unknown_per_mille               294  baseline    294  +0
+  silent_per_mille                135  baseline    135  +0
+Finished unknown-count: 294 (baseline 294, ratchet holds)
 ```
 
 Raising a baseline is a deliberate act: `--write-baseline` refuses to
@@ -562,51 +516,15 @@ people follow into a property the build enforces.
 
 ## The frontend gate is 6/6
 
-`scripts/frontend_gate.py` runs six fixtures and all six pass. Two of
-them - `tests/frontend/syntax_error.orb` and
-`tests/frontend/unresolved_type.orb` - **did not** build for most of
-this cycle, so their contracts were never checked, and the docs said so.
-That is fixed: `compiler/lexer.orb` now imports `compiler/extern.orb`
-before calling `orbit_os_write_stderr_selfhost`, and the missing
-`parseIntSelfhost` declaration went with it.
-
-```console
-$ python scripts/frontend_gate.py --cc gcc --compiler <orbit>
-Checking tests/frontend/unresolved_type.orb ... TIR suppressed as required
-...
-Finished frontend: 6/6 pass
-```
-
-Recorded because a gate that was 4/6 and is now 6/6 is exactly the kind
-of number that gets copied from an old document. If you are reading a
-claim that the frontend gate is incomplete, it is out of date.
-
+`scripts/frontend_gate.py` runs six fixtures and all six pass (two of them,
+`syntax_error.orb` and `unresolved_type.orb`, could not build for most of this
+cycle; both missing imports are fixed).
 
 ## `lib/net.orb` is gone
 
-It used to live here, and the entry below is kept because a gate that was
-4/6 and is now 6/6 is exactly the kind of number that gets copied out of an
-old document. If you are reading that the socket wrapper is a known gap, it
-is out of date: the file was removed rather than quarantined.
-
-The three files -- `lib/net.orb`, `lib/sys/linux.orb`,
-`lib/sys/windows.orb` -- were a design sketch for a socket wrapper that
-nothing imported. It type-checked and then the generated C was rejected:
-
-```console
-  <build>:121:18: error: conflicting types for 'syscall'
-  <build>:121:18: error: static orbit_int syscall(...);   // ours
-     41 | #include <sys/syscall.h>                            // glibc's
-```
-
-Its event loop was `while running { ... running = false }`.
-
-They were deleted rather than moved to `std/quarantine/` because that
-directory has a rule these did not meet: a quarantined module is one that
-was *specified* and cannot yet be expressed, and deleting it loses the only
-written record that it was wanted. Nobody specified this one. There is no
-socket API in the language or the runtime to specify it against, so keeping
-three non-building files was a claim about a future that no document
-committed to. `lib/arena.orb`, which is real and used by `examples/` and
-`tests/std/`, was not touched.
-
+`lib/net.orb`, `lib/sys/linux.orb` and `lib/sys/windows.orb` were an
+unspecified socket-wrapper sketch nothing imported (its event loop was
+`while running { ... running = false }`). Deleted, not quarantined:
+`std/quarantine/` is for specified features the language cannot express yet,
+and no document specifies a socket API. `lib/arena.orb` (real, used by
+`examples/` and `tests/std/`) was not touched.

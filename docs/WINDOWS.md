@@ -1,4 +1,4 @@
-# Windows: what is known, what is open, and how to reproduce it
+# Windows: resolved gate failures (record, 2026-10-09)
 
 Both Windows gate failures are **diagnosed and fixed**. Neither was a Windows
 defect. What follows is what was measured and what was ruled out, because the

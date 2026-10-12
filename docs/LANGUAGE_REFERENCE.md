@@ -278,14 +278,14 @@ This is not a warning about a sharp edge you can see. It is the reason
 `["alpha","beta"].at(1)` returns 0, the reason a field read on an
 untyped value can come back with the wrong field, and the reason a
 capitalised type name like `Int` type-checks and then fails in the C step.
-[Known limitations](KNOWN_LIMITATIONS.md#nineteen-programs-the-compiler-should-reject-and-does-not)
+[Known limitations](KNOWN_LIMITATIONS.md#the-silent-group-is-empty)
 has the measured list.
 
 **Rule: annotate the binding when you read it back.** `val xs: list = …`
 and `val n: int = f()` cost one token each, and they are the difference
 between a guess and a check. An unannotated `val` is `unknown` for the
-rest of the pipeline, and **29.0% of the instructions the front end emits
-are `unknown`** — so the unannotated case is the common one, not the
+rest of the pipeline, and **29.4% of the instructions the front end emits
+are `unknown`** (committed census baseline) - so the unannotated case is the common one, not the
 exotic one. Annotating a binding is therefore not a nicety: it is what
 lets the next check fire.
 
