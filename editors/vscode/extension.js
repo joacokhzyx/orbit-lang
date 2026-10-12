@@ -594,6 +594,7 @@ function suggestFileIcons(context) {
             .showInformationMessage(
                 'Use Orbit file icons for .orb files?',
                 'Use Orbit Icons',
+                'Keep my theme',
                 'Not now'
             )
             .then(choice => {
@@ -603,6 +604,16 @@ function suggestFileIcons(context) {
                     }
                     if (choice === 'Use Orbit Icons' && workbench) {
                         workbench.update('iconTheme', 'orbit-icons', true);
+                    } else if (choice === 'Keep my theme' && vscode.commands) {
+                        // VSCode has no API to inject one icon into another
+                        // theme, so keeping the theme means a settings
+                        // recipe in our README instead of a switch.
+                        vscode.commands.executeCommand(
+                            'vscode.open',
+                            vscode.Uri.parse(
+                                'https://github.com/joacokhzyx/orbit-lang/blob/main/editors/vscode/README.md#file-icons'
+                            )
+                        );
                     }
                 } catch (ignored) {
                     // A failed opt-in must never break activation.

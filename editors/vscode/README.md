@@ -9,8 +9,34 @@ typed language for APIs and microservices.
 
 File icons for `.orb` come from the bundled **Orbit Icons** theme: on first
 activation the extension offers to switch to it (once, never again), or pick
-it by hand with `Preferences: File Icon Theme > Orbit Icons`. VSCode does not
-let an extension repaint other themes, so the icon lives in its own theme.
+it by hand with `Preferences: File Icon Theme > Orbit Icons`.
+
+## File icons
+
+VSCode has no API for an extension to paint one icon inside another theme
+(open request since 2016), so a theme switch is the only zero-config path.
+To keep your current theme, map the extension in its settings instead:
+
+**Material Icon Theme** (any icon name from its gallery works):
+
+```json
+"material-icon-theme.files.associations": {
+    "*.orb": "code"
+}
+```
+
+**vscode-icons**, with the actual Orbit mark. Copy `icons/orb.png` from this
+extension folder to a `vsicons-custom-icons` folder as
+`file_type_orbit.png`, then:
+
+```json
+"vsicons.customIconFolderPath": "<the folder holding vsicons-custom-icons>",
+"vsicons.associations.files": [
+    { "icon": "orbit", "extensions": ["orb"], "format": "png" }
+]
+```
+
+and run `Icons: Apply Icons Customization` from the command palette.
 
 ## There is no language server
 
