@@ -686,7 +686,7 @@ fn parseMatch(parser: Parser, wantValue: bool) -> ASTNode {
     val atCol = parser.previousToken.col
     val expr = parseExpression(parser)
     consume(parser, TokType.OpenBrace, "Expected '{' after match expression.")
-    var cases = []
+    val cases = []
     while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
         val armTag = parser.currentToken.tag
         val armLine = parser.currentToken.line

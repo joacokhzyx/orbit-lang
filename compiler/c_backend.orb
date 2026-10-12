@@ -1322,135 +1322,6 @@ fn modelCtorFieldType(backend: CBackend, name: string, argIdx: int) -> string {
     return ""
 }
 
-fn xor16(a: int, b: int) -> int {
-    var r = 0
-    var p = 1
-    var k = 0
-    while k < 16 {
-        val abit = (a / p) % 2
-        val bbit = (b / p) % 2
-        val xb = (abit + bbit) % 2
-        r = r + xb * p
-        p = p * 2
-        k = k + 1
-    }
-    return r
-}
-
-fn fnv1a64Hash(method: string, path: string) -> string {
-    var h3 = 52210
-    var h2 = 40164
-    var h1 = 33826
-    var h0 = 8997
-    val ml = orbit_string_len(method)
-    var mi = 0
-    while mi < ml {
-        val b = method.at(mi)
-        h0 = xor16(h0, b)
-        val t0 = h0 * 435
-        val r0 = t0 % 65536
-        var carry = t0 / 65536
-        val t1 = h1 * 435 + carry
-        val r1 = t1 % 65536
-        carry = t1 / 65536
-        val t2 = h2 * 435 + carry
-        val r2 = t2 % 65536
-        carry = t2 / 65536
-        val t3 = h3 * 435 + carry
-        val r3 = t3 % 65536
-        val c0 = (h0 * 256) % 65536
-        val c1 = h0 / 256
-        val c2 = (h1 * 256) % 65536 + c1
-        val nh2 = (r2 + c0) % 65536
-        val carry2 = (r2 + c0) / 65536
-        val nh3 = (r3 + c2 + carry2) % 65536
-        h3 = nh3
-        h2 = nh2
-        h1 = r1
-        h0 = r0
-        mi = mi + 1
-    }
-    h0 = xor16(h0, 58)
-    val t0 = h0 * 435
-    val r0 = t0 % 65536
-    var carry = t0 / 65536
-    val t1 = h1 * 435 + carry
-    val r1 = t1 % 65536
-    carry = t1 / 65536
-    val t2 = h2 * 435 + carry
-    val r2 = t2 % 65536
-    carry = t2 / 65536
-    val t3 = h3 * 435 + carry
-    val r3 = t3 % 65536
-    val c0 = (h0 * 256) % 65536
-    val c1 = h0 / 256
-    val c2 = (h1 * 256) % 65536 + c1
-    val nh2 = (r2 + c0) % 65536
-    val carry2 = (r2 + c0) / 65536
-    val nh3 = (r3 + c2 + carry2) % 65536
-    h3 = nh3
-    h2 = nh2
-    h1 = r1
-    h0 = r0
-    val pl = orbit_string_len(path)
-    var pi = 0
-    while pi < pl {
-        val b = path.at(pi)
-        h0 = xor16(h0, b)
-        val t0 = h0 * 435
-        val r0 = t0 % 65536
-        var carry = t0 / 65536
-        val t1 = h1 * 435 + carry
-        val r1 = t1 % 65536
-        carry = t1 / 65536
-        val t2 = h2 * 435 + carry
-        val r2 = t2 % 65536
-        carry = t2 / 65536
-        val t3 = h3 * 435 + carry
-        val r3 = t3 % 65536
-        val c0 = (h0 * 256) % 65536
-        val c1 = h0 / 256
-        val c2 = (h1 * 256) % 65536 + c1
-        val nh2 = (r2 + c0) % 65536
-        val carry2 = (r2 + c0) / 65536
-        val nh3 = (r3 + c2 + carry2) % 65536
-        h3 = nh3
-        h2 = nh2
-        h1 = r1
-        h0 = r0
-        pi = pi + 1
-    }
-    var rev = ""
-    val digits9 = "0123456789"
-    var keepGoing = true
-    while keepGoing {
-        var rem = 0
-        val d3 = rem * 65536 + h3
-        h3 = d3 / 10
-        rem = d3 % 10
-        val d2 = rem * 65536 + h2
-        h2 = d2 / 10
-        rem = d2 % 10
-        val d1 = rem * 65536 + h1
-        h1 = d1 / 10
-        rem = d1 % 10
-        val d0 = rem * 65536 + h0
-        h0 = d0 / 10
-        rem = d0 % 10
-        rev = rev + digits9.slice(rem, rem + 1)
-        if h3 == 0 && h2 == 0 && h1 == 0 && h0 == 0 {
-            keepGoing = false
-        }
-    }
-    var dec = ""
-    var revIdx = orbit_string_len(rev)
-    while revIdx > 0 {
-        revIdx = revIdx - 1
-        dec = dec + rev.slice(revIdx, revIdx + 1)
-    }
-    return dec
-}
-
 // The defines in the preamble come from the program's own top-level
 // declarations, so the names the C compiler sees and the names in the source
 // cannot drift apart: a constant the program declares is a define the program
@@ -1644,34 +1515,42 @@ fn generateRouterBlock(backend: CBackend) -> string {
         kynxActive = "0"
     }
     out = out + routerPreText(logsActive, kynxActive)
+    // One if/else-if chain for every route: static routes first so a static
+    // path always wins over a param pattern covering it, then param routes,
+    // then the 404 else. No hash: the strcmp pair is the whole dispatch.
+    var chain = ""
+    var first = true
     var i = 0
     while i < backend.module.functions.len() {
         val func: IRFunction = backend.module.functions.get(i)
         if func.routeMethod != "" && routeHasParams(func.routePath) == false {
-            out = out + "    case " + fnv1a64Hash(func.routeMethod, func.routePath) + "ULL: {\n"
-            out = out + "        if (strcmp(req->path, \"" + func.routePath + "\") == 0 && strcmp(req->method, \"" + func.routeMethod + "\") == 0) {\n"
-            out = out + generateRouteHandlerBody(func)
-            out = out + "        }\n"
-            out = out + "        break;\n"
-            out = out + "    }\n"
+            var pre = "    else if ("
+            if first {
+                pre = "    if ("
+                first = false
+            }
+            chain = chain + pre + "strcmp(req->path, \"" + func.routePath + "\") == 0 && strcmp(req->method, \"" + func.routeMethod + "\") == 0) {\n"
+            chain = chain + generateRouteHandlerBody(func)
+            chain = chain + "    }\n"
         }
         i = i + 1
     }
-    // Param routes cannot use the hash switch (their paths never equal the
-    // literal). They chain inside default, AFTER the static cases, so a
-    // static route always wins over a param pattern covering it.
-    var paramChain = ""
     var pi = 0
     while pi < backend.module.functions.len() {
         val pfunc: IRFunction = backend.module.functions.get(pi)
         if pfunc.routeMethod != "" && routeHasParams(pfunc.routePath) {
-            paramChain = paramChain + "        if (orbit_route_match(arena, req, \"" + pfunc.routeMethod + "\", \"" + pfunc.routePath + "\")) {\n"
-            paramChain = paramChain + generateRouteHandlerBody(pfunc)
-            paramChain = paramChain + "        }\n"
+            var preParam = "    else if ("
+            if first {
+                preParam = "    if ("
+                first = false
+            }
+            chain = chain + preParam + "orbit_route_match(arena, req, \"" + pfunc.routeMethod + "\", \"" + pfunc.routePath + "\")) {\n"
+            chain = chain + generateRouteHandlerBody(pfunc)
+            chain = chain + "    }\n"
         }
         pi = pi + 1
     }
-    out = out + routerTailText(paramChain)
+    out = out + routerTailText(chain)
     return out
 }
 

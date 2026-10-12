@@ -103,15 +103,6 @@ fn routerPreText(logsActive: string, kynxActive: string) -> string {
     out = out + "#ifdef ORBIT_WITH_NET\n"
     out = out + "#define ORBIT_LOGS_ACTIVE " + logsActive + "\n"
     out = out + "#define ORBIT_KYNX_ACTIVE " + kynxActive + "\n"
-    out = out + "static inline uint64_t orbit_route_hash(const char* method, const char* path) {\n"
-    out = out + "    uint64_t h = 14695981039346656037ULL;\n"
-    out = out + "    if (!method || !path) return 0;\n"
-    out = out + "    while (*method) { h = (h ^ (unsigned char)*method++) * 1099511628211ULL; }\n"
-    out = out + "    h = (h ^ ':') * 1099511628211ULL;\n"
-    out = out + "    while (*path) { h = (h ^ (unsigned char)*path++) * 1099511628211ULL; }\n"
-    out = out + "    return h;\n"
-    out = out + "}\n"
-    out = out + "\n"
     out = out + "#if ORBIT_LOGS_ACTIVE\n"
     out = out + "static inline void orbit_log_request_fmt(const char* method, const char* path, int status, uint64_t start_rdtsc) {\n"
     out = out + "    uint64_t elapsed_cycles = orbit_rdtsc() - start_rdtsc;\n"
@@ -271,16 +262,16 @@ fn routerPreText(logsActive: string, kynxActive: string) -> string {
     out = out + "        orbit_perf_end_request(start);\n"
     out = out + "        return keep_alive;\n"
     out = out + "    }\n"
-    out = out + "    uint64_t route_key = orbit_route_hash(req->method, req->path);\n"
-    out = out + "    switch (route_key) {"
     return out
 }
 
-fn routerTailText(paramChain: string) -> string {
+fn routerTailText(chain: string) -> string {
     var out = ""
-    out = out + "    default: {\n"
-    if paramChain != "" {
-        out = out + paramChain
+    if chain != "" {
+        out = out + chain
+        out = out + "    else {\n"
+    } else {
+        out = out + "    {\n"
     }
     out = out + "        OrbitResponse* res = orbit_response_create(arena, 404, \"text/plain\", \"Not Found\");\n"
     out = out + "        orbit_send_response(client_sock, res);\n"
@@ -292,7 +283,6 @@ fn routerTailText(paramChain: string) -> string {
     out = out + "#endif\n"
     out = out + "        orbit_perf_end_request(start);\n"
     out = out + "        return keep_alive;\n"
-    out = out + "    }\n"
     out = out + "    }\n"
     out = out + "    return keep_alive;\n"
     out = out + "}\n"
