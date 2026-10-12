@@ -2121,7 +2121,7 @@ fn doctorShadowUse(name: string, stats: DoctorStats, file: string, declLine: int
         i = i + 1
     }
     if hit {
-        doctorReport(stats, file, where, "D023", "'" + name + "' is read again after the scope that redeclared it has closed. The read resolves to the outer declaration and each declaration owns its own C symbol, so the answer is right; the redeclare still forces every reader to reconstruct which one is meant.", "rename one of them.")
+        doctorReport(stats, file, where, "D023", "'" + name + "' is read again after the scope that redeclared it closed. The read is correct (outer declaration, own C symbol); the shadowing still confuses readers.", "rename one of them.")
     }
 }
 
@@ -4287,7 +4287,7 @@ fn doctorPrintHelp() {
     print("  --budget-doc FILE  The ENGINEERING.md whose latency budget D033 enforces;")
     print("                      defaults to ./ENGINEERING.md.")
     print("  --quiet         Findings (and fixes) only; no summaries or gate list.")
-    print("  --verbose       Also print the scan scope and the per-phase timings.")
+    print("  --verbose       Also print the scan scope, the per-phase timings, and the gate list.")
     print("  --format text|json  Output format; json is a JSON array on stdout.")
     print("  --color always|never|auto  ANSI colors (auto honors NO_COLOR/TERM).")
     print("")
@@ -4931,7 +4931,7 @@ fn doctorRun(opts: DoctorOptions) {
         print("doctor: " + orbit_int_to_string_selfhost(printed) + " finding(s) shown, " + orbit_int_to_string_selfhost(stats.findings) + " reported.")
         print("doctor: " + orbit_int_to_string_selfhost(stats.textMs) + " ms text, " + orbit_int_to_string_selfhost(stats.astMs) + " ms ast, " + orbit_int_to_string_selfhost(stats.semaMs) + " ms semantic, " + orbit_int_to_string_selfhost(stats.ioMs) + " ms io.")
     }
-    if opts.quiet == false && opts.jsonMode == false {
+    if opts.quiet == false && opts.jsonMode == false && opts.verbose {
         doctorPrintGates()
     }
     // Counts the findings the reader can SEE, which is what "1 error, 0 warnings"

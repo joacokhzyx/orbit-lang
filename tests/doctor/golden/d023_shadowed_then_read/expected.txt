@@ -1,6 +1,2 @@
-input.orb:5 warning [D023] 'v' is read again after the scope that redeclared it has closed. The read resolves to the outer declaration and each declaration owns its own C symbol, so the answer is right; the redeclare still forces every reader to reconstruct which one is meant. fix: rename one of them.
-gates: doctor never runs these itself; run them from the repository root:
-  python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
-  python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
-  python scripts/test_suite.py --cc <gcc-or-clang> --compiler <path-to-orbit>
+input.orb:5 warning [D023] 'v' is read again after the scope that redeclared it closed. The read is correct (outer declaration, own C symbol); the shadowing still confuses readers. fix: rename one of them.
 doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".
