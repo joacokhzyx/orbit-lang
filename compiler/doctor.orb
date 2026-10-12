@@ -1958,18 +1958,20 @@ fn doctorDescendValues(node: ASTNode, stats: DoctorStats, file: string) {
  *  compiler/c_backend.orb recomputes t0..carry2 inside a `while` and never needs
  *  the outer values again. Two of the goldens are exactly that case, silent.
  *
- *  The reported shape is a bug, and not for the reason this check was first
- *  specified. The checker is RIGHT about it: `resolveSymbol` (sema.orb:601)
- *  walks innermost-first, so a read after the inner scope closes resolves to the
- *  outer declaration, and that is what the author meant. The EMITTER is wrong:
- *  IRValue.Sym carries the source spelling and c_backend.orb prints it verbatim,
- *  so both declarations become one C variable and the read returns the inner
- *  value. Same answer, opposite reason, and a message claiming the read resolves
- *  to the outer one would be false in the one case this check exists for.
+ *  The reported shape used to be a miscompilation, and not for the reason
+ *  this check was first specified. The checker was always RIGHT about it:
+ *  `resolveSymbol` (sema.orb:601) walks innermost-first, so a read after the
+ *  inner scope closes resolves to the outer declaration. The emitter used to
+ *  be wrong: IRValue.Sym carried the source spelling and c_backend.orb printed
+ *  it verbatim, so both declarations became one C variable and the read
+ *  returned the inner value. Every declaration now owns a distinct C symbol
+ *  (builder.orb mints `name__sN`), so the answer is right and this check names
+ *  a readability smell rather than a wrong answer: a redeclare still forces
+ *  every reader to reconstruct which one is meant.
  *
- *  See docs/KNOWN_LIMITATIONS.md and tests/suite/scope_shadow_clobbers_outer.orb
- *  for the emitted C. The fix is a unique C symbol per declaration, and until it
- *  exists this check names a real miscompilation rather than a style.
+ *  See docs/KNOWN_LIMITATIONS.md and tests/suite/scope_shadow_clobbers_outer.orb.
+ *  The fix (a unique C symbol per declaration) exists, so this check names a
+ *  readability smell rather than the miscompilation it used to name.
  *
  *  A shadow is recorded when the inner declaration is made and becomes
  *  reportable when its frame closes: before that, a read of the name is exactly
@@ -2119,7 +2121,7 @@ fn doctorShadowUse(name: string, stats: DoctorStats, file: string, declLine: int
         i = i + 1
     }
     if hit {
-        doctorReport(stats, file, where, "D023", "'" + name + "' is read again after the scope that redeclared it has closed, and the read returns the INNER value: the emitted C declares one variable per name, so both declarations are the same symbol.", "rename one of them. The checker resolves this read to the outer declaration, but the generated C does not, so the two disagree and the inner value wins.")
+        doctorReport(stats, file, where, "D023", "'" + name + "' is read again after the scope that redeclared it has closed. The read resolves to the outer declaration and each declaration owns its own C symbol, so the answer is right; the redeclare still forces every reader to reconstruct which one is meant.", "rename one of them.")
     }
 }
 

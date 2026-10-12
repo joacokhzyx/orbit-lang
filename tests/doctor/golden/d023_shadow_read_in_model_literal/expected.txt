@@ -1,4 +1,4 @@
-input.orb:6 warning [D023] 'n' is read again after the scope that redeclared it has closed, and the read returns the INNER value: the emitted C declares one variable per name, so both declarations are the same symbol. fix: rename one of them. The checker resolves this read to the outer declaration, but the generated C does not, so the two disagree and the inner value wins.
+input.orb:6 warning [D023] 'n' is read again after the scope that redeclared it has closed. The read resolves to the outer declaration and each declaration owns its own C symbol, so the answer is right; the redeclare still forces every reader to reconstruct which one is meant. fix: rename one of them.
 gates: doctor never runs these itself; run them from the repository root:
   python scripts/verify_seed.py --cc <gcc-or-clang> --emit-fixed-point <path-to-orbit>
   python scripts/parity_selfhost.py --cc <gcc-or-clang> --compiler <path-to-orbit>
