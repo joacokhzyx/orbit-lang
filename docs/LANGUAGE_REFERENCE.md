@@ -655,8 +655,8 @@ the primary key) and carries these static methods:
 | `M.all()` | JSON array string | full scan |
 | `M.where(cond)` | JSON array string | raw fragment; keep it constant |
 | `M.where(cond, p1..pn)` | JSON array string | one `?` per param, `%Q`-escaped in order |
-| `M.find(id)` | JSON object string | single row by key |
-| `M.first()` | JSON object string | first row, `LIMIT 1` |
+| `M.find(id)` | JSON object string | single row by key; `""` when missing (`== ""` is the miss check) |
+| `M.first()` | JSON object string | first row, `LIMIT 1`; `""` on an empty table |
 | `M.count()` / `M.count(cond, p...)` | `int` | `COUNT(*)` without fetching rows |
 | `M.create(json)` | `bool` | false on duplicate id or unusable payload |
 | `M.update(id, json)` | `bool` | partial: only present keys are written, `id` never; false when no row changed |

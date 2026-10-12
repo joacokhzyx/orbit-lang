@@ -1,12 +1,13 @@
 /**
  * @file  test_db_ops.c
- * @brief Runtime database-operation tests: update/count/where-v.
+ * @brief Runtime database-operation tests: update/count/where-v/miss.
  *
  * Pins the SQL-complete surface at the C layer: partial update writes only
  * present keys and never the id, count answers without fetching rows,
- * multi-param WHERE binds in order, and the placeholder contract (count
- * match, no statement chaining) holds. Conventions follow
- * runtime/test_migrations.c.
+ * multi-param WHERE binds in order, the placeholder contract (count
+ * match, no statement chaining) holds, and a find/first that matches
+ * nothing answers "" so `== ""` is the miss check instead of a segfault.
+ * Conventions follow runtime/test_migrations.c.
  */
 
 #include <stdio.h>
@@ -130,6 +131,24 @@ static void test_index_migration(void) {
     orbit_db_close();
 }
 
+/* A find or first that matches nothing answers "", never NULL: NULL used
+ * to travel into `==` and segfault the server on the first miss. A found
+ * row always starts with '{', so "" is unambiguous. */
+static void test_find_first_miss_is_empty(void) {
+    fresh_db();
+    OrbitArena* arena = orbit_arena_create(131072);
+    assert(strcmp(orbit_db_query_get(arena, "items", "ghost"), "") == 0);
+    assert(strcmp(orbit_db_query_first(arena, "items"), "") == 0);
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":3}"));
+    orbit_string row = orbit_db_query_get(arena, "items", "a");
+    assert(row != NULL && row[0] == '{');
+    assert(strcmp(orbit_db_query_get(arena, "items", "ghost"), "") == 0);
+    orbit_string first = orbit_db_query_first(arena, "items");
+    assert(first != NULL && first[0] == '{');
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("db_ops tests\n");
     fflush(stdout);
@@ -139,6 +158,7 @@ int main(void) {
     RUN_TEST(test_where_contract);
     RUN_TEST(test_count);
     RUN_TEST(test_index_migration);
+    RUN_TEST(test_find_first_miss_is_empty);
     printf("PASSED all db_ops tests\n");
     fflush(stdout);
     remove(TEST_DB);

@@ -260,9 +260,9 @@ static size_t orbit_db_row_to_json(OrbitArena* arena, sqlite3_stmt* stmt, char* 
 
 // ─── Public Query API ────────────────────────────────────────────────────────
 
-/** @brief Fetch a single row from @p col by @p id and return it as a JSON object string, or NULL if not found. */
+/** @brief Fetch a single row from @p col by @p id and return it as a JSON object string, or "" if not found. */
 orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* id) {
-    KYNX_DB_QUERY_CHECK(NULL);
+    KYNX_DB_QUERY_CHECK("");
     const char* fmt = "SELECT * FROM %s WHERE id = ?;";
     size_t query_len = strlen(fmt) + strlen(col.table_name) + 16;
     char* query = (char*)orbit_alloc(arena, query_len);
@@ -275,7 +275,12 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
 
     sqlite3_bind_text(stmt, 1, id, -1, SQLITE_STATIC);
 
-    orbit_string result = NULL;
+    /* A miss is the empty string, not NULL: Orbit strings have no null, and
+     * a NULL here used to travel into `==` and segfault the server on the
+     * first find of a missing key. where() already answers "[]" on empty;
+     * this is the same contract for one row. OOM and prepare failures stay
+     * NULL: those are faults, not misses, and must not read as empty. */
+    orbit_string result = "";
     orbit_perf_stats.db_queries++; // Telemetry
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         char* buf = (char*)orbit_alloc(arena, 4096);
@@ -384,9 +389,9 @@ orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char*
     return buf;
 }
 
-/** @brief Fetch the first row from @p col and return it as a JSON object string, or NULL if the table is empty. */
+/** @brief Fetch the first row from @p col and return it as a JSON object string, or "" if the table is empty. */
 orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
-    KYNX_DB_QUERY_CHECK(NULL);
+    KYNX_DB_QUERY_CHECK("");
     size_t query_len = strlen("SELECT * FROM  LIMIT 1;") + strlen(col.table_name) + 1;
     char* query = (char*)orbit_alloc(arena, query_len);
     if (!query) return NULL;
@@ -396,7 +401,8 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
     if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
         return NULL;
 
-    orbit_string result = NULL;
+    /* Same miss contract as orbit_db_get: "" so `== ""` is the miss check. */
+    orbit_string result = "";
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         char* buf = (char*)orbit_alloc(arena, 4096);
         if (buf) {
