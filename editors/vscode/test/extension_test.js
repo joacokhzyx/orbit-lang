@@ -185,29 +185,6 @@ test('completion lists stay in sync with their exported sources', () => {
     assert.ok(!complete.KEYWORDS.includes('then'));
 });
 
-test('file-icon suggestion fires once and never on its own theme', () => {
-    assert.strictEqual(ext.shouldSuggestFileIcons(undefined, false), true);
-    assert.strictEqual(ext.shouldSuggestFileIcons('seti', false), true);
-    assert.strictEqual(ext.shouldSuggestFileIcons('orbit-icons', false), false);
-    assert.strictEqual(ext.shouldSuggestFileIcons(undefined, true), false);
-    assert.strictEqual(ext.shouldSuggestFileIcons('seti', true), false);
-});
-
-test('file-icon theme maps orb and ships every icon it names', () => {
-    const themePath = path.join(__dirname, '..', 'orbit-file-icons-theme.json');
-    const theme = JSON.parse(fs.readFileSync(themePath, 'utf8'));
-    assert.strictEqual(theme.fileExtensions.orb, '_orb');
-    assert.ok(theme.iconDefinitions._orb);
-    for (const key of Object.keys(theme.iconDefinitions)) {
-        const rel = theme.iconDefinitions[key].iconPath;
-        assert.ok(rel, key + ' has no iconPath');
-        assert.ok(
-            fs.existsSync(path.join(__dirname, '..', rel)),
-            rel + ' is missing'
-        );
-    }
-});
-
 if (failures > 0) {
     console.log('\n' + failures + ' failing');
     process.exit(1);

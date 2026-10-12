@@ -7,15 +7,14 @@
 Syntax highlighting and `orbit check` diagnostics for **Orbit** - a statically
 typed language for APIs and microservices.
 
-File icons for `.orb` come from the bundled **Orbit Icons** theme: on first
-activation the extension offers to switch to it (once, never again), or pick
-it by hand with `Preferences: File Icon Theme > Orbit Icons`.
+This extension ships no icon theme on purpose: VSCode has no API for an
+extension to paint one icon inside another theme (open request since 2016),
+and a bundled theme would force you off the one you use. The Orbit mark for
+`.orb` files lives in `icons/orb.png`.
 
 ## File icons
 
-VSCode has no API for an extension to paint one icon inside another theme
-(open request since 2016), so a theme switch is the only zero-config path.
-To keep your current theme, map the extension in its settings instead:
+Map the extension in your current theme's settings:
 
 **Material Icon Theme** (any icon name from its gallery works):
 

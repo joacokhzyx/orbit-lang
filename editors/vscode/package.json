@@ -15,13 +15,6 @@
     "url": "https://github.com/joacokhzyx/orbit-lang/issues"
   },
   "icon": "icon.png",
-  "iconThemes": [
-    {
-      "id": "orbit-icons",
-      "label": "Orbit Icons",
-      "path": "./orbit-file-icons-theme.json"
-    }
-  ],
   "galleryBanner": {
     "color": "#0b0e14",
     "theme": "dark"
