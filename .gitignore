@@ -76,8 +76,9 @@ __pycache__/
 # Research / prototyping (git-ignored until stable)
 research/
 
-# Fuzzer crash corpus (local evidence)
-fuzz_crashes/
+# Fuzzer crash corpus (local evidence; README stays tracked)
+fuzz_crashes/*
+!fuzz_crashes/README.md
 
 # Single-host cluster orchestration state (orbit cluster v1)
 .orbit/

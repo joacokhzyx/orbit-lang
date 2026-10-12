@@ -2,7 +2,7 @@
 
 **Orbit** is a statically typed language for APIs and microservices. It compiles fast and needs little to run, so it stays fast even under load.
 
-I'm building Orbit to explore a simple idea: servers and APIs shouldn't need so much energy to be fast. I'm still measuring how far it can go.
+Orbit explores a simple idea: servers and APIs shouldn't need so much energy to be fast. It is early-stage software, and its limits are still being measured.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/architecture/SOVEREIGNTY.md)
@@ -85,27 +85,38 @@ Full reference: [Command Reference](docs/COMMANDS.md).
 ```text
 compiler/     Self-hosted compiler written in Orbit (lexer → parser → sema → IR → C backend)
 runtime/      C runtime (http, arena, kynx, database, auth, ledger, energy, pulse)
+std/          Orbit standard library modules
+lib/          Single runtime-support module (arena); std/ is the full standard library
+scripts/      Developer entry point (dev.py) plus the verification gates
+tests/        Parity goldens and compiler test fixtures
 docs/         Language reference and internal design documentation
 examples/     Orbit service examples covering HTTP, auth, and database access
-std/          Orbit standard library modules
-tests/        Parity goldens and compiler test fixtures
+editors/      VS Code extension (syntax highlighting, snippets)
+installer/    Windows installer source (orbit.iss)
+assets/       Logo, banner, and icon artwork
+.github/      CI workflows plus issue/PR templates
+.orbit/       Local dev-loop scratch (cache, temp, gate work dirs; git-ignored)
+fuzz_crashes/ Local fuzzer crash corpus (git-ignored, empty when clean)
 ```
+
+`sqlite3.dll` at the repo root, when present, is a stray local Windows SQLite DLL (git-ignored), not part of the repository.
 
 ---
 
 ## Contributing
 
-Thanks for your interest - I read everything. Please start with the [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request.
+Thanks for your interest. Please start with the [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request.
 
-Run the verification gates before committing:
+Run the verification gates before committing. `scripts/dev.py` (via `make`) is the entry point - do not pass `--cc`/`--compiler` by hand:
 
-```bash
-python scripts/build_selfhost.py --cc "$CC" --check-stale
-python scripts/verify_seed.py --cc "$CC"
+```sh
+make dev      # gates proportionate to what the working tree touched
+make check    # T0..T2 unconditionally
+make all      # T0..T3, including the root of trust
 ```
 
 ---
 
 ## License
 
-Orbit is open source under the [MIT License](LICENSE). It's early research - I publish what works, what doesn't, and how I measured it.
+Orbit is open source under the [MIT License](LICENSE). It is early-stage software - published with what works, what doesn't, and how it was measured.

@@ -27,55 +27,50 @@ canonical C (see [docs/architecture/SOVEREIGNTY.md](docs/architecture/SOVEREIGNT
 
 ### Building from Source
 
-Clone the repository and build the fixed-point self-hosted compiler:
+Clone the repository and use the `make` entry point (a thin wrapper over
+`scripts/dev.py`, the single authority for gates):
 
 ```bash
 git clone https://github.com/joacokhzyx/orbit-lang.git
-cd orbit
-python scripts/build_selfhost.py --out orbit.exe
+cd orbit-lang
+make fp     # build the fixed-point compiler and print its version
+make dev    # gates proportionate to what the working tree touched
 ```
 
-Or run the full installer (`scripts/install.ps1` / `scripts/install.sh`).
+`scripts/dev.py` owns `TEMP`/`TMP`, `ORBIT_CCACHE_DIR`, the fixed-point
+binary and each gate's flags. Do not export those variables by hand and do
+not pass `--cc`/`--compiler` by hand. Windows runners have no `make`, so
+call `scripts/dev.py` directly there (`python scripts/dev.py dev`, and so
+on); see `Makefile` and `AGENTS.md`.
+
+End users who just want Orbit installed take the CI release wizard
+(`Orbit-Setup-<version>.exe`, built from `installer/orbit.iss` as described
+in `docs/RELEASES.md`), not a source checkout.
 
 ---
 
 ## Running Tests & Gates
 
-Orbit's correctness contract is enforced by these gates:
+The `make` targets are the single authority for verification (see `Makefile`,
+`scripts/dev.py` and `AGENTS.md`). Do not invoke the scripts in `scripts/`
+by hand with `--cc`/`--compiler`:
 
 ```bash
-CC=gcc   # or clang / cc
-python scripts/build_selfhost.py --cc "$CC" --check-stale       # canonical is fresh
-python scripts/verify_seed.py --cc "$CC" --release              # hermetic fixed point
-python scripts/parity_selfhost.py --cc "$CC" \
-       --compiler /tmp/orbit_fp                                 # 32 probe goldens
+make dev    # T0+T1 default; tiers picked from git diff, erring toward more
+make check  # T0..T2 unconditionally (language + static analysis)
+make all    # T0..T3, including the root of trust (run before promoting)
+make fp     # just the fixed-point compiler, and print its version
+make list   # show what dev would run, without running it
 ```
 
-For the parity gate, first emit the fixed-point compiler with
-`python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp`.
+A green `make dev` is not a green CI (`dev.py` prints the tiers it skipped).
+A rule change or anything touching `compiler/*.orb` needs `make check`;
+before a commit that promotes the canonical, run `make all`.
 
-Then the gates that check behaviour and the strict warning contract:
-
-```bash
-python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp           # 28/28
-python scripts/test_suite.py --cc "$CC" --compiler /tmp/orbit_fp --dir tests/std  # 13/13
-python scripts/werror_gate.py --cc "$CC" --compiler /tmp/orbit_fp          # 9/9, -Werror on generated C
-python scripts/cli_probe.py --compiler /tmp/orbit_fp --work /tmp/cliprobe  # 48/48 CLI contract
-python scripts/routes_probe.py                                             # 72/72 route argument repair
-/tmp/orbit_fp fmt --check compiler && /tmp/orbit_fp fmt --check tests/suite
-/tmp/orbit_fp doctor tests/suite                                           # no findings
-```
-
-The C runtime unit tests are built directly (`test_oom.c` needs
-`fork`/`waitpid`, so it is POSIX-only):
-
-```bash
-cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_arena.c -o /tmp/ta && /tmp/ta
-cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_file.c -o /tmp/tf && /tmp/tf
-cc -O0 -w -I runtime -DORBIT_WITH_NET runtime/test_oom.c -o /tmp/to && /tmp/to
-cc -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET runtime/test_http_parse.c -o /tmp/th && /tmp/th
-cc -O0 -w -I runtime -I runtime/vendor -DORBIT_WITH_NET -DORBIT_KYNX_TEST runtime/test_kynx.c -o /tmp/tk && /tmp/tk
-```
+When one thing is broken and the rest is noise, use the single-gate targets
+(`make doctor`, `make suite`, `make parity`, `make werror`, `make negative`,
+`make report`) instead of retyping gate commands. The runtime C tests run
+inside these tiers (via `scripts/runtime_c_tests.py`).
 
 `scripts/werror_gate.py` is the strict warning gate. The bootstrap
 deliberately builds without `-Wall` because it costs 5.7x on the compiler's own
@@ -109,7 +104,7 @@ Diagnostics shape how Orbit feels at 3am, so they follow the brand rule: clear h
 
 ### 2. Code Formatting
 
-- **Orbit Compiler Sources**: Keep `compiler/*.orb` consistent with the existing style; any change must converge to a new fixed point (`build_selfhost.py --promote`).
+- **Orbit Compiler Sources**: Keep `compiler/*.orb` consistent with the existing style; any change must converge to a new fixed point (`make promote`, reviewed with `make promote-diff`).
 - **C Runtime Engine**: Keep C code in `runtime/` idiomatic, const-correct, and free of compiler warnings (`-Wall -Wextra`).
 - **Documentation Comments**: Use triple-slash doc comments (`///`) for public functions, structs, and module APIs.
 
@@ -124,8 +119,7 @@ Diagnostics shape how Orbit feels at 3am, so they follow the brand rule: clear h
 2. **Commit Changes**: Write clear, descriptive commit messages.
 3. **Run Verification Suite**:
    ```bash
-   python scripts/build_selfhost.py --cc "$CC" --check-stale
-   python scripts/verify_seed.py --cc "$CC"
+   make check   # T0..T2; use make all before a commit that promotes the canonical
    ```
 4. **Submit PR**: Open a pull request against the `main` branch with a clear description of the problem solved or feature added.
 

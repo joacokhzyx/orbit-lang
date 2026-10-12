@@ -25,7 +25,7 @@
 [Setup]
 AppName={#OrbitAppName}
 AppVersion={#OrbitVersion}
-AppPublisher=orbit-lang
+AppPublisher=The Orbit Software Foundation
 AppPublisherURL=https://github.com/joacokhzyx/orbit-lang
 DefaultDirName={autopf}\Orbit
 DefaultGroupName=Orbit
@@ -40,6 +40,7 @@ UninstallDisplayName=Orbit {#OrbitVersion}
 UninstallDisplayIcon={app}\orbit.ico
 VersionInfoDescription=Orbit programming language installer
 ; No VersionInfoVersion: tags carry -rc suffixes, which are not numeric.
+; No code signing: the installer ships unsigned (signing out of scope).
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
