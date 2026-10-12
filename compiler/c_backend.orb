@@ -243,7 +243,11 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, "#endif\n")
         orbit_cbuf_append_selfhost(cbTop, "    \n")
         if backend.module.migrations.len() > 0 || moduleUsesDatabase(backend.module) {
-            orbit_cbuf_append_selfhost(cbTop, "    orbit_db_init(\"orbit.db\");\n")
+            // Default database location. `orbit start`/`orbit dev` ensure
+            // .orbit/data exists and migrate a legacy ./orbit.db once; a
+            // hand-run binary in a directory without it fails honestly at
+            // open (stderr names the path) instead of writing a stray file.
+            orbit_cbuf_append_selfhost(cbTop, "    orbit_db_init(\".orbit/data/app.db\");\n")
             orbit_cbuf_append_selfhost(cbTop, generateModelDDL(backend))
         }
         orbit_cbuf_append_selfhost(cbTop, "    orbit_ledger_enable_file_dump();\n")

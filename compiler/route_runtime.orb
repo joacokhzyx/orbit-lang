@@ -476,7 +476,9 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "    uint64_t _orbit_boot_t0 = orbit_rdtsc();\n"
     out = out + "    orbit_http_init();\n"
     if hasDb {
-        out = out + "    orbit_db_init(\"orbit.db\");\n"
+        // Same default as the plain main in c_backend.orb: .orbit/data
+        // (see the note there about legacy ./orbit.db migration).
+        out = out + "    orbit_db_init(\".orbit/data/app.db\");\n"
         if hasAuth {
             out = out + "    orbit_auth_init();\n"
         }

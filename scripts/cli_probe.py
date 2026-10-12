@@ -169,6 +169,15 @@ CASES = [
     # Bare `orbit` with no args prints the short help plus next steps on
     # stdout and exits 0, instead of the build usage on stderr.
     ("bare-noarg", [], 0, "out", "Usage:", ""),
+    # `orbit start` builds into .orbit/ and runs: help exits 0, a missing
+    # input is an operational error (exit 1), and with no file it looks for
+    # main.orb, which the empty probe dir does not have.
+    ("start-help", ["start", "--help"], 0, "out", "Usage:", ""),
+    ("start-missing", ["start", "nope.orb"], 1, "err", "orbit start:", ""),
+    ("start-no-main", ["start"], 1, "err", "orbit start:", ""),
+    ("start-badflag", ["start", "--bogus"], 2, "err", "Usage:", ""),
+    ("dev-help", ["dev", "--help"], 0, "out", "Usage:", ""),
+    ("dev-missing", ["dev", "nope.orb"], 1, "err", "orbit dev:", ""),
 ]
 
 # The not-found wording is not unique to a missing toolchain: clang reports a

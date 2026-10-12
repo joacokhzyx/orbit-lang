@@ -10,6 +10,8 @@ These commands operate on an installed Orbit executable or on a locally built ex
 |---|---|---|
 | `orbit build <file>` | Compile an Orbit source file to an executable | `orbit build main.orb -o main` |
 | `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
+| `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
+| `orbit dev [file]` | Watch sources, rebuild and restart on change (drain on POSIX, kill on Windows) | `orbit dev svc.orb` |
 | `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
@@ -58,7 +60,21 @@ only); `up` and `restart` echo spawned commands with `--verbose`. The
 child program owns the terminal under `run`, so its output is never
 silenced.
 
-`orbit dev` (watch/reload) is not implemented yet. Calling it treats `dev` as a filename and fails - that error message is honest, not a silent stub.
+`orbit start` builds to `.orbit/<name>[.exe]` (plus `.orbit/data/` for
+the database and `.orbit/logs/` for dev output) and runs it, so the
+binary never lands next to your source. With no file argument it uses
+`main.orb`. `--port N` overrides the service port (default 3000).
+
+`orbit dev` does the same in a watch loop: content-hash poll every
+second over the entry file plus its transitive imports, rebuild on
+change, graceful stop first (SIGTERM drain on POSIX; kill on Windows,
+per Known Limitations) escalating to kill after ~3 s. A failed rebuild
+keeps watching without a child; the child pid lives in
+`.orbit/dev.pid` so the next `dev` reaps a stale child from Ctrl-C.
+
+`orbit dev` (watch/reload) is implemented: see above. Calling an
+unknown command treats it as a filename and fails - that error message
+is honest, not a silent stub.
 
 When Orbit was built locally and is not installed on `PATH`, call it by its path:
 

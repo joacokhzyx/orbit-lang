@@ -13,7 +13,7 @@ migrations "CREATE INDEX IF NOT EXISTS ix_notes_rank ON notes(rank)"
 Each line runs once, in declaration order, inside a transaction, and a
 `_orbit_migrations` table records the applied versions. Rerunning the
 program does not re-apply; a failed statement prints `orbit: migrations
-failed to apply` and exits 1; two writers against one `orbit.db` remain
+failed to apply` and exits 1; two writers against one database file remain
 out of scope.
 
 `model`-derived `CREATE TABLE IF NOT EXISTS` still runs automatically as
@@ -21,15 +21,15 @@ before.
 
 ## The practice that works today
 
-1. **One database file per service directory.** The file lives
-   in the working directory, so a systemd `WorkingDirectory`
-   or a deployment folder pins it. Never run two services
-   against one `orbit.db` - locking behavior there is
+1. **One database file per service directory.** The default file is
+   `.orbit/data/app.db` under the project directory (`orbit start`
+   creates it; a legacy `./orbit.db` is moved there once). Never run
+   two services against one file - locking behavior there is
    UNTESTED, and silent corruption is the failure mode you
    won't see until restore time.
 2. **Back up the file, not the rows.** Stop the service
    (Windows stop is immediate kill - plan for that), copy
-   `orbit.db`, start again. SQLite backup API integration is
+   `.orbit/data/app.db`, start again. SQLite backup API integration is
    future work.
 3. **Additive changes via `migrations`.** ALTER ADD COLUMN,
    CREATE INDEX, and other forward-only DDL belong in one
@@ -52,7 +52,7 @@ before.
   the failure branch - a re-post of a stored id lands there.
 - **Two writers, one file.** UNTESTED and explicitly out of
   scope - concurrent writes from two processes against one
-  `orbit.db` have no contract. One writer per file.
+  database file have no contract. One writer per file.
 - **Windows stop loses in-flight writes.** Stop is
   `TerminateProcess`. A write in flight when you stop the
   service may or may not have landed. Quiesce traffic first,

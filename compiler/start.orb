@@ -1,0 +1,469 @@
+// Orbit start/dev: framework-style entry points.
+//
+// `orbit start` builds into .orbit/ and runs, so nobody executes a .exe by
+// hand. `orbit dev` adds watch/rebuild/restart on top. Both share one rule
+// the compiler already lives by: a program WITH routes is a service, one
+// WITHOUT routes is a general program (like Python). The backend already
+// branches on moduleHasRoute; start/dev only make the mode visible.
+
+import "./extern.orb"
+import "./pipeline.orb"
+import "./cluster.orb"
+
+fn startWantsHelp() -> bool {
+    var i = 2
+    while i <= 5 {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "--help" || a == "-h" { return true }
+        if a == "" { return false }
+        i = i + 1
+    }
+    return false
+}
+
+fn startEntryUsage(cmd: string) -> string {
+    if cmd == "dev" {
+        return "Usage: orbit dev [file.orb] [--port N] [--quiet] [--verbose] [--color always|never|auto]\n  Watch sources, rebuild and restart on change\n"
+    }
+    return "Usage: orbit start [file.orb] [--port N] [--quiet] [--verbose] [--color always|never|auto]\n  Build into .orbit/ and run it (service when it declares routes)\n"
+}
+
+fn startParsePort(fromIdx: int) -> string {
+    var i = fromIdx
+    while true {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "" { break }
+        if a == "--port" {
+            return orbit_os_argv_selfhost(i + 1)
+        }
+        if a.len() > 7 && a.slice(0, 7) == "--port=" {
+            return a.slice(7, a.len())
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fn startParseInput(fromIdx: int) -> string {
+    var input = ""
+    var bad = false
+    var i = fromIdx
+    while true {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "" { break }
+        if a == "--quiet" || a == "--verbose" {
+            i = i + 1
+            continue
+        }
+        if a == "--color" {
+            i = i + 2
+            continue
+        }
+        if a == "--port" {
+            i = i + 2
+            continue
+        }
+        if a.len() > 7 && a.slice(0, 7) == "--port=" {
+            i = i + 1
+            continue
+        }
+        if a.slice(0, 2) == "--" {
+            bad = true
+            break
+        }
+        if input == "" {
+            input = a
+        } else {
+            bad = true
+            break
+        }
+        i = i + 1
+    }
+    if bad { return "!bad" }
+    return input
+}
+
+// Base file name without directories and without a trailing .orb, so
+// `dir/notes.orb` and `notes` both build `.orbit/notes[.exe]`.
+fn startBaseName(path: string) -> string {
+    var base = path
+    var i = 0
+    while i < base.len() {
+        val ch = base.slice(i, i + 1)
+        if ch == "/" || ch == "\\" {
+            base = base.slice(i + 1, base.len())
+            i = 0
+            continue
+        }
+        i = i + 1
+    }
+    if base.len() > 4 && base.slice(base.len() - 4, base.len()) == ".orb" {
+        base = base.slice(0, base.len() - 4)
+    }
+    if base == "" { return "main" }
+    return base
+}
+
+fn startOutputFor(entry: string) -> string {
+    var out = ".orbit/" + startBaseName(entry)
+    if clusterIsWindows() { out = out + ".exe" }
+    return out
+}
+
+fn startEnsureDirs() {
+    val ignoredA = orbit_os_mkdir_selfhost(".orbit")
+    val ignoredB = orbit_os_mkdir_selfhost(".orbit/data")
+    val ignoredC = orbit_os_mkdir_selfhost(".orbit/logs")
+}
+
+fn startListContains(items: list, name: string) -> bool {
+    var i = 0
+    while i < items.len() {
+        val item: string = items.get(i)
+        if item == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// First start after the DB default moved: carry ./orbit.db (created in the
+// working directory by older builds) to .orbit/data/app.db once, loudly,
+// instead of silently starting on an empty database.
+fn startMigrateDb(quiet: bool) {
+    val top = orbit_file_list_dir_selfhost(".")
+    if startListContains(top, "orbit.db") == false { return }
+    val dataDir = orbit_file_list_dir_selfhost(".orbit/data")
+    if startListContains(dataDir, "app.db") { return }
+    if clusterIsWindows() {
+        val ignoredMv = orbit_os_exec_selfhost("move /Y \"orbit.db\" \".orbit\\data\\app.db\" > NUL 2>&1")
+    } else {
+        val ignoredMv2 = orbit_os_exec_selfhost("mv -f \"orbit.db\" \".orbit/data/app.db\" 2>/dev/null")
+    }
+    if quiet == false {
+        print("moved ./orbit.db → .orbit/data/app.db (new default location)")
+    }
+}
+
+// Windows cannot start a DB service without sqlite3.dll next to the binary.
+// start copies it from the compiler's own runtime vendor dir (or the repo
+// copy when running from a checkout) into the binary's own directory when
+// it lacks one.
+fn startEnsureSqliteDll(outputPath: string, quiet: bool, verbose: bool) {
+    if clusterIsWindows() == false { return }
+    var destDir = getDir(outputPath)
+    if destDir == "" { destDir = "." }
+    val destList = orbit_file_list_dir_selfhost(destDir)
+    if startListContains(destList, "sqlite3.dll") { return }
+    val selfDir = getDir(orbit_os_argv_selfhost(0))
+    var src = "runtime/vendor/win-x64/sqlite3.dll"
+    if selfDir != "" {
+        val cand = selfDir + "/runtime/vendor/win-x64/sqlite3.dll"
+        val candDir = orbit_file_list_dir_selfhost(selfDir + "/runtime/vendor/win-x64")
+        if startListContains(candDir, "sqlite3.dll") {
+            src = cand
+        }
+    }
+    val dest = clusterNativePath(destDir + "\\sqlite3.dll")
+    val cmd = "copy /Y \"" + clusterNativePath(src) + "\" \"" + dest + "\" > NUL 2>&1"
+    if verbose {
+        print("copy dll: " + cmd)
+    }
+    val ignoredCp = orbit_os_exec_selfhost(cmd)
+    if quiet == false && verbose == false {
+        print("note: copied sqlite3.dll next to the build (Windows needs it there)")
+    }
+}
+
+// True when the entry file itself declares at least one route. Imports are
+// resolved at compile time; the banner lists entry routes and the server's
+// own banner reports the rest.
+fn startSourceHasRoutes(source: string) -> bool {
+    val parser = initParser(source)
+    val root = parseProgram(parser)
+    match root {
+        ASTNode.Program(p) => {
+            var i = 0
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                match decl {
+                    ASTNode.RouteDecl(r) => { return true }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            return false
+        }
+        _ => {}
+    }
+    return false
+}
+
+fn startCollectRoutes(source: string) -> list {
+    val out = []
+    val parser = initParser(source)
+    val root = parseProgram(parser)
+    match root {
+        ASTNode.Program(p) => {
+            var i = 0
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                match decl {
+                    ASTNode.RouteDecl(r) => {
+                        out.push(r.http_method + " " + r.path)
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return out
+}
+
+fn startPrintServiceBanner(entry: string, outputPath: string, source: string, port: string) {
+    val routes = startCollectRoutes(source)
+    print("Starting " + entry + " → " + outputPath + " (service, " + orbit_int_to_string_selfhost(routes.len()) + " routes, port " + port + ")")
+    var i = 0
+    while i < routes.len() {
+        val r: string = routes.get(i)
+        print("  " + r)
+        i = i + 1
+    }
+}
+
+fn startSpawnForeground(outputPath: string, port: string, serviceMode: bool, verbose: bool) -> int {
+    val nativeBin = clusterNativePath(clusterAbsolutePath(outputPath))
+    var cmd = "\"" + nativeBin + "\""
+    if serviceMode && port != "" {
+        cmd = cmd + " " + port
+    }
+    if verbose {
+        print("spawn " + cmd)
+    }
+    return orbit_os_spawn_selfhost(cmd)
+}
+
+fn runStart() {
+    if startWantsHelp() {
+        print(startEntryUsage("start"))
+        return
+    }
+    val runQuiet = clusterHasFlag("--quiet", 2)
+    val runVerbose = clusterHasFlag("--verbose", 2)
+    var runColor = clusterFlagValue("--color", 2)
+    if runColor == "" { runColor = "auto" }
+    if runColor != "always" && runColor != "never" && runColor != "auto" {
+        orbit_os_write_stderr_selfhost(startEntryUsage("start"))
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val port = startParsePort(2)
+    var inputArg = startParseInput(2)
+    if inputArg == "!bad" {
+        orbit_os_write_stderr_selfhost(startEntryUsage("start"))
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if inputArg == "" { inputArg = "main.orb" }
+    val source = orbit_file_read_selfhost(inputArg)
+    if source == "" {
+        orbit_os_write_stderr_selfhost("orbit start: could not read input file '" + inputArg + "'.\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    startEnsureDirs()
+    startMigrateDb(runQuiet)
+    val outputPath = startOutputFor(inputArg)
+    if compileSourceWithFile(source, inputArg, outputPath, runVerbose, true, runColor) == false {
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    val serviceMode = startSourceHasRoutes(source)
+    var effPort = port
+    if effPort == "" { effPort = "3000" }
+    if serviceMode {
+        startEnsureSqliteDll(outputPath, runQuiet, runVerbose)
+        if runQuiet == false {
+            startPrintServiceBanner(inputArg, outputPath, source, effPort)
+        }
+    } else {
+        if runQuiet == false {
+            if port != "" {
+                print("Running " + inputArg + " → " + outputPath + " (--port ignored: no routes declared)")
+            } else {
+                print("Running " + inputArg + " → " + outputPath)
+            }
+        }
+    }
+    val code = startSpawnForeground(outputPath, port, serviceMode, runVerbose)
+    orbit_os_exit_selfhost(code)
+}
+
+// Watch state: the entry plus every transitively imported file, hashed.
+// Content hashes (not mtimes) keep dev portable with zero new runtime calls.
+fn devwWatchFiles(entry: string, source: string) -> list {
+    val files = []
+    files.push(entry)
+    val parser = initParser(source)
+    val rawAST = parseProgram(parser)
+    val resolver = initModuleResolver()
+    val ignoredAST = resolveModuleAST(resolver, rawAST, entry)
+    var i = 0
+    while i < resolver.visited.len() {
+        val v: string = resolver.visited.get(i)
+        files.push(v)
+        i = i + 1
+    }
+    return files
+}
+
+fn devwSnapshot(files: list) -> string {
+    var snap = ""
+    var i = 0
+    while i < files.len() {
+        val f: string = files.get(i)
+        snap = snap + f + "=" + orbit_string_hash_selfhost(orbit_file_read_selfhost(f)) + "|"
+        i = i + 1
+    }
+    return snap
+}
+
+fn devwReadPid() -> int {
+    val raw = orbit_file_read_selfhost(".orbit/dev.pid")
+    if raw == "" { return 0 }
+    return clusterParseInt(raw)
+}
+
+fn devwWritePid(pid: int) {
+    if orbit_file_write_selfhost(".orbit/dev.pid", orbit_int_to_string_selfhost(pid)) == false {
+        orbit_os_write_stderr_selfhost("orbit dev: could not write .orbit/dev.pid.\n")
+    }
+}
+
+// SIGTERM first (the generated server drains), escalate to kill after ~3s.
+// On Windows both are TerminateProcess: immediate, documented in
+// KNOWN_LIMITATIONS.md, and reported honestly in the restart line.
+fn devwStopChild(pid: int) {
+    if pid <= 0 { return }
+    if orbit_os_kill_selfhost(pid, 2) != 1 { return }
+    val ignoredT = orbit_os_kill_selfhost(pid, 1)
+    var waited = 0
+    while waited < 3 {
+        clusterSleepSec(1)
+        if orbit_os_kill_selfhost(pid, 2) != 1 { return }
+        waited = waited + 1
+    }
+    val ignoredK = orbit_os_kill_selfhost(pid, 0)
+}
+
+fn devwKillStale() {
+    val stale = devwReadPid()
+    if stale <= 0 { return }
+    if orbit_os_kill_selfhost(stale, 2) != 1 { return }
+    print("orbit dev: stopping stale child (pid " + orbit_int_to_string_selfhost(stale) + ") from a previous session")
+    devwStopChild(stale)
+    devwWritePid(0)
+}
+
+fn devwSpawnChild(outputPath: string, port: string, serviceMode: bool, verbose: bool) -> int {
+    val nativeBin = clusterNativePath(clusterAbsolutePath(outputPath))
+    var cmd = "\"" + nativeBin + "\""
+    if serviceMode && port != "" {
+        cmd = cmd + " " + port
+    }
+    if verbose {
+        print("spawn " + cmd + " (log .orbit/dev.log)")
+    }
+    val pid = orbit_os_spawn_bg_selfhost(cmd, clusterNativePath(".orbit/logs/dev.log"))
+    if pid > 0 {
+        devwWritePid(pid)
+    }
+    return pid
+}
+
+fn runDev() {
+    if startWantsHelp() {
+        print(startEntryUsage("dev"))
+        return
+    }
+    val devQuiet = clusterHasFlag("--quiet", 2)
+    val devVerbose = clusterHasFlag("--verbose", 2)
+    var devColor = clusterFlagValue("--color", 2)
+    if devColor == "" { devColor = "auto" }
+    if devColor != "always" && devColor != "never" && devColor != "auto" {
+        orbit_os_write_stderr_selfhost(startEntryUsage("dev"))
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val port = startParsePort(2)
+    var inputArg = startParseInput(2)
+    if inputArg == "!bad" {
+        orbit_os_write_stderr_selfhost(startEntryUsage("dev"))
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    if inputArg == "" { inputArg = "main.orb" }
+    var source = orbit_file_read_selfhost(inputArg)
+    if source == "" {
+        orbit_os_write_stderr_selfhost("orbit dev: could not read input file '" + inputArg + "'.\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    startEnsureDirs()
+    startMigrateDb(devQuiet)
+    devwKillStale()
+    val outputPath = startOutputFor(inputArg)
+    val serviceMode = startSourceHasRoutes(source)
+    var effPort = port
+    if effPort == "" { effPort = "3000" }
+    if serviceMode {
+        startEnsureSqliteDll(outputPath, devQuiet, devVerbose)
+    }
+    if compileSourceWithFile(source, inputArg, outputPath, devVerbose, true, devColor) == false {
+        orbit_os_write_stderr_selfhost("orbit dev: initial build failed — watching for fixes.\n")
+    }
+    var childPid = devwSpawnChild(outputPath, port, serviceMode, devVerbose)
+    if childPid <= 0 {
+        orbit_os_write_stderr_selfhost("orbit dev: failed to start child.\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    if devQuiet == false {
+        if serviceMode {
+            print("orbit dev: service on port " + effPort + " (pid " + orbit_int_to_string_selfhost(childPid) + "), watching for changes…")
+            print("  stop is drain on POSIX, kill on Windows — see KNOWN_LIMITATIONS.md")
+        } else {
+            print("orbit dev: running (pid " + orbit_int_to_string_selfhost(childPid) + "), watching for changes…")
+        }
+        print("  logs: .orbit/logs/dev.log — Ctrl-C stops the watcher (stale child is reaped on next dev)")
+    }
+    var snap = devwSnapshot(devwWatchFiles(inputArg, source))
+    while true {
+        clusterSleepSec(1)
+        source = orbit_file_read_selfhost(inputArg)
+        if source == "" {
+            continue
+        }
+        val now = devwSnapshot(devwWatchFiles(inputArg, source))
+        if now == snap {
+            continue
+        }
+        snap = now
+        print("orbit dev: change detected — rebuilding")
+        devwStopChild(childPid)
+        childPid = 0
+        devwWritePid(0)
+        if compileSourceWithFile(source, inputArg, outputPath, devVerbose, true, devColor) == false {
+            orbit_os_write_stderr_selfhost("orbit dev: rebuild failed — keeping previous binary stopped, watching for fixes.\n")
+            continue
+        }
+        childPid = devwSpawnChild(outputPath, port, startSourceHasRoutes(source), devVerbose)
+        if childPid <= 0 {
+            orbit_os_write_stderr_selfhost("orbit dev: failed to restart child.\n")
+            orbit_os_exit_selfhost(1)
+            return
+        }
+        print("orbit dev: restarted (pid " + orbit_int_to_string_selfhost(childPid) + ")")
+    }
+}

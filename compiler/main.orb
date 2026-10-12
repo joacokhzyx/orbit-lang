@@ -15,6 +15,7 @@ import "./palette.orb"
 import "./pipeline.orb"
 import "./doctor.orb"
 import "./cluster.orb"
+import "./start.orb"
 
 fn frontendOutputPath() -> string {
     var i = 2
@@ -90,6 +91,10 @@ fn helpText(useColor: bool) -> string {
     h = h + "                             Compile to a native executable\n"
     h = h + "  " + palettePaint(paletteBold(), "run", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Build and run it (shares your terminal)\n"
+    h = h + "  " + palettePaint(paletteBold(), "start", useColor) + " [file.orb] [--port N] [--quiet] [--verbose] [--color always|never|auto]\n"
+    h = h + "                             Build into .orbit/ and run (service when it declares routes)\n"
+    h = h + "  " + palettePaint(paletteBold(), "dev", useColor) + " [file.orb] [--port N] [--quiet] [--verbose] [--color always|never|auto]\n"
+    h = h + "                             Watch sources, rebuild and restart on change\n"
     h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Parse and typecheck, no code emitted\n"
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " <file.orb>             Format a file (writes only on success)\n"
@@ -114,6 +119,7 @@ fn bareHelpText(useColor: bool) -> string {
     h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " hello.orb          " + palettePaint(paletteDim(), "typecheck only", useColor) + "\n"
     h = h + "  " + palettePaint(paletteBold(), "build", useColor) + " hello.orb -o hello " + palettePaint(paletteDim(), "compile to native", useColor) + "\n"
     h = h + "  " + palettePaint(paletteBold(), "run", useColor) + " hello.orb            " + palettePaint(paletteDim(), "build and run", useColor) + "\n"
+    h = h + "  " + palettePaint(paletteBold(), "start", useColor) + " [main.orb]        " + palettePaint(paletteDim(), "build into .orbit/ and run", useColor) + "\n"
     h = h + "  " + palettePaint(paletteBold(), "doctor", useColor) + "                   " + palettePaint(paletteDim(), "project checks", useColor) + "\n"
     h = h + "\n"
     h = h + palettePaint(paletteDim(), "No input given. Next step: `orbit check hello.orb` then `orbit build hello.orb -o hello`", useColor) + "\n"
@@ -132,6 +138,7 @@ fn isKnownCommand(cmd: string) -> bool {
     if cmd == "build" || cmd == "run" || cmd == "check" { return true }
     if cmd == "fmt" || cmd == "doctor" || cmd == "frontend" { return true }
     if cmd == "lextrace" || cmd == "cluster" { return true }
+    if cmd == "start" || cmd == "dev" { return true }
     if cmd == "--help" || cmd == "-h" || cmd == "--version" || cmd == "-v" { return true }
     return false
 }
@@ -328,6 +335,14 @@ fn main() {
     // cluster dispatch (agent)
     if cmd == "cluster" {
         runCluster()
+        return
+    }
+    if cmd == "start" {
+        runStart()
+        return
+    }
+    if cmd == "dev" {
+        runDev()
         return
     }
     var outputPath = ""

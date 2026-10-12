@@ -73,9 +73,10 @@ Pass it as the first argument: `./service 8080`. Default is
 3000. There's no config-file port yet.
 
 **12. Where's the database file?**
-`orbit.db` in the service's working directory, created on
+`.orbit/data/app.db` under the project directory, created on
 first start with four tables and demo seed rows. Back it up by
-copying the file while the service is stopped.
+copying the file while the service is stopped. A legacy `./orbit.db`
+from older builds is moved there once, loudly, by `orbit start`/`orbit dev`.
 
 **13. Why did my DB service exit with no message on Windows?**
 `sqlite3.dll` must sit next to the exe. Copy it from
