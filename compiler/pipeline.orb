@@ -523,6 +523,18 @@ fn reportCStepFailure(inputPath: string, cPath: string, rtDir: string, tmpDir: s
     if logOk == false {
         orbit_os_write_stderr_selfhost("  (couldn't write the full log to " + logPath + ")\n")
     }
+    // A locked output file is the one C-step failure the user causes
+    // themselves: on Windows the exe is unwritable while its server runs, so
+    // rebuilding over `orbit start` output always lands here. Name it instead
+    // of filing it: the "file an issue" tip below would send them to report
+    // their own running server as a compiler bug.
+    if orbit_string_indexOf(clean, "cannot open output file") != -1 {
+        if orbit_string_indexOf(clean, "Permission denied") != -1 {
+            orbit_os_write_stderr_selfhost("  The linker could not write the output file because it is locked: on Windows an exe stays locked while its server runs.\n")
+            orbit_os_write_stderr_selfhost("  Stop that server first (it is usually your own, from `orbit start`), then rebuild. Your program is fine; no issue to file.\n")
+            return
+        }
+    }
     orbit_os_write_stderr_selfhost("  Tip: run `orbit check " + inputPath + "` first - if that passes, file an issue with the .orb file and I'll read it.\n")
 }
 
