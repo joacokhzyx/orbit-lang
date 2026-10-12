@@ -52,6 +52,30 @@ jobs:
             dist/orbit_seed*
           if-no-files-found: error
 
+      # The Setup Wizard is what installs Orbit "to perfection" (PATH, .orb
+      # icon + association, std/ + runtime/ beside the binary). Built only on
+      # Windows, only from the verified fixed-point binary staged above.
+      - name: Build Windows Setup Wizard (Inno Setup)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $ver = '0.0.0-dev'
+          if ('${{ github.ref }}' -like 'refs/tags/v*') { $ver = '${{ github.ref_name }}'.TrimStart('v') }
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /DOrbitVersion=$ver installer\orbit.iss
+          if (-not (Test-Path 'dist\Orbit-Setup-*.exe')) {
+            Write-Error '[Release] FAILED: the Setup Wizard was not emitted.'
+            exit 1
+          }
+
+      - name: Upload Windows Setup Wizard
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup
+          path: dist/Orbit-Setup-*.exe
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release
     needs: build

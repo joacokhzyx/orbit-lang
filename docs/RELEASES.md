@@ -16,6 +16,10 @@ The current release workflow does not publish a macOS compiler artifact. macOS u
 A release contains:
 
 - a platform-specific fixed-point compiler;
+- on Windows, `Orbit-Setup-<version>.exe`: the Setup Wizard (per-user, no
+  admin) that installs `orbit.exe` on PATH, registers the `.orb` icon and
+  `orbit check` double-click verb, and ships `std/` + `runtime/` beside the
+  binary so imports and builds work outside a source checkout;
 - `orbit_bootstrap.c`, the amalgamated C bootstrap source;
 - `orbit_seed*`, the seed compiler artifacts produced by verification when available;
 - generated release notes from the tagged revision.
@@ -33,6 +37,28 @@ python scripts/verify_seed.py --release --refresh \
 
 The exact compiler is `clang` on Windows and `gcc` on Ubuntu. The verification
 refreshes the release contract before emitting the platform compiler.
+
+## Windows installer
+
+`installer/orbit.iss` is the Inno Setup source. CI compiles it on tag after
+the seed chain passes (`iscc /DOrbitVersion=<tag-v-stripped>
+installer\orbit.iss`); validate locally with
+`iscc /DOrbitVersion=0.0.0-dev installer\orbit.iss` against a `dist/`
+holding `orbit-windows-x86_64.exe`. Verified end to end on 2026-10-12:
+silent per-user install, `orbit --version` on PATH, `.orb` association +
+icon in HKCU, `check`/`build`/`run` of a `std/`-importing program from
+outside the repo, and uninstall removing binary, keys and PATH entry.
+
+Layout under the install dir (mirrors the repo, which is why resolution works):
+
+```console
+orbit.exe  orbit.ico  LICENSE.txt  std\  runtime\
+```
+
+The install trap below applies to the raw `orbit-windows-x86_64.exe`
+download, not to a wizard install: the wizard is what closes it. `ovm`
+(Orbit Version Manager) will own upgrades later; there is intentionally no
+`orbit install` command.
 
 ## The release does not ship `std/`, so the verification has to prove it knows that
 
