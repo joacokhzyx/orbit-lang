@@ -1,6 +1,6 @@
 # Orbit language reference
 
-Orbit source files use the `.orb` extension. This reference covers what the `0.1.0` compiler does today. The language is pre-1.0, so pin your dependency to a specific release candidate and expect gaps - I document limits alongside features.
+Orbit source files use the `.orb` extension. This reference covers what the `0.1.0` compiler accepts today. The language is pre-1.0, so pin a specific release and verify edge behavior before relying on it.
 
 ## Program structure and functions
 
@@ -29,13 +29,14 @@ const MAX_RETRIES = 3
 
 ## Variables and types
 
-`val` creates an immutable binding. `var` is also accepted; add `mut` when a
-binding must be mutable. Type annotations are optional when inference is enough.
+`val` declares an immutable binding. `var` declares a mutable binding; `var
+mut` is accepted with the same meaning as `var`. Type annotations are optional
+when inference is enough.
 
 ```orbit
 val name = "orbit"
 val retries: int = 3
-var mut total: int = 0
+var total: int = 0
 ```
 
 Core scalar types include `int`, `float`, `bool`, and `string`. Use models for
@@ -54,31 +55,28 @@ enum Role { Admin, Member }
 type UserId = string
 ```
 
-The lowercase names are the type names the compiler knows: `int`, `float`,
-`string`, `bool`, `void`, and `list`/`map`/`object`/`result`/`response` as
-container and result spellings. `List`, `Map`, `Result` and `Response` are
-accepted capitalised and are the same four types. **Any other capitalised
-spelling is not a type at all**, and that is now a diagnostic rather than a
-surprise in the C step: `val n: Int = 1` is `E1006, Nothing declares a type
-named 'Int'`, with the note that types are written in lower case or declared
-with `model` or `union`. `Float`, `String`, `Bool`, `Void`, `Any` and
-`DateTime` are refused the same way.
+The type names the compiler knows are lowercase: `int`, `float`, `string`,
+`bool`, `void`, and `list`/`map`/`object`/`result`/`response` as container and
+result spellings. `List`, `Map`, `Result` and `Response` are accepted with a
+capital and are the same four types. **Any other capitalised spelling is not a
+type**: `val n: Int = 1` is rejected with `E1006, Nothing declares a type named
+'Int'`, with the note that types are written in lower case or declared with
+`model` or `union`. `Float`, `String`, `Bool`, `Void`, `Any` and `DateTime`
+are refused the same way.
 
-Two cases are worth spelling out because the check is not a spelling test:
+Two cases worth spelling out because the check is not a spelling test:
 
 - A **capitalised** name is a type only if a `model`, `enum`, `union` or alias
   declares it, or it is one of the four real container spellings above.
 - A **lower-case** name that nothing declares is refused by the other half of
   the same check, which compares the annotation against the value: `val n:
-  widget = 1` is `'n' is declared widget but the value is int`. The
-  distinction is the useful one — `Int` looks like a type and is not one,
-  while `widget` is a name the program forgot to declare.
+  widget = 1` is `'n' is declared widget but the value is int`. `Int` looks
+  like a type and is not one, while `widget` is a name the program forgot to
+  declare.
 
 Integer literals accept binary (`0b101` is 5), hex (`0x1F` is 31), digit
 separators (`1_000` is 1000) and exponents (`1.5e2` is `150.0`, `1e-3` is
-`0.001`). An exponent produces a float, always: `1e2` is `100.0`, not `100`,
-because the value it denotes has a fractional part even when it prints without
-one.
+`0.001`). An exponent produces a float, always: `1e2` is `100.0`, not `100`.
 
 ### Annotate your bindings
 
@@ -106,8 +104,10 @@ The mechanism, the emitted C, and the other places it bites are written up in
 
 ### Strings
 
-An ordinary `"…"` string processes escapes, so `\"` is a quote, `\n` a newline,
-`\t` a tab, `\\` a backslash and `\xHH` a byte.
+An ordinary `"…"` string processes escapes: `\"` is a quote, `\n` a newline,
+`\r` a carriage return, `\t` a tab, `\\` a backslash, and `\xHH` a byte given
+as two hex digits (`"\x41"` is `"A"`). A malformed `\x` and any other unknown
+escape stay literal.
 
 A **raw string**, triple-quoted like Python, processes nothing at all:
 
@@ -129,8 +129,7 @@ Three rules, and that is all there is:
   quote inside is ordinary content: `"""a"b"""` is `a"b`.
 - **No escapes exist.** A backslash is a backslash, so a Windows path needs no
   doubling: `"""C:\Users\orbit"""`. The only thing that cannot appear inside is
-  a literal `"""`, which no JSON or prose needs; split the string or use an
-  ordinary `"…"` for that.
+  a literal `"""`; split the string or use an ordinary `"…"` for that.
 - **Newlines are kept**, which is what makes a multi-line body readable and
   served the way it is written:
 
@@ -147,18 +146,14 @@ than silently swallowing the rest of the file.
 
 ### Integers
 
-Decimal is the base. Two conveniences exist, and both used to be wrong in the
-way that costs the most: they compiled, ran, and produced a plausible number
-that was not the one written.
+Decimal is the default base. `0xFF` is hex (either letter case), `0b101` is
+binary, `_` only separates digits (`1_000_000` is one million), and an exponent
+always produces a float (`1e2` is `100.0`).
 
 ```orbit
 val mask = 0xFF          // 255, and 0xff / 0xAbCdEf likewise
 val big = 1_000_000      // one million; _ is only a separator
 ```
-
-Before, `0xFF` lexed as the integer `0` with `xFF` dropped, and `1_000_000`
-lexed as `1`. Both passed `check`. A bitmask written that way is a bug that
-survives to production.
 
 ### Interpolation
 
@@ -183,137 +178,15 @@ Rules:
 - The result is an ordinary string and can be concatenated, compared or returned
   like any other.
 
-## What Orbit does not promise about values
-
-This section is for the person who has already been bitten. It is not a
-description of the type system; it is a list of things the language will
-not tell you, written as a rule you can follow rather than as a warning
-you can only read once. The mechanism underneath is
-[the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag);
-the measured list of programs that compile and compute the wrong answer
-is in [known limitations](KNOWN_LIMITATIONS.md#nineteen-programs-the-compiler-should-reject-and-does-not),
-which you should read before you rely on any of this.
-
-### An `int` is 32 bits and it wraps silently
-
-`orbit_int` is 32 bits. Overflow is not an error, is not diagnosed, and
-gives you a different number:
-
-```orbit
-print(2147483647 + 1)   // -2147483648
-print(46341 * 46341)    // -2147479015
-print(65536 * 65536)    // 0
-```
-
-All three are what C does, so the wrapping is at least consistent. Two
-things follow that C does *not* give you. First, the compiler never warns
-you, so a value that went out of range in the middle of a calculation
-keeps going with the wrapped one. Second, an integer **literal** used to be
-folded with no range check at all, so the mistake was baked in before your
-program started. That one is fixed in the tree and not yet in a release:
-
-```orbit
-print(2147483648)       // -2147483648
-print(4294967296)       // 0
-```
-
-If you need a wider integer, there is none today.
-
-### `+ - *` and `/ %` do not agree about a negative operand
-
-Fixed in `672151c` and in the compiler as built from this tree; **not yet
-in a release**, so the numbers below are what `0.1.0-rc.2` gives. `+`, `-`
-and `*` are correct for negatives. `/` and `%` were not, because integer
-division and remainder were emitted with both operands cast to an unsigned
-64-bit type, so a negative dividend was divided as a large positive number
-and only its low 32 bits survived:
-
-```orbit
-print((0 - 7) / 2)      // -4. It should be -3.
-print((0 - 7) % 2)      //  1. It should be -1.
-print((0 - 7) / 3)      // 1431655763. It should be -2.
-```
-
-And note how carefully that is written: **the parentheses are required.**
-`0-7 / 2` is not this bug. It parses as `0 - (7/2)`, which is correct, and
-prints `-3`. The unparenthesised form is a different program that looks
-identical, so do not rule this out by testing it without them.
-
-**Rule: do not use `/` or `%` on a value that can be negative** until the
-next release. Compute the magnitude, divide, and apply the sign yourself.
-
-### A list element type is what you declare, or what the first push decides
-
-A list carries an element type, and the checker enforces it. Declare it:
-
-```orbit
-val xs: list<int> = []
-xs.push(10)
-xs.push("twenty")       // error[E1006]
-```
-
-With no declaration, the first push decides it, and that is the one case where
-the answer comes from a value rather than from the program saying so:
-
-```orbit
-var l = []
-l.push(10)              // l is list<int> from here
-l.push("twenty")        // error[E1006]
-```
-
-**Rule: say what a list holds when the pushes are not all one type.** The check
-is real, but it can only be as good as the declaration behind it, and a `list`
-parameter declared without its element has nothing to check a read against. See
-[collections](#arrays-elements-and-accessors) for the accessor table.
-
-### An int-to-pointer cast is a guess, made by name and shape
-
-When the backend has to move a value between an `int` and a pointer, it
-picks the cast from the static type alone, and where there is no static
-type it classifies the value by **its name and its shape** rather than by
-anything it can check. That classification is right often enough to be
-dangerous, because when it is wrong the program still compiles.
-
-This is not a warning about a sharp edge you can see. It is the reason
-`["alpha","beta"].at(1)` returns 0, the reason a field read on an
-untyped value can come back with the wrong field, and the reason a
-capitalised type name like `Int` type-checks and then fails in the C step.
-[Known limitations](KNOWN_LIMITATIONS.md#the-silent-group-is-empty)
-has the measured list.
-
-**Rule: annotate the binding when you read it back.** `val xs: list = …`
-and `val n: int = f()` cost one token each, and they are the difference
-between a guess and a check. An unannotated `val` is `unknown` for the
-rest of the pipeline, and **29.6% of the instructions the front end emits
-are `unknown`** (committed census baseline) - so the unannotated case is the common one, not the
-exotic one. Annotating a binding is therefore not a nicety: it is what
-lets the next check fire.
-
-### The short version
-
-| you write | what you can rely on |
-|---|---|
-| `int` arithmetic that fits in 32 bits, all non-negative operands | correct |
-| `int` arithmetic that overflows | wraps, no warning |
-| `int` division or remainder with a negative operand | wrong in `0.1.0-rc.2`; fixed in `672151c`, unreleased |
-| a literal outside the 32-bit range | a different number in `0.1.0-rc.2`; fixed in tree, unreleased |
-| a list's element type | declared, or decided by the first push, and checked |
-| `.get(i)` / `.at(i)` / `xs[i]` / `.pop()` on a list | the element, typed; bounds-checked; `NULL` past the end |
-| a cast between `int` and `string`/`pointer` | whatever the compiler guessed |
-| an unannotated `val` | `unknown` downstream; annotate it |
-
-None of this is a reason not to use Orbit. It is a list of the places to
-put an assertion or an `if` that the compiler will not put there for you.
-
 ## Control flow
 
 Orbit supports `if` / `else`, `while`, and iteration with `for … in`. `break`
-and `continue` are valid within loops. There is no unconditional `loop`; the
-keyword is reserved but a `loop { }` body is a parse error, so use `while true`
-when you mean that.
+and `continue` are valid within loops. There is no `loop` statement: `loop` is
+a reserved keyword, so it cannot be used as a variable or function name, and a
+`loop { }` body is a parse error. Use `while true` for an unconditional loop.
 
 ```orbit
-var mut sum = 0
+var sum = 0
 for item in [1, 2, 3] {
     sum = sum + item
 }
@@ -408,18 +281,86 @@ Two shapes are **not** supported today:
   `E3001` for an `if` in expression position. The C backend path compiles and
   runs these; the TIR lowering does not model a merge value yet.
 
+## What Orbit does not promise about values
+
+The compiler does not check everything. The rules below are the gaps to code
+around. The mechanism underneath is
+[the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag);
+the full list of programs that compile and compute the wrong answer is in
+[known limitations](KNOWN_LIMITATIONS.md).
+
+### An `int` is 32 bits and it wraps silently
+
+`int` is 32 bits. Overflow is not an error, is not diagnosed, and gives you a
+different number:
+
+```orbit
+print(2147483647 + 1)   // -2147483648
+print(46341 * 46341)    // -2147479015
+print(65536 * 65536)    // 0
+```
+
+An integer **literal** outside the 32-bit range is rejected at check time, as
+are a literal `0` divisor and `INT_MIN / -1` (E1004). If you need a wider
+integer, there is none today.
+
+### A list element type is what you declare, or what the first push decides
+
+A list carries an element type, and the checker enforces it. Declare it:
+
+```orbit
+val xs: list<int> = []
+xs.push(10)
+xs.push("twenty")       // error[E1006]
+```
+
+With no declaration, the first push decides it:
+
+```orbit
+var l = []
+l.push(10)              // l is list<int> from here
+l.push("twenty")        // error[E1006]
+```
+
+**Rule: say what a list holds when the pushes are not all one type.** An `int`
+goes into a `list<float>` (converted on the way in); a float into a `list<int>`
+is refused, because that truncates. See [collections](#arrays-elements-and-accessors)
+for the accessor table.
+
+### A read through an unannotated binding is decoded by assertion
+
+An unannotated `val` is `unknown` for the rest of the pipeline, and a read
+through it answers with whatever type the reader asserts rather than with
+whatever the value holds.
+
+**Rule: annotate the binding when you read it back.** `val xs: list = …`
+and `val n: int = f()` cost one token each, and they are the difference
+between a guess and a check. Annotating a binding is what lets the next check
+fire.
+
+### The short version
+
+| you write | what you can rely on |
+|---|---|
+| `int` arithmetic that fits in 32 bits | correct |
+| `int` arithmetic that overflows | wraps, no warning |
+| an integer literal outside the 32-bit range | rejected at check time |
+| a literal `0` divisor, or `INT_MIN / -1` | rejected at check time (E1004) |
+| a list's element type | declared, or decided by the first push, and checked |
+| `.get(i)` / `.at(i)` / `xs[i]` / `.pop()` on a list | see the bounds rule under [Arrays](#arrays-elements-and-accessors) |
+| an unannotated `val` | `unknown` downstream; annotate it |
+
+Put an assertion or an `if` where the compiler puts none.
+
 ## Arrays and objects
 
-Array literals use brackets:
+Array literals (`[...]`) build `list` values. The type name is `list`,
+optionally with an element type (`list<int>`); there is no `array` type.
 
 ```orbit
 val ports = [8080, 8081]
 print("${ports[0]}")
 ```
-
-An ordinary string supports `\n`, `\t`, `\r`, `\"`, `\\`, and the byte escape
-`\xHH` with two hex digits (`"\x41"` is `"A"`, `"\x1b"` starts an ANSI
-sequence). Anything malformed stays literal.
 
 ### Object literals
 
@@ -443,11 +384,10 @@ if inner.deep.deeper == 7 { ... }
 
 What to know:
 
-- **Fields may be string, int, float, bool, a list of those or of objects,
-  or another object.** A map is a compile error, not a guess, and a nested
-  list (a list inside a list) is refused the same way: a ref slot holds one
-  pointer with no tag for object-vs-list. If you need a list in a response body,
-  write it as a field: `{ files: [{ name: "a.txt", size: 29 }] }`.
+- **A field may hold a `string`, `int`, `float`, `bool`, an object, a list of
+  those scalars, or a list of objects.** A `map` field is a compile error, and
+  so is a nested list (a list inside a list). `{ files: [{ name: "a.txt", size:
+  29 }] }` is a list of objects and is allowed.
 - **Key order is the order you wrote**, not a hash order, so a response body is
   byte-for-byte what the source says.
 - **Everything inside is escaped on the way out**, which is the thing a
@@ -473,31 +413,16 @@ return ok 200 """{"name":"api","port":${port}}"""
 ```
 
 A body is a string or an object. A body the compiler can type as an `int`, a
-`float` or a `bool` is refused with a diagnostic, because a C string parameter
-cannot take it. A body it cannot type at all - an index, a call it has no
-signature for, an expression whose operands do not agree - is converted to text
-with the runtime helper that matches the type the compiler settled on, the same
-way a `${...}` hole is. That is a fallback, not a licence: prefer a string, a
-raw string, or an object literal, whose shape you wrote down.
+`float` or a `bool` is refused with a diagnostic. A body it cannot type at all
+- an index, a call it has no signature for, an expression whose operands do not
+agree - is converted to text with the runtime helper for the settled type, the
+same way a `${...}` hole is. That is a fallback, not a licence: prefer a
+string, a raw string, or an object literal, whose shape you wrote down.
 
 ## Arrays: elements and accessors
 
-The runtime calls an array a `list`, and the type name is `list`. This section
-is the whole of collection semantics today: what a slot holds, which accessor
-reads it, and what happens at the edges.
-
-A list holds `void*`. Not "a string, an int, or a model" - one pointer-sized
-slot per element, whatever the element was:
-
-```c
-/* what a list literal compiles to */
-{ OrbitResult _lr = orbit_list_create(arena, sizeof(void*), 3);
-  r_0 = _lr.ok ? (OrbitList*)_lr.value : NULL; }
-```
-
-`OrbitList` is `{ void* data; size_t len, capacity, elem_size; OrbitArena* }`
-(`runtime/types.c:195-201`). What a slot points at is not in that struct; it is
-in the program, as the list's element type.
+This section is the whole of collection semantics today: what a slot holds,
+which accessor reads it, and what happens at the edges.
 
 **Say what the list holds, and the checker holds you to it.** A `list<T>`
 annotation is the declaration:
@@ -509,8 +434,7 @@ xs.push("nope")          // error[E1006]: the value is string, the slot is int
 ```
 
 A literal whose elements all agree is typed statically, and an empty `[]` with
-no annotation takes its element type from the first push, because that is the
-first answer anyone has:
+no annotation takes its element type from the first push:
 
 ```orbit
 var names = []
@@ -521,8 +445,7 @@ names.push(2)            // error[E1006]
 An `int` goes into a `list<float>` (the emitter converts it on the way in); a
 float into a `list<int>` is refused, because that truncates.
 
-**`.get(i)` works, and it is the accessor to use.** It emits
-`orbit_list_get`, which is bounds-checked:
+**`.get(i)` is the accessor to use:**
 
 ```orbit
 val xs = [10, 20, 30]
@@ -532,46 +455,58 @@ val words = ["alpha", "beta", "gamma"]
 print(words.get(2))             // gamma
 ```
 
-Past the end, `orbit_list_get` returns an error and the generated code
-assigns `NULL`, so you get a null pointer rather than an element:
-
-```orbit
-print(words.get(99))            // (null)
-```
+**Bounds rule:** `.get(i)`, `.at(i)`, `xs[i]`, and `.pop()` are bounds-checked.
+A literal index past the end of a literal receiver is a compile error (E1002);
+any other out-of-range read aborts the process instead of answering a value.
+An index past the end of a *string* answers `0`, the byte value of NUL.
 
 `.at(i)`, `xs[i]` and `.pop()` read the same element and answer with the
 element type, so `val s: string = words.get(0)` is checked rather than obeyed.
-A `for` loop declares its variable as the element of the iterable.
-
-An index past the end of a *string* is silently `0`, which is the byte value
-of NUL, so `"hello".at(99)` is indistinguishable from reading a real NUL.
-What is still not typed - a `list` parameter declared without its element, a
-model or union element, an object's own field types - is listed under
-[what Orbit does not promise about values](#a-list-carries-an-element-type-now-and-the-checker-enforces-it).
+A `for` loop declares its variable as the element of the iterable. A `list`
+parameter declared without its element has nothing to check a read against
+(see [what Orbit does not promise about
+values](#what-orbit-does-not-promise-about-values)).
 
 ### Maps
 
-A map literal does not build a map. `{ "a": 1 }` emits
-`orbit_object_create(arena)`, and there is no map type in the emitter's table
-beyond the name. `.get()` on such an object is a keyed field read - it used to
-lower to a list read, which passed the key where an index belongs and
-dereferenced an `OrbitObject` as an `OrbitList`:
+A `{...}` literal builds an object, never a map. `.get("k")` on an object is a
+keyed field read, answered with the type the value was stored as:
 
 ```orbit
-val m = { "a": 1, "b": 2 }
-val v: int = m.get("a")   // 1
-val s: string = m.get("b")  // 2, as a string
+val m = { "a": 1, "b": "hi" }
+val v: int = m.get("a")      // 1
+val s: string = m.get("b")   // "hi"
 ```
 
-The getter is picked from the setter that wrote that key, so the read answers
-with the type the value was stored as. An object literal's field types are not
-recorded anywhere, so a key nobody wrote has nothing to be read as;
-[known limitations](KNOWN_LIMITATIONS.md) records that gap.
+There is no map literal syntax; `map` is a separate type name. A key nobody
+wrote has no stored type to be read as.
 
 ## Result values
 
-Functions can return the built-in `result` value type. Construct successful and
-failed values with `ok(value)` and `err(message, code)` in expressions:
+One grammar covers both `result` values and HTTP responses:
+
+```
+value := ok(expr) | err(expr[, expr])
+stmt  := return ok [status] expr
+       | err [code] expr
+       | return expr
+```
+
+In expression position, `ok(v)` builds a success and `err(msg)` / `err(msg,
+code)` builds a failure (the code defaults to 500). After `return`, `ok`
+starts the response shorthand: `return ok [status] body` (status defaults to
+200), and a bare `err [code] message` statement is the failure shorthand (code
+defaults to 500). Inside a `-> result` function these build `result` values;
+inside a route they build HTTP responses.
+
+Because `ok` after `return` is the shorthand, bind first when returning a
+call-built value: `val r = ok(41)` and then `return r`, not `return ok(41)`
+directly.
+
+`return ok` carries success and `err` carries failure: a 4xx/5xx status through
+`ok` is rejected at check time (use `err` for failures), and `err` with a
+2xx/3xx status is rejected the same way. An `ok` body must be a string or an
+object outside `-> result` functions; an `err` body must be a string.
 
 ```orbit
 fn load_value() -> result {
@@ -585,11 +520,8 @@ fn reject_value() -> result {
 }
 ```
 
-The expression constructors are distinct from the HTTP response forms
-`return ok 200 payload` and `err 400 message` used inside routes. Result values
-can be constructed and returned by the current compiler. A `result` is an
-ordinary value: it can be bound to a `val`, with or without an annotation, and
-passed to a function as an argument.
+A `result` is an ordinary value: it can be bound to a `val`, with or without an
+annotation, and passed to a function as an argument.
 
 ```orbit
 fn unwrap(r: result) -> int {
@@ -633,11 +565,9 @@ fn read_value() -> int {
 
 ## HTTP services
 
-Routes declare an HTTP method and a literal path. A route can return a successful
-response with `return ok`, or terminate with an HTTP error through `err`.
-`return ok` carries success: a 4xx/5xx status through `ok` is rejected at
-check time (use `err` for failures), and `err` with a 2xx/3xx status is
-rejected the same way.
+Routes declare an HTTP method and a literal path. The response shapes are the
+statement forms of the [result grammar](#result-values): `return ok` carries
+success and a bare `err` carries failure, with the same status rules.
 
 ```orbit
 route GET "/health" {
@@ -686,8 +616,7 @@ capacity; when omitted (or zero) it defaults to the rate. The compiler
 rejects a `limit` whose rate is not `> 0`, whose window is not `> 0`, or
 whose burst is negative. Routes without `limit` fall back to the global
 gate only (see `docs/KYNX.md`). The runtime keeps at most 32 annotated
-routes; a 33rd annotation is dropped at startup and counted in the
-`kynx_route_limit_drops` perf counter, while a repeated identical
+routes; a further annotation is dropped at startup, while a repeated identical
 annotation is idempotent.
 
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
@@ -752,161 +681,98 @@ the whole import graph, and `private` does not restrict anything.
 
 ## Standard library: test, strings and hashing
 
-Shipped and tested under `tests/std/` (run with
-`test_suite.py --dir tests/std`):
+Shipped modules are exercised under `tests/std/` (run with
+`test_suite.py --dir tests/std`). Each module's header is the API reference;
+only the scope is listed here:
 
-- `std/test/assert.orb`: `assertTrue`, `assertEqInt`, `assertEqStr`
-  for exit-code tests. No `assertErr`: a result passed as an
-  argument works, and try/catch on a result parameter works
-  inline, but the pair is not yet exercised (result-values).
-- `std/string/string.orb`: `trim`, `startsWith`, `endsWith`, `join`,
-  `split`, `padLeft`, `padRight`, `toUpper`, `toLower` (byte-wise,
-  ASCII-only), `parseIntChecked` (canonical decimal only; returns
-  `result`, consume with inline try). `orbit_string_to_int` is bound by the `.to_int()` method on strings.
-- `std/hash/hash.orb`: `sha256Hex`, `hmacSha256` (runtime bindings).
-  No `fnv1a32`: bitwise operators have no lexer tokens yet. There used
-  to be an `std/sys/crypto/hash.orb` claiming to provide it, and it is
-  gone: its `fnv1aHash` was `1469598103 + data.len()`, so
-  `fnv1aHash("hello") == fnv1aHash("hellp")` was true, and
-  `generateKynxToken` derived a security token from the *length* of the
-  seed. Real FNV-1a of `"hello"` is 1335831723.
+- `std/test/assert.orb`: assertions for exit-code tests.
+- `std/string/string.orb`: byte-wise, ASCII-only string helpers; the checked
+  conversions answer `result`, consumed with inline try.
+- `std/hash/hash.orb`: SHA-256 and HMAC bindings from the runtime.
 
-Bind a fallible std result to a `val` if you need to use it twice, or
-pass it straight to a function that takes a `result`; both are
-supported. What is not supported is `return ok(expr)` directly in a
-function returning `result`: the parser reads `ok` after `return` as
-the route response form (result-values), so assign it first.
-
-`result` is a **builtin type**, not a std module. `ok` and `err` are
-lexer keywords (`compiler/lexer.orb:199-200`) and the type name is one
-of the six the backend knows. A `std/core/result.orb` used to shadow
-it and did not parse; it is gone. If you were told to `import` it, you
-were told about a file that never worked.
+`result` is a **builtin type**, not a std module. `ok` and `err` are keywords
+and need no import. There is no `std/core/result.orb` to import.
 
 ## Standard library: collections, files, IO, time and logging
 
-- `std/collections/lists.orb`: `getOr`, `firstOr`, `lastOr`,
-  `containsStr`, `containsInt`, `indexOfStr`, `indexOfInt`, `reverse`
-  over builtin lists. Maps are out of scope (method lowering targets
-  lists today); higher-order helpers need closures the language lacks.
-  Every helper declares its payload: `fn getOr(l: list<string>, ...)` and
-  `fn containsInt(l: list<int>, ...)`. A caller that can name the element
-  type and passes a different one fails `orbit check` with E1005 naming
-  both; a caller handing a bare `list` still runs, and the runtime aborts
-  with a clear "list element type mismatch" on the first typed read
-  instead of dereferencing the wrong shape (F-0002/F-0009, closed by
-  `list<T>` in signatures).
-- `std/fs/file.orb`: path-based `readAll` (returns `result`, consume
-  with inline try), `writeAll`, `append` (read-modify-write, never
-  atomic), `exists`, `removeFile`, `listDir`. No open handles, no
-  buffered streams.
-- `std/io/io.orb`: `supportsColor` (`NO_COLOR`/`TERM=dumb` honored),
-  `gradient` with a real hex parser (bad input returns the text
-  unchanged), styling in `std/sys/term/color.orb`. No `readLine`
-  (needs an arena-taking binding the compiler will not inject), no
-  `eprint` (no stderr builtin), no `println` (builtin `print`
-  already newlines). It imports the owner of `system_env`
-  (`std/sys/proc/process.orb`) and delegates to
-  `wrapRgbForeground`; its own old `wrapRgb` is gone, because two
-  functions with the same body and reversed argument orders is a trap.
-- `std/time/time.orb`: `uptimeSeconds`, `addSeconds`,
-  `elapsedSince`, `deadlineExceededSeconds`. Seconds only: no wall
-  clock, no sleep, no monotonic milliseconds (Orbit ints are 32-bit).
-  `uptimeSeconds()` and the builtin `system.uptime()` are the same
-  counter read through the same extern - there is one clock, not two,
-  so do not go reconciling them.
-- `std/sys/proc/process.orb`: `pid`, `getEnv`, `getEnvOrDefault`,
-  `execStatus` (verify shell codes per platform by hand),
-  `exitProcess` (named to never shadow libc `exit`).
-- `std/log/log.orb`: `info`, `warn`, `error`, `debug(msg, enabled)`,
-  `withReq`, `toJsonLine`. No globals: context travels explicitly.
-- `std/json/json.orb`: `jsonQuote` — JSON-escape a runtime string for
-  hand-built bodies (`"""{"hello":${jsonQuote(name)}}"""`). Escapes
-  backslash (first), quote, newline, CR and tab; remaining control
-  bytes are out of scope by design. Object literals already escape on
-  serialization; this is for the interpolation case, which does not.
+- `std/collections/lists.orb`: safe accessors and searches over builtin lists.
+  Every helper declares its payload (`list<string>`, `list<int>`, …): a caller
+  that names the element type and passes a different one fails `orbit check`
+  with E1005 naming both; a caller handing a bare `list` still compiles, and a
+  mistyped read fails at runtime with a type mismatch instead of a misread.
+- `std/fs/file.orb`: path-based reads, writes, existence, removal, and
+  directory listing. No open handles, no buffered streams; append is
+  read-modify-write, never atomic.
+- `std/io/io.orb`: color-capability queries (`NO_COLOR`/`TERM=dumb` honored)
+  with styling in `std/sys/term/color.orb`. No `readLine`, no `eprint`, no
+  `println` (builtin `print` already newlines).
+- `std/time/time.orb`: second-resolution clock reads. No wall clock, no sleep,
+  no sub-second units. Its counter is the same one the builtin
+  `system.uptime()` reads: one clock, not two.
+- `std/sys/proc/process.orb`: process identity, environment lookup, command
+  status, and process exit.
+- `std/log/log.orb`: leveled logging with the request context passed
+  explicitly. No globals.
+- `std/json/json.orb`: JSON-escaping helper for hand-built bodies via
+  interpolation. Object literals already escape on serialization; this is for
+  the interpolation case, which does not.
 
 ## Standard library: cryptography and bytes
 
-- `std/sys/crypto/jwt.orb`: `signHs256`, `verifyHs256` (HS256 only,
-  no `alg:none`; time travels explicitly as `nowUnix` because Orbit
-  has no wall clock), `decodePayload` (pure base64url decode),
-  `getExp`, `verifyWithKeys` for rotation. `exp` is required;
-  `nbf`, when present, must not be future; `iat` is carried, not
-  enforced. The SHA-256 and HMAC bindings are **borrowed from
-  `std/hash/hash.orb`**, which owns them; redeclaring them here is a
-  `Duplicate symbol` the moment both are in one import graph.
-- `std/bytes/bytes.orb`: `newBuffer`, `appendByte`, `appendSlice`,
-  `writeFrame`/`readFrame` (decimal length prefix; malformed and
-  empty both read as empty), `readAt` (-1 out of range), `sliceBuf`,
-  `availableRead`, `consume`, `clear`. Bytes are 1-255 (C strings
-  cannot hold NUL), so there is deliberately no fixed-width binary
-  framing. Shared C externs live in `std/string/string.orb`;
-  redeclaring them in another module collides on merge. **`readAt`
-  returns the byte, and `-1` out of range — module-wide rule, not one
-  function's quirk.** There was a second `readAt` in
-  `std/sys/bytes/buffer.orb` that returned `1`/`0` and never returned
-  the byte; that file is gone. If you are adding a module, this is the
-  contract, and a second `readAt` cannot exist anyway.
-- Deferred honestly, and **not present in the tree**: `http_client` and raw
-  sockets (there is no socket API in the language or the runtime — the
-  `std/sys/net/socket.orb` that claimed one is gone), a `sync` pool
-  (needs closures; `std/sys/io/io_threading.orb` is gone), `fnv1a32` (needs
-  bitwise operators).
+- `std/sys/crypto/jwt.orb`: HS256 signing and verification only (no
+  `alg:none`); time travels explicitly as `nowUnix` because Orbit has no wall
+  clock. `exp` is required; `nbf`, when present, must not be future; `iat` is
+  carried, not enforced. Its SHA-256/HMAC bindings are shared with
+  `std/hash/hash.orb`; redeclaring them in an importer collides on merge.
+- `std/bytes/bytes.orb`: byte buffers with decimal length framing. Bytes are
+  1–255 (C strings cannot hold NUL); out-of-range reads answer -1. Shared C
+  externs live in `std/string/string.orb`; redeclaring them in another module
+  collides on merge.
+- Not present: `http_client` and raw sockets (no socket API in the language or
+  the runtime), a thread pool (needs closures), bitwise operators (see
+  quarantine below).
 
 ## `std/quarantine/`: specified, not implemented
 
-Two things Orbit does not have are written down as
-`std/quarantine/*.orb.quarantined` rather than shipped as a working-looking
-module that is not. The convention and the reasoning are in
-`std/quarantine/README.md`; the short version is that `.orb` means "loadable
-source", so a file the parser cannot read must not carry that extension — it
-would break `fmt --check` on every run and could only ever be imported to
-produce a parse error.
+Needed-but-missing pieces are written down as
+`std/quarantine/*.orb.quarantined` rather than shipped as working-looking
+modules. The convention is documented in `std/quarantine/README.md`: `.orb`
+means loadable source, so a file the parser cannot read must not carry that
+extension.
 
 | module | missing |
 |---|---|
 | `option.orb.quarantined` | a generic tagged union. The parser has no type parameter list on `union`, and there is no monomorphisation, so there is no way to build a parameterised `Option<T>` |
 | `bitwise.orb.quarantined` | bitwise operators. `^` and `~` are invalid characters in the lexer; `&` and `\|` lex as tokens but are not binary operators; `<<` and `>>` lex as two tokens each |
 
-Nothing imports these. If you are looking for `Option` or for `^`, this is
-where the design is, and both entries name the exact language feature that
+Nothing imports these. Both entries name the exact language feature that
 would let them land.
 
 ## System telemetry
 
-`system.*` calls read live runtime counters. Every value is measured; what is
-not measured is not exposed (no success/error split).
+`system.*` calls read live runtime counters:
 
-| Call | Returns | Source |
-|---|---|---|
-| `system.uptime()` | `int` seconds since process start | monotonic clock |
-| `system.pid()` | `int` process id | OS |
-| `system.active_workers()` | `int` workers configured at startup (`0` outside servers) | server startup |
-| `system.http_requests_total()` | `int` completed requests | request counter |
-| `system.latency_avg_us()` | `int` mean latency, microseconds (`0` before the first request) | RDTSC cycles on the same 2.5 GHz basis as the request log; approximate on other clocks |
-| `system.latency_p50_us()` | `int` median latency, microseconds | bucket edge of a 100 µs-resolution histogram, `0` before the first request |
-| `system.latency_p95_us()` | `int` 95th percentile latency, microseconds | same histogram; past 100 ms the bucket reports the recorded max |
-| `system.latency_p99_us()` | `int` 99th percentile latency, microseconds | same histogram; past 100 ms the bucket reports the recorded max |
+| Call | Returns |
+|---|---|
+| `system.uptime()` | `int` seconds since process start |
+| `system.pid()` | `int` process id |
+| `system.active_workers()` | `int` workers configured at startup (`0` outside servers) |
+| `system.http_requests_total()` | `int` completed requests |
+| `system.latency_avg_us()` | `int` mean latency, microseconds (`0` before the first request) |
+| `system.latency_p50_us()` | `int` median latency, microseconds (`0` before the first request) |
+| `system.latency_p95_us()` | `int` 95th percentile latency, microseconds (`0` before the first request) |
+| `system.latency_p99_us()` | `int` 99th percentile latency, microseconds (`0` before the first request) |
 
-A percentile is a bucket boundary, not a measurement of one request:
-1 µs-wide buckets over the whole range would cost more state than the
-telemetry is worth, so the histogram trades precision for a fixed
-8 KB and reports where the samples actually land.
+Latencies are approximate: a percentile is a histogram bucket boundary, not a
+measurement of one request.
 
 ## Cost ledger
 
 Every server records per-route handler cost automatically - no annotations.
 `/_ledger` serves a live table (loopback only), `/_ledger/data` the same as
 JSON. Columns: requests, mean ms, p50/p95/p99 µs, DB share, energy, source.
-Milliseconds and the percentiles share the request log's approximate
-clock basis. The per-route percentiles come from a log2-spaced
-histogram (one bucket per power of two of cycles, so a reported p99 is
-that bucket's boundary rather than a measured request); process-wide
-`system.latency_p*_us` uses the finer 100 µs buckets described above. The energy column reads joules per request
-(estimated route share, see `docs/ENERGY.md`) where a power sensor exists,
-and a labeled CPU proxy in cycles where it does not - never converted.
-Paths starting with `/_` are reserved for
+Percentiles are approximate bucket boundaries; the energy column is estimated
+(see `docs/ENERGY.md`). Paths starting with `/_` are reserved for
 runtime endpoints; do not define routes there.
 
 ## Compiler commands
@@ -930,3 +796,11 @@ current.
 `--backend=` flags are not implemented. Calling them treats the word as a
 filename and fails. See [Command Reference](COMMANDS.md) for the supported
 list and exit codes.
+
+## Appendix: where detail lives
+
+This reference states current behavior only; history lives in git. The value
+model is described in [ARCHITECTURE.md](ARCHITECTURE.md), measured gaps in
+[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md), module APIs in the `std/`
+headers (exercised under `tests/std/`), and command details in
+[COMMANDS.md](COMMANDS.md).

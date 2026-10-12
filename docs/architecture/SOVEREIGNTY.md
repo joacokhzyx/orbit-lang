@@ -17,21 +17,113 @@ shipped by anyone else.
 
 The canonical file is **committed** (explicitly un-ignored in `.gitignore`, and
 marked `-text` in `.gitattributes` so no line-ending conversion can touch it).
-Any conforming C compiler turns it into a working Orbit compiler. That is the
-whole trust story: if you can read C, you can audit the compiler.
+The CI-verified compilers are gcc on `ubuntu-latest` and clang on
+`windows-latest` (see `.github/workflows/ci-gate.yml`). The design goal is
+that any conforming C compiler can build the canonical into a working Orbit
+compiler; only gcc and clang are exercised in CI, and other compilers
+(including MSVC `cl`) are not verified. The trust story is: if you can read
+C, you can audit the compiler.
 
 ## The fixed point
 
 The compiler reproduces its own C byte-for-byte:
 
 ```
-canonical C ──(any cc)──▶ seed ──builds──▶ compiler/main.orb ──emits──▶ the same canonical C
+canonical C ──(gcc or clang, per CI)──▶ seed ──builds──▶ compiler/main.orb ──emits──▶ the same canonical C
 ```
 
-There is no second lineage to cross-check against, and that is deliberate. A
-second implementation of the compiler would be a second thing that can be
-wrong; the committed C plus the byte-identity check is the contract. Replacing
+The committed C plus the byte-identity check is the contract. Replacing
 it is the only supported operation, and it is explicit and reviewable.
+
+### Why a single lineage: the Thompson/DDC trade-off
+
+Threat model: following Ken Thompson's Reflections on Trusting Trust, a
+backdoor inserted into the compiler sources, or into the C toolchain that
+compiles them, reproduces itself through every bootstrap stage. Byte identity
+alone cannot detect such a backdoor, because each stage inherits whatever the
+previous stage embedded: a compromised compiler reproduces the compromise
+exactly.
+
+Diverse Double-Compiling (DDC) is the standard countermeasure: rebuild the
+same sources with a second, independently implemented compiler and compare the
+output. Agreement between two independent lineages shows the bytes are a
+property of the sources rather than of one implementation's hidden state.
+Orbit has no second Orbit implementation, and building and maintaining one
+solely as a check would double the trusted surface along with its own
+correctness burden. That is the trade-off: a single lineage keeps the
+auditable surface to one readable C file, at the cost of leaving a
+source-level self-reproducing backdoor outside what byte-identity can catch.
+
+The mitigation in use is toolchain diversity at the C step, enforced by the
+Scenario 3 recovery procedure below: gcc and clang, independent front ends,
+optimizers, and linkers, must converge on byte-identical emitted C. Their
+agreement shows the canonical bytes are determined by `compiler/*.orb`
+rather than by quirks or hidden state of one C compiler. This narrows the
+residual risk to the Orbit sources themselves plus a defect shared by both
+toolchains; it does not defend against a self-reproducing backdoor already
+present in the Orbit sources. That residual risk is accepted and managed by
+keeping the canonical as readable C source, requiring each promote to move
+the canonical, the 32 parity goldens, and the `.orb` sources in one
+reviewable commit, and backing behavior with the parity battery and the
+behavior suite.
+
+## Glossary - canonical bootstrap terms
+
+The terms below are defined once, here. `ARCHITECTURE.md` and `STATUS.md`
+link here instead of redefining them.
+
+- **canonical**: the committed file `compiler/selfhost/stage3.exe.c`, C
+  source emitted by the compiler itself, and the root of trust.
+- **seed**: the first working Orbit compiler, produced by compiling the
+  canonical with the platform C compiler (gcc or clang in CI).
+- **seed2**: the first compiler Orbit itself produced: the seed compiles
+  `compiler/main.orb`, and that emitted C is recompiled into the `seed2`
+  binary.
+- **chain2**, **chain3**: successive rebuilds, each by its predecessor with
+  no host toolchain involved: `seed2` builds `main.orb` and its emitted C
+  becomes `chain2`; `chain2` builds `main.orb` and its emitted C becomes
+  `chain3`. Every stage compiles the same source, `compiler/main.orb`.
+- **promote**: `python scripts/build_selfhost.py --promote`, the only
+  operation that replaces the canonical, after an intentional compiler
+  change. It also updates `PUBLISHED_C` and requires the refreshed parity
+  goldens; canonical, goldens, and `.orb` sources move in one commit.
+- **PUBLISHED_C**: the published hash contract in `scripts/verify_seed.py`,
+  enforced by `--release` against a self-hosted rebuild.
+- **amalgamate**: `scripts/amalgamate.py`, a mechanical step that inlines
+  the include graph from the canonical into one self-contained C
+  file (system includes left alone) so the seed compiles from a single
+  translation unit. It changes packaging, not semantics; see the trust
+  boundary below for where it fits.
+
+## Trust boundary: what is trusted vs verified
+
+```text
+[TRUSTED] canonical C source (committed, reviewable)
+    |  amalgamate: inline project includes -> single translation unit
+    |  (mechanical packaging; system includes untouched)
+    v
+[TRUSTED for one step] platform C compiler translates the amalgamation -> seed
+    |  (the only artifact Orbit did not produce)
+    v
+[VERIFIED] seed compiles compiler/main.orb -> emitted C byte-equals canonical
+    v
+[VERIFIED] emitted C recompiled -> seed2 -> emits canonical (check 2)
+    v
+[VERIFIED] seed2 output recompiled -> chain2 -> emits canonical (check 3)
+    v
+[VERIFIED] chain2 output recompiled -> chain3 -> emits canonical (check 4)
+    |  checks 3-4 exist because a chain can converge at stage one and drift after
+    v
+[INFORMATIONAL ONLY] binary byte-equality of seed2/chain2/chain3
+    (toolchain-specific: timestamps, PDB paths, section order; reported, not asserted)
+```
+
+Trusted: the canonical C source, the one-step translation by the platform C
+compiler, and the Python drivers that sequence the chain. Verified: every
+emitted-C equality (the four `verify_seed.py` checks; the C-source hash is
+the cross-platform contract). Amalgamation sits between the two: a mechanical
+include-inlining with no semantic content, covered downstream by the same
+emitted-C comparisons.
 
 ## Workflows
 
@@ -97,7 +189,8 @@ enables is superlinear in emitted size. The strict warning gate is
   `python scripts/build_selfhost.py --promote` and commit the canonical, the
   32 parity goldens and the sources in the same commit.
 - **Never introduce a hard dependency on a specific toolchain vendor.** The
-  build must keep working with whatever C compiler the contributor has.
+  build must keep working with the CI matrix compilers (gcc on Ubuntu,
+  clang on Windows).
 - **The reproducibility contract is the C source hash**, cross-platform.
   Binary hashes stay informational.
 - **Never regenerate the canonical as a side effect of an unrelated change.**
@@ -147,9 +240,10 @@ Invariants that must hold afterwards:
 
 ## Appendix: stages in detail
 
-This used to be `BOOTSTRAP_STAGES.md`, folded here so the chain is described
-once. A stage is a working Orbit compiler built by the previous stage, and
-both compile the same source (`compiler/main.orb`):
+Terms are defined in the Glossary above; this section records only the
+mechanical per-stage notes. A stage is a working Orbit compiler built by the
+previous stage, and every stage compiles the same source
+(`compiler/main.orb`):
 
 ```
 seed    (canonical C, compiled by cc)

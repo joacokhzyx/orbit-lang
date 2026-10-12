@@ -15,13 +15,11 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | How are releases packaged and verified? | [Release Artifacts](RELEASES.md) |
 | What is implemented today? | [Project Status](STATUS.md) |
 | What is planned next? | [Project Roadmap](ROADMAP.md) |
-| What are the engineering invariants and quality gates? | [Engineering Contract](../ENGINEERING.md) |
-| How does the compiler bootstrap itself? | [Self-Hosting](architecture/SELF_HOSTING.md) |
-| What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
 | How does the compiler pipeline work? | [Architecture Overview](ARCHITECTURE.md) |
 | How do I write Orbit programs? | [Language Reference](LANGUAGE_REFERENCE.md) and [Syntax Guide](SYNTAX_GUIDE.md) |
 | Where will the language lie to me? | [What Orbit does not promise about values](LANGUAGE_REFERENCE.md#what-orbit-does-not-promise-about-values) - 32-bit wrapping, `/` and `%` on a negative operand, untyped list slots, and guessed int/pointer casts |
 | How do I write a library others can import? | [Writing a library](LIBRARIES.md) - the flat namespace, the `private` truth, and the `std/` install trap |
+| What does the standard library provide, and what do error codes mean? | [Standard library](../std/README.md): [test/strings/hashing](LANGUAGE_REFERENCE.md#standard-library-test-strings-and-hashing), [collections/files/IO/time/logging](LANGUAGE_REFERENCE.md#standard-library-collections-files-io-time-and-logging), [crypto/bytes](LANGUAGE_REFERENCE.md#standard-library-cryptography-and-bytes); compiler codes in [Command Reference](COMMANDS.md#errors-and-exit-codes), project checks in the [doctor catalog](DOCTOR.md) |
 | What can I build in 30 minutes? | [Language Tour](TOUR.md) - runnable snippets with expected outputs |
 | How does memory management work? | [Arena Design](ARENA.md) |
 | How are HTTP protections implemented? | [Kynx](KYNX.md) |
@@ -30,6 +28,9 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the honest list, with workarounds. **Start with the first section**: one program `orbit check` still accepts that it should refuse |
 | What changed? | [Changelog](CHANGELOG.md) |
 | What do people ask? | [FAQ](FAQ.md) - twenty honest questions |
+| What are the engineering invariants and quality gates? | [Engineering Contract](../ENGINEERING.md) |
+| How does the compiler bootstrap itself? | [Self-Hosting](architecture/SELF_HOSTING.md) |
+| What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
 
 ## Tutorials and Guides
 

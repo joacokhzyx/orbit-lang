@@ -11,7 +11,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit build <file>` | Compile an Orbit source file to an executable | `orbit build main.orb -o main` |
 | `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
 | `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
-| `orbit dev [file]` | Watch sources, rebuild and restart on change (drain on POSIX, kill on Windows) | `orbit dev svc.orb` |
+| `orbit dev [file]` | Watch sources, rebuild and restart on change (drain on POSIX, [kill on Windows](KNOWN_LIMITATIONS.md#windows-drain-is-kill)) | `orbit dev svc.orb` |
 | `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
@@ -75,12 +75,17 @@ the database and `.orbit/logs/` for dev output) and runs it, so the
 binary never lands next to your source. With no file argument it uses
 `main.orb`. `--port N` overrides the service port (default 3000).
 
+`Declares routes` means the entry file holds at least one top-level `route METHOD "path"` block, so the build generates a `main` that serves HTTP (service mode) instead of running the `main` you wrote (program mode); see [HTTP routes](SYNTAX_GUIDE.md#http-routes).
+
 `orbit dev` does the same in a watch loop: content-hash poll every
 second over the entry file plus its transitive imports, rebuild on
 change, graceful stop first (SIGTERM drain on POSIX; kill on Windows,
-per Known Limitations) escalating to kill after ~3 s. A failed rebuild
+per [Known Limitations](KNOWN_LIMITATIONS.md#windows-drain-is-kill))
+escalating to kill after ~3 s. A failed rebuild
 keeps watching without a child; the child pid lives in
 `.orbit/dev.pid` so the next `dev` reaps a stale child from Ctrl-C.
+
+Stop a server with Ctrl-C; when the terminal dies first, the next `orbit dev` reaps the stale child through `.orbit/dev.pid`. A busy port fails quietly on Windows, so confirm the listener (`netstat -ano | findstr <port>`; POSIX: `ss -ltnp | grep <port>`) and pick a free one - see [the port is taken](tutorials/troubleshooting.md#the-port-is-taken---or-is-it). Service output lands under `.orbit/logs/` - tail it (`tail -f .orbit/logs/` on POSIX; `Get-Content -Wait .orbit/logs/` on Windows).
 
 `orbit dev` (watch/reload) is implemented: see above. Calling an
 unknown command treats it as a filename and fails - that error message

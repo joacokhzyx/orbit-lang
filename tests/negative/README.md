@@ -176,6 +176,14 @@ A diagnostic nobody reads is a diagnostic nobody pinned.
 `nNN_snake_case.orb`, matching `tests/parity/probes`. The number is stable so a
 case can be cited; the name after the underscore is what the gate prints.
 
+## Where the codes are documented
+
+Every `E`-code the compiler emits and every `F`-finding the corpus was built
+from is catalogued in [docs/ERROR_CODES.md](../../docs/ERROR_CODES.md): what
+each code means, where it fires, how to fix it, and which case pins it. When
+a ratchet fires and the header needs re-declaring, that catalog is where the
+new code (or the absence of one) gets looked up — never guessed.
+
 ## Adding a case
 
 Write the smallest program that exhibits the defect. If `orbit check` accepts

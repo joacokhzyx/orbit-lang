@@ -14,8 +14,17 @@ then save each snippet as its `.orb` file and run:
 echo $?   # the exit code is the answer
 ```
 
-(Windows: `.\orbit.exe build tour1.orb -o tour1.exe`, then
-`.\tour1.exe`. Exit codes print with `$LASTEXITCODE`.)
+Windows (PowerShell):
+
+```powershell
+.\orbit.exe build tour1.orb -o tour1.exe
+.\tour1.exe
+echo $LASTEXITCODE   # the exit code is the answer
+```
+
+The pattern is the same for every snippet below: POSIX commands
+first, PowerShell equivalents alongside. Exit codes print with `$?`
+on POSIX and `$LASTEXITCODE` on Windows.
 
 ## 1. Functions (3 min)
 
@@ -129,13 +138,25 @@ first argument:
 curl http://127.0.0.1:8080/health
 ```
 
+Windows (PowerShell):
+
+```powershell
+.\orbit.exe build health.orb -o health.exe
+.\health.exe 8080
+curl.exe http://127.0.0.1:8080/health
+```
+
+On Windows use `curl.exe` (bare `curl` is an alias for
+`Invoke-WebRequest`); the `curl` examples in steps 7-9 work the same
+way on either platform.
+
 Expected (from a real run of `examples/health_service.orb`):
 
 ```text
 {"status":"UP","version":"0.1.0-rc.2","uptime_seconds":0}
 ```
 
-Stop it with Ctrl-C. On Windows, keep `sqlite3.dll` out of the
+Stop it with Ctrl-C on either platform. On Windows, keep `sqlite3.dll` out of the
 picture here - this service uses no database, so it needs none.
 
 ## 7. Query values and branching (4 min)

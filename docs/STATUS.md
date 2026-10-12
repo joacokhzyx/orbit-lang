@@ -5,9 +5,11 @@
 
 This document is a dated project snapshot. It is intended to answer "what is true now?" without replacing the detailed engineering contract, language reference, or architecture records. Update it when a milestone changes the supported workflow or the status of a major workstream.
 
+Bootstrap terms (canonical, seed, seed2, chain2, chain3, promote, PUBLISHED_C, amalgamate) are defined once in the [Sovereignty glossary](architecture/SOVEREIGNTY.md#glossary---canonical-bootstrap-terms).
+
 ## Executive Summary
 
-Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with any C compiler.
+Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with the CI-verified compilers (gcc on Ubuntu, clang on Windows); other C compilers are not exercised in CI.
 
 The project is past the bootstrap proof-of-concept stage. Its mission is to help software do more work with fewer CPU cycles, less memory, and lower energy use. The next challenge is to make that goal measurable while tightening compiler parity, reducing unsafe type degradation in generated C, defining the public language contract, and making the runtime observable and operationally predictable.
 
@@ -30,8 +32,8 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Editor integration | VS Code extension: highlighting, and `orbit check` diagnostics on save. No language server - `orbit` has no `lsp` subcommand. | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `native-backend` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
-| `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `compiler/parser.orb:1023`, `compiler/route_runtime.orb:544` |
-| Standard library | **14 modules, 14 of 14 compile and merge into one program.** Was 20, with 13 compiling. Six were deleted because each was a function that returned a value and was not computing it; two are quarantined as `*.orb.quarantined`, because the language cannot express them and the alternative was to ship something that looked like the feature. Two modules (`std/convert/`, `std/json/`) are new. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
+| `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `parseConfigDecl` in `compiler/parser.orb`, generated `main` in `compiler/route_runtime.orb`; see [Architecture](ARCHITECTURE.md#config-declarations-parsed-typechecked-then-discarded) |
+| Standard library | **14 modules, 14 of 14 compile and merge into one program**, verified by a single import-all test. `option` and `bitwise` remain quarantined as `*.orb.quarantined` because the language cannot express them. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
 | `std/` test coverage | **18 files, 18/18 pass**, one of them declared `known-failing` so a fix arrives as a red run | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
 | Sockets / threads / bitwise / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
 
@@ -53,28 +55,24 @@ python scripts/unknown_census.py --cc <gcc-or-clang> --compiler <path-to-orbit> 
 python scripts/unknown_ratchet.py --cc <gcc-or-clang> --compiler <path-to-orbit>  # one-way ratchet
 ```
 
-The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite, plus the four gates added in September 2026.
+The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite, plus the four gates added in September 2026. For the trust boundary (what is trusted vs verified, where amalgamation fits) see [Sovereignty](architecture/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified); for the per-request path see [Architecture](ARCHITECTURE.md#request-path).
 
-**Read the `enforces` column before assuming a tool is holding anything.** A
-gate that only counts looks exactly like a gate that blocks, right up until you
-notice that it does not. That is not hypothetical here: the unknown census used
-to be the only tool, it was report-only, and when the probe behind it stopped
-building the only symptom was a line on stderr — while a person quoted the
-number twice, authoritatively, without checking that the thing producing it
-still worked. A tool in `scripts/` must therefore either have a gate or have an
-aliveness check, because a tool that cannot fail is not a tool.
+The `enforces` column distinguishes blocking gates from measurements:
+`unknown_census.py` is report-only (`continue-on-error: true`, output to the
+job summary) and `unknown_ratchet.py` is the blocking one-way ratchet over
+two of its counts. A tool in `scripts/` either enforces a contract or has an
+aliveness-check row, so a silently broken measurement cannot present as a
+passing gate.
 
 | gate | enforces | what it is | today |
 |---|---|---|---|
 | `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, with **1 known defect the compiler still accepts** (F-0009, a `list` parameter with no element type) - the gate fails if it starts being rejected. It is written up with its wrong value in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
-| `scripts/frontend_gate.py` | **blocking** | `orbit frontend` against `tests/frontend/expected/`. `orbit frontend` previously had **no** CI coverage at all | **6/6.** Two fixtures could not build for most of this cycle (`compiler/lexer.orb` called `orbit_os_write_stderr_selfhost` without importing `compiler/extern.orb`); both missing imports are fixed and both fixtures now run |
+| `scripts/frontend_gate.py` | **blocking** | `orbit frontend` against `tests/frontend/expected/` | **6/6** |
 | `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.6%** of 57,011 instructions, **45.5%** of those with no diagnostic at all (committed baseline) |
 | `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high - 29.6% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | baseline `unknown_per_mille` 296, `silent_per_mille` 135 |
 
-`ci-gate.yml` is the authority on which of these runs on every push; the two
-`unknown_*` tools are the pair to look up there, because "the census is a gate"
-and "the census is a measurement" were both true at different times and only one
-of them is true now.
+`ci-gate.yml` is the authority on which of these runs on every push; see the
+`enforces` column and the workflow file for the current mapping.
 
 The census number is the honest measure of how far the type system has to
 go, and it is what the compiler's one accepted defect is made

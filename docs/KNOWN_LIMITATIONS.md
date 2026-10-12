@@ -99,7 +99,7 @@ time, which is the only place a coin flip is not allowed to land.
 Where the shared derivations live, and why that file exists: `literal.orb` is a
 leaf module importing nothing, so `builder.orb`, `sema.orb` and `parser.orb` can
 all depend on it and the import graph stays a DAG. It was created for exactly
-this reason (F-0004: a helper in the wrong side of the graph was an unresolved
+this reason ([F-0004](ERROR_CODES.md#f-code-index): a helper in the wrong side of the graph was an unresolved
 call, which is not an error - `orbit check` stayed clean and the C compiler
 rejected the output with a name it had never been given).
 
@@ -111,22 +111,22 @@ What replaced the list, in the order the work was done:
 | what used to happen | what happens now |
 |---|---|
 | `.at()` on a list read a byte of the list pointer and answered 0 | `.at()` and `.get()` both do the right thing, on ints and on strings |
-| a call argument's type was never compared with the parameter's | `E1005`, naming the parameter and both types |
+| a call argument's type was never compared with the parameter's | [`E1005`](ERROR_CODES.md#e1005--call-argument-type-mismatch), naming the parameter and both types |
 | an undeclared identifier printed a stack address | *Undeclared identifier: nothing in scope declares it* |
 | a call with the wrong arity dropped the extra arguments | *Wrong number of arguments to f: it takes 1, got 3* |
-| a model constructor accepted the wrong argument types | `E1003`, naming the field and both types |
+| a model constructor accepted the wrong argument types | [`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity), naming the field and both types |
 | `1e2` was the integer `1`, `0b101` was the integer `0` | both are literal values; an exponent is always a float |
 | `(0-7)/2` was `-4` and `(0-7)/3` was `1431655763` | `-3` and `-2`, C semantics, pinned by `div_mod_signed.orb` |
 | `2147483648` silently became `-2147483648` | *integer literal does not fit an orbit_int* |
-| `s.at(99)` answered 0, which is the NUL byte | `E1002`, naming the index and the length |
-| `val v: widget = 3` was ignored | `E1006`, and a capitalised unknown type is refused too |
-| `val n: Int = 1` reached gcc as `Int*` | `E1006`, with the note that types are lower case or declared |
-| `m.nonexistent`, `s.radius`, `n.nothing` died in the C step | `E1003`, and the receiver's own members are the only ones |
+| `s.at(99)` answered 0, which is the NUL byte | [`E1002`](ERROR_CODES.md#e1002--literal-index-out-of-range), naming the index and the length |
+| `val v: widget = 3` was ignored | [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch), and a capitalised unknown type is refused too |
+| `val n: Int = 1` reached gcc as `Int*` | [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch), with the note that types are lower case or declared |
+| `m.nonexistent`, `s.radius`, `n.nothing` died in the C step | [`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity), and the receiver's own members are the only ones |
 
 Two of those deserve a note about *how*, because both were the same mistake
 wearing different clothes.
 
-**A check that only knows one table is a check that guesses.** `E1006` refuses
+**A check that only knows one table is a check that guesses.** [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) refuses
 a capitalised type name that nothing declares, which is what makes `val n: Int
 = 1` a diagnostic. Its first version asked the checker's two type registries,
 and those registries do not hold models -- `checkModelDecl` fills
@@ -142,7 +142,7 @@ error naming a C symbol or a C struct member instead of the Orbit source --
 is empty. Those messages reached the user as `orbit build: couldn't finish
 the C step - this one is on me, not your code`, which is a sentence about the
 compiler's feelings, not about the program. Every one of them is now an
-`E1003` with a line and a column in the user's own file.
+[`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity) with a line and a column in the user's own file.
 
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
@@ -307,12 +307,12 @@ that only ever exists as `Box_int`.
 | you write | what happens |
 |---|---|
 | `Box { v: 1 }` | `Box_int`. The supported spelling. |
-| `Box(1)` | E1003. The positional form has an argument and no way to call it an int. (n47) |
+| `Box(1)` | [E1003](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity). The positional form has an argument and no way to call it an int. (n47) |
 | `fn take(b: Box<int>)`, `-> Box<string>` | Supported. The written argument names (and creates) the instance. |
-| `fn take(b: Box)` | E1006. Nothing to infer from before the value exists; write the argument. (n51) |
+| `fn take(b: Box)` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch). Nothing to infer from before the value exists; write the argument. (n51) |
 | `model Box[T: int]` | Parser error. A constraint is a promise about an argument this language infers, so there is nothing to hold it to. (n53) |
-| `model Phantom[T] { id: int }` | E1006: no field's declared type mentions `T`, so there is no value to take the argument from. `void*` would compile, and would be a lie about the model. (n52) |
-| `Same { a: 1, b: "s" }` where `model Same[T] { a: T, b: T }` | E1006. `a` fixes `T` at `int` and `b` is then checked against it. (n50) |
+| `model Phantom[T] { id: int }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch): no field's declared type mentions `T`, so there is no value to take the argument from. `void*` would compile, and would be a lie about the model. (n52) |
+| `Same { a: 1, b: "s" }` where `model Same[T] { a: T, b: T }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch). `a` fixes `T` at `int` and `b` is then checked against it. (n50) |
 | `model Box[T] { v: list<list<T>> }` | `T` is not determined. Only a field declared `T`, or a `list<T>` whose value is a list literal, fixes an argument. |
 | `union Option[T] { ... }` | Still a parse error: `union` has no type parameter list at all, and substitution is wired for model fields only. This is what keeps `std/quarantine/option.orb.quarantined` quarantined. |
 
@@ -386,7 +386,7 @@ names the absences.
 This entry used to be a description of a hole: eight programs that segfaulted
 or silently misbehaved. The hole is closed for the receivers the checker can
 name. Annotations, literals, pushes and reads are all compared while compiling
-(`E1005` at calls, `E1006` at pushes, reads and bindings); an empty `[]` plus
+([`E1005`](ERROR_CODES.md#e1005--call-argument-type-mismatch) at calls, [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) at pushes, reads and bindings); an empty `[]` plus
 pushes is typed by first-push-wins; `int` widens into `list<float>` but the
 reverse is refused. The before/after table was the fix's own evidence and now
 lives in git history with it. What is left is a different and smaller hole:
@@ -395,7 +395,7 @@ lives in git history with it. What is left is a different and smaller hole:
 
 - **A `list` parameter declared without its element.** `fn read(xs: list, i: int)`
   has nothing to check a read against, and `tests/negative/n39_list_parameter_has_no_element_type.orb`
-  is still a known defect (F-0009). A model field is no longer in this bullet:
+  is still a known defect ([F-0009](ERROR_CODES.md#f-code-index)). A model field is no longer in this bullet:
   `model Bag { xs: list<string> }` parses, because `parseModelDecl` reads a field
   type through `parseTypeName`, and a read through it is typed by the field's
   declaration.
@@ -437,7 +437,7 @@ when this section and that file disagree:
 | instructions the front end types `unknown` | 16,888 | **29.6%** |
 | ...with no diagnostic at all | 7,689 | **45.5% of the unknown** |
 
-The silent half is the honest number. E2001/E2002/E2003 account for
+The silent half is the honest number. [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)/[E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)/[E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend) account for
 the rest to the unit — their counts equal the unknown `load` /
 binary / unary counts exactly — so 9,199 is measured, not
 estimated. Those are `call` and `member` expressions: the two
@@ -447,7 +447,7 @@ same measurement as the root-cause table that used to live in
 [nineteen programs the compiler should reject](#the-silent-group-is-empty),
 and it is what the nineteen entries there were made of.
 
-Separately, E3001 "expression cannot be lowered to TIR" fired 4,190
+Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR" fired 4,190
 times on the earlier corpus. That is a whole class of expression the
 front end gives up on, and it is not in the unknown total because there
 is no instruction to type. Worst file by share then:

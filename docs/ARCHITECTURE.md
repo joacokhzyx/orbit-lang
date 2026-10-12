@@ -103,6 +103,17 @@ flowchart TD
 Both optimization passes honour the same kill switch: `ORBIT_NO_CTE=1` skips
 them and emits pre-pass IR, and their counters are reported rather than dropped.
 
+### Config declarations: parsed, typechecked, then discarded
+
+Top-level `port`, `cors`, `db`, and `env` declarations parse as `ConfigDecl`
+nodes (`compiler/parser.orb`, `parseConfigDecl`) and typecheck. The C backend
+does not read them into the generated server (`compiler/route_runtime.orb`):
+the emitted `main` hardcodes `port = 3000` with an `argv[1]` override, always
+initializes the database at `.orbit/data/app.db` when models are present, and
+emits no CORS or environment handling from the declarations. The declarations
+are reserved syntax with no runtime effect; the user-visible consequence is
+recorded in the [project snapshot](STATUS.md).
+
 ### Why the intermediate C has a constant name
 
 `compiler/pipeline.orb` writes the generated C to `orbit_selfhost_build.c` under
@@ -195,8 +206,8 @@ The compiler is its own first customer. `compiler/selfhost/stage3.exe.c` is the
 committed output of the compiler compiling itself, and it is the root of trust.
 
 ```text
-compiler/selfhost/stage3.exe.c   (committed canonical, 4,124,475 bytes)
-        │  any C compiler: cc, clang, gcc, cl
+compiler/selfhost/stage3.exe.c   (committed canonical C)
+        │  gcc (ubuntu-latest) / clang (windows-latest) [CI-verified]
         ▼
    seed compiler  ──builds──▶  compiler/main.orb
         │                        │
@@ -212,10 +223,13 @@ emitted by chain2 equals the canonical; the C emitted by chain3 equals the
 canonical. The last two exist because a chain can fix a point at stage one and
 drift afterwards.
 
-There is exactly one lineage. `scripts/build_selfhost.py --promote` is the only
-operation that replaces the canonical, and it is deliberate and reviewable. See
-[architecture/SOVEREIGNTY.md](architecture/SOVEREIGNTY.md) for the full trust
-model including what each stage is.
+Terms in this section (canonical, seed, seed2, chain2, chain3, promote,
+`PUBLISHED_C`, amalgamate) are defined once in the
+[Sovereignty glossary](architecture/SOVEREIGNTY.md#glossary---canonical-bootstrap-terms)
+and not redefined here. Promotion is the only operation that replaces the
+canonical; it is explicit and reviewable. For what is trusted vs verified
+and where amalgamation fits, see the
+[trust-boundary diagram](architecture/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified).
 
 ---
 
@@ -235,14 +249,13 @@ starts from a reset arena. `orbit_arena_reset` is not O(1) and not a rewind: it
 releases the chained overflow segments and decommits every page past the hot
 retention watermark (`runtime/arena.c:526`).
 
-`orbit_arena_checkpoint` and `orbit_arena_rewind` do exist
-(`runtime/arena.c:582,592`) and a rewind *is* an O(1) bump-pointer restore, but
-nothing in the tree calls them outside `runtime/arena.c` and
-`runtime/test_arena.c`. I checked: their only other references are the counter
-fields in `runtime/performance.h`, so
-`arena_checkpoint_count` and `arena_rewind_count` are always zero in a real
-server. Treat the checkpoint API as available to hand-written C, not as the
-mechanism the HTTP path is using.
+`orbit_arena_checkpoint` and `orbit_arena_rewind` exist
+(`runtime/arena.c:582,592`) and a rewind is an O(1) bump-pointer restore, but
+nothing in the generated server path calls them: outside `runtime/arena.c`
+and `runtime/test_arena.c`, the only references are the counter fields in
+`runtime/performance.h`, so `arena_checkpoint_count` and
+`arena_rewind_count` remain zero in a running server. The checkpoint API is
+available to hand-written C; the HTTP path uses whole-arena reset.
 
 `runtime/arena_pool.c` keeps a pool of arenas so a worker borrows one per request
 instead of creating it.
@@ -313,10 +326,9 @@ missing final newline, and files that do not compile). See
 
 ### There Is No Build Cache and No Config Loader
 
-Two subsystems that earlier revisions of this document described no longer exist.
 There is no compiled-binary cache keyed on a source hash: every build runs the
 pipeline. There is no project config file: the output name,
-port, and the arena/Kynx/logging knobs are not currently read from any config
+port, and the arena/Kynx/logging knobs are not read from any config
 file. `scripts/orbit_ccache.py` caches C compilations for the **bootstrap gates
 only**; it does not cache user builds, and it is not part of the compiler.
 
@@ -340,6 +352,29 @@ Worker count is resolved in the generated `main`: `ORBIT_WORKERS` if positive,
 otherwise the platform CPU count, clamped to 1..64, and printed in the startup
 banner. The acceptor hands sockets to workers through a lock-free queue, so
 contention is on the queue and not on a shared stdout lock.
+
+---
+
+## Request Path
+
+```text
+accept (acceptor thread, server socket)
+  -> lock-free accept queue, one per worker (orbit_accept_q)
+  -> worker borrows an arena from the pool (orbit_arena_pool_acquire)
+  -> whole-arena reset (orbit_arena_reset before each orbit_handle_request)
+  -> Kynx admission check + per-route lease
+     (orbit_kynx_check_route, orbit_kynx_lease_create_for_route;
+      over-budget -> HTTP 429; SIEGE admits only /health, /auth, /)
+  -> router dispatches to the generated handler (orbit_handle_request)
+  -> handler runs (SQLite via runtime/database.c when models are present;
+     auth via runtime/auth.c)
+  -> response written; arena returned to the pool (orbit_arena_pool_release)
+```
+
+The connection loop that brackets each request with `orbit_arena_reset`
+followed by `orbit_handle_request` is emitted by
+`compiler/route_runtime.orb`; the pool lives in `runtime/arena_pool.c`, leases
+and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 
 ---
 
@@ -409,23 +444,14 @@ contention is on the queue and not on a shared stdout lock.
 |---|---|
 | `std/` | Orbit standard library. 14 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `json/json.orb` |
 | `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` (no generic unions) and `bitwise` (no bitwise operators) |
-| `lib/` | One module: `arena.orb`, a counted region and a bound, not an allocator. It used to also hold `net.orb` and `sys/{linux,windows}.orb`, a design sketch for a socket wrapper that did not build; they were removed rather than quarantined, because unlike `option` and `bitwise` nobody had specified them and there is no socket API in the language or the runtime to specify them against |
+| `lib/` | One module: `arena.orb`, a counted region and a bound, not an allocator. There is no socket API in the language or the runtime |
 
-`std/` used to be 20 modules, 13 of which compiled. Six were removed rather
-than repaired, because each was a function that returned a value and was not
-computing it - `fnv1aHash` was `1469598103 + data.len()`, so
-`fnv1aHash("hello") == fnv1aHash("hellp")` was true. Two more were quarantined
-above. `convert/convert.orb` has since been added as the single owner of the
-number-to-text bindings, and `json/json.orb` as the quoting helper for
-hand-built bodies. What is left is **14 of 14**, pinned by
-`tests/std/test_imports.orb`, which imports all fourteen into one program and
-passes. That test exists because five
-`extern fn` conflicts made modules mutually exclusive: four C symbols were
-declared by two modules each, and the transitive one hurt most -
-`std/bytes/bytes.orb` and `std/sys/crypto/jwt.orb` both import
-`std/string/string.orb`, so a program that used byte framing *and* JWT could
-not exist. The rule is now one definition per program: the dependent module
-imports the owner.
+`std/` holds **14 modules, 14 of 14** compiling and merging into one program,
+pinned by `tests/std/test_imports.orb`, which imports all fourteen into one
+program. `convert/convert.orb` owns the number-to-text bindings and
+`json/json.orb` provides the quoting helper for hand-built bodies. The
+invariant is one definition per program: when two modules need the same C
+symbol, the dependent module imports the owning module.
 
 ### Gates and tooling (`scripts/`, Python 3, standard library only)
 
