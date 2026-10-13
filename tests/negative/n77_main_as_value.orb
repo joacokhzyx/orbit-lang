@@ -1,0 +1,9 @@
+// case: main-as-value
+// what: `main` compiles to orbit_main and its C address is the process
+//      entry, so a value bound to it would call back into startup. Binding
+//      it is refused; moving the body into a named function is the recourse.
+// expect-error: Cannot use 'main' as a value
+fn main() -> int {
+    val f = main
+    return 0
+}

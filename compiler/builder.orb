@@ -1219,6 +1219,20 @@ fn buildObjectLiteralAsModel(builder: IRBuilder, node: ASTNode, modelName: strin
 fn buildCallArgValue(builder: IRBuilder, node: ASTNode) -> IRValue {
     match node {
         ASTNode.Literal(l) => {
+            // A bare function name as a value is the function's address, not
+            // a variable to load: no scope declares it, so buildExpr would
+            // emit a load of a name nothing defines and the C would read a
+            // live stack slot where the function is. A live variable shadows
+            // the function of the same name -- pipeline.orb keeps a `check`
+            // string beside the `check` parser helper -- so only a name no
+            // scope declares takes this path.
+            if l.valType == "identifier" {
+                if scopeHasName(builder, l.text) == false {
+                    if fnTypeSpellingFor(builder, l.text) != "" {
+                        return ir_symbol(l.text)
+                    }
+                }
+            }
             if l.valType == "string" || l.valType == "string_raw" {
                 return ir_string(literalStringValue(l))
             }
@@ -1372,7 +1386,15 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
                 // one with the element type is what made `outer.push(inner)`
                 // push a list as an int and then read the list pointer back
                 // through orbit_list_read_int.
-                return lookupVariable(builder, lit.text)
+                val vt = lookupVariable(builder, lit.text)
+                if vt != "unknown" { return vt }
+                // A bare function name in value position is the function as a
+                // value, typed by its registered signature. Without this
+                // `val f = foo` bound f to unknown and the call through it
+                // had no type to check or emit against.
+                val ft = fnTypeSpellingFor(builder, lit.text)
+                if ft != "" { return ft }
+                return vt
             }
             if lit.valType == "string" { return "string" }
             if lit.valType == "int" { return "int" }
@@ -1687,7 +1709,11 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(lit) => {
             if lit.valType == "identifier" {
-                return lookupVariable(builder, lit.text)
+                val vt = lookupVariable(builder, lit.text)
+                if vt != "unknown" { return vt }
+                val ft = fnTypeSpellingFor(builder, lit.text)
+                if ft != "" { return ft }
+                return vt
             }
             return "unknown"
         }
@@ -1730,6 +1756,18 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
             if calleeIsMember {
                 val mt = memberCallReturnType(builder, calleeObject, calleeName)
                 if mt != "unknown" { return mt }
+            }
+            // A call through a variable holding a function value answers the
+            // signature's return type. The function table below only knows
+            // declared functions, so without this the call typed unknown and
+            // the value it produced was hoisted as an integer. A declared
+            // function wins over a shadowing value, the way sema resolves
+            // the callee: the value needs its own name to be called.
+            if calleeIsMember == false && calleeName != "" {
+                if findFunction(builder.module, calleeName) < 0 {
+                    val vt = lookupVariable(builder, calleeName)
+                    if builderIsFnType(vt) { return builderFnTypeReturn(vt) }
+                }
             }
             return lookupFunctionReturnType(builder, calleeName)
         }
@@ -2086,6 +2124,62 @@ fn findFunction(module: IRModule, name: string) -> int {
         i = i + 1
     }
     return -1
+}
+
+// First-class function values spell `fn(p1;p2)->ret`, the same spelling
+// sema.orb infers for a bare function name (duplicated here because
+// cross-file names are closed). All signatures are registered before any
+// body builds, so the table answers in any declaration order; a generic
+// template registers no signature and answers "".
+fn builderIsFnType(t: string) -> bool {
+    if t.len() < 5 { return false }
+    return t.slice(0, 3) == "fn("
+}
+
+fn builderFnTypeParams(t: string) -> list {
+    val out = []
+    if builderIsFnType(t) == false { return out }
+    val arrow = t.indexOf(")->")
+    if arrow < 0 { return out }
+    val inner = t.slice(3, arrow)
+    if inner == "" { return out }
+    var start = 0
+    var i = 0
+    while i <= inner.len() {
+        var end = false
+        if i == inner.len() { end = true }
+        var isSep = false
+        if end == false {
+            if inner.at(i) == 59 { isSep = true }
+        }
+        if end || isSep {
+            out.push(inner.slice(start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn builderFnTypeReturn(t: string) -> string {
+    val arrow = t.indexOf(")->")
+    if arrow < 0 { return "unknown" }
+    return t.slice(arrow + 3, t.len())
+}
+
+fn fnTypeSpellingFor(builder: IRBuilder, name: string) -> string {
+    val idx = findFunction(builder.module, name)
+    if idx < 0 { return "" }
+    val f: IRFunction = builder.module.functions.get(idx)
+    var out = "fn("
+    var i = 0
+    while i < f.paramTypes.len() {
+        if i > 0 { out = out + ";" }
+        out = out + f.paramTypes.get(i)
+        i = i + 1
+    }
+    out = out + ")->" + f.returnType
+    return out
 }
 
 fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
@@ -3491,6 +3585,28 @@ fn emitNativeCall(builder: IRBuilder, nativeName: string, fixedArgs: list, userA
     return res
 }
 
+// A call through a local holding a function value: the arguments ride .arg
+// instructions like any call, but the callee is the loaded value, not a
+// name, and the destination is typed by the signature. The value was checked
+// against the signature in sema, so this is only the shape of the call.
+fn buildFnVarCall(builder: IRBuilder, c: CallNode, sig: string) -> int {
+    var ai = 0
+    while ai < c.args.len() {
+        val argInstr = ir_init_instr(IROpcode.arg)
+        argInstr.operand1 = buildCallArgValue(builder, c.args.get(ai))
+        ir_emit(builder.currentFunction, argInstr)
+        ai = ai + 1
+    }
+    val calleeReg = buildExpr(builder, c.callee)
+    val resReg = ir_alloc_register(builder.currentFunction, builderFnTypeReturn(sig))
+    val callInstr = ir_init_instr(IROpcode.call)
+    callInstr.dest = resReg
+    callInstr.operand1 = ir_register(calleeReg)
+    callInstr.operand2 = ir_int(c.args.len())
+    ir_emit(builder.currentFunction, callInstr)
+    return resReg
+}
+
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     // Check if it's a method call (member access)
     match c.callee {
@@ -3996,6 +4112,17 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                         }
                         _ => {}
                     }
+                    // A call through a variable holding a function value is
+                    // indirect: the name is a local, not a C function, so the
+                    // direct emission below would call a symbol nothing
+                    // declares. A declared function wins, the way sema
+                    // resolves the callee.
+                    if findFunction(builder.module, lit.text) < 0 {
+                        val vsig = lookupVariable(builder, lit.text)
+                        if builderIsFnType(vsig) {
+                            return buildFnVarCall(builder, c, vsig)
+                        }
+                    }
                     val argVals = []
                     var ai = 0
                     while ai < c.args.len() {
@@ -4205,6 +4332,23 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     gLoad.operand1 = ir_symbol(lit.text)
                     ir_emit(builder.currentFunction, gLoad)
                     return gReg
+                }
+                // A bare function name is its address, a constant. Loading it
+                // as a variable mints a hoisted local of the same name, which
+                // shadows the C function and reads uninitialised stack -- so
+                // this is a load_const, which declares nothing. A variable
+                // shadows the function of the same name, so only a name no
+                // scope declares takes this path.
+                if scopeHasName(builder, lit.text) == false {
+                    val faddr = fnTypeSpellingFor(builder, lit.text)
+                    if faddr != "" {
+                        val fnReg = ir_alloc_register(builder.currentFunction, faddr)
+                        val fnLoad = ir_init_instr(IROpcode.load_const)
+                        fnLoad.dest = fnReg
+                        fnLoad.operand1 = ir_symbol(lit.text)
+                        ir_emit(builder.currentFunction, fnLoad)
+                        return fnReg
+                    }
                 }
                 // Check if it's an uppercase (type/enum constant)
                 val fc0 = lit.text.at(0)

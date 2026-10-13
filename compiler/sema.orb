@@ -1057,6 +1057,28 @@ fn resolveSymbol(sema: Sema, name: string) -> string {
     return ""
 }
 
+// The nearest declaration of a name in the scope chain, function or not, or
+// NULL when nothing declares it. resolveSymbol answers with the TYPE and
+// resolveFunctionSymbol with the FUNCTION, so neither can say which one a
+// scope means when both exist: a local `val check` beside the `check`
+// parser helper must read as the local, not as the function as a value.
+fn nearestSymbol(sema: Sema, name: string) -> Symbol {
+    var scopeId = sema.currentScope
+    while scopeId >= 0 {
+        val scope = sema.scopes.get(scopeId)
+        var i = 0
+        while i < scope.symbols.len() {
+            val sym: Symbol = scope.symbols.get(i)
+            if sym.name == name {
+                return sym
+            }
+            i = i + 1
+        }
+        scopeId = scope.parentId
+    }
+    return NULL
+}
+
 fn resolveFunction(sema: Sema, name: string) -> string {
     val sym = resolveFunctionSymbol(sema, name)
     if sym == NULL { return "" }
@@ -1174,6 +1196,11 @@ fn resolveCalleeName(sema: Sema, name: string) -> string {
     if fnType != "" { return fnType }
     val declared = resolveSymbol(sema, name)
     if declared == "model" { return name }
+    // A variable holding a function value is callable: its spelling carries
+    // the signature, so the call answers the return type the same way a
+    // direct call does. A declared function wins above, so a shadowing local
+    // still calls the function -- the value needs its own name to be called.
+    if isFnType(declared) { return fnTypeReturn(declared) }
     if declared != "" {
         // The name is declared, just not as something callable. "Undeclared"
         // would be the wrong word for that, and the wrong word sends the
@@ -1249,6 +1276,32 @@ fn checkCallArgTypes(sema: Sema, name: string, args: list, line: int, col: int) 
     }
 }
 
+// Arity and argument types for a call through a function value. The direct
+// checks above read the declaration's symbol, which a variable has none of,
+// so they silently pass everything; the signature rides the value's spelling
+// instead. Same diagnostics shape: a wrong count is the plain arity message,
+// a wrong type is E1005 against the parameter the value's declaration gave.
+fn checkFnVarCall(sema: Sema, name: string, fnType: string, args: list, argTypes: list, line: int, col: int) {
+    val want = fnTypeArity(fnType)
+    if want != args.len() {
+        if want == 1 {
+            reportError(sema, "Wrong number of arguments to " + name + ": it takes 1, got " + orbit_int_to_string_selfhost(args.len()))
+        } else {
+            reportError(sema, "Wrong number of arguments to " + name + ": it takes " + orbit_int_to_string_selfhost(want) + ", got " + orbit_int_to_string_selfhost(args.len()))
+        }
+        return
+    }
+    var i = 0
+    while i < want {
+        val p = fnTypeParamAt(fnType, i)
+        val got: string = argTypes.get(i)
+        if checkCompatibility(p, got) == false {
+            reportErrorAt(sema, "E1005", "Change the argument, or change the function value's signature.", line, col, "Parameter " + orbit_int_to_string_selfhost(i + 1) + " of " + name + " is declared " + p + " but the argument is " + got + ".")
+        }
+        i = i + 1
+    }
+}
+
 // One type has two spellings and the emitter accepts both, so a comparison
 // that took them literally called `val a: List = []` a type mismatch between
 // List and list. Normalising here rather than at the annotation means every
@@ -1298,6 +1351,72 @@ fn compatibleListElement(want: string, got: string) -> bool {
     val ge = compatTypeListElement(got)
     if we == "" || ge == "" { return true }
     return we == ge
+}
+
+// A first-class function value spells `fn(p1;p2)->ret`: the parameters in
+// order joined with ";", which no other type spelling contains ("," would
+// collide with `map<string, int>` and "<" would be stripped as a generic
+// argument). Only inferred, never annotated: there is no `fn` annotation
+// syntax, so a bare function name in value position is the one way to get
+// one, and it carries the declaration's signature with it.
+fn isFnType(t: string) -> bool {
+    if t.len() < 5 { return false }
+    return t.slice(0, 3) == "fn("
+}
+
+fn fnTypeSpelling(ret: string, params: list) -> string {
+    var out = "fn("
+    var i = 0
+    while i < params.len() {
+        if i > 0 { out = out + ";" }
+        out = out + params.get(i)
+        i = i + 1
+    }
+    out = out + ")->" + ret
+    return out
+}
+
+// The return type after `)->`, or "unknown" when the spelling is not one.
+fn fnTypeReturn(t: string) -> string {
+    val arrow = t.indexOf(")->")
+    if arrow < 0 { return "unknown" }
+    return t.slice(arrow + 3, t.len())
+}
+
+// The parameter list between `fn(` and `)->`, split on the ";" above.
+fn fnTypeParams(t: string) -> list {
+    val out = []
+    if isFnType(t) == false { return out }
+    val arrow = t.indexOf(")->")
+    if arrow < 0 { return out }
+    val inner = t.slice(3, arrow)
+    if inner == "" { return out }
+    var start = 0
+    var i = 0
+    while i <= inner.len() {
+        var end = false
+        if i == inner.len() { end = true }
+        var isSep = false
+        if end == false {
+            if inner.at(i) == 59 { isSep = true }
+        }
+        if end || isSep {
+            out.push(inner.slice(start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn fnTypeArity(t: string) -> int {
+    return fnTypeParams(t).len()
+}
+
+fn fnTypeParamAt(t: string, idx: int) -> string {
+    val params = fnTypeParams(t)
+    if idx < 0 || idx >= params.len() { return "unknown" }
+    return params.get(idx)
 }
 
 /** @brief The bare name an expression is, or "" when it is not one.
@@ -3225,6 +3344,38 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         }
         ASTNode.Literal(l) => {
             if l.valType == "identifier" {
+                // A bare function name in value position is the function as a
+                // value: `val f = foo` binds f to foo's signature, not to what
+                // foo returns. Answering the return type instead is what made
+                // every later `f(x)` read "it is a int, not a function" for a
+                // name the program had just bound from a function. A live
+                // variable shadows the function of the same name -- the
+                // nearest scope decides -- so only a name no variable
+                // declares reads as a function.
+                val foundSym = nearestSymbol(sema, l.text)
+                // Nested, not &&: both sides of && evaluate, so a NULL
+                // guard joined that way still dereferences NULL (every bare
+                // NULL or provided name in the program crashed here).
+                if foundSym != NULL {
+                    if foundSym.isFunction {
+                        // The entry point is not a value: its C name is orbit_main
+                        // and its address is the process entry, so binding it
+                        // would call back into startup, not into the body.
+                        if l.text == "main" {
+                            reportError(sema, "Cannot use 'main' as a value: it is the entry point, not a callable value; move the body into a named function and use that.")
+                            return "unknown"
+                        }
+                        // A generic has no one signature until a call fixes its
+                        // parameters, so a bare reference has nothing to infer
+                        // from. Calling it is the only honest use; binding it
+                        // would monomorphise nothing.
+                        if isGenericFn(sema, l.text) {
+                            reportError(sema, "Cannot use generic function '" + l.text + "' as a value: call it so the arguments fix its type parameters; a bare reference has nothing to infer them from.")
+                            return "unknown"
+                        }
+                        return fnTypeSpelling(foundSym.typeName, foundSym.paramTypes)
+                    }
+                }
                 val typeName = resolveSymbol(sema, l.text)
                 if typeName == "" {
                     // Nothing declares this name. That is not the same as not
@@ -3388,6 +3539,15 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 if isGenericFn(sema, calleeName) == false {
                     checkCallArgTypes(sema, calleeName, c.args, c.line, c.col)
                 }
+                // A call through a function value has no declaration symbol,
+                // so both checks above pass it silently. The value's spelling
+                // is the signature; check the call against it here instead.
+                if resolveFunction(sema, calleeName) == "" {
+                    val vtype = resolveSymbol(sema, calleeName)
+                    if isFnType(vtype) {
+                        checkFnVarCall(sema, calleeName, vtype, c.args, argTypes, c.line, c.col)
+                    }
+                }
             }
             // Check for builtins
             match c.callee {
@@ -3425,6 +3585,11 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         }
                         val fnType = lookupFunction(sema, l.text)
                         if fnType != "unknown" { return fnType }
+                        // A call through a variable holding a function value
+                        // answers the signature's return type. A declared
+                        // function wins above, so this is only the value case.
+                        val vtype = lookupSymbol(sema, l.text)
+                        if isFnType(vtype) { return fnTypeReturn(vtype) }
                         // `Circle(7)` is the construction of a variant, and it
                         // has the union's type, not the "unknown" a bare
                         // callee otherwise gets. A declared function of the

@@ -1,0 +1,14 @@
+// case: generic-fn-as-value
+// what: a generic has no one signature until a call fixes its parameters, so
+//      a bare reference has nothing to infer from. Binding it would
+//      monomorphise nothing and the value would carry an empty signature.
+//      Calling it is the only honest use.
+// expect-error: Cannot use generic function 'id' as a value
+fn id[T](x: T) -> T {
+    return x
+}
+
+fn main() -> int {
+    val f = id
+    return 0
+}

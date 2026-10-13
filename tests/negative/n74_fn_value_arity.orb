@@ -1,0 +1,14 @@
+// case: fn-value-arity
+// what: a call through a function value is checked against the signature the
+//      value carries. The direct arity check reads the declaration's symbol,
+//      which a variable has none of, so without the value-side check this
+//      compiled and the extra argument was silently dropped.
+// expect-error: Wrong number of arguments to f
+fn inc(x: int) -> int {
+    return x + 1
+}
+
+fn main() -> int {
+    val f = inc
+    return f(1, 2)
+}

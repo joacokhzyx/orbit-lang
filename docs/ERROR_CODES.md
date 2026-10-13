@@ -109,8 +109,10 @@ backend widens it). Pinned by
 `tests/negative/n33_call_argument_type_unchecked.orb`,
 `tests/negative/n46_list_param_takes_other_element.orb`,
 `tests/negative/n67_union_variant_payload_type.orb` (positional payload
-against its declared type), and `tests/negative/n69_generic_incoherent_arguments.orb`
-(coherence across a generic call's positions).
+against its declared type), `tests/negative/n69_generic_incoherent_arguments.orb`
+(coherence across a generic call's positions), and
+`tests/negative/n75_fn_value_arg_type.orb` (an argument against the signature
+a function value carries).
 
 ## E1006 — bad type name or binding mismatch
 
@@ -210,7 +212,9 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `Cannot call 'n': it is a int, not a function` | `n12` |
 | `Undeclared function: ...` | `n22` |
 | `Undeclared identifier: ...` | `n09` |
-| `Wrong number of arguments to ...` | `n04` |
+| `Wrong number of arguments to ...` | `n04`, `n74` (`n74`: through a function value) |
+| `Cannot use generic function ... as a value` | `n76` |
+| `Cannot use 'main' as a value` | `n77` |
 | `Duplicate symbol` | `n21` |
 | `expected int, got string` (return/binding mismatch) | `n03`, `n07`, `n16`, `n17`, `n18` |
 | `Nothing declares a type named` is E1006, but `expected float, got Float` | `n34` |

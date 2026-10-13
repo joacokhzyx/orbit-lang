@@ -1,0 +1,78 @@
+// Function values without capture: a bare function name in value position
+// binds the signature (`val f = foo`), and a call through the variable is
+// checked and emitted against it. No capture, no lambdas, no `fn` params --
+// those stay future work until an annotation syntax can name the type.
+fn inc(x: int) -> int {
+    return x + 1
+}
+
+fn basic_value_call() -> int {
+    val f = inc
+    if f(1) != 2 { return 1 }
+    return 0
+}
+
+fn greet(name: string) -> string {
+    return "hi " + name
+}
+
+fn string_value() -> int {
+    val g = greet
+    if g("bo") != "hi bo" { return 1 }
+    return 0
+}
+
+fn add(x: int, y: int) -> int {
+    return x + y
+}
+
+fn two_params() -> int {
+    val a = add
+    if a(2, 3) != 5 { return 1 }
+    return 0
+}
+
+fn shout(s: string) -> string {
+    return s + "!"
+}
+
+fn whisper(s: string) -> string {
+    return s + "."
+}
+
+fn reassigned_value() -> int {
+    var h = shout
+    h = whisper
+    if h("hey") != "hey." { return 1 }
+    return 0
+}
+
+fn tick() -> int {
+    return 7
+}
+
+fn nullary_value() -> int {
+    val t = tick
+    if t() != 7 { return 1 }
+    return 0
+}
+
+fn ping() -> int {
+    return 1
+}
+
+fn void_result_feeds_expression() -> int {
+    val p = ping
+    if p() + 1 != 2 { return 1 }
+    return 0
+}
+
+fn main() -> int {
+    if basic_value_call() != 0 { return 1 }
+    if string_value() != 0 { return 2 }
+    if two_params() != 0 { return 3 }
+    if reassigned_value() != 0 { return 4 }
+    if nullary_value() != 0 { return 5 }
+    if void_result_feeds_expression() != 0 { return 6 }
+    return 0
+}

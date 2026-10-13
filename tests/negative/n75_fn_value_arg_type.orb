@@ -1,0 +1,14 @@
+// case: fn-value-arg-type
+// what: a string where the value's signature says int is E1005, the same
+//      diagnostic a direct call gives. Without the value-side check the
+//      string's address arrived in an int register and the program printed
+//      a heap address (the F-0015 class).
+// expect-error: Parameter 1 of f is declared int
+fn inc(x: int) -> int {
+    return x + 1
+}
+
+fn main() -> int {
+    val f = inc
+    return f("s")
+}

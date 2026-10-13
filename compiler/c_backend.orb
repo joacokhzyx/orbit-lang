@@ -416,6 +416,58 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     return "void*"
 }
 
+// First-class function values spell `fn(p1;p2)->ret`, the same spelling
+// sema.orb infers and builder.orb carries on the value's register
+// (duplicated here because cross-file names are closed). A value local is
+// hoisted as uintptr_t, so this never reaches mapTypeToC as a declaration;
+// the signature is read back at the indirect call below for the arity and
+// the per-argument casts.
+fn backendIsFnType(t: string) -> bool {
+    if t.len() < 5 { return false }
+    return t.slice(0, 3) == "fn("
+}
+
+fn backendFnTypeReturn(t: string) -> string {
+    val arrow = t.indexOf(")->")
+    if arrow < 0 { return "unknown" }
+    return t.slice(arrow + 3, t.len())
+}
+
+fn backendFnTypeParams(t: string) -> list {
+    val out = []
+    if backendIsFnType(t) == false { return out }
+    val arrow = t.indexOf(")->")
+    if arrow < 0 { return out }
+    val inner = t.slice(3, arrow)
+    if inner == "" { return out }
+    var start = 0
+    var i = 0
+    while i <= inner.len() {
+        var end = false
+        if i == inner.len() { end = true }
+        var isSep = false
+        if end == false {
+            if inner.at(i) == 59 { isSep = true }
+        }
+        if end || isSep {
+            out.push(inner.slice(start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn backendFnTypeArity(t: string) -> int {
+    return backendFnTypeParams(t).len()
+}
+
+fn backendFnTypeParamAt(t: string, idx: int) -> string {
+    val params = backendFnTypeParams(t)
+    if idx < 0 || idx >= params.len() { return "unknown" }
+    return params.get(idx)
+}
+
 fn setStrAt(items: list, idx: int, value: string) -> list {
     if items == NULL || idx < 0 { return items }
     while items.len() <= idx {
@@ -2622,6 +2674,78 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 IRValue.String(s) => { calleeName = s.value }
                 IRValue.Sym(s) => { calleeName = s.value }
                 _ => {}
+            }
+            // A call through a function value, not a named function: the
+            // builder emitted the loaded value as the callee, so there is no
+            // name to look up. The register's type is the `fn(params)->ret`
+            // spelling, which carries the arity and the casts; emitting the
+            // empty name as before produced `(args)` -- the arguments in
+            // parentheses, the callee silently dropped.
+            if calleeName == "" {
+                val calleeStr = generateValue(instr.operand1)
+                var sig = ""
+                if backend != NULL && backend.currentFunction != NULL {
+                    sig = operandDefType(backend.currentFunction, instr.operand1)
+                }
+                var retC = "void*"
+                var wantArity = 0
+                if backendIsFnType(sig) {
+                    retC = mapTypeToC(backend, backendFnTypeReturn(sig))
+                    wantArity = backendFnTypeArity(sig)
+                }
+                var numArgsI = 0
+                match instr.operand2 {
+                    IRValue.Int(iv) => { numArgsI = iv.value }
+                    _ => {}
+                }
+                var startIdxI = backend.callArgs.len() - numArgsI
+                if startIdxI < 0 { startIdxI = 0 }
+                var fptrParams = "void"
+                if wantArity > 0 {
+                    fptrParams = ""
+                    var pi = 0
+                    while pi < wantArity {
+                        if pi > 0 { fptrParams = fptrParams + ", " }
+                        var pt = "void*"
+                        if backendIsFnType(sig) { pt = mapTypeToC(backend, backendFnTypeParamAt(sig, pi)) }
+                        fptrParams = fptrParams + pt
+                        pi = pi + 1
+                    }
+                }
+                var callExprI = "((" + retC + " (*)(" + fptrParams + "))(" + calleeStr + "))("
+                var iI = startIdxI
+                var argIdxI = 0
+                var anyArgI = false
+                while iI < backend.callArgs.len() {
+                    if anyArgI { callExprI = callExprI + ", " }
+                    anyArgI = true
+                    val aStrI = backend.callArgs.get(iI)
+                    var want = "void*"
+                    if backendIsFnType(sig) && argIdxI < wantArity { want = backendFnTypeParamAt(sig, argIdxI) }
+                    if want == "int" || want == "bool" {
+                        callExprI = callExprI + "(orbit_int)(uintptr_t)(" + aStrI + ")"
+                    } else if want == "string" {
+                        callExprI = callExprI + "(orbit_string)(" + aStrI + ")"
+                    } else if want == "float" {
+                        callExprI = callExprI + "(orbit_float)(" + aStrI + ")"
+                    } else if want == "result" {
+                        callExprI = callExprI + aStrI
+                    } else {
+                        callExprI = callExprI + "(void*)(uintptr_t)(" + aStrI + ")"
+                    }
+                    iI = iI + 1
+                    argIdxI = argIdxI + 1
+                }
+                callExprI = callExprI + ")"
+                while backend.callArgs.len() > startIdxI { backend.callArgs.pop() }
+                var destNeededI = instr.dest != -1
+                if backendIsFnType(sig) && backendFnTypeReturn(sig) == "void" { destNeededI = false }
+                if destNeededI {
+                    orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, callExprI))
+                    return
+                }
+                orbit_cbuf_append_selfhost(cb, "    " + callExprI + ";\n")
+                return
             }
             if calleeName == "slice" {
                 calleeName = "orbit_string_slice"
