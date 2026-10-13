@@ -1,11 +1,23 @@
 // Single honest file API: paths, never handles. Reads return
 // `result` (consume with inline try on the call); writes answer bool.
 // append is read-modify-write, never atomic: documented, not hidden.
+// walk lists a tree depth-first (files and dirs, root-first per level)
+// with a depth cap against symlink loops; watching for changes is a
+// poll loop over walk plus sleepMs, not an API: event handles
+// (inotify, ReadDirectoryChanges) stay future work.
 extern fn orbit_file_read(path: string) -> result
 extern fn orbit_file_write(path: string, content: string) -> bool
 extern fn orbit_file_exists(path: string) -> bool
 extern fn orbit_file_delete(path: string) -> bool
 extern fn orbit_file_list_dir(path: string) -> list
+extern fn orbit_path_is_dir(path: string) -> bool
+extern fn orbit_file_remove_dir(path: string) -> bool
+extern fn orbit_os_mkdir_p(path: string) -> bool
+
+// How deep walk descends. Symlinks to directories read as directories
+// (stat follows), so a link loop would walk forever without this; 32 is
+// deeper than any project tree and shallow enough to terminate.
+val WALK_MAX_DEPTH = 32
 
 fn readAll(path: string) -> result {
     val content: string = try orbit_file_read(path) catch {
@@ -38,4 +50,55 @@ fn removeFile(path: string) -> bool {
 
 fn listDir(path: string) -> list {
     return orbit_file_list_dir(path)
+}
+
+// stat, not fopen: exists() answers true for a directory on POSIX (it
+// opens for reading), and only this says what the path is.
+fn isDir(path: string) -> bool {
+    return orbit_path_is_dir(path)
+}
+
+// Empty directories only; non-empty and missing answer false. Tear
+// down by walking first and removing in reverse (walk is root-first,
+// so reversed is deepest-first): files, then their parents.
+fn removeDir(path: string) -> bool {
+    return orbit_file_remove_dir(path)
+}
+
+// mkdir -p: parents too, true when already there -- "the directory is
+// there" is the only thing a caller asking for this wants to know.
+fn mkdirAll(path: string) -> bool {
+    return orbit_os_mkdir_p(path)
+}
+
+// Every path under dir, files and directories, root-first per level. A
+// file walks as itself; a missing path walks as nothing. Typed
+// list<string>: the entries are built from a C-built list whose kind
+// the builder cannot see, so callers need the promise in the signature.
+fn walk(dir: string) -> list<string> {
+    val out = []
+    if isDir(dir) {
+        walkInto(dir, out, 0)
+    } else if exists(dir) {
+        out.push(dir)
+    }
+    return out
+}
+
+fn walkInto(dir: string, out: list, depth: int) {
+    if depth > WALK_MAX_DEPTH { return }
+    // Annotated: listDir builds its list inside the runtime, so the
+    // builder cannot see the element type and an untyped read would
+    // stringify the pointer. The annotation records the kind the C
+    // side guarantees (it pushes strings and nothing else).
+    val names: list<string> = listDir(dir)
+    var i = 0
+    while i < names.len() {
+        val full = dir + "/" + names.get(i)
+        out.push(full)
+        if isDir(full) {
+            walkInto(full, out, depth + 1)
+        }
+        i = i + 1
+    }
 }

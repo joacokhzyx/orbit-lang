@@ -24,6 +24,7 @@
 #else
 #  include <dirent.h>
 #  include <sys/stat.h>
+#  include <unistd.h>
 #endif
 
 OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
@@ -187,6 +188,35 @@ bool orbit_file_exists(const char* filename) {
 bool orbit_file_delete(const char* filename) {
     if (!filename) return false;
     return remove(filename) == 0;
+}
+
+/** @brief Is @p path a directory? stat, not fopen: a directory opens for
+ * reading on POSIX, so exists() answers true for one and only this says
+ * what it is. Follows symlinks (stat, not lstat): a link to a directory
+ * reads as one, which is what walk() descends into. */
+bool orbit_path_is_dir(const char* path) {
+    struct stat st;
+    if (!path || !*path) return false;
+    /* Plain stat(), not _stat(): this MinGW maps _stat to the 32-bit
+     * variant while struct stat is 64-bit, and the pair does not
+     * compile. stat pairs with struct stat on both toolchains here. */
+    if (stat(path, &st) != 0) return false;
+#ifdef _WIN32
+    return (st.st_mode & _S_IFDIR) != 0;
+#else
+    return S_ISDIR(st.st_mode) != 0;
+#endif
+}
+
+/** @brief Remove an empty directory. Non-empty answers false on both
+ * platforms (remove the contents first); missing answers false too. */
+bool orbit_file_remove_dir(const char* path) {
+    if (!path || !*path) return false;
+#ifdef _WIN32
+    return RemoveDirectoryA(path) != 0;
+#else
+    return rmdir(path) == 0;
+#endif
 }
 
 #endif
