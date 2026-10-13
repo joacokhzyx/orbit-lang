@@ -14,7 +14,7 @@
 //      Repro (do not run blindly -- it crashes the process):
 //        val o = { name: "x" }
 //        for t in o.tags { print(t) }
-// known-defect: F-0024
+// expect-error: for loops iterate lists
 fn main() -> int {
     val o = { name: "x" }
     for t in o.tags {

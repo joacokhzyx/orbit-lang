@@ -214,6 +214,7 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `ok response with error status` / `err response with success status` | `n55`, `n56` |
 | `cannot interpolate a value of type` | `n02` |
 | `must end the path` (multi-capture not final) / `empty multi-capture name` | `n58` |
+| `for loops iterate lists` (non-list or unknown iterable) | `n59` |
 | `'model Box[T: int]' is not supported ...` | `n53` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |
 
@@ -235,4 +236,4 @@ full write-up.
 | F-0018 — frontend member/call expressions with no type rule reached codegen silently | no negative case (frontend-only; E2004/E2005) | fixed in lowering |
 | F-0021 — numbers in documents go stale | counts in `tests/negative/README.md` and siblings; recompute with `python scripts/negative_gate.py --compiler <orbit> --list` | process note, not a defect |
 | F-0023 — literal-zero division is SIGFPE, not a diagnostic | `n41_division_by_zero_is_not_a_diagnostic.orb` | fixed for literal divisors (E1004); variable divisors still fault |
-| F-0024 — `for` over a never-set dynamic field miscompiles (read answers `""`, loop walks it as a list: garbage `.len()`, segfault iteration) | `n59_for_over_unknown_field.orb` | **open** — `known-defect:` ratchet; a check-time guard was reverted for rejecting declared-list iteration, the sound fix needs model-field typing |
+| F-0024 — `for` over a never-set dynamic field miscompiles (read answers `""`, loop walks it as a list: garbage `.len()`, segfault iteration) | `n59_for_over_unknown_field.orb` | fixed (model-field reads answer declared types; unprovable iterables are check errors) |

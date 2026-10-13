@@ -45,7 +45,7 @@ fn runLexTrace() {
         print(orbit_int_to_string_selfhost(i))
         print(orbit_int_to_string_selfhost(tok.line))
         print(orbit_int_to_string_selfhost(tok.col))
-        print(orbit_int_to_string_selfhost(tok.tag))
+        print(tokTagName(tok.tag))
         if tok.tag == TokType.EOF {
             break
         }

@@ -337,7 +337,7 @@ fn parsePostfix(parser: Parser, lhs: ASTNode) -> ASTNode {
     while parsing {
         if check(parser, TokType.OpenParen) {
             val callLine = parser.currentToken.line
-            val callCol = parser.currentToken.column
+            val callCol = parser.currentToken.col
             if matchToken(parser, TokType.OpenParen) {
                 val args = []
                 if check(parser, TokType.CloseParen) == false {

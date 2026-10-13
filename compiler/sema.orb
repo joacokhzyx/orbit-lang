@@ -157,12 +157,109 @@ model Sema {
     // honest one-line form, which printSemaErrors chooses on line == 0.
     valueSiteLine: int
     valueSiteCol: int
+    // Which model each bound variable was built from, as four parallel
+    // lists: the variable name, the model's OWN name (never the
+    // monomorphised instance: "Bagged_float" would need fragile splitting
+    // to answer "Bagged"), and the scope that bound it. Recorded where the
+    // literal is in hand (checkVarDecl and checkConstDecl on TypedLiteral
+    // values) so a later `floats.items` read can answer the declared field
+    // type instead of unknown. Lookups only match entries whose scope is on
+    // the current chain, so a shadowing inner binding never reads the outer
+    // variable's model.
+    instanceNames: list
+    instanceModels: list
+    instanceScopes: list
+    instanceBindings: list
 }
 
 fn initSema() -> Sema {
     val initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0)
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [])
+}
+
+// The model a bound variable was built from, or "" when it was not built
+// from a model literal. Scope-pinned like resolveSymbol: only entries bound
+// in a scope on the current chain answer, so shadowing stays sound. Scopes
+// ride as strings because list elements compare by value at runtime.
+fn instanceModelOf(sema: Sema, name: string) -> string {
+    var scopeId = sema.currentScope
+    while scopeId >= 0 {
+        val scope = sema.scopes.get(scopeId)
+        var i = 0
+        while i < sema.instanceNames.len() {
+            if sema.instanceNames.get(i) == name {
+                if sema.instanceScopes.get(i) == orbit_int_to_string_selfhost(scopeId) {
+                    return sema.instanceModels.get(i)
+                }
+            }
+            i = i + 1
+        }
+        scopeId = scope.parentId
+    }
+    return ""
+}
+
+fn recordInstanceModel(sema: Sema, name: string, modelName: string, bindings: list) {
+    sema.instanceNames.push(name)
+    sema.instanceModels.push(modelName)
+    sema.instanceScopes.push(orbit_int_to_string_selfhost(sema.currentScope))
+    sema.instanceBindings.push(joinBindingRows(bindings))
+}
+
+// Bindings ride as one tab-joined string because a nested list would need
+// its elements re-typed at every read; type spellings never contain tabs.
+fn joinBindingRows(rows: list) -> string {
+    var out = ""
+    var i = 0
+    while i < rows.len() {
+        if i > 0 { out = out + "	" }
+        out = out + rows.get(i)
+        i = i + 1
+    }
+    return out
+}
+
+// The bindings a bound variable's model was built with, split back into
+// "param arg" rows, or an empty list when it was not built from a generic
+// model literal. Same scope-pinned walk as instanceModelOf; the two stay in
+// lockstep because only recordInstanceModel pushes to either.
+fn instanceBindingsOf(sema: Sema, name: string) -> list {
+    var scopeId = sema.currentScope
+    while scopeId >= 0 {
+        val scope = sema.scopes.get(scopeId)
+        var i = 0
+        while i < sema.instanceNames.len() {
+            if sema.instanceNames.get(i) == name {
+                if sema.instanceScopes.get(i) == orbit_int_to_string_selfhost(scopeId) {
+                    return splitBindingRows(sema.instanceBindings.get(i))
+                }
+            }
+            i = i + 1
+        }
+        scopeId = scope.parentId
+    }
+    return []
+}
+
+fn splitBindingRows(joined: string) -> list {
+    val rows = []
+    var start = 0
+    var i = 0
+    while i <= orbit_string_len(joined) {
+        var end = false
+        if i == orbit_string_len(joined) { end = true }
+        var isTab = false
+        if end == false {
+            if joined.at(i) == 9 { isTab = true }
+        }
+        if end || isTab {
+            rows.push(orbit_string_slice(joined, start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return rows
 }
 
 fn listContainsValue(items: list, value: string) -> bool {
@@ -1247,6 +1344,14 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
             sema.valueSiteLine = v.line
             sema.valueSiteCol = v.col
             val valueType = checkNode(sema, v.value)
+            match v.value {
+                ASTNode.TypedLiteral(tl) => {
+                    if isModelName(sema, tl.declaredType) {
+                        recordInstanceModel(sema, v.name, tl.declaredType, modelGenericBindings(sema, tl.declaredType, tl.value))
+                    }
+                }
+                _ => {}
+            }
             checkAnnotation(sema, v.name, v.typeAnnotation, valueType, v.line, v.col)
             declareSymbol(sema, v.name, bindingTypeName(v.typeAnnotation, valueType), v.isMutable, false)
             if v.isMutable == false {
@@ -1307,6 +1412,14 @@ fn checkConstDecl(sema: Sema, node: ASTNode) {
             sema.valueSiteLine = c.line
             sema.valueSiteCol = c.col
             val valueType = checkNode(sema, c.value)
+            match c.value {
+                ASTNode.TypedLiteral(tl) => {
+                    if isModelName(sema, tl.declaredType) {
+                        recordInstanceModel(sema, c.name, tl.declaredType, modelGenericBindings(sema, tl.declaredType, tl.value))
+                    }
+                }
+                _ => {}
+            }
             declareSymbol(sema, c.name, valueType, false, false)
             recordConstBound(sema, c.name, c.value)
         }
@@ -1810,6 +1923,15 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
             // compatible with every annotation, which is how `for x in [1,2,3]`
             // gave a loop body an x that read back as nothing at all.
             val iterType = checkNode(sema, f.iterable)
+            // A `for` lowers to list_len/list_get with no runtime kind check,
+            // so anything but a proven list miscompiles: a string iterates
+            // its bytes as pointers (strings are not iterable), and an
+            // unknown dynamic read segfaults on the first element. Model
+            // field reads answer their declared type above, so declared
+            // lists pass; only the unprovable is refused, with its type named.
+            if compatTypeBase(iterType) != "list" {
+                reportError(sema, "for loops iterate lists, not " + iterType + ".")
+            }
             pushScope(sema)
             declareSymbol(sema, f.item, listElementOf(sema, iterType, bareNameOf(f.iterable)), false, false)
             checkNode(sema, f.body)
@@ -2932,6 +3054,29 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 if member == "http_requests_total" { return "int" }
                 if member == "latency_avg_us" { return "int" }
                 if member == "latency_p50_us" || member == "latency_p95_us" || member == "latency_p99_us" { return "int" }
+            }
+            // A read of a model instance's field is worth the declared type:
+            // `post.tags` where Post declares `tags: list<string>` answers
+            // list<string> instead of unknown, so a `for` over it (and any
+            // other use) checks against something real. The declaration-site
+            // bindings substitute parameters (`floats.items` on a
+            // Bagged_float answers list<float>). Dynamic objects keep
+            // unknown: nothing declares their fields.
+            if objName != "" {
+                var instModel = instanceModelOf(sema, objName)
+                var instBindings = []
+                if instModel == "" {
+                    val symType = resolveSymbol(sema, objName)
+                    if isModelName(sema, symType) {
+                        instModel = symType
+                    }
+                } else {
+                    instBindings = instanceBindingsOf(sema, objName)
+                }
+                if instModel != "" {
+                    val fieldType = modelSubstitutedType(modelFieldType(sema, instModel, member), instBindings)
+                    if fieldType != "" { return fieldType }
+                }
             }
             return "unknown"
         }
