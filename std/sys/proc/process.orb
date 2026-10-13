@@ -1,12 +1,14 @@
 // Process and environment, one home. Only bindings the runtime
-// really backs: pid, env access, exec status, exit. The old
-// executeCommand handle (hardcoded pid 1000) stays deleted until the
+// really backs: pid, env access, exec status, exit, CLI arguments. The
+// old executeCommand handle (hardcoded pid 1000) stays deleted until the
 // runtime returns real pids. Windows stop is TerminateProcess:
 // immediate, in-flight work lost (docs/KNOWN_LIMITATIONS.md).
 extern fn system_pid() -> int
 extern fn system_env(name: string) -> string
 extern fn system_os_exec(cmd: string) -> int
 extern fn orbit_os_exit_selfhost(code: int)
+extern fn orbit_os_argc() -> int
+extern fn orbit_os_argv(index: int) -> string
 
 fn pid() -> int {
     return system_pid()
@@ -30,4 +32,29 @@ fn execStatus(cmd: string) -> int {
 // in C, and this one must never shadow (or recurse through) libc.
 fn exitProcess(code: int) -> void {
     orbit_os_exit_selfhost(code)
+}
+
+// CLI arguments, C convention: arg(0) is the program path itself, so a
+// program run bare sees argCount() == 1. Out of range -- negative or past
+// the end -- answers "" rather than aborting; that is the runtime's
+// contract (runtime/os.c), stated here so callers can rely on it instead
+// of pre-checking every index.
+fn argCount() -> int {
+    return orbit_os_argc()
+}
+
+fn arg(index: int) -> string {
+    return orbit_os_argv(index)
+}
+
+// All arguments as a list, arg(0) first. Built here rather than in C so
+// there is exactly one argv reader; the list is fresh per call.
+fn args() -> list {
+    val out = []
+    var i = 0
+    while i < argCount() {
+        out.push(arg(i))
+        i = i + 1
+    }
+    return out
 }
