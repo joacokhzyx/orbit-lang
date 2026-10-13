@@ -224,6 +224,8 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `for ranges count ints` (non-int range bound) | `n64` |
 | `'model Box[T: int]' is not supported ...` | `n53` |
 | `'fn f[T: int]' is not supported ...` | `n71` |
+| `'async fn' is not supported ...` | `n72` |
+| `'every' schedules are not supported ...` | `n73` |
 | `Variant 'Both' declares 2 payloads ...` / `Pattern binds 1 names ...` | `n66`, `n68` |
 | `Payload 2 of 'Both' is declared ...` | `n67` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |

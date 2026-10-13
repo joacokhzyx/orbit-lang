@@ -1,0 +1,14 @@
+// case: async-fn-not-implemented
+// what: `async` parses and used to vanish: the function compiled to a plain
+//      synchronous one, so a function that reads as asynchronous returned
+//      without computing. Refused where it is written, with what to write
+//      instead. There is no `await` or spawn to go with it (same backlog
+//      item); those stay parse errors, not half-features.
+// expect-error: 'async fn' is not supported
+fn async fetch() -> string {
+    return "x"
+}
+
+fn main() -> int {
+    return 0
+}

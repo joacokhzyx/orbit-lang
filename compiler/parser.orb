@@ -936,6 +936,13 @@ fn parseGenericParams(parser: Parser) -> list {
 fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode {
     matchToken(parser, TokType.KeywordFn)
     val isAsync = matchToken(parser, TokType.KeywordAsync)
+    if isAsync {
+        // Parsed but not implemented: an `async fn` would compile to a plain
+        // synchronous function, and a function that returns without computing
+        // is the class of bug this compiler refuses to emit. Remove `async`
+        // (the body runs synchronously as written) rather than shipping it.
+        parserError(parser, "'async fn' is not supported: async functions have no runtime semantics yet; remove 'async' and the function runs synchronously as written.")
+    }
 
     consume(parser, TokType.Identifier, "Expected function name.")
     val name = parser.previousToken.text
@@ -1320,6 +1327,10 @@ fn parseConstDecl(parser: Parser, isPrivate: bool) -> ASTNode {
 }
 
 fn parseScheduleDecl(parser: Parser) -> ASTNode {
+    // Parsed but not implemented: an `every` schedule would be accepted and
+    // then emitted as nothing, so the handler silently never runs. Refuse it
+    // where it is written instead.
+    parserError(parser, "'every' schedules are not supported: there is no timer runtime yet; call the handler explicitly or drive it from a loop.")
     consume(parser, TokType.IntegerLiteral, "Expected amount (number).")
     val amount = parser.previousToken.text
     consume(parser, TokType.Identifier, "Expected time unit.")

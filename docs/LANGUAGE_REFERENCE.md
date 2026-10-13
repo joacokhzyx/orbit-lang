@@ -16,11 +16,15 @@ fn main() {
 }
 ```
 
-Use `async fn` where an API accepts an asynchronous declaration. Top-level
+Top-level
 declarations include `fn`, `model`, `enum`, `union`, `type`, and `route`. A
 top-level `val` or `const` is also accepted when its value is an int or bool
 literal (a constant with file scope, emitted as a C `#define`); anything else
-at file scope is rejected with E1007.
+at file scope is rejected with E1007. `async fn` and `every` schedules are
+parsed and refused: there is no async or timer runtime, so accepting them
+would compile functions that return without computing and handlers that never
+run. Remove `async` (the body runs synchronously as written); drive scheduled
+work from a loop or the process supervisor instead.
 
 ```orbit
 val CHAR_SPACE = 32

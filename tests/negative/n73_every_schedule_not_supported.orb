@@ -1,0 +1,15 @@
+// case: every-schedule-not-implemented
+// what: an `every` schedule parsed and the backend emitted nothing for it,
+//      so the handler silently never ran. Refused where it is written, with
+//      what to write instead. Timers/cron stay roadmap (concurrency lane),
+//      not syntax that parses today.
+// expect-error: 'every' schedules are not supported
+every 5 min => tick()
+
+fn tick() -> int {
+    return 0
+}
+
+fn main() -> int {
+    return 0
+}

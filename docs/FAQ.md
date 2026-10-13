@@ -61,7 +61,10 @@ series may include documented breaking changes (see
 [Versioning](VERSIONING.md)). Pin your compiler version in CI.
 
 **10. Does Orbit have generics / async / pattern matching?**
-Unions and `async fn` exist in the reference; collection APIs,
+Functions and models take inferred type parameters (`fn getOr[T]`,
+`model Box[T]`); unions and `match` cover tagged alternatives. There is no
+`async fn` and no `every` schedules -- both parse and are refused, because
+there is no async or timer runtime behind them. Collection APIs,
 concurrency ergonomics, and module imports are still settling.
 Keep business logic simple, cover it with tests, and file an
 issue when you hit a wall - I read everything.
