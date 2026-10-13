@@ -170,12 +170,19 @@ model Sema {
     instanceModels: list
     instanceScopes: list
     instanceBindings: list
+    // Names of the loops enclosing the node under check, innermost last.
+    // `break outer` is only meaningful when `outer` is on this stack; a
+    // named break to anything else is a typo pointing at the wrong loop, so
+    // it is refused where a plain stray `break` stays silent (existing
+    // behavior, separate work). Push/pop in checkForLoop only: `fn` cannot
+    // nest in a block, so no boundary needs saving.
+    loopLabels: list
 }
 
 fn initSema() -> Sema {
     val initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [])
 }
 
 // The model a bound variable was built from, or "" when it was not built
@@ -1934,7 +1941,22 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
             }
             pushScope(sema)
             declareSymbol(sema, f.item, listElementOf(sema, iterType, bareNameOf(f.iterable)), false, false)
+            // The index is a plain int the emitter keeps in sync with its
+            // hidden counter. Binding the item twice (`for x, x in xs`) is a
+            // duplicate, refused by the same rule as any redeclaration.
+            if f.indexVar != "" {
+                declareSymbol(sema, f.indexVar, "int", false, false)
+            }
+            // A label is only visible to the loop's own body: push before the
+            // body, pop after, so a label never leaks to a later loop and two
+            // nested loops can share nothing by accident.
+            if f.label != "" {
+                sema.loopLabels.push(f.label)
+            }
             checkNode(sema, f.body)
+            if f.label != "" {
+                sema.loopLabels.pop()
+            }
             popScope(sema)
         }
         _ => {}
@@ -1943,6 +1965,21 @@ fn checkForLoop(sema: Sema, node: ASTNode) {
 
 fn sameString(left: string, right: string) -> bool {
     return left == right
+}
+
+// A named `break`/`continue` must name an enclosing loop: without this a
+// typo'd label silently hits the innermost loop instead of failing. The
+// search runs innermost-first so nested loops sharing a label resolve the
+// way shadowing does everywhere else, and the emitter resolves the same
+// way. Plain (unnamed) jumps keep their existing behavior.
+fn checkLoopLabel(sema: Sema, label: string, keyword: string) {
+    if label == "" { return }
+    var i = sema.loopLabels.len()
+    while i > 0 {
+        i = i - 1
+        if sema.loopLabels.get(i) == label { return }
+    }
+    reportError(sema, keyword + " names unknown loop '" + label + "'.")
 }
 
 // The variant a case pattern names, or "" when the pattern is not a variant of
@@ -3152,8 +3189,12 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             return ""
         }
         ASTNode.MigrationDecl(m) => { return "" }
-        ASTNode.Break(b) => { return "" }
-        ASTNode.Continue(c) => { return "" }
+        ASTNode.Break(b) => { checkLoopLabel(sema, b.label, "break")
+            return ""
+        }
+        ASTNode.Continue(c) => { checkLoopLabel(sema, c.label, "continue")
+            return ""
+        }
         ASTNode.ImportStmt(i) => { return "" }
         ASTNode.UseStmt(u) => { return "" }
         ASTNode.Decorator(d) => { return "" }

@@ -206,6 +206,13 @@ model ForNode {
     item: string
     iterable: list
     body: ASTNode
+    // The optional index binding of `for x, i in xs`, "" when absent. The
+    // emitter keeps it in sync with its hidden counter, so the body reads a
+    // plain int; empty keeps every existing construction compiling.
+    indexVar: string
+    // The optional loop name of `for outer: x in xs`, "" when absent. A
+    // `break outer` inside any nesting level jumps to this loop's end.
+    label: string
 }
 
 model ReturnNode {
@@ -321,8 +328,15 @@ model AssignmentNode {
     value: ASTNode
 }
 
-model BreakNode {}
+model BreakNode {
+    // The loop named by `break outer`, "" for a plain `break`. Empty keeps
+    // every existing construction compiling.
+    label: string
+}
 
-model ContinueNode {}
+model ContinueNode {
+    // The loop named by `continue outer`, "" for a plain `continue`.
+    label: string
+}
 
 type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | MigrationDecl(MigrationDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | FieldInit(FieldInitNode) | TypedLiteral(TypedLiteralNode) | Empty

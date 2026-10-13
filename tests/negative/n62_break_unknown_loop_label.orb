@@ -1,0 +1,13 @@
+// case: break-unknown-loop-label
+// what: a named `break` must name an enclosing loop. Without this a typo'd
+//      label silently hits the innermost loop instead of failing, which is
+//      the wrong loop doing the wrong thing with no message. A plain stray
+//      `break` keeps its existing silent behavior (separate work); only the
+//      named form is refused, with the label quoted.
+// expect-error: break names unknown loop 'nowhere'
+fn main() -> int {
+    for x in [1, 2] {
+        break nowhere
+    }
+    return 0
+}

@@ -852,12 +852,27 @@ fn parseWhileStatement(parser: Parser) -> ASTNode {
 }
 
 fn parseForStatement(parser: Parser) -> ASTNode {
+    // The label rides before the item with one token of lookahead doing the
+    // whole job: after `for`, an Identifier followed by `:` is the loop's
+    // name and otherwise it is the item. `for x in xs`, `for outer: x in
+    // xs` and `for x, i in xs` all start the same way, so all three stay.
     consume(parser, TokType.Identifier, "Expected loop variable name.")
-    val item = parser.previousToken.text
+    var label = ""
+    var item = parser.previousToken.text
+    if matchToken(parser, TokType.Colon) {
+        label = item
+        consume(parser, TokType.Identifier, "Expected loop variable name after the loop label.")
+        item = parser.previousToken.text
+    }
+    var indexVar = ""
+    if matchToken(parser, TokType.Comma) {
+        consume(parser, TokType.Identifier, "Expected index variable name after ','.")
+        indexVar = parser.previousToken.text
+    }
     consume(parser, TokType.KeywordIn, "Expected 'in' after loop variable.")
     val iterable = parseExpression(parser)
     val body = parseBlock(parser)
-    return ASTNode.For(ForNode(item, iterable, body))
+    return ASTNode.For(ForNode(item, iterable, body, indexVar, label))
 }
 
 fn parseBlock(parser: Parser) -> ASTNode {
@@ -1358,12 +1373,24 @@ fn parseStatementInner(parser: Parser) -> ASTNode {
         return parseMatch(parser, false)
     }
     if matchToken(parser, TokType.KeywordBreak) {
-        return ASTNode.Break(BreakNode())
+        return ASTNode.Break(BreakNode(parseLoopLabel(parser)))
     }
     if matchToken(parser, TokType.KeywordContinue) {
-        return ASTNode.Continue(ContinueNode())
+        return ASTNode.Continue(ContinueNode(parseLoopLabel(parser)))
     }
     return parseExpression(parser)
+}
+
+// The loop named by `break outer`: an identifier on the SAME line as the
+// keyword. The line check is load-bearing, not cosmetic: `break` followed by
+// a statement starting with a name on the next line (`break` newline
+// `foo()`) is a plain break, and reading the next line's name as a label
+// would turn working code into "unknown loop label".
+fn parseLoopLabel(parser: Parser) -> string {
+    if check(parser, TokType.Identifier) == false { return "" }
+    if parser.currentToken.line != parser.previousToken.line { return "" }
+    advanceParser(parser)
+    return parser.previousToken.text
 }
 
 fn parseDeclaration(parser: Parser) -> ASTNode {

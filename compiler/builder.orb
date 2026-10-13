@@ -12,6 +12,18 @@ model IRBuilder {
     variableScopes: list
     loopStartLabels: list
     loopEndLabels: list
+    // Names of the loops on the two stacks above, in lockstep: "" for an
+    // unlabeled loop (while always pushes ""), the label otherwise. Only
+    // recordInstanceModel-style push discipline applies: every push to the
+    // label stacks pushes here, closeLoop pops all four, or a later break
+    // jumps to the wrong loop.
+    loopLabelNames: list
+    // Where a `continue` (plain or named) jumps for each loop on the stacks,
+    // in lockstep with them. A `while` continues at its start label, but a
+    // `for` must continue at its increment: jumping a `for` to its start
+    // reloads the same index forever, which is how a plain `continue` in a
+    // `for` used to hang. Fourth stack, same push/pop discipline.
+    loopContinueLabels: list
     modelNames: list
     returnTypes: list
     // Element type per named list, as `name -> Orbit type name` (Variable).
@@ -42,7 +54,7 @@ model IRBuilder {
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], 0)
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], [], [], 0)
 }
 
 model Variable {
@@ -2006,6 +2018,26 @@ fn emitLoopJump(builder: IRBuilder, labels: list) -> int {
     return -1
 }
 
+// A `break outer` jumps to the named loop's end, searched innermost-first
+// so it resolves exactly the way the checker's loopLabels stack does. An
+// empty name keeps the old top-of-stack behavior; an unresolvable name
+// emits nothing, which is safe because the checker already refused it.
+fn emitNamedLoopJump(builder: IRBuilder, labels: list, name: string) -> int {
+    if name == "" { return emitLoopJump(builder, labels) }
+    var i = builder.loopLabelNames.len()
+    while i > 0 {
+        i = i - 1
+        if builder.loopLabelNames.get(i) == name {
+            val label = labels.get(i)
+            val jmp = ir_init_instr(IROpcode.jump)
+            jmp.operand1 = ir_label(label)
+            ir_emit(builder.currentFunction, jmp)
+            return -1
+        }
+    }
+    return -1
+}
+
 // The tail every loop ends with: jump back to the top, label the end, and pop
 // both label stacks. `while` and `for` each wrote these ten lines out, and the
 // two copies differed only in what the end-label instruction was called. A
@@ -2023,6 +2055,8 @@ fn closeLoop(builder: IRBuilder, endLabel: int) {
     ir_emit(builder.currentFunction, lblEnd)
     builder.loopStartLabels.pop()
     builder.loopEndLabels.pop()
+    builder.loopLabelNames.pop()
+    builder.loopContinueLabels.pop()
 }
 
 // A C function whose body does not end in a return is undefined behaviour when
@@ -2064,6 +2098,8 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             val endLabel = allocLabel(builder)
             builder.loopStartLabels.push(startLabel)
             builder.loopEndLabels.push(endLabel)
+            builder.loopLabelNames.push("")
+            builder.loopContinueLabels.push(startLabel)
             val lblStartInstr = ir_init_instr(IROpcode.label)
             lblStartInstr.operand1 = ir_label(startLabel)
             ir_emit(builder.currentFunction, lblStartInstr)
@@ -2102,6 +2138,16 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
 
             val idxC = defineVariable(builder, stmt.item + "_idx", "int")
             val itemC = defineVariable(builder, stmt.item, iterElemType)
+            // The user's index name, when `for x, i` names one: a sibling
+            // variable the emitter rewrites every iteration from the hidden
+            // counter. defineVariable mints on collision (`i__sN`), and reads
+            // resolve innermost-first, so an index shadowing the hidden
+            // `<item>_idx` still reads the user's, while the machinery below
+            // keeps using idxC directly and never the name.
+            var indexC = ""
+            if stmt.indexVar != "" {
+                indexC = defineVariable(builder, stmt.indexVar, "int")
+            }
             val idxInit = ir_init_instr(IROpcode.decl_var)
             idxInit.operand1 = ir_symbol(idxC)
             idxInit.operand2 = ir_register(zeroReg)
@@ -2110,6 +2156,9 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             val endLabel = allocLabel(builder)
             builder.loopStartLabels.push(startLabel)
             builder.loopEndLabels.push(endLabel)
+            builder.loopLabelNames.push(stmt.label)
+            val incrLabel = allocLabel(builder)
+            builder.loopContinueLabels.push(incrLabel)
             val lblStart = ir_init_instr(IROpcode.label)
             lblStart.operand1 = ir_label(startLabel)
             ir_emit(builder.currentFunction, lblStart)
@@ -2140,7 +2189,19 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             declItem.operand1 = ir_symbol(itemC)
             declItem.operand2 = ir_register(itemReg)
             ir_emit(builder.currentFunction, declItem)
+            if indexC != "" {
+                val declIndex = ir_init_instr(IROpcode.decl_var)
+                declIndex.operand1 = ir_symbol(indexC)
+                declIndex.operand2 = ir_register(idxLoadReg)
+                ir_emit(builder.currentFunction, declIndex)
+            }
             buildNode(builder, stmt.body)
+            // The increment a `continue` must not skip: continuing a `for`
+            // to its start label reloads the same index and hangs, so the
+            // loop's continue target is this label, emitted here.
+            val lblIncr = ir_init_instr(IROpcode.label)
+            lblIncr.operand1 = ir_label(incrLabel)
+            ir_emit(builder.currentFunction, lblIncr)
             // Increment and store idx
             val incReg = ir_alloc_register(builder.currentFunction, "int")
             val incInstr = ir_init_instr(IROpcode.add)
@@ -3708,8 +3769,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         ASTNode.FieldInit(fi) => {
             return buildExpr(builder, fi.value)
         }
-        ASTNode.Break(b) => { return emitLoopJump(builder, builder.loopEndLabels) }
-        ASTNode.Continue(c) => { return emitLoopJump(builder, builder.loopStartLabels) }
+        ASTNode.Break(b) => { return emitNamedLoopJump(builder, builder.loopEndLabels, b.label) }
+        ASTNode.Continue(c) => { return emitNamedLoopJump(builder, builder.loopContinueLabels, c.label) }
         _ => {
             return -1
         }

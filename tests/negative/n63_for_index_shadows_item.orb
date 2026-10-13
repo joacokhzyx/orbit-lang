@@ -1,0 +1,11 @@
+// case: for-index-shadows-item
+// what: `for x, x in xs` binds the name twice in the loop scope. The second
+//      declaration is refused by the same duplicate-symbol rule as any
+//      redeclaration, so the index can never silently alias the element.
+// expect-error: Duplicate symbol: x
+fn main() -> int {
+    for x, x in [1, 2] {
+        print(x)
+    }
+    return 0
+}

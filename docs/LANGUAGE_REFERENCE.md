@@ -205,6 +205,11 @@ while sum < 10 {
 }
 ```
 
+`for x, i in xs` also binds the position `i` (0-based) alongside the
+element. `for outer: x in xs` names the loop so `break outer` (or
+`continue outer`) inside any nesting hits it; a named jump to no enclosing
+loop is an error quoting the label. `while` loops cannot be labeled.
+
 Expressions support arithmetic, comparisons, `&&`, `||`, unary `!` and `-`,
 calls, member access, arrays, [object literals](#object-literals), and string
 interpolation.
