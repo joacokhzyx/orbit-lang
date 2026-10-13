@@ -204,7 +204,13 @@ model WhileNode {
 
 model ForNode {
     item: string
-    iterable: list
+    // The iterated expression: any ASTNode, never a list. It used to be
+    // declared `list`, which typechecked only because every reader takes
+    // ASTNode and every writer passes unknown bindings -- and which refused
+    // E1005 the day a helper annotated its parameter ForNode, while an
+    // unannotated (unknown) parameter silently wrapped the value so `body`
+    // read the iterable's slot. Declared as built.
+    iterable: ASTNode
     body: ASTNode
     // The optional index binding of `for x, i in xs`, "" when absent. The
     // emitter keeps it in sync with its hidden counter, so the body reads a
@@ -321,6 +327,21 @@ model ListLiteralNode {
     elements: list
 }
 
+// The bounds of `for x in lo..hi`: half-open [lo, hi), ints only, ascending.
+// Built only in the `for` header, consumed only by the `for` arms of the
+// checker and the emitter. Anywhere else a `..` is an unexpected token,
+// because a range is a way to iterate, not a value: giving it a runtime
+// shape would also give `for x in r` two meanings (the pair, or the count).
+model RangeNode {
+    // See the note at the head of this file.
+    lo: ASTNode
+    // See the note at the head of this file.
+    hi: ASTNode
+    // Where the `..` was. A non-int bound is reported against this.
+    line: int
+    col: int
+}
+
 model AssignmentNode {
     // See the note at the head of this file.
     target: ASTNode
@@ -339,4 +360,4 @@ model ContinueNode {
     label: string
 }
 
-type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | MigrationDecl(MigrationDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | FieldInit(FieldInitNode) | TypedLiteral(TypedLiteralNode) | Empty
+type ASTNode = Program(ProgramNode) | FunctionDecl(FunctionDeclNode) | RouteDecl(RouteDeclNode) | ModelDecl(ModelDeclNode) | TypeDecl(TypeDeclNode) | FieldDecl(FieldDeclNode) | TraitDecl(TraitDeclNode) | ImplDecl(ImplDeclNode) | VarDecl(VarDeclNode) | ConstDecl(ConstDeclNode) | ScheduleDecl(ScheduleDeclNode) | ConfigDecl(ConfigDeclNode) | MigrationDecl(MigrationDeclNode) | ImportStmt(ImportStmtNode) | UseStmt(UseStmtNode) | ExpressionStmt(ExpressionStmtNode) | If(IfNode) | While(WhileNode) | For(ForNode) | Return(ReturnNode) | ReturnOk(ReturnOkNode) | ReturnErr(ReturnErrNode) | Match(MatchNode) | MatchCase(MatchCaseNode) | Try(TryNode) | Literal(LiteralNode) | Interp(InterpNode) | ObjectLiteral(ObjectLiteralNode) | BinaryOp(BinaryOpNode) | UnaryOp(UnaryOpNode) | Call(CallNode) | MemberAccess(MemberAccessNode) | IndexAccess(IndexAccessNode) | ListLiteral(ListLiteralNode) | Assignment(AssignmentNode) | TypeAnnotation(TypeAnnotationNode) | GenericParam(GenericParamNode) | Decorator(DecoratorNode) | Block(BlockNode) | Break(BreakNode) | Continue(ContinueNode) | FieldInit(FieldInitNode) | TypedLiteral(TypedLiteralNode) | Empty | Range(RangeNode)

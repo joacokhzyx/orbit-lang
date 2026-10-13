@@ -870,7 +870,19 @@ fn parseForStatement(parser: Parser) -> ASTNode {
         indexVar = parser.previousToken.text
     }
     consume(parser, TokType.KeywordIn, "Expected 'in' after loop variable.")
-    val iterable = parseExpression(parser)
+    // The iterable is a full expression, unless a `..` follows its start: a
+    // range bound parses as far as an expression goes (`0..n + 1` counts to
+    // n + 1, because `..` binds looser than `+`), and the `..` position rides
+    // along for the bound diagnostic. Parsing the head with parseExpression
+    // keeps every non-range iterable exactly as it was: `for x in xs` never
+    // sees this branch.
+    var iterable = parseExpression(parser)
+    if matchToken(parser, TokType.DotDot) {
+        val dotLine = parser.previousToken.line
+        val dotCol = parser.previousToken.col
+        val hi = parseExpression(parser)
+        iterable = ASTNode.Range(RangeNode(iterable, hi, dotLine, dotCol))
+    }
     val body = parseBlock(parser)
     return ASTNode.For(ForNode(item, iterable, body, indexVar, label))
 }

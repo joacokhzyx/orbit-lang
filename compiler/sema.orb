@@ -1925,42 +1925,66 @@ fn checkWhileLoop(sema: Sema, node: ASTNode) {
 fn checkForLoop(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.For(f) => {
-            // The loop variable is the element the iterable holds, so it is
-            // declared as one. It was declared "unknown", and an unknown is
-            // compatible with every annotation, which is how `for x in [1,2,3]`
-            // gave a loop body an x that read back as nothing at all.
-            val iterType = checkNode(sema, f.iterable)
-            // A `for` lowers to list_len/list_get with no runtime kind check,
-            // so anything but a proven list miscompiles: a string iterates
-            // its bytes as pointers (strings are not iterable), and an
-            // unknown dynamic read segfaults on the first element. Model
-            // field reads answer their declared type above, so declared
-            // lists pass; only the unprovable is refused, with its type named.
-            if compatTypeBase(iterType) != "list" {
-                reportError(sema, "for loops iterate lists, not " + iterType + ".")
+            // A `for x in lo..hi` counts ints from lo while the counter is
+            // below hi: both bounds are checked here and the item is an int,
+            // while the tail below (scope, bindings, body) is shared with
+            // the list path. Anything but two ints is refused with both
+            // types named, the way a non-list iterable is.
+            match f.iterable {
+                ASTNode.Range(r) => {
+                    val loType = checkNode(sema, r.lo)
+                    val hiType = checkNode(sema, r.hi)
+                    if loType != "int" || hiType != "int" {
+                        reportError(sema, "for ranges count ints, not " + loType + ".." + hiType + ".")
+                    }
+                    checkForBody(sema, f, "int")
+                }
+                _ => {
+                    // The loop variable is the element the iterable holds, so it is
+                    // declared as one. It was declared "unknown", and an unknown is
+                    // compatible with every annotation, which is how `for x in [1,2,3]`
+                    // gave a loop body an x that read back as nothing at all.
+                    val iterType = checkNode(sema, f.iterable)
+                    // A `for` lowers to list_len/list_get with no runtime kind check,
+                    // so anything but a proven list miscompiles: a string iterates
+                    // its bytes as pointers (strings are not iterable), and an
+                    // unknown dynamic read segfaults on the first element. Model
+                    // field reads answer their declared type above, so declared
+                    // lists pass; only the unprovable is refused, with its type named.
+                    if compatTypeBase(iterType) != "list" {
+                        reportError(sema, "for loops iterate lists, not " + iterType + ".")
+                    }
+                    checkForBody(sema, f, listElementOf(sema, iterType, bareNameOf(f.iterable)))
+                }
             }
-            pushScope(sema)
-            declareSymbol(sema, f.item, listElementOf(sema, iterType, bareNameOf(f.iterable)), false, false)
-            // The index is a plain int the emitter keeps in sync with its
-            // hidden counter. Binding the item twice (`for x, x in xs`) is a
-            // duplicate, refused by the same rule as any redeclaration.
-            if f.indexVar != "" {
-                declareSymbol(sema, f.indexVar, "int", false, false)
-            }
-            // A label is only visible to the loop's own body: push before the
-            // body, pop after, so a label never leaks to a later loop and two
-            // nested loops can share nothing by accident.
-            if f.label != "" {
-                sema.loopLabels.push(f.label)
-            }
-            checkNode(sema, f.body)
-            if f.label != "" {
-                sema.loopLabels.pop()
-            }
-            popScope(sema)
         }
         _ => {}
     }
+}
+
+// The tail every `for` ends with, whatever it iterates: a scope for the
+// bindings, the item, the optional index, the optional label, then the body.
+// One function so the list and range paths cannot drift apart on scoping.
+fn checkForBody(sema: Sema, f: ForNode, itemType: string) {
+    pushScope(sema)
+    declareSymbol(sema, f.item, itemType, false, false)
+    // The index is a plain int the emitter keeps in sync with its
+    // hidden counter. Binding the item twice (`for x, x in xs`) is a
+    // duplicate, refused by the same rule as any redeclaration.
+    if f.indexVar != "" {
+        declareSymbol(sema, f.indexVar, "int", false, false)
+    }
+    // A label is only visible to the loop's own body: push before the
+    // body, pop after, so a label never leaks to a later loop and two
+    // nested loops can share nothing by accident.
+    if f.label != "" {
+        sema.loopLabels.push(f.label)
+    }
+    checkNode(sema, f.body)
+    if f.label != "" {
+        sema.loopLabels.pop()
+    }
+    popScope(sema)
 }
 
 fn sameString(left: string, right: string) -> bool {
@@ -3146,6 +3170,16 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         }
         ASTNode.For(f) => { checkForLoop(sema, node)
             return ""
+        }
+        ASTNode.Range(r) => {
+            // Unreachable through the parser: only the `for` header builds
+            // a range, and checkForLoop consumes it by matching, never
+            // through here. The arm exists so the dispatch gate sees the
+            // variant handled; it checks the bounds rather than dropping
+            // them, and answers what the wildcard would.
+            checkNode(sema, r.lo)
+            checkNode(sema, r.hi)
+            return "unknown"
         }
         ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants)
             return ""

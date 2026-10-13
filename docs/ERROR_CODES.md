@@ -215,6 +215,7 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `cannot interpolate a value of type` | `n02` |
 | `must end the path` (multi-capture not final) / `empty multi-capture name` | `n58` |
 | `for loops iterate lists` (non-list or unknown iterable) | `n59` |
+| `for ranges count ints` (non-int range bound) | `n64` |
 | `'model Box[T: int]' is not supported ...` | `n53` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |
 

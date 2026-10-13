@@ -1271,7 +1271,7 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
 // is its own value. This is the same rule sema's checkBlock types a block by
 // ("the type of the last statement"), so the type layer and the builder agree
 // on what `if c { 1 } else { 2 }` is worth.
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, WhileNode
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, WhileNode
 fn branchValueNode(node: ASTNode) -> ASTNode {
     match node {
         ASTNode.Block(b) => {
@@ -2078,6 +2078,199 @@ fn ensureTrailingRet(func: IRFunction) {
     ir_emit(func, ret)
 }
 
+// The list path of `for`: walk slots 0..len, rebinding item (and the
+// user's index, when named) every iteration. Extracted verbatim from the
+// buildNode For arm when the range path arrived, so neither path pays for
+// the other's shape.
+//
+// `stmt` is annotated ForNode on purpose: parameters pass raw, while an
+// unannotated (unknown) parameter wraps the value and the field reads land
+// on the wrong slots (`body` read the iterable). The annotation typechecks
+// because `iterable` is declared ASTNode, as built.
+fn buildForList(builder: IRBuilder, stmt: ForNode) {
+    val iterReg = buildExpr(builder, stmt.iterable)
+    // The element type of the iterable, decided here so the loop
+    // variable is not `unknown`. A `for x in [1,2,3] { print(x) }`
+    // whose x was unknown reached print as a string and printed the
+    // integer 1 as the address 0x1, or segfaulted; the variable's type
+    // is what tells those two emitters apart.
+    // The same two sources as an explicit read, and for the same reason: a `for`
+    // over a list whose kind was never pushed -- it came from a field or
+    // from a `->` function -- has no name-keyed entry, and the loop
+    // variable then typed as the raw word.
+    val iterKind = elemKindCode(listReadElemKindName(builder, stmt.iterable))
+    val iterElemType = registerTypeForElemKind(iterKind)
+    val lenReg = ir_alloc_register(builder.currentFunction, "int")
+    val lenInstr = ir_init_instr(IROpcode.list_len)
+    lenInstr.dest = lenReg
+    lenInstr.operand1 = ir_register(iterReg)
+    ir_emit(builder.currentFunction, lenInstr)
+    val zeroReg = ir_alloc_register(builder.currentFunction, "int")
+    val zeroConst = ir_init_instr(IROpcode.load_const)
+    zeroConst.dest = zeroReg
+    zeroConst.operand1 = ir_int(0)
+    ir_emit(builder.currentFunction, zeroConst)
+
+    val idxC = defineVariable(builder, stmt.item + "_idx", "int")
+    val itemC = defineVariable(builder, stmt.item, iterElemType)
+    // The user's index name, when `for x, i` names one: a sibling
+    // variable the emitter rewrites every iteration from the hidden
+    // counter. defineVariable mints on collision (`i__sN`), and reads
+    // resolve innermost-first, so an index shadowing the hidden
+    // `<item>_idx` still reads the user's, while the machinery below
+    // keeps using idxC directly and never the name.
+    var indexC = ""
+    if stmt.indexVar != "" {
+        indexC = defineVariable(builder, stmt.indexVar, "int")
+    }
+    val idxInit = ir_init_instr(IROpcode.decl_var)
+    idxInit.operand1 = ir_symbol(idxC)
+    idxInit.operand2 = ir_register(zeroReg)
+    ir_emit(builder.currentFunction, idxInit)
+    val startLabel = allocLabel(builder)
+    val endLabel = allocLabel(builder)
+    builder.loopStartLabels.push(startLabel)
+    builder.loopEndLabels.push(endLabel)
+    builder.loopLabelNames.push(stmt.label)
+    val incrLabel = allocLabel(builder)
+    builder.loopContinueLabels.push(incrLabel)
+    val lblStart = ir_init_instr(IROpcode.label)
+    lblStart.operand1 = ir_label(startLabel)
+    ir_emit(builder.currentFunction, lblStart)
+    // Load idx from variable
+    val idxLoadReg = ir_alloc_register(builder.currentFunction, "int")
+    val idxLoad = ir_init_instr(IROpcode.load_var)
+    idxLoad.dest = idxLoadReg
+    idxLoad.operand1 = ir_symbol(idxC)
+    ir_emit(builder.currentFunction, idxLoad)
+    val condReg = ir_alloc_register(builder.currentFunction, "bool")
+    val condInstr = ir_init_instr(IROpcode.lt)
+    condInstr.dest = condReg
+    condInstr.operand1 = ir_register(idxLoadReg)
+    condInstr.operand2 = ir_register(lenReg)
+    ir_emit(builder.currentFunction, condInstr)
+    val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
+    jmpFalse.operand1 = ir_register(condReg)
+    jmpFalse.operand2 = ir_label(endLabel)
+    ir_emit(builder.currentFunction, jmpFalse)
+    val itemReg = ir_alloc_register(builder.currentFunction, iterElemType)
+    val getInstr = ir_init_instr(IROpcode.list_get)
+    getInstr.dest = itemReg
+    getInstr.operand1 = ir_register(iterReg)
+    getInstr.operand2 = ir_register(idxLoadReg)
+    getInstr.elemKind = iterKind
+    ir_emit(builder.currentFunction, getInstr)
+    val declItem = ir_init_instr(IROpcode.decl_var)
+    declItem.operand1 = ir_symbol(itemC)
+    declItem.operand2 = ir_register(itemReg)
+    ir_emit(builder.currentFunction, declItem)
+    if indexC != "" {
+        val declIndex = ir_init_instr(IROpcode.decl_var)
+        declIndex.operand1 = ir_symbol(indexC)
+        declIndex.operand2 = ir_register(idxLoadReg)
+        ir_emit(builder.currentFunction, declIndex)
+    }
+    buildNode(builder, stmt.body)
+    // The increment a `continue` must not skip: continuing a `for`
+    // to its start label reloads the same index and hangs, so the
+    // loop's continue target is this label, emitted here.
+    val lblIncr = ir_init_instr(IROpcode.label)
+    lblIncr.operand1 = ir_label(incrLabel)
+    ir_emit(builder.currentFunction, lblIncr)
+    // Increment and store idx
+    val incReg = ir_alloc_register(builder.currentFunction, "int")
+    val incInstr = ir_init_instr(IROpcode.add)
+    incInstr.dest = incReg
+    incInstr.operand1 = ir_register(idxLoadReg)
+    incInstr.operand2 = ir_int(1)
+    ir_emit(builder.currentFunction, incInstr)
+    val storeIdx = ir_init_instr(IROpcode.store_var)
+    storeIdx.operand1 = ir_symbol(idxC)
+    storeIdx.operand2 = ir_register(incReg)
+    ir_emit(builder.currentFunction, storeIdx)
+    ir_emit(builder.currentFunction, jumpTo(startLabel))
+    closeLoop(builder, endLabel)
+}
+
+// The range path of `for`: count a hidden counter from lo while it is below
+// hi, rebinding the item to the counter every iteration. O(1) memory on
+// purpose: materializing `0..n` as a list first would make a large bound a
+// large allocation, and the counter is all the loop needs. Both bounds
+// evaluate once, before the loop, so `for x in 0..f()` calls f once. The
+// user's index, when named, is the 0-based position (counter minus lo),
+// exactly what it is over a list.
+fn buildForRange(builder: IRBuilder, stmt: ForNode, r: RangeNode) {
+    val loReg = buildExpr(builder, r.lo)
+    val hiReg = buildExpr(builder, r.hi)
+    val counterC = defineVariable(builder, stmt.item + "_range", "int")
+    val itemC = defineVariable(builder, stmt.item, "int")
+    var indexC = ""
+    if stmt.indexVar != "" {
+        indexC = defineVariable(builder, stmt.indexVar, "int")
+    }
+    val counterInit = ir_init_instr(IROpcode.decl_var)
+    counterInit.operand1 = ir_symbol(counterC)
+    counterInit.operand2 = ir_register(loReg)
+    ir_emit(builder.currentFunction, counterInit)
+    val startLabel = allocLabel(builder)
+    val endLabel = allocLabel(builder)
+    builder.loopStartLabels.push(startLabel)
+    builder.loopEndLabels.push(endLabel)
+    builder.loopLabelNames.push(stmt.label)
+    val incrLabel = allocLabel(builder)
+    builder.loopContinueLabels.push(incrLabel)
+    val lblStart = ir_init_instr(IROpcode.label)
+    lblStart.operand1 = ir_label(startLabel)
+    ir_emit(builder.currentFunction, lblStart)
+    val counterLoadReg = ir_alloc_register(builder.currentFunction, "int")
+    val counterLoad = ir_init_instr(IROpcode.load_var)
+    counterLoad.dest = counterLoadReg
+    counterLoad.operand1 = ir_symbol(counterC)
+    ir_emit(builder.currentFunction, counterLoad)
+    val condReg = ir_alloc_register(builder.currentFunction, "bool")
+    val condInstr = ir_init_instr(IROpcode.lt)
+    condInstr.dest = condReg
+    condInstr.operand1 = ir_register(counterLoadReg)
+    condInstr.operand2 = ir_register(hiReg)
+    ir_emit(builder.currentFunction, condInstr)
+    val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
+    jmpFalse.operand1 = ir_register(condReg)
+    jmpFalse.operand2 = ir_label(endLabel)
+    ir_emit(builder.currentFunction, jmpFalse)
+    val declItem = ir_init_instr(IROpcode.decl_var)
+    declItem.operand1 = ir_symbol(itemC)
+    declItem.operand2 = ir_register(counterLoadReg)
+    ir_emit(builder.currentFunction, declItem)
+    if indexC != "" {
+        val posReg = ir_alloc_register(builder.currentFunction, "int")
+        val posInstr = ir_init_instr(IROpcode.sub)
+        posInstr.dest = posReg
+        posInstr.operand1 = ir_register(counterLoadReg)
+        posInstr.operand2 = ir_register(loReg)
+        ir_emit(builder.currentFunction, posInstr)
+        val declIndex = ir_init_instr(IROpcode.decl_var)
+        declIndex.operand1 = ir_symbol(indexC)
+        declIndex.operand2 = ir_register(posReg)
+        ir_emit(builder.currentFunction, declIndex)
+    }
+    buildNode(builder, stmt.body)
+    val lblIncr = ir_init_instr(IROpcode.label)
+    lblIncr.operand1 = ir_label(incrLabel)
+    ir_emit(builder.currentFunction, lblIncr)
+    val incReg = ir_alloc_register(builder.currentFunction, "int")
+    val incInstr = ir_init_instr(IROpcode.add)
+    incInstr.dest = incReg
+    incInstr.operand1 = ir_register(counterLoadReg)
+    incInstr.operand2 = ir_int(1)
+    ir_emit(builder.currentFunction, incInstr)
+    val storeCounter = ir_init_instr(IROpcode.store_var)
+    storeCounter.operand1 = ir_symbol(counterC)
+    storeCounter.operand2 = ir_register(incReg)
+    ir_emit(builder.currentFunction, storeCounter)
+    ir_emit(builder.currentFunction, jumpTo(startLabel))
+    closeLoop(builder, endLabel)
+}
+
 // orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn buildNode(builder: IRBuilder, node: ASTNode) {
     match node {
@@ -2113,108 +2306,13 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
             closeLoop(builder, endLabel)
         }
         ASTNode.For(stmt) => {
-            val iterReg = buildExpr(builder, stmt.iterable)
-            // The element type of the iterable, decided here so the loop
-            // variable is not `unknown`. A `for x in [1,2,3] { print(x) }`
-            // whose x was unknown reached print as a string and printed the
-            // integer 1 as the address 0x1, or segfaulted; the variable's type
-            // is what tells those two emitters apart.
-            // The same two sources as an explicit read, and for the same reason: a `for`
-            // over a list whose kind was never pushed -- it came from a field or
-            // from a `->` function -- has no name-keyed entry, and the loop
-            // variable then typed as the raw word.
-            val iterKind = elemKindCode(listReadElemKindName(builder, stmt.iterable))
-            val iterElemType = registerTypeForElemKind(iterKind)
-            val lenReg = ir_alloc_register(builder.currentFunction, "int")
-            val lenInstr = ir_init_instr(IROpcode.list_len)
-            lenInstr.dest = lenReg
-            lenInstr.operand1 = ir_register(iterReg)
-            ir_emit(builder.currentFunction, lenInstr)
-            val zeroReg = ir_alloc_register(builder.currentFunction, "int")
-            val zeroConst = ir_init_instr(IROpcode.load_const)
-            zeroConst.dest = zeroReg
-            zeroConst.operand1 = ir_int(0)
-            ir_emit(builder.currentFunction, zeroConst)
-
-            val idxC = defineVariable(builder, stmt.item + "_idx", "int")
-            val itemC = defineVariable(builder, stmt.item, iterElemType)
-            // The user's index name, when `for x, i` names one: a sibling
-            // variable the emitter rewrites every iteration from the hidden
-            // counter. defineVariable mints on collision (`i__sN`), and reads
-            // resolve innermost-first, so an index shadowing the hidden
-            // `<item>_idx` still reads the user's, while the machinery below
-            // keeps using idxC directly and never the name.
-            var indexC = ""
-            if stmt.indexVar != "" {
-                indexC = defineVariable(builder, stmt.indexVar, "int")
+            // A range counts with its own counter; a list walks its slots.
+            // The split is here so neither path pays for the other's shape,
+            // and both share labels, index and continue-target handling.
+            match stmt.iterable {
+                ASTNode.Range(r) => { buildForRange(builder, stmt, r) }
+                _ => { buildForList(builder, stmt) }
             }
-            val idxInit = ir_init_instr(IROpcode.decl_var)
-            idxInit.operand1 = ir_symbol(idxC)
-            idxInit.operand2 = ir_register(zeroReg)
-            ir_emit(builder.currentFunction, idxInit)
-            val startLabel = allocLabel(builder)
-            val endLabel = allocLabel(builder)
-            builder.loopStartLabels.push(startLabel)
-            builder.loopEndLabels.push(endLabel)
-            builder.loopLabelNames.push(stmt.label)
-            val incrLabel = allocLabel(builder)
-            builder.loopContinueLabels.push(incrLabel)
-            val lblStart = ir_init_instr(IROpcode.label)
-            lblStart.operand1 = ir_label(startLabel)
-            ir_emit(builder.currentFunction, lblStart)
-            // Load idx from variable
-            val idxLoadReg = ir_alloc_register(builder.currentFunction, "int")
-            val idxLoad = ir_init_instr(IROpcode.load_var)
-            idxLoad.dest = idxLoadReg
-            idxLoad.operand1 = ir_symbol(idxC)
-            ir_emit(builder.currentFunction, idxLoad)
-            val condReg = ir_alloc_register(builder.currentFunction, "bool")
-            val condInstr = ir_init_instr(IROpcode.lt)
-            condInstr.dest = condReg
-            condInstr.operand1 = ir_register(idxLoadReg)
-            condInstr.operand2 = ir_register(lenReg)
-            ir_emit(builder.currentFunction, condInstr)
-            val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
-            jmpFalse.operand1 = ir_register(condReg)
-            jmpFalse.operand2 = ir_label(endLabel)
-            ir_emit(builder.currentFunction, jmpFalse)
-            val itemReg = ir_alloc_register(builder.currentFunction, iterElemType)
-            val getInstr = ir_init_instr(IROpcode.list_get)
-            getInstr.dest = itemReg
-            getInstr.operand1 = ir_register(iterReg)
-            getInstr.operand2 = ir_register(idxLoadReg)
-            getInstr.elemKind = iterKind
-            ir_emit(builder.currentFunction, getInstr)
-            val declItem = ir_init_instr(IROpcode.decl_var)
-            declItem.operand1 = ir_symbol(itemC)
-            declItem.operand2 = ir_register(itemReg)
-            ir_emit(builder.currentFunction, declItem)
-            if indexC != "" {
-                val declIndex = ir_init_instr(IROpcode.decl_var)
-                declIndex.operand1 = ir_symbol(indexC)
-                declIndex.operand2 = ir_register(idxLoadReg)
-                ir_emit(builder.currentFunction, declIndex)
-            }
-            buildNode(builder, stmt.body)
-            // The increment a `continue` must not skip: continuing a `for`
-            // to its start label reloads the same index and hangs, so the
-            // loop's continue target is this label, emitted here.
-            val lblIncr = ir_init_instr(IROpcode.label)
-            lblIncr.operand1 = ir_label(incrLabel)
-            ir_emit(builder.currentFunction, lblIncr)
-            // Increment and store idx
-            val incReg = ir_alloc_register(builder.currentFunction, "int")
-            val incInstr = ir_init_instr(IROpcode.add)
-            incInstr.dest = incReg
-            incInstr.operand1 = ir_register(idxLoadReg)
-            incInstr.operand2 = ir_int(1)
-            ir_emit(builder.currentFunction, incInstr)
-            val storeIdx = ir_init_instr(IROpcode.store_var)
-            storeIdx.operand1 = ir_symbol(idxC)
-            storeIdx.operand2 = ir_register(incReg)
-            ir_emit(builder.currentFunction, storeIdx)
-            ir_emit(builder.currentFunction, jumpTo(startLabel))
-            closeLoop(builder, endLabel)
         }
         ASTNode.Return(r) => {
             // Check for Empty expr
@@ -3391,7 +3489,7 @@ fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
     return ""
 }
 
-// orbit-walk-misses: ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
+// orbit-walk-misses: ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     // A type annotation is not a runtime operation: the value underneath is the
     // expression, and the annotation only says which declared type it has. A

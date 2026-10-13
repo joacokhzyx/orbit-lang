@@ -515,7 +515,17 @@ fn nextToken(lexer: Lexer) -> Token {
     if c == 93 { return Token(TokType.CloseBracket, "]", line, col, start, lexer.pos - start) }
     if c == 44 { return Token(TokType.Comma, ",", line, col, start, lexer.pos - start) }
     if c == 58 { return Token(TokType.Colon, ":", line, col, start, lexer.pos - start) }
-    if c == 46 { return Token(TokType.Dot, ".", line, col, start, lexer.pos - start) }
+    if c == 46 {
+        // `..` is one token, or `a..b` would lex as two member accesses and
+        // parse as member-of-member with a confusing diagnostic. A `.`
+        // followed by a digit never reaches here: the number branch above
+        // already ate `1.5`, so `1..5` is `1`, `..`, `5`.
+        if peek(lexer) == 46 {
+            advance(lexer)
+            return Token(TokType.DotDot, "..", line, col, start, lexer.pos - start)
+        }
+        return Token(TokType.Dot, ".", line, col, start, lexer.pos - start)
+    }
     if c == 59 { return Token(TokType.SemiColon, ";", line, col, start, lexer.pos - start) }
     if c == 64 { return Token(TokType.At, "@", line, col, start, lexer.pos - start) }
     if c == 63 { return Token(TokType.Question, "?", line, col, start, lexer.pos - start) }

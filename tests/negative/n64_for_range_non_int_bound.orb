@@ -1,0 +1,12 @@
+// case: for-range-non-int-bound
+// what: a range counts ints, so a float bound is refused with both types
+//      named, the way a non-list iterable names its type. There is no
+//      coercion: silently truncating 0.5..3 would count from a value the
+//      program never wrote.
+// expect-error: for ranges count ints, not float..int
+fn main() -> int {
+    for x in 0.0..3 {
+        print(x)
+    }
+    return 0
+}

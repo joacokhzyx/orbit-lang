@@ -1,0 +1,84 @@
+// `for x in lo..hi` counts ints from lo while the counter is below hi:
+// half-open [lo, hi), O(1) memory (no list is built), both bounds evaluated
+// once before the loop. Empty when hi <= lo. Bounds must be ints.
+fn basic_count() -> int {
+    var sum = 0
+    for x in 0..5 {
+        sum = sum + x
+    }
+    if sum != 10 { return 1 }
+    return 0
+}
+
+fn nonzero_lo() -> int {
+    var sum = 0
+    for x in 5..8 {
+        sum = sum + x
+    }
+    if sum != 18 { return 1 }
+    return 0
+}
+
+fn empty_when_hi_le_lo() -> int {
+    var n = 0
+    for x in 3..3 {
+        n = n + 1
+    }
+    for y in 5..2 {
+        n = n + 1
+    }
+    if n != 0 { return 1 }
+    return 0
+}
+
+fn hi_is_an_expression() -> int {
+    var sum = 0
+    val n = 3
+    for x in 0..n + 1 {
+        sum = sum + x
+    }
+    if sum != 6 { return 1 }
+    return 0
+}
+
+fn index_is_position() -> int {
+    var sum = 0
+    for x, i in 5..8 {
+        sum = sum + i
+        if x != i + 5 { return 2 }
+    }
+    if sum != 3 { return 1 }
+    return 0
+}
+
+fn label_breaks_range() -> int {
+    var n = 0
+    for outer: x in 0..10 {
+        n = n + 1
+        if x == 2 { break outer }
+    }
+    if n != 3 { return 1 }
+    return 0
+}
+
+fn nested_ranges() -> int {
+    var total = 0
+    for x in 0..3 {
+        for y in 0..2 {
+            total = total + 1
+        }
+    }
+    if total != 6 { return 1 }
+    return 0
+}
+
+fn main() -> int {
+    if basic_count() != 0 { return 1 }
+    if nonzero_lo() != 0 { return 2 }
+    if empty_when_hi_le_lo() != 0 { return 3 }
+    if hi_is_an_expression() != 0 { return 4 }
+    if index_is_position() != 0 { return 5 }
+    if label_breaks_range() != 0 { return 6 }
+    if nested_ranges() != 0 { return 7 }
+    return 0
+}

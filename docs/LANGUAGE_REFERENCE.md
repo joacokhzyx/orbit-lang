@@ -210,6 +210,13 @@ element. `for outer: x in xs` names the loop so `break outer` (or
 `continue outer`) inside any nesting hits it; a named jump to no enclosing
 loop is an error quoting the label. `while` loops cannot be labeled.
 
+`for x in lo..hi` counts ints from `lo` while the counter is below `hi`
+(half-open `[lo, hi)`, empty when `hi <= lo`). Both bounds must be ints,
+both evaluate once before the loop, and nothing is allocated: large bounds
+cost iterations, not memory. With an index (`for x, i in lo..hi`), `i` is
+the 0-based position, exactly as over a list. `..` outside a `for` header
+is a parse error: a range is a way to iterate, not a value.
+
 Expressions support arithmetic, comparisons, `&&`, `||`, unary `!` and `-`,
 calls, member access, arrays, [object literals](#object-literals), and string
 interpolation.

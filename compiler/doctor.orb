@@ -1635,7 +1635,7 @@ fn doctorCheckComplexity(stats: DoctorStats, node: ASTNode, fnName: string, file
 }
 
 /** @brief Decision points in one subtree. */
-// orbit-walk-misses: ConstDeclNode, FieldInitNode, TypedLiteralNode
+// orbit-walk-misses: ConstDeclNode, FieldInitNode, RangeNode, TypedLiteralNode
 fn doctorDecisionPoints(node: ASTNode) -> int {
     var n = 0
     match node {
@@ -2144,7 +2144,7 @@ fn doctorShadowBody(stats: DoctorStats, node: ASTNode, file: string, declLine: i
 }
 
 /** @brief One statement, with the scope frames a statement introduces. */
-// orbit-walk-misses: BinaryOpNode, CallNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, RouteDeclNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, RangeNode, RouteDeclNode, TypedLiteralNode, UnaryOpNode
 fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     match node {
         ASTNode.VarDecl(v) => {
@@ -2250,6 +2250,12 @@ fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: i
             doctorShadowExpr(stats, b.rhs, file, declLine, fnName, frames, marks, shadows, pending)
         }
         ASTNode.UnaryOp(u) => { doctorShadowExpr(stats, u.operand, file, declLine, fnName, frames, marks, shadows, pending) }
+        // A range's bounds are ordinary expressions: `for x in lo..hi` reads
+        // both, so shadow/taint/liveness walks descend into them.
+        ASTNode.Range(r) => {
+            doctorShadowExpr(stats, r.lo, file, declLine, fnName, frames, marks, shadows, pending)
+            doctorShadowExpr(stats, r.hi, file, declLine, fnName, frames, marks, shadows, pending)
+        }
         ASTNode.MemberAccess(m) => { doctorShadowExpr(stats, m.object, file, declLine, fnName, frames, marks, shadows, pending) }
         ASTNode.IndexAccess(ix) => {
             doctorShadowExpr(stats, ix.object, file, declLine, fnName, frames, marks, shadows, pending)
@@ -2390,7 +2396,7 @@ fn doctorIsTaintSink(name: string) -> bool {
 }
 
 /** @brief Whether an expression reads a source directly, or mentions a tainted name. */
-// orbit-walk-misses: AssignmentNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, MatchCaseNode, MatchNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, VarDeclNode, WhileNode
 fn doctorExprIsTainted(node: ASTNode, tainted: list) -> bool {
     var found = false
     match node {
@@ -2459,6 +2465,10 @@ fn doctorTaintWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: in
         ASTNode.BinaryOp(b) => {
             doctorTaintWalk(stats, b.lhs, file, declLine, label, tainted)
             doctorTaintWalk(stats, b.rhs, file, declLine, label, tainted)
+        }
+        ASTNode.Range(r) => {
+            doctorTaintWalk(stats, r.lo, file, declLine, label, tainted)
+            doctorTaintWalk(stats, r.hi, file, declLine, label, tainted)
         }
         ASTNode.UnaryOp(u) => { doctorTaintWalk(stats, u.operand, file, declLine, label, tainted) }
         ASTNode.MemberAccess(m) => { doctorTaintWalk(stats, m.object, file, declLine, label, tainted) }
@@ -2670,6 +2680,10 @@ fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: lis
             doctorIgnoredWalk(stats, b.lhs, file, decls)
             doctorIgnoredWalk(stats, b.rhs, file, decls)
         }
+        ASTNode.Range(r) => {
+            doctorIgnoredWalk(stats, r.lo, file, decls)
+            doctorIgnoredWalk(stats, r.hi, file, decls)
+        }
         ASTNode.ListLiteral(l) => { doctorIgnoredWalkList(stats, l.elements, file, decls) }
         ASTNode.Interp(inp) => { doctorIgnoredWalkList(stats, inp.parts, file, decls) }
         ASTNode.TypedLiteral(t) => { doctorIgnoredWalk(stats, t.value, file, decls) }
@@ -2809,6 +2823,10 @@ fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int
         ASTNode.BinaryOp(b) => {
             next = doctorDeadWalk(stats, b.lhs, file, declLine, stores, next + 1, loopDepth)
             next = doctorDeadWalk(stats, b.rhs, file, declLine, stores, next + 1, loopDepth)
+        }
+        ASTNode.Range(r) => {
+            next = doctorDeadWalk(stats, r.lo, file, declLine, stores, next + 1, loopDepth)
+            next = doctorDeadWalk(stats, r.hi, file, declLine, stores, next + 1, loopDepth)
         }
         ASTNode.UnaryOp(u) => { next = doctorDeadWalk(stats, u.operand, file, declLine, stores, next + 1, loopDepth) }
         ASTNode.MemberAccess(m) => { next = doctorDeadWalk(stats, m.object, file, declLine, stores, next + 1, loopDepth) }
@@ -3052,7 +3070,7 @@ fn doctorCallsName(body: list, name: string) -> bool {
 }
 
 /** @brief Whether a subtree contains a call to `name`. */
-// orbit-walk-misses: ConstDeclNode, FieldInitNode, IndexAccessNode, MemberAccessNode, ReturnErrNode, ReturnOkNode, TryNode, TypedLiteralNode
+// orbit-walk-misses: ConstDeclNode, FieldInitNode, IndexAccessNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, TryNode, TypedLiteralNode
 fn doctorNodeCalls(node: ASTNode, name: string) -> bool {
     var found = false
     match node {
@@ -3183,7 +3201,7 @@ fn doctorCheckLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file
  *  made ten times in this file before it was found once and then fixed
  *  everywhere.
  */
-// orbit-walk-misses: FieldInitNode, FunctionDeclNode, RouteDeclNode, TypedLiteralNode
+// orbit-walk-misses: FieldInitNode, FunctionDeclNode, RangeNode, RouteDeclNode, TypedLiteralNode
 fn doctorScanLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file: string, line: int, inLoop: bool, kind: string) {
     match node {
         ASTNode.While(w) => {
@@ -3448,7 +3466,7 @@ fn doctorFindDeclLine(lines: list, keyword: string, name: string) -> int {
     return 0
 }
 
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, VarDeclNode, WhileNode
 fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
     match node {
         ASTNode.Program(p) => {
@@ -3470,7 +3488,7 @@ fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
 
 // AST walk collecting every referenced name: identifier uses plus the
 // type names in annotations, so models used as types count as used.
-// orbit-walk-misses: none
+// orbit-walk-misses: RangeNode
 fn doctorWalkRefs(node: ASTNode, refs: list) {
     match node {
         ASTNode.Program(p) => {

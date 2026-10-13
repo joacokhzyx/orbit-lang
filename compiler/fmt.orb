@@ -193,6 +193,9 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string
     if ptag == TokType.Dot {
         return false
     }
+    if ptag == TokType.DotDot {
+        return false
+    }
     if ptag == TokType.Bang {
         return false
     }
@@ -362,6 +365,9 @@ fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string
         return false
     }
     if ntag == TokType.Dot {
+        return false
+    }
+    if ntag == TokType.DotDot {
         return false
     }
     if ntag == TokType.Comma {
@@ -729,7 +735,7 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
                 if ntag == TokType.CloseBrace {
                     orbit_cbuf_append_selfhost(st.out, " ")
                 } else {
-                    if ntag == TokType.CloseParen || ntag == TokType.CloseBracket || ntag == TokType.Dot || ntag == TokType.Comma || ntag == TokType.SemiColon {
+                    if ntag == TokType.CloseParen || ntag == TokType.CloseBracket || ntag == TokType.Dot || ntag == TokType.DotDot || ntag == TokType.Comma || ntag == TokType.SemiColon {
                         orbit_cbuf_append_selfhost(st.out, "")
                     } else {
                         orbit_cbuf_append_selfhost(st.out, " ")
