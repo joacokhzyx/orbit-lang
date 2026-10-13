@@ -1,0 +1,12 @@
+// OS entropy, one home. No PRNG and no seed state: every call draws
+// fresh bytes from the platform pool (CRT rand_s on Windows,
+// /dev/urandom elsewhere), so there is nothing to seed and no sequence
+// to repeat. Bytes travel as ints 0..255 in a list because an
+// orbit_string cannot hold a NUL. Only the runtime really backs this:
+// a negative count is refused, anything else is ok() with exactly the
+// asked number of entries.
+extern fn orbit_random_bytes(count: int) -> result
+
+fn randomBytes(n: int) -> result {
+    return orbit_random_bytes(n)
+}

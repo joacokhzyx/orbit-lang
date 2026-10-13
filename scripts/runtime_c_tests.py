@@ -91,6 +91,7 @@ PROGRAMS = [
     prog("auth", vendor=True, db=True, defines=["-DORBIT_WITH_DB"],
          src="tests/auth/auth_harness.c"),
     prog("result_float", warnings=True),
+    prog("random", warnings=True),
 ]
 
 

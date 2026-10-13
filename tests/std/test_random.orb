@@ -1,0 +1,23 @@
+// Contract, structural only: length, byte range, empty, negative. Two
+// draws differing is verified by hand, not pinned -- randomness cannot
+// be asserted deterministically, and a suite that always passes is worth
+// more than a probabilistic one that usually does.
+import "std/sys/random/random.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    val bs: list = try randomBytes(16) catch { return 1 }
+    if assertEqInt(bs.len(), 16) == false { return 2 }
+    var i = 0
+    while i < bs.len() {
+        val b = bs.get(i)
+        if b < 0 || b > 255 { return 3 }
+        i = i + 1
+    }
+    val empty: list = try randomBytes(0) catch { return 4 }
+    if assertEqInt(empty.len(), 0) == false { return 5 }
+    var refused = false
+    try randomBytes(-1) catch { refused = true }
+    if refused == false { return 6 }
+    return 0
+}

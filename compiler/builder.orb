@@ -324,6 +324,10 @@ fn builtinReturnType(name: string) -> string {
     if name == "system_latency_p95_us" { return "int" }
     if name == "system_latency_p99_us" { return "int" }
     if name == "ok" || name == "err" { return "result" }
+    // A result bound straight to a name hoists as an integer without this:
+    // the def-index reads no other table, and an OrbitResult is a struct,
+    // so the store is a C type error naming generated code.
+    if name == "orbit_random_bytes" { return "result" }
     return ""
 }
 

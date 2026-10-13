@@ -382,4 +382,80 @@ orbit_string orbit_os_argv(OrbitArena* arena, orbit_int index) {
     return buf;
 }
 
+#ifdef _WIN32
+/* RtlGenRandom, the OS pool without a new link library: neither rand_s
+ * nor the SystemFunction036 prototype exists in the headers this tree
+ * builds with, and advapi32 (where it lives) is already linked into
+ * every program, so the declaration rides here instead of in a header
+ * that would promise it everywhere. */
+BOOLEAN NTAPI SystemFunction036(PVOID RandomBuffer, ULONG RandomBufferLength);
+#endif
+
+/** @brief n bytes of OS entropy as a list of byte values, or err.
+ *
+ * No PRNG and no seed state: Windows draws from the OS pool through
+ * RtlGenRandom (no extra link library), POSIX reads /dev/urandom, so every
+ * target already in CI works with nothing new to link. A failed source is
+ * err, never a half-filled list; a negative count is refused up front and
+ * zero answers the empty list. Bytes travel as ints 0..255 because an
+ * orbit_string cannot hold a NUL. */
+OrbitResult orbit_random_bytes(OrbitArena* arena, orbit_int n) {
+    if (n < 0) {
+        return orbit_result_err(ORBIT_ERR_INVALID_ARG, "random: negative count");
+    }
+    {
+        OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
+        OrbitResult cr = orbit_list_create(a, sizeof(uintptr_t), (size_t)n);
+        OrbitList* list;
+        uint8_t* buf;
+        if (!cr.ok) return cr;
+        list = (OrbitList*)cr.value;
+        if (n == 0) return orbit_result_ok(list);
+        buf = (uint8_t*)orbit_alloc(a, (size_t)n);
+        if (!buf) {
+            return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "random: alloc failed");
+        }
+#ifdef _WIN32
+        /* One call fills the whole buffer; a FALSE return is the only
+         * failure the API has. */
+        if (!SystemFunction036(buf, (ULONG)n)) {
+            return orbit_result_err(ORBIT_ERR_IO, "random: entropy source failed");
+        }
+#else
+        {
+            int fd = open("/dev/urandom", O_RDONLY);
+            if (fd < 0) {
+                return orbit_result_err(ORBIT_ERR_IO, "random: entropy source unavailable");
+            }
+            {
+                size_t got = 0;
+                while (got < (size_t)n) {
+                    ssize_t r = read(fd, buf + got, (size_t)n - got);
+                    if (r < 0) {
+                        if (errno == EINTR) continue;
+                        close(fd);
+                        return orbit_result_err(ORBIT_ERR_IO, "random: entropy read failed");
+                    }
+                    if (r == 0) {
+                        close(fd);
+                        return orbit_result_err(ORBIT_ERR_IO, "random: short entropy read");
+                    }
+                    got += (size_t)r;
+                }
+            }
+            close(fd);
+        }
+#endif
+        {
+            orbit_int j = 0;
+            while (j < n) {
+                OrbitResult pr = orbit_list_push_int(list, (orbit_int)buf[j]);
+                if (!pr.ok) return pr;
+                j++;
+            }
+        }
+        return orbit_result_ok(list);
+    }
+}
+
 #endif
