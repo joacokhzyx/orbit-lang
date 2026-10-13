@@ -271,15 +271,17 @@ orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* i
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
-        return NULL;
+        return "";
 
     sqlite3_bind_text(stmt, 1, id, -1, SQLITE_STATIC);
 
     /* A miss is the empty string, not NULL: Orbit strings have no null, and
      * a NULL here used to travel into `==` and segfault the server on the
      * first find of a missing key. where() already answers "[]" on empty;
-     * this is the same contract for one row. OOM and prepare failures stay
-     * NULL: those are faults, not misses, and must not read as empty. */
+     * this is the same contract for one row. A failed prepare answers ""
+     * too: user code cannot distinguish NULL, so NULL is never a usable
+     * fault signal here. Only OOM (with a custom handler installed) can
+     * still surface NULL, and that path aborts loudly by default. */
     orbit_string result = "";
     orbit_perf_stats.db_queries++; // Telemetry
     if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -399,7 +401,7 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
-        return NULL;
+        return "";
 
     /* Same miss contract as orbit_db_get: "" so `== ""` is the miss check. */
     orbit_string result = "";
@@ -721,6 +723,9 @@ orbit_string orbit_db_query_order_desc(OrbitArena* arena, const char* table_name
 
 orbit_string orbit_db_query_where(OrbitArena* arena, const char* table_name, const char* condition) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
+    /* A NULL condition would die in strlen inside orbit_db_where; the
+     * siblings (where_p/where_v) already answer "[]" here. */
+    if (!condition) return "[]";
     orbit_collection col = { table_name, NULL };
     uint64_t t0 = orbit_ledger_db_begin();
     orbit_string r = orbit_db_where(arena, col, condition);
@@ -916,7 +921,7 @@ orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, c
 }
 
 orbit_string orbit_db_query_get(OrbitArena* arena, const char* table_name, const char* id) {
-    if (!orbit_db_valid_identifier(table_name)) return NULL;
+    if (!orbit_db_valid_identifier(table_name)) return "";
     orbit_collection col = { table_name, NULL };
     uint64_t t0 = orbit_ledger_db_begin();
     orbit_string r = orbit_db_get(arena, col, id);
@@ -925,7 +930,7 @@ orbit_string orbit_db_query_get(OrbitArena* arena, const char* table_name, const
 }
 
 orbit_string orbit_db_query_first(OrbitArena* arena, const char* table_name) {
-    if (!orbit_db_valid_identifier(table_name)) return NULL;
+    if (!orbit_db_valid_identifier(table_name)) return "";
     orbit_collection col = { table_name, NULL };
     uint64_t t0 = orbit_ledger_db_begin();
     orbit_string r = orbit_db_first(arena, col);

@@ -1,0 +1,24 @@
+// case: for-over-never-set-dynamic-field
+// what: a `for` lowers to list_len/list_get with no runtime kind check, so
+//      iterating a dynamic field that was never set miscompiles: the read
+//      answers "" (get_raw) and the loop walks it as a list. Measured today:
+//      `.len()` prints garbage (774176871), iteration segfaults
+//      (exit -1073741819, no output), print shows a pointer. A check-time
+//      guard was tried and reverted: it rejected three green suite tests
+//      iterating DECLARED list fields (model_literal_fields,
+//      generic_nested_argument, generic_models), whose reads also type
+//      "unknown" because checkNode never consults model field declarations.
+//      The sound fix needs model-field typing with generic substitution, not
+//      a broader guard. FINDINGS F-0024.
+//
+//      Repro (do not run blindly -- it crashes the process):
+//        val o = { name: "x" }
+//        for t in o.tags { print(t) }
+// known-defect: F-0024
+fn main() -> int {
+    val o = { name: "x" }
+    for t in o.tags {
+        print(t)
+    }
+    return 0
+}

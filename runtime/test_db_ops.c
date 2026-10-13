@@ -169,6 +169,24 @@ static void test_find_first_miss_is_empty(void) {
     assert(strcmp(orbit_db_query_get(arena, "items", "ghost"), "") == 0);
     orbit_string first = orbit_db_query_first(arena, "items");
     assert(first != NULL && first[0] == '{');
+    /* Invalid identifiers and NULL fragments answer the empty value, never
+     * NULL: every read wrapper agrees, so `== ""` cannot segfault. */
+    assert(strcmp(orbit_db_query_get(arena, "no such table!", "a"), "") == 0);
+    assert(strcmp(orbit_db_query_first(arena, "no such table!"), "") == 0);
+    assert(strcmp(orbit_db_query_where(arena, "items", NULL), "[]") == 0);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
+/* A failed prepare (dropped table) is an empty answer, not NULL: user code
+ * cannot distinguish NULL, so a fault must not surface as one. */
+static void test_find_prepare_failure_is_empty(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":3}"));
+    assert(orbit_db_exec_ddl("DROP TABLE items;"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    assert(strcmp(orbit_db_query_get(arena, "items", "a"), "") == 0);
+    assert(strcmp(orbit_db_query_first(arena, "items"), "") == 0);
     orbit_arena_destroy(arena);
     orbit_db_close();
 }
@@ -184,6 +202,7 @@ int main(void) {
     RUN_TEST(test_order);
     RUN_TEST(test_index_migration);
     RUN_TEST(test_find_first_miss_is_empty);
+    RUN_TEST(test_find_prepare_failure_is_empty);
     printf("PASSED all db_ops tests\n");
     fflush(stdout);
     remove(TEST_DB);
