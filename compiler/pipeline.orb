@@ -397,7 +397,7 @@ fn appResourceFragment(tmpDir: string, outputPath: string, description: string, 
     return " \"" + resPath + "\""
 }
 
-fn splitBuildLines(source: string) -> list {
+fn splitBuildLines(source: string) -> list < string > {
     var lines = []
     var start = 0
     var i = 0

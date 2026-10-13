@@ -625,7 +625,7 @@ fn declaredTypeInstanceName(builder: IRBuilder, declared: string) -> string {
     return ensureModelInstanceFromArgs(builder, bare, args)
 }
 
-fn splitTypeArgs(s: string) -> list {
+fn splitTypeArgs(s: string) -> list < string > {
     var out = []
     var cur = ""
     var depth = 0
@@ -1155,7 +1155,7 @@ fn memberCallReturnType(builder: IRBuilder, receiver: ASTNode, member: string) -
         if member == "padLeft" { return "string" }
         if member == "padRight" { return "string" }
         if member == "join" { return "string" }
-        if member == "split" { return "list" }
+        if member == "split" { return "list<string>" }
         return "unknown"
     }
     if annotationBaseType(t) == "list" {
@@ -1170,7 +1170,7 @@ fn memberCallReturnType(builder: IRBuilder, receiver: ASTNode, member: string) -
     }
     if t == "map" || t == "Map" {
         if member == "has" { return "bool" }
-        if member == "keys" { return "list" }
+        if member == "keys" { return "list<string>" }
         if member == "delete" { return "void" }
         return "unknown"
     }

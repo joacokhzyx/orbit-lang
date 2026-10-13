@@ -242,7 +242,7 @@ fn instanceBindingsOf(sema: Sema, name: string) -> list {
     return []
 }
 
-fn splitBindingRows(joined: string) -> list {
+fn splitBindingRows(joined: string) -> list < string > {
     val rows = []
     var start = 0
     var i = 0
@@ -2212,7 +2212,7 @@ fn modelGenericParamsOf(sema: Sema, modelName: string) -> list {
     return []
 }
 
-fn splitOnComma(s: string) -> list {
+fn splitOnComma(s: string) -> list < string > {
     var out = []
     var cur = ""
     var i = 0
@@ -3011,7 +3011,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     }
                     if objType == "map" || objType == "Map" {
                         if member == "has" { return "bool" }
-                        if member == "keys" { return "list" }
+                        if member == "keys" { return "list<string>" }
                         if member == "delete" { return "void" }
                     }
                     if callObjName == "system" {
