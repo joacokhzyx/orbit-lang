@@ -234,6 +234,21 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string
     if ptag == TokType.Percent {
         return true
     }
+    if ptag == TokType.PlusEqual {
+        return true
+    }
+    if ptag == TokType.MinusEqual {
+        return true
+    }
+    if ptag == TokType.StarEqual {
+        return true
+    }
+    if ptag == TokType.SlashEqual {
+        return true
+    }
+    if ptag == TokType.PercentEqual {
+        return true
+    }
     if ptag == TokType.Equal {
         return true
     }
@@ -312,6 +327,9 @@ fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string
             }
         }
         if ptag == TokType.Plus || ptag == TokType.Minus || ptag == TokType.Asterisk || ptag == TokType.Slash || ptag == TokType.Percent {
+            return true
+        }
+        if ptag == TokType.PlusEqual || ptag == TokType.MinusEqual || ptag == TokType.StarEqual || ptag == TokType.SlashEqual || ptag == TokType.PercentEqual {
             return true
         }
         if ptag == TokType.DoubleEqual || ptag == TokType.NotEqual || ptag == TokType.Less || ptag == TokType.LessEqual {

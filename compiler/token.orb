@@ -57,6 +57,11 @@ enum TokType {
     Asterisk,
     Slash,
     Percent,
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+    PercentEqual,
     Equal,
     DoubleEqual,
     NotEqual,
@@ -155,6 +160,11 @@ fn tokTagName(tag: TokType) -> string {
         TokType.Asterisk => return "Asterisk"
         TokType.Slash => return "Slash"
         TokType.Percent => return "Percent"
+        TokType.PlusEqual => return "PlusEqual"
+        TokType.MinusEqual => return "MinusEqual"
+        TokType.StarEqual => return "StarEqual"
+        TokType.SlashEqual => return "SlashEqual"
+        TokType.PercentEqual => return "PercentEqual"
         TokType.Equal => return "Equal"
         TokType.DoubleEqual => return "DoubleEqual"
         TokType.NotEqual => return "NotEqual"
@@ -185,5 +195,5 @@ fn tokTagName(tag: TokType) -> string {
 }
 
 fn tokIsSymbol(tag: TokType) -> bool {
-    return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon
+    return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.PlusEqual || tag == TokType.MinusEqual || tag == TokType.StarEqual || tag == TokType.SlashEqual || tag == TokType.PercentEqual || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon
 }

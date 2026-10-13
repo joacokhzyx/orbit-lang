@@ -1,0 +1,48 @@
+// Compound assignment desugars to the plain form: `x += y` parses as
+// `x = x + y` in the same AssignmentNode, so the checker, the emitter and
+// the doctor see no new construct.
+fn plus() -> int {
+    var x = 1
+    x += 2
+    if x != 3 { return 1 }
+    x += -1
+    if x != 2 { return 2 }
+    return 0
+}
+
+fn minus() -> int {
+    var x = 10
+    x -= 4
+    if x != 6 { return 1 }
+    return 0
+}
+
+fn star() -> int {
+    var x = 3
+    x *= 4
+    if x != 12 { return 1 }
+    return 0
+}
+
+fn slash() -> int {
+    var x = 7
+    x /= 2
+    if x != 3 { return 1 }
+    return 0
+}
+
+fn percent() -> int {
+    var x = 7
+    x %= 4
+    if x != 3 { return 1 }
+    return 0
+}
+
+fn main() -> int {
+    if plus() != 0 { return 1 }
+    if minus() != 0 { return 2 }
+    if star() != 0 { return 3 }
+    if slash() != 0 { return 4 }
+    if percent() != 0 { return 5 }
+    return 0
+}

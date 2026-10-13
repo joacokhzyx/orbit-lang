@@ -1,0 +1,12 @@
+// case: compound-assign-zero-divisor
+// what: `x /= 0` desugars to `x = x / 0` in the same AssignmentNode, so the
+//      existing literal-zero-divisor check fires on it. The diagnostic points
+//      at the compound operator itself (3:7 here), proving the desugared
+//      BinaryOp carries the compound token's position rather than the call
+//      site's.
+// expect-error: literal 0 divisor
+fn main() -> int {
+    var x = 7
+    x /= 0
+    return 0
+}

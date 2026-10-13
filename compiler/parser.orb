@@ -755,7 +755,41 @@ fn parseExpressionInner(parser: Parser) -> ASTNode {
         val rhs = parseExpression(parser)
         return ASTNode.Assignment(AssignmentNode(lhs, rhs))
     }
+    // A compound assignment is sugar over the plain form: `x += y` parses as
+    // `x = x + y` in the same AssignmentNode, so sema, builder and backend
+    // need no new arms. The check lives in a helper so this function's frame
+    // stays small: it runs once per nesting level, and fatter frames move the
+    // stack overflow ahead of the depth guard (fuzz_frontend caught it).
+    if isCompoundAssign(parser.currentToken.tag) {
+        return parseCompoundAssign(parser, lhs)
+    }
     return lhs
+}
+
+// The current token is one of the compound assignment operators. The
+// operator position names the desugar, not the call site, which is why the
+// BinaryOp carries the compound token's line/col.
+fn isCompoundAssign(tag: TokType) -> bool {
+    if tag == TokType.PlusEqual { return true }
+    if tag == TokType.MinusEqual { return true }
+    if tag == TokType.StarEqual { return true }
+    if tag == TokType.SlashEqual { return true }
+    if tag == TokType.PercentEqual { return true }
+    return false
+}
+
+fn parseCompoundAssign(parser: Parser, lhs: ASTNode) -> ASTNode {
+    val opTag = parser.currentToken.tag
+    val opLine = parser.currentToken.line
+    val opCol = parser.currentToken.col
+    advanceParser(parser)
+    var op = "+"
+    if opTag == TokType.MinusEqual { op = "-" }
+    if opTag == TokType.StarEqual { op = "*" }
+    if opTag == TokType.SlashEqual { op = "/" }
+    if opTag == TokType.PercentEqual { op = "%" }
+    val rhs = parseExpression(parser)
+    return ASTNode.Assignment(AssignmentNode(lhs, ASTNode.BinaryOp(BinaryOpNode(op, lhs, rhs, opLine, opCol))))
 }
 
 fn parseVarDecl(parser: Parser, isMutable: bool) -> ASTNode {

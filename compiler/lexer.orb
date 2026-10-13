@@ -518,9 +518,12 @@ fn nextToken(lexer: Lexer) -> Token {
     if c == 46 { return Token(TokType.Dot, ".", line, col, start, lexer.pos - start) }
     if c == 59 { return Token(TokType.SemiColon, ";", line, col, start, lexer.pos - start) }
     if c == 64 { return Token(TokType.At, "@", line, col, start, lexer.pos - start) }
-    if c == 37 { return Token(TokType.Percent, "%", line, col, start, lexer.pos - start) }
 
     if c == 43 { // '+'
+        if peek(lexer) == 61 { // '+='
+            advance(lexer)
+            return Token(TokType.PlusEqual, "+=", line, col, start, lexer.pos - start)
+        }
         return Token(TokType.Plus, "+", line, col, start, lexer.pos - start)
     }
     if c == 45 { // '-'
@@ -528,13 +531,32 @@ fn nextToken(lexer: Lexer) -> Token {
             advance(lexer)
             return Token(TokType.Arrow, "->", line, col, start, lexer.pos - start)
         }
+        if peek(lexer) == 61 { // '-='
+            advance(lexer)
+            return Token(TokType.MinusEqual, "-=", line, col, start, lexer.pos - start)
+        }
         return Token(TokType.Minus, "-", line, col, start, lexer.pos - start)
     }
     if c == 42 { // '*'
+        if peek(lexer) == 61 { // '*='
+            advance(lexer)
+            return Token(TokType.StarEqual, "*=", line, col, start, lexer.pos - start)
+        }
         return Token(TokType.Asterisk, "*", line, col, start, lexer.pos - start)
     }
     if c == 47 { // '/'
+        if peek(lexer) == 61 { // '/='
+            advance(lexer)
+            return Token(TokType.SlashEqual, "/=", line, col, start, lexer.pos - start)
+        }
         return Token(TokType.Slash, "/", line, col, start, lexer.pos - start)
+    }
+    if c == 37 { // '%'
+        if peek(lexer) == 61 { // '%='
+            advance(lexer)
+            return Token(TokType.PercentEqual, "%=", line, col, start, lexer.pos - start)
+        }
+        return Token(TokType.Percent, "%", line, col, start, lexer.pos - start)
     }
 
     if c == 61 { // '='

@@ -39,6 +39,11 @@ val retries: int = 3
 var total: int = 0
 ```
 
+A compound assignment updates a `var` in place: `total += 2` means
+`total = total + 2`, and `-=`, `*=`, `/=`, `%=` work the same way. It is
+sugar over the plain form, so the same checks apply (a literal zero divisor
+in `x /= 0` is the same `E1004` as in `x = x / 0`).
+
 Core scalar types include `int`, `float`, `bool`, and `string`. Use models for
 named records, enums for closed alternatives, unions for tagged alternatives,
 and `type` for aliases. Containers accept an element parameter in the
