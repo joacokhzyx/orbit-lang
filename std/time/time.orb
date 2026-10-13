@@ -1,6 +1,8 @@
-// Clocks and durations: uptimeSeconds for whole seconds since process start, tickNs/sinceNs/sinceMs/sinceNsBetween for sub-second spans (differences only, -1 past the wrap cap); no wall clock and no sleep.
+// Clocks and durations: uptimeSeconds for whole seconds since process start, tickNs/sinceNs/sinceMs/sinceNsBetween for sub-second spans (differences only, -1 past the wrap cap); wallSeconds is unix epoch seconds for timestamps (int32, good until 2038 -- differences of two readings are not durations, the wall steps with NTP); sleepMs blocks the calling thread.
 extern fn system_uptime() -> int
 extern fn orbit_monotonic_ns() -> int
+extern fn orbit_wall_seconds() -> int
+extern fn orbit_sleep_ms(ms: int)
 
 fn uptimeSeconds() -> int {
     return system_uptime()
@@ -47,4 +49,19 @@ fn sinceNsBetween(startNs: int, endNs: int) -> int {
     val delta = endNs - startNs
     if delta < 0 { return -1 }
     return delta
+}
+
+// Unix epoch seconds: the timestamp for exp/nbf, logs, and anything
+// that must agree with another machine. int32, so this stops in 2038;
+// until then it always fits, which is why no checked spelling exists.
+fn wallSeconds() -> int {
+    return orbit_wall_seconds()
+}
+
+// Block the calling thread for ms milliseconds. Zero or negative
+// returns at once. The pause is at least the asked one -- never less,
+// often slightly more -- so pair it with the monotonic span above when
+// a test needs to prove time passed, never with wallSeconds.
+fn sleepMs(ms: int) {
+    orbit_sleep_ms(ms)
 }

@@ -1,6 +1,8 @@
 // M8 contract tests: second-resolution clocks plus duration math.
-// No wall clock, no sleep, no milliseconds (int32 honesty notes in
-// std/time/time.orb).
+// wallSeconds pins epoch-ness with a lower bound (uptime and the
+// monotonic clock read tiny on a fresh process; 1700000000 fails only
+// on a broken clock) and sleep advances it a full second, which an NTP
+// step cannot fake back. sleepMs(0) is liveness only.
 import "std/time/time.orb"
 import "std/test/assert.orb"
 
@@ -10,5 +12,12 @@ fn main() -> int {
     if assertEqInt(elapsedSince(100, 130), 30) == false { return 3 }
     if assertTrue(deadlineExceededSeconds(130, 120)) == false { return 4 }
     if assertTrue(deadlineExceededSeconds(110, 120)) { return 5 }
+    if wallSeconds() < 1700000000 { return 6 }
+    val t1 = wallSeconds()
+    sleepMs(1100)
+    val t2 = wallSeconds()
+    if t2 < t1 + 1 { return 7 }
+    sleepMs(0)
+    if wallSeconds() < t1 { return 8 }
     return 0
 }

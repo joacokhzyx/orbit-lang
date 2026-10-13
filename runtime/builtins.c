@@ -105,6 +105,48 @@ orbit_int orbit_clock_ms(void) {
 #endif
 }
 
+/**
+ * Unix epoch seconds (wall clock). GetSystemTimeAsFileTime on Windows
+ * (100 ns ticks since 1601, minus the 11644473600 s epoch delta),
+ * CLOCK_REALTIME elsewhere. orbit_int is 32 bits, so this is good until
+ * 2038 -- stated in std/time/time.orb rather than discovered. For spans,
+ * keep the monotonic clock above: the wall clock steps with NTP and the
+ * user, so a difference of two readings is not a duration.
+ */
+orbit_int orbit_wall_seconds(void) {
+#ifdef _WIN32
+    FILETIME ft;
+    ULARGE_INTEGER u;
+    GetSystemTimeAsFileTime(&ft);
+    u.LowPart = ft.dwLowDateTime;
+    u.HighPart = ft.dwHighDateTime;
+    return (orbit_int)(u.QuadPart / 10000000ULL - 11644473600ULL);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (orbit_int)ts.tv_sec;
+#endif
+}
+
+/**
+ * Sleep ms milliseconds. Zero or negative returns at once. Not a timer:
+ * it blocks the calling thread, and the OS wakes late, never early, so a
+ * test asserts elapsed >= asked, never equality.
+ */
+void orbit_sleep_ms(orbit_int ms) {
+    if (ms <= 0) return;
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
+    {
+        struct timespec ts;
+        ts.tv_sec = ms / 1000;
+        ts.tv_nsec = (long)((ms % 1000) * 1000000L);
+        nanosleep(&ts, NULL);
+    }
+#endif
+}
+
 /* ── HTTP query parameter extraction ──────────────────────────────────────── */
 
 /* Forward-declare OrbitRequest so builtins.c can reference it without
