@@ -41,6 +41,11 @@ model TypeInfo {
 model VariantInfo {
     variant: string
     owner: string
+    // The variant's payload types, tab-joined in order ("" for a unit
+    // variant). Joined, not nested, for the reason modelFieldTypeName is
+    // parallel: a nested list would need re-typing at every read, and type
+    // spellings never contain tabs.
+    payloads: string
 }
 
 // A name the checker was asked to resolve and could not.
@@ -401,7 +406,7 @@ fn hasErrors(sema: Sema) -> bool {
     return sema.errors.len() > 0
 }
 
-fn registerType(sema: Sema, name: string, kind: string, variants: list) {
+fn registerType(sema: Sema, name: string, kind: string, variants: list, payloads: list) {
     var i = 0
     while i < sema.typeRegistry.len() {
         val t: TypeInfo = sema.typeRegistry.get(i)
@@ -418,8 +423,13 @@ fn registerType(sema: Sema, name: string, kind: string, variants: list) {
     var vi = 0
     while vi < variants.len() {
         val variantNode = variants.get(vi)
+        var joined = ""
+        if vi < payloads.len() {
+            val p: string = payloads.get(vi)
+            joined = p
+        }
         match variantNode {
-            ASTNode.Literal(vl) => { sema.variantRegistry.push(VariantInfo(vl.text, name)) }
+            ASTNode.Literal(vl) => { sema.variantRegistry.push(VariantInfo(vl.text, name, joined)) }
             _ => {}
         }
         vi = vi + 1
@@ -431,6 +441,63 @@ fn registerType(sema: Sema, name: string, kind: string, variants: list) {
     declareSymbol(sema, name, name, false, false)
 }
 
+// The joined payload types declared for `variantName`, or "" for a unit
+// variant or an undeclared name. One row of the variant registry, split the
+// same way it was joined in the parser.
+fn variantPayloadsOf(sema: Sema, variantName: string) -> string {
+    var i = 0
+    while i < sema.variantRegistry.len() {
+        val v: VariantInfo = sema.variantRegistry.get(i)
+        if v.variant == variantName {
+            return v.payloads
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// How many payloads `Variant(A, B)` declares: the tab-separated count, with
+// "" (unit) counting zero rather than one.
+fn variantArityOf(sema: Sema, variantName: string) -> int {
+    val joined = variantPayloadsOf(sema, variantName)
+    if joined == "" { return 0 }
+    return splitBindingRows(joined).len()
+}
+
+// The i-th payload type of a multi-payload variant, or "" past the end.
+fn variantPayloadAt(sema: Sema, variantName: string, idx: int) -> string {
+    val joined = variantPayloadsOf(sema, variantName)
+    if joined == "" { return "" }
+    val parts = splitBindingRows(joined)
+    if idx < 0 || idx >= parts.len() { return "" }
+    val part: string = parts.get(idx)
+    return part
+}
+
+// A variant construction against its declaration: `Circle(7)` and
+// `Shape.Circle(7)` used to take any argument count of any type and answer
+// the union, so a second payload reached the C backend as a C comma
+// expression evaluating to the last argument. Arity is E1003 (spelled as
+// declared, like model arity); each payload against its declared type is
+// E1005 (like call arguments, int widening included). Types ride in
+// precomputed, because checking an argument twice prints its diagnostics
+// twice.
+fn checkVariantCall(sema: Sema, variantName: string, args: list, argTypes: list, line: int, col: int) {
+    val want = variantArityOf(sema, variantName)
+    if args.len() != want {
+        reportErrorAt(sema, "E1003", "Construct the variant with one argument per payload, in order.", line, col, "Variant '" + variantName + "' declares " + orbit_int_to_string_selfhost(want) + " payloads, but the construction passes " + orbit_int_to_string_selfhost(args.len()) + ".")
+        return
+    }
+    var i = 0
+    while i < args.len() {
+        val got: string = argTypes.get(i)
+        val declared = variantPayloadAt(sema, variantName, i)
+        if declared != "" && checkCompatibility(declared, got) == false {
+            reportErrorAt(sema, "E1005", "Change the argument, or change the variant's declared payload type.", line, col, "Payload " + orbit_int_to_string_selfhost(i + 1) + " of '" + variantName + "' is declared " + declared + " but the value is " + got + ".")
+        }
+        i = i + 1
+    }
+}
 // The enum or union that declares `variantName`, or "" if no declared type
 // does. This is the only evidence available for the type of a constructed
 // variant, so it is deliberately keyed on the variant name alone.
@@ -2122,25 +2189,64 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     reportErrorAt(sema, "E1001", "Add a case for every variant, or a `_` arm if the fall-through is intended.", m.line, m.col, "Non-exhaustive match on " + matchType + ": no case for " + list)
 }
 
-// The name a match case binds, or "" when the pattern binds nothing. A
-// pattern is `Type.Variant`, `Type.Variant(binding)`, `Variant`,
-// `Variant(binding)`, a literal, or `_`, so the binding is always a call
-// argument and never the pattern itself.
-fn patternBinding(pattern: ASTNode) -> string {
+// The names a match case binds, in order: every identifier argument of a
+// `V(a, b)` or `T.V(a, b)` pattern. Non-identifier arguments bind nothing,
+// the way a single one does today.
+fn patternBindings(pattern: ASTNode) -> list {
+    val out = []
     match pattern {
         ASTNode.Call(c) => {
-            if c.args.len() == 0 { return "" }
-            val first: ASTNode = c.args.get(0)
-            match first {
-                ASTNode.Literal(l) => {
-                    if l.valType == "identifier" { return l.text }
+            var i = 0
+            while i < c.args.len() {
+                match c.args.get(i) {
+                    ASTNode.Literal(l) => {
+                        if l.valType == "identifier" { out.push(l.text) }
+                    }
+                    _ => {}
                 }
+                i = i + 1
+            }
+        }
+        _ => {}
+    }
+    return out
+}
+
+// A case pattern against its variant's declaration: `V(a)` where V declares
+// two payloads binds one name and silently drops the other, so the count is
+// refused with both numbers. Only what the registry declares is checked, so
+// an ordinary call in pattern position keeps today's behavior, and a bare
+// `T.V` with no parens still matches on the tag alone.
+fn checkPatternArity(sema: Sema, pattern: ASTNode) {
+    match pattern {
+        ASTNode.Call(c) => {
+            var variant = ""
+            match c.callee {
+                ASTNode.Literal(l) => {
+                    if l.valType == "identifier" { variant = l.text }
+                }
+                ASTNode.MemberAccess(ma) => { variant = ma.field }
                 _ => {}
             }
-            return ""
+            if variant == "" { return }
+            if findVariantOwner(sema, variant) == "" { return }
+            val want = variantArityOf(sema, variant)
+            if c.args.len() != want {
+                reportErrorAt(sema, "E1003", "Bind one name per payload, in order.", c.line, c.col, "Pattern binds " + orbit_int_to_string_selfhost(c.args.len()) + " names but variant '" + variant + "' declares " + orbit_int_to_string_selfhost(want) + " payloads.")
+            }
         }
-        _ => { return "" }
+        _ => {}
     }
+}
+
+// The first name a match case binds, or "" when the pattern binds nothing.
+// Kept because two sites read one binding; it answers what the list form's
+// head would.
+fn patternBinding(pattern: ASTNode) -> string {
+    val bound = patternBindings(pattern)
+    if bound.len() == 0 { return "" }
+    val first: string = bound.get(0)
+    return first
 }
 
 // Check a case body with the case's binding in scope.
@@ -2154,9 +2260,13 @@ fn patternBinding(pattern: ASTNode) -> string {
 // being declared at all rather than being confused with it.
 fn checkMatchCase(sema: Sema, c: MatchCaseNode) {
     pushScope(sema)
-    val bound = patternBinding(c.pattern)
-    if bound != "" {
-        declareSymbol(sema, bound, "unknown", false, false)
+    checkPatternArity(sema, c.pattern)
+    val bound = patternBindings(c.pattern)
+    var bi = 0
+    while bi < bound.len() {
+        val name: string = bound.get(bi)
+        declareSymbol(sema, name, "unknown", false, false)
+        bi = bi + 1
     }
     checkNode(sema, c.body)
     popScope(sema)
@@ -2737,7 +2847,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 val decl = prog.decls.get(i)
                 match decl {
                     ASTNode.ModelDecl(m) => { checkModelDecl(sema, decl) }
-                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants) }
+                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants, t.variantPayloads) }
                     _ => {}
                 }
                 i = i + 1
@@ -2942,9 +3052,14 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 match m.cases.get(0) {
                     ASTNode.MatchCase(mc) => {
                         pushScope(sema)
-                        val bound = patternBinding(mc.pattern)
-                        if bound != "" {
-                            declareSymbol(sema, bound, "unknown", false, false)
+                        // No arity check here: checkMatch already ran
+                        // checkMatchCase over every case, which checks it.
+                        val bound = patternBindings(mc.pattern)
+                        var bi = 0
+                        while bi < bound.len() {
+                            val name: string = bound.get(bi)
+                            declareSymbol(sema, name, "unknown", false, false)
+                            bi = bi + 1
                         }
                         val caseType = checkNode(sema, mc.body)
                         popScope(sema)
@@ -3014,7 +3129,10 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // same name wins, because then the call really is a
                         // call and only the payload is ambiguous.
                         val variantOwner = findVariantOwner(sema, l.text)
-                        if variantOwner != "" { return variantOwner }
+                        if variantOwner != "" {
+                            checkVariantCall(sema, l.text, c.args, argTypes, c.line, c.col)
+                            return variantOwner
+                        }
                         return "unknown"
                     }
                 }
@@ -3033,7 +3151,10 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // `ASTNode.MatchCase(x)` and `Shape.Circle(7)`: a variant
                     // reached through its type name is that type's value, the
                     // same way the bare-name form above is.
-                    if typeHasVariant(sema, objType, member) { return objType }
+                    if typeHasVariant(sema, objType, member) {
+                        checkVariantCall(sema, member, c.args, argTypes, c.line, c.col)
+                        return objType
+                    }
                     // The receiver's own name, when it is a bare identifier.
                     // A `push` on it is what makes a recorded length stale, so
                     // it is needed before the builtin table, not after.
@@ -3181,7 +3302,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             checkNode(sema, r.hi)
             return "unknown"
         }
-        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants)
+        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants, td.variantPayloads)
             return ""
         }
         ASTNode.RouteDecl(r) => { checkRouteBody(sema, node)

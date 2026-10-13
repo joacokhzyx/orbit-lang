@@ -1078,6 +1078,37 @@ fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
     return ASTNode.ModelDecl(ModelDeclNode(name, fields, genericParams))
 }
 
+// One variant's payload list: `Variant`, `Variant(A)` or `Variant(A, B)`.
+// Each payload is a full type name, so `Variant(list<string>)` works, and
+// the list is joined with tabs -- commas would need depth tracking to split
+// back (`map<string, int>`), tabs never appear in a type spelling. "" when
+// there are no parens (unit variant). Empty parens stay refused with the
+// message they always had.
+fn parseVariantPayloads(parser: Parser) -> string {
+    var joined = ""
+    if matchToken(parser, TokType.OpenParen) {
+        if check(parser, TokType.CloseParen) {
+            parserError(parser, "Expected payload type.")
+        } else {
+            var first = true
+            while check(parser, TokType.CloseParen) == false && isAtEnd(parser) == false {
+                if first == false {
+                    consume(parser, TokType.Comma, "Expected ',' between payload types.")
+                }
+                first = false
+                val t = parseTypeName(parser)
+                if joined == "" {
+                    joined = t
+                } else {
+                    joined = joined + "\t" + t
+                }
+            }
+        }
+        consume(parser, TokType.CloseParen, "Expected ')' after payload types.")
+    }
+    return joined
+}
+
 fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
     if isPrivate {
         parserError(parser, "'private' is not supported on types yet.")
@@ -1098,14 +1129,9 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
         while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
             consume(parser, TokType.Identifier, "Expected variant name.")
             val varName = parser.previousToken.text
-            var payloadType = ""
-            if matchToken(parser, TokType.OpenParen) {
-                consume(parser, TokType.Identifier, "Expected payload type.")
-                payloadType = parser.previousToken.text
-                consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
-            }
+            val payloads = parseVariantPayloads(parser)
             variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
-            variantPayloads.push(payloadType)
+            variantPayloads.push(payloads)
             matchToken(parser, TokType.Comma)
         }
         consume(parser, TokType.CloseBrace, "Expected '}' after enum variants.")
@@ -1118,14 +1144,9 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
         while check(parser, TokType.CloseBrace) == false && isAtEnd(parser) == false {
             consume(parser, TokType.Identifier, "Expected variant name.")
             val varName = parser.previousToken.text
-            var payloadType = ""
-            if matchToken(parser, TokType.OpenParen) {
-                consume(parser, TokType.Identifier, "Expected payload type.")
-                payloadType = parser.previousToken.text
-                consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
-            }
+            val payloads = parseVariantPayloads(parser)
             variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
-            variantPayloads.push(payloadType)
+            variantPayloads.push(payloads)
             matchToken(parser, TokType.Comma)
         }
         consume(parser, TokType.CloseBrace, "Expected '}' after union variants.")
@@ -1138,15 +1159,12 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
         while check(parser, TokType.Identifier) {
             consume(parser, TokType.Identifier, "Expected variant or type name.")
             val varName = parser.previousToken.text
-            var payloadType = ""
-            if matchToken(parser, TokType.OpenParen) {
+            val payloads = parseVariantPayloads(parser)
+            if payloads != "" {
                 isSumType = true
-                consume(parser, TokType.Identifier, "Expected payload type.")
-                payloadType = parser.previousToken.text
-                consume(parser, TokType.CloseParen, "Expected ')' after payload type.")
             }
             variants.push(ASTNode.Literal(LiteralNode("variant", varName)))
-            variantPayloads.push(payloadType)
+            variantPayloads.push(payloads)
             if matchToken(parser, TokType.Pipe) {
                 isSumType = true
             } else {

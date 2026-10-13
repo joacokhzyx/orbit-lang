@@ -1,0 +1,17 @@
+// case: union-pattern-binding-count-mismatch
+// what: `Both(n)` binds one name where the variant declares two payloads.
+//      The second payload would be silently dropped, so the count is refused
+//      with both numbers. A bare `Both` with no parens still matches on the
+//      tag alone.
+// expect-error: Pattern binds 1 names but variant 'Both' declares 2 payloads
+union P2 {
+    Both(int, string)
+}
+
+fn main() -> int {
+    val p = P2.Both(1, "a")
+    match p {
+        P2.Both(n) => { return n }
+        _ => { return 0 }
+    }
+}

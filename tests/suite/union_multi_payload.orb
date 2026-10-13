@@ -1,0 +1,95 @@
+// Union variants with more than one payload: `V(A, B)` declares a tuple,
+// constructed positionally and destructured positionally by matching.
+// Single-payload and unit variants work exactly as before.
+union Pair2 {
+    Both(int, string),
+    First(int),
+    Neither
+}
+
+fn construct_two() -> int {
+    val p = Pair2.Both(1, "a")
+    match p {
+        Pair2.Both(n, s) => {
+            if n != 1 { return 1 }
+            if s != "a" { return 2 }
+            return 0
+        }
+        _ => { return 3 }
+    }
+}
+
+fn single_still_single() -> int {
+    val p = Pair2.First(7)
+    match p {
+        Pair2.First(n) => {
+            if n != 7 { return 1 }
+            return 0
+        }
+        _ => { return 2 }
+    }
+}
+
+fn unit_still_unit() -> int {
+    val p = Pair2.Neither
+    match p {
+        Pair2.Neither => { return 0 }
+        _ => { return 1 }
+    }
+}
+
+fn bare_construction() -> int {
+    val p = Both(2, "b")
+    match p {
+        Both(n, s) => {
+            if n != 2 { return 1 }
+            if s != "b" { return 2 }
+            return 0
+        }
+        _ => { return 3 }
+    }
+}
+
+// A payload can be any named type, including a model: nesting is a name,
+// not new grammar.
+model Dot {
+    x: int
+}
+
+union Wrapped {
+    At(Dot, int)
+}
+
+fn nested_model_payload() -> int {
+    val w = Wrapped.At(Dot { x: 3 }, 4)
+    match w {
+        Wrapped.At(d, n) => {
+            if d.x != 3 { return 1 }
+            if n != 4 { return 2 }
+            return 0
+        }
+        _ => { return 3 }
+    }
+}
+
+fn container_payload() -> int {
+    val p = Pair2.Both(9, "z")
+    match p {
+        Pair2.Both(n, s) => {
+            if n + 1 != 10 { return 1 }
+            if s != "z" { return 2 }
+            return 0
+        }
+        _ => { return 3 }
+    }
+}
+
+fn main() -> int {
+    if construct_two() != 0 { return 1 }
+    if single_still_single() != 0 { return 2 }
+    if unit_still_unit() != 0 { return 3 }
+    if bare_construction() != 0 { return 4 }
+    if nested_model_payload() != 0 { return 5 }
+    if container_payload() != 0 { return 6 }
+    return 0
+}

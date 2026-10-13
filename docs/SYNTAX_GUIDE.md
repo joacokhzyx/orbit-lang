@@ -165,6 +165,12 @@ union Payload {
 }
 ```
 
+A variant declares a tuple of payloads: `Both(int, string)` constructs
+with one argument per payload in order (`Pair.Both(1, "a")`) and destructures
+with one binding per payload (`Pair.Both(n, s) => ...`). A payload can be
+any named type, including a model. Arity and payload types are checked
+(both directions: construction and patterns).
+
 `match` dispatches on a union variant.
 
 ## Control flow

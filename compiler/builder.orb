@@ -1336,6 +1336,91 @@ fn modelHasField(builder: IRBuilder, typeName: string, fieldName: string) -> boo
     return modelFieldTypeOf(builder, typeName, fieldName) != "! no such model field"
 }
 
+// A tab-joined payload list split back into spellings. Tabs ride from the
+// parser, which joins with them because commas need depth tracking;
+// sema.orb's splitBindingRows is the same split for the same reason, in its
+// own module closure.
+fn splitPayloadTypes(joined: string) -> list {
+    val parts = []
+    if joined == "" { return parts }
+    var start = 0
+    var i = 0
+    while i <= orbit_string_len(joined) {
+        var end = false
+        if i == orbit_string_len(joined) { end = true }
+        var isTab = false
+        if end == false {
+            if joined.at(i) == 9 { isTab = true }
+        }
+        if end || isTab {
+            parts.push(orbit_string_slice(joined, start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return parts
+}
+
+// The i-th payload type of a variant, or "" past the end. Named for tags
+// (union member names in IR), not variants: sema.orb owns variantPayloadAt
+// over its own registry, and cross-file names are closed.
+fn variantTagPayloadAt(builder: IRBuilder, tagName: string, idx: int) -> string {
+    if tagName.len() == 0 { return "unknown" }
+    var ti = 0
+    while ti < builder.module.types.len() {
+        val t: IRTypeDecl = builder.module.types.get(ti)
+        if t.kind == "union_type" {
+            var vi = 0
+            while vi < t.variants.len() {
+                if t.variants.get(vi) == tagName {
+                    if vi < t.richVariants.len() {
+                        val p: string = t.richVariants.get(vi)
+                        val parts = splitPayloadTypes(p)
+                        if idx >= 0 && idx < parts.len() {
+                            val part: string = parts.get(idx)
+                            return part
+                        }
+                    }
+                    return ""
+                }
+                vi = vi + 1
+            }
+        }
+        ti = ti + 1
+    }
+    return "unknown"
+}
+
+// The union first declaring a variant, or "" when none does. Bare `V(a)`
+// patterns carry no owner; the tag still has to come from somewhere.
+fn variantTagOwner(builder: IRBuilder, tagName: string) -> string {
+    if tagName.len() == 0 { return "" }
+    var ti = 0
+    while ti < builder.module.types.len() {
+        val t: IRTypeDecl = builder.module.types.get(ti)
+        if t.kind == "union_type" {
+            var vi = 0
+            while vi < t.variants.len() {
+                if t.variants.get(vi) == tagName {
+                    return t.name
+                }
+                vi = vi + 1
+            }
+        }
+        ti = ti + 1
+    }
+    return ""
+}
+
+// The packed-struct type holding a variant's payloads (`Owner_Variant`),
+// or "" when no union declares the variant. Multi-payload match bindings
+// read `Owner_Variant._0` off the data pointer through it.
+fn variantStructOf(builder: IRBuilder, tagName: string) -> string {
+    val owner = variantTagOwner(builder, tagName)
+    if owner == "" { return "" }
+    return owner + "_" + tagName
+}
+
 fn variantPayloadType(builder: IRBuilder, tagName: string) -> string {
     if tagName.len() == 0 { return "unknown" }
     // Structural first: consult declared union payloads (richVariants).
@@ -2586,7 +2671,7 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                         dataInstr.operand1 = ir_register(matchReg)
                         ir_emit(builder.currentFunction, dataInstr)
 
-                        if callPattern.args.len() > 0 {
+                        if callPattern.args.len() == 1 {
                             val argNode = callPattern.args.get(0)
                             match argNode {
                                 ASTNode.Literal(argLit) => {
@@ -2599,6 +2684,42 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                                     }
                                 }
                                 _ => {}
+                            }
+                        } else if callPattern.args.len() > 1 {
+                            // Multi-payload: each identifier argument binds one
+                            // packed-struct field (`T_V._0`, `T_V._1`), read off
+                            // the data pointer the tag test just kept. The
+                            // struct type comes from the qualified owner when
+                            // there is one, else the first union declaring the
+                            // variant; the checker already refused a count
+                            // mismatch, so every index below is declared.
+                            var structName = ""
+                            if tagOwner != "" {
+                                structName = tagOwner + "_" + tagName
+                            } else {
+                                structName = variantStructOf(builder, tagName)
+                            }
+                            var ai = 0
+                            while ai < callPattern.args.len() {
+                                match callPattern.args.get(ai) {
+                                    ASTNode.Literal(argLit) => {
+                                        if argLit.valType == "identifier" {
+                                            val argC = defineVariable(builder, argLit.text, variantTagPayloadAt(builder, tagName, ai))
+                                            val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
+                                            val fieldInstr = ir_init_instr(IROpcode.load_field)
+                                            fieldInstr.dest = fieldReg
+                                            fieldInstr.operand1 = ir_register(dataReg)
+                                            fieldInstr.operand2 = ir_symbol(structName + "._" + ai)
+                                            ir_emit(builder.currentFunction, fieldInstr)
+                                            val declVar = ir_init_instr(IROpcode.decl_var)
+                                            declVar.operand1 = ir_symbol(argC)
+                                            declVar.operand2 = ir_register(fieldReg)
+                                            ir_emit(builder.currentFunction, declVar)
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                ai = ai + 1
                             }
                         }
 
@@ -2615,7 +2736,20 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             varPatInstr.operand1 = ir_symbol(tagOwner + "_TAG_" + tagName)
                             ir_emit(builder.currentFunction, varPatInstr)
                         } else {
-                            varPatReg = buildExpr(builder, callPattern.callee)
+                            // Bare `V(a)`: no owner in the pattern, so the tag
+                            // comes from the first union declaring the
+                            // variant. Without this the callee built as a bare
+                            // variable reference, which never compiled.
+                            val bareOwner = variantTagOwner(builder, tagName)
+                            if bareOwner != "" {
+                                varPatReg = ir_alloc_register(builder.currentFunction, "int")
+                                val varPatInstr = ir_init_instr(IROpcode.load_var)
+                                varPatInstr.dest = varPatReg
+                                varPatInstr.operand1 = ir_symbol(bareOwner + "_TAG_" + tagName)
+                                ir_emit(builder.currentFunction, varPatInstr)
+                            } else {
+                                varPatReg = buildExpr(builder, callPattern.callee)
+                            }
                         }
                         val eqReg = ir_alloc_register(builder.currentFunction, "bool")
                         val eqInstr = ir_init_instr(IROpcode.eq)

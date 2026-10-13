@@ -1,0 +1,14 @@
+// case: union-variant-arity-mismatch
+// what: `Both` declares two payloads and the construction passes one. It
+//      used to take any argument count and answer the union, so a second
+//      payload reached the C backend as a C comma expression evaluating to
+//      the last argument. Arity is refused the way model arity is.
+// expect-error: Variant 'Both' declares 2 payloads, but the construction passes 1
+union P2 {
+    Both(int, string)
+}
+
+fn main() -> int {
+    val p = P2.Both(1)
+    return 0
+}

@@ -1,0 +1,13 @@
+// case: union-variant-payload-type-mismatch
+// what: the second payload of `Both` is declared string and the value is
+//      int. Positional payloads check like call arguments (int widens to
+//      float, the other direction does not).
+// expect-error: Payload 2 of 'Both' is declared string but the value is int
+union P2 {
+    Both(int, string)
+}
+
+fn main() -> int {
+    val p = P2.Both(1, 2)
+    return 0
+}

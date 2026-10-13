@@ -86,7 +86,9 @@ field ...`, `'int' has no member ...`, `'Shape' has no variant ...`), and
 `print` called with anything but exactly 1 argument. Fix hint is per site
 (see the `reportErrorAt` hint strings at `sema.orb:433-503,2737`): spell the
 member as declared, construct with one argument per field in order, print
-one value. Pinned by `n05`, `n06`, `n13`, `n14`, `n15`, `n47`, and `n57`.
+one value. Pinned by `n05`, `n06`, `n13`, `n14`, `n15`, `n47`, `n57`, `n66`,
+and `n68` (`n66`: variant arity at construction; `n68`: pattern binding
+count in `match`).
 
 ## E1004 — literal zero divisor, `INT_MIN / -1`
 
@@ -104,8 +106,10 @@ Fires in `compiler/sema.orb`, `reportErrorAt` at the call site, naming the
 parameter and both types. Fix hint: change the argument or the parameter's
 declared type. An `int` where a `float` is declared is still accepted (the C
 backend widens it). Pinned by
-`tests/negative/n33_call_argument_type_unchecked.orb` and
-`tests/negative/n46_list_param_takes_other_element.orb`.
+`tests/negative/n33_call_argument_type_unchecked.orb`,
+`tests/negative/n46_list_param_takes_other_element.orb`, and
+`tests/negative/n67_union_variant_payload_type.orb` (positional payload
+against its declared type).
 
 ## E1006 — bad type name or binding mismatch
 

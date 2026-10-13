@@ -28,6 +28,30 @@ fn initCBackend(module: IRModule) -> CBackend {
     return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [], initIRFunction(""), [], [], [], [])
 }
 
+// A tab-joined variant payload list split back into spellings. The parser
+// joins with tabs because commas need depth tracking; the split is the same
+// one sema.orb and builder.orb carry in their own module closures.
+fn splitPayloadDecl(joined: string) -> list {
+    val parts = []
+    if joined == "" { return parts }
+    var start = 0
+    var i = 0
+    while i <= orbit_string_len(joined) {
+        var end = false
+        if i == orbit_string_len(joined) { end = true }
+        var isTab = false
+        if end == false {
+            if joined.at(i) == 9 { isTab = true }
+        }
+        if end || isTab {
+            parts.push(orbit_string_slice(joined, start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return parts
+}
+
 // The behaviour difference worth naming: listContainsStr opens with a NULL
 // guard and these four loops did not. On a list that has never been pushed to,
 // the loops called .len() on NULL and the helper answers false. That is a fix,
@@ -99,7 +123,44 @@ fn generateC(backend: CBackend) -> string {
                 var mvv = 0
                 while mvv < mvType.variants.len() {
                     val mvName: string = mvType.variants.get(mvv)
-                    orbit_cbuf_append_selfhost(cbTop, "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
+                    var mrich = ""
+                    if mvv < mvType.richVariants.len() {
+                        val mr: string = mvType.richVariants.get(mvv)
+                        mrich = mr
+                    }
+                    val mparts = splitPayloadDecl(mrich)
+                    if mparts.len() > 1 {
+                        // Multi-payload: the generic `V(...)` macro would take
+                        // the comma expression's last value, so the variant
+                        // gets a packing function and a fixed-arity macro. It
+                        // lives here, after orbit_create_variant and after the
+                        // `T_V` struct in the types section above, because it
+                        // needs both visible.
+                        var sig = ""
+                        var call = ""
+                        var fill = ""
+                        var mi = 0
+                        while mi < mparts.len() {
+                            val mp: string = mparts.get(mi)
+                            val mt = mapTypeToC(backend, mp)
+                            if mi > 0 {
+                                sig = sig + ", "
+                                call = call + ", "
+                            }
+                            sig = sig + mt + " a" + mi
+                            call = call + "a" + mi
+                            fill = fill + "    p->_" + mi + " = a" + mi + ";\n"
+                            mi = mi + 1
+                        }
+                        orbit_cbuf_append_selfhost(cbTop, "static inline OrbitASTVariantNode* " + mvType.name + "_" + mvName + "_pack(OrbitArena* a, " + sig + ") {\n")
+                        orbit_cbuf_append_selfhost(cbTop, "    " + mvType.name + "_" + mvName + "* p = (" + mvType.name + "_" + mvName + "*)orbit_alloc(a, sizeof(" + mvType.name + "_" + mvName + "));\n")
+                        orbit_cbuf_append_selfhost(cbTop, fill)
+                        orbit_cbuf_append_selfhost(cbTop, "    return orbit_create_variant(a, " + mvType.name + "_TAG_" + mvName + ", (void*)p);\n")
+                        orbit_cbuf_append_selfhost(cbTop, "}\n")
+                        orbit_cbuf_append_selfhost(cbTop, "#define " + mvName + "(" + call + ") " + mvType.name + "_" + mvName + "_pack(arena, " + call + ")\n")
+                    } else {
+                        orbit_cbuf_append_selfhost(cbTop, "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
+                    }
                     mvv = mvv + 1
                 }
             }
@@ -1309,6 +1370,36 @@ fn isModelCtorName(backend: CBackend, name: string) -> bool {
     return false
 }
 
+// Declared payload type of a union variant's positional argument, or ""
+// when unknown. The creator packs into these same declarations, so casting
+// to them always matches its signature. Only multi-payload variants use it:
+// singles keep the void* form they always had, byte for byte.
+fn variantCtorPayloadType(backend: CBackend, name: string, argIdx: int) -> string {
+    var i = 0
+    while i < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(i)
+        if tDecl.kind == "union_type" {
+            var vi = 0
+            while vi < tDecl.variants.len() {
+                if tDecl.variants.get(vi) == name {
+                    if vi < tDecl.richVariants.len() {
+                        val r: string = tDecl.richVariants.get(vi)
+                        val parts = splitPayloadDecl(r)
+                        if parts.len() > 1 && argIdx >= 0 && argIdx < parts.len() {
+                            val part: string = parts.get(argIdx)
+                            return part
+                        }
+                    }
+                    return ""
+                }
+                vi = vi + 1
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
 // Declared field type of a model constructor's positional argument,
 // or "" when unknown. The creator was generated from these same
 // declarations, so casting to them always matches its signature.
@@ -1412,6 +1503,31 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                 vi = vi + 1
             }
             out = out + "} " + tDecl.name + "_Tag;\n\n"
+            // Packed payload structs, one per multi-payload variant, ahead of
+            // the union that holds them: `V(A, B)` stores a `T_V*` in data,
+            // and match bindings read `T_V._0` off it. Single-payload and
+            // unit variants keep the members they always had.
+            vi = 0
+            while vi < tDecl.variants.len() {
+                val vName: string = tDecl.variants.get(vi)
+                var rich = ""
+                if vi < tDecl.richVariants.len() {
+                    val r: string = tDecl.richVariants.get(vi)
+                    rich = r
+                }
+                val parts = splitPayloadDecl(rich)
+                if parts.len() > 1 {
+                    out = out + "typedef struct {\n"
+                    var pi = 0
+                    while pi < parts.len() {
+                        val pt: string = parts.get(pi)
+                        out = out + "    " + mapTypeToC(backend, pt) + " _" + pi + ";\n"
+                        pi = pi + 1
+                    }
+                    out = out + "} " + tDecl.name + "_" + vName + ";\n"
+                }
+                vi = vi + 1
+            }
             out = out + "typedef struct " + tDecl.name + " {\n"
             out = out + "    " + tDecl.name + "_Tag tag;\n"
             out = out + "    union {\n"
@@ -1419,9 +1535,16 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
             vi = 0
             while vi < tDecl.variants.len() {
                 val vName: string = tDecl.variants.get(vi)
-                val payload: string = tDecl.richVariants.get(vi)
-                if payload != "" {
-                    out = out + "        " + mapTypeToC(backend, payload) + " " + vName + ";\n"
+                var rich = ""
+                if vi < tDecl.richVariants.len() {
+                    val r: string = tDecl.richVariants.get(vi)
+                    rich = r
+                }
+                val parts = splitPayloadDecl(rich)
+                if parts.len() > 1 {
+                    out = out + "        " + tDecl.name + "_" + vName + " " + vName + ";\n"
+                } else if rich != "" {
+                    out = out + "        " + mapTypeToC(backend, rich) + " " + vName + ";\n"
                 } else {
                     out = out + "        int " + vName + "; /* unit variant */\n"
                 }
@@ -2820,6 +2943,24 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                         callExpr = callExpr + "(" + mapTypeToC(backend, mft) + ")(" + aStr + ")"
                     } else {
                         callExpr = callExpr + aStr
+                    }
+                } else if isUnionVariantName(backend, calleeName) && variantCtorPayloadType(backend, calleeName, argIdx) != "" {
+                    // Multi-payload construction packs into declared struct
+                    // fields, so each argument casts to its payload type the
+                    // way model fields do above. Gated on a declared payload
+                    // (not just the variant name) so singles fall through to
+                    // the chain below and keep the void* form, exactly as
+                    // emitted before -- including its result-register and
+                    // per-function special cases.
+                    val vpt = variantCtorPayloadType(backend, calleeName, argIdx)
+                    if vpt == "int" || vpt == "bool" {
+                        callExpr = callExpr + "(orbit_int)(uintptr_t)(" + aStr + ")"
+                    } else if vpt == "string" {
+                        callExpr = callExpr + "(orbit_string)(" + aStr + ")"
+                    } else if vpt == "float" {
+                        callExpr = callExpr + "(orbit_float)(" + aStr + ")"
+                    } else {
+                        callExpr = callExpr + "(" + mapTypeToC(backend, vpt) + ")(" + aStr + ")"
                     }
                 } else if calleeEnumParamName(backend, calleeName, argIdx) != "" {
                     // Declared enum parameter: standard cast-to-enum. Stock GCC
