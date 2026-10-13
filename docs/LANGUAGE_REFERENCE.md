@@ -659,6 +659,7 @@ the primary key) and carries these static methods:
 | Method | Returns | Notes |
 |---|---|---|
 | `M.all()` | JSON array string | full scan |
+| `M.order(col)` / `M.order_desc(col)` | JSON array string | whole-table scan by a validated column; anything else answers `[]` |
 | `M.where(cond)` | JSON array string | raw fragment; keep it constant |
 | `M.where(cond, p1..pn)` | JSON array string | one `?` per param, `%Q`-escaped in order |
 | `M.find(id)` | JSON object string | single row by key; `""` when missing (`== ""` is the miss check) |

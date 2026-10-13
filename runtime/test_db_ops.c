@@ -4,8 +4,8 @@
  *
  * Pins the SQL-complete surface at the C layer: partial update writes only
  * present keys and never the id, count answers without fetching rows,
- * multi-param WHERE binds in order, the placeholder contract (count
- * match, no statement chaining) holds, and a find/first that matches
+ * multi-param WHERE binds in order, ordered scans honor validated columns,
+ * the placeholder contract (count match, no statement chaining) holds, and a find/first that matches
  * nothing answers "" so `== ""` is the miss check instead of a segfault.
  * Conventions follow runtime/test_migrations.c.
  */
@@ -118,6 +118,30 @@ static void test_count(void) {
     orbit_db_close();
 }
 
+/* Whole-table ordering by a validated column, both directions; anything
+ * that is not an identifier answers "[]" instead of reaching the query. */
+static void test_order(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":3}"));
+    assert(orbit_db_insert("items", "{\"id\":\"b\",\"name\":\"nail\",\"qty\":7}"));
+    assert(orbit_db_insert("items", "{\"id\":\"c\",\"name\":\"saw\",\"qty\":1}"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    orbit_string asc = orbit_db_query_order(arena, "items", "qty");
+    assert(asc != NULL);
+    assert(strstr(asc, "\"id\":\"c\"") < strstr(asc, "\"id\":\"a\""));
+    assert(strstr(asc, "\"id\":\"a\"") < strstr(asc, "\"id\":\"b\""));
+    orbit_string desc = orbit_db_query_order_desc(arena, "items", "qty");
+    assert(desc != NULL);
+    assert(strstr(desc, "\"id\":\"b\"") < strstr(desc, "\"id\":\"a\""));
+    assert(strstr(desc, "\"id\":\"a\"") < strstr(desc, "\"id\":\"c\""));
+    assert(strcmp(orbit_db_query_order(arena, "items", "qty; DROP TABLE items;"), "[]") == 0);
+    assert(strcmp(orbit_db_query_order_desc(arena, "items", "qty DESC, id"), "[]") == 0);
+    assert(strcmp(orbit_db_query_order(arena, "no such table!", "qty"), "[]") == 0);
+    assert(orbit_db_count_all(arena, "items") == 3);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 /* Indexes ride the migrations runner (forward DDL), and queries keep
  * working with one in place. */
 static void test_index_migration(void) {
@@ -157,6 +181,7 @@ int main(void) {
     RUN_TEST(test_where_two_params);
     RUN_TEST(test_where_contract);
     RUN_TEST(test_count);
+    RUN_TEST(test_order);
     RUN_TEST(test_index_migration);
     RUN_TEST(test_find_first_miss_is_empty);
     printf("PASSED all db_ops tests\n");

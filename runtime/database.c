@@ -647,6 +647,78 @@ orbit_string orbit_db_query_all(OrbitArena* arena, const char* table_name) {
     return r;
 }
 
+/** @brief Ordered full scan of @p col by @p col_name (@p desc selects DESC).
+ *
+ * The direction is fixed by the calling verb, never a string, and both
+ * names are validated identifiers before use, so no user text reaches the
+ * query. Answers "[]" on any failure, like every other read. Ordering is
+ * whole-table only: filtered ordering does not exist yet. */
+static orbit_string orbit_db_order(OrbitArena* arena, orbit_collection col, const char* col_name, int desc) {
+    KYNX_DB_QUERY_CHECK("[]");
+    size_t query_len = strlen("SELECT * FROM  ORDER BY  ;") + strlen(col.table_name) + strlen(col_name) + 8;
+    char* query = (char*)orbit_alloc(arena, query_len);
+    if (!query) return "[]";
+    snprintf(query, query_len, "SELECT * FROM %s ORDER BY %s %s;", col.table_name, col_name, desc ? "DESC" : "ASC");
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
+        return "[]";
+
+    size_t buf_cap = 8192;
+    char* buf = (char*)orbit_alloc(arena, buf_cap);
+    if (!buf) return "[]";
+
+    char* p = buf;
+    *(p++) = '[';
+    bool first = true;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        size_t used_so_far = (size_t)(p - buf);
+        if (used_so_far + 2048 > buf_cap) {
+            size_t new_cap = buf_cap * 2;
+            char* new_buf = (char*)orbit_alloc(arena, new_cap);
+            if (!new_buf) break;
+            memcpy(new_buf, buf, used_so_far);
+            buf = new_buf;
+            p = buf + used_so_far;
+            buf_cap = new_cap;
+        }
+
+        if (!first) *(p++) = ',';
+        size_t row_len = orbit_db_row_to_json(arena, stmt, p, buf_cap - (size_t)(p - buf));
+        p += row_len;
+        first = false;
+    }
+
+    *(p++) = ']';
+    *p = '\0';
+
+    sqlite3_finalize(stmt);
+    return buf;
+}
+
+/** @brief Whole-table scan of @p table_name ordered by @p col_name ascending. */
+orbit_string orbit_db_query_order(OrbitArena* arena, const char* table_name, const char* col_name) {
+    if (!orbit_db_valid_identifier(table_name)) return "[]";
+    if (!orbit_db_valid_identifier(col_name)) return "[]";
+    orbit_collection col = { table_name, NULL };
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_order(arena, col, col_name, 0);
+    orbit_ledger_db_end(t0);
+    return r;
+}
+
+/** @brief Whole-table scan of @p table_name ordered by @p col_name descending. */
+orbit_string orbit_db_query_order_desc(OrbitArena* arena, const char* table_name, const char* col_name) {
+    if (!orbit_db_valid_identifier(table_name)) return "[]";
+    if (!orbit_db_valid_identifier(col_name)) return "[]";
+    orbit_collection col = { table_name, NULL };
+    uint64_t t0 = orbit_ledger_db_begin();
+    orbit_string r = orbit_db_order(arena, col, col_name, 1);
+    orbit_ledger_db_end(t0);
+    return r;
+}
+
 orbit_string orbit_db_query_where(OrbitArena* arena, const char* table_name, const char* condition) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
     orbit_collection col = { table_name, NULL };

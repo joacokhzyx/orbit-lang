@@ -243,6 +243,8 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_query_where_v" { return "string" }
     if name == "orbit_db_query_get" { return "string" }
     if name == "orbit_db_query_first" { return "string" }
+    if name == "orbit_db_query_order" { return "string" }
+    if name == "orbit_db_query_order_desc" { return "string" }
     if name == "orbit_db_count_all" { return "int" }
     if name == "orbit_db_count_v" { return "int" }
     if name == "orbit_db_insert" { return "bool" }
@@ -2780,6 +2782,10 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     modelBuiltin = "orbit_db_query_get"
                 } else if memberName == "first" {
                     modelBuiltin = "orbit_db_query_first"
+                } else if memberName == "order" {
+                    modelBuiltin = "orbit_db_query_order"
+                } else if memberName == "order_desc" {
+                    modelBuiltin = "orbit_db_query_order_desc"
                 } else if memberName == "count" {
                     if c.args.len() == 0 {
                         modelBuiltin = "orbit_db_count_all"
