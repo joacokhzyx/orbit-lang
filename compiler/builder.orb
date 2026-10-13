@@ -24,6 +24,37 @@ model IRBuilder {
     // reloads the same index forever, which is how a plain `continue` in a
     // `for` used to hang. Fourth stack, same push/pop discipline.
     loopContinueLabels: list
+    // Generic function templates by name, as parallel lists (the name and
+    // the FunctionDecl node). Templates emit no C themselves: each call site
+    // monomorphises its own instance through ensureFnInstance below.
+    genericFnNames: list
+    genericFnDecls: list
+    // Type-variable bindings for the instance under construction, as a stack
+    // of frames: parameter names comma-joined beside arguments tab-joined
+    // (type spellings never contain tabs, and parameter names never contain
+    // commas). Frames nest strictly -- an instance builds its body, which
+    // may ensure a nested instance, then pops -- so push/pop pair up and no
+    // marks are needed. Lookups run innermost-first, so an inner `T`
+    // shadows an outer one, and chaining falls out: substituting frame by
+    // frame turns `list<U>` with U->T into `list<T>` for the outer frame.
+    fnGenericParams: list
+    fnGenericArgs: list
+    // Model instance bindings per variable, as parallel lists (the name, the
+    // model's own name, the arguments tab-joined), with frame marks like
+    // listKindMarks: a `Box { v: 1 }` bound to `b` answers "T int" for `b`
+    // while its scope lives, so a generic call taking `b` infers from
+    // history, not from the lossy instance-name spelling.
+    genInstNames: list
+    genInstModels: list
+    genInstArgs: list
+    genInstMarks: list
+    // Queued generic instances: the substituted declaration, the parameter
+    // names joined, the bindings joined. ensureFnInstance only registers the
+    // prototype; drainFnInstances builds the bodies after pass 3, so no
+    // instance ever builds with a caller's scope open.
+    fnWorkDecls: list
+    fnWorkParams: list
+    fnWorkArgs: list
     modelNames: list
     returnTypes: list
     // Element type per named list, as `name -> Orbit type name` (Variable).
@@ -54,7 +85,7 @@ model IRBuilder {
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], [], [], 0)
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0)
 }
 
 model Variable {
@@ -77,6 +108,7 @@ fn initScope() -> VarScope {
 fn pushVariableScope(builder: IRBuilder) {
     builder.variableScopes.push(initScope())
     builder.listKindMarks.push(builder.listKinds.len())
+    builder.genInstMarks.push(builder.genInstNames.len())
 }
 
 fn popVariableScope(builder: IRBuilder) {
@@ -89,6 +121,16 @@ fn popVariableScope(builder: IRBuilder) {
         val mark = builder.listKindMarks.pop()
         while builder.listKinds.len() > mark {
             builder.listKinds.pop()
+        }
+    }
+    // Same lifetime for model instance bindings: a `Box { v: 1 }` bound in a
+    // block answers history only while its scope lives.
+    if builder.genInstMarks.len() > 0 {
+        val mark = builder.genInstMarks.pop()
+        while builder.genInstNames.len() > mark {
+            builder.genInstNames.pop()
+            builder.genInstModels.pop()
+            builder.genInstArgs.pop()
         }
     }
 }
@@ -506,7 +548,10 @@ fn modelLiteralArgTypes(builder: IRBuilder, gm: IRModelDecl, literal: ASTNode) -
         val direct = typeParamIndex(gm.typeParams, f.typeName)
         if direct >= 0 {
             if args.get(direct) == "unknown" {
-                args.set(direct, staticExprTypeName(builder, valueNode))
+                // Inside a generic instance the value's type may name a
+                // parameter: resolve it here, or the literal instantiates
+                // `Box_T` instead of the call's `Box_int`.
+                args.set(direct, resolveFnType(builder, staticExprTypeName(builder, valueNode)))
             }
         }
         val elem = listElementParamIndex(gm.typeParams, f.typeName)
@@ -519,7 +564,7 @@ fn modelLiteralArgTypes(builder: IRBuilder, gm: IRModelDecl, literal: ASTNode) -
                 val depth = listPeelDepth(f.typeName) - 1
                 if depth >= 0 {
                     match listLiteralValueAtDepth(valueNode, depth) {
-                        ASTNode.ListLiteral(ll) => { args.set(elem, listLiteralKindName(builder, ll)) }
+                        ASTNode.ListLiteral(ll) => { args.set(elem, resolveFnType(builder, listLiteralKindName(builder, ll))) }
                         _ => {}
                     }
                 }
@@ -656,6 +701,429 @@ fn splitTypeArgs(s: string) -> list < string > {
     }
     if orbit_string_len(trimTypeArg(cur)) > 0 { out.push(trimTypeArg(cur)) }
     return out
+}
+
+// A generic template by name, or Empty when no template declares it. Kept
+// beside the declaration (parallel lists, the instance-map shape) so the
+// function table stays closed to one-C-function names.
+fn genericFnByName(builder: IRBuilder, name: string) -> ASTNode {
+    var i = 0
+    while i < builder.genericFnNames.len() {
+        if builder.genericFnNames.get(i) == name {
+            return builder.genericFnDecls.get(i)
+        }
+        i = i + 1
+    }
+    return ASTNode.Empty
+}
+
+fn recordGenericFn(builder: IRBuilder, f: FunctionDeclNode) {
+    var i = 0
+    while i < builder.genericFnNames.len() {
+        if builder.genericFnNames.get(i) == f.name { return }
+        i = i + 1
+    }
+    builder.genericFnNames.push(f.name)
+    builder.genericFnDecls.push(ASTNode.FunctionDecl(f))
+}
+
+// Record one model instance binding: variable `varName` was built from
+// model `modelName` with the given argument spellings, in the model's
+// parameter order. The scope marks truncate it on pop, so history never
+// outlives the binding.
+fn recordGenericInstance(builder: IRBuilder, varName: string, modelName: string, args: list) {
+    var joined = ""
+    var i = 0
+    while i < args.len() {
+        if i > 0 { joined = joined + "\t" }
+        val a: string = args.get(i)
+        joined = joined + a
+        i = i + 1
+    }
+    builder.genInstNames.push(varName)
+    builder.genInstModels.push(modelName)
+    builder.genInstArgs.push(joined)
+}
+
+// The instance rows behind one argument, in "model-param arg" order: recorded
+// history for a variable, recomputed bindings for a literal in hand, nothing
+// otherwise. An instance name (`Box_int`) is not an application, so the
+// model's own parameters are read off the declaration site instead of peeled
+// from the spelling.
+fn genericInstanceRows(builder: IRBuilder, modelName: string, node: ASTNode) -> list {
+    val gm = genericModelByName(builder, modelName)
+    if gm == NULL { return [] }
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" {
+                var i = builder.genInstNames.len()
+                while i > 0 {
+                    i = i - 1
+                    val n: string = builder.genInstNames.get(i)
+                    if n == l.text {
+                        val m: string = builder.genInstModels.get(i)
+                        if m == modelName {
+                            val a: string = builder.genInstArgs.get(i)
+                            val argList = splitPayloadTypes(a)
+                            val rows = []
+                            var k = 0
+                            while k < gm.typeParams.len() && k < argList.len() {
+                                val mp: string = gm.typeParams.get(k)
+                                val av: string = argList.get(k)
+                                rows.push(mp + " " + av)
+                                k = k + 1
+                            }
+                            return rows
+                        }
+                        return []
+                    }
+                }
+                return []
+            }
+        }
+        _ => {}
+    }
+    val args = modelLiteralArgTypes(builder, gm, node)
+    val rows = []
+    var k = 0
+    while k < gm.typeParams.len() && k < args.len() {
+        val mp: string = gm.typeParams.get(k)
+        val av: string = args.get(k)
+        rows.push(mp + " " + av)
+        k = k + 1
+    }
+    return rows
+}
+
+// The template's parameter names, in order.
+fn genericFnParamNames(f: FunctionDeclNode) -> list {
+    val out = []
+    var i = 0
+    while i < f.genericParams.len() {
+        match f.genericParams.get(i) {
+            ASTNode.GenericParam(g) => { out.push(g.name) }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// One parameter occurrence bound from one argument type: same container base
+// peels one level, a bare name binds the whole actual, anything else binds
+// nothing. The checker's twin in its own closure; both must answer alike,
+// the way model inference does, or the caller's instance and the checker's
+// disagree about which function ran.
+fn inferFnArgBinding(declared: string, actual: string, param: string) -> string {
+    if declared == param { return actual }
+    val dOpen = orbit_string_indexOf(declared, "<")
+    val aOpen = orbit_string_indexOf(actual, "<")
+    if dOpen <= 0 || aOpen <= 0 { return "" }
+    val dBase = orbit_string_slice(declared, 0, dOpen)
+    val aBase = orbit_string_slice(actual, 0, aOpen)
+    if dBase != aBase { return "" }
+    if orbit_string_slice(declared, orbit_string_len(declared) - 1, orbit_string_len(declared)) != ">" { return "" }
+    if orbit_string_slice(actual, orbit_string_len(actual) - 1, orbit_string_len(actual)) != ">" { return "" }
+    val dArgs = splitTypeArgs(orbit_string_slice(declared, dOpen + 1, orbit_string_len(declared) - 1))
+    val aArgs = splitTypeArgs(orbit_string_slice(actual, aOpen + 1, orbit_string_len(actual) - 1))
+    if dArgs.len() != aArgs.len() { return "" }
+    var i = 0
+    while i < dArgs.len() {
+        val dPart: string = dArgs.get(i)
+        val aPart: string = aArgs.get(i)
+        val found = inferFnArgBinding(dPart, aPart, param)
+        if found != "" { return found }
+        i = i + 1
+    }
+    return ""
+}
+
+// The head of a "name arg" binding row (before the first space), its tail
+// after it. Twins of sema.orb's bindingHead/bindingTail in this closure.
+fn bindingHeadOf(row: string) -> string {
+    var i = 0
+    while i < orbit_string_len(row) {
+        if row.at(i) == 32 { return orbit_string_slice(row, 0, i) }
+        i = i + 1
+    }
+    return row
+}
+
+fn bindingTailOf(row: string) -> string {
+    var i = 0
+    while i < orbit_string_len(row) {
+        if row.at(i) == 32 { return orbit_string_slice(row, i + 1, orbit_string_len(row)) }
+        i = i + 1
+    }
+    return row
+}
+
+// The base of a type spelling ("Box<T>" -> "Box", "T" -> "T").
+fn containerBaseOf(spelling: string) -> string {
+    val lt = orbit_string_indexOf(spelling, "<")
+    if lt <= 0 { return spelling }
+    return orbit_string_slice(spelling, 0, lt)
+}
+
+// Whether a spelling mentions a parameter as a whole word. Twin of sema's
+// paramMentioned; isTypeNameChar is this closure's word test.
+fn paramMentionedBuilder(spelling: string, param: string) -> bool {
+    var i = 0
+    while i < orbit_string_len(spelling) {
+        if isTypeNameChar(spelling.at(i)) {
+            var j = i
+            while j < orbit_string_len(spelling) {
+                if isTypeNameChar(spelling.at(j)) == false { break }
+                j = j + 1
+            }
+            if orbit_string_slice(spelling, i, j) == param { return true }
+            i = j
+        } else {
+            i = i + 1
+        }
+    }
+    return false
+}
+
+// Whether a spelling names one of the parameters itself (another variable,
+// not a fix). Twin of the checker's skip inside cohereBinding.
+fn isSelfParam(params: list, value: string) -> bool {
+    var i = 0
+    while i < params.len() {
+        val pname: string = params.get(i)
+        if pname == value { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The bindings a call fixes, in parameter order: first concrete win per
+// position order, unknowns skipped, exactly the checker's rule, because the
+// instance name has to be the checker's instance. Values naming a parameter
+// are skipped like unknowns, for the same reason as there.
+fn inferFnBindings(builder: IRBuilder, f: FunctionDeclNode, c: CallNode) -> list {
+    val params = genericFnParamNames(f)
+    val bindings = []
+    var p = 0
+    while p < params.len() {
+        bindings.push("unknown")
+        p = p + 1
+    }
+    var i = 0
+    while i < f.paramTypes.len() && i < c.args.len() {
+        val dt: string = f.paramTypes.get(i)
+        val at = staticExprTypeName(builder, c.args.get(i))
+        var p2 = 0
+        while p2 < params.len() {
+            val pname: string = params.get(p2)
+            val found = inferFnArgBinding(dt, at, pname)
+            if found != "" && found != "unknown" && isSelfParam(params, found) == false {
+                val cur: string = bindings.get(p2)
+                if cur == "unknown" {
+                    bindings.set(p2, found)
+                }
+            }
+            p2 = p2 + 1
+        }
+        // A model-typed position binds from history, not spelling: the
+        // instance name is not an application to peel. The checker ran the
+        // same rule, so both sides name the same instance.
+        var mi = 0
+        while mi < params.len() {
+            val mpname: string = params.get(mi)
+            if paramMentionedBuilder(dt, mpname) {
+                val mrows = genericInstanceRows(builder, containerBaseOf(dt), c.args.get(i))
+                var r = 0
+                while r < mrows.len() {
+                    val mrow: string = mrows.get(r)
+                    if bindingHeadOf(mrow) == mpname {
+                        val mval = bindingTailOf(mrow)
+                        if mval != "" && mval != "unknown" && mval != "void" && isSelfParam(params, mval) == false {
+                            val mcur: string = bindings.get(mi)
+                            if mcur == "unknown" {
+                                bindings.set(mi, mval)
+                            }
+                        }
+                    }
+                    r = r + 1
+                }
+            }
+            mi = mi + 1
+        }
+        i = i + 1
+    }
+    return bindings
+}
+
+// Push one instance frame: parameter names beside the bindings fixed for
+// this call, joined (names with commas, spellings with tabs) because nested
+// lists would need re-typing at every read.
+fn pushFnGenericFrameJoined(builder: IRBuilder, names: string, args: string) {
+    builder.fnGenericParams.push(names)
+    builder.fnGenericArgs.push(args)
+}
+
+fn pushFnGenericFrame(builder: IRBuilder, params: list, bindings: list) {
+    var names = ""
+    var i = 0
+    while i < params.len() {
+        if i > 0 { names = names + "," }
+        val pname: string = params.get(i)
+        names = names + pname
+        i = i + 1
+    }
+    var args = ""
+    var j = 0
+    while j < bindings.len() {
+        if j > 0 { args = args + "\t" }
+        val bval: string = bindings.get(j)
+        args = args + bval
+        j = j + 1
+    }
+    pushFnGenericFrameJoined(builder, names, args)
+}
+
+fn popFnGenericFrame(builder: IRBuilder) {
+    builder.fnGenericParams.pop()
+    builder.fnGenericArgs.pop()
+}
+
+// A type spelling with the enclosing instances' bindings applied, innermost
+// frame first so shadowing and chaining fall out. Identity with no frames,
+// so non-generic code pays nothing and reads nothing different.
+fn resolveFnType(builder: IRBuilder, spelling: string) -> string {
+    var out = spelling
+    var f = builder.fnGenericParams.len()
+    while f > 0 {
+        f = f - 1
+        val namesRow: string = builder.fnGenericParams.get(f)
+        val argsRow: string = builder.fnGenericArgs.get(f)
+        out = substituteTypeParams(out, splitTypeArgs(namesRow), splitPayloadTypes(argsRow))
+    }
+    return out
+}
+
+// The instance a call's bindings name: `f` unchanged without parameters,
+// `f_int` / `f_list_string` with them. Same mangling the models use, so the
+// name reads the same everywhere.
+fn fnInstanceName(name: string, bindings: list) -> string {
+    var out = name
+    var i = 0
+    while i < bindings.len() {
+        val b: string = bindings.get(i)
+        out = out + "_" + mangleTypeArg(b)
+        i = i + 1
+    }
+    return out
+}
+
+// Build the instance a call needs, or find it built: substitute the
+// signature, register the prototype first (a recursive call meets the shell,
+// never a rebuild), then build the body with the bindings pushed so nested
+// `T` annotations resolve. Returns the instance name, or "" when no
+// template declares the callee.
+// Queue the instance a call needs: substitute the signature, register the
+// prototype now (a recursive call meets the shell, never a rebuild), queue
+// the body for the drain below. Bodies build after their callers, never
+// nested inside them: building an instance with the caller's variable scope
+// still open minted its parameters against the caller's locals (`b` became
+// an unassigned `b__s0` and the first field read segfaulted), so instances
+// build in the drain with clean scopes, exactly like top-level functions.
+fn ensureFnInstance(builder: IRBuilder, name: string, bindings: list) -> string {
+    val inst = fnInstanceName(name, bindings)
+    if findFunction(builder.module, inst) >= 0 { return inst }
+    match genericFnByName(builder, name) {
+        ASTNode.FunctionDecl(fd) => {
+            val params = genericFnParamNames(fd)
+            val subTypes = []
+            var i = 0
+            while i < fd.paramTypes.len() {
+                val pt: string = fd.paramTypes.get(i)
+                subTypes.push(substituteTypeParams(pt, params, bindings))
+                i = i + 1
+            }
+            val subReturn = substituteTypeParams(fd.returnType, params, bindings)
+            val clone = FunctionDeclNode(inst, fd.params, subTypes, subReturn, fd.body, fd.isAsync, fd.isPrivate, fd.isExtern, [])
+            registerFunctionSignature(builder, ASTNode.FunctionDecl(clone))
+            var q = 0
+            var queued = false
+            while q < builder.fnWorkDecls.len() {
+                match builder.fnWorkDecls.get(q) {
+                    ASTNode.FunctionDecl(qd) => {
+                        if qd.name == inst { queued = true }
+                    }
+                    _ => {}
+                }
+                q = q + 1
+            }
+            if queued == false {
+                builder.fnWorkDecls.push(ASTNode.FunctionDecl(clone))
+                builder.fnWorkParams.push(joinTypeNames(params))
+                builder.fnWorkArgs.push(joinTypeNames(bindings))
+            }
+            return inst
+        }
+        _ => {}
+    }
+    return name
+}
+
+// Comma-join parameter names, tab-join argument spellings: the queued form
+// of a frame, split back by pushFnGenericFrameJoined's readers.
+fn joinTypeNames(items: list) -> string {
+    var out = ""
+    var i = 0
+    while i < items.len() {
+        if i > 0 {
+            out = out + ","
+        }
+        val item: string = items.get(i)
+        out = out + item
+        i = i + 1
+    }
+    return out
+}
+
+fn joinTypeArgs(items: list) -> string {
+    var out = ""
+    var i = 0
+    while i < items.len() {
+        if i > 0 {
+            out = out + "\t"
+        }
+        val item: string = items.get(i)
+        out = out + item
+        i = i + 1
+    }
+    return out
+}
+
+// Bodies queued by ensureFnInstance, drained after pass 3 with clean scopes:
+// each instance builds exactly like a top-level function, so nothing it
+// declares can collide with a caller's locals. Extern templates never reach
+// here (sema refuses them); the guard is insurance, not a path.
+fn drainFnInstances(builder: IRBuilder) {
+    var i = 0
+    while i < builder.fnWorkDecls.len() {
+        // Annotated: matches everywhere bind variant-typed payloads off an
+        // ASTNode-typed scrutinee. An unknown-typed scrutinee binds unknowns,
+        // and passing those to struct-typed parameters wraps the value (the
+        // ForNode lesson): bodies compiled from wrapped decls call themselves.
+        val work: ASTNode = builder.fnWorkDecls.get(i)
+        match work {
+            ASTNode.FunctionDecl(fd) => {
+                if fd.isExtern == false {
+                    val params: string = builder.fnWorkParams.get(i)
+                    val args: string = builder.fnWorkArgs.get(i)
+                    pushFnGenericFrameJoined(builder, params, args)
+                    buildFunction(builder, fd)
+                    popFnGenericFrame(builder)
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
 }
 
 // parseTypeName writes arguments as ", " -- `Pair<string, float>` is stored with
@@ -1084,8 +1552,12 @@ fn annotationListElement(t: string) -> string {
 
 fn recordListKind(builder: IRBuilder, name: string, kindName: string) {
     if name == "" || kindName == "" { return }
+    // Kinds ride resolved: inside a generic instance `T` is already the
+    // call's type, so recording the spelling would type every later read
+    // through the untyped accessor. Identity with no instance on the stack.
+    val kind = resolveFnType(builder, kindName)
     if lookupListKind(builder, name) != "" { return }
-    builder.listKinds.push(Variable(name, name, kindName))
+    builder.listKinds.push(Variable(name, name, kind))
 }
 
 /** @brief Remember the element type a write into a named list implies.
@@ -1631,7 +2103,19 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
             i = 0
             while i < p.decls.len() {
                 val decl = p.decls.get(i)
-                registerFunctionSignature(builder, decl)
+                // A generic template registers its declaration, not a
+                // signature: there is no one C function to prototype, and
+                // each call site monomorphises its own instance below.
+                match decl {
+                    ASTNode.FunctionDecl(f) => {
+                        if f.genericParams.len() > 0 {
+                            recordGenericFn(builder, f)
+                        } else {
+                            registerFunctionSignature(builder, decl)
+                        }
+                    }
+                    _ => { registerFunctionSignature(builder, decl) }
+                }
                 i = i + 1
             }
             // Pass 3: Build function bodies and other declarations
@@ -1641,6 +2125,10 @@ fn buildAST(builder: IRBuilder, rootNode: ASTNode) -> IRModule {
                 buildDecl(builder, decl)
                 i = i + 1
             }
+            // Pass 4: Build queued generic instances with clean scopes. Calls
+            // during pass 3 only registered prototypes; bodies build here, so
+            // an instance's locals can never collide with a caller's.
+            drainFnInstances(builder)
         }
         _ => {}
     }
@@ -1693,7 +2181,9 @@ fn topLevelConstantValue(node: ASTNode) -> string {
 fn buildDecl(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.FunctionDecl(f) => {
-            if f.isExtern == false {
+            // Generic templates emit nothing themselves; instances are built
+            // on demand at call sites (recorded in pass 2 above).
+            if f.genericParams.len() == 0 && f.isExtern == false {
                 buildFunction(builder, f)
             }
         }
@@ -1800,6 +2290,16 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
         var pc = ""
         if pInstance != "" {
             pc = defineVariable(builder, p, pInstance)
+            // An instance-typed parameter records its bindings from the
+            // written form (exact, no loss): a later generic call taking
+            // this parameter infers from history.
+            val plt = orbit_string_indexOf(pType, "<")
+            if plt > 0 && orbit_string_slice(pType, orbit_string_len(pType) - 1, orbit_string_len(pType)) == ">" {
+                val pbase = orbit_string_slice(pType, 0, plt)
+                if genericModelByName(builder, pbase) != NULL {
+                    recordGenericInstance(builder, p, pbase, splitTypeArgs(orbit_string_slice(pType, plt + 1, orbit_string_len(pType) - 1)))
+                }
+            }
         } else {
             pc = defineVariable(builder, p, pBase)
         }
@@ -1885,6 +2385,22 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     var vType = v.typeAnnotation
     if vType == "" {
         vType = inferValueType(builder, v.value)
+    }
+    // Inside a generic instance the spelling may name a parameter: `T` is
+    // the call's type here, not an opaque word, or the declaration below
+    // emits a `void*` where an `orbit_int` belongs.
+    vType = resolveFnType(builder, vType)
+    // A model literal bound to a name records its instance bindings: a later
+    // generic call taking this variable infers from history, not from the
+    // lossy instance-name spelling.
+    match v.value {
+        ASTNode.TypedLiteral(tl) => {
+            val gm = genericModelByName(builder, tl.declaredType)
+            if gm != NULL {
+                recordGenericInstance(builder, v.name, tl.declaredType, modelLiteralArgTypes(builder, gm, tl.value))
+            }
+        }
+        _ => {}
     }
     // An annotated generic model names its instance; every other annotation
     // keeps its base type, because `list<int>` is a list with an element and
@@ -3469,6 +3985,17 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     // passed as constant operands so
                     // the C backend inlines them; buildExpr would materialize
                     // them into load_const registers.
+                    // A generic callee monomorphises per call site: infer the
+                    // bindings from the argument types, ensure the instance,
+                    // and call it by its instance name, answering its
+                    // substituted return type.
+                    var callName = lit.text
+                    match genericFnByName(builder, lit.text) {
+                        ASTNode.FunctionDecl(gfd) => {
+                            callName = ensureFnInstance(builder, lit.text, inferFnBindings(builder, gfd, c))
+                        }
+                        _ => {}
+                    }
                     val argVals = []
                     var ai = 0
                     while ai < c.args.len() {
@@ -3482,10 +4009,10 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                         ir_emit(builder.currentFunction, argInstr)
                         ei = ei + 1
                     }
-                    val resReg = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, lit.text))
+                    val resReg = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, callName))
                     val callInstr = ir_init_instr(IROpcode.call)
                     callInstr.dest = resReg
-                    callInstr.operand1 = ir_string(lit.text)
+                    callInstr.operand1 = ir_string(callName)
                     callInstr.operand2 = ir_int(c.args.len())
                     ir_emit(builder.currentFunction, callInstr)
                     return resReg

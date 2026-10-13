@@ -1,33 +1,24 @@
-// Functional layer over builtin lists. String-typed helpers only:
-// one typed family keeps the contract honest.
-// Maps are out of scope here (method lowering targets lists today).
-//
-// THE STRING TYPE IS NOT ENFORCED WHEN THE LIST GETS IN UNTYPED. A function
-// may now declare its payload: `fn getOr(l: list<string>, ...)` and the
-// checker rejects a caller that hands it a list of another kind, while reads
-// inside are typed. The exposure below is only for the bare `list` form, where
-// the checker cannot see how the caller built the list and the runtime only
-// enforces that pushes/reads see ONE kind (orbit_list_adopt_kind) -- a
-// retyped parameter pointer was what made F-0009 segfault:
-//
-//   getOr as written below, called with a list of ints -> an int returned
-//   where a string is declared, then printed
-//   indexOfStr(listOfLists, "x")                      -> keeps? -> reads typed via elemAnnotation...
-fn getOr(l: list<string>, i: int, dflt: string) -> string {
+// Functional layer over builtin lists, generic over the element type: one
+// family per helper instead of one spelling per kind (`containsStr` plus
+// `containsInt`). Each call site monomorphises its own instance, so a string
+// caller and an int caller get checking and code for their own kind, and an
+// incoherent call (int list with a string default) is refused instead of
+// crashing. Maps are out of scope here (method lowering targets lists today).
+fn getOr[T](l: list < T >, i: int, dflt: T) -> T {
     if i < 0 { return dflt }
     if i >= l.len() { return dflt }
     return l.get(i)
 }
 
-fn firstOr(l: list<string>, dflt: string) -> string {
+fn firstOr[T](l: list < T >, dflt: T) -> T {
     return getOr(l, 0, dflt)
 }
 
-fn lastOr(l: list<string>, dflt: string) -> string {
+fn lastOr[T](l: list < T >, dflt: T) -> T {
     return getOr(l, l.len() - 1, dflt)
 }
 
-fn containsStr(l: list<string>, v: string) -> bool {
+fn listContains[T](l: list < T >, v: T) -> bool {
     var i = 0
     while i < l.len() {
         if l.get(i) == v { return true }
@@ -36,16 +27,7 @@ fn containsStr(l: list<string>, v: string) -> bool {
     return false
 }
 
-fn containsInt(l: list<int>, v: int) -> bool {
-    var i = 0
-    while i < l.len() {
-        if l.get(i) == v { return true }
-        i = i + 1
-    }
-    return false
-}
-
-fn indexOfStr(l: list<string>, v: string) -> int {
+fn listIndexOf[T](l: list < T >, v: T) -> int {
     var i = 0
     while i < l.len() {
         if l.get(i) == v { return i }
@@ -54,16 +36,7 @@ fn indexOfStr(l: list<string>, v: string) -> int {
     return -1
 }
 
-fn indexOfInt(l: list<int>, v: int) -> int {
-    var i = 0
-    while i < l.len() {
-        if l.get(i) == v { return i }
-        i = i + 1
-    }
-    return -1
-}
-
-fn reverse(l: list) -> list {
+fn reverse[T](l: list < T >) -> list < T > {
     val out = []
     var i = l.len() - 1
     while i >= 0 {
@@ -71,4 +44,23 @@ fn reverse(l: list) -> list {
         i = i - 1
     }
     return out
+}
+
+// The pre-generic spellings, kept as one-line shims: same signatures,
+// delegating to the generic core, so existing callers keep compiling while
+// new code writes the family name once.
+fn containsStr(l: list < string >, v: string) -> bool {
+    return listContains(l, v)
+}
+
+fn containsInt(l: list < int >, v: int) -> bool {
+    return listContains(l, v)
+}
+
+fn indexOfStr(l: list < string >, v: string) -> int {
+    return listIndexOf(l, v)
+}
+
+fn indexOfInt(l: list < int >, v: int) -> int {
+    return listIndexOf(l, v)
 }

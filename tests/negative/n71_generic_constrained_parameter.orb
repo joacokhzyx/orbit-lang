@@ -1,0 +1,12 @@
+// case: generic-constrained-parameter
+// what: a constraint has nothing to check against, because the argument is
+//      inferred rather than written. Refused at parse with the same phrase
+//      family as constrained model parameters, which were refused first.
+// expect-error: is not supported: a function's type parameter is inferred
+fn lim[T: int](x: T) -> T {
+    return x
+}
+
+fn main() -> int {
+    return 0
+}

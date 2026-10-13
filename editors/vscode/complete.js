@@ -17,7 +17,7 @@ const STD_MODULES = [
     { path: 'std/test/assert.orb', detail: 'assertTrue, assertEqInt, assertEqStr' },
     { path: 'std/string/string.orb', detail: 'trim, split, join, toUpper, toLower, parseIntChecked, .to_int()' },
     { path: 'std/hash/hash.orb', detail: 'sha256Hex, hmacSha256' },
-    { path: 'std/collections/lists.orb', detail: 'getOr, firstOr, lastOr, containsStr/Int, indexOfStr/Int, reverse' },
+    { path: 'std/collections/lists.orb', detail: 'getOr, firstOr, lastOr, listContains, listIndexOf, reverse (generic); containsStr/Int, indexOfStr/Int shims' },
     { path: 'std/fs/file.orb', detail: 'readAll, writeAll, append, exists, removeFile, listDir' },
     { path: 'std/io/io.orb', detail: 'supportsColor, gradient' },
     { path: 'std/time/time.orb', detail: 'uptimeSeconds, addSeconds, elapsedSince, deadlineExceededSeconds' },

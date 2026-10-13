@@ -1,0 +1,14 @@
+// case: generic-undeterminable-parameter
+// what: no parameter's declared type mentions `T`, so no argument can fix
+//      it. The declaration alone is harmless (nothing is emitted until a
+//      call needs an instance), but the call is refused: guessing `int`
+//      would compile a function the program never described.
+// expect-error: Function 'f' cannot infer type parameter 'T'
+fn f[T](x: int) -> int {
+    return x
+}
+
+fn main() -> int {
+    if f(1) != 1 { return 1 }
+    return 0
+}

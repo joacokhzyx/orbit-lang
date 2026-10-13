@@ -182,12 +182,18 @@ model Sema {
     // behavior, separate work). Push/pop in checkForLoop only: `fn` cannot
     // nest in a block, so no boundary needs saving.
     loopLabels: list
+    // Generic function declarations by name, as parallel lists (the name and
+    // the FunctionDecl node). A call resolves its callee here before the
+    // ordinary function table, because a generic has no one C function to
+    // point at: each call site monomorphises its own instance.
+    genericFnNames: list
+    genericFnDecls: list
 }
 
 fn initSema() -> Sema {
     val initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [], [], [])
 }
 
 // The model a bound variable was built from, or "" when it was not built
@@ -498,6 +504,253 @@ fn checkVariantCall(sema: Sema, variantName: string, args: list, argTypes: list,
         i = i + 1
     }
 }
+// Whether `name` declares generic type parameters, and the declaration when
+// it does. Separate from the function symbol so Symbols stay closed.
+fn isGenericFn(sema: Sema, name: string) -> bool {
+    var i = 0
+    while i < sema.genericFnNames.len() {
+        if sema.genericFnNames.get(i) == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn genericFnDecl(sema: Sema, name: string) -> ASTNode {
+    var i = 0
+    while i < sema.genericFnNames.len() {
+        if sema.genericFnNames.get(i) == name {
+            return sema.genericFnDecls.get(i)
+        }
+        i = i + 1
+    }
+    return ASTNode.Empty
+}
+
+// The names a generic declaration binds, in order.
+fn genericParamNames(decl: FunctionDeclNode) -> list {
+    val out = []
+    var i = 0
+    while i < decl.genericParams.len() {
+        match decl.genericParams.get(i) {
+            ASTNode.GenericParam(g) => { out.push(g.name) }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Comma-split of a `Name<...>` argument list starting after the `<` at
+// openIdx, depth-aware so `map<string, list<int>>` splits in two, not three.
+// Builder.orb carries splitTypeArgs for the same job in its own closure.
+fn splitTypeArgsOf(declared: string, openIdx: int) -> list {
+    val out = []
+    var cur = ""
+    var depth = 0
+    var i = openIdx + 1
+    while i < orbit_string_len(declared) {
+        val ch = declared.at(i)
+        if ch == 60 { depth = depth + 1 }
+        if ch == 62 {
+            if depth == 0 { break }
+            depth = depth - 1
+        }
+        if ch == 44 && depth == 0 {
+            out.push(trimTypeArgForSema(cur))
+            cur = ""
+        } else {
+            cur = cur + declared.slice(i, i + 1)
+        }
+        i = i + 1
+    }
+    if orbit_string_len(trimTypeArgForSema(cur)) > 0 { out.push(trimTypeArgForSema(cur)) }
+    return out
+}
+
+// Whether a type spelling mentions a parameter as a whole word: `T` is
+// mentioned in `list<T>` but not in `Target`, which a substring test would
+// claim. Same word walk modelSubstitutedType uses.
+fn paramMentioned(declared: string, param: string) -> bool {
+    var i = 0
+    while i < orbit_string_len(declared) {
+        if isTypeWordChar(declared.at(i)) {
+            var j = i
+            while j < orbit_string_len(declared) {
+                if isTypeWordChar(declared.at(j)) == false { break }
+                j = j + 1
+            }
+            if declared.slice(i, j) == param { return true }
+            i = j
+        } else {
+            i = i + 1
+        }
+    }
+    return false
+}
+
+// Bind one parameter occurrence: same container base on both sides peels one
+// level (`list<T>` against `list<int>` binds T to int, at any depth by
+// recursion), a bare parameter name binds the whole actual, anything else
+// binds nothing. "" means no bind, never a failed check: mismatch of
+// concrete positions is E1005's job beside this.
+fn inferParamBinding(declared: string, actual: string, param: string) -> string {
+    if declared == param { return actual }
+    val dOpen = orbit_string_indexOf(declared, "<")
+    val aOpen = orbit_string_indexOf(actual, "<")
+    if dOpen <= 0 || aOpen <= 0 { return "" }
+    val dBase = orbit_string_slice(declared, 0, dOpen)
+    val aBase = orbit_string_slice(actual, 0, aOpen)
+    if dBase != aBase { return "" }
+    if orbit_string_slice(declared, orbit_string_len(declared) - 1, orbit_string_len(declared)) != ">" { return "" }
+    if orbit_string_slice(actual, orbit_string_len(actual) - 1, orbit_string_len(actual)) != ">" { return "" }
+    val dArgs = splitTypeArgsOf(declared, dOpen)
+    val aArgs = splitTypeArgsOf(actual, aOpen)
+    if dArgs.len() != aArgs.len() { return "" }
+    var i = 0
+    while i < dArgs.len() {
+        val dPart: string = dArgs.get(i)
+        val aPart: string = aArgs.get(i)
+        val found = inferParamBinding(dPart, aPart, param)
+        if found != "" { return found }
+        i = i + 1
+    }
+    return ""
+}
+
+// The instance rows behind one argument: recorded declaration-site rows
+// for a variable (`b` bound to `Box { v: 1 }` answers "T int"), recomputed
+// bindings for a literal in hand, nothing otherwise. A model-typed position
+// cannot peel -- `Box_int` is an instance name, not an application -- so
+// this history is what binds it.
+fn instanceBindingRows(sema: Sema, modelName: string, node: ASTNode) -> list {
+    match node {
+        ASTNode.Literal(l) => {
+            if l.valType == "identifier" { return instanceBindingsOf(sema, l.text) }
+        }
+        ASTNode.ObjectLiteral(ol) => { return modelGenericBindings(sema, modelName, node) }
+        ASTNode.TypedLiteral(tl) => { return modelGenericBindings(sema, modelName, tl.value) }
+        _ => {}
+    }
+    return []
+}
+
+// Fix one parameter from one argument position, or refuse the disagreement:
+// two positions fixing a variable to different concrete types is E1005
+// naming the variable and both types. "unknown" (and "void", which a missing
+// field reads as) bind nothing and stay lenient downstream. A value naming
+// a parameter itself (another variable, typically from a nested generic
+// body) also binds nothing: it fixes nothing, and treating it as concrete
+// refuses programs whose only sin is passing a variable through.
+fn cohereBinding(sema: Sema, name: string, params: list, bindings: list, boundAt: list, pname: string, value: string, argPos: int, line: int, col: int) {
+    if value == "" || value == "unknown" || value == "void" { return }
+    var selfRef = false
+    var q = 0
+    while q < params.len() {
+        val other: string = params.get(q)
+        if other == value { selfRef = true }
+        q = q + 1
+    }
+    if selfRef { return }
+    var p2 = 0
+    while p2 < params.len() {
+        val cur: string = bindings.get(p2)
+        val want: string = params.get(p2)
+        if want == pname {
+            if cur == "unknown" {
+                bindings.set(p2, value)
+                boundAt.set(p2, "" + argPos)
+            } else if cur != value {
+                val first: string = boundAt.get(p2)
+                reportErrorAt(sema, "E1005", "Change one of the arguments so both fix the same type.", line, col, "Type parameter '" + pname + "' of '" + name + "' is fixed to " + cur + " by argument " + first + " but to " + value + " by argument " + orbit_int_to_string_selfhost(argPos) + ".")
+            }
+        }
+        p2 = p2 + 1
+    }
+}
+
+// A call against a generic declaration: every parameter occurrence fixes its
+// type variable from the argument in that position, two positions fixing one
+// variable to different concrete types is E1005 (naming the variable and
+// both types), and concrete positions check exactly like call arguments. An
+// "unknown" argument binds nothing and stays lenient downstream, the way an
+// undetermined model parameter becomes Box_unknown. Returns the substituted
+// return type.
+fn checkGenericCall(sema: Sema, name: string, decl: FunctionDeclNode, args: list, argTypes: list, line: int, col: int) -> string {
+    val params = genericParamNames(decl)
+    val bindings = []
+    val boundAt = []
+    var p = 0
+    while p < params.len() {
+        bindings.push("unknown")
+        boundAt.push("")
+        p = p + 1
+    }
+    var i = 0
+    while i < decl.paramTypes.len() && i < args.len() {
+        val dt: string = decl.paramTypes.get(i)
+        val at: string = argTypes.get(i)
+        // A position mentioning a parameter is governed by coherence, not by
+        // compatibility: `T` against `int` would fail the check below, but
+        // fixing T to int is exactly the job. Concrete positions check like
+        // call arguments, with the same diagnostic shape.
+        var mentionsParam = false
+        var p2 = 0
+        while p2 < params.len() {
+            val pname: string = params.get(p2)
+            if paramMentioned(dt, pname) { mentionsParam = true }
+            cohereBinding(sema, name, params, bindings, boundAt, pname, inferParamBinding(dt, at, pname), i + 1, line, col)
+            p2 = p2 + 1
+        }
+        // A model-typed position binds from the value's history, not its
+        // spelling: `b: Box<T>` against a `Box_int` cannot peel, so the
+        // model's own parameters are read off the declaration site instead.
+        if mentionsParam {
+            val modelBase = compatTypeBase(dt)
+            if modelGenericParamsOf(sema, modelBase).len() > 0 {
+                val rows = instanceBindingRows(sema, modelBase, args.get(i))
+                var r = 0
+                while r < rows.len() {
+                    val row: string = rows.get(r)
+                    val rp = bindingHead(row)
+                    cohereBinding(sema, name, params, bindings, boundAt, rp, bindingTail(row), i + 1, line, col)
+                    r = r + 1
+                }
+            }
+        }
+        if mentionsParam == false && checkCompatibility(dt, at) == false {
+            reportErrorAt(sema, "E1005", "Change the argument, or change the parameter's declared type.", line, col, "Parameter " + orbit_int_to_string_selfhost(i + 1) + " of " + name + " is declared " + dt + " but the argument is " + at + ".")
+        }
+        i = i + 1
+    }
+    var u = 0
+    while u < params.len() {
+        val pname: string = params.get(u)
+        var mentioned = false
+        var d = 0
+        while d < decl.paramTypes.len() {
+            val dt: string = decl.paramTypes.get(d)
+            if paramMentioned(dt, pname) {
+                mentioned = true
+            }
+            d = d + 1
+        }
+        val cur: string = bindings.get(u)
+        if cur == "unknown" && mentioned == false {
+            reportErrorAt(sema, "E1006", "Use the type parameter in a parameter's declared type, or declare one function per type.", line, col, "Function '" + name + "' cannot infer type parameter '" + pname + "': no parameter's declared type mentions it, so there is no argument to take it from.")
+        }
+        u = u + 1
+    }
+    val rows = []
+    var b = 0
+    while b < params.len() {
+        val pname: string = params.get(b)
+        val bval: string = bindings.get(b)
+        rows.push(pname + " " + bval)
+        b = b + 1
+    }
+    return modelSubstitutedType(decl.returnType, rows)
+}
+
 // The enum or union that declares `variantName`, or "" if no declared type
 // does. This is the only evidence available for the type of a constructed
 // variant, so it is deliberately keyed on the variant name alone.
@@ -1407,6 +1660,7 @@ fn isCapitalised(s: string) -> bool {
 // two tables the checker happens to keep.
 fn isDeclaredTypeName(sema: Sema, name: string) -> bool {
     if lookupSymbol(sema, name) == "model" { return true }
+    if lookupSymbol(sema, name) == "typeparam" { return true }
     if findType(sema, name) >= 0 { return true }
     if name == "List" || name == "Map" || name == "Result" || name == "Response" { return true }
     return false
@@ -1799,6 +2053,20 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
                 reportError(sema, "'" + f.name + "' starts with orbit_, which is reserved for the runtime; rename it (drop the prefix, or use a different one)")
                 sema.currentFunction = ""
             }
+            // The entry point is one concrete function: nothing calls it with
+            // arguments to infer from, so its parameters cannot be generic.
+            // An extern has no body to monomorphise. Both are refused here,
+            // where the function's type is decided, not in the body pass.
+            if f.genericParams.len() > 0 {
+                if f.name == "main" {
+                    reportError(sema, "The entry point cannot be generic: 'main' has no call site to infer type parameters from; declare one main per type.")
+                }
+                if f.isExtern {
+                    reportError(sema, "An extern function cannot be generic: there is no body to monomorphise per call site; declare one extern per type.")
+                }
+                sema.genericFnNames.push(f.name)
+                sema.genericFnDecls.push(node)
+            }
             declareSymbolWithParams(sema, f.name, returnType, false, true, checkableParamTypes(sema, f.paramTypes))
         }
         _ => {}
@@ -1820,6 +2088,21 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
             sema.currentFunction = f.name
 
             pushScope(sema)
+            // A generic parameter is a type only inside its own body: `T`
+            // answers "typeparam" here so annotations can name it, and
+            // nowhere else, so a stray `T` outside stays undeclared. The
+            // scope pops with the body, so nothing leaks to the next
+            // function -- two generics can both call their parameter `T`.
+            var gi = 0
+            while gi < f.genericParams.len() {
+                match f.genericParams.get(gi) {
+                    ASTNode.GenericParam(gp) => {
+                        declareSymbol(sema, gp.name, "typeparam", false, false)
+                    }
+                    _ => {}
+                }
+                gi = gi + 1
+            }
             var i = 0
             while i < f.params.len() {
                 val pName = f.params.get(i)
@@ -3098,7 +3381,13 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             }
             if calleeName != "" {
                 checkCallArity(sema, calleeName, c.args.len())
-                checkCallArgTypes(sema, calleeName, c.args, c.line, c.col)
+                // A generic callee's declared types name type variables, so
+                // the ordinary argument check would refuse every call: names
+                // that fix a variable are governed by coherence below, in the
+                // callee arms, instead.
+                if isGenericFn(sema, calleeName) == false {
+                    checkCallArgTypes(sema, calleeName, c.args, c.line, c.col)
+                }
             }
             // Check for builtins
             match c.callee {
@@ -3121,6 +3410,19 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // model's type. Reporting it as unknown is how a model
                         // reached a string hole and printed as nothing at all.
                         if lookupSymbol(sema, l.text) == "model" { return l.text }
+                        // A generic call monomorphises per call site: the
+                        // arguments fix the type variables, coherence across
+                        // positions is checked, and the call answers the
+                        // substituted return type. A declared function wins
+                        // over a variant of the same name, generic or not.
+                        if isGenericFn(sema, l.text) {
+                            match genericFnDecl(sema, l.text) {
+                                ASTNode.FunctionDecl(fd) => {
+                                    return checkGenericCall(sema, l.text, fd, c.args, argTypes, c.line, c.col)
+                                }
+                                _ => {}
+                            }
+                        }
                         val fnType = lookupFunction(sema, l.text)
                         if fnType != "unknown" { return fnType }
                         // `Circle(7)` is the construction of a variant, and it

@@ -107,9 +107,10 @@ parameter and both types. Fix hint: change the argument or the parameter's
 declared type. An `int` where a `float` is declared is still accepted (the C
 backend widens it). Pinned by
 `tests/negative/n33_call_argument_type_unchecked.orb`,
-`tests/negative/n46_list_param_takes_other_element.orb`, and
+`tests/negative/n46_list_param_takes_other_element.orb`,
 `tests/negative/n67_union_variant_payload_type.orb` (positional payload
-against its declared type).
+against its declared type), and `tests/negative/n69_generic_incoherent_arguments.orb`
+(coherence across a generic call's positions).
 
 ## E1006 — bad type name or binding mismatch
 
@@ -125,7 +126,8 @@ declaration site stamped by `checkVarDecl`/`checkConstDecl` (`valueSite`);
 a literal returned directly keeps the one-line form until literal positions
 exist. Fix hint: change the value or the
 annotation; write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
-`n50`, `n51`, and `n52`.
+`n50`, `n51`, `n52`, and `n70` (`n70`: a generic function's parameter no
+argument can fix).
 
 ## E1007 — bad top-level declaration
 
@@ -221,6 +223,9 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `for loops iterate lists` (non-list or unknown iterable) | `n59` |
 | `for ranges count ints` (non-int range bound) | `n64` |
 | `'model Box[T: int]' is not supported ...` | `n53` |
+| `'fn f[T: int]' is not supported ...` | `n71` |
+| `Variant 'Both' declares 2 payloads ...` / `Pattern binds 1 names ...` | `n66`, `n68` |
+| `Payload 2 of 'Both' is declared ...` | `n67` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |
 
 ## F-code index
@@ -232,9 +237,9 @@ full write-up.
 | finding | owns it | state |
 |---|---|---|
 | F-0001 — match over a union missing a variant falls through silently | `n01_union_missing_arm.orb` | fixed, pinned |
-| F-0002 — lists had no element type; reads dereferenced the wrong shape | `list_mixed_element_kinds.orb`, boundary half in `n39` | fixed except the `list`-parameter boundary; that remainder is F-0009 |
+| F-0002 — lists had no element type; reads dereferenced the wrong shape | `list_mixed_element_kinds.orb`, boundary half in `n39` | fixed, including the `list`-parameter boundary (F-0009): helpers spell `list<T>` and each call site compiles its own proven instance |
 | F-0004 — calling an undeclared extern reached the C step as a call to a symbol nothing declares | `n22_undeclared_function_call.orb` | fixed, pinned |
-| F-0009 — a `list` parameter with no element type: reads inside the helper are untyped and crash | `n39_list_parameter_has_no_element_type.orb` | **open** — the one `known-defect:` ratchet; the gate fails the day it is rejected |
+| F-0009 — a `list` parameter with no element type: reads inside the helper are untyped and crash | `n39_list_parameter_has_no_element_type.orb` (now the generic form, refusing the incoherent call) | fixed (generic functions: `n39` pins the coherence refusal; `generic_functions.orb` + `std_lists_generic.orb` prove the sound spelling; a bare `list` stays lenient for dynamic values, the way `unknown` is) |
 | F-0011 — capitalised/unknown type names accepted at the annotation, diagnosed late or misleadingly | `n30_capitalised_type_annotation.orb`, `n34_capitalised_type_parameter.orb` | fixed (E1006), pinned |
 | F-0015 — parameter types recorded but never compared at call sites | `n33_call_argument_type_unchecked.orb` | fixed (E1005), pinned |
 | F-0016 — `.at()` past the end answered 0 (the NUL byte) with no diagnostic | `n32_at_out_of_range.orb` | fixed (E1002), pinned |

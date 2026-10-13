@@ -1,0 +1,14 @@
+// case: generic-call-incoherent-arguments
+// what: `T` is fixed to int by the first argument and to string by the
+//      second. One variable cannot be both, so the call is refused naming
+//      the variable and both types, instead of compiling two minds about
+//      what `T` is and miscompiling one of them.
+// expect-error: Type parameter 'T' of 'pick' is fixed to int by argument 1 but to string by argument 2
+fn pick[T](a: T, b: T) -> T {
+    return a
+}
+
+fn main() -> int {
+    val x = pick(1, "s")
+    return 0
+}

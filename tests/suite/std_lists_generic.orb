@@ -1,0 +1,38 @@
+// The std lists module migrated to generics: one family per helper, with
+// the old per-kind spellings kept as shims. Imports resolve from the
+// repository root, where the suite runs.
+import "std/collections/lists.orb"
+
+fn core_is_generic() -> int {
+    val nums = [10, 20, 30]
+    if getOr(nums, 0, -1) != 10 { return 1 }
+    if getOr(nums, 9, -1) != -1 { return 2 }
+    val words = ["a", "b"]
+    if getOr(words, 1, "z") != "b" { return 3 }
+    if firstOr(words, "z") != "a" { return 4 }
+    if lastOr(words, "z") != "b" { return 5 }
+    if listContains(words, "b") == false { return 6 }
+    if listContains(nums, 20) == false { return 7 }
+    if listIndexOf(words, "b") != 1 { return 8 }
+    if listIndexOf(nums, 30) != 2 { return 9 }
+    val back = reverse(words)
+    if back.get(0) != "b" { return 10 }
+    if back.get(1) != "a" { return 11 }
+    return 0
+}
+
+fn shims_still_work() -> int {
+    val words = ["a", "b"]
+    val nums = [1, 2]
+    if containsStr(words, "b") == false { return 1 }
+    if containsInt(nums, 2) == false { return 2 }
+    if indexOfStr(words, "a") != 0 { return 3 }
+    if indexOfInt(nums, 2) != 1 { return 4 }
+    return 0
+}
+
+fn main() -> int {
+    if core_is_generic() != 0 { return 1 }
+    if shims_still_work() != 0 { return 2 }
+    return 0
+}

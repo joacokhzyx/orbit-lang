@@ -1,33 +1,21 @@
 // case: list-parameter-has-no-element-type
-// what: the element type is decided where a list is BUILT -- a literal, or the
-//      first push into an empty one -- and a `list` PARAMETER is not built
-//      anywhere the checker can see. So a helper declared over a list is
-//      declared over nothing in particular, and a read inside it is untyped:
-//      the destination register is `void*` and the accessor is the untyped one.
+// what: a helper declared over a BARE `list` reads elements through the
+//      untyped accessor, so an int came back out of a `-> string` function
+//      and `print` dereferenced it:
 //
-//      That is F-0009, and it is the half of F-0002 that a list element type
-//      does not reach. The direct forms are all fixed -- `n.at(1)` over
-//      `[10,20,30]` is 20, a list built by push reads back typed, a `for` over
-//      one does not segfault -- and this still crashes, because the int comes
-//      back out of a `-> string` function and `print` dereferences it:
-//
-//        $ orbit run tests/negative/n39_list_parameter_has_no_element_type.orb
+//        $ orbit run <the old form>
 //        Segmentation fault (core dumped)
 //
-//      Nothing is pinned on the value: a crash moves per run and per machine,
-//      and a pin that fires at random teaches people to ignore the pin. The
-//      case asserts its class, which is the part that can be checked -- the
-//      front end accepts a program that cannot work.
-//
-//      WRITING THE INTENT fixes it now: `fn getOr(l: list<string>, ...)`.
-//      The checker uses the annotation, and the compiler rejects a caller that
-//      can name a different element type (n46). A caller that builds an untyped
-//      list the compiler cannot prove is accepted at the boundary, and... still
-//      ends up as a runtime abort on the first typed read if the list is off.
-//      That boundary weakness is F-0002, and declaring it in the signature is
-//      the part left to complete, not the grammar.
-// known-defect: F-0009
-fn getOr(l: list, i: int, dflt: string) -> string {
+//      Nothing was pinnable on the value: a crash moves per run and per
+//      machine, and a pin that fires at random teaches people to ignore the
+//      pin. Generic functions close the class instead: `getOr[T]` fixes `T`
+//      per call site, so the old program's incoherent call (int list with a
+//      string default) is refused below, naming the variable and both types.
+//      The bare `list` spelling stays lenient for dynamic values, the way
+//      `unknown` is -- it cannot be refused without breaking working dynamic
+//      code -- but no typed signature can express the crash anymore.
+// expect-error: Type parameter 'T' of 'getOr' is fixed to int by argument 1 but to string by argument 3
+fn getOr[T](l: list<T>, i: int, dflt: T) -> T {
     if i < 0 { return dflt }
     if i >= l.len() { return dflt }
     return l.get(i)

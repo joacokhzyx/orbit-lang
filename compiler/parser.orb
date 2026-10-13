@@ -941,6 +941,21 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
     val name = parser.previousToken.text
 
     val genericParams = parseGenericParams(parser)
+    // A constraint is refused the way models refuse it: there is nothing to
+    // check it against, because the argument is inferred. Same phrase family
+    // as the model's, naming fn instead.
+    var gi = 0
+    while gi < genericParams.len() {
+        match genericParams.get(gi) {
+            ASTNode.GenericParam(gparam) => {
+                if gparam.constraint != "" {
+                    parserError(parser, "'fn " + name + "[" + gparam.name + ": " + gparam.constraint + "]' is not supported: a function's type parameter is inferred from the value passed for it, so there is no argument to constrain. Leave the constraint off and let the argument fit, or declare one function per type.")
+                }
+            }
+            _ => {}
+        }
+        gi = gi + 1
+    }
 
     consume(parser, TokType.OpenParen, "Expected '(' after function name.")
     var params = []

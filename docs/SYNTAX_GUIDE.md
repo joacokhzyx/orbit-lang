@@ -79,6 +79,23 @@ fn main() -> int {
 Recursion works, and the compiler folds calls to pure functions whose arguments
 are constants.
 
+A function declares type parameters in brackets: `fn getOr[T](l: list<T>)`.
+Each call site infers them from its arguments and compiles its own instance
+(`getOr_int`, `getOr_string`), so one body serves every kind with checking
+and code per kind. Two positions fixing one variable to different types
+refuse the call; a variable nothing fixes is refused; bodies check once with
+parameters opaque. Constraints (`[T: int]`), generic `main`/`extern`, and
+generic methods are refused: inference has nothing to check a constraint
+against, entry points and externs have no call site or body to build from.
+
+```orbit
+fn getOr[T](l: list < T >, i: int, dflt: T) -> T {
+    if i < 0 { return dflt }
+    if i >= l.len() { return dflt }
+    return l.get(i)
+}
+```
+
 ## Errors: `result` and `try` / `catch`
 
 A function that can fail returns `result`. The caller handles it with `try` and

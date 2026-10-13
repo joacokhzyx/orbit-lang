@@ -1,0 +1,80 @@
+// Generic functions monomorphise per call site: `f[T]` with `T` inferred
+// from each call's arguments, one C function per combination (`id_int`,
+// `id_string`). Bodies check once with parameters opaque; instances build
+// concrete. Coherence across positions is refused; undeterminable parameters
+// are refused; bare `list` helpers from F-0009 become `list<T>` helpers.
+fn id[T](x: T) -> T {
+    return x
+}
+
+fn identity_two_types() -> int {
+    if id(1) != 1 { return 1 }
+    if id("hi") != "hi" { return 2 }
+    return 0
+}
+
+fn getOr[T](l: list < T >, i: int, dflt: T) -> T {
+    if i < 0 { return dflt }
+    if i >= l.len() { return dflt }
+    return l.get(i)
+}
+
+fn helper_over_lists() -> int {
+    val nums = [10, 20, 30]
+    if getOr(nums, 0, -1) != 10 { return 1 }
+    if getOr(nums, 9, -1) != -1 { return 2 }
+    val words = ["a", "b"]
+    if getOr(words, 1, "z") != "b" { return 3 }
+    return 0
+}
+
+fn add[T](a: T, b: T) -> T {
+    return a + b
+}
+
+fn one_body_many_types() -> int {
+    if add(1, 2) != 3 { return 1 }
+    if add("a", "b") != "ab" { return 2 }
+    if add(1.5, 2.5) != 4.0 { return 3 }
+    return 0
+}
+
+fn nested_calls() -> int {
+    if id(id(7)) != 7 { return 1 }
+    return 0
+}
+
+fn rep[T](n: int, x: T) -> T {
+    if n <= 0 { return x }
+    return rep(n - 1, x)
+}
+
+fn terminating_recursion() -> int {
+    if rep(3, 7) != 7 { return 1 }
+    if rep(2, "a") != "a" { return 2 }
+    return 0
+}
+
+model Box[T] {
+    v: T
+}
+
+fn get[T](b: Box < T >) -> T {
+    return b.v
+}
+
+fn over_generic_models() -> int {
+    val b = Box { v: 41 }
+    if get(b) != 41 { return 1 }
+    return 0
+}
+
+fn main() -> int {
+    if identity_two_types() != 0 { return 1 }
+    if helper_over_lists() != 0 { return 2 }
+    if one_body_many_types() != 0 { return 3 }
+    if nested_calls() != 0 { return 4 }
+    if terminating_recursion() != 0 { return 5 }
+    if over_generic_models() != 0 { return 6 }
+    return 0
+}
