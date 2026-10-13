@@ -1,0 +1,166 @@
+// Binary <-> text codecs: standard base64 (RFC 4648 alphabet, padded)
+// and lowercase hex. Numbers stay in convert.orb, crypto stays in
+// hash.orb and std/sys/crypto: these are encodings, neither.
+//
+// Pure Orbit, the way std/sys/crypto/jwt.orb decodes base64url: sextets
+// by arithmetic (`*`, `/`, `%`), because bitwise operators have no lexer
+// tokens. Bulky payloads belong in C; config values, tokens and hashes
+// do not.
+//
+// Both decoders are strict-canonical and answer result: malformed input
+// is err, and so is input that decodes to a NUL byte, because an
+// orbit_string cannot hold one (the same boundary std/bytes/bytes.orb
+// states for its accumulator).
+import "std/convert/convert.orb"
+
+fn b64Char(i: int) -> string {
+    val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    return alphabet.slice(i, i + 1)
+}
+
+fn base64Encode(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val b0 = s.at(i)
+        var b1 = 0
+        var b2 = 0
+        var n = 1
+        if i + 1 < s.len() {
+            b1 = s.at(i + 1)
+            n = 2
+        }
+        if i + 2 < s.len() {
+            b2 = s.at(i + 2)
+            n = 3
+        }
+        out = out + b64Char(b0 / 4) + b64Char((b0 % 4) * 16 + b1 / 16)
+        if n >= 2 {
+            out = out + b64Char((b1 % 16) * 4 + b2 / 64)
+        } else {
+            out = out + "="
+        }
+        if n >= 3 {
+            out = out + b64Char(b2 % 64)
+        } else {
+            out = out + "="
+        }
+        i = i + 3
+    }
+    return out
+}
+
+fn b64StdVal(c: int) -> int {
+    if c >= 65 && c <= 90 { return c - 65 }
+    if c >= 97 && c <= 122 { return c - 97 + 26 }
+    if c >= 48 && c <= 57 { return c - 48 + 52 }
+    if c == 43 { return 62 }
+    if c == 47 { return 63 }
+    if c == 61 { return -2 }
+    return -1
+}
+
+fn base64Decode(s: string) -> result {
+    if s.len() % 4 != 0 {
+        return err("not base64: length must be a multiple of 4", 1)
+    }
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val c0 = b64StdVal(s.at(i))
+        val c1 = b64StdVal(s.at(i + 1))
+        val c2 = b64StdVal(s.at(i + 2))
+        val c3 = b64StdVal(s.at(i + 3))
+        // -1 is a bad character everywhere; -2 is padding, legal only
+        // in the second half and decided below.
+        if c0 == -1 || c0 == -2 || c1 == -1 || c1 == -2 || c2 == -1 || c3 == -1 {
+            return err("not base64: bad character", 1)
+        }
+        if c0 == -2 || c1 == -2 {
+            return err("not base64: padding in the first half", 1)
+        }
+        var n = 3
+        if c2 == -2 && c3 == -2 {
+            if c1 % 16 != 0 {
+                return err("not base64: non-canonical padding", 1)
+            }
+            n = 1
+        } else if c3 == -2 {
+            if c2 == -2 {
+                return err("not base64: padding before data", 1)
+            }
+            if c2 % 4 != 0 {
+                return err("not base64: non-canonical padding", 1)
+            }
+            n = 2
+        } else if c2 == -2 {
+            return err("not base64: padding before data", 1)
+        }
+        // Padding mid-string means data follows a finished quantum.
+        if n < 3 && i + 4 < s.len() {
+            return err("not base64: data after padding", 1)
+        }
+        val b0 = c0 * 4 + c1 / 16
+        if b0 == 0 {
+            return err("not base64: NUL byte has no spelling", 2)
+        }
+        out = out + orbit_string_from_char_selfhost(b0)
+        if n >= 2 {
+            val b1 = (c1 % 16) * 16 + c2 / 4
+            if b1 == 0 {
+                return err("not base64: NUL byte has no spelling", 2)
+            }
+            out = out + orbit_string_from_char_selfhost(b1)
+        }
+        if n >= 3 {
+            val b2 = (c2 % 4) * 64 + c3
+            if b2 == 0 {
+                return err("not base64: NUL byte has no spelling", 2)
+            }
+            out = out + orbit_string_from_char_selfhost(b2)
+        }
+        i = i + 4
+    }
+    return ok(out)
+}
+
+fn hexEncode(s: string) -> string {
+    val digits = "0123456789abcdef"
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val b = s.at(i)
+        out = out + digits.slice(b / 16, b / 16 + 1) + digits.slice(b % 16, b % 16 + 1)
+        i = i + 1
+    }
+    return out
+}
+
+fn hexVal(c: int) -> int {
+    if c >= 48 && c <= 57 { return c - 48 }
+    if c >= 97 && c <= 102 { return c - 97 + 10 }
+    if c >= 65 && c <= 70 { return c - 65 + 10 }
+    return -1
+}
+
+fn hexDecode(s: string) -> result {
+    if s.len() % 2 != 0 {
+        return err("not hex: odd length", 1)
+    }
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val hi = hexVal(s.at(i))
+        val lo = hexVal(s.at(i + 1))
+        if hi == -1 || lo == -1 {
+            return err("not hex: bad character", 1)
+        }
+        val b = hi * 16 + lo
+        if b == 0 {
+            return err("not hex: NUL byte has no spelling", 2)
+        }
+        out = out + orbit_string_from_char_selfhost(b)
+        i = i + 2
+    }
+    return ok(out)
+}

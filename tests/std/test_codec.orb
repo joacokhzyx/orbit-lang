@@ -1,0 +1,78 @@
+// RFC 4648 vectors plus the strictness edges: padding shape, bad
+// alphabet, odd lengths, non-canonical pads, and the NUL boundary.
+// Decode failures use the refused flag (a catch that returns would end
+// the test); every refusal below must fire it.
+import "std/convert/codec.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertEqStr(base64Encode(""), "") == false { return 1 }
+    if assertEqStr(base64Encode("f"), "Zg==") == false { return 2 }
+    if assertEqStr(base64Encode("fo"), "Zm8=") == false { return 3 }
+    if assertEqStr(base64Encode("foo"), "Zm9v") == false { return 4 }
+    if assertEqStr(base64Encode("foobar"), "Zm9vYmFy") == false { return 5 }
+    val d0: string = try base64Decode("") catch { return 6 }
+    if assertEqStr(d0, "") == false { return 7 }
+    val d1: string = try base64Decode("Zg==") catch { return 8 }
+    if assertEqStr(d1, "f") == false { return 9 }
+    val d3: string = try base64Decode("Zm9vYmFy") catch { return 10 }
+    if assertEqStr(d3, "foobar") == false { return 11 }
+    var refused = false
+    try base64Decode("Zg") catch { refused = true }
+    if refused == false { return 12 }
+    refused = false
+    try base64Decode("ABCDE") catch { refused = true }
+    if refused == false { return 13 }
+    refused = false
+    try base64Decode("Zg==Zg==") catch { refused = true }
+    if refused == false { return 14 }
+    refused = false
+    try base64Decode("A===") catch { refused = true }
+    if refused == false { return 15 }
+    refused = false
+    try base64Decode("AB=C") catch { refused = true }
+    if refused == false { return 16 }
+    refused = false
+    try base64Decode("AB==") catch { refused = true }
+    if refused == false { return 17 }
+    refused = false
+    try base64Decode("AA==") catch { refused = true }
+    if refused == false { return 18 }
+    refused = false
+    try base64Decode("====") catch { refused = true }
+    if refused == false { return 19 }
+    if assertEqStr(hexEncode(""), "") == false { return 20 }
+    if assertEqStr(hexEncode("foo"), "666f6f") == false { return 21 }
+    if assertEqStr(hexEncode("ABC"), "414243") == false { return 22 }
+    val hi = orbit_string_from_char_selfhost(195) + orbit_string_from_char_selfhost(169)
+    if assertEqStr(hexEncode(hi), "c3a9") == false { return 23 }
+    val h0: string = try hexDecode("") catch { return 24 }
+    if assertEqStr(h0, "") == false { return 25 }
+    val h1: string = try hexDecode("666f6f") catch { return 26 }
+    if assertEqStr(h1, "foo") == false { return 27 }
+    val h2: string = try hexDecode("C3A9") catch { return 28 }
+    if assertEqStr(h2, hi) == false { return 29 }
+    refused = false
+    try hexDecode("zz") catch { refused = true }
+    if refused == false { return 30 }
+    refused = false
+    try hexDecode("abc") catch { refused = true }
+    if refused == false { return 31 }
+    refused = false
+    try hexDecode("00") catch { refused = true }
+    if refused == false { return 32 }
+    // Full byte range round-trips through both codecs, NUL aside (it has
+    // no spelling on either side: encode never produces it, decode
+    // refuses it).
+    var all = ""
+    var c = 1
+    while c < 256 {
+        all = all + orbit_string_from_char_selfhost(c)
+        c = c + 1
+    }
+    val rt: string = try base64Decode(base64Encode(all)) catch { return 33 }
+    if assertEqStr(rt, all) == false { return 34 }
+    val rh: string = try hexDecode(hexEncode(all)) catch { return 35 }
+    if assertEqStr(rh, all) == false { return 36 }
+    return 0
+}
