@@ -1488,6 +1488,40 @@ fn routeHasParams(path: string) -> bool {
     return false
 }
 
+// A `:name...` segment captures the rest of the path. Multi routes dispatch
+// after single-param routes so a one-segment pattern still wins over a multi
+// covering it, the same way static routes win over params.
+fn routeSegmentIsMulti(path: string, start: int, end: int) -> bool {
+    val segLen = end - start
+    if segLen < 5 { return false }
+    if path.at(start) != 58 { return false }
+    if path.at(end - 1) != 46 { return false }
+    if path.at(end - 2) != 46 { return false }
+    if path.at(end - 3) != 46 { return false }
+    return true
+}
+
+fn routeHasMultiParams(path: string) -> bool {
+    var i = 0
+    var start = 0
+    while i <= path.len() {
+        var end = false
+        if i == path.len() { end = true }
+        var isSlash = false
+        if end == false {
+            if path.at(i) == 47 { isSlash = true }
+        }
+        if end || isSlash {
+            if i > start {
+                if routeSegmentIsMulti(path, start, i) { return true }
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fn generateRouteHandlerBody(func: IRFunction) -> string {
     var body = ""
     // Route limits are enforced once at the admission gate in
@@ -1522,8 +1556,9 @@ fn generateRouterBlock(backend: CBackend) -> string {
     }
     out = out + routerPreText(logsActive, kynxActive)
     // One if/else-if chain for every route: static routes first so a static
-    // path always wins over a param pattern covering it, then param routes,
-    // then the 404 else. No hash: the strcmp pair is the whole dispatch.
+    // path always wins over a param pattern covering it, then single-param
+    // routes, then multi-capture routes, then the 404 else. No hash: the
+    // strcmp pair is the whole dispatch.
     var chain = ""
     var first = true
     var i = 0
@@ -1544,7 +1579,7 @@ fn generateRouterBlock(backend: CBackend) -> string {
     var pi = 0
     while pi < backend.module.functions.len() {
         val pfunc: IRFunction = backend.module.functions.get(pi)
-        if pfunc.routeMethod != "" && routeHasParams(pfunc.routePath) {
+        if pfunc.routeMethod != "" && routeHasParams(pfunc.routePath) && routeHasMultiParams(pfunc.routePath) == false {
             var preParam = "    else if ("
             if first {
                 preParam = "    if ("
@@ -1555,6 +1590,21 @@ fn generateRouterBlock(backend: CBackend) -> string {
             chain = chain + "    }\n"
         }
         pi = pi + 1
+    }
+    var mi = 0
+    while mi < backend.module.functions.len() {
+        val mfunc: IRFunction = backend.module.functions.get(mi)
+        if mfunc.routeMethod != "" && routeHasMultiParams(mfunc.routePath) {
+            var preMulti = "    else if ("
+            if first {
+                preMulti = "    if ("
+                first = false
+            }
+            chain = chain + preMulti + "orbit_route_match(arena, req, \"" + mfunc.routeMethod + "\", \"" + mfunc.routePath + "\")) {\n"
+            chain = chain + generateRouteHandlerBody(mfunc)
+            chain = chain + "    }\n"
+        }
+        mi = mi + 1
     }
     out = out + routerTailText(chain)
     return out

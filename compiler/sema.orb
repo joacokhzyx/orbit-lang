@@ -1656,6 +1656,58 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
     }
 }
 
+// A `:name...` segment captures the rest of the path, so it is only
+// meaningful as the final non-empty segment with a non-empty name. Anything
+// else is a route that can never match what it says, diagnosed here next to
+// the duplicate-route and limit checks rather than failing silently at
+// runtime (the matcher also refuses non-final multis defensively).
+fn checkRouteMultiCapture(sema: Sema, routeKey: string, path: string) {
+    var nonEmpty = 0
+    var i = 0
+    var start = 0
+    while i <= path.len() {
+        var end = false
+        if i == path.len() { end = true }
+        var isSlash = false
+        if end == false {
+            if path.at(i) == 47 { isSlash = true }
+        }
+        if end || isSlash {
+            if i > start { nonEmpty = nonEmpty + 1 }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    i = 0
+    start = 0
+    var seg = 0
+    while i <= path.len() {
+        var end = false
+        if i == path.len() { end = true }
+        var isSlash = false
+        if end == false {
+            if path.at(i) == 47 { isSlash = true }
+        }
+        if end || isSlash {
+            if i > start {
+                seg = seg + 1
+                val segLen = i - start
+                if segLen >= 4 && path.at(start) == 58 && path.at(i - 1) == 46 && path.at(i - 2) == 46 && path.at(i - 3) == 46 {
+                    val nameLen = segLen - 4
+                    if nameLen == 0 {
+                        reportError(sema, "Route " + routeKey + " has an empty multi-capture name ('...'): write ':name...' with a name.")
+                    } else if seg != nonEmpty {
+                        val name = path.slice(start + 1, i - 3)
+                        reportError(sema, "Route " + routeKey + " captures ':" + name + "...' before the final segment: a multi-capture must end the path.")
+                    }
+                }
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+}
+
 fn checkRouteBody(sema: Sema, node: ASTNode) {
     match node {
         ASTNode.RouteDecl(r) => {
@@ -1676,6 +1728,7 @@ fn checkRouteBody(sema: Sema, node: ASTNode) {
                     reportError(sema, "Route limit burst must be >= 0: " + routeKey)
                 }
             }
+            checkRouteMultiCapture(sema, routeKey, r.path)
             val prevReturn = sema.currentReturnType
             sema.currentReturnType = "response"
             pushScope(sema)

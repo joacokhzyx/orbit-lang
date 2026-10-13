@@ -128,6 +128,46 @@ int main(void) {
         free(mbuf);
     }
 
+    /* Multi-segment capture `:name...`: takes a non-empty rest of path,
+     * trailing slashes tolerated, query strings excluded. */
+    {
+        const char* rawm = "GET /files/a/b/c HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        size_t rlm = strlen(rawm);
+        char* mbufm = (char*)malloc(rlm + 1);
+        assert(mbufm != NULL);
+        memcpy(mbufm, rawm, rlm + 1);
+        OrbitRequest* rqm = NULL;
+        assert(orbit_http_parse_request_ex(arena, mbufm, rlm, &rqm, NULL) == rlm);
+        assert(rqm != NULL);
+        assert(orbit_route_match(arena, rqm, "GET", "/files/:p...") == true);
+        assert(rqm->param_count == 1);
+        assert(strcmp(orbit_http_param_get(arena, rqm, "p"), "a/b/c") == 0);
+        /* A single-segment pattern does not span: same request, one segment. */
+        assert(orbit_route_match(arena, rqm, "GET", "/files/:p") == false);
+        /* A multi pattern never matches an empty rest, a bare name, or a
+         * non-final position; the checker rejects the last two statically. */
+        assert(orbit_route_match(arena, rqm, "GET", "/files") == false);
+        assert(orbit_route_match(arena, rqm, "GET", "/files/:...") == false);
+        assert(orbit_route_match(arena, rqm, "GET", "/files/:p.../x") == false);
+        assert(orbit_route_match(arena, rqm, "POST", "/files/:p...") == false);
+        free(mbufm);
+    }
+
+    /* Trailing slashes do not leak into the capture. */
+    {
+        const char* rawt = "GET /files/a/b/ HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        size_t rlt = strlen(rawt);
+        char* mbuft = (char*)malloc(rlt + 1);
+        assert(mbuft != NULL);
+        memcpy(mbuft, rawt, rlt + 1);
+        OrbitRequest* rqt = NULL;
+        assert(orbit_http_parse_request_ex(arena, mbuft, rlt, &rqt, NULL) == rlt);
+        assert(rqt != NULL);
+        assert(orbit_route_match(arena, rqt, "GET", "/files/:p...") == true);
+        assert(strcmp(orbit_http_param_get(arena, rqt, "p"), "a/b") == 0);
+        free(mbuft);
+    }
+
     /* Header block copy for auth/header builtins: present with content,
      * absent (NULL) only when the request carries no header lines. */
     {

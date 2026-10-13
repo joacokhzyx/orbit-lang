@@ -1,0 +1,11 @@
+// case: route-multisegment-capture-not-final
+// what: a `:name...` segment captures the rest of the path, so placing it
+//      anywhere but the final segment builds a route that can never match
+//      what it says: `/files/:p.../x` would have to capture "the rest" and
+//      then keep matching. The matcher refuses non-final multis defensively,
+//      and the checker rejects them here so the dead route is loud instead
+//      of a silent 404.
+// expect-error: must end the path
+route GET "/files/:p.../x" {
+    return ok "unreachable"
+}

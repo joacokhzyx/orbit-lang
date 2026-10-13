@@ -605,8 +605,14 @@ user input must escape it first.
 
 Path segments starting with `:` or wrapped in `{...}` capture one
 non-empty segment, readable with `req.param("name")`; `*` matches one
-segment without capturing. A static route always wins over a param
-pattern covering the same path. Captured values are
+segment without capturing. A trailing `:name...` segment captures the
+non-empty rest of the path, slashes included, under `name`
+(`route GET "/files/:path..."` then `req.param("path")` answers `"a/b/c"`
+for `/files/a/b/c`). Dispatch order is static, then single-segment, then
+multi: a static route always wins over a param pattern covering the same
+path, and `:id` still wins over `:path...` on one-segment requests. The
+multi must end the path and name a name — anything else is a check error,
+and an empty remainder never matches. Captured values are
 percent-decoded by `req.param`; a trailing slash is tolerated.
 
 ```orbit

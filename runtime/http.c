@@ -58,7 +58,7 @@ typedef struct {
 /** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
 size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error);
-/** @brief Match req path against a route pattern (":name", "{name}" and "*" segments). Fills path params; false leaves none. */
+/** @brief Match req path against a route pattern (":name", "{name}", ":name..." and "*" segments). Fills path params; false leaves none. */
 bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern);
 
 
@@ -470,7 +470,9 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
 /** @brief Match req->path against a route pattern and capture path params.
  *
  * Segments compare literally except `:name` / `{name}` (capture a non-empty
- * segment under name) and `*` (match one non-empty segment, no capture).
+ * segment under name), `:name...` (capture the non-empty REST of the path
+ * under name; only meaningful as the final pattern segment), and `*` (match
+ * one non-empty segment, no capture).
  * Empty segments are skipped on both sides, so a trailing slash is
  * tolerated. Values are NOT percent-decoded. On success the captures land
  * in req->param_names/values (arena copies, at most ORBIT_MAX_PATH_PARAMS,
@@ -507,6 +509,32 @@ bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method,
             plen = (size_t)(pe - pp);
             qlen = (size_t)(qe - qp);
             if (qlen == 0) return false;
+            if (pp[0] == ':' && plen > 4 && memcmp(pe - 3, "...", 3) == 0) {
+                /* `:name...` captures the rest of the path and is only
+                 * meaningful as the final pattern segment; the checker
+                 * rejects anything after it, so more pattern here means a
+                 * hand-built matcher call: fail rather than mis-capture. */
+                if (*pe != '\0') return false;
+                const char* qend = qp;
+                while (*qend && *qend != '?' && *qend != '#') qend++;
+                while (qend > qp && qend[-1] == '/') qend--;
+                size_t vlen = (size_t)(qend - qp);
+                if (vlen == 0) return false;
+                if (n < ORBIT_MAX_PATH_PARAMS) {
+                    char* nm = (char*)orbit_alloc(ar, plen - 3);
+                    char* vv = (char*)orbit_alloc(ar, vlen + 1);
+                    if (!nm || !vv) return false;
+                    memcpy(nm, pp + 1, plen - 4);
+                    nm[plen - 4] = '\0';
+                    memcpy(vv, qp, vlen);
+                    vv[vlen] = '\0';
+                    req->param_names[n] = nm;
+                    req->param_values[n] = vv;
+                }
+                n++;
+                req->param_count = n;
+                return true;
+            }
             if (pp[0] == ':') {
                 if (plen < 2) return false;
                 if (n < ORBIT_MAX_PATH_PARAMS) {

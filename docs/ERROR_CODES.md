@@ -213,6 +213,7 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `an object field cannot hold a nested ...` | `n54` |
 | `ok response with error status` / `err response with success status` | `n55`, `n56` |
 | `cannot interpolate a value of type` | `n02` |
+| `must end the path` (multi-capture not final) / `empty multi-capture name` | `n58` |
 | `'model Box[T: int]' is not supported ...` | `n53` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |
 
