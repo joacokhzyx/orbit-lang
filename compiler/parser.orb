@@ -763,7 +763,26 @@ fn parseExpressionInner(parser: Parser) -> ASTNode {
     if isCompoundAssign(parser.currentToken.tag) {
         return parseCompoundAssign(parser, lhs)
     }
+    // `cond ? a : b` is sugar over an `if` used as a value, in the same
+    // IfNode with single-expression branches. It binds looser than every
+    // binary operator (checked after parseBinary(0)) and right-nests through
+    // parseExpression in the else branch. Like the compound form above, the
+    // work lives in a helper to keep this frame small (see parseCompoundAssign).
+    if check(parser, TokType.Question) {
+        return parseTernary(parser, lhs)
+    }
     return lhs
+}
+
+// The `?` is current. Both branches are single expressions, exactly what an
+// `if` used as a value accepts, so no new node and no new sema rule: branch
+// typing (including its leniency across branches) is the `if`-value rule.
+fn parseTernary(parser: Parser, cond: ASTNode) -> ASTNode {
+    advanceParser(parser)
+    val thenBranch = parseExpression(parser)
+    consume(parser, TokType.Colon, "Expected ':' between the branches of '?:'.")
+    val elseBranch = parseExpression(parser)
+    return ASTNode.If(IfNode(cond, thenBranch, elseBranch))
 }
 
 // The current token is one of the compound assignment operators. The

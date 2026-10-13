@@ -88,7 +88,10 @@ enum TokType {
     Colon,
     Dot,
     Comma,
-    SemiColon
+    SemiColon,
+    // Appended after the delimiters so existing tag numbers never shift:
+    // every earlier insertion renumbered all following tags in the canonical.
+    Question
 }
 
 model Token {
@@ -190,10 +193,11 @@ fn tokTagName(tag: TokType) -> string {
         TokType.Dot => return "Dot"
         TokType.Comma => return "Comma"
         TokType.SemiColon => return "SemiColon"
+        TokType.Question => return "Question"
         _ => return "unknown"
     }
 }
 
 fn tokIsSymbol(tag: TokType) -> bool {
-    return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.PlusEqual || tag == TokType.MinusEqual || tag == TokType.StarEqual || tag == TokType.SlashEqual || tag == TokType.PercentEqual || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon
+    return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.PlusEqual || tag == TokType.MinusEqual || tag == TokType.StarEqual || tag == TokType.SlashEqual || tag == TokType.PercentEqual || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon || tag == TokType.Question
 }

@@ -44,6 +44,10 @@ A compound assignment updates a `var` in place: `total += 2` means
 sugar over the plain form, so the same checks apply (a literal zero divisor
 in `x /= 0` is the same `E1004` as in `x = x / 0`).
 
+`cond ? a: b` is an `if` used as a value with single-expression branches:
+`val y = ok ? 1: 0`. It binds looser than every binary operator, nests to
+the right, and branch typing is the `if`-value rule.
+
 Core scalar types include `int`, `float`, `bool`, and `string`. Use models for
 named records, enums for closed alternatives, unions for tagged alternatives,
 and `type` for aliases. Containers accept an element parameter in the

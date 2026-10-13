@@ -1,0 +1,9 @@
+// case: ternary-missing-colon
+// what: `cond ? a` without `: b` is not an `if` with a missing else -- the
+//      desugar needs both branches to build the IfNode, so the parser names
+//      the missing colon where the `?` branch ends.
+// expect-error: Expected ':' between the branches
+fn main() -> int {
+    val y = true ? 1
+    return 0
+}
