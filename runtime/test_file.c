@@ -186,6 +186,24 @@ static void test_read_write_interop(void) {
     orbit_arena_destroy(arena);
 }
 
+/* 8. NULL paths answer the failure contract instead of crashing: read
+ * reports Err(IO) (POSIX fopen(NULL) segfaults in glibc), exists/delete
+ * answer false, and list_dir answers the empty list (Windows dereferences
+ * the path building its pattern). */
+static void test_null_paths_are_safe(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    assert(arena != NULL);
+
+    OrbitResult r = orbit_file_read(arena, NULL);
+    assert(r.ok == false);
+    assert(orbit_file_exists(NULL) == false);
+    assert(orbit_file_delete(NULL) == false);
+    OrbitList* list = orbit_file_list_dir(arena, NULL);
+    assert(list != NULL);
+
+    orbit_arena_destroy(arena);
+}
+
 int main(void) {
     printf("=== Orbit runtime file-IO tests ===\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -196,6 +214,7 @@ int main(void) {
     RUN_TEST(test_read_missing_file);
     RUN_TEST(test_read_directory_fails_cleanly);
     RUN_TEST(test_read_write_interop);
-    printf("All 7 Orbit runtime file-IO tests PASSED successfully!\n");
+    RUN_TEST(test_null_paths_are_safe);
+    printf("All 8 Orbit runtime file-IO tests PASSED successfully!\n");
     return 0;
 }

@@ -27,6 +27,9 @@
 #endif
 
 OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
+    /* Windows fopen_s validates (NULL), POSIX fopen(NULL) segfaults in
+     * glibc: guard here so both platforms answer Err(IO). */
+    if (!filename) return orbit_result_err(ORBIT_ERR_IO, "Failed to open file");
     FILE* f = orbit_fopen(filename, "rb");
     if (!f) return orbit_result_err(ORBIT_ERR_IO, "Failed to open file");
 
@@ -116,6 +119,9 @@ bool orbit_file_write(const char* filename, const char* content) {
 OrbitList* orbit_file_list_dir(OrbitArena* arena, const char* path) {
     OrbitList* list = (OrbitList*)orbit_list_create(arena, sizeof(orbit_string), 16).value;
     if (!list) return list;
+    /* opendir(NULL) fails cleanly on POSIX but path[plen] dereferences on
+     * Windows: answer the empty list on both. */
+    if (!path) return list;
 
 #ifdef _WIN32
     /* Build "path\*" pattern using arena allocation to avoid large stack frames. */
@@ -171,6 +177,7 @@ OrbitList* orbit_file_list_dir(OrbitArena* arena, const char* path) {
 }
 
 bool orbit_file_exists(const char* filename) {
+    if (!filename) return false;
     FILE* f = orbit_fopen(filename, "rb");
     if (!f) return false;
     fclose(f);
@@ -178,6 +185,7 @@ bool orbit_file_exists(const char* filename) {
 }
 
 bool orbit_file_delete(const char* filename) {
+    if (!filename) return false;
     return remove(filename) == 0;
 }
 

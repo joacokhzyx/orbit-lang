@@ -65,7 +65,7 @@ orbit_string orbit_auth_bearer_token(OrbitArena* arena, const char* raw) {
             while (e < limit && *e != '\r' && *e != '\n' && *e != ' ') e++;
             size_t len = (size_t)(e - v);
             char* out = (char*)orbit_alloc(arena, len + 1);
-            if (!out) return NULL;
+            if (!out) return "";
             memcpy(out, v, len);
             out[len] = '\0';
             return out;
