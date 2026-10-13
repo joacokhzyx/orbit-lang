@@ -106,6 +106,32 @@ static ORBIT_UNUSED OrbitResult orbit_result_ok_word(uintptr_t word) {
     return r;
 }
 
+/** @brief Construct a successful Result carrying a double.
+ *
+ * The list element table (runtime/collections.c) already established that a
+ * double cannot travel through uintptr_t -- 1.5 becomes 1 -- so this boxes
+ * the IEEE-754 bit pattern the way orbit_list_push_float does, not the
+ * numeric value. Read it back with orbit_result_get_float, never with a
+ * numeric cast of the word. */
+static ORBIT_UNUSED OrbitResult orbit_result_ok_float(orbit_float value) {
+    uintptr_t word = 0;
+    memcpy(&word, &value, sizeof(uintptr_t));
+    return orbit_result_ok_word(word);
+}
+
+/** @brief Read the double out of an ok Result, or 0.0.
+ *
+ * Call only on results known ok: the emitter checks .ok before unwrapping,
+ * and an err result carries NULL, which decodes as 0.0 without saying so.
+ * memcpy rather than a cast, for the same reason as the box above: the word
+ * holds bits, and converting them to a number answers the address of the
+ * value instead of the value. */
+static ORBIT_UNUSED orbit_float orbit_result_get_float(OrbitResult r) {
+    orbit_float value = 0.0;
+    memcpy(&value, &r.value, sizeof(orbit_float));
+    return value;
+}
+
 
 /** @brief Construct a failed Result with the given error @p code and human-readable @p msg. */
 static OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {

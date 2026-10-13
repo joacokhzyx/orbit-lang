@@ -90,6 +90,7 @@ PROGRAMS = [
     # cannot lose its link flags; a gate that is shell can.
     prog("auth", vendor=True, db=True, defines=["-DORBIT_WITH_DB"],
          src="tests/auth/auth_harness.c"),
+    prog("result_float", warnings=True),
 ]
 
 

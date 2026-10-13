@@ -3429,6 +3429,14 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.result_ok => {
+            // A float travels by bits, not by value: routing it through
+            // uintptr_t is the truncation that made ok(1.5) unwrap as 1.0.
+            // Every other payload is a scalar or a pointer and keeps the
+            // word cast, which is what the unwrap side expects for them.
+            if operandDefType(backend.currentFunction, instr.operand1) == "float" || operandDefType(backend.currentFunction, instr.operand1) == "orbit_float" {
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_result_ok_float((orbit_float)(" + generateValue(instr.operand1) + "))"))
+                return
+            }
             orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_ok((void*)(uintptr_t)(" + generateValue(instr.operand1) + "));\n")
             return
         }
@@ -3447,6 +3455,23 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             }
         }
         IROpcode.result_unwrap => {
+            // The word holds what ok() put there. For a float that is the
+            // bit pattern, so a numeric cast would answer the address of
+            // the value instead of the value; decode through the helper.
+            // The destination is float only where a `val x: float = try`
+            // annotation promised it (the builder retypes the unwrap there
+            // and nowhere else), so unannotated unwraps keep the void* form.
+            var uwT = ""
+            if backend != NULL && backend.currentFunction != NULL {
+                val uf: IRFunction = backend.currentFunction
+                if instr.dest >= 0 && instr.dest < uf.registerTypes.len() {
+                    uwT = uf.registerTypes.get(instr.dest)
+                }
+            }
+            if uwT == "float" || uwT == "orbit_float" {
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_result_get_float(" + generateValue(instr.operand1) + ")"))
+                return
+            }
             orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(instr.operand1) + ".value;\n")
             return
         }

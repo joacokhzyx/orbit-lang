@@ -31,6 +31,59 @@ fn main() -> int {
     // calls today; the supported contract is inline try on the call.
     val gv: int = try parseIntChecked("  -42 ") catch { return 15 }
     if assertEqInt(gv, -42) == false { return 16 }
+    // parseFloatChecked lives here, before the "12x" early return below:
+    // anything after that catch only runs when the negative case
+    // unexpectedly parses, so live assertions cannot go there.
+    val fv: float = try parseFloatChecked("1.5") catch { return 53 }
+    if fv != 1.5 { return 54 }
+    val fn2: float = try parseFloatChecked("  -42.25 ") catch { return 55 }
+    if fn2 != -42.25 { return 56 }
+    val fz: float = try parseFloatChecked("0.0") catch { return 57 }
+    if fz != 0.0 { return 58 }
+    var badFloat = false
+    try parseFloatChecked("12x") catch { badFloat = true }
+    if badFloat == false { return 59 }
+    badFloat = false
+    try parseFloatChecked("") catch { badFloat = true }
+    if badFloat == false { return 60 }
+    badFloat = false
+    try parseFloatChecked("1.") catch { badFloat = true }
+    if badFloat == false { return 61 }
+    badFloat = false
+    try parseFloatChecked(".5") catch { badFloat = true }
+    if badFloat == false { return 62 }
+    badFloat = false
+    try parseFloatChecked("1e3") catch { badFloat = true }
+    if badFloat == false { return 63 }
+    badFloat = false
+    try parseFloatChecked("+1.5") catch { badFloat = true }
+    if badFloat == false { return 64 }
+    badFloat = false
+    try parseFloatChecked("42") catch { badFloat = true }
+    if badFloat == false { return 65 }
+    badFloat = false
+    try parseFloatChecked("-") catch { badFloat = true }
+    if badFloat == false { return 66 }
+    // Overflow past DBL_MAX is refused; underflow answers 0.0 by design
+    // (stated in std/string/string.orb, pinned here).
+    var big = "9"
+    var k = 0
+    while k < 400 {
+        big = big + "9"
+        k = k + 1
+    }
+    badFloat = false
+    try parseFloatChecked(big + ".0") catch { badFloat = true }
+    if badFloat == false { return 67 }
+    var tiny = "0."
+    k = 0
+    while k < 400 {
+        tiny = tiny + "0"
+        k = k + 1
+    }
+    tiny = tiny + "1"
+    val tv: float = try parseFloatChecked(tiny) catch { return 68 }
+    if tv != 0.0 { return 69 }
     try parseIntChecked("12x") catch {
         return 0
     }

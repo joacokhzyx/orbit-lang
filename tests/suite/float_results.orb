@@ -1,0 +1,53 @@
+// results carry floats by bits: ok(1.5) must unwrap as 1.5, not as the
+// integer the word cast would make of it. A float arrives through a
+// `val x: float = try` annotation -- a result carries no payload tag, so
+// that promise is the only static type the unwrap has.
+fn produce() -> result {
+    return ok(1.5)
+}
+
+fn neg() -> result {
+    return ok(-2.25)
+}
+
+fn intStill() -> result {
+    return ok(41)
+}
+
+fn fails() -> result {
+    return err("nope", 7)
+}
+
+fn float_round_trip() -> int {
+    val f: float = try produce() catch { return 1 }
+    if f != 1.5 { return 2 }
+    return 0
+}
+
+fn negative_round_trip() -> int {
+    val f: float = try neg() catch { return 1 }
+    if f != -2.25 { return 2 }
+    if f + 1.0 != -1.25 { return 3 }
+    return 0
+}
+
+fn err_still_errs() -> int {
+    try fails() catch {
+        return 0
+    }
+    return 1
+}
+
+fn int_unaffected() -> int {
+    val n: int = try intStill() catch { return 1 }
+    if n != 41 { return 2 }
+    return 0
+}
+
+fn main() -> int {
+    if float_round_trip() != 0 { return 1 }
+    if negative_round_trip() != 0 { return 2 }
+    if err_still_errs() != 0 { return 3 }
+    if int_unaffected() != 0 { return 4 }
+    return 0
+}

@@ -307,6 +307,12 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_string_slice" { return "string" }
     if name == "orbit_string_slice_known_len" { return "string" }
     if name == "orbit_os_isatty_selfhost" { return "bool" }
+    // The first float in this table: a float a call returns still has to be
+    // a float where it lands, or the hoisted local is an integer slot and
+    // the value truncates on the way in (`val v = orbit_string_to_float`
+    // bound 1.5 and read back 1.0). Nothing else here returns a float, so
+    // the absence never showed until a float-returning extern was stored.
+    if name == "orbit_string_to_float" { return "float" }
     if name == "orbit_response_json" { return "response" }
     if name == "orbit_response_error" { return "response" }
     if name == "system_uptime" { return "int" }
@@ -2114,8 +2120,24 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
     }
 }
 
-fn findFunction(module: IRModule, name: string) -> int {
+// One entry of a register-type list replaced, the list rebuilt. The other
+// module closure has setStrAt for this, and cross-file names are closed,
+// so this is the local spelling: same shape, distinct global name.
+fn setRegisterTypeAt(regTypes: list, idx: int, value: string) -> list {
+    val out = []
     var i = 0
+    while i < regTypes.len() {
+        if i == idx {
+            out.push(value)
+        } else {
+            out.push(regTypes.get(i))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn findFunction(module: IRModule, name: string) -> int { var i = 0
     while i < module.functions.len() {
         val f: IRFunction = module.functions.get(i)
         if f.name == name {
@@ -2484,6 +2506,28 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     // the call's type here, not an opaque word, or the declaration below
     // emits a `void*` where an `orbit_int` belongs.
     vType = resolveFnType(builder, vType)
+    // A float received through try has no static type until the annotation
+    // says so: a result carries no payload tag, so the unwrap register is
+    // unknown and the backend would convert the word instead of decoding
+    // its bits. The annotation is the promise -- sema already checked it
+    // against the value -- and only a try value is retyped, so a plain
+    // unknown keeps the lenient form everywhere else.
+    match v.value {
+        ASTNode.Try(t) => {
+            if vType == "float" || vType == "orbit_float" {
+                match varVal {
+                    IRValue.Register(r) => {
+                        val func = builder.currentFunction
+                        if r.value >= 0 && r.value < func.registerTypes.len() {
+                            func.registerTypes = setRegisterTypeAt(func.registerTypes, r.value, "float")
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
     // A model literal bound to a name records its instance bindings: a later
     // generic call taking this variable infers from history, not from the
     // lossy instance-name spelling.

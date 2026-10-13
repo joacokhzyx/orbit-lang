@@ -1,10 +1,21 @@
-// Number <-> text and the char constructor (intToString, charFromCode); this module owns these bindings -- import it, one definition per program. No float conversion and no unchecked stringToInt; use parseIntChecked in std/string/string.orb.
+// Number <-> text and the char constructor (intToString, charFromCode,
+// floatFromString); this module owns these bindings -- import it, one
+// definition per program. No unchecked stringToInt or stringToFloat;
+// use parseIntChecked/parseFloatChecked in std/string/string.orb.
 extern fn orbit_int_to_string(value: int) -> string
 extern fn orbit_string_to_int(s: string) -> int
 extern fn orbit_string_from_char_selfhost(code: int) -> string
+extern fn orbit_string_to_float(s: string) -> float
 
 fn intToString(value: int) -> string {
     return orbit_int_to_string(value)
+}
+
+// atof with no signal: "1.5x" answers 1.5 and "abc" answers 0.0, the same
+// class as the atoi behind stringToInt. Never call it on unvalidated text;
+// parseFloatChecked in std/string/string.orb is the checked spelling.
+fn floatFromString(s: string) -> float {
+    return orbit_string_to_float(s)
 }
 
 // One character from its byte value. Codes outside 32..126 are
@@ -20,4 +31,5 @@ fn charFromCode(code: int) -> string {
 // NOTE: no stringToInt. orbit_string_to_int is a bare atoi, so "12x"
 // answers 12 and "abc" answers 0, and there is no way to tell a parse
 // failure from a legitimate zero. std/string/string.orb's
-// parseIntChecked is the checked spelling; use that.
+// parseIntChecked is the checked spelling; use that. Same for
+// orbit_string_to_float via floatFromString above: use parseFloatChecked.

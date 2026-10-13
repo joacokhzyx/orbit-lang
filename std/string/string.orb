@@ -219,3 +219,60 @@ fn parseIntChecked(s: string) -> result {
     }
     return ok(n)
 }
+
+// parseFloatChecked accepts only canonical decimal form: optional leading
+// '-', one or more digits, one '.', one or more digits. No plus, no
+// exponent, no leading or trailing dot ("1." and ".5" are atof-legal and
+// refused anyway, because the promised form is digits-dot-digits).
+// Anything else is an err, for the same reason as the int sibling:
+// orbit_string_to_float is a bare atof, so "1.5x" answers 1.5 and "abc"
+// answers 0.0, and there is no way to tell a parse failure from a
+// legitimate zero. Overflow past DBL_MAX is refused (code 3); underflow
+// answers 0.0, stated here rather than discovered, the way jsonQuote
+// states its control-byte boundary.
+fn parseFloatChecked(s: string) -> result {
+    val t = trim(s)
+    if t == "" {
+        return err("empty input", 1)
+    }
+    var i = 0
+    if t.at(0) == 45 {
+        i = 1
+    }
+    if i >= t.len() {
+        return err("not a float", 2)
+    }
+    var dots = 0
+    var intDigits = 0
+    var fracDigits = 0
+    while i < t.len() {
+        val c = t.at(i)
+        if c == 46 {
+            dots = dots + 1
+            if dots > 1 {
+                return err("not a float", 2)
+            }
+        } else if c >= 48 && c <= 57 {
+            if dots == 0 {
+                intDigits = intDigits + 1
+            } else {
+                fracDigits = fracDigits + 1
+            }
+        } else {
+            return err("not a float", 2)
+        }
+        i = i + 1
+    }
+    if dots != 1 || intDigits == 0 || fracDigits == 0 {
+        return err("not a float", 2)
+    }
+    val v = orbit_string_to_float(t)
+    // atof answers inf past DBL_MAX with no signal. inf minus itself is
+    // NaN, and NaN compares unequal to everything including 0.0, so a
+    // finite value is the only one that survives this subtraction.
+    val drift = v - v
+    if drift != 0.0 {
+        return err("out of range", 3)
+    }
+    return ok(v)
+}
