@@ -12,6 +12,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
 | `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
 | `orbit dev [file]` | Watch sources, rebuild and restart on change (drain on POSIX, [kill on Windows](KNOWN_LIMITATIONS.md#windows-drain-is-kill)) | `orbit dev svc.orb` |
+| `orbit stop` | Stop the service recorded in `.orbit/start.pid` (idempotent) | `orbit stop` |
 | `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
@@ -85,7 +86,17 @@ escalating to kill after ~3 s. A failed rebuild
 keeps watching without a child; the child pid lives in
 `.orbit/dev.pid` so the next `dev` reaps a stale child from Ctrl-C.
 
-Stop a server with Ctrl-C; when the terminal dies first, the next `orbit dev` reaps the stale child through `.orbit/dev.pid`. A busy port fails quietly on Windows, so confirm the listener (`netstat -ano | findstr <port>`; POSIX: `ss -ltnp | grep <port>`) and pick a free one - see [the port is taken](tutorials/troubleshooting.md#the-port-is-taken---or-is-it). Service output lands under `.orbit/logs/` - tail it (`tail -f .orbit/logs/` on POSIX; `Get-Content -Wait .orbit/logs/` on Windows).
+Stop a server with Ctrl-C or `orbit stop`: a service binary writes its pid
+to `.orbit/start.pid` at boot (only when `.orbit/` exists) and removes it
+on graceful shutdown, so `stop` in the project directory ends exactly that
+process — SIGTERM drain first on POSIX, kill on Windows per
+[Known Limitations](KNOWN_LIMITATIONS.md#windows-drain-is-kill) — escalating
+to kill after ~3 s. `stop` is idempotent: nothing recorded, or a stale
+record from a killed server, both exit 0 after cleanup. `start` refuses to
+build while the recorded server is alive (`already running ... run `orbit stop`
+first`) instead of failing the C step on the locked exe. When the terminal
+dies first, the next `orbit dev` reaps the stale child through `.orbit/dev.pid`.
+A busy port fails quietly on Windows, so confirm the listener (`netstat -ano | findstr <port>`; POSIX: `ss -ltnp | grep <port>`) and pick a free one - see [the port is taken](tutorials/troubleshooting.md#the-port-is-taken---or-is-it). Service output lands under `.orbit/logs/` - tail it (`tail -f .orbit/logs/` on POSIX; `Get-Content -Wait .orbit/logs/` on Windows).
 
 `orbit dev` (watch/reload) is implemented: see above. Calling an
 unknown command treats it as a filename and fails - that error message

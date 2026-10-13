@@ -178,6 +178,11 @@ CASES = [
     ("start-badflag", ["start", "--bogus"], 2, "err", "Usage:", ""),
     ("dev-help", ["dev", "--help"], 0, "out", "Usage:", ""),
     ("dev-missing", ["dev", "nope.orb"], 1, "err", "orbit dev:", ""),
+    # `orbit stop` ends the service recorded in .orbit/start.pid and is
+    # idempotent: with no record the probe dir has nothing to stop, exit 0.
+    ("stop-help", ["stop", "--help"], 0, "out", "Usage:", ""),
+    ("stop-no-server", ["stop"], 0, "out", "no server running", ""),
+    ("stop-badflag", ["stop", "--bogus"], 2, "err", "Usage:", ""),
 ]
 
 # The not-found wording is not unique to a missing toolchain: clang reports a

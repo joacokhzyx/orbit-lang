@@ -276,6 +276,18 @@ fn runStart() {
         return
     }
     startEnsureDirs()
+    // One server per directory: rebuilding over a running one fails the C
+    // step with a locked exe, so refuse before compiling. A stale record
+    // (killed server) is cleared quietly on the way in.
+    val runningPid = startReadPid()
+    if runningPid > 0 {
+        if orbit_os_kill_selfhost(runningPid, 2) == 1 {
+            orbit_os_write_stderr_selfhost("orbit start: a server is already running from this directory (pid " + orbit_int_to_string_selfhost(runningPid) + "). Run `orbit stop` first.\n")
+            orbit_os_exit_selfhost(1)
+            return
+        }
+        startClearPid()
+    }
     startMigrateDb(runQuiet)
     val outputPath = startOutputFor(inputArg)
     if compileSourceWithFile(source, inputArg, outputPath, runVerbose, true, runColor) == false {
@@ -301,6 +313,56 @@ fn runStart() {
     }
     val code = startSpawnForeground(outputPath, port, serviceMode, runVerbose)
     orbit_os_exit_selfhost(code)
+}
+
+// `orbit stop`: end the service recorded in .orbit/start.pid. Idempotent:
+// nothing recorded, or a stale record, both exit 0 after cleanup. A live
+// server gets SIGTERM first (it drains), escalated to kill, exactly like
+// `orbit dev` stops its child; on Windows both are immediate by platform
+// contract (see KNOWN_LIMITATIONS.md).
+fn runStop() {
+    if startWantsHelp() {
+        print("Usage: orbit stop\n  Stop the service running from this directory (started by `orbit start`)\n")
+        return
+    }
+    var i = 2
+    while true {
+        val a = orbit_os_argv_selfhost(i)
+        if a == "" { break }
+        orbit_os_write_stderr_selfhost("Usage: orbit stop\n  Stop the service running from this directory (started by `orbit start`)\n")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val pid = startReadPid()
+    if pid <= 0 {
+        print("no server running")
+        return
+    }
+    if orbit_os_kill_selfhost(pid, 2) != 1 {
+        startClearPid()
+        print("no server running (stale record removed)")
+        return
+    }
+    val ignoredT = orbit_os_kill_selfhost(pid, 1)
+    var waited = 0
+    while waited < 3 {
+        clusterSleepSec(1)
+        if orbit_os_kill_selfhost(pid, 2) != 1 {
+            startClearPid()
+            print("stopped server (pid " + orbit_int_to_string_selfhost(pid) + ")")
+            return
+        }
+        waited = waited + 1
+    }
+    val ignoredK = orbit_os_kill_selfhost(pid, 0)
+    clusterSleepSec(1)
+    if orbit_os_kill_selfhost(pid, 2) != 1 {
+        startClearPid()
+        print("stopped server (pid " + orbit_int_to_string_selfhost(pid) + ")")
+        return
+    }
+    orbit_os_write_stderr_selfhost("orbit stop: could not stop pid " + orbit_int_to_string_selfhost(pid) + "; stop it by hand and delete .orbit/start.pid.\n")
+    orbit_os_exit_selfhost(1)
 }
 
 // Watch state: the entry plus every transitively imported file, hashed.
@@ -336,6 +398,21 @@ fn devwReadPid() -> int {
     val raw = orbit_file_read_selfhost(".orbit/dev.pid")
     if raw == "" { return 0 }
     return clusterParseInt(raw)
+}
+
+// Start record: the pid of the service running from this directory, written
+// by the server itself at boot (see serverMainText) and removed on graceful
+// shutdown. A kill -9 / TerminateProcess leaves it stale; the probe below
+// tells stale from live, the same way dev.pid does for `orbit dev`. Clearing
+// means writing "": clusterParseInt("") is 0, which reads as absent.
+fn startReadPid() -> int {
+    val raw = orbit_file_read_selfhost(".orbit/start.pid")
+    if raw == "" { return 0 }
+    return clusterParseInt(raw)
+}
+
+fn startClearPid() {
+    val ignoredC = orbit_file_write_selfhost(".orbit/start.pid", "")
 }
 
 fn devwWritePid(pid: int) {
