@@ -36,6 +36,43 @@ int main(void) {
     assert(empty != NULL);
     assert(empty->body_len == 0);
 
+    /* Reason phrases: the assigned codes a server plausibly emits, plus
+     * the empty phrase for unassigned ones (a 307 used to go out as
+     * "307 OK"). Lengths are strlen-checked here so no hand count can
+     * drift: the send path measures with strlen too. */
+    {
+        static const struct { int code; const char* want; } cases[] = {
+            {200, "OK"},
+            {201, "Created"},
+            {204, "No Content"},
+            {301, "Moved Permanently"},
+            {302, "Found"},
+            {303, "See Other"},
+            {304, "Not Modified"},
+            {307, "Temporary Redirect"},
+            {308, "Permanent Redirect"},
+            {400, "Bad Request"},
+            {404, "Not Found"},
+            {410, "Gone"},
+            {418, "I'm a teapot"},
+            {429, "Too Many Requests"},
+            {451, "Unavailable For Legal Reasons"},
+            {500, "Internal Server Error"},
+            {503, "Service Unavailable"},
+            {599, ""},
+            {99, ""},
+        };
+        size_t i;
+        for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+            const char* got = orbit_reason_phrase(cases[i].code);
+            if (strcmp(got, cases[i].want) != 0) {
+                printf("FAILED phrase %d: got %s want %s\n",
+                       cases[i].code, got, cases[i].want);
+                return 1;
+            }
+        }
+    }
+
     printf("PASS test_response\n");
     return 0;
 }

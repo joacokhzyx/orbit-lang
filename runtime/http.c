@@ -356,6 +356,76 @@ static char* orbit_append_int(char* p, int v) {
     return p;
 }
 
+/** @brief IANA reason phrase for a status code, or "".
+ *
+ * The table used to cover twenty codes and answer "OK" for everything
+ * else, so a 307 went out as "307 OK". Unassigned codes now answer the
+ * empty phrase, which the grammar allows; every assigned code a server
+ * plausibly emits is listed. */
+const char* orbit_reason_phrase(int status) {
+    switch (status) {
+        case 100: return "Continue";
+        case 101: return "Switching Protocols";
+        case 103: return "Early Hints";
+        case 200: return "OK";
+        case 201: return "Created";
+        case 202: return "Accepted";
+        case 203: return "Non-Authoritative Information";
+        case 204: return "No Content";
+        case 205: return "Reset Content";
+        case 206: return "Partial Content";
+        case 207: return "Multi-Status";
+        case 208: return "Already Reported";
+        case 226: return "IM Used";
+        case 300: return "Multiple Choices";
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 303: return "See Other";
+        case 304: return "Not Modified";
+        case 307: return "Temporary Redirect";
+        case 308: return "Permanent Redirect";
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 402: return "Payment Required";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 406: return "Not Acceptable";
+        case 408: return "Request Timeout";
+        case 409: return "Conflict";
+        case 410: return "Gone";
+        case 411: return "Length Required";
+        case 412: return "Precondition Failed";
+        case 413: return "Content Too Large";
+        case 414: return "URI Too Long";
+        case 415: return "Unsupported Media Type";
+        case 416: return "Range Not Satisfiable";
+        case 417: return "Expectation Failed";
+        case 418: return "I'm a teapot";
+        case 421: return "Misdirected Request";
+        case 422: return "Unprocessable Entity";
+        case 423: return "Locked";
+        case 424: return "Failed Dependency";
+        case 425: return "Too Early";
+        case 426: return "Upgrade Required";
+        case 428: return "Precondition Required";
+        case 429: return "Too Many Requests";
+        case 431: return "Request Header Fields Too Large";
+        case 451: return "Unavailable For Legal Reasons";
+        case 500: return "Internal Server Error";
+        case 501: return "Not Implemented";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        case 504: return "Gateway Timeout";
+        case 505: return "HTTP Version Not Supported";
+        case 506: return "Variant Also Negotiates";
+        case 507: return "Insufficient Storage";
+        case 508: return "Loop Detected";
+        case 511: return "Network Authentication Required";
+        default: return "";
+    }
+}
+
 /** @brief Write @p resp (header + body) to @p client in a single fast-path send() syscall. */
 void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     if (!resp) return;
@@ -374,33 +444,12 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     }
     #endif
 
-    /* Resolve HTTP reason phrase for the status code */
-    const char* reason;
-    size_t reason_len;
-    switch (resp->status) {
-        case 200: reason = "OK"; reason_len = 2; break;
-        case 201: reason = "Created"; reason_len = 7; break;
-        case 204: reason = "No Content"; reason_len = 10; break;
-        case 301: reason = "Moved Permanently"; reason_len = 17; break;
-        case 302: reason = "Found"; reason_len = 5; break;
-        case 304: reason = "Not Modified"; reason_len = 12; break;
-        case 400: reason = "Bad Request"; reason_len = 11; break;
-        case 401: reason = "Unauthorized"; reason_len = 12; break;
-        case 403: reason = "Forbidden"; reason_len = 9; break;
-        case 404: reason = "Not Found"; reason_len = 9; break;
-        case 405: reason = "Method Not Allowed"; reason_len = 18; break;
-        case 408: reason = "Request Timeout"; reason_len = 15; break;
-        case 409: reason = "Conflict"; reason_len = 8; break;
-        case 413: reason = "Content Too Large"; reason_len = 17; break;
-        case 422: reason = "Unprocessable Entity"; reason_len = 20; break;
-        case 429: reason = "Too Many Requests"; reason_len = 17; break;
-        case 431: reason = "Request Header Fields Too Large"; reason_len = 31; break;
-        case 500: reason = "Internal Server Error"; reason_len = 21; break;
-        case 501: reason = "Not Implemented"; reason_len = 15; break;
-        case 502: reason = "Bad Gateway"; reason_len = 11; break;
-        case 503: reason = "Service Unavailable"; reason_len = 19; break;
-        default:  reason = "OK"; reason_len = 2; break;
-    }
+    /* Resolve HTTP reason phrase for the status code. The length rides
+     * strlen: a hand-counted length beside each phrase is a miscount
+     * waiting for the next added code, and 34 bytes of scan per
+     * response is noise next to the send that follows. */
+    const char* reason = orbit_reason_phrase(resp->status);
+    size_t reason_len = strlen(reason);
 
     /* Manual header build: byte-identical to the previous snprintf shape
      * (same status/reason/content-type/length bytes, same (int) length
