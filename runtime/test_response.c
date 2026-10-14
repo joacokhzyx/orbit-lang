@@ -39,8 +39,7 @@ int main(void) {
     /* Reason phrases: the assigned codes a server plausibly emits, plus
      * the empty phrase for unassigned ones (a 307 used to go out as
      * "307 OK"). Lengths are strlen-checked here so no hand count can
-     * drift: the send path measures with strlen too. */
-    {
+     * drift: the send path measures with strlen too. */    {
         static const struct { int code; const char* want; } cases[] = {
             {200, "OK"},
             {201, "Created"},
@@ -71,6 +70,22 @@ int main(void) {
                 return 1;
             }
         }
+    }
+
+    /* Staged header lines flush onto the response; a line smuggling CRLF
+     * in the name or value is refused whole at the choke point
+     * (header_line), so the flush below only ever sees clean lines --
+     * the evil case asserts the refusal, not the flush. */
+    {
+        OrbitResponse* r = orbit_response_create(arena, 302, "text/plain", "moved");
+        assert(r != NULL);
+        assert(strcmp(orbit_response_header_line(arena, "X-A", "b"), "X-A: b\r\n") == 0);
+        assert(strcmp(orbit_response_header_line(arena, "", "b"), "") == 0);
+        assert(strcmp(orbit_response_header_line(arena, "X:Y", "b"), "") == 0);
+        assert(strcmp(orbit_response_header_line(arena, "X-A", "a\r\nB: 1"), "") == 0);
+        orbit_response_add_headers(arena, r, "Location: /new\r\nX-A: b\r\n");
+        assert(r->extra_headers_len == strlen("Location: /new\r\nX-A: b\r\n"));
+        assert(strcmp(r->extra_headers, "Location: /new\r\nX-A: b\r\n") == 0);
     }
 
     printf("PASS test_response\n");

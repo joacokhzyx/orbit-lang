@@ -3518,6 +3518,25 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         checkModelCtor(sema, c.args, c.line, c.col, calleeName)
                     }
                 }
+                ASTNode.MemberAccess(ma) => {
+                    // res.header / res.cookie take exactly the name and the
+                    // value. Checked here, where the diagnostic can name the
+                    // call site, rather than as broken C downstream; the
+                    // response receiver only exists in route bodies.
+                    match ma.object {
+                        ASTNode.Literal(ol) => {
+                            if ol.valType == "identifier" && ol.text == "res" && sema.currentReturnType == "response" {
+                                if ma.field == "header" || ma.field == "cookie" {
+                                    if c.args.len() != 2 {
+                                        reportErrorAt(sema, "E1003", "Give the header name and value.", c.line, c.col, "res." + ma.field + " takes exactly 2 arguments, got " + orbit_int_to_string_selfhost(c.args.len()) + ".")
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    checkNode(sema, c.callee)
+                }
                 _ => { checkNode(sema, c.callee) }
             }
             // The argument types are kept as they are walked, not asked for a

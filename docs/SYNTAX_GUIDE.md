@@ -261,6 +261,23 @@ Route patterns support `:name` and `{name}` parameters. `req` exposes
 `req.file(field, dir)` for multipart uploads. Responses are
 `ok <status> <body>` or `err <code> <message>`.
 
+Inside a route, `res` stages response headers: `res.header(name, value)`
+and `res.cookie(name, value)` (which sends `Set-Cookie` with `Path=/`).
+Staged lines flush onto the returned response, so redirects are an
+ordinary `ok` with a `Location`:
+
+```orbit
+route GET "/old" {
+    res.header("Location", "/new")
+    return ok 302 "moved"
+}
+```
+
+A name with a colon, or a name or value carrying CR or LF, is refused:
+a value smuggling CRLF would split a second header into the reply.
+`ok` accepts any 2xx or 3xx status; 4xx/5xx belong to `err`, which
+refuses 2xx/3xx in turn.
+
 Route annotations control admission: `route GET "/x" limit 20 / s burst 20`
 sets a per-source-IP budget, enforced by the Kynx gate. See [Kynx](KYNX.md).
 

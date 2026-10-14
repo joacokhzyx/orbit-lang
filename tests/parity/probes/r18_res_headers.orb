@@ -1,0 +1,10 @@
+fn main() -> int {
+    return 0
+}
+
+route GET "/old" {
+    res.header("X-Foo", "bar")
+    res.cookie("sess", "abc")
+    res.header("Location", "/new")
+    return ok 302 "moved"
+}

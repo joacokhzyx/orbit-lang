@@ -2249,7 +2249,16 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
                 val nameSlot = func.registerCount + backend.declVars.len()
                 backend.declVars.push(hname)
                 val cType = hoistedCType(backend, func, hname)
-                declLines.push(cType + " " + hname + ";\n")
+                // The staged-headers accumulator starts empty on every path,
+                // including paths that stage nothing: without the
+                // initializer the flush would read an indeterminate pointer
+                // on exactly those paths. Name-gated, so no other local
+                // changes shape.
+                if hname == "_orbit_res_headers" {
+                    declLines.push(cType + " " + hname + " = \"\";\n")
+                } else {
+                    declLines.push(cType + " " + hname + ";\n")
+                }
                 if orbit_string_len(hname) > 0 && hname.at(0) == 95 {
                     // The cast on the next line reads the name, so gcc has
                     // nothing to warn about and the attribute would be dead
@@ -3160,6 +3169,18 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             if destNeeded {
                 if isRouteRuntimeBuiltin(calleeName) {
                     orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + callExpr + ";\n")
+                    // Staged res.header/res.cookie lines flush onto the just
+                    // built response. The hidden local exists only where a
+                    // header was staged, so header-less routes emit
+                    // byte-identical text to before; `arena` is the same
+                    // scope the construction call beside it used.
+                    if calleeName == "orbit_response_json" || calleeName == "orbit_response_error" {
+                        if backend != NULL && backend.currentFunction != NULL {
+                            if defIndexForName(backend, backend.currentFunction, "_orbit_res_headers") >= 0 {
+                                orbit_cbuf_append_selfhost(cb, "    orbit_response_add_headers(arena, r_" + orbit_int_to_string_selfhost(instr.dest) + ", _orbit_res_headers);\n")
+                            }
+                        }
+                    }
                     return
                 }
                 orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, callExpr))
@@ -3931,6 +3952,12 @@ fn responseBodyArg(backend: CBackend, argStr: string) -> string {
 }
 
 fn variableDefType(backend: CBackend, func: IRFunction, vn: string) -> string {
+    // The staged-headers accumulator only ever holds concat results and
+    // "", so it is a string by construction. The concat call has no row
+    // in the prescan table, so without this the local hoists as an
+    // integer slot -- and the empty initializer the hoister writes for
+    // this name does not compile on an integer.
+    if vn == "_orbit_res_headers" { return "string" }
     val di = defIndexForName(backend, func, vn)
     if di >= 0 {
         val inst: IRInstruction = backend.defIdxInsts.get(di)
@@ -4183,6 +4210,7 @@ fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
 
 fn functionNeedsArena(name: string) -> bool {
     if name == "orbit_file_read" || name == "orbit_file_list_dir" { return true }
+    if name == "orbit_response_header_line" { return true }
     if name == "orbit_list_create" || name == "orbit_map_create" { return true }
     if name == "orbit_object_create" { return true }
     if name == "orbit_object_to_json" { return true }

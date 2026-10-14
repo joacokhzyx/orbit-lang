@@ -320,6 +320,108 @@ void orbit_response_add_header(OrbitArena* arena, OrbitResponse* resp, const cha
     }
 }
 
+/** @brief One staged header line ("Name: value\r\n") for the hidden
+ * staging local the compiler lowers res.header into. Names with a colon
+ * and names or values carrying CR or LF are refused as "": the former
+ * would rewrite the header, the latter would split a second header
+ * into the reply (response splitting), and the flush downstream only
+ * ever sees post-split lines, so this is the one place the intact
+ * value can be checked. */
+orbit_string orbit_response_header_line(OrbitArena* arena, const char* name, const char* value) {
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
+    size_t name_len;
+    size_t value_len;
+    size_t i;
+    char* line;
+    if (!name || !*name || !value) return "";
+    for (i = 0; name[i]; i++) {
+        if (name[i] == ':' || name[i] == '\r' || name[i] == '\n') return "";
+    }
+    for (i = 0; value[i]; i++) {
+        if (value[i] == '\r' || value[i] == '\n') return "";
+    }
+    name_len = strlen(name);
+    value_len = strlen(value);
+    name_len = strlen(name);
+    value_len = strlen(value);
+    line = (char*)orbit_alloc(a, name_len + 2 + value_len + 2 + 1);
+    if (!line) return "";
+    memcpy(line, name, name_len);
+    memcpy(line + name_len, ": ", 2);
+    memcpy(line + name_len + 2, value, value_len);
+    memcpy(line + name_len + 2 + value_len, "\r\n", 2);
+    line[name_len + 2 + value_len + 2] = '\0';
+    return line;
+}
+
+/** @brief Flush a staged "Name: value\r\n" block into @p resp.
+ *
+ * Lines without a colon are skipped, and any line carrying \r or \n
+ * inside the name or value is skipped whole: a value smuggling CRLF
+ * would split a second header into the reply (response splitting), so
+ * the choke point refuses it rather than emitting it. */
+void orbit_response_add_headers(OrbitArena* arena, OrbitResponse* resp, const char* block) {
+    const char* p;
+    if (!arena || !resp || !block) return;
+    p = block;
+    while (*p) {
+        const char* eol = strstr(p, "\r\n");
+        const char* lend = eol ? eol : p + strlen(p);
+        const char* colon = NULL;
+        const char* q = p;
+        while (q < lend) {
+            if (*q == ':') {
+                colon = q;
+                break;
+            }
+            q++;
+        }
+        if (colon && colon > p) {
+            const char* vs = colon + 1;
+            const char* ve = lend;
+            int bad = 0;
+            const char* r = p;
+            while (r < colon) {
+                if (*r == '\r' || *r == '\n') {
+                    bad = 1;
+                    break;
+                }
+                r++;
+            }
+            r = vs;
+            while (!bad && r < ve) {
+                if (*r == '\r' || *r == '\n') {
+                    bad = 1;
+                    break;
+                }
+                r++;
+            }
+            if (!bad) {
+                size_t nlen = (size_t)(colon - p);
+                char* name = (char*)orbit_alloc(arena, nlen + 1);
+                if (name) {
+                    const char* vs2 = vs;
+                    const char* ve2 = ve;
+                    char* value;
+                    while (vs2 < ve2 && (*vs2 == ' ' || *vs2 == '\t')) vs2++;
+                    while (ve2 > vs2 && (ve2[-1] == ' ' || ve2[-1] == '\t')) ve2--;
+                    while (nlen > 0 && (name[nlen - 1] == ' ' || name[nlen - 1] == '\t')) nlen--;
+                    memcpy(name, p, nlen);
+                    name[nlen] = '\0';
+                    value = (char*)orbit_alloc(arena, (size_t)(ve2 - vs2) + 1);
+                    if (value) {
+                        memcpy(value, vs2, (size_t)(ve2 - vs2));
+                        value[ve2 - vs2] = '\0';
+                        orbit_response_add_header(arena, resp, name, value);
+                    }
+                }
+            }
+        }
+        if (!eol) break;
+        p = eol + 2;
+    }
+}
+
 /** @brief Convenience wrapper: create a JSON response with Content-Type application/json. */
 OrbitResponse* orbit_response_json(OrbitArena* arena, int status, const char* json) {
     return orbit_response_create(arena, status, "application/json", json);

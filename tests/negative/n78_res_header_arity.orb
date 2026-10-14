@@ -1,0 +1,13 @@
+// case: res-header-arity
+// what: res.header and res.cookie stage exactly a name and a value.
+//      Anything else is refused at the call site with E1003, not
+//      lowered into a broken C call downstream.
+// expect-error: res.header takes exactly 2 arguments
+fn main() -> int {
+    return 0
+}
+
+route GET "/p" {
+    res.header("X-Only-One")
+    return ok 200 "hi"
+}

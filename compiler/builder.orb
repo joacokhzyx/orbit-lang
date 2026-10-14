@@ -3661,6 +3661,80 @@ fn buildFnVarCall(builder: IRBuilder, c: CallNode, sig: string) -> int {
     return resReg
 }
 
+// One orbit_string_concat call over two IR values, for builder-side
+// string assembly (staged response headers). Both sides are strings,
+// so the void* transport the call emission uses is exact.
+fn emitConcatCall(builder: IRBuilder, left: IRValue, right: IRValue) -> int {
+    val arg1 = ir_init_instr(IROpcode.arg)
+    arg1.operand1 = left
+    ir_emit(builder.currentFunction, arg1)
+    val arg2 = ir_init_instr(IROpcode.arg)
+    arg2.operand1 = right
+    ir_emit(builder.currentFunction, arg2)
+    val resReg = ir_alloc_register(builder.currentFunction, "string")
+    val callInstr = ir_init_instr(IROpcode.call)
+    callInstr.dest = resReg
+    callInstr.operand1 = ir_string("orbit_string_concat")
+    callInstr.operand2 = ir_int(2)
+    ir_emit(builder.currentFunction, callInstr)
+    return resReg
+}
+
+// res.header(name, value) / res.cookie(name, value) in a route body.
+// There is no response object yet to attach to -- `return ok` builds it
+// later -- so the line stages into a hidden string local the backend
+// flushes onto the constructed response (one decl: the hoister dedups
+// by name, and routes without headers never mention it, so their
+// emission is byte-identical). A user variable named res wins over the
+// receiver; the caller guards that with scopeHasName.
+fn buildResHeaderCall(builder: IRBuilder, c: CallNode, memberName: string) -> int {
+    // Each argument builds exactly once: the header line takes the nodes
+    // (emitNativeCall builds them), the cookie chain takes built values.
+    var lineReg = 0
+    if memberName == "cookie" {
+        // Set-Cookie: name=value; Path=/ -- the value rides concat
+        // assembly, then one header_line call so names and values face
+        // the same colon/CRLF validation as res.header.
+        val nameVal = buildCallArgValue(builder, c.args.get(0))
+        val valueVal = buildCallArgValue(builder, c.args.get(1))
+        val t1 = emitConcatCall(builder, nameVal, ir_string("="))
+        val t2 = emitConcatCall(builder, ir_register(t1), valueVal)
+        val cookieVal = emitConcatCall(builder, ir_register(t2), ir_string("; Path=/"))
+        val scName = ir_string("Set-Cookie")
+        val argName = ir_init_instr(IROpcode.arg)
+        argName.operand1 = scName
+        ir_emit(builder.currentFunction, argName)
+        val argVal = ir_init_instr(IROpcode.arg)
+        argVal.operand1 = ir_register(cookieVal)
+        ir_emit(builder.currentFunction, argVal)
+        val hlReg = ir_alloc_register(builder.currentFunction, "string")
+        val hlCall = ir_init_instr(IROpcode.call)
+        hlCall.dest = hlReg
+        hlCall.operand1 = ir_string("orbit_response_header_line")
+        hlCall.operand2 = ir_int(2)
+        ir_emit(builder.currentFunction, hlCall)
+        lineReg = hlReg
+    } else {
+        lineReg = emitNativeCall(builder, "orbit_response_header_line", [], [c.args.get(0), c.args.get(1)])
+    }
+    // No decl_var: the backend hoister declares the hidden name with an
+    // empty initializer on sight (load/store register it), so every path
+    // starts staged-empty and later headers only append. A decl per call
+    // would reset the accumulator; one decl cannot dominate every path.
+    val loadReg = ir_alloc_register(builder.currentFunction, "string")
+    val loadInstr = ir_init_instr(IROpcode.load_var)
+    loadInstr.dest = loadReg
+    loadInstr.operand1 = ir_symbol("_orbit_res_headers")
+    ir_emit(builder.currentFunction, loadInstr)
+    val catReg = emitConcatCall(builder, ir_register(loadReg), ir_register(lineReg))
+    val storeInstr = ir_init_instr(IROpcode.store_var)
+    storeInstr.operand1 = ir_symbol("_orbit_res_headers")
+    storeInstr.operand2 = ir_register(catReg)
+    ir_emit(builder.currentFunction, storeInstr)
+    val resReg = ir_alloc_register(builder.currentFunction, "void")
+    return resReg
+}
+
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     // Check if it's a method call (member access)
     match c.callee {
@@ -3722,6 +3796,20 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                             reqOperand = ir_symbol("req->headers")
                         } else if memberName == "header" {
                             reqBuiltin = "orbit_http_header_get"
+                        }
+                    }
+                    // Staged response headers: res.header / res.cookie keep
+                    // their lines in a hidden local the backend flushes onto
+                    // the constructed response. A user variable named res
+                    // wins (scopeHasName): hijacking it would reroute a
+                    // program's own method call into header staging.
+                    if ol.valType == "identifier" && ol.text == "res" {
+                        if memberName == "header" || memberName == "cookie" {
+                            if scopeHasName(builder, ol.text) == false {
+                                if c.args.len() == 2 {
+                                    return buildResHeaderCall(builder, c, memberName)
+                                }
+                            }
                         }
                     }
                 }

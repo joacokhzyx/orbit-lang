@@ -87,8 +87,8 @@ field ...`, `'int' has no member ...`, `'Shape' has no variant ...`), and
 (see the `reportErrorAt` hint strings at `sema.orb:433-503,2737`): spell the
 member as declared, construct with one argument per field in order, print
 one value. Pinned by `n05`, `n06`, `n13`, `n14`, `n15`, `n47`, `n57`, `n66`,
-and `n68` (`n66`: variant arity at construction; `n68`: pattern binding
-count in `match`).
+`n68`, and `n78` (`n66`: variant arity at construction; `n68`: pattern binding
+count in `match`; `n78`: `res.header`/`res.cookie` take exactly 2).
 
 ## E1004 — literal zero divisor, `INT_MIN / -1`
 
