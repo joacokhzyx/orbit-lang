@@ -1,0 +1,58 @@
+// Literals, dot, stars, classes, groups, escapes, anchors, find, and
+// the invalid set. Backtracking is verified by shapes that need it
+// (a*b against aaab, (bc)* expansions), not by adversarial input:
+// pathological patterns are documented slow, not pinned fast.
+import "std/string/regex.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    if assertTrue(regexMatch("abc", "abc")) == false { return 1 }
+    if assertTrue(regexMatch("abc", "ab")) { return 2 }
+    if assertTrue(regexMatch("", "")) { return 3 }
+    if assertTrue(regexValid("")) { return 4 }
+    if assertTrue(regexMatch("a", "")) { return 5 }
+    if assertTrue(regexMatch("a.c", "abc")) == false { return 6 }
+    if assertTrue(regexMatch("a.c", "ac")) { return 7 }
+    if assertTrue(regexMatch("a.c", "a\nc")) { return 8 }
+    if assertTrue(regexMatch("a*b", "aaab")) == false { return 9 }
+    if assertTrue(regexMatch("a*b", "b")) == false { return 10 }
+    if assertTrue(regexMatch("a+b", "b")) { return 11 }
+    if assertTrue(regexMatch("a+b", "aaab")) == false { return 12 }
+    if assertTrue(regexMatch("a?b", "b")) == false { return 13 }
+    if assertTrue(regexMatch("a?b", "ab")) == false { return 14 }
+    if assertTrue(regexMatch("a?b", "aab")) { return 15 }
+    if assertTrue(regexMatch("[abc]+", "cba")) == false { return 16 }
+    if assertTrue(regexMatch("[^abc]", "d")) == false { return 17 }
+    if assertTrue(regexMatch("[^abc]", "a")) { return 18 }
+    if assertTrue(regexMatch("[a-z]+", "hello")) == false { return 19 }
+    if assertTrue(regexMatch("[0-9]+", "42a")) { return 20 }
+    if assertTrue(regexMatch("(ab|cd)e", "cde")) == false { return 21 }
+    if assertTrue(regexMatch("(ab|cd)e", "abe")) == false { return 22 }
+    if assertTrue(regexMatch("(ab|cd)e", "ade")) { return 23 }
+    if assertTrue(regexMatch("a(bc)*d", "ad")) == false { return 24 }
+    if assertTrue(regexMatch("a(bc)*d", "abcbcbcd")) == false { return 25 }
+    if assertTrue(regexMatch("a\\.b", "a.b")) == false { return 26 }
+    if assertTrue(regexMatch("a\\.b", "axb")) { return 27 }
+    if assertTrue(regexMatch("\\d+", "007")) == false { return 28 }
+    if assertTrue(regexMatch("\\w+", "a1_")) == false { return 29 }
+    if assertTrue(regexMatch("\\s+", " \t")) == false { return 30 }
+    if assertTrue(regexMatch("^ab$", "ab")) == false { return 31 }
+    if assertTrue(regexMatch("a$", "a")) == false { return 32 }
+    if assertEqInt(regexFind("\\d+", "ab12cd"), 2) == false { return 33 }
+    if assertEqInt(regexFind("z+", "abc"), -1) == false { return 34 }
+    if assertEqInt(regexFind("b+", "abb"), 1) == false { return 35 }
+    if assertTrue(regexValid("a.*(b|c)?[0-9]")) == false { return 36 }
+    if assertTrue(regexValid("(")) { return 37 }
+    if assertTrue(regexValid("[abc")) { return 38 }
+    if assertTrue(regexValid("a**")) { return 39 }
+    if assertTrue(regexValid("*a")) { return 40 }
+    if assertTrue(regexValid("a|")) { return 41 }
+    if assertTrue(regexValid("(a|)")) { return 42 }
+    if assertTrue(regexValid("()")) { return 43 }
+    if assertTrue(regexValid("a\\")) { return 44 }
+    if assertTrue(regexValid("\\q")) { return 45 }
+    if assertTrue(regexValid("[]")) { return 46 }
+    if assertTrue(regexValid("[z-a]")) { return 47 }
+    if assertTrue(regexMatch("(", "a")) { return 48 }
+    return 0
+}

@@ -1,0 +1,358 @@
+// Small honest regex: full-match, search, and validation over a strict
+// subset -- literals, `.` (any byte but newline), `*`, `+`, `?`,
+// `[...]`, `[^...]`, `|` groups `(...)`, `^`, `$`, and `\\`, `\d`,
+// `\w`, `\s` escapes. No backrefs, no lookaround, no lazy stars: a
+// pattern using those is invalid, not silently weaker.
+//
+// Pure Orbit, the way the base64 decoder is: matching by arithmetic on
+// character codes, because bitwise operators have no lexer tokens.
+// Backtracking, so a pathological pattern on a long text takes long;
+// that is the documented cost of this class, not a hang to debug.
+// Matched byte-wise, like every other string scan here.
+//
+// regexMatch is a FULL match (the pattern must cover the text); regexFind
+// answers the first start index or -1. An invalid pattern matches
+// nothing -- validate separately with regexValid when the difference
+// between "no match" and "bad pattern" matters.
+fn regexMatch(pat: string, text: string) -> bool {
+    if regexValid(pat) == false { return false }
+    val branches = splitTop(pat)
+    var i = 0
+    while i < branches.len() {
+        if matchSeq(branches.get(i), text, 0) == text.len() { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn regexFind(pat: string, text: string) -> int {
+    if regexValid(pat) == false { return -1 }
+    val branches = splitTop(pat)
+    var ti = 0
+    while ti <= text.len() {
+        var i = 0
+        while i < branches.len() {
+            if matchSeq(branches.get(i), text, ti) != -1 { return ti }
+            i = i + 1
+        }
+        ti = ti + 1
+    }
+    return -1
+}
+
+// Split on top-level '|' (depth, escapes and classes respected).
+fn splitTop(pat: string) -> list {
+    val out = []
+    var depth = 0
+    var start = 0
+    var i = 0
+    while i < pat.len() {
+        val c = pat.at(i)
+        if c == 92 {
+            i = i + 2
+            continue
+        }
+        if c == 91 {
+            val ce = parseClassEnd(pat, i)
+            if ce == -1 {
+                out.push(pat.slice(start, pat.len()))
+                return out
+            }
+            i = ce
+            continue
+        }
+        if c == 40 { depth = depth + 1 }
+        if c == 41 { depth = depth - 1 }
+        if c == 124 && depth == 0 {
+            out.push(pat.slice(start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    out.push(pat.slice(start, pat.len()))
+    return out
+}
+
+// Index just past the ']' closing the class at pi, or -1. A ']' with no
+// item before it is not a close (the class would be empty, which is
+// invalid); '-' ranges only between two plain chars, elsewhere literal.
+fn parseClassEnd(pat: string, pi: int) -> int {
+    var i = pi + 1
+    if i < pat.len() && pat.at(i) == 94 { i = i + 1 }
+    var items = 0
+    // A '-' ranges only between two plain chars: next to an escape or a
+    // bracket it is literal, so validation and matching agree on what it
+    // is. Tracked explicitly because the previous char alone cannot say
+    // whether it was an escape's tail.
+    var prevPlain = false
+    while i < pat.len() {
+        val c = pat.at(i)
+        if c == 93 && items > 0 { return i + 1 }
+        if c == 93 { return -1 }
+        if c == 92 {
+            if i + 1 >= pat.len() { return -1 }
+            val e = pat.at(i + 1)
+            if e == 93 || e == 92 || e == 100 || e == 119 || e == 115 {
+                items = items + 1
+                prevPlain = false
+                i = i + 2
+                continue
+            }
+            return -1
+        }
+        if c == 45 && prevPlain && i + 1 < pat.len() && pat.at(i + 1) != 93 && pat.at(i + 1) != 92 {
+            val lo = pat.at(i - 1)
+            val hi = pat.at(i + 1)
+            if hi < lo { return -1 }
+            items = items + 1
+            prevPlain = false
+            i = i + 2
+            continue
+        }
+        items = items + 1
+        if c == 45 { prevPlain = false } else { prevPlain = true }
+        i = i + 1
+    }
+    return -1
+}
+
+// Index of the ')' closing the group at pi, or -1. Nesting, escapes and
+// classes respected.
+fn findClose(pat: string, pi: int) -> int {
+    var depth = 0
+    var i = pi
+    while i < pat.len() {
+        val c = pat.at(i)
+        if c == 92 {
+            i = i + 2
+            continue
+        }
+        if c == 91 {
+            val ce = parseClassEnd(pat, i)
+            if ce == -1 { return -1 }
+            i = ce
+            continue
+        }
+        if c == 40 { depth = depth + 1 }
+        if c == 41 {
+            depth = depth - 1
+            if depth == 0 { return i }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// Index just past the one atom at pi, or -1. A bare quantifier, a bare
+// ')', a bad escape, or an unterminated class or group ends the parse.
+fn parseAtomEnd(pat: string, pi: int) -> int {
+    if pi >= pat.len() { return -1 }
+    val c = pat.at(pi)
+    if c == 92 {
+        if pi + 1 >= pat.len() { return -1 }
+        val e = pat.at(pi + 1)
+        if e == 46 || e == 42 || e == 43 || e == 63 || e == 124 || e == 40 || e == 41 || e == 91 || e == 93 || e == 94 || e == 36 || e == 92 || e == 100 || e == 119 || e == 115 { return pi + 2 }
+        return -1
+    }
+    if c == 46 || c == 94 || c == 36 { return pi + 1 }
+    if c == 42 || c == 43 || c == 63 || c == 124 || c == 41 { return -1 }
+    if c == 91 { return parseClassEnd(pat, pi) }
+    if c == 40 {
+        val close = findClose(pat, pi)
+        if close == -1 { return -1 }
+        return close + 1
+    }
+    return pi + 1
+}
+
+fn regexValid(pat: string) -> bool {
+    val branches = splitTop(pat)
+    var i = 0
+    while i < branches.len() {
+        if validSeq(branches.get(i)) == false { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn validSeq(br: string) -> bool {
+    if br == "" { return false }
+    var pi = 0
+    while pi < br.len() {
+        val qi = parseAtomEnd(br, pi)
+        if qi == -1 { return false }
+        var ni = qi
+        if ni < br.len() {
+            val qc = br.at(ni)
+            if qc == 42 || qc == 43 || qc == 63 { ni = ni + 1 }
+        }
+        if br.at(pi) == 40 {
+            val inner = br.slice(pi + 1, qi - 1)
+            val bs = splitTop(inner)
+            var b = 0
+            while b < bs.len() {
+                if validSeq(bs.get(b)) == false { return false }
+                b = b + 1
+            }
+        }
+        pi = ni
+    }
+    return true
+}
+
+// Match the concatenation br against text from ti; the end position or
+// -1. Star backtracks over the rest greedily; plus is one plus star;
+// optional tries one first.
+fn matchSeq(br: string, text: string, ti: int) -> int {
+    if br == "" { return ti }
+    val qi = parseAtomEnd(br, 0)
+    if qi == -1 { return -1 }
+    var ni = qi
+    var q = 0
+    if ni < br.len() {
+        val qc = br.at(ni)
+        if qc == 42 { q = 1 }
+        if qc == 43 { q = 2 }
+        if qc == 63 { q = 3 }
+        if q != 0 { ni = ni + 1 }
+    }
+    val atom = br.slice(0, qi)
+    val rest = br.slice(ni, br.len())
+    if q == 1 { return matchStar(atom, rest, text, ti) }
+    if q == 2 {
+        val m = matchAtomOnce(atom, text, ti)
+        if m == -1 { return -1 }
+        return matchStar(atom, rest, text, m)
+    }
+    if q == 3 {
+        val m = matchAtomOnce(atom, text, ti)
+        if m != -1 {
+            val e = matchSeq(rest, text, m)
+            if e != -1 { return e }
+        }
+        return matchSeq(rest, text, ti)
+    }
+    val m = matchAtomOnce(atom, text, ti)
+    if m == -1 { return -1 }
+    return matchSeq(rest, text, m)
+}
+
+fn matchStar(atom: string, rest: string, text: string, ti: int) -> int {
+    val positions = []
+    positions.push(ti)
+    var cur = ti
+    while true {
+        val nxt = matchAtomOnce(atom, text, cur)
+        if nxt == -1 { break }
+        if nxt == cur { break }
+        cur = nxt
+        positions.push(cur)
+    }
+    var k = positions.len() - 1
+    while k >= 0 {
+        val e = matchSeq(rest, text, positions.get(k))
+        if e != -1 { return e }
+        k = k - 1
+    }
+    return -1
+}
+
+// One atom against text at ti; the end position or -1. The atom is
+// standalone (sliced by the caller), so every extent here starts at 0.
+fn matchAtomOnce(atom: string, text: string, ti: int) -> int {
+    // Zero-width first: `^` and `$` match positions, including ti == len,
+    // which the length guard below would refuse before they are asked.
+    val c = atom.at(0)
+    if c == 94 {
+        if ti == 0 { return ti }
+        return -1
+    }
+    if c == 36 {
+        if ti == text.len() { return ti }
+        return -1
+    }
+    if ti >= text.len() { return -1 }
+    if c == 46 {
+        if text.at(ti) == 10 { return -1 }
+        return ti + 1
+    }
+    if c == 92 {
+        val e = atom.at(1)
+        if e == 100 {
+            val t = text.at(ti)
+            if t >= 48 && t <= 57 { return ti + 1 }
+            return -1
+        }
+        if e == 119 {
+            val t = text.at(ti)
+            if (t >= 48 && t <= 57) || (t >= 65 && t <= 90) || (t >= 97 && t <= 122) || t == 95 { return ti + 1 }
+            return -1
+        }
+        if e == 115 {
+            val t = text.at(ti)
+            if t == 32 || t == 9 || t == 10 || t == 13 { return ti + 1 }
+            return -1
+        }
+        if text.at(ti) == e { return ti + 1 }
+        return -1
+    }
+    if c == 91 {
+        return matchClass(atom, text, ti)
+    }
+    if c == 40 {
+        val close = findClose(atom, 0)
+        if close == -1 { return -1 }
+        val inner = atom.slice(1, close)
+        val bs = splitTop(inner)
+        var b = 0
+        while b < bs.len() {
+            val e = matchSeq(bs.get(b), text, ti)
+            if e != -1 { return e }
+            b = b + 1
+        }
+        return -1
+    }
+    if text.at(ti) == c { return ti + 1 }
+    return -1
+}
+
+fn matchClass(atom: string, text: string, ti: int) -> int {
+    var inner = atom.slice(1, atom.len() - 1)
+    var neg = false
+    if inner.len() > 0 && inner.at(0) == 94 {
+        neg = true
+        inner = inner.slice(1, inner.len())
+    }
+    val t = text.at(ti)
+    var hit = false
+    var i = 0
+    while i < inner.len() {
+        val c = inner.at(i)
+        if c == 92 {
+            val e = inner.at(i + 1)
+            if e == 100 && t >= 48 && t <= 57 { hit = true }
+            if e == 119 && ((t >= 48 && t <= 57) || (t >= 65 && t <= 90) || (t >= 97 && t <= 122) || t == 95) { hit = true }
+            if e == 115 && (t == 32 || t == 9 || t == 10 || t == 13) { hit = true }
+            if e != 100 && e != 119 && e != 115 && t == e { hit = true }
+            i = i + 2
+            continue
+        }
+        // '-' ranges only between two plain chars -- the same rule the
+        // validator enforces, so the two agree on what each '-' is.
+        if c == 45 && i > 0 && i + 1 < inner.len() && inner.at(i - 1) != 92 && inner.at(i + 1) != 92 && inner.at(i + 1) != 93 {
+            val lo = inner.at(i - 1)
+            val hi = inner.at(i + 1)
+            if lo != 92 && hi != 92 && t >= lo && t <= hi { hit = true }
+            i = i + 1
+            continue
+        }
+        if t == c { hit = true }
+        i = i + 1
+    }
+    if neg {
+        if hit { return -1 }
+        return ti + 1
+    }
+    if hit { return ti + 1 }
+    return -1
+}
