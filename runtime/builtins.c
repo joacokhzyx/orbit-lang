@@ -532,7 +532,7 @@ orbit_string orbit_file_upload_save(OrbitArena* arena, OrbitRequest* req, orbit_
 
 static uint64_t orbit_process_start_ns = 0;
 
-static uint64_t orbit_monotonic_ns(void) {
+uint64_t orbit_monotonic_ns(void) {
 #ifdef _WIN32
     static LARGE_INTEGER orbit_qpc_freq = {0};
     if (orbit_qpc_freq.QuadPart == 0) QueryPerformanceFrequency(&orbit_qpc_freq);

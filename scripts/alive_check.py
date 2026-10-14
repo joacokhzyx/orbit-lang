@@ -368,6 +368,16 @@ def registry(compiler, cc, work):
              "repo's dist/, so 'just run it to see if it works' is not free",
              lambda: _script("amalgamate.py", "--out", _tmp(work, "amalg", "seed.c")),
              r"Wrote .*seed\.c \(\d+\.\d+ MB\)", 300),
+        # The static library is a build artifact, not a gate input, so this
+        # row runs only its --self-test: a TU that does not compile and a
+        # missing runtime directory must both be reported. The real build
+        # (compiling the whole runtime into .orbit/lib) is minutes of cc for
+        # no new aliveness signal beyond what the self-test asserts.
+        Tool("mklib_runtime.py", "measurement",
+             "builds .orbit/lib/libruntime_net.a for separate compilation; "
+             "--self-test proves a broken TU and a missing runtime still fail",
+             lambda: _script("mklib_runtime.py", "--self-test"),
+             r"Finished mklib self-test: 2/2", 300),
         Tool("cli_probe.py", "measurement",
              "the style specimen (--specimen): static examples of the output "
              "grammar, so tone can be reviewed without running a bootstrap. "

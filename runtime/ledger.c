@@ -94,7 +94,7 @@ static int orbit_ledger_claim(const char* method, const char* path) {
 }
 
 /* Called by generated code around each handler. Returns the slot index. */
-static int orbit_ledger_enter(const char* method, const char* path) {
+int orbit_ledger_enter(const char* method, const char* path) {
 #ifdef ORBIT_NO_LEDGER
     (void)method;
     (void)path;
@@ -149,7 +149,7 @@ static uint64_t orbit_ledger_percentile_us(const OrbitLedgerEntry* e, uint64_t p
     return 0;
 }
 
-static void orbit_ledger_exit(int idx, uint64_t cycles) {
+void orbit_ledger_exit(int idx, uint64_t cycles) {
     /* Under ORBIT_NO_LEDGER, enter always returns -1, so this is a no-op
      * store apart from clearing the thread-local slot. */
     if (idx >= 0 && idx < ORBIT_LEDGER_MAX) {
@@ -172,7 +172,7 @@ static inline void orbit_ledger_db_end(uint64_t t0) {
     }
 }
 
-static int orbit_ledger_is_loopback(orbit_socket_t s) {
+int orbit_ledger_is_loopback(orbit_socket_t s) {
     struct sockaddr_storage ss;
     socklen_t len = (socklen_t)sizeof(ss);
     if (getpeername(s, (struct sockaddr*)&ss, &len) != 0) return 0;

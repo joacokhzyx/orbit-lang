@@ -769,7 +769,7 @@ orbit_string orbit_http_header_get(OrbitArena* arena, OrbitRequest* req, orbit_s
     return "";
 }
 
-#ifndef ORBIT_CUSTOM_ROUTER
+#if !defined(ORBIT_CUSTOM_ROUTER) && !defined(ORBIT_LIB_NO_ROUTER)
 /** @brief Default request dispatcher: handles /_pulse routes internally and returns 404 for everything else.  Returns 1 to keep the connection alive, 0 to close. */
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
     uint64_t start = orbit_rdtsc();

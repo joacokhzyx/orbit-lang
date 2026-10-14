@@ -82,7 +82,7 @@ typedef struct {
 } OrbitResult;
 
 /** @brief Construct a successful Result carrying @p value. */
-static OrbitResult orbit_result_ok(void* value) {
+OrbitResult orbit_result_ok(void* value) {
     OrbitResult r;
     r.ok         = true;
     r.error_code = ORBIT_ERR_NONE;
@@ -96,7 +96,7 @@ static OrbitResult orbit_result_ok(void* value) {
  * The transport form for a value that is not a pointer: an int, a bool, or a
  * double's bit pattern. memcpy rather than a cast, so no int-to-pointer
  * conversion is invented. */
-static ORBIT_UNUSED OrbitResult orbit_result_ok_word(uintptr_t word) {
+ORBIT_UNUSED OrbitResult orbit_result_ok_word(uintptr_t word) {
     OrbitResult r;
     r.ok         = true;
     r.error_code = ORBIT_ERR_NONE;
@@ -113,7 +113,7 @@ static ORBIT_UNUSED OrbitResult orbit_result_ok_word(uintptr_t word) {
  * the IEEE-754 bit pattern the way orbit_list_push_float does, not the
  * numeric value. Read it back with orbit_result_get_float, never with a
  * numeric cast of the word. */
-static ORBIT_UNUSED OrbitResult orbit_result_ok_float(orbit_float value) {
+ORBIT_UNUSED OrbitResult orbit_result_ok_float(orbit_float value) {
     uintptr_t word = 0;
     memcpy(&word, &value, sizeof(uintptr_t));
     return orbit_result_ok_word(word);
@@ -126,7 +126,7 @@ static ORBIT_UNUSED OrbitResult orbit_result_ok_float(orbit_float value) {
  * memcpy rather than a cast, for the same reason as the box above: the word
  * holds bits, and converting them to a number answers the address of the
  * value instead of the value. */
-static ORBIT_UNUSED orbit_float orbit_result_get_float(OrbitResult r) {
+ORBIT_UNUSED orbit_float orbit_result_get_float(OrbitResult r) {
     orbit_float value = 0.0;
     memcpy(&value, &r.value, sizeof(orbit_float));
     return value;
@@ -134,7 +134,7 @@ static ORBIT_UNUSED orbit_float orbit_result_get_float(OrbitResult r) {
 
 
 /** @brief Construct a failed Result with the given error @p code and human-readable @p msg. */
-static OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {
+OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {
     OrbitResult r;
     r.ok         = false;
     r.error_code = code;
