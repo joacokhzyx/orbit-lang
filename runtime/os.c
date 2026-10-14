@@ -19,6 +19,9 @@
 #include <direct.h>
 #include <windows.h>
 #include <io.h>
+/* errno/EEXIST are used below: gcc and MSVC receive <errno.h> transitively
+ * through the headers above, tcc does not, so it rides here explicitly. */
+#include <errno.h>
 #else
 #include <sys/wait.h>
 #include <sys/types.h>

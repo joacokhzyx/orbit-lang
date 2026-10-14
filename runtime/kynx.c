@@ -8,6 +8,32 @@
  * request.  Admission state transitions (Stable → Shaped → Guarded → Siege)
  * automatically tighten resource budgets as active-lease pressure grows.
  */
+#ifdef __TINYC__
+#ifndef ORBIT_TINYC_SHIM
+#define ORBIT_TINYC_SHIM
+/* tcc judge build is single-thread-only: tcc provides no __thread TLS and no
+ * __atomic_* builtins, so __thread degrades to a plain global and the builtins
+ * degrade to plain operations. Never #undef'd: the unity TU shares one
+ * preprocessor state, so every declaration and definition must agree (all
+ * plain). Invisible to gcc/clang/MSVC. The multithreaded server stays a gcc
+ * build by design: plain operations race (see runtime/orbit_api.h). */
+#define __thread
+#ifndef __ATOMIC_RELAXED
+#define __ATOMIC_RELAXED 0
+#define __ATOMIC_ACQUIRE 2
+#define __ATOMIC_RELEASE 3
+#define __ATOMIC_SEQ_CST 5
+#endif
+#define __atomic_load_n(ptr, memorder) (*(ptr))
+#define __atomic_store_n(ptr, val, memorder) ((*(ptr)) = (val))
+#define __atomic_fetch_add(ptr, val, memorder) (*(ptr) += (val), *(ptr) - (val))
+#define __atomic_fetch_sub(ptr, val, memorder) (*(ptr) -= (val), *(ptr) + (val))
+/* fetch_or/and return the NEW value, not the old one the gcc builtin returns;
+ * no call site in this tree reads the result. */
+#define __atomic_fetch_or(ptr, val, memorder) (*(ptr) |= (val))
+#define __atomic_fetch_and(ptr, val, memorder) (*(ptr) &= (val))
+#endif
+#endif
 #ifndef ORBIT_KYNX_H
 #define ORBIT_KYNX_H
 

@@ -378,6 +378,25 @@ def registry(compiler, cc, work):
              "--self-test proves a broken TU and a missing runtime still fail",
              lambda: _script("mklib_runtime.py", "--self-test"),
              r"Finished mklib self-test: 2/2", 300),
+        Tool("tcc_setup.py", "measurement",
+             "the pinned tcc 0.9.27 acquisition; --check proves the pin "
+             "without installing. Exit 2 is SKIP (no tcc here), not death, "
+             "so both 0 and 2 are allowed; the marker is the closing line "
+             "in either case",
+             lambda: _script("tcc_setup.py", "--check"),
+             r"Finished tcc-setup", 300, allow_rc=(0, 2), needs=()),
+        Tool("dual_judge.py", "gate",
+             "dual-toolchain judge: the corpus must behave byte-identically "
+             "under tcc and gcc; --self-test proves the comparator catches "
+             "an exit and a stdout difference without a compiler",
+             lambda: _script("dual_judge.py", "--self-test"),
+             r"Finished dual self-test: \d+/\d+", 120, allow_rc=(0, 1)),
+        Tool("triangle.py", "gate",
+             "DDC triangle: tcc, gcc-O0 and gcc-O2 judges must emit "
+             "byte-identical compiler C; --self-test proves the digest "
+             "comparison without a toolchain",
+             lambda: _script("triangle.py", "--self-test"),
+             r"Finished triangle self-test: \d+/\d+", 120, allow_rc=(0, 1)),
         Tool("cli_probe.py", "measurement",
              "the style specimen (--specimen): static examples of the output "
              "grammar, so tone can be reviewed without running a bootstrap. "

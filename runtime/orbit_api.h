@@ -57,9 +57,41 @@
  * with no caller in any emitted TU surveyed. DB/auth symbols are absent too:
  * the net variant library does not define them, so a DB program fails here
  * at compile time with a clear message instead of at link time.
+ *
+ * tcc judge builds are single-thread-only: tcc predefines __TINYC__ and
+ * provides no __thread TLS and no __atomic_* builtins, so the shim below
+ * degrades __thread to a plain global and the builtins to plain operations
+ * (each runtime .c that needs it carries the same shim; the unity TU shares
+ * one preprocessor state, so it is never #undef'd and every declaration
+ * agrees). A tcc-built server must therefore never serve concurrent
+ * requests: the multithreaded server stays a gcc build by design, because
+ * plain operations race. Outside __TINYC__ everything is intact --
+ * Interlocked* on Windows, __sync_* on POSIX, Winsock names -- and the
+ * gcc/clang/MSVC path is byte-identical with or without the shim.
  */
 #ifndef ORBIT_API_H
 #define ORBIT_API_H
+
+#ifdef __TINYC__
+#ifndef ORBIT_TINYC_SHIM
+#define ORBIT_TINYC_SHIM
+#define __thread
+#ifndef __ATOMIC_RELAXED
+#define __ATOMIC_RELAXED 0
+#define __ATOMIC_ACQUIRE 2
+#define __ATOMIC_RELEASE 3
+#define __ATOMIC_SEQ_CST 5
+#endif
+#define __atomic_load_n(ptr, memorder) (*(ptr))
+#define __atomic_store_n(ptr, val, memorder) ((*(ptr)) = (val))
+#define __atomic_fetch_add(ptr, val, memorder) (*(ptr) += (val), *(ptr) - (val))
+#define __atomic_fetch_sub(ptr, val, memorder) (*(ptr) -= (val), *(ptr) + (val))
+/* fetch_or/and return the NEW value, not the old one the gcc builtin returns;
+ * no call site in this tree reads the result. */
+#define __atomic_fetch_or(ptr, val, memorder) (*(ptr) |= (val))
+#define __atomic_fetch_and(ptr, val, memorder) (*(ptr) &= (val))
+#endif
+#endif
 
 #include <stddef.h>
 #include <stdint.h>

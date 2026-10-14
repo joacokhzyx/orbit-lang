@@ -223,6 +223,95 @@ jobs:
           PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
           "$PY" scripts/runtime_c_tests.py --cc "${{ matrix.cc }}"
 
+  # Fast-build lane smoke: pinned tcc plus the Windows shim. Informational
+  # by design: where tcc is unavailable the acquire step exits 0 after
+  # printing TCC-SKIP (a visible skip, never a silent pass), and this job
+  # has no `needs:` edge into the gates, so it cannot turn another job
+  # red. What tcc may and may not do is docs/TOOLCHAIN.md.
+  tcc-shim:
+    name: tcc shim smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      MSYS2_ARG_CONV_EXCL: '*'
+      MSYS_NO_PATHCONV: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # rc 2 from tcc_setup.py means SKIP (no toolchain here, fallback
+      # documented), not failure: exit 0 with the marker in the log.
+      # rc 1 (hash mismatch, wrong version) stays a failure.
+      - name: Acquire pinned tcc (SKIP cleanly when unavailable)
+        id: acquire
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          set +e
+          "$PY" scripts/tcc_setup.py > tcc_setup.log 2>&1
+          rc=$?
+          set -e
+          cat tcc_setup.log
+          if [ $rc -eq 2 ]; then
+            echo "TCC-SKIP: no tcc on this runner; lane skipped, gcc/clang lanes unaffected (docs/TOOLCHAIN.md)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+      - name: tcc version pin
+        if: steps.acquire.outputs.skip != 'true'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/tcc_setup.py --check
+
+      # The two versioned probes in vendor/tcc-shim/. Each must print its
+      # PASS marker: the binary exiting 0 is not evidence by itself (D8).
+      # sqlite3.dll travels beside the probe exe, as the MSVC-linked
+      # builds already require (runtime/vendor/README.md).
+      - name: Shim probes, socket loopback and sqlite wrapper (Windows)
+        if: runner.os == 'Windows' && steps.acquire.outputs.skip != 'true'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          TCC="$(cygpath -u "$("$PY" scripts/tcc_setup.py --print-exe)")"
+          mkdir -p "$RUNNER_TEMP/tcc-probes"
+          cp runtime/vendor/win-x64/sqlite3.dll "$RUNNER_TEMP/tcc-probes/"
+          # tcc.exe is native: it needs a Windows path for -o, not the
+          # MSYS /c/... form (NO_PATHCONV is on, so nothing converts it).
+          WINTMP="$(cygpath -w "$RUNNER_TEMP/tcc-probes")"
+          "$TCC" -I vendor/tcc-shim -include tcc_toolchain.h \
+            -o "$WINTMP/probe_socket.exe" \
+            vendor/tcc-shim/probe_socket.c vendor/tcc-shim/ws2_32.def
+          "$WINTMP/probe_socket.exe" | tee socket.log
+          grep -q TCC-SHIM-SOCKET-PASS socket.log
+          (cd "$RUNNER_TEMP/tcc-probes" && "$TCC" \
+            -I "$GITHUB_WORKSPACE/runtime/vendor" \
+            -o probe_sqlite.exe \
+            "$GITHUB_WORKSPACE/vendor/tcc-shim/probe_sqlite.c" \
+            "$GITHUB_WORKSPACE/vendor/tcc-shim/sqlite3.def")
+          (cd "$RUNNER_TEMP/tcc-probes" && ./probe_sqlite.exe) | tee sqlite.log
+          grep -q TCC-SHIM-SQLITE-PASS sqlite.log
+
+      # No shim on POSIX (system headers are complete there): prove the
+      # pinned binary compiles and runs one TU, nothing more.
+      - name: Hello probe (non-Windows)
+        if: runner.os != 'Windows' && steps.acquire.outputs.skip != 'true'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          TCC="$("$PY" scripts/tcc_setup.py --print-exe)"
+          echo 'int main(void){return 0;}' > "$RUNNER_TEMP/tcc_hello.c"
+          "$TCC" -o "$RUNNER_TEMP/tcc_hello" "$RUNNER_TEMP/tcc_hello.c"
+          "$RUNNER_TEMP/tcc_hello"
+          echo "TCC-HELLO-PASS"
+
   # Flakiness detector for the self-host chain. Each leg is an independent
   # fixed-point run on its own runner, so the 8 repetitions run concurrently
   # instead of serially: the flakiness being hunted is run-to-run variation, and
