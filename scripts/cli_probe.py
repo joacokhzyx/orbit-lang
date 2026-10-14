@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
@@ -231,55 +232,115 @@ INVARIANTS = [
 ]
 
 
+def setup_dir(work):
+    """Write the probe fixtures into one (per-case) stage directory."""
+    for rel, content in SETUP.items():
+        dest = os.path.join(work, rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+
+
 def invariants(compiler, work):
     """Post-conditions on files the tool touched. Returns (ok, total)."""
-    env = dict(os.environ)
-    env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
+    jobs = list(range(len(INVARIANTS)))
+
+    def run_one(idx):
+        # Each invariant owns a staged dir: fmt rewrites its input in place,
+        # so a shared work dir lets one case format another's fixture, and
+        # each build writes orbit_selfhost_build.c to TEMP. Returns
+        # (name, ok, so, se) for ordered reporting below; only the main
+        # thread prints.
+        name, argv, rel, exp_rc, needle, outcome = INVARIANTS[idx]
+        stage = os.path.join(work, "inv_" + name.replace("/", "_"))
+        os.makedirs(stage, exist_ok=True)
+        setup_dir(stage)
+        ok, so, se, problems = check_invariant(compiler, stage, name, argv, rel,
+                                               exp_rc, needle, outcome)
+        return (name, ok, so, se, problems)
+
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, jobs))
     ok = 0
-    for name, argv, rel, exp_rc, needle, outcome in INVARIANTS:
-        target = os.path.join(work, rel)
-        with open(target, "rb") as f:
-            before = f.read()
-        p = subprocess.run([compiler] + argv, cwd=work, capture_output=True,
-                           text=True, errors="replace", env=env)
-        so, se = p.stdout or "", p.stderr or ""
-        combined = so + se
-        with open(target, "rb") as f:
-            after = f.read()
-        problems = []
-        if p.returncode != exp_rc:
-            problems.append("rc=%s (want %s)" % (p.returncode, exp_rc))
-        if needle and needle not in combined:
-            problems.append("missing %r" % needle)
-        if outcome == "unchanged" and after != before:
-            if after == b"" and before != b"":
-                problems.append("FILE EMPTIED (was %d bytes)" % len(before))
-            else:
-                problems.append("file changed but should not have")
-        elif outcome == "rewritten":
-            if after == b"" and before != b"":
-                problems.append("FILE EMPTIED (was %d bytes)" % len(before))
-            elif after == before:
-                problems.append("file unchanged but should have been formatted")
-        elif outcome == "emptied" and after != b"":
-            problems.append("file should have normalised to empty, got %d bytes" % len(after))
-        if problems:
-            out.fail("Failed %s: %s" % (name, "; ".join(problems)))
+    for name, good, so, se, problems in results:
+        if good:
+            out.say("Probing %s ... ok" % name)
+            ok += 1
+        else:
+            out.fail("Failed %s: %s" % (name, problems))
             if so.strip():
                 print("  out: %r" % so.strip()[:200], file=sys.stderr)
             if se.strip():
                 print("  err: %r" % se.strip()[:200], file=sys.stderr)
-        else:
-            out.say("Probing %s ... ok" % name)
-            ok += 1
     return ok, len(INVARIANTS)
 
 
+def check_invariant(compiler, work, name, argv, rel, exp_rc, needle, outcome):
+    """One file post-condition. Returns (ok, stdout, stderr, problems)."""
+    env = dict(os.environ)
+    env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
+    env["TEMP"] = work
+    env["TMP"] = work
+    target = os.path.join(work, rel)
+    with open(target, "rb") as f:
+        before = f.read()
+    p = subprocess.run([compiler] + argv, cwd=work, capture_output=True,
+                       text=True, errors="replace", env=env)
+    so, se = p.stdout or "", p.stderr or ""
+    combined = so + se
+    with open(target, "rb") as f:
+        after = f.read()
+    problems = []
+    if p.returncode != exp_rc:
+        problems.append("rc=%s (want %s)" % (p.returncode, exp_rc))
+    if needle and needle not in combined:
+        problems.append("missing %r" % needle)
+    if outcome == "unchanged" and after != before:
+        if after == b"" and before != b"":
+            problems.append("FILE EMPTIED (was %d bytes)" % len(before))
+        else:
+            problems.append("file changed but should not have")
+    elif outcome == "rewritten":
+        if after == b"" and before != b"":
+            problems.append("FILE EMPTIED (was %d bytes)" % len(before))
+        elif after == before:
+            problems.append("file unchanged but should have been formatted")
+    elif outcome == "emptied" and after != b"":
+        problems.append("file should have normalised to empty, got %d bytes" % len(after))
+    if problems:
+        return (False, so, se, "; ".join(problems))
+    return (True, so, se, "")
+
+
 def one(compiler, work, name, argv, exp_rc, stream, needle, absent="", env_extra=None):
+    ok, so, se, rc = probe(compiler, work, name, argv, exp_rc, stream, needle,
+                           absent, env_extra)
+    if ok:
+        out.say(f"Probing {name} ... ok")
+    else:
+        out.fail(f"Failed {name}: rc={rc} (want {exp_rc})")
+        if so.strip():
+            print("  out: %r" % so.strip()[:200], file=sys.stderr)
+        if se.strip():
+            print("  err: %r" % se.strip()[:200], file=sys.stderr)
+    return ok
+
+
+def probe(compiler, work, name, argv, exp_rc, stream, needle, absent="",
+          env_extra=None):
+    """One CLI case. Returns (ok, stdout, stderr); no printing.
+
+    Each caller hands this its own stage dir as `work`: builds write
+    orbit_selfhost_build.c to TEMP, so a shared TEMP lets one case's cc read
+    another's half-written C, and several cases build outputs (-o *.exe)
+    that must not share a cwd while another case mutates it.
+    """
     env = dict(os.environ)
     # Build cases need the runtime headers; the probe binary lives in a
     # temp dir, so point the inner cc at the repo runtime explicitly.
     env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
+    env["TEMP"] = work
+    env["TMP"] = work
     env.update(env_extra or {})
     p = subprocess.run([compiler] + argv, cwd=work, capture_output=True,
                        text=True, errors="replace", env=env)
@@ -319,15 +380,7 @@ def one(compiler, work, name, argv, exp_rc, stream, needle, absent="", env_extra
         except Exception:
             ok_json = False
     ok = (p.returncode == exp_rc) and ok_stream and ok_absent and ok_json
-    if ok:
-        out.say(f"Probing {name} ... ok")
-    else:
-        out.fail(f"Failed {name}: rc={p.returncode} (want {exp_rc})")
-        if so.strip():
-            print("  out: %r" % so.strip()[:200], file=sys.stderr)
-        if se.strip():
-            print("  err: %r" % se.strip()[:200], file=sys.stderr)
-    return ok
+    return (ok, so, se, p.returncode)
 
 
 def main():
@@ -344,23 +397,46 @@ def main():
         ap.error("--compiler is required unless --specimen is given")
     work = os.path.abspath(args.work) if args.work else tempfile.mkdtemp(prefix="orbit_cli_")
     os.makedirs(work, exist_ok=True)
-    for rel, content in SETUP.items():
-        dest = os.path.join(work, rel)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, "w", encoding="utf-8", newline="\n") as f:
-            f.write(content)
-    ok = 0
-    total = len(CASES)
-    for case in CASES:
+
+    def run_one(case):
+        # Each case owns a staged dir: fmt/build cases read and write files
+        # by relative path, so a shared work dir lets one case see another's
+        # outputs, and each build writes orbit_selfhost_build.c to TEMP.
+        # Returns (name, exp_rc, ok, so, se, rc) for ordered reporting below;
+        # only the main thread prints.
         name, argv, exp_rc, stream, needle = case[:5]
         absent = case[5] if len(case) > 5 else ""
         env_extra = case[6] if len(case) > 6 else None
-        if one(args.compiler, work, name, argv, exp_rc, stream, needle, absent, env_extra):
+        stage = os.path.join(work, "case_" + name.replace("/", "_"))
+        os.makedirs(stage, exist_ok=True)
+        setup_dir(stage)
+        ok, so, se, rc = probe(args.compiler, stage, name, argv, exp_rc,
+                               stream, needle, absent, env_extra)
+        return (name, exp_rc, ok, so, se, rc)
+
+    def report(name, exp_rc, ok, so, se, rc):
+        if ok:
+            out.say(f"Probing {name} ... ok")
+        else:
+            out.fail(f"Failed {name}: rc={rc} (want {exp_rc})")
+            if so.strip():
+                print("  out: %r" % so.strip()[:200], file=sys.stderr)
+            if se.strip():
+                print("  err: %r" % se.strip()[:200], file=sys.stderr)
+        return ok
+
+    ok = 0
+    total = len(CASES)
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, CASES))
+    for name, exp_rc, good, so, se, rc in results:
+        if report(name, exp_rc, good, so, se, rc):
             ok += 1
     if shutil.which("clang"):
-        for case in TOOLCHAIN_CASES:
-            name, argv, exp_rc, stream, needle, absent, env_extra = case
-            if one(args.compiler, work, name, argv, exp_rc, stream, needle, absent, env_extra):
+        with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+            tc_results = list(pool.map(run_one, TOOLCHAIN_CASES))
+        for name, exp_rc, good, so, se, rc in tc_results:
+            if report(name, exp_rc, good, so, se, rc):
                 ok += 1
             total += 1
     else:

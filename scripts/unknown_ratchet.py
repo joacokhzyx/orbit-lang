@@ -135,6 +135,11 @@ def read_measurement(from_json=None, compiler=None, cc="gcc", dirs=None):
     if not isinstance(total_instructions, int) or total_instructions <= 0:
         return None, ("census reports %r instructions; the rate needs a positive "
                       "denominator" % (total_instructions,))
+    for _key in ("unknown_instructions", "unknown_without_diagnostic"):
+        if not isinstance(data.get(_key), int):
+            return None, ("census output has no integer %s. The reader in "
+                          "read_measurement() needs those keys and will not guess."
+                          % _key)
     data["unknown_per_mille"] = int(
         round(1000.0 * data["unknown_instructions"] / total_instructions))
     data["silent_per_mille"] = int(
@@ -396,6 +401,40 @@ def self_test():
         else:
             out.fail("  WRONG baseline accepted or wrong reason: %s -> %s"
                      % (name, why))
+    # The --from-json seam alive_check.py now depends on for its single census:
+    # a census document on disk must read exactly like a live census, and a
+    # document without the keys must be a loud failure, never a silent zero.
+    census_doc = {"instructions": 1000,
+                  "unknown_instructions": 290,
+                  "unknown_without_diagnostic": 120,
+                  "files": 5, "functions": 50,
+                  "files_detail": [{"path": "a.orb", "functions": 40,
+                                    "instructions": 700,
+                                    "unknown_instructions": 200},
+                                   {"path": "b.orb", "functions": 10,
+                                    "instructions": 300,
+                                    "unknown_instructions": 90}]}
+    census_path = os.path.join(tmp, "census.json")
+    with open(census_path, "w", encoding="utf-8") as fh:
+        json.dump(census_doc, fh)
+    data, why = read_measurement(from_json=census_path)
+    total += 1
+    if data is not None and data.get("unknown_per_mille") == 290 \
+            and data.get("silent_per_mille") == 120:
+        passed += 1
+        print("  ok    from-json reads a census document             -> hold")
+    else:
+        out.fail("  WRONG from-json did not read the census document -> %s" % why)
+    with open(census_path, "w", encoding="utf-8") as fh:
+        json.dump({"instructions": 1000, "unknown_instructions": 7,
+                   "unknown_without_diagnostic": 2}, fh)
+    data, why = read_measurement(from_json=census_path)
+    total += 1
+    if data is None and "files_detail" in why:
+        passed += 1
+        print("  ok    from-json without files_detail is rejected    -> fail")
+    else:
+        out.fail("  WRONG from-json accepted a document with no detail")
     out.finish("ratchet self-test", passed, total)
     return 0 if passed == total else 1
 

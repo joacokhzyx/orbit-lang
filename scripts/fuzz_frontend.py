@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
@@ -92,25 +93,41 @@ def main() -> int:
 
     work = tempfile.mkdtemp(prefix="orbit_fuzz_")
     os.makedirs(CRASH_DIR, exist_ok=True)
-    crashes = 0
-    clean_rejects = 0
-    accepted = 0
-    for i in range(args.iterations):
-        src = mutate(rng.choice(corpus), rng)
-        inp = os.path.join(work, f"case_{i}.orb")
+    # All 300 mutations are generated up front, sequentially: random.Random is
+    # not thread-safe and the seed must replay the same corpus order. Only the
+    # subprocess runs below go to the pool; coverage (iters) is unchanged.
+    payloads = [mutate(rng.choice(corpus), rng) for _ in range(args.iterations)]
+
+    def run_one(job):
+        # Each iteration owns a TEMP subdir: the intermediate C has a fixed
+        # name (orbit_selfhost_build.c in $TEMP), so a shared TEMP lets one
+        # case's cc read another's half-written C. Returns (i, rc, src) for
+        # ordered reporting below; only the main thread prints/saves crashes.
+        i, src = job
+        tmp = os.path.join(work, f"fuzz_{i}")
+        os.makedirs(tmp, exist_ok=True)
+        inp = os.path.join(tmp, f"case_{i}.orb")
         with open(inp, "wb") as fh:
             fh.write(src)
         env = dict(os.environ)
         noop_cc = "cmd /c exit 0" if os.name == "nt" else "true"
-        env.update({"TEMP": work, "TMP": work, "ORBIT_CC": noop_cc, "CC": noop_cc})
+        env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": noop_cc, "CC": noop_cc})
         try:
             proc = subprocess.run(
-                [args.compiler, "build", inp, "-o", os.path.join(work, f"out_{i}.bin")],
+                [args.compiler, "build", inp, "-o", os.path.join(tmp, f"out_{i}.bin")],
                 cwd=ROOT, env=env, capture_output=True, timeout=120,
             )
             rc = proc.returncode
         except subprocess.TimeoutExpired:
             rc = -999
+        return (i, rc, inp)
+
+    crashes = 0
+    clean_rejects = 0
+    accepted = 0
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, enumerate(payloads)))
+    for i, rc, inp in results:
         if rc == 0:
             accepted += 1
         elif rc == 1 or rc == 2:

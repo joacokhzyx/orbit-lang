@@ -42,6 +42,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / "runtime"
@@ -209,15 +210,49 @@ def main() -> int:
             todo = [p for p in todo if args.filter in p["name"]]
 
         failures = []
-        for p in todo:
-            binary = work / ("t_" + p["name"] + (".exe" if windows() else ""))
+
+        def run_one(p):
+            # Each program owns a run subdir: test_upload writes ./note.txt
+            # and test_migrations writes test_migrations_tmp.db by design, so
+            # a shared cwd lets two programs clobber each other's files, and
+            # the Windows loader needs sqlite3.dll beside the run. Compile
+            # output keeps a unique name; only the main thread prints.
+            # Returns (name, kind, *payload) for ordered reporting below.
+            pdir = work / ("r_" + p["name"])
+            pdir.mkdir(exist_ok=True)
+            if windows():
+                dll = WIN_VENDOR / "sqlite3.dll"
+                if dll.exists():
+                    try:
+                        (pdir / "sqlite3.dll").write_bytes(dll.read_bytes())
+                    except OSError:
+                        pass
+            binary = pdir / ("t_" + p["name"] + (".exe" if windows() else ""))
             cc = subprocess.run(compile_argv(args.cc, p, binary),
                                 cwd=str(ROOT), capture_output=True, text=True)
             if cc.returncode != 0:
-                sys.stdout.write(cc.stdout)
-                sys.stderr.write(cc.stderr)
-                failures.append(p["name"] + " (compile)")
-                print(f"  {p['name']:<20} COMPILE FAIL")
+                return (p["name"], "compile-fail", cc.stdout, cc.stderr)
+            # cwd is the program's own scratch dir, NOT the repository root
+            # (see the note kept below): these tests use relative paths on
+            # purpose, so running them from the root drops files into the
+            # working tree.
+            run = subprocess.run([str(binary)], cwd=str(pdir),
+                                 capture_output=True, text=True)
+            if run.returncode != 0:
+                return (p["name"], "run-fail", run.returncode,
+                        run.stdout, run.stderr)
+            last = (run.stdout.strip().splitlines() or [""])[-1]
+            return (p["name"], "ok", last)
+
+        with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+            results = list(pool.map(run_one, todo))
+        for name, kind, *rest in results:
+            if kind == "compile-fail":
+                so, se = rest
+                sys.stdout.write(so)
+                sys.stderr.write(se)
+                failures.append(name + " (compile)")
+                print(f"  {name:<20} COMPILE FAIL")
                 continue
             # cwd is the scratch dir, NOT the repository root. These tests use
             # relative paths on purpose -- test_upload.c writes "./note.txt" and
@@ -226,9 +261,8 @@ def main() -> int:
             # two files into the working tree. It went unnoticed because CI's
             # workspace is ephemeral; locally it dirties `git status` and, worse,
             # it is a `git add -A` away from a commit.
-            run = subprocess.run([str(binary)], cwd=str(work),
-                                 capture_output=True, text=True)
-            if run.returncode != 0:
+            if kind == "run-fail":
+                rc, so, se = rest
                 # Everything, only on failure. A passing program gets one line.
                 #
                 # Both streams are suppressed on success on purpose.
@@ -239,13 +273,13 @@ def main() -> int:
                 # read like a gate failing if they land in the middle of a log.
                 # A gate whose success output needs skimming is a gate whose
                 # failure output gets skimmed too.
-                sys.stdout.write(run.stdout)
-                sys.stderr.write(run.stderr)
-                failures.append(f"{p['name']} (exit {run.returncode})")
-                print(f"  {p['name']:<20} FAIL exit={run.returncode}")
+                sys.stdout.write(so)
+                sys.stderr.write(se)
+                failures.append(f"{name} (exit {rc})")
+                print(f"  {name:<20} FAIL exit={rc}")
             else:
-                last = (run.stdout.strip().splitlines() or [""])[-1]
-                print(f"  {p['name']:<20} ok{('  ' + last) if last else ''}")
+                last = rest[0]
+                print(f"  {name:<20} ok{('  ' + last) if last else ''}")
 
     skipped = [p["name"] for p in PROGRAMS if p["posix_only"] and windows()]
     if skipped:

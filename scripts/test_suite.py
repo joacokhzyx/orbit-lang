@@ -32,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
+import _common
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUITE = os.path.join(ROOT, "tests", "suite")
@@ -73,6 +74,11 @@ def main() -> int:
         env.update({"ORBIT_CC": args.cc, "CC": args.cc})
     else:
         env.update({"ORBIT_CC": noop_cc, "CC": noop_cc})
+    # Disposable binaries: skip the Windows brand stamp and -Wall, add -pipe
+    # on gcc (see _common.disposable_test_env for why and for the escape
+    # hatches). The strict warning gate is werror_gate.py (-Werror on the
+    # emitted C) and never sees these flags.
+    env = _common.disposable_test_env(env, cc=args.cc)
 
     ok = 0
     failed = []

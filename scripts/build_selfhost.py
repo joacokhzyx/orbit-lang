@@ -17,10 +17,14 @@ Modes:
                  and update PUBLISHED_C in scripts/verify_seed.py. Use after
                  an intentional compiler change.
   --out PATH     Copy the converged fixed-point compiler binary to PATH.
+  --shared-work DIR  After converging, write chain3.c / chain3.exe / seed.c /
+                     hashes.json under DIR (see SHARED_* below; without the
+                     flag nothing is written).
 
 Usage:
     python scripts/build_selfhost.py [--cc CC] [--work DIR] [--keep]
                                      [--check-stale] [--promote] [--out PATH]
+                                     [--shared-work DIR]
 
 Exit code 0 iff the chain converged (and, with --check-stale, matches the
 committed canonical).
@@ -28,6 +32,7 @@ committed canonical).
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -123,6 +128,43 @@ def lowmem_cc_flags(cc: str) -> list:
     if any(t in low for t in ("gcc", "clang", "cc")):
         return list(LOWMEM_C_FLAGS)
     return []
+
+
+def cc_strip_flags(cc: str) -> list:
+    """`-s` for GCC/Clang-like drivers, [] for anything else.
+
+    Stripping changes bytes, never behaviour. `cl` rejects `-s`, hence the
+    same driver guard as lowmem_cc_flags. Part of the unified flag set below.
+    """
+    low = cc.lower()
+    if "cl" in low.split() or low.strip() == "cl":
+        return []
+    if any(t in low for t in ("gcc", "clang", "cc")):
+        return ["-s"]
+    return []
+
+
+def resolve_low_mem(setting, log=None) -> bool:
+    """None/True/False -> bool through the one auto-detection both scripts use."""
+    if setting is not None:
+        return bool(setting)
+    free_mb = avail_commit_mb()
+    auto = free_mb is not None and free_mb < LOWMEM_AUTO_MB
+    if auto and log is not None:
+        log(f"Low-memory profile auto-enabled ({free_mb} MB commit available).")
+    return auto
+
+
+def bootstrap_cc_middle(cc: str, low_mem: bool) -> list:
+    """The unified middle of every bootstrap cc argv (Fase A, pieza F).
+
+    build_selfhost.py and verify_seed.py both splice this in the same place --
+    right after cc_cmd, before -I/-o/sources/link flags -- so identical inputs
+    hash to one orbit_ccache entry no matter which script stored it first.
+    Order is pinned: the cache key hashes argv tokens in order.
+    """
+    return [*cc_strip_flags(cc), *SUPPRESS_FLAGS,
+            *(lowmem_cc_flags(cc) if low_mem else [])]
 
 
 def warn_low_memory() -> None:
@@ -260,6 +302,88 @@ def update_published_c(new_hash: str) -> None:
     out.say(f"Updated PUBLISHED_C in verify_seed.py -> {new_hash.upper()}")
 
 
+# Shared-work snapshots (Fase A, pieza F): after converging, both scripts can
+# write these four paths under --shared-work DIR for the dev.py driver to
+# consume without rerunning the chain -- check_stale as a byte comparison of
+# chain3.c against the canonical, fp as a copy of the chain3 binary:
+#
+#   <dir>/chain3.c    converged fixed-point C
+#   <dir>/chain3.exe  converged compiler binary (chain3, no suffix, off Windows)
+#   <dir>/seed.c      seed-stage emitted C
+#   <dir>/hashes.json {"canonical_sha":..,"seed_sha":..,"chain3_sha":..,"published":..}
+#
+# The three _sha values are lowercase hex of the bytes as written; published is
+# PUBLISHED_C verbatim (uppercase): compare case-insensitively. Presence of
+# hashes.json means THIS run converged; absence means it did not -- the writer
+# deletes a stale manifest at startup and writes the manifest last
+# (tmp+rename), so a failed run can never leave a fresh-looking manifest.
+# The writer never touches the canonical or PUBLISHED_C; --promote stays the
+# single writer of the root of trust. Concurrent writers to one dir must be
+# serialized by the driver; at a true fixed point both scripts write identical
+# bytes anyway, so last-writer-wins is benign.
+SHARED_CHAIN_C = "chain3.c"
+SHARED_SEED_C = "seed.c"
+SHARED_MANIFEST = "hashes.json"
+
+
+def shared_chain_bin() -> str:
+    return "chain3.exe" if sys.platform == "win32" else "chain3"
+
+
+def published_c_contract() -> str:
+    """PUBLISHED_C verbatim from scripts/verify_seed.py (read-only)."""
+    try:
+        with open(VERIFY_SEED, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    m = re.search(r'PUBLISHED_C = "([0-9A-Fa-f]{64})"', text)
+    return m.group(1).upper() if m else ""
+
+
+def claim_shared_work(path: str) -> str:
+    """Create DIR and retire any manifest a previous run left (best effort)."""
+    absd = os.path.abspath(path)
+    os.makedirs(absd, exist_ok=True)
+    try:
+        manifest = os.path.join(absd, SHARED_MANIFEST)
+        if os.path.isfile(manifest):
+            os.remove(manifest)
+    except OSError as e:
+        out.say(f"note: cannot clear stale {SHARED_MANIFEST} in {absd} ({e}); continuing.")
+    return absd
+
+
+def write_shared_work(shared_dir: str, *, canonical_c: str, seed_c: str,
+                      chain_c: str, chain_exe: str) -> str:
+    """Copy snapshots + binary into shared_dir and publish hashes.json."""
+    os.makedirs(shared_dir, exist_ok=True)
+    dst_seed = os.path.join(shared_dir, SHARED_SEED_C)
+    dst_chain = os.path.join(shared_dir, SHARED_CHAIN_C)
+    dst_bin = os.path.join(shared_dir, shared_chain_bin())
+    shutil.copyfile(seed_c, dst_seed)
+    shutil.copyfile(chain_c, dst_chain)
+    shutil.copyfile(chain_exe, dst_bin)
+    if os.name != "nt":
+        try:
+            os.chmod(dst_bin, os.stat(chain_exe).st_mode | 0o111)
+        except OSError:
+            pass
+    manifest_obj = {
+        "canonical_sha": sha256(canonical_c),
+        "seed_sha": sha256(dst_seed),
+        "chain3_sha": sha256(dst_chain),
+        "published": published_c_contract(),
+    }
+    tmp = os.path.join(shared_dir, SHARED_MANIFEST + ".tmp%d" % os.getpid())
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(manifest_obj, indent=2) + "\n")
+    os.replace(tmp, os.path.join(shared_dir, SHARED_MANIFEST))
+    out.say(f"Wrote shared-work snapshots to {shared_dir} "
+            f"(chain3={manifest_obj['chain3_sha']})")
+    return os.path.join(shared_dir, SHARED_MANIFEST)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="self-hosted compiler bootstrap")
     ap.add_argument("--cc", default=None, help="C compiler (default: ORBIT_CC/gcc/clang/cc)")
@@ -271,6 +395,8 @@ def main() -> int:
                     help="replace the committed canonical C with the converged fixed point")
     ap.add_argument("--out", default=None, metavar="PATH",
                     help="copy the converged fixed-point compiler binary to PATH")
+    ap.add_argument("--shared-work", default=None, metavar="DIR",
+                    help="write converged snapshots + hashes.json under DIR")
     ap.add_argument("--low-mem", dest="low_mem", action="store_true", default=None,
                     help="force the low-memory C profile (-g0, no unwind tables)")
     ap.add_argument("--no-low-mem", dest="low_mem", action="store_false",
@@ -284,11 +410,7 @@ def main() -> int:
         return 1
 
     warn_low_memory()
-    if args.low_mem is None:
-        free_mb = avail_commit_mb()
-        args.low_mem = free_mb is not None and free_mb < LOWMEM_AUTO_MB
-        if args.low_mem:
-            out.say(f"Low-memory profile auto-enabled ({free_mb} MB commit available).")
+    args.low_mem = resolve_low_mem(args.low_mem, log=out.say)
 
     if not os.path.isfile(CANONICAL_C):
         out.fail(f"Failed: {CANONICAL_C} missing. It is the committed root of trust.")
@@ -303,6 +425,7 @@ def main() -> int:
     if not args.keep:
         import atexit
         atexit.register(lambda: shutil.rmtree(work, ignore_errors=True))
+    shared_dir = claim_shared_work(args.shared_work) if args.shared_work else None
 
     exe = ".exe" if sys.platform == "win32" else ""
     cc = args.cc or detect_cc()
@@ -326,10 +449,13 @@ def main() -> int:
     # argv basenames, so "seed" vs "orbit_seed" was a permanent cross-miss
     # (~12s per make all). Safe because the key is still content-bound
     # (canonical C hash + flags + cc identity), and the mingw-gcc binary was
-    # verified name-independent by hash.
+    # verified name-independent by hash. Flags come from bootstrap_cc_middle,
+    # the one constructor both scripts share (Fase A, pieza F): same inputs
+    # must hash to the same entry no matter which script stored it first.
     seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
     out.say("Building seed from canonical C")
-    seed_argv = [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
+    seed_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
+                 "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
     seed_argv, seed_sources = orbit_ccache.windows_stamp(
         seed_argv, [amal], work, "Orbit compiler", log=out.say)
     orbit_ccache.compile_cached(cc_cmd, seed_argv, seed_sources, log=out.say)
@@ -338,17 +464,22 @@ def main() -> int:
     prev_c_hash = None
     cur_exe = seed_exe
     converged_c = None
+    first_c = None
     final_exe = None
     for i in range(1, MAX_ITERATIONS + 1):
         c_i = orb_build(cur_exe, f"iter{i}" + exe, work, cc,
                         os.path.join(work, f"iter{i}.selfhost.c"),
                         extra_cc_flags)
+        if i == 1:
+            first_c = c_i
         h_i = sha256(c_i)
         next_exe = os.path.join(work, f"iter{i}_exe" + exe)
         # Generated C is not amalgamated: it needs the runtime headers on the
         # include path (pipeline.orb does the same when building user programs).
+        # Flags are bootstrap_cc_middle, shared with verify_seed.py (see seed).
         out.say(f"Building iter{i} compiler from its own C")
-        iter_argv = [*cc_cmd, *SUPPRESS_FLAGS, *extra_cc_flags, "-I", os.path.join(ROOT, "runtime"),
+        iter_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
+                     "-I", os.path.join(ROOT, "runtime"),
                      "-o", next_exe, c_i, *PLATFORM_LINK_FLAGS]
         iter_argv, iter_sources = orbit_ccache.windows_stamp(
             iter_argv, [c_i], work, "Orbit compiler", log=out.say)
@@ -378,12 +509,21 @@ def main() -> int:
         out.say(f"old: {h_canonical}")
         out.say(f"new: {h_final}")
         update_published_c(h_final)
-    elif args.check_stale and stale:
+
+    if shared_dir is not None and converged_c is not None:
+        # Snapshots describe the converged chain even when it is stale: the
+        # driver's byte comparison is what reports staleness. Written before
+        # the --check-stale failure return below, and never on no-convergence.
+        write_shared_work(shared_dir, canonical_c=CANONICAL_C,
+                          seed_c=first_c if first_c is not None else converged_c,
+                          chain_c=converged_c, chain_exe=final_exe)
+
+    if args.check_stale and stale:
         out.fail("Failed: converged C != committed canonical (canonical is stale).")
         out.say(f"converged: {h_final}")
         out.tip("refresh it with: python scripts/build_selfhost.py --promote")
         return 1
-    elif stale:
+    elif not args.promote and stale:
         out.say("note: sources diverge from committed canonical "
                 "(expected while hacking on the compiler; promote when ready).")
 

@@ -72,6 +72,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
@@ -362,8 +363,20 @@ def main():
     fails = []
     defects = []
     unpinned = 0
-    for case in cases:
-        verdict, detail = run_case(args.compiler, case, args.verbose, cc, work)
+
+    def run_one(case):
+        # Each case owns a TEMP subdir: the intermediate C has a fixed name
+        # (orbit_selfhost_build.c in $TEMP), so a shared TEMP lets one case's
+        # cc read another's half-written C. Returns (case, verdict, detail)
+        # for ordered reporting below; only the main thread prints.
+        tmp = os.path.join(work, "n_" + re.sub(r"[^A-Za-z0-9_.-]", "_", case.name))
+        os.makedirs(tmp, exist_ok=True)
+        verdict, detail = run_case(args.compiler, case, args.verbose, cc, tmp)
+        return (case, verdict, detail)
+
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, cases))
+    for case, verdict, detail in results:
         if verdict == "pass":
             ok += 1
             if case.kind == "defect":

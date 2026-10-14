@@ -15,6 +15,18 @@ Probe outcomes:
   exit == 0  -> golden records the SHA-256 of the generated C
   exit != 0  -> golden records the normalized compiler diagnostics
 
+Fast path for composed runs (`make all`): when the environment variable
+ORBIT_PARITY_SKIP_CC=1 is set (dev.py sets it in the `all` composition),
+each probe runs with ORBIT_SKIP_CC=1, so the compiler emits the intermediate
+C and stops without invoking gcc, and this gate hashes that C directly. The
+recorded outcomes are unchanged: kind=C goldens store only the SHA-256 of the
+emitted C (never the build log), and every kind=DIAG golden fails in the
+frontend, before the C step, so skipping cc cannot move them. The "this C
+compiles" witness this skips is covered in the same composition by werror_gate
+(generated C under -Werror) and the suite/std gates, which build and run
+programs through the full pipeline with gcc. Without that variable the gate
+behaves exactly as before (standalone still compiles each probe with gcc).
+
 Usage:
     python scripts/parity_selfhost.py --compiler PATH [--cc CC] [--update]
                                       [--goldens DIR] [--work DIR]
@@ -75,6 +87,12 @@ def probe_outcome(compiler: str, probe_path: str, name: str, work: str, cc: str)
     os.makedirs(tmp, exist_ok=True)
     env = dict(os.environ)
     env.update({"TEMP": tmp, "TMP": tmp, "ORBIT_CC": cc, "CC": cc})
+    # Composed runs (`make all`) set ORBIT_PARITY_SKIP_CC=1 via dev.py: emit
+    # the C and hash it directly instead of paying for 25 gcc links. The hash
+    # is over the emitted C only, so the goldens cannot tell the difference;
+    # DIAG probes fail before the C step and never reach cc either way.
+    if os.environ.get("ORBIT_PARITY_SKIP_CC") == "1":
+        env["ORBIT_SKIP_CC"] = "1"
     rel_probe = os.path.relpath(probe_path, ROOT)
     proc = subprocess.run(
         [compiler, "build", rel_probe, "-o", os.path.join(tmp, name + ".exe")],

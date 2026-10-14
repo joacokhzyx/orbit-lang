@@ -118,6 +118,63 @@ def scratch(prefix="orbit_gate_"):
     return pathlib.Path(tempfile.mkdtemp(prefix=prefix))
 
 
+def _pipe_ok(cc_string):
+    """Whether `-pipe` survives the named C driver.
+
+    `-pipe` is a GCC/Clang flag; MSVC's `cl` rejects it, so it is gated on
+    the toolchain rather than the platform. A cache wrapper (`ccache gcc`)
+    names the wrapper, not the driver, so the first token is skipped when
+    it is a known wrapper. Empty (unknown) counts as ok: on Windows the
+    default toolchain is gcc and the flag is harmless everywhere else.
+    """
+    tokens = (cc_string or "").strip().split()
+    if (tokens and tokens[0].lower().rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+            .removesuffix(".exe") in ("ccache", "sccache")):
+        tokens = tokens[1:]
+    prog = tokens[0].lower() if tokens else ""
+    prog = prog.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].removesuffix(".exe")
+    if not prog:
+        return True
+    if prog in ("cl", "clang-cl", "icl"):
+        return False
+    return any(t in prog for t in ("gcc", "g++", "clang", "cc"))
+
+
+def disposable_test_env(env, cc=None):
+    """Fast defaults for binaries a test gate builds, runs once and deletes.
+
+    Every `orbit build` on Windows links a version resource + icon through
+    windres/llvm-rc (~60 ms per binary, timed 2026-10-14 on gcc 16.2) and
+    compiles its generated C with `-Wall`. Both are correct for a binary
+    that ships and pure overhead for one a gate throws away: no gate asserts
+    on VERSIONINFO or the icon (only scripts/orbit_ccache.py, the bootstrap
+    path, stamps branding, which is where the fp and service binaries are
+    covered), and the strict warning gate is scripts/werror_gate.py, which
+    recompiles emitted C itself with `-Werror` and never sees these flags.
+    `-pipe` only swaps gcc's temp files for pipes (byte-identical `-S`
+    output, timed the same day), so it rides along via ORBIT_CCFLAGS_EXTRA,
+    the variable the compiler already appends to its inner cc line.
+
+    Each knob keeps an escape hatch through the ambient environment: a
+    variable the caller already exported always wins over the default, so
+    `ORBIT_SKIP_WINDRES=0` restores the stamp and `ORBIT_WARNINGS=1`
+    restores `-Wall` for one run. `ORBIT_SKIP_WINDRES` is inert until the
+    compiler honours it (compiler/pipeline.orb still always stamps); setting
+    it here is forward-compatible and costs nothing meanwhile.
+    """
+    if cc is None:
+        cc = env.get("ORBIT_CC") or env.get("CC") or ""
+    if os.name == "nt" and _pipe_ok(cc):
+        extra = env.get("ORBIT_CCFLAGS_EXTRA", "")
+        if "-pipe" not in extra.split():
+            env["ORBIT_CCFLAGS_EXTRA"] = (extra + " -pipe").strip()
+    if "ORBIT_WARNINGS" not in env:
+        env["ORBIT_WARNINGS"] = "0"
+    if "ORBIT_SKIP_WINDRES" not in env:
+        env["ORBIT_SKIP_WINDRES"] = "1"
+    return env
+
+
 def fixed_point(cc, build_if_missing=False):
     """The orbit binary to test, from the same rule dev.py uses.
 
@@ -214,6 +271,46 @@ def self_test() -> int:
         if tail("a\nb\nc", 2) != "b\nc":
             print("self-test FAILED: tail did not take the last N lines")
             return 1
+
+        # Disposable test binaries default to fast: no -Wall, no windres
+        # stamp, -pipe on a Windows gcc. Each default yields to an ambient
+        # export, which is the escape hatch a run that wants the slow path
+        # uses.
+        fast = disposable_test_env({}, cc="gcc")
+        if fast.get("ORBIT_WARNINGS") != "0":
+            print("self-test FAILED: disposable_test_env did not default "
+                  "ORBIT_WARNINGS to 0, so test builds pay -Wall")
+            return 1
+        if fast.get("ORBIT_SKIP_WINDRES") != "1":
+            print("self-test FAILED: disposable_test_env did not default "
+                  "ORBIT_SKIP_WINDRES to 1, so test builds pay windres")
+            return 1
+        slow = disposable_test_env({"ORBIT_WARNINGS": "1",
+                                    "ORBIT_SKIP_WINDRES": "0"},
+                                   cc="gcc")
+        if (slow.get("ORBIT_WARNINGS") != "1"
+                or slow.get("ORBIT_SKIP_WINDRES") != "0"):
+            print("self-test FAILED: disposable_test_env overrode an "
+                  "explicit ambient knob; the escape hatch is the contract")
+            return 1
+        # The caller's own extra flags survive verbatim on a driver that
+        # cannot take -pipe; on one that can, -pipe is appended, never
+        # substituted.
+        cl_extra = disposable_test_env({"ORBIT_CCFLAGS_EXTRA": "-O2"}, cc="cl")
+        if cl_extra.get("ORBIT_CCFLAGS_EXTRA") != "-O2":
+            print("self-test FAILED: disposable_test_env dropped the "
+                  "caller's own ORBIT_CCFLAGS_EXTRA")
+            return 1
+        if os.name == "nt":
+            if "-pipe" not in fast.get("ORBIT_CCFLAGS_EXTRA", "").split():
+                print("self-test FAILED: disposable_test_env did not add "
+                      "-pipe for gcc on Windows")
+                return 1
+            cl = disposable_test_env({}, cc="cl")
+            if "-pipe" in cl.get("ORBIT_CCFLAGS_EXTRA", "").split():
+                print("self-test FAILED: disposable_test_env passed -pipe "
+                      "to MSVC cl, which rejects it")
+                return 1
 
     print("Finished _common self-test: build_env points TEMP/TMP and both "
           "compiler names, exports no cache unless asked, resolve_cc found "

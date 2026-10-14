@@ -26,7 +26,7 @@ exactly the failure that reached production here.
 
 Usage:
     python scripts/alive_check.py [--compiler PATH] [--cc CC] [--quick]
-                                  [--only NAME]... [--list] [--self-test]
+                                  [--only NAME]... [--list] [--self-test] [--witness RUNLOG]
 
 `--quick` runs only the checks marked cheap (the ones that need no compile).
 `--self-test` feeds the checker deliberately broken tools and asserts that each
@@ -55,6 +55,23 @@ SCRIPTS = os.path.join(ROOT, "scripts")
 CRASH_RCS = {132, 133, 134, 135, 136, 137, 139, 3, 4, 5, 6, 7, 8, 11}
 TRACEBACK = "Traceback (most recent call last)"
 
+# --witness <runlog> contract with dev.py (agent A owns the writer side).
+# A witness row does not re-execute: its closing line must already sit in the
+# runlog dev.py wrote this same run (default .orbit/last_run.log). The log is
+# "fresh" when its mtime is at most this old; anything older is a stale log
+# from a previous run and fails loudly instead of passing quietly. dev.py runs
+# its gates and then alive_check back to back, so two hours comfortably covers
+# a slow T3 while still catching yesterday's log.
+WITNESS_MAX_AGE_SECS = 7200
+
+# Single-census wiring: alive_check runs `unknown_census.py --json` once and
+# hands the document to the ratchet via --from-json, instead of the census and
+# the ratchet each censusing the corpus. The marker below is checked against
+# the census's stdout (pure JSON); the human "Corpus: ..." banner is not
+# printed in --json mode.
+CENSUS_JSON_MARKER = r'"unknown_instructions"\s*:\s*\d+'
+CENSUS_JSON_NAME = "unknown_census.json"
+
 
 class Tool:
     """One row of the registry: what it is, how to run it, what proves it worked.
@@ -73,10 +90,19 @@ class Tool:
       shell      not python; assert it parses and still names files that exist
       static     not a script, but part of a tool: the probe program, the C
                  fixture, the baseline
+
+    witness is None for rows that always re-execute, or a regex that must be
+    found in the dev.py runlog when --witness <runlog> is given. A witness row
+    is a heavy T1-T3 gate that just ran green moments earlier in the same dev
+    run: re-executing it proves nothing new, so the runlog's closing line
+    stands in for a fresh run. Cheap rows (quick, self-tests, library/shell/
+    static, coverage, routes, dispatch, fuzz, diff_fuzz) have witness None and
+    always execute, with or without the flag.
     """
 
     def __init__(self, name, kind, why, argv, marker=None, timeout=180,
-                 allow_rc=(0,), cost="cheap", needs=(), expect_fail=False):
+                 allow_rc=(0,), cost="cheap", needs=(), expect_fail=False,
+                 witness=None):
         self.name = name
         self.kind = kind
         self.why = why
@@ -89,6 +115,7 @@ class Tool:
         # A `live` tool run here is expected to FAIL, because there is no
         # server. Its exit code must be non-zero and its output must say why.
         self.expect_fail = expect_fail
+        self.witness = witness
 
 
 # --------------------------------------------------------------------------
@@ -209,6 +236,7 @@ def registry(compiler, cc, work):
              "up reporting the same thing",
              lambda: _script("negative_gate.py", *comp()),
              r"Finished negative: \d+/\d+", 600, allow_rc=(0, 1), cost="cheap",
+             witness=r"Finished negative: \d+/\d+ pass",
              needs=("compiler",)),
         Tool("dispatch_coverage.py", "gate",
              "every ASTNode variant has an arm in the one checker, and every "
@@ -220,25 +248,30 @@ def registry(compiler, cc, work):
              "`orbit frontend` vs tests/frontend/expected/",
              lambda: _script("frontend_gate.py", *comp()),
              r"Finished frontend: \d+/\d+", 300, allow_rc=(0, 1),
+             witness=r"Finished frontend: \d+/\d+ pass",
              needs=("compiler",)),
         Tool("test_suite.py", "gate",
              "the language behavior suite (this run covers the std subset; the "
              "full suite is the same runner over tests/suite)",
              lambda: _script("test_suite.py", *comp("--dir", "tests/std")),
-             r"Finished suite: \d+/\d+", 900, allow_rc=(0, 1), needs=("compiler",)),
+             witness=r"Finished suite: \d+/\d+ pass",
+             marker=r"Finished suite: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("parity_selfhost.py", "gate",
              "32 stability goldens, CLI path vs in-process path",
              lambda: _script("parity_selfhost.py", *comp()),
-             r"Finished parity: \d+/\d+", 900, allow_rc=(0, 1), needs=("compiler",)),
+             witness=r"Finished parity: \d+/\d+ pass",
+             marker=r"Finished parity: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("werror_gate.py", "gate",
              "generated C must compile clean under -Werror",
              lambda: _script("werror_gate.py", *comp()),
-             r"Finished werror: \d+/\d+", 900, allow_rc=(0, 1), needs=("compiler",)),
+             witness=r"Finished werror: \d+/\d+ pass",
+             marker=r"Finished werror: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         Tool("cli_probe.py", "gate",
              "the orbit CLI contract, 50 cases",
              lambda: _script("cli_probe.py", "--compiler", compiler,
                              "--work", _tmp(work, "cli")),
              r"Finished cli-probe: \d+/\d+", 600, allow_rc=(0, 1),
+             witness=r"Finished cli-probe: \d+/\d+ pass",
              needs=("compiler",)),
         # The scope gate: named directories must be clean. Not the whole repo --
         # tests/negative, tests/doctor and tests/parity are deliberately broken
@@ -253,6 +286,7 @@ def registry(compiler, cc, work):
              lambda: _script("doctor_gate.py", "--scope-only",
                              "--compiler", compiler),
              r"Finished doctor_scope: \d+ director", 300, allow_rc=(0, 1),
+             witness=r"Finished doctor_scope: \d+ director",
              needs=("compiler",)),
         Tool("doctor_gate.py", "gate",
              "doctor's exact output against the goldens in tests/doctor/golden/",
@@ -265,6 +299,7 @@ def registry(compiler, cc, work):
              # the closing line -- which reads, to the check below, as "did not do
              # the work" rather than as the timeout it is.
              r"Finished doctor_gate: \d+ case", 900, allow_rc=(0, 1),
+             witness=r"Finished doctor_gate: \d+ case",
              needs=("compiler",)),
         Tool("routes_probe.py", "gate",
              "MSYS2 argument-rewrite normalization; Windows CI only breaks "
@@ -280,6 +315,7 @@ def registry(compiler, cc, work):
              "that only matches the happy path fails the tool for being right",
              lambda: _script("build_selfhost.py", "--cc", cc, "--check-stale"),
              r"^Iteration \d+: [0-9a-f]{64}", 900, allow_rc=(0, 1),
+             witness=r"Finished bootstrap: converged",
              cost="heavy"),
 
         Tool("verify_seed.py", "gate",
@@ -287,7 +323,8 @@ def registry(compiler, cc, work):
              "means the tree has an unpromoted core edit, which is the tool "
              "being right, not the tool being dead",
              lambda: _script("verify_seed.py", "--cc", cc),
-             r"fixed point", 900, allow_rc=(0, 1), cost="heavy"),
+             witness=r"Finished verify: \d+/\d+ pass",
+             marker=r"fixed point", timeout=900, allow_rc=(0, 1), cost="heavy"),
         Tool("kynx_gate.py", "gate",
              "live route-limit gate; the live server is started by the live "
              "subcommand, which CI runs; this row asserts the route-limit "
@@ -630,6 +667,153 @@ def check(tool, ctx):
 
 
 # --------------------------------------------------------------------------
+# --witness <runlog>: trust the runlog for the heavy gates, re-run the rest.
+# --------------------------------------------------------------------------
+def load_witness(path):
+    """Read the dev.py runlog for --witness mode.
+
+    Returns (text, age_secs, problems). A missing, unreadable, empty or stale
+    log is a loud failure, never a silent pass: every witness row reports it.
+    """
+    try:
+        age = time.time() - os.stat(path).st_mtime
+    except OSError as exc:
+        return None, None, ["cannot stat witness log %s: %s" % (path, exc)]
+    if age < 0:
+        age = 0
+    if age > WITNESS_MAX_AGE_SECS:
+        return None, age, ["witness log %s is %.0fs old (max %ds); re-run "
+                           "the gates first" % (path, age, WITNESS_MAX_AGE_SECS)]
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return None, age, ["cannot read witness log %s: %s" % (path, exc)]
+    if not text.strip():
+        return None, age, ["witness log %s is empty" % path]
+    return text, age, []
+
+
+def check_witness(tool, text, path, age):
+    """One heavy row against the runlog: its closing line must be there."""
+    if tool.witness and re.search(tool.witness, text, re.M):
+        return []
+    return ["no witness marker %r in %s (%.0fs old) -- the gate did not run "
+            "there or the log is stale. Re-run the gates, then re-run "
+            "alive_check --witness %s" % (tool.witness, path,
+                                          age if age is not None else -1,
+                                          path)]
+
+
+def run_unknown_pair(census_tool, census_label, ratchet_tool, ratchet_label,
+                     ctx, compiler, cc, work):
+    """One census for both unknown rows; returns two result tuples.
+
+    Runs `unknown_census.py --json` once, writes its stdout to
+    work/unknown_census.json, and judges that document with the ratchet via
+    --from-json. Before this, the census row and the ratchet row each censused
+    the corpus on their own: same probe build, same walk, twice the minutes.
+    When the census gives no usable json, the ratchet is reported as not run
+    rather than guessing -- a ratchet that cannot see the number cannot hold
+    it, and it says so.
+    """
+    import json as _json
+
+    json_path = _tmp(work, CENSUS_JSON_NAME)
+    census_argv = _script("unknown_census.py", "--compiler", compiler,
+                          "--cc", cc, "--json")
+    env = dict(os.environ)
+    env["ORBIT_CC"] = ctx["cc"]
+    env["ORBIT_CCACHE_DIR"] = ctx["ccache"]
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    t0 = time.monotonic()
+    try:
+        proc = subprocess.run(census_argv, cwd=ROOT, env=env,
+                              capture_output=True, text=True, errors="replace",
+                              timeout=census_tool.timeout)
+    except subprocess.TimeoutExpired:
+        dt = time.monotonic() - t0
+        return [(census_tool, census_label,
+                 ["hung: no exit after %ds" % census_tool.timeout], dt),
+                (ratchet_tool, ratchet_label,
+                 ["not run: the single shared census hung, so there is no "
+                  "json document to judge"], 0.0)]
+    except OSError as exc:
+        dt = time.monotonic() - t0
+        return [(census_tool, census_label,
+                 ["could not be launched: %s" % exc], dt),
+                (ratchet_tool, ratchet_label,
+                 ["not run: the single shared census never launched"], 0.0)]
+
+    output = (proc.stdout or "") + (proc.stderr or "")
+    rc = proc.returncode
+    if rc in CRASH_RCS or rc < 0 or (os.name == "nt" and rc > 255) \
+            or TRACEBACK in output:
+        tail = " | ".join(l.strip() for l in output.strip().splitlines()[-3:])
+        dt = time.monotonic() - t0
+        return [(census_tool, census_label,
+                 ["crashed (rc=%d): %s" % (rc, tail[:300])], dt),
+                (ratchet_tool, ratchet_label,
+                 ["not run: the single shared census crashed"], 0.0)]
+    if not output.strip():
+        dt = time.monotonic() - t0
+        return [(census_tool, census_label, ["printed nothing at all"], dt),
+                (ratchet_tool, ratchet_label,
+                 ["not run: the single shared census printed nothing"], 0.0)]
+    problems = []
+    if rc not in census_tool.allow_rc:
+        problems.append("exited %d, which is not in the allowed set %s"
+                        % (rc, list(census_tool.allow_rc)))
+    if not re.search(CENSUS_JSON_MARKER, proc.stdout or "", re.M):
+        head = " / ".join(l.strip() for l in output.strip().splitlines()[:4])
+        problems.append("no marker %r in its output -- it did not do the "
+                        "work. Output began: %s" % (CENSUS_JSON_MARKER,
+                                                    head[:300]))
+    if not problems:
+        try:
+            data = _json.loads(proc.stdout)
+            assert isinstance(data, dict)
+            assert isinstance(data.get("instructions"), int) \
+                and data["instructions"] > 0
+            assert isinstance(data.get("unknown_instructions"), int)
+            assert isinstance(data.get("unknown_without_diagnostic"), int)
+            detail = data.get("files_detail")
+            assert isinstance(detail, list) and detail
+        except Exception as exc:  # noqa: BLE001 - any shape failure is the point
+            problems.append("census --json is not a usable census document: "
+                            "%r" % (exc,))
+    census_dt = time.monotonic() - t0
+    if problems:
+        return [(census_tool, census_label, problems, census_dt),
+                (ratchet_tool, ratchet_label,
+                 ["not run: the single shared census gave no usable json "
+                  "(%s), so there is nothing to judge" % problems[0][:200]],
+                 0.0)]
+    try:
+        os.makedirs(work, exist_ok=True)
+        with open(json_path, "w", encoding="utf-8") as fh:
+            fh.write(proc.stdout)
+    except OSError as exc:
+        return [(census_tool, census_label, [], census_dt),
+                (ratchet_tool, ratchet_label,
+                 ["could not write shared census json %s: %s"
+                  % (json_path, exc)], 0.0)]
+    synth = Tool(ratchet_tool.name, ratchet_tool.kind, ratchet_tool.why,
+                 lambda p=json_path: _script("unknown_ratchet.py",
+                                             "--from-json", p),
+                 marker=ratchet_tool.marker, timeout=ratchet_tool.timeout,
+                 allow_rc=ratchet_tool.allow_rc, cost=ratchet_tool.cost,
+                 needs=())
+    t1 = time.monotonic()
+    try:
+        ratchet_problems = check(synth, ctx)
+    except Exception as exc:  # noqa: BLE001 - a harness crash is a finding
+        ratchet_problems = ["harness exception: %r" % (exc,)]
+    return [(census_tool, census_label, [], census_dt),
+            (ratchet_tool, ratchet_label, ratchet_problems,
+             time.monotonic() - t1)]
+
+
 # --self-test: a gate that cannot fail is not a gate.
 # --------------------------------------------------------------------------
 def self_test():
@@ -713,6 +897,11 @@ def main():
                          "1 runs them one by one)")
     ap.add_argument("--list", action="store_true",
                     help="print the registry and exit")
+    ap.add_argument("--witness", default=None, metavar="RUNLOG",
+                    help="verify the ten heavy T1-T3 gates against a fresh "
+                         "dev.py runlog instead of re-executing them; cheap "
+                         "rows still re-execute, and without the flag "
+                         "everything re-executes as before")
     ap.add_argument("--self-test", action="store_true",
                     help="assert the checker catches a crash, a hang, silence, "
                          "stale output and a wrong exit code")
@@ -736,6 +925,18 @@ def main():
             out.fail("Failed aliveness: no tool matched %s" % ", ".join(sorted(wanted)))
             return 1
 
+    witness_text, witness_age = None, None
+    witness_load_problems = []
+    witness_active = args.witness is not None
+    if witness_active:
+        witness_text, witness_age, witness_load_problems = load_witness(args.witness)
+        if witness_text is None:
+            for _problem in witness_load_problems:
+                out.fail("witness log: %s" % _problem)
+        else:
+            out.say("witness log %s (%.0fs old): the ten heavy T1-T3 gates "
+                    "are verified against it, every other row re-executes"
+                    % (args.witness, witness_age))
     checked = 0
     failures = 0
     skipped = []
@@ -750,6 +951,11 @@ def main():
     runnable = []
     for tool in tools:
         label = "%-28s %-12s" % (tool.name, tool.kind)
+        if witness_active and tool.witness is not None:
+            # Witness mode: the verification is a runlog grep, so it is cheap
+            # and needs no compiler -- --quick does not skip it either.
+            runnable.append((tool, label))
+            continue
         if args.quick and tool.cost == "heavy":
             skipped.append((tool.name, "--quick"))
             out.say("%s skipped (--quick)" % label)
@@ -760,6 +966,24 @@ def main():
             continue
         runnable.append((tool, label))
 
+    # Single census for the two unknown rows: run `unknown_census --json`
+    # once and judge it with the ratchet via --from-json, instead of each row
+    # censusing the corpus on its own. Only when BOTH rows are runnable; with
+    # --only on a single one, each still runs standalone as before.
+    pair_results = []
+    _census_at = _ratchet_at = None
+    for _i, (_t, _l) in enumerate(runnable):
+        if _t.name == "unknown_census.py" and _census_at is None:
+            _census_at = _i
+        if _t.name == "unknown_ratchet.py" and _ratchet_at is None:
+            _ratchet_at = _i
+    if _census_at is not None and _ratchet_at is not None:
+        _ct, _cl = runnable[_census_at]
+        _rt, _rl = runnable[_ratchet_at]
+        for _idx in sorted((_census_at, _ratchet_at), reverse=True):
+            runnable.pop(_idx)
+        pair_results = run_unknown_pair(_ct, _cl, _rt, _rl, ctx,
+                                        args.compiler, args.cc, work)
     def run_one(pair):
         # Subprocess-bound: the GIL is released while the tool runs, so
         # threads parallelise this for real. Nothing here mutates shared
@@ -768,7 +992,14 @@ def main():
         tool, label = pair
         t0 = time.monotonic()
         try:
-            if tool.kind == "library":
+            if witness_active and tool.witness is not None:
+                if witness_text is None:
+                    problems = ["witness log unusable: %s"
+                                % "; ".join(witness_load_problems)]
+                else:
+                    problems = check_witness(tool, witness_text, args.witness,
+                                             witness_age)
+            elif tool.kind == "library":
                 problems = library_checks(tool.name)
             else:
                 problems = check(tool, ctx)
@@ -781,6 +1012,12 @@ def main():
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             results = list(pool.map(run_one, runnable))
+    if pair_results:
+        # Back in registry order: the pool kept runnable order while the pair
+        # ran aside, so re-sort the union by registry position.
+        _order = {id(_t): _i for _i, _t in enumerate(tools)}
+        results = sorted(results + pair_results,
+                         key=lambda _r: _order.get(id(_r[0]), -1))
 
     for tool, label, problems, dt in results:
         checked += 1

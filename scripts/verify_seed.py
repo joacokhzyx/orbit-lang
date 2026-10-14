@@ -26,11 +26,17 @@ as a hard check against the self-hosted rebuild.
 built entirely by the self-hosted seed chain: canonical C -> seed -> seed2 ->
 chain2 -> chain3.
 
+``--shared-work DIR`` writes the same snapshot layout as build_selfhost.py
+--shared-work (chain3.c, the chain3 binary, seed.c, hashes.json) once the C
+fixed point holds; the path contract (SHARED_*) is defined there, not here.
+Without the flag nothing is written.
+
 Exit code 0 iff every hard check passes.
 
 Usage:
     python scripts/verify_seed.py [--release] [--emit-fixed-point PATH]
                                   [--work DIR] [--cc CC] [--refresh] [--keep]
+                                  [--shared-work DIR] [--low-mem | --no-low-mem]
 """
 
 import argparse
@@ -50,10 +56,31 @@ import orbit_ccache
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    from build_selfhost import warn_low_memory
+    from build_selfhost import (warn_low_memory, bootstrap_cc_middle,
+                                lowmem_cc_flags, resolve_low_mem,
+                                claim_shared_work, write_shared_work)
 except Exception:
+    # Degraded mirrors for when the sibling module cannot be imported; the
+    # gate still runs. Flags stay unified by construction (same order, same
+    # driver guard); --shared-work refuses to guess a layout it does not own
+    # (see main: fail-hard when write_shared_work is None).
     def warn_low_memory() -> None:
         pass
+
+    def resolve_low_mem(setting, log=None) -> bool:
+        return bool(setting)
+
+    def lowmem_cc_flags(cc: str) -> list:
+        return []
+
+    def bootstrap_cc_middle(cc: str, low_mem: bool) -> list:
+        low = cc.lower()
+        strip = [] if ("cl" in low.split() or low.strip() == "cl") else (
+            ["-s"] if any(t in low for t in ("gcc", "clang", "cc")) else [])
+        return [*strip, *SUPPRESS_FLAGS]
+
+    claim_shared_work = None
+    write_shared_work = None
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 MAIN_ORB = os.path.join("compiler", "main.orb")
 
@@ -169,6 +196,12 @@ def main() -> int:
     ap.add_argument("--cc", default=None, help="C compiler for the seed (default: auto-detect)")
     ap.add_argument("--refresh", action="store_true", help="also refresh dist/orbit_bootstrap.c and dist/orbit_seed")
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
+    ap.add_argument("--shared-work", default=None, metavar="DIR",
+                    help="write converged snapshots + hashes.json under DIR")
+    ap.add_argument("--low-mem", dest="low_mem", action="store_true", default=None,
+                    help="force the low-memory C profile (-g0, no unwind tables)")
+    ap.add_argument("--no-low-mem", dest="low_mem", action="store_false",
+                    help="disable the low-memory C profile")
     out.add_quiet(ap)
     args = ap.parse_args()
     out.set_quiet(args.quiet)
@@ -182,6 +215,11 @@ def main() -> int:
     if not args.keep:
         import atexit
         atexit.register(lambda: shutil.rmtree(work, ignore_errors=True))
+    if args.shared_work and write_shared_work is None:
+        out.fail("Failed: --shared-work needs scripts/build_selfhost.py "
+                 "beside verify_seed.py.")
+        return 2
+    shared_dir = claim_shared_work(args.shared_work) if args.shared_work else None
 
     checks = []
 
@@ -195,6 +233,12 @@ def main() -> int:
     exe = ".exe" if sys.platform == "win32" else ""
     cc = args.cc or detect_cc()
     cc_cmd = cc.split()
+    args.low_mem = resolve_low_mem(args.low_mem, log=out.say)
+    extra_cc_flags = lowmem_cc_flags(cc) if args.low_mem else []
+    if args.low_mem and not extra_cc_flags:
+        out.say("Low-memory profile on (no extra C flags for this driver).")
+    elif extra_cc_flags:
+        out.say(f"Low-memory C flags: {' '.join(extra_cc_flags)}")
     out.say(f"Verifying from root:  {ROOT}")
     out.say(f"Verifying with seed CC:  {cc}")
 
@@ -212,9 +256,13 @@ def main() -> int:
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"), "--entry", seed_src_c, "--out", amal], ROOT, label="amalgamate")
 
     # Fixed -o basename shared with build_selfhost.py: see the comment there.
-    # Same content, same flags, same cc -> same cache entry (~12s per make all).
+    # Flags are bootstrap_cc_middle, the one constructor both scripts share
+    # (Fase A, pieza F): same content, same flags, same cc -> same cache entry.
+    # Extra low-memory flags ride along too (this machine auto-enables them),
+    # which is what used to keep this entry apart from build's seed entry.
     seed_exe = os.path.join(work, "orbit_seed_frozen" + exe)
-    seed_argv = [*cc_cmd, *SUPPRESS_FLAGS, "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
+    seed_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
+                 "-o", seed_exe, amal, *PLATFORM_LINK_FLAGS]
     seed_argv, seed_sources = orbit_ccache.windows_stamp(
         seed_argv, [amal], work, "Orbit compiler", log=out.say)
     orbit_ccache.compile_cached(cc_cmd, seed_argv, seed_sources, log=out.say)
@@ -234,10 +282,12 @@ def main() -> int:
         for attempt in (1, 2):
             # The compiler emits the C and stops (ORBIT_SKIP_CC); this script
             # compiles that C itself below with known-good flags. See the same
-            # comment in scripts/build_selfhost.py.
+            # comment in scripts/build_selfhost.py. ORBIT_CCFLAGS_EXTRA mirrors
+            # build_selfhost.py for old compilers that ignore ORBIT_SKIP_CC.
             env = dict(os.environ)
             env.update({"TEMP": tmp, "TMP": tmp, "TMPDIR": tmp, "ORBIT_CC": cc,
-                        "CC": cc, "ORBIT_SKIP_CC": "1", "ORBIT_WARNINGS": "0"})
+                        "CC": cc, "ORBIT_SKIP_CC": "1", "ORBIT_WARNINGS": "0",
+                        "ORBIT_CCFLAGS_EXTRA": " ".join(extra_cc_flags)})
             out.say(f"Building {label}" + ("  (retry)" if attempt == 2 else ""))
             proc = subprocess.run([compiler, "build", MAIN_ORB, "-o", os.path.join(work, out_name)], cwd=ROOT, env=env)
             last_rc = proc.returncode
@@ -264,7 +314,8 @@ def main() -> int:
         if os.path.abspath(c) != os.path.abspath(shared):
             shutil.copyfile(c, shared)
         fixed_out = os.path.join(work, "fixed_point_build" + exe)
-        fixed_argv = [*cc_cmd, "-s", *SUPPRESS_FLAGS, "-I", os.path.join(ROOT, "runtime"),
+        fixed_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
+                      "-I", os.path.join(ROOT, "runtime"),
                       "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS]
         fixed_argv, fixed_sources = orbit_ccache.windows_stamp(
             fixed_argv, [shared], work, "Orbit compiler", log=out.say)
@@ -302,6 +353,14 @@ def main() -> int:
     for b in bins:
         zero_pe_timestamp(b)
     h_bins = [sha256(b) for b in bins]
+    if (shared_dir is not None and h_seed_c == h_canon
+            and h_chain2_c == h_canon and h_chain3_c == h_canon):
+        # Written only on C convergence ("tras converger"): a failed run leaves
+        # the dir without hashes.json (retired at startup), which is the
+        # driver's signal not to consume it. After the timestamp zeroing above,
+        # so the snapshot binary carries the exact bytes the log hashes below.
+        write_shared_work(shared_dir, canonical_c=CANONICAL_C, seed_c=seed_c,
+                          chain_c=chain3_c, chain_exe=chain3)
     reused = {"seed2": seed_reused, "chain2": chain2_reused, "chain3": chain3_reused}
     any_reused = any(reused.values())
     # Binary reproducibility is toolchain-specific by design (see module
@@ -339,7 +398,8 @@ def main() -> int:
         os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
         shutil.copyfile(amal, os.path.join(ROOT, "dist", "orbit_bootstrap.c"))
         out.say("Refreshing dist/orbit_seed")
-        dist_argv = [*cc_cmd, *SUPPRESS_FLAGS, "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe),
+        dist_argv = [*cc_cmd, *bootstrap_cc_middle(cc, args.low_mem),
+                     "-o", os.path.join(ROOT, "dist", "orbit_seed" + exe),
                      amal, *PLATFORM_LINK_FLAGS]
         dist_argv, dist_sources = orbit_ccache.windows_stamp(
             dist_argv, [amal], work, "Orbit compiler", log=out.say)

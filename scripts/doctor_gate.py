@@ -40,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _common import build_env, scratch  # noqa: E402
 
@@ -482,8 +483,6 @@ def main() -> int:
     if args.scope_only:
         return run_scope(compiler)
 
-    env, _scratch = scratch_env()
-
     if not GOLDEN.is_dir():
         print(f"doctor_gate: no goldens at {GOLDEN}")
         return 1
@@ -503,8 +502,20 @@ def main() -> int:
             return 1
 
     failures = []
-    for case in cases:
+
+    def run_one(case):
+        # Each case owns a TEMP dir: run_case already stages its own CWD
+        # copy, but --fix cases verify through the C step and every build
+        # writes orbit_selfhost_build.c to $TEMP, so a shared TEMP lets one
+        # case's cc read another's half-written C. Returns (case, proc, err)
+        # for ordered reporting below; only the main thread prints.
+        env, _scratch = scratch_env()
         proc, err = run_case(compiler, case, env)
+        return (case, proc, err)
+
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+        results = list(pool.map(run_one, cases))
+    for case, proc, err in results:
         if err:
             failures.append((case.name, err, ""))
             continue

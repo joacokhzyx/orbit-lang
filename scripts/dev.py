@@ -31,7 +31,9 @@ Note: a green `make dev` is not a green CI.
 """
 
 import argparse
+import concurrent.futures
 import hashlib
+import json
 import os
 import pathlib
 import re
@@ -47,6 +49,48 @@ from _common import build_env, resolve_cc  # noqa: E402
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ORBIT = ROOT / ".orbit"
 FP_STAMP = ORBIT / "fp.stamp"
+CANONICAL_C = ROOT / "compiler" / "selfhost" / "stage3.exe.c"
+WITNESS_LOG = ORBIT / "last_run.log"
+
+# Shared-chain contract (owner of the writers: agent F; dev.py only consumes).
+# When build_selfhost.py and verify_seed.py accept `--shared-work <dir>`, that
+# run writes exactly these four files and dev.py `all` runs ONE real chain:
+#   <dir>/chain3.exe  the converged fixed-point compiler (copy source for fp)
+#   <dir>/chain3.c    the converged C that must equal the canonical byte-for-byte
+#   <dir>/seed.c      the seed-stage C snapshot (diagnostics, cache reuse)
+#   <dir>/hashes.json {canonical_sha, seed_sha, chain3_sha, published}
+# All hashes are lowercase hex of file bytes, except `published` which is the
+# uppercase PUBLISHED_C from verify_seed.py. When the directory is absent or
+# stale every helper below falls back to the current behaviour (rebuild per
+# gate). The fallback is deliberate: dev.py must stay green on a tree where
+# --shared-work is still unknown or no chain has been shared yet.
+SHARED_DIR = ORBIT / "shared"
+SHARED_CHAIN3_EXE = SHARED_DIR / ("chain3.exe" if os.name == "nt" else "chain3")
+SHARED_CHAIN3_C = SHARED_DIR / "chain3.c"
+SHARED_SEED_C = SHARED_DIR / "seed.c"
+SHARED_HASHES = SHARED_DIR / "hashes.json"
+
+# Parity composition contract (owner of the reader: agent B, parity_selfhost.py).
+# Inside `dev.py all` the parity gate runs with ORBIT_PARITY_SKIP_CC=1, which
+# tells parity to compare emitted C / diagnostics without invoking the C
+# compiler. Standalone parity keeps the C step (no env var). Unknown env vars
+# are ignored today, so exporting it before B delivers is a no-op.
+PARITY_SKIP_CC_ENV = "ORBIT_PARITY_SKIP_CC"
+
+# Witness contract (owner of the reader: agent E, alive_check.py). After every
+# run dev.py writes WITNESS_LOG with one `Finished <gate>...` line per gate,
+# in execution order, using each gate's own closing line verbatim when it has
+# one. Gates with no closing line contribute a synthesized line:
+#   fmt          -> "Finished fmt: <ok>/<total> pass"
+#   check_stale  -> "Finished check_stale: match canonical" PLUS
+#                   "Finished bootstrap: converged (shared bytes, no rebuild)"
+#                   (the second line is the marker E greps for).
+# E parses `Finished parity: 33/33 pass` and friends with regexes; the file is
+# rewritten on every run (incrementally during the run, finally at the end),
+# never appended to. The internal alive_check gate runs with
+# `--witness <log>` when supported, so it verifies the ten heavy gates against
+# this same run's log instead of re-executing them.
+_SUPPORTS_CACHE: dict = {}
 
 # The repository has no Makefile and no task runner; this is the first of either.
 # It is intentionally thin. Anything it knows, scripts/dev.py knows better, and
@@ -211,11 +255,14 @@ def build_fp(cc: str) -> pathlib.Path:
     binary = fp_path()
     ORBIT.mkdir(parents=True, exist_ok=True)
     say(f"  building the fixed point into {short(binary)} ...")
-    proc = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "build_selfhost.py"),
-         "--cc", cc, "--out", str(binary)],
-        cwd=str(ROOT), env=child_env(),
-    )
+    argv = [sys.executable, str(ROOT / "scripts" / "build_selfhost.py"),
+            "--cc", cc, "--out", str(binary)]
+    # Populate the shared snapshots on every real build: consumption is gated
+    # on validity elsewhere, but without this no run ever writes the dir and
+    # every `all` falls back forever (populate-always, consume-when-valid).
+    if script_supports("build_selfhost.py", "--shared-work"):
+        argv += ["--shared-work", str(SHARED_DIR)]
+    proc = subprocess.run(argv, cwd=str(ROOT), env=child_env())
     if proc.returncode != 0:
         print("Failed: the bootstrap did not converge.", file=sys.stderr)
         raise SystemExit(proc.returncode)
@@ -254,6 +301,204 @@ def fp_stamp_line(binary: pathlib.Path) -> str:
     except Exception:
         version = "version unavailable"
     return version
+
+
+def sha256_file(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def script_supports(script: str, flag: str) -> bool:
+    """Whether scripts/<script> --help names <flag> (cached).
+
+    The --shared-work / --witness wiring must not break on a tree where the
+    flag is still unknown: passing it blindly would fail the gate, so callers
+    check this first and fall back to the current argv when it is False.
+    """
+    key = (script, flag)
+    if key not in _SUPPORTS_CACHE:
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / script), "--help"],
+                capture_output=True, text=True, timeout=30, cwd=str(ROOT),
+            )
+            _SUPPORTS_CACHE[key] = flag in (proc.stdout or "")
+        except Exception:
+            _SUPPORTS_CACHE[key] = False
+    return _SUPPORTS_CACHE[key]
+
+
+def shared_is_valid() -> tuple:
+    """Whether .orbit/shared/ describes the current canonical (no rebuild needed).
+
+    Valid means all four contract files exist, hashes.json parses with the four
+    keys, and the stored canonical/seed/chain3 hashes match the bytes on disk.
+    Anything else is (False, reason) and the caller falls back to rebuilding.
+    """
+    for p in (SHARED_CHAIN3_EXE, SHARED_CHAIN3_C, SHARED_SEED_C, SHARED_HASHES):
+        if not p.exists():
+            return False, f"missing {p.name}"
+    try:
+        doc = json.loads(SHARED_HASHES.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return False, f"hashes.json unreadable ({exc})"
+    for key in ("canonical_sha", "seed_sha", "chain3_sha", "published"):
+        if key not in doc:
+            return False, f"hashes.json has no {key}"
+    try:
+        actual_canon = sha256_file(CANONICAL_C)
+        actual_seed = sha256_file(SHARED_SEED_C)
+        actual_chain3 = sha256_file(SHARED_CHAIN3_C)
+    except OSError as exc:
+        return False, f"hash read failed ({exc})"
+    if doc["canonical_sha"].lower() != actual_canon.lower():
+        return False, "canonical moved on"
+    if doc["seed_sha"].lower() != actual_seed.lower():
+        return False, "seed.c hash mismatch"
+    if doc["chain3_sha"].lower() != actual_chain3.lower():
+        return False, "chain3.c hash mismatch"
+    return True, "ok"
+
+
+def ensure_fp_for_all(cc: str, allow_build: bool) -> pathlib.Path:
+    """fp for `dev.py all`: copy from the shared chain when valid, else build.
+
+    Copy + stamp, no rebuild: the shared chain3.exe IS the converged compiler,
+    so this is a file copy and a fingerprint write, not a bootstrap. Falls back
+    to ensure_fp (today's behaviour) when the shared dir is absent or stale,
+    which is the case until agent F delivers --shared-work.
+    """
+    ok, _reason = shared_is_valid()
+    if ok:
+        started = time.monotonic()
+        binary = fp_path()
+        ORBIT.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(SHARED_CHAIN3_EXE, binary)
+        mode = binary.stat().st_mode
+        binary.chmod(mode | 0o111)
+        FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+        say(f"  fp: copied from {short(SHARED_CHAIN3_EXE)} "
+            f"({time.monotonic() - started:.0f}s, no rebuild)")
+        return binary
+    return ensure_fp(cc, allow_build=allow_build)
+
+
+def check_stale_bytes() -> tuple:
+    """check_stale without rebuilding: snapshot bytes vs canonical bytes.
+
+    Returns (label, rc, elapsed, finished_text) shaped like run_gate so the
+    caller treats both paths uniformly. rc 0 iff shared chain3.c is
+    byte-identical to the committed canonical. hashes.json is a hint, bytes
+    are the verdict. finished_text carries TWO lines: our own check_stale row
+    plus the `Finished bootstrap: converged` marker agent E's alive_check
+    greps for (qualified with "(shared bytes)" so nobody mistakes it for a
+    rebuilt chain).
+    """
+    started = time.monotonic()
+    try:
+        same = SHARED_CHAIN3_C.read_bytes() == CANONICAL_C.read_bytes()
+    except OSError as exc:
+        elapsed = time.monotonic() - started
+        return ("check_stale", 2, elapsed,
+                f"Finished check_stale: unreadable ({exc})")
+    elapsed = time.monotonic() - started
+    if same:
+        return ("check_stale", 0, elapsed,
+                "Finished check_stale: match canonical\n"
+                "Finished bootstrap: converged "
+                "(shared bytes, no rebuild)")
+    return ("check_stale", 1, elapsed,
+            "Finished check_stale: stale "
+            f"(chain3.c != {short(CANONICAL_C)})\n"
+            "Finished bootstrap: diverged (shared bytes)")
+
+
+def fmt_check_files() -> list:
+    """Every file today's fmt gates verify, as an explicit sorted list.
+
+    Matches `orbit fmt --check <dir>` byte-for-byte: that command lists
+    recursive `*.orb` under the dir (25 under compiler/, 68 under
+    tests/suite/ per --verbose), and examples are already per-file in dev.py
+    minus orbit_full_expansion.orb. A file renamed out from under this list
+    fails loudly (missing file -> gate failure), which is the point: the list
+    is the contract, not a glob that silently follows.
+    """
+    files = [p for p in (ROOT / "compiler").rglob("*.orb")]
+    files += [p for p in (ROOT / "tests" / "suite").rglob("*.orb")]
+    files += [p for p in (ROOT / "examples").glob("*.orb")
+              if p.name != "orbit_full_expansion.orb"]
+    # Repo-relative, sorted, deduplicated: argv stability across platforms.
+    seen = sorted({p.relative_to(ROOT).as_posix() for p in files})
+    return [ROOT / rel for rel in seen]
+
+
+def fmt_pool_workers() -> int:
+    """Thread pool width for sharded fmt (same rule as parity_selfhost.py)."""
+    try:
+        return min(8, os.cpu_count() or 1)
+    except Exception:
+        return 4
+
+
+def _fmt_one(args) -> tuple:
+    exe, path, env = args
+    proc = subprocess.run(
+        [exe, "fmt", "--check", str(path)],
+        cwd=str(ROOT), env=env, capture_output=True, text=True,
+        errors="replace",
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    try:
+        rel = str(pathlib.Path(path).relative_to(ROOT).as_posix())
+    except ValueError:
+        rel = str(path)
+    return (rel, proc.returncode, out)
+
+
+def run_fmt_sharded(exe: str, env: dict, wanted=None) -> tuple:
+    """fmt --check per file in a thread pool; same files, one aggregated gate.
+
+    Returns (label, rc, elapsed, finished_line, bad_files). Per-file outputs
+    print only on failure (a clean check is silent, like the binary). The
+    Finished line is synthesized -- the binary prints none on clean -- so the
+    witness log still has one fmt row for agent E.
+    """
+    files = fmt_check_files()
+    if wanted:
+        files = [p for p in files if wanted in p.as_posix()]
+    total = len(files)
+    started = time.monotonic()
+    bad: list = []
+    outputs: dict = {}
+    workers = fmt_pool_workers()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for rel, rc, out in pool.map(_fmt_one,
+                                     [(exe, p, env) for p in files]):
+            if rc != 0:
+                bad.append(rel)
+                outputs[rel] = out
+    elapsed = time.monotonic() - started
+    for rel in sorted(bad):
+        sys.stdout.write(f"  unformatted: {rel}\n")
+        tail = "\n".join((outputs.get(rel) or "").strip().splitlines()[-5:])
+        if tail:
+            sys.stdout.write(tail + "\n")
+    sys.stdout.flush()
+    ok = total - len(bad)
+    finished = f"Finished fmt: {ok}/{total} pass"
+    rc = 0 if not bad else 1
+    return ("fmt", rc, elapsed, finished, bad)
+
+
+def write_witness(lines: list) -> None:
+    """Rewrite .orbit/last_run.log with one Finished line per gate, in order."""
+    ORBIT.mkdir(parents=True, exist_ok=True)
+    cleaned = [str(line).strip() for line in lines if str(line).strip()]
+    WITNESS_LOG.write_text("\n".join(cleaned) + ("\n" if cleaned else ""),
+                           encoding="utf-8", newline="\n")
 
 
 def touched_files() -> list:
@@ -301,14 +546,14 @@ def classify(changed: list) -> list:
 
 
 def fmt_gate(binary: pathlib.Path, changed: list):
-    """fmt --check over exactly what CI gates.
+    """T0 static gates (no sharding here).
 
-    CI checks the whole `compiler` directory and `tests/suite`, plus each
-    example individually. Checking only the touched files would pass locally on
-    a file an earlier commit left unformatted, so the directories win: being
-    stricter than CI is free, being looser is not.
+    fmt itself no longer lives in this list: it runs sharded per file via
+    run_fmt_sharded (same 25 + 68 + 13 files `fmt --check <dir>` verifies,
+    one pool, aggregated verdict). Checking only the touched files would pass
+    locally on a file an earlier commit left unformatted, so the full list
+    wins: being stricter than CI is free, being looser is not.
     """
-    exe = str(binary.resolve())
     py = sys.executable
     s_dir = str(ROOT / "scripts")
     # schema_conformance belongs in T0 and not T1: it compares two files of text
@@ -317,25 +562,23 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     # gate in the repo and the one that catches a whole class of silent wrong
     # answers -- the schema declaring a field a list when the parser hands it a
     # node -- so it belongs where it runs every time, including for a clean tree.
-    cmds = [
+    return [
         ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
         ("walk_coverage", [py, f"{s_dir}/walk_coverage.py"]),
     ]
-    for target in ("compiler", "tests/suite"):
-        cmds.append((f"fmt --check {target}", [exe, "fmt", "--check", target]))
-    for path in sorted(ROOT.glob("examples/*.orb")):
-        if path.name == "orbit_full_expansion.orb":
-            continue
-        cmds.append((f"fmt --check examples/{path.name}",
-                     [exe, "fmt", "--check", str(path)]))
-    return cmds
 
 
 def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
     """Every gate, in the order ENGINEERING.md section 8 gives.
 
     Tier 0 needs the orbit binary for fmt, so the spec is built once the binary
-    exists and T0 is folded in by the caller.
+    exists and T0 is folded in by the caller. fmt itself is not in this spec:
+    it runs sharded (run_fmt_sharded) and `list` describes it as one line.
+
+    T3 patching lives in main(), not here: when `all` runs with a valid shared
+    dir, verify_seed gains `--shared-work <dir>` (if supported) and check_stale
+    becomes a byte compare with no subprocess. This spec stays the fallback
+    both show, so `list` never depends on whether the shared dir exists.
     """
     py = sys.executable
     s = str(ROOT / "scripts")
@@ -381,16 +624,35 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
 
 
 def run_gate(label: str, argv: list, env: dict) -> tuple:
+    """Run one gate, streaming live and capturing for the witness log.
+
+    Output streams line by line (stdout+stderr merged) so a minutes-long gate
+    still shows progress; the merged text returns as the 4th element so main()
+    can extract `Finished ...` lines for .orbit/last_run.log. Merging is
+    deliberate: the witness only needs the closing line, which every gate
+    prints to stdout, and two pipes with threads is machinery for no finding.
+    """
     started = time.monotonic()
-    sys.stdout.write(f"  {paint(label, BOLD)} ... ")
+    sys.stdout.write(f"  {paint(label, BOLD)} ... \n")
     sys.stdout.flush()
-    proc = subprocess.run(argv, cwd=str(ROOT), env=env)
+    proc = subprocess.Popen(
+        argv, cwd=str(ROOT), env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace", bufsize=1,
+    )
+    collected: list = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        sys.stdout.write("    " + line if line.strip() else line)
+        collected.append(line)
+    sys.stdout.flush()
+    proc.wait()
     elapsed = time.monotonic() - started
     if proc.returncode == 0:
-        say(paint(f"ok ({elapsed:.0f}s)", GREEN))
+        say(paint(f"  {label} ok ({elapsed:.0f}s)", GREEN))
     else:
-        say(paint(f"FAIL rc={proc.returncode} ({elapsed:.0f}s)", RED))
-    return label, proc.returncode, elapsed
+        say(paint(f"  {label} FAIL rc={proc.returncode} ({elapsed:.0f}s)", RED))
+    return label, proc.returncode, elapsed, "".join(collected)
 
 
 def main() -> int:
@@ -411,7 +673,7 @@ def main() -> int:
     work = ORBIT / "work"
 
     if args.target == "fp":
-        binary = ensure_fp(cc)
+        binary = ensure_fp_for_all(cc, allow_build=True)
         say(f"fixed point: {short(binary)} ({fp_stamp_line(binary)})")
         return 0
 
@@ -421,7 +683,7 @@ def main() -> int:
         # how a Makefile target that wants to invoke one gate gets the path
         # without duplicating the naming rule -- which is the duplication that
         # produced fp2 through fp13.
-        print(ensure_fp(cc, allow_build=not args.no_build))
+        print(ensure_fp_for_all(cc, allow_build=not args.no_build))
         return 0
 
     changed = touched_files()
@@ -451,7 +713,8 @@ def main() -> int:
         specs = gate_spec(binary, cc, work)
         say(f"\nfp: {short(binary)}" +
             (f" ({fp_stamp_line(binary)})" if binary.exists() else " (not built)"))
-        say("T0: fmt --check (compiler, tests/suite, examples/*.orb)")
+        say("T0: fmt --check sharded per file (compiler 25 + tests/suite 68 + "
+            "examples 13, minus orbit_full_expansion.orb) + schema + walk")
         for tier in sorted(specs):
             names = ", ".join(n for n, _ in specs[tier])
             line = f"T{tier}: {names}"
@@ -500,16 +763,41 @@ def main() -> int:
         say(paint("report-only measurements (CI runs these; they cannot fail the build)", DIM))
         say("")
 
-    binary = ensure_fp(cc, allow_build=not args.no_build)
+    if args.target == "all":
+        binary = ensure_fp_for_all(cc, allow_build=not args.no_build)
+    else:
+        binary = ensure_fp(cc, allow_build=not args.no_build)
     say(f"  fp: {paint(fp_stamp_line(binary), DIM)}\n")
 
     env = child_env()
     work.mkdir(parents=True, exist_ok=True)
     specs = gate_spec(binary, cc, work)
 
-    plan = list(fmt_gate(binary, changed))
+    # Single-chain wiring for `all` (falls back silently until F delivers).
+    # shared_ok means the four contract files exist and describe this canonical;
+    # supports_* mean the scripts already accept --shared-work. verify_seed keeps
+    # its four equality checks over real snapshot bytes in both paths -- the flag
+    # only decides whether it rebuilds the chain or reuses the snapshots.
+    shared_ok, shared_reason = (shared_is_valid() if args.target == "all"
+                                else (False, "not all"))
+    supports_build = script_supports("build_selfhost.py", "--shared-work")
+    supports_verify = script_supports("verify_seed.py", "--shared-work")
+    use_shared_chain = bool(shared_ok and (supports_build or supports_verify))
+    use_stale_bytes = bool(shared_ok)
+    if args.target == "all":
+        if use_shared_chain:
+            say(f"  shared chain: {short(SHARED_DIR)} valid "
+                f"(1 real chain; check_stale=bytes, fp=copied)")
+        elif shared_ok:
+            say(f"  shared chain: {short(SHARED_DIR)} valid but scripts lack "
+                f"--shared-work; check_stale=bytes, rest falls back")
+        else:
+            say(f"  shared chain: fallback (no valid snapshots: {shared_reason})")
+
+    static_plan = list(fmt_gate(binary, changed))
+    plan: list = []
+    run_fmt_files: list | None = None
     if args.target == "report":
-        plan = []
         py, s = sys.executable, str(ROOT / "scripts")
         plan = [
             ("routes_probe", [py, f"{s}/routes_probe.py"]),
@@ -517,17 +805,138 @@ def main() -> int:
             ("diff_fuzz", [py, f"{s}/diff_fuzz.py", "--cc", cc, "--compiler", str(binary.resolve())]),
         ]
     else:
+        plan = list(static_plan)
+        # fmt runs sharded, not as directory gates. Filter parity with the old
+        # names: "fmt" runs everything, "compiler"/"suite"/a filename runs the
+        # matching subset, anything else runs nothing.
+        if not args.filter:
+            run_fmt_files = fmt_check_files()
+        elif args.filter in "fmt --check":
+            run_fmt_files = fmt_check_files()
+        else:
+            subset = [p for p in fmt_check_files()
+                      if args.filter in p.as_posix()]
+            run_fmt_files = subset if subset else None
+            if subset:
+                say(f"  fmt filter '{args.filter}': {len(subset)} file(s)")
         for tier in tiers:
-            plan.extend(specs.get(tier, []))
+            for label, argv in specs.get(tier, []):
+                # Populate shared snapshots on every real verify_seed run, even
+                # when nothing is valid yet: validity gates consumption above,
+                # never population, or the dir is never written (see build_fp).
+                if label == "verify_seed" and args.target == "all" and supports_verify:
+                    argv = list(argv) + ["--shared-work", str(SHARED_DIR)]
+                if label == "check_stale" and use_stale_bytes:
+                    # Replaced below by check_stale_bytes(); keep the slot so
+                    # ordering and --filter behave, mark for substitution.
+                    plan.append(("check_stale:bytes", []))
+                    continue
+                plan.append((label, argv))
 
     if args.filter:
-        plan = [(n, a) for n, a in plan if args.filter in n]
+        plan = [(n, a) for n, a in plan if args.filter in n
+                or (n == "check_stale:bytes" and args.filter in "check_stale")]
+        if run_fmt_files is not None and args.filter not in "fmt --check":
+            # plan already filtered; fmt subset decided above, keep it only if
+            # the filter named fmt files (not some other gate).
+            if not any(args.filter in p.as_posix() for p in run_fmt_files):
+                run_fmt_files = None
 
-    if not plan:
+    if not plan and run_fmt_files is None:
         say("  nothing to run")
         return 0
 
-    results = [run_gate(label, argv, env) for label, argv in plan]
+    exe = str(binary.resolve())
+    results: list = []
+    witness: list = []
+
+    def env_for(label: str) -> dict:
+        """Per-gate env: parity composition + shared-chain handoff for T3."""
+        e = dict(env)
+        if label == "parity" and args.target == "all":
+            e[PARITY_SKIP_CC_ENV] = "1"
+        if args.target == "all" and use_shared_chain:
+            e["ORBIT_SHARED_WORK"] = str(SHARED_DIR)
+        return e
+
+    def harvest(output: str) -> None:
+        for line in (output or "").splitlines():
+            if re.match(r"^Finished \S+", line.strip()):
+                witness.append(line.strip())
+
+    def flush_witness() -> None:
+        # Incremental: alive_check --witness reads this file while this same
+        # run is still going (it is the last T3 gate), so the log must already
+        # hold every prior gate's closing line before alive starts. Cheap
+        # (a dozen lines) and the final write below rewrites the same content.
+        write_witness(witness)
+
+    def argv_for(label: str, argv: list) -> list:
+        # alive_check in witness mode verifies the ten heavy T1-T3 gates
+        # against this run's own log instead of re-executing them (no +2
+        # chain rebuilds). Standalone alive_check without --witness still
+        # re-executes everything, which is E's own coverage. Detected, not
+        # assumed: without E's flag this is today's full run.
+        if label == "alive_check" and script_supports("alive_check.py",
+                                                      "--witness"):
+            return list(argv) + ["--witness", str(WITNESS_LOG)]
+        return argv
+
+    # T0 order is schema, walk, fmt (sharded pool), then tiers in spec order.
+    static_labels = {n for n, _ in static_plan}
+    static_part = [(n, a) for n, a in plan if n in static_labels]
+    rest = [(n, a) for n, a in plan if n not in static_labels]
+
+    for label, argv in static_part:
+        gate_env = env_for(label)
+        rlabel, rrc, relapsed, output = run_gate(label, argv, gate_env)
+        results.append((rlabel, rrc, relapsed))
+        harvest(output)
+        flush_witness()
+
+    if run_fmt_files is not None and args.target != "report":
+        say(f"  {paint('fmt', BOLD)} ... ({len(run_fmt_files)} files, "
+            f"{fmt_pool_workers()} workers)")
+        sys.stdout.flush()
+        # run_fmt_sharded enumerates the same contract list; when filtered we
+        # intersect by re-checking wanted below: full list when unfiltered,
+        # else the substring (old names: "compiler", "suite", a filename).
+        if args.filter and args.filter not in "fmt --check":
+            wanted = args.filter
+        else:
+            wanted = None
+        _flabel, frc, felapsed, ffinished, _fbad = run_fmt_sharded(
+            exe, env, wanted=wanted)
+        if frc == 0:
+            say(paint(f"  fmt ok ({felapsed:.0f}s)", GREEN))
+        else:
+            say(paint(f"  fmt FAIL rc={frc} ({felapsed:.0f}s)", RED))
+        results.append(("fmt", frc, felapsed))
+        witness.append(ffinished)
+        flush_witness()
+
+    for label, argv in rest:
+        if label == "check_stale:bytes":
+            say(f"  {paint('check_stale', BOLD)} ... (bytes, no rebuild)")
+            sys.stdout.flush()
+            _blabel, brc, belapsed, bfinished = check_stale_bytes()
+            if brc == 0:
+                say(paint(f"  check_stale ok ({belapsed:.0f}s)", GREEN))
+            else:
+                say(paint(f"  check_stale FAIL rc={brc} ({belapsed:.0f}s)", RED))
+            results.append(("check_stale", brc, belapsed))
+            witness.extend(bfinished.splitlines())
+            flush_witness()
+            continue
+        argv = argv_for(label, argv)
+        gate_env = env_for(label)
+        rlabel, rrc, relapsed, output = run_gate(label, argv, gate_env)
+        results.append((rlabel, rrc, relapsed))
+        harvest(output)
+        flush_witness()
+
+    write_witness(witness)
+    say(f"  witness: {short(WITNESS_LOG)} ({len(witness)} Finished line(s))")
 
     say("")
     failed = [r for r in results if r[1] != 0]
@@ -540,7 +949,7 @@ def main() -> int:
 
     say(paint(f"all {len(results)} gate(s) passed in {total:.0f}s", GREEN))
     missing = [t for t in (1, 2, 3) if t not in tiers]
-    if missing:
+    if missing and args.target != "report":
         names = ", ".join(f"T{t}" for t in missing)
         want = "make check" if missing == [3] else "make all"
         say(paint(f"  {names} did not run, so this is not a green CI. `{want}`.",
