@@ -104,14 +104,27 @@ def diff_report(old: str, new: str) -> dict:
 
     # Which functions the normalised changes land in. Attributed against the new
     # file, because a deleted function has no line left to attribute to and a
-    # name for it is still worth printing.
+    # name for it is still worth printing. New-file line numbers come from the
+    # hunk headers, not from the diff output index (those are different
+    # sequences; using the diff index misattributes every hunk past the
+    # first).
     functions = []
     new_lines = new.split("\n")
-    for i, line in enumerate(norm):
-        if line.startswith(("+", "-")) and not line.startswith(("+++", "---")):
-            body = line[1:]
-            fn = enclosing(new_lines, i)
+    new_ln = 0
+    for line in norm:
+        m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+        if m:
+            new_ln = int(m.group(1))
+            continue
+        if line.startswith("+") and not line.startswith("+++"):
+            fn = enclosing(new_lines, min(new_ln, len(new_lines)) - 1)
             functions.append(fn)
+            new_ln += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            fn = enclosing(new_lines, min(new_ln, len(new_lines)) - 1)
+            functions.append(fn)
+        elif line.startswith(" ") or line in ("", "\n"):
+            new_ln += 1
 
     return {
         "raw_added": raw_add, "raw_removed": raw_del,
