@@ -291,6 +291,7 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_http_query_get" { return "string" }
     if name == "orbit_http_header_get" { return "string" }
     if name == "orbit_http_client_fetch" { return "result" }
+    if name == "orbit_http_query_get_all" { return "list" }
     if name == "orbit_db_query_all" { return "string" }
     if name == "orbit_db_query_where" { return "string" }
     if name == "orbit_db_query_where_p" { return "string" }
@@ -3708,6 +3709,8 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                             reqBuiltin = "orbit_http_body_get"
                         } else if memberName == "query" {
                             reqBuiltin = "orbit_http_query_get"
+                        } else if memberName == "queryAll" {
+                            reqBuiltin = "orbit_http_query_get_all"
                         } else if memberName == "bearer_token" {
                             reqBuiltin = "orbit_auth_bearer_token"
                             reqOperand = ir_symbol("req->headers")

@@ -94,6 +94,7 @@ PROGRAMS = [
     prog("random", warnings=True),
     prog("exec", warnings=True, defines=["-DORBIT_WITH_EXEC"]),
     prog("http_client", warnings=True),
+    prog("query", warnings=True),
 ]
 
 

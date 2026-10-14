@@ -176,28 +176,77 @@ typedef struct {
  * Returns "" if the key is not found or query/key is NULL.
  * The returned string is arena-allocated and NUL-terminated.
  */
+/* Query-span decoder: like orbit_url_decode, plus '+' to space, which is
+ * query-string encoding (application/x-www-form-urlencoded), not path
+ * encoding -- the path decoder deliberately keeps '+' literal, pinned by
+ * test_params_decode.c, so this stays a separate function. */
+static orbit_string orbit_url_decode(OrbitArena* arena, const char* s);
+static orbit_string orbit_url_decode_query_n(OrbitArena* arena, const char* s, size_t n) {
+    char* tmp = (char*)orbit_alloc(arena, n + 1);
+    size_t i;
+    if (!tmp) return "";
+    for (i = 0; i < n; i++) {
+        tmp[i] = (s[i] == '+') ? ' ' : s[i];
+    }
+    tmp[n] = '\0';
+    return orbit_url_decode(arena, tmp);
+}
+
 orbit_string orbit_http_query_get(OrbitArena* arena, OrbitRequest* req, orbit_string key) {
     if (!req || !req->query || !key) return "";
-    const char* q = req->query;
-    size_t klen = strlen(key);
-    while (*q) {
-        /* Find key= at current position */
-        if (strncmp(q, key, klen) == 0 && q[klen] == '=') {
-            const char* val_start = q + klen + 1;
-            const char* val_end   = strchr(val_start, '&');
-            size_t vlen = val_end ? (size_t)(val_end - val_start) : strlen(val_start);
-            char* buf = (char*)orbit_alloc(arena, vlen + 1);
-            if (!buf) return "";
-            memcpy(buf, val_start, vlen);
-            buf[vlen] = '\0';
-            return buf;
+    /* Null arena callers get the global one, the way every getter here
+     * does; without it the decoded copies below would fault. */
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
+    {
+        const char* q = req->query;
+        while (*q) {
+            const char* amp = strchr(q, '&');
+            const char* end = amp ? amp : q + strlen(q);
+            const char* eq = strchr(q, '=');
+            /* A pair without '=' never matches: "flag" alone is not an
+             * empty value, it is no pair at all. First match wins. */
+            if (eq && eq < end) {
+                orbit_string k = orbit_url_decode_query_n(a, q, (size_t)(eq - q));
+                if (strcmp(k, key) == 0) {
+                    return orbit_url_decode_query_n(a, eq + 1, (size_t)(end - (eq + 1)));
+                }
+            }
+            if (!amp) break;
+            q = amp + 1;
         }
-        /* Advance past current key-value pair */
+    }
+    return "";
+}
+
+/** @brief Every value for a repeated query key, decoded, in order.
+ *
+ * ?tag=a&tag=b answers ["a","b"]; a missing key answers the empty list,
+ * never NULL. Values decode exactly like query_get (percent plus '+'),
+ * so the two can never disagree about what a value is. */
+OrbitList* orbit_http_query_get_all(OrbitArena* arena, OrbitRequest* req, orbit_string key) {
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
+    OrbitResult cr = orbit_list_create(a, sizeof(uintptr_t), 4);
+    OrbitList* list;
+    const char* q;
+    if (!cr.ok) return NULL;
+    list = (OrbitList*)cr.value;
+    if (!req || !req->query || !key) return list;
+    q = req->query;
+    while (*q) {
         const char* amp = strchr(q, '&');
+        const char* end = amp ? amp : q + strlen(q);
+        const char* eq = strchr(q, '=');
+        if (eq && eq < end) {
+            orbit_string k = orbit_url_decode_query_n(a, q, (size_t)(eq - q));
+            if (strcmp(k, key) == 0) {
+                orbit_string v = orbit_url_decode_query_n(a, eq + 1, (size_t)(end - (eq + 1)));
+                if (!orbit_list_push_string(list, v).ok) break;
+            }
+        }
         if (!amp) break;
         q = amp + 1;
     }
-    return "";
+    return list;
 }
 
 /* Path params are raw bytes off the request line; percent-decode before
