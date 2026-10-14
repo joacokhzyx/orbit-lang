@@ -40,6 +40,16 @@
  * own getenv() call in the non-MSVC branch is therefore already expanded. */
 #define getenv orbit_env_get
 
+/* ── Separate compilation ─────────────────────────────────────────────
+ * With -DORBIT_SEPARATE_COMPILATION this header exposes only the
+ * declarations in orbit_api.h; the definitions live in libruntime_net.a
+ * (see scripts/mklib_runtime.py). Without it this header is the unity
+ * implementation, exactly as before. The emitted preamble is identical
+ * in both modes; only this switch changes. */
+#ifdef ORBIT_SEPARATE_COMPILATION
+#include "orbit_api.h"
+#else
+
 /* ── Core types & Result<T,E> ──────────────────────────────────────── */
 #include "types.c"
 #include "inline.h"
@@ -114,5 +124,7 @@ static void __attribute__((constructor)) orbit_init_crash_handler(void) {
     SetUnhandledExceptionFilter(orbit_crash_handler);
 }
 #endif
+
+#endif /* ORBIT_SEPARATE_COMPILATION unity implementation */
 
 #endif

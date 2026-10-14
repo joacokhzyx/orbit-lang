@@ -93,7 +93,19 @@ typedef struct {
     uint64_t arena_rewind_count;
 } OrbitPerfStats;
 
+/* Ownership of the counters: the static library TU defines ORBIT_PERF_IMPL
+ * and holds the single definition; a user TU built for separate compilation
+ * (-DORBIT_SEPARATE_COMPILATION) binds to it through extern. Unity builds
+ * define neither and keep one static copy per TU, exactly as before. The
+ * inline accessors below only read whichever object is visible, so they are
+ * unchanged in every mode. */
+#ifdef ORBIT_PERF_IMPL
+OrbitPerfStats orbit_perf_stats = {0};
+#elif defined(ORBIT_SEPARATE_COMPILATION)
+extern OrbitPerfStats orbit_perf_stats;
+#else
 static OrbitPerfStats orbit_perf_stats = {0};
+#endif
 
 ORBIT_INLINE uint64_t orbit_rdtsc(void) {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -117,7 +129,13 @@ ORBIT_INLINE void orbit_perf_start_request(void) {
 #define ORBIT_PERF_LAT_BUCKETS 1000
 #define ORBIT_PERF_CYCLES_PER_US 2500ULL
 
+#ifdef ORBIT_PERF_IMPL
+uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
+#elif defined(ORBIT_SEPARATE_COMPILATION)
+extern uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
+#else
 static uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
+#endif
 
 ORBIT_INLINE void orbit_perf_record_latency(uint64_t duration_cycles) {
     uint64_t bucket = duration_cycles / (ORBIT_PERF_CYCLES_PER_US * ORBIT_PERF_LAT_BUCKET_US);
