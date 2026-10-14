@@ -10,6 +10,19 @@
 // does not, and the boundary is stated here rather than discovered.
 import "std/string/string.orb"
 
+extern fn orbit_json_parse(text: string) -> result
+extern fn orbit_object_get_int(obj: object, key: string) -> int
+extern fn orbit_object_get_float(obj: object, key: string) -> float
+extern fn orbit_object_get_bool(obj: object, key: string) -> bool
+extern fn orbit_object_get_string(obj: object, key: string) -> string
+extern fn orbit_object_get_object(obj: object, key: string) -> object
+extern fn orbit_json_array_len(obj: object, key: string) -> int
+extern fn orbit_json_array_get_int(obj: object, key: string, index: int) -> int
+extern fn orbit_json_array_get_float(obj: object, key: string, index: int) -> float
+extern fn orbit_json_array_get_bool(obj: object, key: string, index: int) -> bool
+extern fn orbit_json_array_get_string(obj: object, key: string, index: int) -> string
+extern fn orbit_json_array_get_object(obj: object, key: string, index: int) -> object
+
 fn jsonQuote(s: string) -> string {
     // Backslash first: every replacement below introduces one, and escaping
     // them again would double-escape the document.
@@ -19,4 +32,64 @@ fn jsonQuote(s: string) -> string {
     val e4 = replace(e3, "\r", "\\r")
     val e5 = replace(e4, "\t", "\\t")
     return "\"" + e5 + "\""
+}
+
+// Parse: strict JSON objects into typed Orbit values (runtime/json.c).
+// Ints stay ints, nesting stays nested, arrays stay homogeneous -- the
+// three things the substring reader cannot do. Malformed input is err,
+// never partial: bad escapes, lone surrogates, leading zeros, overflow
+// past int32 or finite double, trailing data, mixed or null-bearing or
+// nested arrays, and nesting past 64 levels. A missing key reads as its
+// type's quiet default (0, 0.0, "", null object), the way the runtime
+// getters have always answered absence; a present field read through
+// the wrong getter aborts instead, so check the shape before reading.
+// Duplicate keys keep the last value. Arrays travel indexed (there is
+// no untyped list read that could decode them); a null field reads as
+// the quiet default of whatever getter is used.
+fn parseJson(text: string) -> result {
+    return orbit_json_parse(text)
+}
+
+fn jsonStr(obj: object, key: string) -> string {
+    return orbit_object_get_string(obj, key)
+}
+
+fn jsonInt(obj: object, key: string) -> int {
+    return orbit_object_get_int(obj, key)
+}
+
+fn jsonFloat(obj: object, key: string) -> float {
+    return orbit_object_get_float(obj, key)
+}
+
+fn jsonBool(obj: object, key: string) -> bool {
+    return orbit_object_get_bool(obj, key)
+}
+
+fn jsonObj(obj: object, key: string) -> object {
+    return orbit_object_get_object(obj, key)
+}
+
+fn jsonArrLen(obj: object, key: string) -> int {
+    return orbit_json_array_len(obj, key)
+}
+
+fn jsonArrStr(obj: object, key: string, index: int) -> string {
+    return orbit_json_array_get_string(obj, key, index)
+}
+
+fn jsonArrInt(obj: object, key: string, index: int) -> int {
+    return orbit_json_array_get_int(obj, key, index)
+}
+
+fn jsonArrFloat(obj: object, key: string, index: int) -> float {
+    return orbit_json_array_get_float(obj, key, index)
+}
+
+fn jsonArrBool(obj: object, key: string, index: int) -> bool {
+    return orbit_json_array_get_bool(obj, key, index)
+}
+
+fn jsonArrObj(obj: object, key: string, index: int) -> object {
+    return orbit_json_array_get_object(obj, key, index)
 }

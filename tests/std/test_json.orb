@@ -1,6 +1,10 @@
 // jsonQuote contract: the five escapes, their order, and the boundary.
 // Backslash goes first (every later replacement introduces one); remaining
 // control bytes are out of scope by design, see std/json/json.orb.
+// Parse contract: strict objects into typed values, indexed homogeneous
+// arrays, quiet defaults for missing keys, err (never partial) for the
+// malformed set. A present field read through the wrong getter aborts,
+// so that shape has no case here.
 import "std/json/json.orb"
 import "std/test/assert.orb"
 
@@ -15,5 +19,82 @@ fn main() -> int {
     if assertEqStr(jsonQuote("a\nb"), "\"a\\nb\"") == false { return 6 }
     if assertEqStr(jsonQuote("a\rb"), "\"a\\rb\"") == false { return 7 }
     if assertEqStr(jsonQuote("a\tb"), "\"a\\tb\"") == false { return 8 }
+    val o: object = try parseJson("{\"name\":\"api\",\"count\":42,\"ratio\":1.5,\"healthy\":true,\"nothing\":null}") catch { return 9 }
+    if assertEqStr(jsonStr(o, "name"), "api") == false { return 10 }
+    if assertEqInt(jsonInt(o, "count"), 42) == false { return 11 }
+    if jsonFloat(o, "ratio") != 1.5 { return 12 }
+    if assertTrue(jsonBool(o, "healthy")) == false { return 13 }
+    val nest: object = try parseJson("{\"a\":{\"b\":{\"c\":7}}}") catch { return 14 }
+    if assertEqInt(jsonInt(jsonObj(jsonObj(nest, "a"), "b"), "c"), 7) == false { return 15 }
+    val esc: object = try parseJson("{\"q\":\"a\\\"b\",\"s\":\"x\\/y\\tb\"}") catch { return 16 }
+    if assertEqStr(jsonStr(esc, "q"), "a\"b") == false { return 17 }
+    if assertEqStr(jsonStr(esc, "s"), "x/y\tb") == false { return 18 }
+    val uni: object = try parseJson("{\"u\":\"\\ud834\\udd1e\"}") catch { return 19 }
+    val wantUni = orbit_string_from_char_selfhost(240) + orbit_string_from_char_selfhost(157) + orbit_string_from_char_selfhost(132) + orbit_string_from_char_selfhost(158)
+    if assertEqStr(jsonStr(uni, "u"), wantUni) == false { return 20 }
+    val arr: object = try parseJson("{\"ids\":[1,2,3],\"tags\":[\"a\",\"b\"],\"fs\":[1.5,2.5],\"bs\":[true,false],\"os\":[{\"id\":1},{\"id\":2}],\"e\":[]}") catch { return 21 }
+    if assertEqInt(jsonArrLen(arr, "ids"), 3) == false { return 22 }
+    if assertEqInt(jsonArrInt(arr, "ids", 2), 3) == false { return 23 }
+    if assertEqStr(jsonArrStr(arr, "tags", 1), "b") == false { return 24 }
+    if jsonArrFloat(arr, "fs", 0) != 1.5 { return 25 }
+    if jsonArrFloat(arr, "fs", 1) != 2.5 { return 26 }
+    if assertTrue(jsonArrBool(arr, "bs", 0)) == false { return 27 }
+    if assertTrue(jsonArrBool(arr, "bs", 1)) { return 28 }
+    if assertEqInt(jsonArrLen(arr, "os"), 2) == false { return 29 }
+    if assertEqInt(jsonInt(jsonArrObj(arr, "os", 1), "id"), 2) == false { return 30 }
+    if assertEqInt(jsonArrLen(arr, "e"), 0) == false { return 31 }
+    if assertEqInt(jsonInt(o, "missing"), 0) == false { return 32 }
+    if assertEqStr(jsonStr(o, "missing"), "") == false { return 33 }
+    if jsonFloat(o, "missing") != 0.0 { return 34 }
+    if assertEqInt(jsonInt(o, "nothing"), 0) == false { return 35 }
+    if assertEqStr(jsonStr(o, "nothing"), "") == false { return 36 }
+    if assertEqInt(jsonArrLen(o, "missing"), 0) == false { return 37 }
+    var bad = false
+    try parseJson("{") catch { bad = true }
+    if bad == false { return 38 }
+    bad = false
+    try parseJson("[1,]") catch { bad = true }
+    if bad == false { return 39 }
+    bad = false
+    try parseJson("{'a':1}") catch { bad = true }
+    if bad == false { return 40 }
+    bad = false
+    try parseJson("null") catch { bad = true }
+    if bad == false { return 41 }
+    bad = false
+    try parseJson("{\"a\":1} trailing") catch { bad = true }
+    if bad == false { return 42 }
+    bad = false
+    try parseJson("{\"a\":01}") catch { bad = true }
+    if bad == false { return 43 }
+    bad = false
+    try parseJson("{\"a\":[1,\"x\"]}") catch { bad = true }
+    if bad == false { return 44 }
+    bad = false
+    try parseJson("{\"a\":[null]}") catch { bad = true }
+    if bad == false { return 45 }
+    bad = false
+    try parseJson("{\"a\":[[1]]}") catch { bad = true }
+    if bad == false { return 46 }
+    bad = false
+    try parseJson("{\"a\":9999999999}") catch { bad = true }
+    if bad == false { return 47 }
+    var deep = ""
+    var d = 0
+    while d < 70 {
+        deep = deep + "{"
+        d = d + 1
+    }
+    deep = deep + "1"
+    d = 0
+    while d < 70 {
+        deep = deep + "}"
+        d = d + 1
+    }
+    bad = false
+    try parseJson(deep) catch { bad = true }
+    if bad == false { return 48 }
+    val dup: object = try parseJson("{\"a\":1,\"a\":2}") catch { return 49 }
+    if assertEqInt(jsonInt(dup, "a"), 2) == false { return 50 }
     return 0
 }

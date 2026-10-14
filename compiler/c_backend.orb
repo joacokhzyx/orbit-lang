@@ -4192,6 +4192,7 @@ fn functionNeedsArena(name: string) -> bool {
     if name == "orbit_response_create" || name == "orbit_response_json" || name == "orbit_response_error" || name == "orbit_response_html" { return true }
     if name == "orbit_string_slice" || name == "orbit_string_split" || name == "orbit_string_replace" || name == "orbit_string_concat" { return true }
     if name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_argv" || name == "orbit_random_bytes" { return true }
+    if name == "orbit_json_parse" { return true }
     if name == "orbit_int_to_string" || name == "orbit_float_to_string" { return true }
     if name == "orbit_http_query_get" || name == "orbit_http_header_get" || name == "orbit_http_param_get" || name == "orbit_http_body_get" { return true }
     if name == "orbit_db_get" || name == "orbit_db_all" || name == "orbit_db_where" || name == "orbit_db_first" { return true }

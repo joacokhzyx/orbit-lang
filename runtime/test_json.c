@@ -204,6 +204,136 @@ static void test_float_mismatch_aborts(void) {
 }
 #endif
 
+/* Parse produces typed values: ints stay ints, nesting stays nested,
+ * and a missing key keeps the quiet defaults instead of failing. */
+static void test_parse_scalars(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    OrbitResult r = orbit_json_parse(arena, "{\"name\":\"api\",\"count\":42,\"ratio\":1.5,\"healthy\":true,\"nothing\":null}");
+    OrbitObject* o;
+    assert(r.ok);
+    o = (OrbitObject*)r.value;
+    assert(strcmp(orbit_object_get_string(o, "name"), "api") == 0);
+    assert(orbit_object_get_int(o, "count") == 42);
+    assert(orbit_object_get_float(o, "ratio") == 1.5);
+    assert(orbit_object_get_bool(o, "healthy") == 1);
+    assert(orbit_object_get_int(o, "nothing") == 0);
+    assert(strcmp(orbit_object_get_string(o, "nothing"), "") == 0);
+    assert(orbit_object_get_int(o, "missing") == 0);
+    assert(strcmp(orbit_object_get_string(o, "missing"), "") == 0);
+    orbit_arena_destroy(arena);
+}
+
+static void test_parse_nested(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    OrbitResult r = orbit_json_parse(arena, "{\"a\":{\"b\":{\"c\":7}}}");
+    OrbitObject* b;
+    assert(r.ok);
+    b = orbit_object_get_object((OrbitObject*)r.value, "a");
+    assert(b != NULL);
+    b = orbit_object_get_object(b, "b");
+    assert(b != NULL);
+    assert(orbit_object_get_int(b, "c") == 7);
+    assert(orbit_object_get_object((OrbitObject*)r.value, "missing") == NULL);
+    orbit_arena_destroy(arena);
+}
+
+static void test_parse_escapes(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    OrbitResult r = orbit_json_parse(arena, "{\"q\":\"a\\\"b\\nc\\ud834\\udd1e\",\"s\":\"x\\/y\\tb\"}");
+    OrbitObject* o;
+    assert(r.ok);
+    o = (OrbitObject*)r.value;
+    assert(strcmp(orbit_object_get_string(o, "q"), "a\"b\nc\xF0\x9D\x84\x9E") == 0);
+    assert(strcmp(orbit_object_get_string(o, "s"), "x/y\tb") == 0);
+    orbit_arena_destroy(arena);
+}
+
+static void test_parse_arrays(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    OrbitResult r = orbit_json_parse(arena, "{\"ids\":[1,2,3],\"tags\":[\"a\",\"b\"],\"fs\":[1.5,2.5],\"bs\":[true,false],\"os\":[{\"id\":1},{\"id\":2}],\"e\":[]}");
+    OrbitObject* o;
+    assert(r.ok);
+    o = (OrbitObject*)r.value;
+    assert(orbit_json_array_len(o, "ids") == 3);
+    assert(orbit_json_array_get_int(o, "ids", 0) == 1);
+    assert(orbit_json_array_get_int(o, "ids", 2) == 3);
+    assert(orbit_json_array_len(o, "tags") == 2);
+    assert(strcmp(orbit_json_array_get_string(o, "tags", 1), "b") == 0);
+    assert(orbit_json_array_get_float(o, "fs", 0) == 1.5);
+    assert(orbit_json_array_get_float(o, "fs", 1) == 2.5);
+    assert(orbit_json_array_get_bool(o, "bs", 0) == 1);
+    assert(orbit_json_array_get_bool(o, "bs", 1) == 0);
+    assert(orbit_json_array_len(o, "os") == 2);
+    assert(orbit_object_get_int(orbit_json_array_get_object(o, "os", 1), "id") == 2);
+    assert(orbit_json_array_len(o, "e") == 0);
+    assert(orbit_json_array_len(o, "missing") == 0);
+    assert(orbit_json_array_get_int(o, "missing", 0) == 0);
+    assert(strcmp(orbit_json_array_get_string(o, "missing", 0), "") == 0);
+    orbit_arena_destroy(arena);
+}
+
+/* Malformed input is err, never partial and never abort. Each case is one
+ * rule: truncation, trailing comma, single quotes, bare keys, non-object
+ * tops, trailing data, leading zeros, dangling fraction/exponent, mixed
+ * or null-bearing or nested arrays, overflow past int32 or finite
+ * double, lone surrogates. */
+static void test_parse_rejects(void) {
+    static const char* bad[] = {
+        "{",
+        "{\"a\":",
+        "[1,]",
+        "{'a':1}",
+        "{a:1}",
+        "",
+        "null",
+        "42",
+        "[1]",
+        "{\"a\":1} trailing",
+        "{\"a\":01}",
+        "{\"a\":1.}",
+        "{\"a\":1e}",
+        "{\"a\":[1,\"x\"]}",
+        "{\"a\":[null]}",
+        "{\"a\":[[1]]}",
+        "{\"a\":9999999999}",
+        "{\"a\":1e999}",
+        "{\"a\":\"\\ud800\"}",
+        "{\"a\":\"\\udc00\"}",
+        "{\"a\":\"bad\\escape\"}",
+        "{\"a\":\"unterminated}",
+        "{\"a\":tru}",
+    };
+    size_t i;
+    OrbitArena* arena = orbit_arena_create(65536);
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        OrbitResult r = orbit_json_parse(arena, bad[i]);
+        if (r.ok) {
+            printf("FAILED parse accepted: %s\n", bad[i]);
+            assert(!r.ok);
+        }
+    }
+    {
+        /* Nesting past 64 levels is refused, not recursed. */
+        char deep[300];
+        size_t k = 0;
+        size_t d;
+        OrbitResult r;
+        for (d = 0; d < 70; d++) deep[k++] = '{';
+        deep[k++] = '1';
+        for (d = 0; d < 70; d++) deep[k++] = '}';
+        deep[k] = '\0';
+        r = orbit_json_parse(arena, deep);
+        assert(!r.ok);
+    }
+    {
+        /* A repeated key overwrites: last value wins. */
+        OrbitResult r = orbit_json_parse(arena, "{\"a\":1,\"a\":2}");
+        assert(r.ok);
+        assert(orbit_object_get_int((OrbitObject*)r.value, "a") == 2);
+    }
+    orbit_arena_destroy(arena);
+}
+
 int main(void) {
     printf("test_json\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -213,6 +343,11 @@ int main(void) {
     RUN_TEST(test_object_list);
     RUN_TEST(test_empty_list);
     RUN_TEST(test_get_list);
+    RUN_TEST(test_parse_scalars);
+    RUN_TEST(test_parse_nested);
+    RUN_TEST(test_parse_escapes);
+    RUN_TEST(test_parse_arrays);
+    RUN_TEST(test_parse_rejects);
     RUN_TEST(test_getters_match);
     RUN_TEST(test_missing_key_quiet);
 #ifndef _WIN32

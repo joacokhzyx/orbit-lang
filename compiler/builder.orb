@@ -313,6 +313,10 @@ fn builtinReturnType(name: string) -> string {
     // bound 1.5 and read back 1.0). Nothing else here returns a float, so
     // the absence never showed until a float-returning extern was stored.
     if name == "orbit_string_to_float" { return "float" }
+    // Float getters over parsed JSON share the same store-or-truncate
+    // shape: the call answers a double and only this row keeps it one.
+    if name == "orbit_object_get_float" { return "float" }
+    if name == "orbit_json_array_get_float" { return "float" }
     if name == "orbit_response_json" { return "response" }
     if name == "orbit_response_error" { return "response" }
     if name == "system_uptime" { return "int" }
@@ -328,6 +332,7 @@ fn builtinReturnType(name: string) -> string {
     // the def-index reads no other table, and an OrbitResult is a struct,
     // so the store is a C type error naming generated code.
     if name == "orbit_random_bytes" { return "result" }
+    if name == "orbit_json_parse" { return "result" }
     return ""
 }
 
