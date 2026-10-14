@@ -1,0 +1,26 @@
+// Refusal contract only: every failure here fails fast with no server
+// and no network (https never dials, .invalid never resolves per
+// RFC 2606, port 1 refuses). The happy path -- Content-Length, chunked
+// and 404 bodies against a loopback server -- is pinned by
+// runtime/test_http_client.c instead: a suite test cannot serve.
+import "std/sys/http/client.orb"
+import "std/test/assert.orb"
+
+fn main() -> int {
+    var refused = false
+    try fetch("https://127.0.0.1/none") catch { refused = true }
+    if refused == false { return 1 }
+    refused = false
+    try fetch("http://orbit-missing-xyz.invalid/") catch { refused = true }
+    if refused == false { return 2 }
+    refused = false
+    try fetch("http://127.0.0.1:1/") catch { refused = true }
+    if refused == false { return 3 }
+    refused = false
+    try fetch("not a url") catch { refused = true }
+    if refused == false { return 4 }
+    refused = false
+    try fetch("") catch { refused = true }
+    if refused == false { return 5 }
+    return 0
+}

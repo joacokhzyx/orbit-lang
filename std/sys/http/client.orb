@@ -1,0 +1,14 @@
+// Minimal blocking HTTP/1.1 client: GET http://host[:port][/path].
+//
+// What it is not, on purpose: no TLS (https is err, never attempted --
+// there is no TLS stack in this tree), no redirect following (a 3xx is
+// a response like any other), no auth, no proxy, no HEAD/POST. Any
+// well-formed reply is ok(body); only transport and framing failures
+// are err, and the reply status itself is not surfaced. 10 s to
+// connect, 10 s per recv; bodies arrive by Content-Length, chunked
+// framing, or close-delimited read. Bodies are text.
+extern fn orbit_http_client_fetch(url: string) -> result
+
+fn fetch(url: string) -> result {
+    return orbit_http_client_fetch(url)
+}

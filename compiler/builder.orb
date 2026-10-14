@@ -290,7 +290,7 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_http_body_get" { return "string" }
     if name == "orbit_http_query_get" { return "string" }
     if name == "orbit_http_header_get" { return "string" }
-    if name == "orbit_http_client_fetch" { return "string" }
+    if name == "orbit_http_client_fetch" { return "result" }
     if name == "orbit_db_query_all" { return "string" }
     if name == "orbit_db_query_where" { return "string" }
     if name == "orbit_db_query_where_p" { return "string" }

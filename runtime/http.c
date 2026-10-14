@@ -14,6 +14,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include "socket_compat.h"
+#ifndef _WIN32
+#include <netdb.h>
+#include <sys/time.h>
+#include <sys/select.h>
+#endif
 #include "arena.c"
 #include "types.c"
 
@@ -649,10 +654,485 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
     // â”€â”€ Application Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
     orbit_send_response(client_sock, res);
-    
+
     orbit_perf_end_request(start);
     return keep_alive;
 }
+
 #endif
+
+/* ── Minimal blocking HTTP/1.1 client ─────────────────────────────────
+ *
+ * GET http://host[:port][/path] and answer ok(body). What it is not, on
+ * purpose: no TLS (https is err, stated, never attempted -- there is no
+ * TLS stack in this tree to attempt it with), no redirect following (a
+ * 3xx is a response like any other), no auth, no proxy, no HEAD/POST.
+ * Any well-formed reply is ok(body); only transport and framing
+ * failures are err, and the reply status itself is not surfaced.
+ *
+ * Timeouts: 10 s to connect (select, both platforms -- a blocking
+ * connect would hang for OS minutes on a blackhole), 10 s per recv
+ * (SO_RCVTIMEO). Bodies arrive by Content-Length, by chunked framing,
+ * or by close-delimited read, in that precedence; a short
+ * Content-Length body is err, never partial. Bounded by the arena like
+ * every other answer here: a body bigger than the arena is OOM err.
+ * Bodies are text -- an embedded NUL truncates at the first byte, the
+ * orbit_string contract everywhere else too. */
+
+#define ORBIT_HTTP_CLIENT_TIMEOUT_MS 10000
+
+static int http_client_send_all(orbit_socket_t s, const char* buf, size_t len) {
+    size_t sent = 0;
+    while (sent < len) {
+        int n = send(s, buf + sent, (int)(len - sent), 0);
+        if (n <= 0) return 0;
+        sent += (size_t)n;
+    }
+    return 1;
+}
+
+/* Connect with a bounded wait. A blocking connect hangs for OS minutes
+ * on a blackhole route, so the socket goes non-blocking, select waits
+ * for writability, and SO_ERROR says whether the connection is real. */
+static int http_client_connect(orbit_socket_t s, struct sockaddr* addr, socklen_t addrlen, int timeout_ms) {
+#ifdef _WIN32
+    u_long mode = 1;
+    if (ioctlsocket(s, FIONBIO, &mode) != 0) return 0;
+#else
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags < 0) return 0;
+    if (fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0) return 0;
+#endif
+    {
+        int rc = connect(s, addr, (int)addrlen);
+        if (rc != 0) {
+#ifdef _WIN32
+            if (WSAGetLastError() != WSAEWOULDBLOCK) return 0;
+#else
+            if (errno != EINPROGRESS) return 0;
+#endif
+            {
+                fd_set wfds;
+                struct timeval tv;
+                int sel;
+                int nfds = 0;
+                FD_ZERO(&wfds);
+                FD_SET(s, &wfds);
+                tv.tv_sec = timeout_ms / 1000;
+                tv.tv_usec = (timeout_ms % 1000) * 1000;
+#ifndef _WIN32
+                /* Winsock ignores the first select argument; POSIX needs it. */
+                nfds = (int)(s + 1);
+#endif
+                sel = select(nfds, NULL, &wfds, NULL, &tv);
+                if (sel <= 0) return 0;
+                {
+                    int soerr = 0;
+                    socklen_t optlen = (socklen_t)sizeof(soerr);
+                    if (getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&soerr, &optlen) != 0) return 0;
+                    if (soerr != 0) return 0;
+                }
+            }
+        }
+    }
+#ifdef _WIN32
+    {
+        u_long mode = 0;
+        if (ioctlsocket(s, FIONBIO, &mode) != 0) return 0;
+    }
+#else
+    {
+        int flags = fcntl(s, F_GETFL, 0);
+        if (flags < 0) return 0;
+        if (fcntl(s, F_SETFL, flags & ~O_NONBLOCK) < 0) return 0;
+    }
+#endif
+    return 1;
+}
+
+/* Growable arena buffer: the arena has no realloc, so growth copies
+ * forward and abandons the old block (runtime/file.c does the same). */
+typedef struct {
+    char* data;
+    size_t len;
+    size_t cap;
+    OrbitArena* arena;
+    int failed;
+} HttpBuf;
+
+static void http_buf_reserve(HttpBuf* b, size_t extra) {
+    size_t need;
+    size_t next;
+    char* grown;
+    if (b->failed) return;
+    need = b->len + extra;
+    if (need <= b->cap) return;
+    next = b->cap ? b->cap : 4096;
+    while (next < need) next *= 2;
+    grown = (char*)orbit_alloc(b->arena, next);
+    if (!grown) {
+        b->failed = 1;
+        return;
+    }
+    if (b->len) memcpy(grown, b->data, b->len);
+    b->data = grown;
+    b->cap = next;
+}
+
+static void http_buf_append(HttpBuf* b, const char* src, size_t n) {
+    if (b->failed || n == 0) return;
+    http_buf_reserve(b, n);
+    if (b->failed) return;
+    memcpy(b->data + b->len, src, n);
+    b->len += n;
+}
+
+/* Find "\r\n\r\n" in b->data; the offset just past it, or -1. */
+static long http_headers_end(HttpBuf* b) {
+    size_t i = 0;
+    while (i + 3 < b->len) {
+        if (b->data[i] == '\r' && b->data[i + 1] == '\n' && b->data[i + 2] == '\r' && b->data[i + 3] == '\n') {
+            return (long)(i + 4);
+        }
+        i++;
+    }
+    return -1;
+}
+
+/* Decimal Content-Length, or -1 when absent or malformed. One
+ * case-insensitive search (three spellings would triple-scan for no
+ * reason); the value must be all digits, at most ten of them, so the
+ * accumulation cannot overflow a long. */
+static long http_content_length(const char* head, size_t head_len) {
+    static const char name[] = "content-length:";
+    size_t nl = sizeof(name) - 1;
+    size_t i = 0;
+    while (i + nl <= head_len) {
+        size_t k = 0;
+        while (k < nl) {
+            char a = head[i + k];
+            char b2 = name[k];
+            if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+            if (a != b2) break;
+            k++;
+        }
+        if (k == nl) {
+            const char* v = head + i + nl;
+            const char* hend = head + head_len;
+            long n = 0;
+            int digits = 0;
+            while (v < hend && (*v == ' ' || *v == '\t')) v++;
+            if (v >= hend || *v < '0' || *v > '9') {
+                i++;
+                continue;
+            }
+            while (v < hend && *v >= '0' && *v <= '9') {
+                n = n * 10 + (*v - '0');
+                digits++;
+                if (digits > 10) return -1;
+                v++;
+            }
+            return n;
+        }
+        i++;
+    }
+    return -1;
+}
+
+/* True when the Transfer-Encoding header's value is exactly the chunked
+ * coding (case-insensitive, optional parameters after ';' allowed). A
+ * substring search would fire on any header that merely mentions the
+ * word; the value is what the framing decision must read. */
+static int http_is_chunked(const char* head, size_t head_len) {
+    static const char name[] = "transfer-encoding:";
+    size_t nl = sizeof(name) - 1;
+    size_t i = 0;
+    while (i + nl <= head_len) {
+        size_t k = 0;
+        while (k < nl) {
+            char a = head[i + k];
+            char b2 = name[k];
+            if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+            if (a != b2) break;
+            k++;
+        }
+        if (k == nl) {
+            const char* v = head + i + nl;
+            const char* hend = head + head_len;
+            while (v < hend && (*v == ' ' || *v == '\t')) v++;
+            if ((size_t)(hend - v) >= 7) {
+                size_t k2 = 0;
+                static const char want[] = "chunked";
+                while (k2 < 7) {
+                    char a = v[k2];
+                    if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+                    if (a != want[k2]) break;
+                    k2++;
+                }
+                if (k2 == 7 && (v + 7 >= hend || v[7] == ';' || v[7] == ',' || v[7] == ' ' || v[7] == '\t' || v[7] == '\r' || v[7] == '\n')) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
+        i++;
+    }
+    return 0;
+}
+
+/* Split http://host[:port][/path]. Host and port come back as arena
+ * copies (getaddrinfo needs NUL termination); path is a span into url.
+ * https is refused here, where the scheme is known, not attempted. */
+static int http_split_url(OrbitArena* a, const char* url, char** host, char** port, const char** path) {
+    const char* rest;
+    const char* slash;
+    const char* colon;
+    size_t hostlen;
+    if (!url) return 0;
+    if (strncmp(url, "http://", 7) == 0) {
+        rest = url + 7;
+    } else if (strncmp(url, "https://", 8) == 0) {
+        return 0;
+    } else {
+        return 0;
+    }
+    slash = strchr(rest, '/');
+    colon = strchr(rest, ':');
+    if (colon && (!slash || colon < slash)) {
+        const char* pend;
+        long p;
+        hostlen = (size_t)(colon - rest);
+        pend = colon + 1;
+        p = 0;
+        if (*pend < '0' || *pend > '9') return 0;
+        while (*pend >= '0' && *pend <= '9') {
+            p = p * 10 + (*pend - '0');
+            if (p > 65535) return 0;
+            pend++;
+        }
+        if (pend != slash && *pend != '\0') return 0;
+        if (p < 1) return 0;
+        {
+            char* pc = (char*)orbit_alloc(a, 8);
+            if (!pc) return 0;
+            snprintf(pc, 8, "%ld", p);
+            *port = pc;
+        }
+    } else {
+        hostlen = slash ? (size_t)(slash - rest) : strlen(rest);
+        {
+            char* pc = (char*)orbit_alloc(a, 8);
+            if (!pc) return 0;
+            memcpy(pc, "80", 3);
+            *port = pc;
+        }
+    }
+    if (hostlen == 0 || hostlen > 255) return 0;
+    {
+        char* h = (char*)orbit_alloc(a, hostlen + 1);
+        if (!h) return 0;
+        memcpy(h, rest, hostlen);
+        h[hostlen] = '\0';
+        /* Bracketed [v6] never reaches here: its colons take the port
+         * branch above and fail digit parsing, so this stays a plain
+         * copy. IPv6 literals are refused, not misparsed. */
+        *host = h;
+    }
+    *path = slash ? slash : "/";
+    return 1;
+}
+
+ORBIT_UNUSED OrbitResult orbit_http_client_fetch(OrbitArena* arena, orbit_string url) {
+    OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
+    char* host = NULL;
+    char* port = NULL;
+    const char* path = NULL;
+    struct addrinfo hints;
+    struct addrinfo* addrs = NULL;
+    struct addrinfo* ai = NULL;
+    orbit_socket_t s = ORBIT_INVALID_SOCKET;
+    HttpBuf reply;
+    long hend = -1;
+    char tmp[4096];
+    orbit_http_init();
+    if (!url || !http_split_url(a, url, &host, &port, &path)) {
+        if (url && strncmp(url, "https://", 8) == 0) {
+            return orbit_result_err(ORBIT_ERR_INVALID_ARG, "fetch: https unsupported, no TLS stack");
+        }
+        return orbit_result_err(ORBIT_ERR_INVALID_ARG, "fetch: bad http url");
+    }
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, port, &hints, &addrs) != 0) {
+        return orbit_result_err(ORBIT_ERR_IO, "fetch: dns failed");
+    }
+    if (!addrs) {
+        return orbit_result_err(ORBIT_ERR_IO, "fetch: dns failed");
+    }
+    for (ai = addrs; ai; ai = ai->ai_next) {
+        s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (s == ORBIT_INVALID_SOCKET) continue;
+        if (http_client_connect(s, ai->ai_addr, ai->ai_addrlen, ORBIT_HTTP_CLIENT_TIMEOUT_MS)) break;
+        orbit_socket_close(s);
+        s = ORBIT_INVALID_SOCKET;
+    }
+    freeaddrinfo(addrs);
+    if (s == ORBIT_INVALID_SOCKET) {
+        return orbit_result_err(ORBIT_ERR_IO, "fetch: connect failed");
+    }
+    orbit_set_recv_timeout(s, ORBIT_HTTP_CLIENT_TIMEOUT_MS);
+    {
+        char* rq = (char*)orbit_alloc(a, strlen(path) + strlen(host) + 128);
+        int rn;
+        if (!rq) {
+            orbit_socket_close(s);
+            return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "fetch: alloc failed");
+        }
+        rn = snprintf(rq, strlen(path) + strlen(host) + 128,
+                      "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: orbit/0.1\r\nConnection: close\r\n\r\n",
+                      path, host);
+        if (rn <= 0 || !http_client_send_all(s, rq, (size_t)rn)) {
+            orbit_socket_close(s);
+            return orbit_result_err(ORBIT_ERR_IO, "fetch: send failed");
+        }
+    }
+    reply.data = NULL;
+    reply.len = 0;
+    reply.cap = 0;
+    reply.arena = a;
+    reply.failed = 0;
+    for (;;) {
+        int n = recv(s, tmp, sizeof(tmp), 0);
+        if (n < 0) {
+            orbit_socket_close(s);
+            return orbit_result_err(ORBIT_ERR_IO, "fetch: recv failed");
+        }
+        if (n == 0) break;
+        http_buf_append(&reply, tmp, (size_t)n);
+        if (reply.failed) {
+            orbit_socket_close(s);
+            return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "fetch: alloc failed");
+        }
+        if (hend < 0) {
+            hend = http_headers_end(&reply);
+            if (hend < 0 && reply.len > 65536) {
+                orbit_socket_close(s);
+                return orbit_result_err(ORBIT_ERR_PARSE, "fetch: header block too big");
+            }
+        }
+    }
+    orbit_socket_close(s);
+    if (hend < 0) {
+        hend = http_headers_end(&reply);
+        if (hend < 0) {
+            return orbit_result_err(ORBIT_ERR_PARSE, "fetch: no header block");
+        }
+    }
+    if (reply.len < 5 || strncmp(reply.data, "HTTP/", 5) != 0) {
+        return orbit_result_err(ORBIT_ERR_PARSE, "fetch: bad status line");
+    }
+    {
+        const char* head = reply.data;
+        size_t head_len = (size_t)hend;
+        const char* body = reply.data + hend;
+        size_t have = reply.len - (size_t)hend;
+        if (http_is_chunked(head, head_len)) {
+            HttpBuf out;
+            const char* p = body;
+            const char* end = reply.data + reply.len;
+            out.data = NULL;
+            out.len = 0;
+            out.cap = 0;
+            out.arena = a;
+            out.failed = 0;
+            for (;;) {
+                const char* eol = p;
+                long size = 0;
+                while (eol < end && *eol != '\r' && *eol != '\n') eol++;
+                {
+                    const char* q = p;
+                    int digits = 0;
+                    if (q < eol && (q[0] == '+' || q[0] == '-')) {
+                        return orbit_result_err(ORBIT_ERR_PARSE, "fetch: bad chunk");
+                    }
+                    /* Eight hex digits already address 4 GB; more is not
+                     * a chunk, it is an overflow of the accumulator. */
+                    while (q < eol && *q != ';') {
+                        int v = -1;
+                        if (*q >= '0' && *q <= '9') v = *q - '0';
+                        else if (*q >= 'a' && *q <= 'f') v = *q - 'a' + 10;
+                        else if (*q >= 'A' && *q <= 'F') v = *q - 'A' + 10;
+                        else {
+                            return orbit_result_err(ORBIT_ERR_PARSE, "fetch: bad chunk");
+                        }
+                        if (digits >= 8) {
+                            return orbit_result_err(ORBIT_ERR_PARSE, "fetch: chunk too big");
+                        }
+                        size = size * 16 + v;
+                        digits++;
+                        q++;
+                    }
+                }
+                p = eol;
+                if (p + 1 < end && p[0] == '\r' && p[1] == '\n') p += 2;
+                else if (p < end && (*p == '\r' || *p == '\n')) p += 1;
+                else {
+                    return orbit_result_err(ORBIT_ERR_PARSE, "fetch: bad chunk");
+                }
+                if (size == 0) break;
+                if ((size_t)(end - p) < (size_t)size) {
+                    return orbit_result_err(ORBIT_ERR_PARSE, "fetch: short chunk");
+                }
+                http_buf_append(&out, p, (size_t)size);
+                if (out.failed) {
+                    return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "fetch: alloc failed");
+                }
+                p += size;
+                if (p + 1 < end && p[0] == '\r' && p[1] == '\n') p += 2;
+                else if (p < end && (*p == '\r' || *p == '\n')) p += 1;
+                else {
+                    return orbit_result_err(ORBIT_ERR_PARSE, "fetch: bad chunk");
+                }
+            }
+            {
+                char* ans = (char*)orbit_alloc(a, out.len + 1);
+                if (!ans) {
+                    return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "fetch: alloc failed");
+                }
+                if (out.len) memcpy(ans, out.data, out.len);
+                ans[out.len] = '\0';
+                return orbit_result_ok(ans);
+            }
+        }
+        {
+            long want = http_content_length(head, head_len);
+            if (want >= 0) {
+                if (have < (size_t)want) {
+                    return orbit_result_err(ORBIT_ERR_PARSE, "fetch: short body");
+                }
+                {
+                    char* ans = (char*)orbit_alloc(a, (size_t)want + 1);
+                    if (!ans) {
+                        return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "fetch: alloc failed");
+                    }
+                    if (want) memcpy(ans, body, (size_t)want);
+                    ans[want] = '\0';
+                    return orbit_result_ok(ans);
+                }
+            }
+        }
+        {
+            char* ans = (char*)orbit_alloc(a, have + 1);
+            if (!ans) {
+                return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "fetch: alloc failed");
+            }
+            if (have) memcpy(ans, body, have);
+            ans[have] = '\0';
+            return orbit_result_ok(ans);
+        }
+    }
+}
+
 
 #endif

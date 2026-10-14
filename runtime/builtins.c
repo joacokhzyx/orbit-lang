@@ -299,14 +299,8 @@ orbit_string orbit_json_field(OrbitArena* arena, orbit_string json, orbit_string
     return res;
 }
 
-orbit_string orbit_http_client_fetch(OrbitArena* arena, orbit_string url) {
-    (void)url;
-    /* High-speed C HTTP Client fetch stub returning mock JSON response */
-    char* res = (char*)orbit_alloc(arena, 128);
-    if (!res) return "{}";
-    snprintf(res, 128, "{\"status\":\"ok\",\"fetched\":true}");
-    return res;
-}
+/* orbit_http_client_fetch lives in runtime/http.c: a real blocking
+ * GET there replaced the mock that used to sit here. */
 
 typedef struct {
     char key[128];

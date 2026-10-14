@@ -4357,7 +4357,9 @@ fn isStringReturningFunction(name: string) -> bool {
     if name == "orbit_int_to_string" { return true }
     if name == "orbit_float_to_string" { return true }
     if name == "orbit_bool_to_string" { return true }
-    if name == "orbit_http_client_fetch" { return true }
+    // orbit_http_client_fetch used to sit here: it answered a string
+    // (a mock body) and now answers a result, so leaving the row would
+    // type every fetch destination as a string.
     if name == "orbit_cache_get" { return true }
     if name == "orbit_file_upload_save" { return true }
     if name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_query_get" || name == "orbit_http_header_get" { return true }

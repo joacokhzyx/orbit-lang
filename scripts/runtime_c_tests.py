@@ -93,6 +93,7 @@ PROGRAMS = [
     prog("result_float", warnings=True),
     prog("random", warnings=True),
     prog("exec", warnings=True, defines=["-DORBIT_WITH_EXEC"]),
+    prog("http_client", warnings=True),
 ]
 
 
