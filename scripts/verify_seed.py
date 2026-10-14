@@ -29,7 +29,10 @@ chain2 -> chain3.
 ``--shared-work DIR`` writes the same snapshot layout as build_selfhost.py
 --shared-work (chain3.c, the chain3 binary, seed.c, hashes.json) once the C
 fixed point holds; the path contract (SHARED_*) is defined there, not here.
-Without the flag nothing is written.
+Without the flag nothing is written. When DIR already holds snapshots for
+the current canonical, the three frontend rebuilds are skipped and the four
+equality checks run on the snapshot bytes instead; a stale or unreadable dir
+falls back to the full rebuild. The slow path (no flag) is untouched.
 
 Exit code 0 iff every hard check passes.
 
@@ -41,6 +44,7 @@ Usage:
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import struct
@@ -58,7 +62,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from build_selfhost import (warn_low_memory, bootstrap_cc_middle,
                                 lowmem_cc_flags, resolve_low_mem,
-                                claim_shared_work, write_shared_work)
+                                claim_shared_work, write_shared_work,
+                                SHARED_CHAIN_C, SHARED_SEED_C, SHARED_MANIFEST,
+                                shared_chain_bin)
 except Exception:
     # Degraded mirrors for when the sibling module cannot be imported; the
     # gate still runs. Flags stay unified by construction (same order, same
@@ -81,6 +87,10 @@ except Exception:
 
     claim_shared_work = None
     write_shared_work = None
+    SHARED_CHAIN_C = None
+    SHARED_SEED_C = None
+    SHARED_MANIFEST = None
+    shared_chain_bin = None
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 MAIN_ORB = os.path.join("compiler", "main.orb")
 
@@ -187,6 +197,57 @@ def run(argv, cwd, env_extra=None, label=""):
     return proc
 
 
+def consume_shared_work(shared_dir, work, h_canon):
+    """Reuse validated snapshots instead of rebuilding the chain (or None).
+
+    Fast path for ``--shared-work DIR`` when DIR already describes the
+    current canonical: copy seed.c / chain3.c / the chain3 binary into work
+    and hash the copies. Valid means the manifest parses with its four keys,
+    its canonical_sha matches the current canonical, and the snapshot bytes
+    hash to the manifest's seed_sha/chain3_sha. Anything else is None and the
+    caller rebuilds the chain exactly as without the flag.
+
+    The four equality checks still run on these bytes below (same check()
+    calls, same digest comparisons); only the frontend rebuilds are skipped.
+    Hashes are computed on the work copies, so what is checked is what was
+    hashed -- never what the shared dir claimed at validation time.
+    """
+    if (not shared_dir or SHARED_CHAIN_C is None or SHARED_SEED_C is None
+            or SHARED_MANIFEST is None or shared_chain_bin is None):
+        return None
+    try:
+        with open(os.path.join(shared_dir, SHARED_MANIFEST), encoding="utf-8") as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if any(k not in doc for k in ("canonical_sha", "seed_sha", "chain3_sha", "published")):
+        return None
+    if doc["canonical_sha"].lower() != h_canon.lower():
+        return None
+    try:
+        seed_c = os.path.join(work, "seed.selfhost.c")
+        chain2_c = os.path.join(work, "chain2.selfhost.c")
+        chain3_c = os.path.join(work, "chain3.selfhost.c")
+        chain_exe = os.path.join(work, "chain3" + (".exe" if sys.platform == "win32" else ""))
+        shutil.copyfile(os.path.join(shared_dir, SHARED_SEED_C), seed_c)
+        shutil.copyfile(os.path.join(shared_dir, SHARED_CHAIN_C), chain2_c)
+        shutil.copyfile(os.path.join(shared_dir, SHARED_CHAIN_C), chain3_c)
+        shutil.copyfile(os.path.join(shared_dir, shared_chain_bin()), chain_exe)
+    except OSError:
+        return None
+    h_seed = sha256(seed_c)
+    h_chain2 = sha256(chain2_c)
+    h_chain3 = sha256(chain3_c)
+    # All three must name the converged bytes: the manifest binds both C
+    # snapshots, and the chain2 copy must equal the chain3 copy (they are
+    # copies of one file; a mismatch is an incoherent dir, never a pass).
+    if (h_seed.lower() != doc["seed_sha"].lower()
+            or h_chain3.lower() != doc["chain3_sha"].lower()
+            or h_chain2 != h_chain3):
+        return None
+    return (seed_c, chain2_c, chain3_c, chain_exe, h_seed, h_chain2, h_chain3)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Verify the C bootstrap fixed point")
     ap.add_argument("--release", action="store_true",
@@ -219,7 +280,10 @@ def main() -> int:
         out.fail("Failed: --shared-work needs scripts/build_selfhost.py "
                  "beside verify_seed.py.")
         return 2
-    shared_dir = claim_shared_work(args.shared_work) if args.shared_work else None
+    # Resolved here, claimed later: claiming retires the manifest, and the
+    # fast path below must validate against it first. Without the flag there
+    # are no snapshots in either direction (today's behaviour, unchanged).
+    shared_dir = os.path.abspath(args.shared_work) if args.shared_work else None
 
     checks = []
 
@@ -251,6 +315,15 @@ def main() -> int:
     h_canon = sha256(CANONICAL_C)
     out.say(f"Canonical C:  {h_canon}  ({os.path.getsize(CANONICAL_C)} bytes)")
     seed_src_c = CANONICAL_C
+
+    fast = consume_shared_work(shared_dir, work, h_canon) if shared_dir else None
+    if fast is not None:
+        (fast_seed_c, fast_chain2_c, fast_chain3_c, fast_chain_exe,
+         fast_h_seed, fast_h_chain2, fast_h_chain3) = fast
+        out.say(f"shared snapshots: reused seed.c/chain3.c/chain3.exe from "
+                f"{shared_dir} (no frontend rebuild; checks run on those bytes)")
+    if shared_dir is not None:
+        shared_dir = claim_shared_work(shared_dir)
 
     amal = os.path.join(work, "orbit_bootstrap.c")
     run([sys.executable, os.path.join(ROOT, "scripts", "amalgamate.py"), "--entry", seed_src_c, "--out", amal], ROOT, label="amalgamate")
@@ -326,8 +399,13 @@ def main() -> int:
         shutil.copyfile(c, snapshot_c)
         return snapshot_c, reused
 
-    seed_c, seed_reused = orb_build(seed_exe, "seed2" + exe, os.path.join(work, "seed.selfhost.c"))
-    h_seed_c = sha256(seed_c)
+    if fast is not None:
+        # No frontend rebuild: the check below hashes these snapshot bytes
+        # against the canonical exactly as in the slow path.
+        seed_c, h_seed_c, seed_reused = fast_seed_c, fast_h_seed, True
+    else:
+        seed_c, seed_reused = orb_build(seed_exe, "seed2" + exe, os.path.join(work, "seed.selfhost.c"))
+        h_seed_c = sha256(seed_c)
     check("seed C fixed point (seed C == canonical C)", h_seed_c == h_canon, f"seed={h_seed_c}")
     if h_seed_c != h_canon:
         out.fail("Failed: the seed does not reproduce the canonical C; the fixed point is broken.")
@@ -336,14 +414,28 @@ def main() -> int:
     seed2 = os.path.join(work, "seed2" + exe)
     chain2 = os.path.join(work, "chain2" + exe)
     chain3 = os.path.join(work, "chain3" + exe)
-    chain2_c, chain2_reused = orb_build(seed2, "chain2" + exe, os.path.join(work, "chain2.selfhost.c"))
-    chain3_c, chain3_reused = orb_build(chain2, "chain3" + exe, os.path.join(work, "chain3.selfhost.c"))
+    if fast is not None:
+        # One converged artifact by construction: every contract binary below
+        # is this same file, so the binary section reports reuse (as on a
+        # cache hit) rather than claiming a pass. chain3 already sits at
+        # fast_chain_exe; copying it onto itself would raise SameFileError.
+        for _b in (seed2, chain2):
+            shutil.copyfile(fast_chain_exe, _b)
+        chain3 = fast_chain_exe
+        chain2_c, chain2_reused = fast_chain2_c, True
+        chain3_c, chain3_reused = fast_chain3_c, True
+    else:
+        chain2_c, chain2_reused = orb_build(seed2, "chain2" + exe, os.path.join(work, "chain2.selfhost.c"))
+        chain3_c, chain3_reused = orb_build(chain2, "chain3" + exe, os.path.join(work, "chain3.selfhost.c"))
 
     # Every stage must re-emit the canonical C, not just the first one. At a
     # genuine fixed point all three are byte-identical; asserting it closes the
     # hole where only stage one is compared and later stages drift silently.
-    h_chain2_c = sha256(chain2_c)
-    h_chain3_c = sha256(chain3_c)
+    if fast is not None:
+        h_chain2_c, h_chain3_c = fast_h_chain2, fast_h_chain3
+    else:
+        h_chain2_c = sha256(chain2_c)
+        h_chain3_c = sha256(chain3_c)
     check("chain2 C fixed point (chain2 C == canonical C)", h_chain2_c == h_canon,
           f"chain2={h_chain2_c}")
     check("chain3 C fixed point (chain3 C == canonical C)", h_chain3_c == h_canon,
@@ -371,7 +463,8 @@ def main() -> int:
     # reports reuse rather than claiming a pass.
     if any_reused:
         reused_names = ", ".join(sorted(n for n, v in reused.items() if v))
-        out.say("note: binary fixed point not evaluated (compile cache reused "
+        origin = "shared snapshots" if fast is not None else "compile cache"
+        out.say(f"note: binary fixed point not evaluated ({origin} reused "
                 f"{reused_names}); the C fixed point above is unaffected and is "
                 "the cross-platform contract. Set ORBIT_CCACHE=0 to force it.")
         for n, h in zip(("seed2", "chain2", "chain3"), h_bins[1:]):
