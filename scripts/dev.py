@@ -855,6 +855,12 @@ def main() -> int:
         e = dict(env)
         if label == "parity" and args.target == "all":
             e[PARITY_SKIP_CC_ENV] = "1"
+        # Link-mode lane (carril L): suite/std link user TUs against
+        # libruntime_net.a instead of recompiling the unity prelude.
+        # Same verdicts (byte-identical exit/stdout, DB tests stay unity);
+        # test_suite.py ensures the lib itself, so this is only a switch.
+        if label in ("suite", "suite_std") and args.target == "all":
+            e["ORBIT_LINK_RUNTIME"] = "1"
         if args.target == "all" and use_shared_chain:
             e["ORBIT_SHARED_WORK"] = str(SHARED_DIR)
         return e
