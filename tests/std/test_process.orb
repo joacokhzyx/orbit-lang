@@ -3,6 +3,9 @@
 // lives in test_process_exit.orb with expect-exit 3. Args run under the
 // suite runner with no arguments, so argv is the program path alone;
 // multi-arg shape is verified by hand (probe with explicit argv).
+// capture() has no cases here: the runner builds without
+// ORBIT_WITH_EXEC, so it would always see "" -- its contract is pinned
+// by runtime/test_exec.c instead.
 import "std/sys/proc/process.orb"
 import "std/test/assert.orb"
 

@@ -9,6 +9,7 @@ extern fn system_os_exec(cmd: string) -> int
 extern fn orbit_os_exit_selfhost(code: int)
 extern fn orbit_os_argc() -> int
 extern fn orbit_os_argv(index: int) -> string
+extern fn orbit_os_exec(cmd: string) -> string
 
 fn pid() -> int {
     return system_pid()
@@ -32,6 +33,17 @@ fn execStatus(cmd: string) -> int {
 // in C, and this one must never shadow (or recurse through) libc.
 fn exitProcess(code: int) -> void {
     orbit_os_exit_selfhost(code)
+}
+
+// Captured stdout of cmd. Capability-gated like execStatus above: the
+// runtime answers "" unless the program was built with -DORBIT_WITH_EXEC
+// (R3.6: shell execution is opt-in, RCE surface), so a default build
+// always sees "". A nonzero exit prefixes "[ERROR: process exited with
+// code N]" to whatever was captured. Pinned by runtime/test_exec.c,
+// which carries the define; no Orbit cases, because the suite runner
+// builds without the flag and ""-always would pin the incapability.
+fn capture(cmd: string) -> string {
+    return orbit_os_exec(cmd)
 }
 
 // CLI arguments, C convention: arg(0) is the program path itself, so a
