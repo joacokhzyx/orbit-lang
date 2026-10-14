@@ -80,6 +80,33 @@ def main() -> int:
     # emitted C) and never sees these flags.
     env = _common.disposable_test_env(env, cc=args.cc)
 
+    # Separate-compilation lane (ORBIT_LINK_RUNTIME=1): the compiler links each
+    # TU against .orbit/lib/libruntime_net.a instead of recompiling the unity.
+    # dev.py sets this env only in the `all` composition (same pattern as
+    # ORBIT_PARITY_SKIP_CC for parity); standalone runs stay on unity. Ensure
+    # the archive exists here so a missing lib fails fast with the builder's
+    # own diagnostic instead of one cc failure per test. DB programs ignore
+    # the env inside the compiler and stay unity by design (the net lib has
+    # no DB symbols).
+    if env.get("ORBIT_LINK_RUNTIME") == "1":
+        lib_path = os.path.join(ROOT, ".orbit", "lib", "libruntime_net.a")
+        if not os.path.exists(lib_path):
+            cc_for_lib = args.cc or env.get("ORBIT_CC") or env.get("CC") or "gcc"
+            out.say(f"  link lane: building {lib_path} ...")
+            proc = subprocess.run(
+                [sys.executable, os.path.join(ROOT, "scripts", "mklib_runtime.py"),
+                 "--cc", cc_for_lib],
+                cwd=ROOT, env=dict(os.environ),
+                capture_output=True, text=True, errors="replace", timeout=300,
+            )
+            sys.stdout.write(proc.stdout or "")
+            sys.stderr.write(proc.stderr or "")
+            if proc.returncode != 0 or not os.path.exists(lib_path):
+                out.fail(f"Failed suite: ORBIT_LINK_RUNTIME=1 but {lib_path} is "
+                         f"missing and mklib_runtime.py did not produce it "
+                         f"(rc={proc.returncode})")
+                return 1
+
     ok = 0
     failed = []
     ratchets = []

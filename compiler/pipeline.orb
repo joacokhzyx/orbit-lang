@@ -222,6 +222,44 @@ fn compilerRuntimeDir() -> string {
     return "runtime"
 }
 
+// Separate compilation against the net-variant static library
+// (.orbit/lib/libruntime_net.a, built by scripts/mklib_runtime.py).
+//
+// When ORBIT_LINK_RUNTIME=1 and the program needs no DB symbols, the C step
+// compiles the small user TU with -DORBIT_SEPARATE_COMPILATION and links the
+// prebuilt archive instead of recompiling the whole runtime unity on every
+// build. runtime.h honours the flag by exposing only runtime/orbit_api.h;
+// every emitted TU already defines ORBIT_CUSTOM_ROUTER and its own
+// orbit_handle_request, while the archive is built with -DORBIT_LIB_NO_ROUTER
+// so the fallback router never meets at link time (see orbit_api.h).
+//
+// DB programs stay on the unity build by design: the net variant defines no
+// DB symbols and orbit_api.h errors on ORBIT_WITH_DB, so attempting the link
+// there would fail at compile time instead of running. The default (env
+// unset) keeps the exact command it always had: both flag strings are empty
+// and the concatenation below is byte-identical to before.
+fn linkRuntimeRequested() -> bool {
+    return orbit_os_env_selfhost("ORBIT_LINK_RUNTIME") == "1"
+}
+
+fn runtimeLibPath() -> string {
+    val override = orbit_os_env_selfhost("ORBIT_RUNTIME_LIB")
+    if override != "" {
+        return override
+    }
+    return ".orbit/lib/libruntime_net.a"
+}
+
+fn linkRuntimeUsable(hasDb: bool) -> bool {
+    if linkRuntimeRequested() == false {
+        return false
+    }
+    if hasDb {
+        return false
+    }
+    return true
+}
+
 fn orbitVersion() -> string {
     return "0.1.0-rc.2"
 }
@@ -705,6 +743,13 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
             dbFlags = " -DORBIT_WITH_DB -I\"" + rtDir + "/vendor\" -lsqlite3"
         }
     }
+    val useLink = linkRuntimeUsable(hasDb)
+    var separateFlags = ""
+    var libRef = ""
+    if useLink {
+        separateFlags = " -DORBIT_SEPARATE_COMPILATION"
+        libRef = " \"" + runtimeLibPath() + "\""
+    }
 
     // Warning policy. -Wall is on by default so a human build surfaces
     // diagnostics, but it is expensive on large outputs: measured on a
@@ -723,7 +768,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if orbit_os_env_selfhost("ORBIT_WARNINGS") == "0" {
         warnFlags = ""
     }
-    var compCmd = cCompiler + " -s -O0" + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + dbFlags + linkFlags
+    var compCmd = cCompiler + " -s -O0" + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + separateFlags + dbFlags + libRef + linkFlags
     // Orbit branding: every binary linked on Windows carries the version
     // resource + mark. Fixed metadata, never user input (there is no syntax
     // for it), so services and plain programs alike are recognisably Orbit's.
