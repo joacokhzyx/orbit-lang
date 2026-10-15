@@ -40,10 +40,12 @@ if not defined CC (
 )
 
 echo [seed] compiler: %CC%
+rem -DORBIT_WITH_EXEC: without it the seed's compiles are silent no-ops (R3.6).
+rem -lws2_32 (MinGW/Clang): Winsock symbols; MSVC gets them via http.c's #pragma.
 if "%CC%"=="cl" (
-  cl /nologo /O2 /W0 /Fe"%SEED_OUT%" "%SEED_SRC%" || exit /b 1
+  cl /nologo /O2 /W0 /DORBIT_WITH_EXEC /Fe"%SEED_OUT%" "%SEED_SRC%" || exit /b 1
 ) else (
-  %CC% -O2 -w -Wno-int-conversion -Wno-incompatible-pointer-types -o "%SEED_OUT%" "%SEED_SRC%" || exit /b 1
+  %CC% -O2 -w -Wno-int-conversion -Wno-incompatible-pointer-types -DORBIT_WITH_EXEC -o "%SEED_OUT%" "%SEED_SRC%" -lws2_32 || exit /b 1
 )
 
 echo [seed] built: %SEED_OUT%

@@ -42,5 +42,6 @@ if [ -z "$CC" ]; then
 fi
 
 echo "[seed] compiler: $CC"
-$CC -O2 -w -Wno-int-conversion -Wno-incompatible-pointer-types -o "$SEED_OUT" "$SEED_SRC"
+# -DORBIT_WITH_EXEC: without it the seed's compiles are silent no-ops (R3.6).
+$CC -O2 -w -Wno-int-conversion -Wno-incompatible-pointer-types -DORBIT_WITH_EXEC -o "$SEED_OUT" "$SEED_SRC"
 echo "[seed] built: $SEED_OUT"
