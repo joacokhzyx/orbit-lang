@@ -58,6 +58,20 @@ static void test_update_partial(void) {
     orbit_db_close();
 }
 
+/* Values containing quotes and backslashes must survive the JSON round trip:
+ * the old first-quote cut stored `a \` for `a "b" \ c`. */
+static void test_escaped_values(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"a \\\"b\\\" \\\\ c\",\"qty\":3}"));
+    assert(orbit_db_update("items", "a", "{\"name\":\"a \\\"b\\\" \\\\ c\"}"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    orbit_string row = orbit_db_query_get(arena, "items", "a");
+    assert(row != NULL);
+    assert(strstr(row, "\"name\":\"a \\\"b\\\" \\\\ c\"") != NULL);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 /* Updating a missing row, or a payload with no usable fields, is false --
  * same honesty contract as create/delete. */
 static void test_update_missing_is_false(void) {
@@ -195,6 +209,7 @@ int main(void) {
     printf("db_ops tests\n");
     fflush(stdout);
     RUN_TEST(test_update_partial);
+    RUN_TEST(test_escaped_values);
     RUN_TEST(test_update_missing_is_false);
     RUN_TEST(test_where_two_params);
     RUN_TEST(test_where_contract);

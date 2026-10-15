@@ -421,8 +421,9 @@ orbit_string orbit_db_first(OrbitArena* arena, orbit_collection col) {
 
 /** @brief Insert a JSON document into @p col; uses malloc for the query buffer since no arena is available at insert time. */
 /** @brief Extract a value for @p key from a flat JSON object: quoted string values
- *         ("key":"value") or bare values ("key":value, e.g. numbers). Returns NULL
- *         when the key is absent. Caller frees the returned copy.
+ *         ("key":"value") are escape-decoded, bare values ("key":value, e.g.
+ *         numbers) are copied verbatim. Returns NULL when the key is absent.
+ *         Caller frees the returned copy.
  */
 static char* orbit_json_get_value(const char* json, const char* key) {
     if (!json || !key) return NULL;
@@ -440,15 +441,38 @@ static char* orbit_json_get_value(const char* json, const char* key) {
     pos++;
     while (*pos == ' ' || *pos == '\t' || *pos == '\r' || *pos == '\n') pos++;
     if (*pos == '"') {
+        /* Direct decode, not orbit_json_parse: no arena exists at insert time
+         * (see the doc comment above) and only the value is wanted. The scan
+         * skips escaped bytes so an inner quote cannot cut the value short,
+         * and the copy decodes the escapes a JSON writer produces
+         * (" \\ / b f n r t). Anything else keeps its backslash, so no value
+         * is ever truncated and a \uXXXX or bad escape stays verbatim. */
         pos++;
-        const char* end = strchr(pos, '"');
-        if (!end) return NULL;
-        size_t len = (size_t)(end - pos);
-        char* res = (char*)malloc(len + 1);
-        if (res) {
-            memcpy(res, pos, len);
-            res[len] = '\0';
+        const char* end = pos;
+        while (*end && *end != '"') end += (*end == '\\' && end[1]) ? 2 : 1;
+        if (*end != '"') return NULL;
+        char* res = (char*)malloc((size_t)(end - pos) + 1);
+        if (!res) return NULL;
+        char* out = res;
+        for (const char* r = pos; r < end; r++) {
+            if (*r == '\\' && r + 1 < end) {
+                r++;
+                switch (*r) {
+                case '"': *(out++) = '"'; break;
+                case '\\': *(out++) = '\\'; break;
+                case '/': *(out++) = '/'; break;
+                case 'b': *(out++) = '\b'; break;
+                case 'f': *(out++) = '\f'; break;
+                case 'n': *(out++) = '\n'; break;
+                case 'r': *(out++) = '\r'; break;
+                case 't': *(out++) = '\t'; break;
+                default: *(out++) = '\\'; *(out++) = *r; break;
+                }
+            } else {
+                *(out++) = *r;
+            }
         }
+        *out = '\0';
         return res;
     }
     const char* end = pos;
