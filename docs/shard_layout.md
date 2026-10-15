@@ -148,4 +148,14 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
   TU with the fp and splits it into the bundle; `verify_seed
   --shards-dir/--manifest` re-splits the canonical, checks partition
   coverage and the PUBLISHED_C equality): 1048 bodies, 98 header-owned,
-  missing=0 extra=0, 157s warm.
+  missing=0 extra=0.
+- Reuse: the driver records `<base>.header.json` {tu_sha256, header_sha256}
+  for every successful split, so a later run whose canonical still hashes
+  to `tu_sha256` splits the canonical with the stored header and skips the
+  ~9 s re-emission (11 s → 1.5 s; the shards themselves are rewritten from
+  the canonical every run and re-checked by R10a/b and by verify_seed).
+- Warm budget: `make all` 117.9 s wall (gate sum 146 s) on 8 cores with the
+  background lane (a 20 s soak and 50 process spawns joined at their plan
+  slot, 28 s hidden) and `alive_check`'s census pair pooled; the same tree
+  measured 157 s before the lane, and 130 s on a pass with ~1 core of
+  unrelated load on the box.

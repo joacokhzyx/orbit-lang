@@ -44,6 +44,7 @@ DB programs stay on the unity build (R8): a TU with a real (column-0)
 import argparse
 import concurrent.futures
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -786,6 +787,11 @@ def main():
     ap.add_argument("--fresh", action="store_true",
                     help="clear --shards-dir before writing, so the bundle "
                          "holds only this run's shards")
+    ap.add_argument("--name", default=None, metavar="BASE",
+                    help="name for the shard files, TSV and header copy "
+                         "(default: the TU's basename). Pin it when one bundle "
+                         "is written from differently named TUs, so a verifier "
+                         "can keep pointing at one manifest")
     ap.add_argument("--shards-dir", default=None,
                     help="where shards + TSV go (default: own temp dir)")
     ap.add_argument("--cc", default=None)
@@ -852,6 +858,8 @@ def main():
     tu_abs = os.path.abspath(args.tu)
     tu_dir, tu_file = os.path.split(tu_abs)
     base = tu_file[:-2] if tu_file.endswith(".c") else tu_file
+    if args.name:
+        base = args.name
     header = args.header
     if header is None:
         cand = os.path.join(tu_dir, base + ".h")
@@ -875,7 +883,7 @@ def main():
     _raw, _lines, newline = read_tu(tu_abs)
     try:
         shard_paths, tsv = write_shards(part, base, shards_dir, newline,
-                                          header)
+                                        header)
     except OSError as exc:
         return fail("cannot write shards: %s" % exc, 5)
     missing, residual = verify_shard_coverage(part, shards_dir, base)
@@ -889,6 +897,17 @@ def main():
     out.say("split %.1fs: %d bodies (%d header-owned), %s, "
             "R10a CAT IDENTICAL, R10b missing=0 extra=0"
             % (t_split, len(part["bodies"]), len(dropped), tsv))
+    # Hash binding for reuse, written only for a split that passed R10a/b: the
+    # header is the one artifact only a compiler can make, so record which C
+    # bytes it came with. A consumer (dev.py's T3) reuses this header and skips
+    # the emission only when the TU's hash still matches the canonical's AND
+    # the header still hashes to this record. The split itself is re-run and
+    # re-checked downstream either way.
+    bind = os.path.join(shards_dir, base + ".header.json")
+    with open(bind, "w", encoding="utf-8") as fh:
+        json.dump({"tu_sha256": sha_file(tu_abs),
+                   "header_sha256": sha_file(header)}, fh, indent=1)
+        fh.write("\n")
 
     if args.no_build:
         out.finish("shard-selfhost", 2, 2,

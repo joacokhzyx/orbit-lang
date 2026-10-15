@@ -1008,6 +1008,7 @@ def main():
     # censusing the corpus on its own. Only when BOTH rows are runnable; with
     # --only on a single one, each still runs standalone as before.
     pair_results = []
+    pair_task = None
     _census_at = _ratchet_at = None
     for _i, (_t, _l) in enumerate(runnable):
         if _t.name == "unknown_census.py" and _census_at is None:
@@ -1019,8 +1020,10 @@ def main():
         _rt, _rl = runnable[_ratchet_at]
         for _idx in sorted((_census_at, _ratchet_at), reverse=True):
             runnable.pop(_idx)
-        pair_results = run_unknown_pair(_ct, _cl, _rt, _rl, ctx,
-                                        args.compiler, args.cc, work)
+        # Deferred into the pool below. Run here it was a head start before
+        # any row began, and the wall is the kynx self-test's window; the pair
+        # is still one task (the ratchet judges the census JSON), not two.
+        pair_task = (_ct, _cl, _rt, _rl)
     def run_one(pair):
         # Subprocess-bound: the GIL is released while the tool runs, so
         # threads parallelise this for real. Nothing here mutates shared
@@ -1046,9 +1049,17 @@ def main():
 
     if workers == 1:
         results = [run_one(pair) for pair in runnable]
+        if pair_task is not None:
+            pair_results = run_unknown_pair(*pair_task, ctx, args.compiler,
+                                            args.cc, work)
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
+            pair_future = (pool.submit(run_unknown_pair, *pair_task, ctx,
+                                       args.compiler, args.cc, work)
+                           if pair_task is not None else None)
             results = list(pool.map(run_one, runnable))
+            if pair_future is not None:
+                pair_results = pair_future.result()
     if pair_results:
         # Back in registry order: the pool kept runnable order while the pair
         # ran aside, so re-sort the union by registry position.

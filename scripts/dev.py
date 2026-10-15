@@ -90,6 +90,18 @@ PARITY_SKIP_CC_ENV = "ORBIT_PARITY_SKIP_CC"
 # never appended to. The internal alive_check gate runs with
 # `--witness <log>` when supported, so it verifies the ten heavy gates against
 # this same run's log instead of re-executing them.
+# Background lane contract (owner: dev.py itself; no reader elsewhere). A gate
+# whose wall time is waiting rather than work -- a 20 s soak paced at 10 rps,
+# 50 process spawns -- is started before T0 and joined at its slot in the plan.
+# Output is captured and printed at the join, so the log keeps plan order and
+# the witness log holds every Finished line before alive_check reads it. A lane
+# failure fails the run at exactly the slot where it would have failed
+# serially. Every gate still runs whole; only when it runs changes. Measured:
+# moving one-core *work* (the shard split's emission, doctor --scope-only) into
+# the lane stretched the 8-wide serial gates by about what it hid, so the lane
+# keeps the gates whose wall time is a wait, not a CPU share.
+LANE_LABELS = ("kynx_live", "cli_probe")
+LANE_WORKERS = 1
 _SUPPORTS_CACHE: dict = {}
 
 # The repository has no Makefile and no task runner; this is the first of either.
@@ -574,6 +586,51 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     ]
 
 
+def shard_split_argv(py: str, s_dir: str, fp: str, shards_dir: str, cc: str,
+                     header=None) -> list:
+    """The T3 split step, in either of its two forms.
+
+    Emission path: the fixed point emits the TU and its sibling header is what
+    the split needs. Reuse path (`header` given): a header already bound to the
+    canonical's exact C bytes -- see bundle_header -- so the ~9 s emission is
+    skipped and the canonical itself is split. Both forms name the bundle
+    emit_verify, because that is the name verify_seed is told to read.
+    """
+    if header is not None:
+        return [py, f"{s_dir}/shard_selfhost.py", "--name", "emit_verify",
+                "--tu", str(CANONICAL_C), "--header", header, "--no-build",
+                "--shards-dir", shards_dir, "--cc", cc]
+    return [py, f"{s_dir}/shard_selfhost.py", "--name", "emit_verify",
+            "--emit-with", fp, "--no-build", "--fresh",
+            "--shards-dir", shards_dir, "--cc", cc]
+
+
+def bundle_header(bundle: pathlib.Path, canonical: pathlib.Path):
+    """The bundle's header when it is bound to the canonical's exact C bytes.
+
+    shard_selfhost.py records <base>.header.json {tu_sha256, header_sha256}
+    whenever it splits an emission. Reuse needs both to still hold: the header
+    was emitted with these C bytes, and the file on disk is still the bytes
+    recorded. What the header *describes* is not taken on faith -- the split
+    re-runs R10a and body coverage for every shard, and verify_seed re-splits
+    and re-checks the bundle -- so a header that does not fit the canonical
+    fails the run loudly instead of passing quietly.
+    """
+    info = bundle / "emit_verify.header.json"
+    header = bundle / "emit_verify.h"
+    if not (info.is_file() and header.is_file()):
+        return None
+    try:
+        data = json.loads(info.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if data.get("tu_sha256") != sha256_file(canonical):
+        return None
+    if data.get("header_sha256") != sha256_file(header):
+        return None
+    return header
+
+
 def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
     """Every gate, in the order ENGINEERING.md section 8 gives.
 
@@ -627,10 +684,10 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
             # sibling header is what the split needs) and write the shards
             # into a bundle only this run wrote. Split-only here -- gcc and
             # the emission check belong to the shard lane's own tests and to
-            # the CI job, not to every `all`.
-            ("shard_split", [py, f"{s}/shard_selfhost.py", "--emit-with", fp,
-                             "--no-build", "--fresh", "--shards-dir",
-                             str(work / "shards"), "--cc", cc]),
+            # the CI job, not to every `all`. main() swaps this for the
+            # hash-bound reuse form when a good header is already recorded.
+            ("shard_split", shard_split_argv(py, s, fp,
+                                             str(work / "shards"), cc)),
             ("verify_seed", [py, f"{s}/verify_seed.py", "--cc", cc]),
             ("alive_check", [py, f"{s}/alive_check.py", "--cc", cc, "--compiler", fp]),
         ],
@@ -667,6 +724,23 @@ def run_gate(label: str, argv: list, env: dict) -> tuple:
     else:
         say(paint(f"  {label} FAIL rc={proc.returncode} ({elapsed:.0f}s)", RED))
     return label, proc.returncode, elapsed, "".join(collected)
+
+
+def run_gate_capture(label: str, argv: list, env: dict) -> tuple:
+    """run_gate without the live stream, for the background lane.
+
+    Lane output printed as it ran would interleave with the gate that is
+    streaming; capture it (stdout+stderr merged, as run_gate streams them) and
+    print it at the join. Same return shape, so the join path is ordinary.
+    """
+    started = time.monotonic()
+    proc = subprocess.run(
+        argv, cwd=str(ROOT), env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace",
+    )
+    elapsed = time.monotonic() - started
+    return label, proc.returncode, elapsed, proc.stdout or ""
 
 
 def main() -> int:
@@ -856,16 +930,28 @@ def main() -> int:
             if not any(args.filter in p.as_posix() for p in run_fmt_files):
                 run_fmt_files = None
 
-    # E3 flags ride on verify_seed only when this run's split step survived
-    # the filter: they must describe the bundle shard_split just wrote, not
-    # whatever a previous run left in the dir.
+    # E3 wiring rides on verify_seed only when this run's split step survived
+    # the filter: they must describe the bundle shard_split is about to write,
+    # not whatever a previous run left in the dir. The split itself takes the
+    # hash-bound reuse path when a header emitted for exactly the canonical's
+    # C bytes is still on disk (bundle_header); otherwise the fp re-emits it.
     _names = {n for n, _ in plan}
     if {"shard_split", "verify_seed"} <= _names:
         _shards = str(work / "shards")
         _manifest = str(work / "shards" / "emit_verify.shards.tsv")
-        plan = [(n, a + ["--shards-dir", _shards, "--manifest", _manifest]
-                 if n == "verify_seed" else a)
-                for n, a in plan]
+        _hdr = bundle_header(work / "shards", CANONICAL_C)
+        if _hdr is not None:
+            say("  shard split: header bound to the canonical, no re-emission")
+        _rewritten: list = []
+        for _n, _a in plan:
+            if _n == "shard_split":
+                _a = shard_split_argv(sys.executable, str(ROOT / "scripts"),
+                                      str(binary.resolve()), _shards, cc,
+                                      header=str(_hdr) if _hdr else None)
+            elif _n == "verify_seed":
+                _a = _a + ["--shards-dir", _shards, "--manifest", _manifest]
+            _rewritten.append((_n, _a))
+        plan = _rewritten
 
     if not plan and run_fmt_files is None:
         say("  nothing to run")
@@ -874,6 +960,7 @@ def main() -> int:
     exe = str(binary.resolve())
     results: list = []
     witness: list = []
+    run_started = time.monotonic()
 
     def env_for(label: str) -> dict:
         """Per-gate env: parity composition + shared-chain handoff for T3."""
@@ -918,6 +1005,20 @@ def main() -> int:
     static_part = [(n, a) for n, a in plan if n in static_labels]
     rest = [(n, a) for n, a in plan if n not in static_labels]
 
+    # The lane starts here, before T0's static part and fmt, so a member whose
+    # slot is early in the rest loop is already done when its join arrives.
+    # One worker: the lane's job is to sit in windows the serial path leaves
+    # idle, not to compete with the pools. See LANE_LABELS.
+    lane_futures: dict = {}
+    lane_pool = None
+    lane_members = [(n, a) for n, a in rest if n in LANE_LABELS]
+    if lane_members:
+        lane_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=LANE_WORKERS)
+        for n, a in lane_members:
+            lane_futures[n] = lane_pool.submit(run_gate_capture, n, a,
+                                               env_for(n))
+
     for label, argv in static_part:
         gate_env = env_for(label)
         rlabel, rrc, relapsed, output = run_gate(label, argv, gate_env)
@@ -947,6 +1048,21 @@ def main() -> int:
         flush_witness()
 
     for label, argv in rest:
+        if label in lane_futures:
+            rlabel, rrc, relapsed, loutput = lane_futures.pop(label).result()
+            say(f"  {paint(label, BOLD)} ... (background lane)")
+            for ln in (loutput or "").splitlines():
+                sys.stdout.write("    " + ln + "\n" if ln.strip() else ln + "\n")
+            if rrc == 0:
+                say(paint(f"  {label} ok ({relapsed:.0f}s, lane)", GREEN))
+            else:
+                say(paint(f"  {label} FAIL rc={rrc} ({relapsed:.0f}s, lane)",
+                          RED))
+            sys.stdout.flush()
+            results.append((rlabel, rrc, relapsed))
+            harvest(loutput)
+            flush_witness()
+            continue
         if label == "check_stale:bytes":
             say(f"  {paint('check_stale', BOLD)} ... (bytes, no rebuild)")
             sys.stdout.flush()
@@ -972,13 +1088,15 @@ def main() -> int:
     say("")
     failed = [r for r in results if r[1] != 0]
     total = sum(r[2] for r in results)
+    wall = time.monotonic() - run_started
     if failed:
         say(paint(f"{len(failed)} of {len(results)} gate(s) failed: " +
                    ", ".join(r[0] for r in failed), RED))
-        say(paint(f"total {total:.0f}s", DIM))
+        say(paint(f"total {wall:.0f}s wall (gate sum {total:.0f}s)", DIM))
         return 1
 
-    say(paint(f"all {len(results)} gate(s) passed in {total:.0f}s", GREEN))
+    say(paint(f"all {len(results)} gate(s) passed in {wall:.0f}s wall "
+              f"(gate sum {total:.0f}s)", GREEN))
     missing = [t for t in (1, 2, 3) if t not in tiers]
     if missing and args.target != "report":
         names = ", ".join(f"T{t}" for t in missing)
