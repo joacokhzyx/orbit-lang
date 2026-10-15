@@ -9,6 +9,10 @@
 *.obj
 output_orbit.c
 last_generated.c
+# `orbit run` writes its binary next to the input as <file>.orb.run (and
+# <file>.orb.run.exe on Windows, covered by *.exe above). Nothing reads them;
+# a run by hand must not leave a file a `git add -A` away from a commit.
+*.orb.run
 
 # C compile cache (scripts/orbit_ccache.py); ORBIT_CCACHE_DIR points here in CI
 .ccache/
