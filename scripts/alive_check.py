@@ -378,6 +378,13 @@ def registry(compiler, cc, work):
              "--self-test proves a broken TU and a missing runtime still fail",
              lambda: _script("mklib_runtime.py", "--self-test"),
              r"Finished mklib self-test: 2/2", 300),
+        Tool("shard_selfhost.py", "measurement",
+             "sharded build driver: R1-R7 split + parallel gcc -c + link + "
+             "auto-emission SHA check; --self-test partitions a synthetic "
+             "TU both ways and proves a bad shard fails",
+             lambda: _script("shard_selfhost.py", "--self-test",
+                             "--cc", cc),
+             r"Finished shard-selfhost self-test: \d+/\d+", 300),
         Tool("tcc_setup.py", "measurement",
              "the pinned tcc 0.9.27 acquisition; --check proves the pin "
              "without installing. Exit 2 is SKIP (no tcc here), not death, "

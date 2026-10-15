@@ -34,12 +34,30 @@ the current canonical, the three frontend rebuilds are skipped and the four
 equality checks run on the snapshot bytes instead; a stale or unreadable dir
 falls back to the full rebuild. The slow path (no flag) is untouched.
 
+``--shards-dir DIR`` + ``--manifest PATH`` (carril E3, detras de flag)
+ejecutan la verificacion por shards ANTES de la cadena heredada: la mitad
+que no depende del emisor por shard (cat(shards en orden) == canonical
+por hash, mas PUBLISHED_C sobre el concatenado). Sin el flag nada de
+esto se ejecuta y el comportamiento es byte-identico al anterior.
+
+Heredado e intacto tras el flag: las 4 igualdades (seed builds + C de
+seed/chain2/chain3 == canonical), el contrato --release y la via rapida
+--shared-work con su binario informativo. Nuevo bajo el flag: 2
+igualdades del concatenado (cat == canonical, cat == PUBLISHED_C).
+Pendiente de E1 (manda docs/shard_layout.md): el emisor por shard mas
+la verificacion R10 (a: CAT IDENTICAL sobre slices verbatim; b:
+cobertura header/shards con missing=0; c: los shards enlazados
+re-emiten el SHA canonico). Por sec. 1 del layout, cat==canonical es
+imposible con header (ORBIT_SHARD_COMMON_H): si se detecta header, el
+flag rehusa en vez de informar un mismatch.
+
 Exit code 0 iff every hard check passes.
 
 Usage:
     python scripts/verify_seed.py [--release] [--emit-fixed-point PATH]
                                   [--work DIR] [--cc CC] [--refresh] [--keep]
                                   [--shared-work DIR] [--low-mem | --no-low-mem]
+                                  [--shards-dir DIR] [--manifest PATH]
 """
 
 import argparse
@@ -248,6 +266,49 @@ def consume_shared_work(shared_dir, work, h_canon):
     return (seed_c, chain2_c, chain3_c, chain_exe, h_seed, h_chain2, h_chain3)
 
 
+def _list_shard_files(shards_dir: str) -> list:
+    """Shard *.c files under DIR, sorted (deterministic concat order)."""
+    found = []
+    for name in sorted(os.listdir(shards_dir)):
+        if name.endswith(".c") and "shard" in name.lower():
+            found.append(os.path.join(shards_dir, name))
+    return found
+
+
+def _manifest_shard_order(manifest_path: str) -> list:
+    """Shard tokens in first-seen (TU) order from a shards.tsv manifest.
+
+    Layout sec. 2: ``shard\\tfunc\\tdefstart\\tend``, 1-based, TU order. Blank
+    lines and ``#`` comments are skipped; ranges must satisfy 1 <= start
+    <= end. Returns the shard column deduplicated, order-preserving.
+    """
+    order = []
+    with open(manifest_path, encoding="utf-8") as f:
+        for ln, line in enumerate(f, 1):
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            cols = s.split("\t")
+            if len(cols) < 4:
+                cols = s.split()
+            if len(cols) < 4:
+                raise ValueError(f"{manifest_path}:{ln}: want 4 columns "
+                                 "(shard func defstart end)")
+            try:
+                start, end = int(cols[2]), int(cols[3])
+            except ValueError:
+                raise ValueError(f"{manifest_path}:{ln}: defstart/end "
+                                 "are not ints")
+            if start < 1 or end < start:
+                raise ValueError(f"{manifest_path}:{ln}: bad range "
+                                 f"{start}..{end}")
+            if cols[0].strip() not in order:
+                order.append(cols[0].strip())
+    if not order:
+        raise ValueError(f"{manifest_path}: no shard rows")
+    return order
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Verify the C bootstrap fixed point")
     ap.add_argument("--release", action="store_true",
@@ -259,6 +320,10 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
     ap.add_argument("--shared-work", default=None, metavar="DIR",
                     help="write converged snapshots + hashes.json under DIR")
+    ap.add_argument("--shards-dir", default=None, metavar="DIR",
+                    help="verify cat(shards in order) == canonical (+ PUBLISHED_C), then run the inherited chain")
+    ap.add_argument("--manifest", default=None, metavar="PATH",
+                    help="TSV manifest (shard func defstart end, TU order) ordering the --shards-dir concatenation")
     ap.add_argument("--low-mem", dest="low_mem", action="store_true", default=None,
                     help="force the low-memory C profile (-g0, no unwind tables)")
     ap.add_argument("--no-low-mem", dest="low_mem", action="store_false",
@@ -315,6 +380,95 @@ def main() -> int:
     h_canon = sha256(CANONICAL_C)
     out.say(f"Canonical C:  {h_canon}  ({os.path.getsize(CANONICAL_C)} bytes)")
     seed_src_c = CANONICAL_C
+
+    # E3 shard pre-check (flag only): interim half without the per-shard
+    # emitter. Concatenates the shards in order and demands the canonical
+    # bytes plus PUBLISHED_C, then falls through to the inherited chain
+    # untouched. Without the flag this block does not run at all.
+    shards_dir_arg = os.path.abspath(args.shards_dir) if args.shards_dir else None
+    manifest_arg = os.path.abspath(args.manifest) if args.manifest else None
+    if manifest_arg is not None and shards_dir_arg is None:
+        out.fail("Failed: --manifest needs --shards-dir.")
+        return 2
+    if shards_dir_arg is not None:
+        t_shards = time.time()
+        if not os.path.isdir(shards_dir_arg):
+            out.fail(f"Failed: --shards-dir {shards_dir_arg} is not a directory.")
+            return 2
+        try:
+            dir_names = os.listdir(shards_dir_arg)
+        except OSError:
+            out.fail(f"Failed: --shards-dir {shards_dir_arg} is unreadable.")
+            return 2
+        # Layout sec. 1: header-based shards never cat to the canonical by
+        # construction (declarations + 98 static inline helpers live in
+        # the header). Refuse rather than mis-report that as a mismatch;
+        # R10 needs the E1 emitter/driver, still pending.
+        for _name in dir_names:
+            if _name.endswith(".h"):
+                try:
+                    with open(os.path.join(shards_dir_arg, _name), "rb") as _hf:
+                        _head = _hf.read(1 << 20)
+                except OSError:
+                    continue
+                if b"ORBIT_SHARD_COMMON_H" in _head:
+                    out.fail(f"Failed: header-based shard layout detected "
+                             f"({_name} carries ORBIT_SHARD_COMMON_H); interim "
+                             f"cat(shards)==canonical cannot hold by "
+                             f"construction (shard layout sec. 1). Pending E1: "
+                             f"per-shard emitter + R10a/b/c verification.")
+                    return 1
+        shard_files = _list_shard_files(shards_dir_arg)
+        if not shard_files:
+            out.fail(f"Failed: no *shard*.c files under {shards_dir_arg}.")
+            return 1
+        if manifest_arg is not None:
+            if not os.path.isfile(manifest_arg):
+                out.fail(f"Failed: --manifest {manifest_arg} is missing.")
+                return 2
+            try:
+                _order = _manifest_shard_order(manifest_arg)
+            except (OSError, ValueError) as _e:
+                out.fail(f"Failed: bad manifest: {_e}")
+                return 1
+            _ordered = []
+            for _tok in _order:
+                _hits = [p for p in shard_files
+                         if _tok == os.path.basename(p)
+                         or _tok in os.path.basename(p)]
+                if len(_hits) != 1:
+                    out.fail(f"Failed: manifest shard {_tok!r} matches "
+                             f"{len(_hits)} files; want exactly 1.")
+                    return 1
+                _ordered.append(_hits[0])
+            if len(_ordered) != len(shard_files):
+                out.fail(f"Failed: manifest names {len(_ordered)} shards, "
+                         f"dir holds {len(shard_files)}.")
+                return 1
+            shard_files = _ordered
+            out.say(f"shard manifest: {manifest_arg} "
+                    f"({len(_order)} shards in TU order)")
+        _h = hashlib.sha256()
+        _total = 0
+        for _p in shard_files:
+            with open(_p, "rb") as _f:
+                for _chunk in iter(lambda: _f.read(1 << 20), b""):
+                    _h.update(_chunk)
+                    _total += len(_chunk)
+        h_cat = _h.hexdigest()
+        check("shard concatenation (cat(shards in order) == canonical C)",
+              h_cat == h_canon,
+              f"cat={h_cat} canonical={h_canon} "
+              f"files={len(shard_files)} bytes={_total}")
+        check("shard concatenation matches published contract (PUBLISHED_C)",
+              h_cat.upper() == PUBLISHED_C,
+              f"cat={h_cat.upper()} published={PUBLISHED_C}")
+        out.say(f"shard verification cost: {time.time() - t_shards:.2f}s "
+                f"({len(shard_files)} files, {_total} bytes, hashes+cat only)")
+        if h_cat != h_canon or h_cat.upper() != PUBLISHED_C:
+            out.fail("Failed: shard concatenation diverges; the inherited "
+                     "chain below is skipped.")
+            return 1
 
     fast = consume_shared_work(shared_dir, work, h_canon) if shared_dir else None
     if fast is not None:
