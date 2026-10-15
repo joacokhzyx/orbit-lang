@@ -13,7 +13,7 @@ Tiers:
   T0  static, no compiler. Format check and Python syntax.
   T1  existing orbit binary. Doctor goldens, doctor scope, CLI contract.
   T2  freshly built fixed point. Language behaviour, negative corpus,
-      parity, -Werror on generated C.
+      parity, -Werror on generated C, unknown-count ratchet.
   T3  root of trust. build_selfhost --check-stale and verify_seed.
 
 Tier selection: `dev` selects tiers from `git diff --name-only` and errs
@@ -728,6 +728,15 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
             # green on every unit test and broken in the way that matters.
             ("kynx_live", [py, f"{s}/kynx_gate.py", "live", "--cc", cc,
                            "--compiler", fp]),
+            # D7's one-way ratchet, the reader the baseline never had in this
+            # sequence. It was a hard CI step until f001308 folded CI into
+            # `dev.py all`, and alive_check's row for it is liveness only
+            # (rc 1 tolerated, marker matches both verdicts) -- so without
+            # this entry a tree that raised unknown_per_mille above the
+            # baseline shipped green. T2, like kynx_live: it measures the
+            # freshly built fp, and `report` keeps only the raw census.
+            ("unknown_ratchet", [py, f"{s}/unknown_ratchet.py",
+                                 "--compiler", fp, "--cc", cc]),
         ],
         3: [
             ("check_stale", [py, f"{s}/build_selfhost.py", "--cc", cc, "--check-stale"]),
