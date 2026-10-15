@@ -501,7 +501,13 @@ def ensure_lib(cc, work, lib_override):
     mk = Path(work) / "mk"
     mk.mkdir(parents=True, exist_ok=True)
     out_path = Path(work) / "libruntime_net.a"
-    rc = mklib_runtime.build_lib(cc, out_path, mk)
+    # This archive links the fixed-point compiler, which spawns its own C
+    # compiler. Under -DORBIT_SEPARATE_COMPILATION the exec implementation
+    # lives here, not in the compiler's TU, so this define is what decides
+    # whether a shard-built compiler can build programs at all. Without it
+    # the compiler reports success without producing a binary -- ERRORS-1's
+    # symptom, re-entered through the shard lane.
+    rc = mklib_runtime.build_lib(cc, out_path, mk, defines=("ORBIT_WITH_EXEC",))
     if rc != 0:
         raise ValueError("mklib_runtime did not build (rc=%d)" % rc)
     return str(out_path)
@@ -700,7 +706,8 @@ def run_self_test(cc):
             '',
             'int main(int argc, char* argv[]) {',
             '    (void)argc; (void)argv;',
-            '    return synth_first(1);',
+            '    orbit_string out = orbit_os_exec_selfhost("echo exec-ok");',
+            '    return orbit_string_indexOf(out, "exec-ok") >= 0 ? 0 : 3;',
             '}',
         ]
         with open(tu, "w", encoding="utf-8", newline="\n") as fh:
@@ -710,7 +717,9 @@ def run_self_test(cc):
             fh.write('#ifndef SYNTH_H\n#define SYNTH_H\n'
                      '#define ORBIT_SHARD_COMMON_H\n'
                      '#include "runtime.h"\n'
-                     'static inline int synth_helper(int x);\n'
+                     'static inline int synth_helper(int x) {\n'
+                     '    return x + 1;\n'
+                     '}\n'
                      'int synth_first(int a);\n#endif\n')
 
         # 1. E1 partition of the synthetic TU.
@@ -766,6 +775,24 @@ def run_self_test(cc):
         check("synthetic shards compile -c", ok,
               "; ".join(os.path.basename(s) for s, _o, _d, p in res
                         if p.returncode != 0))
+
+        # 6. A shard-linked binary can exec, and the echoed token proves the
+        # real implementation ran: the stub returns "", so the token cannot
+        # come back. The archive link happens through ensure_lib_cached, so
+        # this is the one check that guards ORBIT_WITH_EXEC in the bootstrap
+        # archive -- without it the fixed-point compiler it links reports
+        # success without producing a binary (ERRORS-1's symptom, re-entered
+        # through this lane).
+        exe = os.path.join(work, "synth_exe.exe"
+                           if os.name == "nt" else "synth_exe")
+        try:
+            shard_build(cc, tu, hdr, exe, work, tag="selftest", jobs=2)
+            proc = subprocess.run([exe], capture_output=True, text=True)
+            check("shard-linked binary can exec", proc.returncode == 0,
+                  "rc=%d stdout=%r stderr=%r"
+                  % (proc.returncode, proc.stdout[:60], proc.stderr[:60]))
+        except (ValueError, RuntimeError, OSError) as exc:
+            check("shard-linked binary can exec", False, str(exc)[:200])
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

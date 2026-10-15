@@ -66,7 +66,18 @@ def default_out():
     return ROOT / ".orbit" / "lib" / "libruntime_net.a"
 
 
-def build_lib(cc, out_path, work):
+def build_lib(cc, out_path, work, defines=()):
+    """Compile the library TU into the archive.
+
+    `defines` ride into the TU file, not onto the cc line, for the reason the
+    LIB_TU comment gives: the file is the one place that says which variant
+    this archive is. shard_selfhost passes ORBIT_WITH_EXEC for the bootstrap
+    archive that links the fixed-point compiler -- that compiler spawns its
+    own C compiler, and under -DORBIT_SEPARATE_COMPILATION the exec
+    implementation lives in this archive, where a define on the shard cc
+    line cannot reach it. The user-facing archive
+    (.orbit/lib/libruntime_net.a) stays exec-free (R3.6).
+    """
     runtime_dir = RUNTIME
     if not runtime_dir.is_dir():
         out.fail(f"Failed mklib: no runtime directory at {runtime_dir}")
@@ -76,7 +87,8 @@ def build_lib(cc, out_path, work):
         return 1
     tu = work / "orbit_lib.c"
     obj = work / "orbit_lib.o"
-    tu.write_text(LIB_TU, encoding="utf-8")
+    tu.write_text("".join("#define %s\n" % d for d in defines) + LIB_TU,
+                  encoding="utf-8")
     compile_argv = [cc, "-O2", "-Wall", "-I", str(runtime_dir),
                     str(tu), "-c", "-o", str(obj)]
     if os.name == "nt":
