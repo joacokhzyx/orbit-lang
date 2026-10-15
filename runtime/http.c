@@ -528,6 +528,27 @@ const char* orbit_reason_phrase(int status) {
     }
 }
 
+/** @brief Format the response header into @p dst.
+ *
+ * Returns snprintf's value: the length the header would have, NUL not
+ * counted, so a return at or above @p cap means it was cut.
+ */
+static int orbit_format_header(char* dst, size_t cap, const OrbitResponse* resp,
+                               const char* reason, const char* ct, size_t body_len) {
+    return snprintf(dst, cap,
+        "HTTP/1.1 %d %s\r\n"
+        "Server: Orbit\r\n"
+        "Content-Type: %s\r\n"
+        "%s"
+        "Connection: keep-alive\r\n"
+        "Keep-Alive: timeout=30, max=1000\r\n"
+        "Content-Length: %d\r\n"
+        "\r\n",
+        resp->status, reason, ct,
+        resp->extra_headers ? resp->extra_headers : "",
+        (int)body_len);
+}
+
 /** @brief Write @p resp (header + body) to @p client in a single fast-path send() syscall. */
 void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     if (!resp) return;
@@ -553,14 +574,15 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     const char* reason = orbit_reason_phrase(resp->status);
     size_t reason_len = strlen(reason);
 
-    /* Manual header build: byte-identical to the previous snprintf shape
-     * (same status/reason/content-type/length bytes, same (int) length
-     * truncation), without varargs and format-string parsing per request.
-     * Pathological inputs fall back to the bounded snprintf shape. */
+    /* Manual header build: byte-identical to the fallback snprintf shape,
+     * without varargs and format-string parsing per request. Inputs that
+     * do not fit the fast path take the fallback's two passes: measure
+     * into header[512], then rebuild at exactly that size. */
     char header[512];
     size_t ct_len = strlen(ct);
     size_t eh_len = resp->extra_headers ? resp->extra_headers_len : 0;
     int header_len;
+    char* header_alloc = NULL;
     if (reason_len <= 32 && ct_len <= 128 && eh_len <= 128) {
         static const char h1[] = "HTTP/1.1 ";
         static const char h2[] = "\r\nServer: Orbit\r\nContent-Type: ";
@@ -589,36 +611,36 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
         memcpy(h, h4, sizeof(h4) - 1); h += sizeof(h4) - 1;
         header_len = (int)(h - header);
     } else {
-        header_len = snprintf(header, sizeof(header),
-            "HTTP/1.1 %d %s\r\n"
-            "Server: Orbit\r\n"
-            "Content-Type: %s\r\n"
-            "%s"
-            "Connection: keep-alive\r\n"
-            "Keep-Alive: timeout=30, max=1000\r\n"
-            "Content-Length: %d\r\n"
-            "\r\n",
-            resp->status, reason, ct,
-            resp->extra_headers ? resp->extra_headers : "",
-            (int)body_len);
+        header_len = orbit_format_header(header, sizeof(header), resp, reason, ct, body_len);
+        if (header_len >= (int)sizeof(header)) {
+            /* snprintf returns the length it *would* have written, NUL
+             * not counted: at or above the buffer size the header was cut
+             * and the bytes past the buffer are whatever this stack frame
+             * held. Rebuild at exactly the size it asked for. */
+            header_alloc = malloc((size_t)header_len + 1);
+            if (!header_alloc) return;
+            orbit_format_header(header_alloc, (size_t)header_len + 1, resp, reason, ct, body_len);
+        }
     }
 
     if (header_len > 0) {
+        const char* header_bytes = header_alloc ? header_alloc : header;
         size_t total_len = (size_t)header_len + body_len;
         if (total_len < 8192) {
             char combined[8192];
-            memcpy(combined, header, (size_t)header_len);
+            memcpy(combined, header_bytes, (size_t)header_len);
             if (body_len > 0) {
                 memcpy(combined + header_len, body, body_len);
             }
             send(client, combined, (int)total_len, 0);
         } else {
-            send(client, header, header_len, 0);
+            send(client, header_bytes, header_len, 0);
             if (body_len > 0) {
                 send(client, body, (int)body_len, 0);
             }
         }
     }
+    free(header_alloc);
 }
 
 /* â”€â”€ Main Dispatch Hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
