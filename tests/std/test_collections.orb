@@ -1,57 +1,45 @@
 // M5 contract tests: string-list helpers plus int search. Maps are
 // out of scope (method lowering targets lists today).
 //
-// KNOWN FALSE PASS -- checks 10 and 11 below (containsInt / indexOfInt
-// on `nums`) do not test what they appear to, and the reason is exact.
+// A note on what these checks measure, because the machinery under them
+// changed and an earlier header described the old one. Before lists had an
+// element type (F-0002), a read lowered to one hardcoded pointer
+// dereference -- `*(void**)_lr.value` -- and a write staged the value in a
+// `uintptr_t` `_tmp` word, whatever the list held. The comparison behind
+// `l.get(i) == v` was between two words, and which values survived it was
+// a property of their representation: ints did, because the word is the
+// int; pointer-carried values did not, which is F-0009's class and its
+// `getOr(nums, 0, "d")` crash.
 //
-// What they appear to test: that searching a list of ints for an int
-// works. What they actually compare, in the emitted C, is:
+// F-0002's fix changed that in layers. Reads and writes lower to the
+// accessor for the element kind now (`orbit_list_push_int`,
+// `orbit_list_read_int`, ...), every helper declares its payload
+// (`list<string>` / `list<int>`, and the family is generic per call site
+// now), and the runtime checks the kind the list adopted at every typed
+// read, refusing the wrong one instead of decoding it. Checks 10 and 11
+// run the typed int accessors and compare decoded ints; the string checks
+// compare with `strcmp` over `orbit_list_read_string`. They asserted the
+// right expectation all along -- a list of ints must be searchable for an
+// int -- and the machinery can carry the assertion now.
 //
-//     push:  { uintptr_t _tmp = (uintptr_t)(20); orbit_list_push(l, &_tmp); }
-//     get:   OrbitResult _lr = orbit_list_get(l, i);
-//            r = _lr.ok ? *(void**)_lr.value : NULL;
-//     test:  (uintptr_t)(r) == (uintptr_t)(20)
+// What has no answer is a search whose element type is incoherent -- a
+// string search over a list of lists. Where the call site can name the
+// element type it is E1005 at compile time:
 //
-// So the assertion is that the BIT PATTERN stored in the list equals the bit
-// pattern of the needle. There is no element type, so nothing unpacks a
-// stored word before comparing it; for an int element the stored word is the
-// int, so 20 really is 20 and the check passes. It is a comparison of
-// addresses that happens to be true, not a search.
+//     error[E1005]: Parameter 1 of indexOfStr is declared list<string> but
+//     the argument is list<list<string>>.
 //
-// WHAT WOULD BREAK IT: the first list whose elements are boxed values --
-// strings behind a pointer, models, or any element a heap cell. Then the
-// stored word is a pointer, `(uintptr_t)pointer` is an address like
-// 0x55f3e2a1c040, and the equality is false for every element including the
-// right one, so containsInt returns false and indexOfInt returns -1 for a
-// list that plainly contains the value. That is not a degradation, it is a
-// total inversion, and it lands the moment lists get an element type.
+// and where the list arrives behind a bare `-> list`, the first typed read
+// refuses at runtime, exit 2:
 //
-// The expectation is still RIGHT after that fix -- a list of ints must be
-// searchable for an int -- so these two checks are left exactly as they are and
-// will keep passing. They are simply not evidence until then, which is why the
-// other half of this contract is a separate file:
-// tests/std/test_collections_boxed.orb asserts the same search over a list
-// that already holds boxed values, where it fails today and is declared
-// `known-failing`. Two more verified demonstrations of what is not covered
-// here:
+//     orbit: list element type mismatch
+//       list holds reference, this value is string
+//       a list has one element type, so a read and a write must agree on it
 //
-//   1. indexOfStr over a list of lists answers wrong, silently. The element is
-//      then a list pointer, and the pointer is compared to the needle:
-//        var inner = []  inner.push("x")
-//        var outer = []  outer.push(inner)
-//        print(indexOfStr(outer, "x"))   ->  -1, and it should be 0
-//
-//   2. getOr is declared `-> string` and calls `l.get(i)`. On an int
-//      list that hands an int back where a string is declared:
-//        getOr(nums, 0, "d")      ->  Segmentation fault (core dumped)
-//
-// The element types are owned by the compiler now (`list<string>` /
-// `list<int>` in every signature in lists.orb, F-0007 with enough type IR to
-// check the payload). Reading back a list of the wrong kind is a REAL error
-// when the caller can name it (E1005), and a runtime abort when it cannot.
-// Checks 10 and 11 below still only assert bit-pattern equality today, but
-// they at least run against a typed getter, which puts the remaining gap on
-// boxing, not on the payload type.
+// That runtime half is tests/std/test_collections_boxed.orb, ordinary
+// `expect-exit 2` coverage now; the push-side half is
+// tests/negative/list_mixed_element_kinds.orb, and n39 pins the E1005 for
+// `getOr(nums, 0, "d")` over an int list.
 import "std/collections/lists.orb"
 import "std/test/assert.orb"
 

@@ -341,8 +341,7 @@ backend had been discarding.
 **14 modules, 14 of 14 compile and merge into one program.** Verified:
 `tests/std/test_imports.orb` imports all fourteen into a single binary and
 calls into each, and it passes. `tests/std/` is 22 files and runs
-22/22 green, one of them declared `known-failing` so that a fix arrives
-as a red run rather than as a silent behaviour change.
+22/22 green.
 
 `std/` was 20 modules. **Six were deleted, and deleting them was the
 honest response**, because each was a function that returned a value and
