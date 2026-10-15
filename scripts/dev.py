@@ -60,10 +60,18 @@ WITNESS_LOG = ORBIT / "last_run.log"
 #   <dir>/seed.c      the seed-stage C snapshot (diagnostics, cache reuse)
 #   <dir>/hashes.json {canonical_sha, seed_sha, chain3_sha, published}
 # All hashes are lowercase hex of file bytes, except `published` which is the
-# uppercase PUBLISHED_C from verify_seed.py. When the directory is absent or
-# stale every helper below falls back to the current behaviour (rebuild per
-# gate). The fallback is deliberate: dev.py must stay green on a tree where
-# --shared-work is still unknown or no chain has been shared yet.
+# uppercase PUBLISHED_C from verify_seed.py. The writers emit exactly those
+# four keys; the driver merges a fifth of its own, `sources_sha`
+# (compiler_fingerprint: compiler/*.orb content + the C compiler identity),
+# after build_fp and after a green `all` whose verify_seed rewrote the
+# manifest. shared_is_valid REQUIRES it, because without it an unpromoted
+# compiler/*.orb edit left the snapshots "valid": every file still hashed to
+# what hashes.json said, check_stale degraded to a byte compare of two
+# unchanged files, and `all` stayed green while testing the pre-edit
+# compiler (OPS-1). When the directory is absent or stale every helper below
+# falls back to the current behaviour (rebuild per gate). The fallback is
+# deliberate: dev.py must stay green on a tree where --shared-work is still
+# unknown or no chain has been shared yet.
 SHARED_DIR = ORBIT / "shared"
 SHARED_CHAIN3_EXE = SHARED_DIR / ("chain3.exe" if os.name == "nt" else "chain3")
 SHARED_CHAIN3_C = SHARED_DIR / "chain3.c"
@@ -278,7 +286,8 @@ def build_fp(cc: str) -> pathlib.Path:
     # Populate the shared snapshots on every real build: consumption is gated
     # on validity elsewhere, but without this no run ever writes the dir and
     # every `all` falls back forever (populate-always, consume-when-valid).
-    if script_supports("build_selfhost.py", "--shared-work"):
+    wrote_shared = script_supports("build_selfhost.py", "--shared-work")
+    if wrote_shared:
         argv += ["--shared-work", str(SHARED_DIR)]
     proc = subprocess.run(argv, cwd=str(ROOT), env=child_env())
     if proc.returncode != 0:
@@ -290,7 +299,39 @@ def build_fp(cc: str) -> pathlib.Path:
     mode = binary.stat().st_mode
     binary.chmod(mode | 0o111)
     FP_STAMP.write_text(compiler_fingerprint(cc) + "\n")
+    # The manifest the chain just wrote describes a chain built from THESE
+    # sources; stamping it with the driver's own key is what lets the next
+    # `all` adopt the snapshots without re-deriving them (contract comment at
+    # the top). Only when --shared-work was actually accepted: an untouched
+    # manifest from an earlier tree must not be re-stamped.
+    if wrote_shared:
+        record_shared_sources(cc)
     return binary
+
+
+def record_shared_sources(cc: str) -> None:
+    """Merge dev.py's `sources_sha` into the shared manifest (best effort).
+
+    The manifest is written whole by build_selfhost.py / verify_seed.py, which
+    cannot compute compiler_fingerprint (it folds in the driver's resolved C
+    compiler identity): they emit the four writer keys and nothing else, and a
+    rewrite mid-run drops this key with them. This is called exactly when the
+    snapshots were just produced by, or re-validated against, the current
+    sources: end of build_fp and after a green `all`. A missing manifest or
+    unreadable JSON is a no-op -- the next `all` then rebuilds and re-records,
+    which is the safe direction.
+    """
+    if not SHARED_HASHES.exists():
+        return
+    try:
+        doc = json.loads(SHARED_HASHES.read_text(encoding="utf-8"))
+        doc["sources_sha"] = compiler_fingerprint(cc)
+        tmp = SHARED_HASHES.with_name(SHARED_HASHES.name + f".tmp{os.getpid()}")
+        tmp.write_text(json.dumps(doc, indent=2) + "\n",
+                       encoding="utf-8", newline="\n")
+        os.replace(tmp, SHARED_HASHES)
+    except (OSError, ValueError) as exc:
+        say(f"  note: could not record sources_sha in {short(SHARED_HASHES)} ({exc})")
 
 
 def ensure_fp(cc: str, allow_build: bool = True) -> pathlib.Path:
@@ -349,11 +390,17 @@ def script_supports(script: str, flag: str) -> bool:
     return _SUPPORTS_CACHE[key]
 
 
-def shared_is_valid() -> tuple:
+def shared_is_valid(cc: str) -> tuple:
     """Whether .orbit/shared/ describes the current canonical (no rebuild needed).
 
-    Valid means all four contract files exist, hashes.json parses with the four
-    keys, and the stored canonical/seed/chain3 hashes match the bytes on disk.
+    Valid means all four contract files exist, hashes.json parses with the
+    four writer keys plus dev.py's `sources_sha`, the stored canonical/seed/
+    chain3 hashes match the bytes on disk, and sources_sha matches
+    compiler/*.orb plus the C compiler identity right now. That last check is
+    what keeps the snapshot falsifiable while a compiler source edit is
+    unpromoted: the files in the dir still hash to what hashes.json says, so
+    without it `all` adopts the pre-edit chain and substitutes a byte compare
+    over it (OPS-1).
     Anything else is (False, reason) and the caller falls back to rebuilding.
     """
     for p in (SHARED_CHAIN3_EXE, SHARED_CHAIN3_C, SHARED_SEED_C, SHARED_HASHES):
@@ -378,6 +425,10 @@ def shared_is_valid() -> tuple:
         return False, "seed.c hash mismatch"
     if doc["chain3_sha"].lower() != actual_chain3.lower():
         return False, "chain3.c hash mismatch"
+    if "sources_sha" not in doc:
+        return False, "hashes.json has no sources_sha (snapshot predates OPS-1)"
+    if doc["sources_sha"] != compiler_fingerprint(cc):
+        return False, "compiler sources moved on since the snapshot was built"
     return True, "ok"
 
 
@@ -387,9 +438,9 @@ def ensure_fp_for_all(cc: str, allow_build: bool) -> pathlib.Path:
     Copy + stamp, no rebuild: the shared chain3.exe IS the converged compiler,
     so this is a file copy and a fingerprint write, not a bootstrap. Falls back
     to ensure_fp (today's behaviour) when the shared dir is absent or stale,
-    which is the case until agent F delivers --shared-work.
+    which is also the case on a tree whose scripts predate --shared-work.
     """
-    ok, _reason = shared_is_valid()
+    ok, _reason = shared_is_valid(cc)
     if ok:
         started = time.monotonic()
         binary = fp_path()
@@ -866,7 +917,7 @@ def main() -> int:
     # supports_* mean the scripts already accept --shared-work. verify_seed keeps
     # its four equality checks over real snapshot bytes in both paths -- the flag
     # only decides whether it rebuilds the chain or reuses the snapshots.
-    shared_ok, shared_reason = (shared_is_valid() if args.target == "all"
+    shared_ok, shared_reason = (shared_is_valid(cc) if args.target == "all"
                                 else (False, "not all"))
     supports_build = script_supports("build_selfhost.py", "--shared-work")
     supports_verify = script_supports("verify_seed.py", "--shared-work")
@@ -1103,6 +1154,13 @@ def main() -> int:
         want = "make check" if missing == [3] else "make all"
         say(paint(f"  {names} did not run, so this is not a green CI. `{want}`.",
                   YELLOW))
+    if args.target == "all" and use_shared_chain:
+        # verify_seed rewrites the manifest whole when it converges, which
+        # drops sources_sha; restore it for the snapshot set this run just
+        # consumed and re-validated. Guarded by use_shared_chain (snapshots
+        # were valid and in play) so a run that never touched the dir cannot
+        # re-stamp it.
+        record_shared_sources(cc)
     return 0
 
 
