@@ -312,6 +312,90 @@ jobs:
           "$RUNNER_TEMP/tcc_hello"
           echo "TCC-HELLO-PASS"
 
+  # Dual-toolchain judge + DDC triangle, separate from `gates` on purpose:
+  # dual is ~80s and triangle ~90s wall, and neither fits the local `make
+  # all` budget (measured lane W: no honest configuration stays under it).
+  # No `needs:` edge into gates, so this job cannot turn another job red.
+  # Ubuntu runs both (gcc is present for the triangle arms); Windows runs
+  # dual only with clang as the second judge (the triangle is gcc-O0/O2
+  # by design). tcc absent -> DUAL-SKIP visible + exit 0, never silent.
+  dual-triangle:
+    name: Dual judge + DDC triangle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      MSYS2_ARG_CONV_EXCL: '*'
+      MSYS_NO_PATHCONV: 1
+      ORBIT_CCACHE_DIR: ${{ github.workspace }}/.ccache
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+          - os: windows-latest
+            cc: clang
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore C compile cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-gcc-${{ runner.os }}-${{ hashFiles('compiler/selfhost/stage3.exe.c') }}
+          restore-keys: |
+            ccache-gcc-${{ runner.os }}-
+
+      - name: Install SQLite development library (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+
+      - name: Acquire pinned tcc (SKIP cleanly when unavailable)
+        id: acquire
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          set +e
+          "$PY" scripts/tcc_setup.py > tcc_setup.log 2>&1
+          rc=$?
+          set -e
+          cat tcc_setup.log
+          if [ $rc -eq 2 ]; then
+            echo "DUAL-SKIP: no tcc on this runner; gcc/clang lanes unaffected (docs/TOOLCHAIN.md)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+      - name: Build the fixed point
+        if: steps.acquire.outputs.skip != 'true'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/dev.py fp --cc "${{ matrix.cc }}"
+
+      - name: Dual judge tcc-vs-second-driver
+        if: steps.acquire.outputs.skip != 'true'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          FP="$("$PY" scripts/dev.py fp-path)"
+          TCC="$("$PY" scripts/tcc_setup.py --print-exe)"
+          ORBIT_TCC="$TCC" "$PY" scripts/dual_judge.py \
+            --compiler "$FP" --cc "${{ matrix.cc }}" --tcc "$TCC"
+
+      - name: DDC triangle (Linux only: needs gcc-O0/gcc-O2 arms)
+        if: runner.os == 'Linux' && steps.acquire.outputs.skip != 'true'
+        shell: bash
+        run: |
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          TCC="$("$PY" scripts/tcc_setup.py --print-exe)"
+          ORBIT_TCC="$TCC" "$PY" scripts/triangle.py \
+            --cc gcc --tcc "$TCC"
+
   # Flakiness detector for the self-host chain. Each leg is an independent
   # fixed-point run on its own runner, so the 8 repetitions run concurrently
   # instead of serially: the flakiness being hunted is run-to-run variation, and
