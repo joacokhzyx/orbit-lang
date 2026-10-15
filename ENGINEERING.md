@@ -726,11 +726,16 @@ path and its freshness stamp, and the flags each gate takes. Fourteen scripts
 accept `--cc`, fifteen accept `--compiler`, three accept neither, and
 `doctor_gate.py` accepts `--cc` and ignores it.
 
-Two things this does NOT do, both recorded as **gate-sequence** in §7: CI still carries
-its own inline copy of the sequence, and `make all` does not drive the runtime C
-tests, the Kynx live gate, `routes_probe.py`, the census, `diff_fuzz.py` or the
-gate self-tests. `make all` is a subset of CI, not a replacement for it, until
-CI calls this script.
+One thing this does NOT do, recorded as **gate-sequence** in §7: CI no longer
+carries a copy of the sequence for the two to drift apart. The `gates` job calls
+`scripts/dev.py all` and `scripts/dev.py report` and nothing else of it; what is
+still spelled out by hand lives in separate jobs split by blast radius (bootstrap
+root of trust, static pair and gate self-tests, runtime C and auth, the tcc shim,
+dual/triangle, the stress legs), not a second sequence. `make all` still does not
+drive the report tier -- `routes_probe.py`, the raw census and `diff_fuzz.py`,
+measurements CI prints and never fails on -- so `make all && make report` is the
+`gates` job, and a green CI also needs the jobs the local budget keeps out
+(dual/triangle at ~80 s and ~90 s, the eight stress legs, the tcc shim smoke).
 
 The list below is what the tiers run, and why each step is there. Every step is a
 stock Python 3 script or a C compiler invocation; no other toolchain is required.
@@ -838,6 +843,26 @@ python scripts/unknown_census.py --cc "$CC" --compiler /tmp/orbit_fp
 #     deliberate act - --write-baseline refuses to move a number up without
 #     --allow-regression. Today: 290/293 and 135/137 per mille, ratchet holds.
 python scripts/unknown_ratchet.py --cc "$CC" --compiler /tmp/orbit_fp
+
+# 16. [CI] Shard split round trip, T3. Splits the fixed point's bundled TU into
+#     shards (`--name emit_verify`; `--fresh`, so the bundle is one only this run
+#     wrote) and `verify_seed` (step 1) re-splits that bundle and re-checks body
+#     coverage and R10a against it. When a header bound to the canonical's exact
+#     C bytes is already recorded -- both its tu_sha256 and its header_sha256 --
+#     the emission is skipped and the canonical itself is split; the binding is
+#     re-checked, never trusted.
+python scripts/shard_selfhost.py --name emit_verify --emit-with /tmp/orbit_fp \
+    --no-build --fresh --shards-dir /tmp/orbit_shards --cc "$CC"
+
+# 17. [CI] Gate aliveness, D8. Every script in `scripts/` must run, finish inside
+#     its timeout, exit in its declared set, and print a marker that only appears
+#     when it did its real work -- a tool that starts, cannot do the work, says so
+#     and exits 0 still fails. In `all` it also reads the witness log dev.py wrote
+#     this same run (`.orbit/last_run.log`), so a heavy gate that stopped running
+#     fails even though nothing crashed, and a stale log fails loudly instead of
+#     passing quietly.
+python scripts/alive_check.py --cc "$CC" --compiler /tmp/orbit_fp \
+    --witness .orbit/last_run.log
 ```
 
 **Two things in that list are not the same kind of thing, and the difference has
