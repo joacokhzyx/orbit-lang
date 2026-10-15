@@ -163,7 +163,7 @@ The cache is keyed on the CONTENT hash, not the path or an mtime: move a file an
 
 ### 2.1 Current State
 
-`compiler/doctor.orb` is the whole of doctor. It scans `.orb` files under a directory and reports findings with codes `D001` through `D008`:
+`compiler/doctor.orb` is the whole of doctor. It scans `.orb` files under a directory and reports findings under 28 codes: `D001`-`D019` (there is no `D020`), `D021`-`D023`, `D025`, `D027`, `D028`, and `D031`-`D033`; `D024`, `D026`, `D029` and `D030` are unassigned. `docs/DOCTOR.md` is the code-by-code contract - messages, severity, fixes, and the limits each check states for itself - and wins when it and the table below disagree:
 
 | Code | What exists today | Implementation |
 |---|---|---|
@@ -175,26 +175,48 @@ The cache is keyed on the CONTENT hash, not the path or an mtime: move a file an
 | `D006` | Trailing whitespace. | `doctorScanStyle` |
 | `D007` | Missing final newline. | `doctorScanStyle` |
 | `D008` | A file that is empty, unreadable, or does not pass the compiler's own parse and typecheck. | `doctorRun`, via `checkSourceWithFile` |
+| `D009` | A string literal matching a credential prefix (`sk-`, `ghp_`, `AKIA`, `-----BEGIN`, `password=`, `secret=`, `token=`, `apikey=`). The prefix prints; the value never does. | `doctorScanLiterals` |
+| `D010` | A SQL statement built by string interpolation. A keyword alone is not a finding; it under-reports rather than guessing. | `doctorScanLiterals` |
+| `D011` | A `POST`/`PUT`/`PATCH`/`DELETE` route that returns without a role guard or a request-validation block. Reads the runtime's own guard vocabulary. | `doctorScanMutableRoutes` |
+| `D012` | An import whose module is named nowhere, directly or through what that module itself imports. | `doctorCheckUnusedImports` |
+| `D013` | A `var` that is never assigned again. `var mut` is exempt - `mut` is stated intent. | `doctorScanMutableDecls` |
+| `D014` | A database query inside a loop: one round trip per iteration where one per request was meant. | `doctorScanLoops` |
+| `D015` | A string built by `+` inside a loop over a collection, so the whole prefix is copied every iteration. | `doctorScanLoops` |
+| `D016` | A bare number of three or more digits appearing twice in one file under names that say nothing about what it is. | `doctorScanMagicNumbers` |
+| `D017` | Cyclomatic complexity: base 1 plus one per `if`, `while`, `for`, match arm and `try`. 11-20 is a warning, over 20 an error. | `doctorCheckComplexity` |
+| `D018` | A function that calls itself where the call is not the value it returns, so it holds a frame per level. | `doctorCheckRecursion` |
+| `D019` | An allocation inside a loop, repeated every iteration. An empty list literal is exempt - it is how an accumulator starts. | `doctorCheckLoopAllocs` |
+| `D021` | A function parameter its own body never reads; `extern fn` is skipped. | `doctorCheckUnusedParams` |
+| `D022` | Two match arms binding the same variant, so the later one is dead. Compared on the fully qualified pattern. | `doctorCheckDuplicateMatchArms` |
+| `D023` | A name shadowed in an inner scope and read again after that scope closes. | `doctorCheckShadowedUses` |
+| `D025` | A value read from the request reaching a database call. Sources are `orbit_http_body_get`, `orbit_auth_bearer_token` and `orbit_auth_current_role`; sinks are the six `orbit_db_*` query entry points. | `doctorCheckTaint` |
+| `D027` | A call that returns a `result`, called as a statement, so the error it reports is discarded. | `doctorCheckIgnoredResults` |
+| `D028` | A `var` whose last write nothing reads afterwards. A write inside a loop body is silent - a linear pass cannot see the next iteration. | `doctorCheckDeadStores` |
+| `D031` | A route the runtime ledger has no record of. Needs `--telemetry` (or `ORBIT_LEDGER_OUT`); dead code that reading the source cannot find. | `doctorCheckTelemetry` |
+| `D032` | A route whose arena overflowed in the ledger snapshot (`arena_overflow` non-zero): a leak counted in production, not inferred. | `doctorCheckTelemetry` |
+| `D033` | A route whose measured p99 exceeds the budget read out of `ENGINEERING.md`. With no budget found, the check stays off. | `doctorCheckTelemetry` |
 
-**This is a project hygiene tool, not a program analysis engine.** It reads tokens, lines, and declarations. It does not build a type graph, does not walk data flow, and does not reason about a request. The three-layer design in §2.2 is the specification for what doctor becomes; none of the analyses below it exist yet. They are written as a contract precisely so that they are buildable, not as a description.
+**It is a scan, not a whole-program analysis.** It reads tokens, lines, ASTs, and the compiler's own verdict on each file. The three-layer design in §2.2 is no longer a promise: §2.3 and §2.4 are shipped, and §2.5 is reconciled rather than open - the one analysis there worth building, taint, ships on the AST as `D025`, and the other two either have no subject in the current language (module-level mutable state is `E1007`) or duplicate `D019`'s shape. What it still cannot do is stated where it bites: a single-directory scan cannot establish whole-program reachability, which is why unused-declaration reporting stays conservative (`D003`/`D004`, §2.4).
 
 ### 2.2 Architecture
 
-The target is three layers applied to every `.orb` file in the project, each running independently, with results merged into one report:
+The design is three layers applied to every `.orb` file in the project, each running independently, with results merged into one report:
 
 ```text
-Layer 3: Semantic Graph Analysis                       [NOT IMPLEMENTED]
+Layer 3: Semantic Graph Analysis                       [NOT IMPLEMENTED as specified; reconciled in §2.5 - taint ships on the AST as D025]
   Input:  IRModule + Sema type graph (compiler/ir.orb, compiler/sema.orb)
   Detects: Data-flow bugs, taint violations, unguarded shared state, arena leaks
 
-Layer 2: AST Structural Analysis                       [PARTIAL: D003, D004 only]
+Layer 2: AST Structural Analysis                       [SHIPPED: D003, D004, D017-D019 - §2.4 in full]
   Input:  Parsed ASTNode tree (compiler/ast.orb, compiler/parser.orb)
   Detects: Cyclomatic complexity, dead functions, recursive depth, hot-loop allocs
 
-Layer 1: Token and line stream analysis                [PARTIAL: D002, D005, D006, D007]
+Layer 1: Token and line stream analysis                [SHIPPED: D002, D005-D007, and §2.3's checks D009-D011]
   Input:  Raw text, no AST construction
   Detects: Route conflicts, hardcoded secrets, SQL injection surface, unguarded routes
 ```
+
+The layers above are the design split. The `layer` the JSON report carries is coarser: `doctorLayerOf` (`compiler/doctor.orb:506`) files only `D002` and `D005`-`D007` as `text`, `D001`/`D008` as `io`, and every other code to `ast`.
 
 The AST schema had two type errors, both now fixed and both the reason an
 earlier draft of D017 reported a complexity of 1 for a function of 25:
@@ -218,13 +240,13 @@ Layer 2 now does exactly one thing does exactly one thing: it parses each file w
 
 ### 2.3 Layer 1: Text and Token Analyses
 
-Implement in `compiler/doctor.orb` alongside the existing text scans. No AST construction needed. Budget: ≤ 5 ms per 10K LOC file.
+Implemented in `compiler/doctor.orb` alongside the original text scans. No AST construction needed. Budget: ≤ 5 ms per 10K LOC file.
 
 #### Route Conflict Detection (exists - hardened, keep hardened)
 
 `doctorNormPath` normalises path parameters before insertion into the route map, so `GET /users/:id` and `GET /users/:uuid` collide by construction rather than by luck. `doctorWildcardCovers` reports a same-method wildcard registered over a specific path. This is the route-conflict-detector fix and it is closed. Do not regress it: any new route check must normalise through the same helper.
 
-#### Hardcoded Secret Detection (new)
+#### Hardcoded Secret Detection (shipped as `D009`)
 
 Scan all string literal values for these case-insensitive prefixes:
 
@@ -243,11 +265,11 @@ SECRET_PREFIXES = [
 
 For each match: emit a finding with file path, line number, code, and the matched prefix only. Do NOT include the full string value in the diagnostic output - that would re-expose the secret. This constraint is part of the finding, not a detail of the rendering.
 
-#### SQL Injection Surface Detection (new)
+#### SQL Injection Surface Detection (shipped as `D010`)
 
 When a string literal contains any of the SQL keywords `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `DROP` (case-insensitive substring search) and an interpolated string literal appears within the following 3 tokens, flag a warning: `"Interpolated string used in SQL context at <file>:<line>. Use parameterised queries."`
 
-#### Unauthenticated Mutable Route Detection (new)
+#### Unauthenticated Mutable Route Detection (shipped as `D011`)
 
 For every `route` whose method is `POST`, `PUT`, `PATCH`, or `DELETE`: scan the token stream of its body block. If no role-guard or request-validation marker appears before the first `ok` or `return`, emit a warning: `"Mutable route <METHOD> <path> has no role guard or request validation block."`
 
@@ -261,10 +283,10 @@ calls as `D018`, allocation inside a loop as `D019`, and dead functions as
 The numbers `D020` through `D023` appear in no version of this document. They
 were an invention of a planning note, listed as "what a doctor could grow next",
 and reading them back as spec is how a plan starts promising things the spec
-never did. `D022` (duplicate match arm) and `D023` (shadowing) are still real
-ideas and are recorded below as candidates rather than as commitments.
+never did. `D022` (duplicate match arm) and `D023` (shadowing) were real ideas,
+recorded below as candidates rather than as commitments; both have since shipped.
 
-Implement in `compiler/doctor.orb`, reusing the AST `doctorRun` already builds. Parse errors must convert to a warning diagnostic rather than aborting the run: the existing contract is that doctor still runs its text checks on a file that does not parse and skips only the AST-based analysis. Budget: ≤ 20 ms per 10K LOC.
+Implemented in `compiler/doctor.orb`, reusing the AST `doctorRun` already builds. Parse errors must convert to a warning diagnostic rather than aborting the run: the existing contract is that doctor still runs its text checks on a file that does not parse and skips only the AST-based analysis. Budget: ≤ 20 ms per 10K LOC.
 
 #### Cyclomatic Complexity
 
@@ -281,23 +303,25 @@ Thresholds:
 
 Build a call graph from all function declarations in the file. Use DFS to detect cycles. For each recursive function: verify that every branch's final statement is a return whose expression is a call targeting the same function (tail position). If not: emit a warning: `"fn <name> is recursive but not in tail position - may exhaust the call stack under sustained load."`
 
-#### Allocation Inside Hot Loops (new)
+#### Allocation Inside Hot Loops (shipped as `D019`)
 
 For any function whose body contains a `for` or `while`: walk the loop body subtree for calls whose callee identifier matches `list_create`, `map_create`, or the suffix `_alloc`. If found: emit a warning: `"Allocation inside loop body in fn <name> at <line>. Consider pre-allocating and reusing outside the loop."`
 
 #### Candidates that are not in this section
 
-Neither is scheduled. Both are written down so the next person does not re-derive
-them, and so the reason they are not scheduled is visible.
+Both were written down so the next person would not have to re-derive them,
+and both have since shipped (`D022`, `D023`). The bullets are the record of the
+argument, not open work.
 
-- **Duplicate `match` arm.** Not a doctor check: `patternVariantName` and
+- **Duplicate `match` arm.** (Record; shipped as `D022`.) The original argument
+  was that it is not a doctor check: `patternVariantName` and
   `qualifiedVariantName` (`sema.orb:1757`, `:1782`) need a `Sema`, and doctor's
   only door to it is `checkSourceWithFile(...) -> bool` (`pipeline.orb:161`).
-  It belongs beside `checkMatchExhaustive` (`sema.orb:1796`) as a second E-code.
+  It would belong beside `checkMatchExhaustive` (`sema.orb:1796`) as a second E-code.
   `covered` (`sema.orb:1801`) accumulates variant names and never checks for a
   repeat. Note the wildcard bails first (`sema.orb:1814`, `:1825`), so a check
   placed after that bail would skip exactly the dead arms.
-- **Shadowing.** Shadowing is intended: `builder.orb:79-80` and
+- **Shadowing.** (Record; shipped as `D023`.) Shadowing is intended: `builder.orb:79-80` and
   `resolveSymbol` (`sema.orb:601`) both resolve innermost-first on purpose, and
   same-scope re-declaration is already a hard error (`sema.orb:557`). The only
   useful form -- "this name shadows an outer one that is used afterwards" -- is
@@ -406,7 +430,7 @@ Every analysis added to doctor must satisfy all of the following before it is co
   6 files scanned, 41.8 ms (token 2.1 ms, ast 11.4 ms, semantic 19.7 ms, io 8.6 ms)
 ```
 
-The `D009` through `D012` codes are the next free codes; they are proposals, not commitments. The per-layer timing line is the §2.6 deliverable. What is not a proposal is the shape: one line per finding, location, code, message, and a fix the reader can act on without opening the file.
+The block above is the original sketch, not today's output: `D009` through `D012` have shipped since, under messages of their own (`docs/DOCTOR.md`), and the per-layer timing line is the stats §2.6 records. What survives from the sketch is the shape: one line per finding, location, code, message, and a fix the reader can act on without opening the file.
 
 ---
 
@@ -643,13 +667,13 @@ An open row ends in a priority (**High**/**Medium**/**Low**); a finished row str
 Read `~~struck~~` + ✅ Resolved as done (notes like coverage thin/manual are caveats, not reopenings); read a priority label as still open.
 The executable gate order is not here; it lives in §8 (`make dev`/`make check`/`make all` via `scripts/dev.py`).
 
-Count: 8 open, 22 resolved/closed, 30 rows total.
+Count: 7 open, 23 resolved/closed, 30 rows total.
 
 | ID | File | Line | Description | Priority |
 |---|---|---|---|---|
 | ~~cluster-supervisor~~ | `compiler/cluster.orb` | - | ~~`runClusterMode` stub removed from CLI dispatch and help text. (2026-08-15)~~ Superseded rather than merely closed: `cluster` is now a real single-host supervisor (up/status/drain/restart/down/logs, state in `.orbit/cluster.json`). The binding constraint is now §3.1 - the documented contract must match what the commands do. | ✅ Resolved |
 | ~~route-conflict-detector~~ | `compiler/doctor.orb` | `doctorNormPath` (360) | ~~Route conflict detector did not normalise path parameters, so `GET /users/:id` and `GET /users/:uuid` were missed as a conflict. Now normalised: `doctorNormSegment` collapses `:params`, `{params}`, and wildcards before comparison, and `doctorWildcardCovers` adds same-method wildcard precedence. Reported as `D002`.~~ Coverage note: the regression fixtures are `tests/doctor/d002_*.orb` and are run manually (`orbit doctor tests/doctor`); `tests/doctor/README.md` records the expected finding and exit code 1. No scripted gate executes that directory. | ✅ Resolved, coverage manual |
-| doctor-layer-gap | `compiler/doctor.orb` | - | Layer 2 (AST) and Layer 3 (Semantic) analyses do not exist. **Status unverified:** the previously recorded `DOC-L2-001..004` and `DOC-L3-001..003` codes do not appear in `compiler/doctor.orb` today, which emits `D001`..`D008` only, and no complexity, recursion-tail, hot-loop-alloc, secret-prefix, SQL-surface, taint, or arena-leak check exists. Treat every analysis in §2.3, §2.4, and §2.5 as open. The one part that exists is conservative unused-declaration reporting (`D003`, `D004`). | **Medium** |
+| ~~doctor-layer-gap~~ | `compiler/doctor.orb` | - | ~~Layer 2 (AST) and Layer 3 (Semantic) analyses do not exist. **Status unverified:** the previously recorded `DOC-L2-001..004` and `DOC-L3-001..003` codes do not appear in `compiler/doctor.orb` today, which emits `D001`..`D008` only, and no complexity, recursion-tail, hot-loop-alloc, secret-prefix, SQL-surface, taint, or arena-leak check exists.~~ **Re-declared against the code (2026-10-15):** doctor emits 28 codes - `D001`-`D019` (no `D020`), `D021`-`D023`, `D025`, `D027`, `D028`, `D031`-`D033` - and §2.3/§2.4 are shipped in full (complexity `D017`, recursion `D018`, hot-loop alloc `D019`, secret prefix `D009`, SQL surface `D010`, mutable route `D011`, taint `D025`), with `docs/DOCTOR.md` as the code-by-code contract. §2.5 is reconciled rather than open: its one worthy analysis shipped as `D025`, arena-leak detection is `D019`'s shape, and unguarded shared state has no subject (`E1007`). The deferred part is the IR/sema-graph layer as specified (§2.5). | ✅ Resolved |
 | ~~arena-isolation~~ | `runtime/test_arena.c` | 300, 348 | ~~No cross-request arena isolation test. Now added `test_cross_request_sequential_isolation` and `test_cross_request_concurrent_isolation`; both are invoked from `main`.~~ (2026-08-16) | ✅ Resolved |
 | ~~worker-count~~ | `compiler/route_runtime.orb` | 601 | ~~Worker count collapsed to 1 on a non-positive input, silently discarding the "0 = auto-detect CPU count" contract. Now: `ORBIT_WORKERS` env, else `ORBIT_CPU_COUNT()`, clamped to 1..64, and the count is passed to the banner.~~ NOTE (2026-08-16): the original "2.04x scaling 1→2 workers" was a hidden-console log artifact (shared stdout cap ~2500/s), NOT a valid parallelism baseline. Honest verification: perfect 50/50 socket distribution, per-request cycles flat across workers, 0% idle CPU - see build-directory. | ✅ Resolved |
 | router-overhead | `compiler/route_runtime.orb` | 128 | Per-request log printf and the Kynx lease create/destroy are emitted into the router unconditionally, so every worker serialises on the CRT stdout lock even when the project disables logging. The compile-out scaffolding is in place: `#define ORBIT_LOGS_ACTIVE` / `#define ORBIT_KYNX_ACTIVE` guard the log helper, the 5 log call sites, the lease block, and 4 destroy sites, all behind `#if`. **The switch is currently hard-wired to `1`, so nothing can turn it off.** The cost is real until the value is configurable. | **High** | ✅ Resolved. The values are now compile-time environment switches: `ORBIT_LOGS=0` / `ORBIT_KYNX=0` at `orbit build` time emit `#define ORBIT_LOGS_ACTIVE 0` / `#define ORBIT_KYNX_ACTIVE 0` in the generated router preamble (anything unset stays at 1). |
