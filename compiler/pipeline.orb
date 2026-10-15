@@ -665,6 +665,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 
     val backend = initCBackend(irModule)
     val cCode = generateC(backend)
+    val hCode = generateCHeader(backend)
     reportMemStage("codegen")
     val irErrs = verifyModuleTypes(backend)
     if irErrs.len() > 0 {
@@ -702,6 +703,14 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 
     if orbit_file_write_selfhost(cPath, cCode) == false {
         orbit_os_write_stderr_selfhost("orbit build: couldn't write the intermediate C file '" + cPath + "'.\n")
+        return false
+    }
+    // The shard header travels with the intermediate C: same directory, same
+    // basename, `.h` for `.c`. Shard TUs include it; the single-TU build
+    // ignores it.
+    val hPath = orbit_string_slice(cPath, 0, orbit_string_len(cPath) - 1) + "h"
+    if orbit_file_write_selfhost(hPath, hCode) == false {
+        orbit_os_write_stderr_selfhost("orbit build: couldn't write the intermediate shard header '" + hPath + "'.\n")
         return false
     }
 
