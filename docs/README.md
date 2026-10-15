@@ -25,7 +25,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | How are HTTP protections implemented? | [Kynx](KYNX.md) |
 | What is experimental or still being researched? | [Superluminal](SUPERLUMINAL.md) |
 | Something fails only on Windows? | [Windows](WINDOWS.md) - two diagnosed-and-fixed Windows gate failures, with reproductions and ruled-out lists |
-| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the honest list, with workarounds. **Start with the first section**: one program `orbit check` still accepts that it should refuse |
+| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the honest list, with workarounds. **Start with the first section**: the nineteen programs that used to compile cleanly are diagnostics now |
 | What changed? | [Changelog](CHANGELOG.md) |
 | What do people ask? | [FAQ](FAQ.md) - twenty honest questions |
 | What are the engineering invariants and quality gates? | [Engineering Contract](../ENGINEERING.md) |

@@ -5,7 +5,7 @@ negative half of the test battery, and until now they did not exist: the repo
 had 32 parity probes, five of which recorded parse diagnostics, and **not one
 test asserting a type error**. That is why three audit rounds in a row found
 defects every gate passed — a `union` match missing a variant, `.at()` on a
-list of ints, `print(undeclaredThing)`. All of those compile clean.
+list of ints, `print(undeclaredThing)`. All of those compiled clean.
 
 Run it:
 
@@ -65,8 +65,10 @@ suppression:
 those move per run and per machine, and a pin that fires at random teaches
 people to ignore it. A **crash** used to be in that position too and no longer
 is: `no-diagnostic:` pins the observable instead of the number, so
-`print((7) / 0)` is a ratchet that fires the day a diagnostic arrives (a
-diagnostic is a message) and the day it starts printing one. It is
+`print((7) / 0)` was written as a ratchet that fires the day a diagnostic
+arrives (a diagnostic is a message) and the day it starts printing one. It
+fired — the literal-zero divisor got a diagnostic and `n41` is an
+`expect-error:` case now — and the mechanism stays for the next crash. It is
 mechanism-neutral on purpose: a signal on POSIX, an exception status on Windows,
 the same observable either way, so the case does not need a different pin per
 runner. What is still unpinned is an address, and the header says so when that
@@ -101,17 +103,23 @@ program should have compiled.
 ## The fuzzer's findings, and where each one lives
 
 `scripts/diff_fuzz.py` found 99 disagreements in 8 classes across 676 cases. Five
-of those classes are bugs, and each has a case here. Three are **decisions**,
-and they deliberately have none — the argument is below. The count is held one
-way by `scripts/diff_fuzz_ratchet.py` against `scripts/baselines/diff_fuzz.json`
-(75 disagreements, corpus sha `c68b57fa13ecb2d5`).
+of those classes were bugs, and each fix has a pin: the int-literal out-of-range
+and string-escape classes are `expect-error:` cases in this corpus, the float
+and unsupported-form classes moved to `tests/suite/` when they started behaving,
+and `div-zero` is fixed for its two statically decidable halves (`n41`) while a
+zero held in a variable still faults — that half needs a guard in the emitted C
+and is not done. Three are **decisions**, and they deliberately have none — the
+argument is below. The count is read, not held: `scripts/diff_fuzz_ratchet.py`
+and its baseline were retired when the corpus reached 0 disagreements in 678
+cases, because a one-way ratchet whose floor is zero cannot detect a regression.
+`scripts/diff_fuzz.py` prints the count and the corpus sha on every run.
 
 | fuzzer class | n | verdict | pin |
 |---|---|---|---|
-| `float/truncated-to-an-integer` | 43 | bug — nothing justifies it | `n40` (the literal half), `n35` (the transport half, core) |
+| `float/truncated-to-an-integer` | 43 | bug — nothing justifies it; fixed | `tests/suite/float_literals.orb` (the literal half), `tests/suite/float_boundaries.orb` (the transport half, core) — the `n40`/`n35` ratchets fired and left the corpus |
 | `div-zero/signal-instead-of-a-diagnostic` | 16 | bug — loud, but a diagnostic is owed | `n41_division_by_zero_is_not_a_diagnostic` |
 | `int-literal/out-of-range-literal-is-accepted` | 9 | bug | `n29_int_literal_out_of_range` (pinned in wave 2) |
-| `int-literal/unsupported-form-is-silently-wrong-in-a-binding` | 6 | bug — and the loud half is not the story | `n43_unsupported_literal_form_in_a_binding` |
+| `int-literal/unsupported-form-is-silently-wrong-in-a-binding` | 6 | bug — and the loud half is not the story; fixed | `tests/suite/numeric_literals.orb` — the `n43` ratchet fired when `0b`/`0o`/exponents landed |
 | `string-escape/hex-zero-is-never-decoded` | 1 | bug — the documentation has already decided it | `n42_hex_escape_zero_is_never_decoded` |
 | `string-escape/c-escape-is-kept-as-two-characters` | 17 | **decision** | asserted in the fuzzer's corpus |
 | `string-escape/malformed-hex-escape-is-kept-literal` | 6 | **decision** | asserted in the fuzzer's corpus |
@@ -152,7 +160,9 @@ not decode it. `unescapeStringBody` tests `hi * 16 + lo > 0`, which rejects the
 value zero as though it were malformed. There is no reading of the documentation
 under which `\x00` stays literal, so this is the implementation contradicting a
 decision that has already been made — which is the whole difference between the
-two kinds.
+two kinds. The fix closed it by refusing the program: `\x00` is a compile error
+now — decoding the escape would put a zero byte inside an `orbit_string`, which
+is NUL-terminated and would truncate there — and `n42` pins that refusal.
 
 The practical consequence, and the reason the fuzzer was changed rather than the
 findings filed: a tool that reports 17 permanent disagreements nobody will ever
@@ -160,9 +170,9 @@ fix trains people to ignore the tool, and the day it finds something real nobody
 will read it. So the reference now implements the documented rule instead of
 C's, which turns 24 "disagreements" into 24 **asserted agreements** — a stronger
 pin than a note, because if the escape behaviour ever changes the count goes up
-and the ratchet fires. Reversing the decision stays possible and stays
+and the summary says so. Reversing the decision stays possible and stays
 deliberate: edit the table in `scripts/diff_fuzz.py`, and the corpus sha moves
-with it, so the baseline has to be re-written on purpose.
+with it, so the change is recorded rather than silent.
 
 ## Why the substring is asserted
 
@@ -187,8 +197,9 @@ new code (or the absence of one) gets looked up — never guessed.
 ## Adding a case
 
 Write the smallest program that exhibits the defect. If `orbit check` accepts
-it, it is a `known-defect` case and it needs a reference — a `FINDINGS.md` id if
-one exists, otherwise the name of the check that is missing. If `orbit check`
+it, it is a `known-defect` case and it needs a reference — an `F` finding from
+the index in `docs/ERROR_CODES.md` if one exists, otherwise the name of the
+check that is missing. If `orbit check`
 rejects it, put the real diagnostic substring in the header. Do not invent a
 diagnostic: a case that cannot pass because the compiler is wrong is a finding,
 and the honest thing to do is file it and pin the current behaviour.
@@ -206,21 +217,24 @@ answer is an address, say so in the header instead of pinning a number that
 moves.
 
 **One case per class, not one per instance.** The differential fuzzer produced 99
-disagreements in 8 classes. Forty-three of them are `print(1.5)` printing `1`;
+disagreements in 8 classes. Forty-three of them were `print(1.5)` printing `1`;
 forty-three files asserting that is a corpus nobody reads, and it is a corpus
 that costs a build per file. A case pins the *mechanism* and names the width in
 its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-46 cases: 45 are `expect-error:` — the program is rejected, with a pinned
-diagnostic — and 1 is a `known-defect:` ratchet (F-0009, `n39`). The
-`wrong-value:` and `no-diagnostic:` pins live on `n41`, which is an
-`expect-error:` case for a literal zero divisor and pins the SIGFPE
-behaviour of the remaining sub-cases alongside it. The split is not a
-balance to aim for: the priority list for this corpus was the census's
-silent class, and a silent defect is by definition one the compiler
-accepts.
+68 cases: all 68 are `expect-error:` — every program is rejected, with a pinned
+diagnostic — and 0 are `known-defect:` ratchets: the gate prints `Finished
+negative: 68/68 pass (0 known defects still accepted)`. The last one was F-0009
+(`n39`), a bare `list` parameter with no element type that crashed instead of
+being refused; generic functions gave it a diagnostic and the case now pins the
+coherence refusal. `wrong-value:`, `cc-rejects:` and `no-diagnostic:` stay in
+the gate for the next case whose wrong answer is not a rejected program, and no
+case in the corpus uses them today — every defect they used to hold is fixed.
+The split is not a balance to aim for: the priority list for this corpus was
+the census's silent class, and a silent defect is by definition one the
+compiler accepts.
 
 A number in a document goes stale, which is F-0021 and it is why this section
 exists at all. Recompute it rather than trust it:

@@ -32,12 +32,13 @@ rot quietly:
 ```console
 $ python scripts/negative_gate.py --compiler <orbit>
 ...
-Finished negative: 47/47 pass (1 known defect still accepted)
+Finished negative: 68/68 pass (0 known defects still accepted)
 ```
 
-Thirty-two programs that must be rejected, thirty-one of which are. The one
-that is not is [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
-which is a language design gap rather than a missing check.
+Sixty-eight programs that must be rejected, and every one of them is. The last
+one to be accepted was [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
+and generic functions gave it a diagnostic; what remains is a design choice (the
+bare `list` spelling stays lenient for dynamic values), not a missing check.
 
 ## A shadowed `val` gets its own C variable (fixed)
 
@@ -394,8 +395,12 @@ lives in git history with it. What is left is a different and smaller hole:
 ### What is still untyped
 
 - **A `list` parameter declared without its element.** `fn read(xs: list, i: int)`
-  has nothing to check a read against, and `tests/negative/n39_list_parameter_has_no_element_type.orb`
-  is still a known defect ([F-0009](ERROR_CODES.md#f-code-index)). A model field is no longer in this bullet:
+  has nothing to check a read against, and that spelling stays lenient on
+  purpose — the way `unknown` is — because dynamic values cannot be refused
+  without breaking code that works. The crash it used to hide is closed
+  ([F-0009](ERROR_CODES.md#f-code-index), fixed): generic functions fix the
+  element per call site and `tests/negative/n39_list_parameter_has_no_element_type.orb`
+  pins that the incoherent call is refused. A model field is no longer in this bullet:
   `model Bag { xs: list<string> }` parses, because `parseModelDecl` reads a field
   type through `parseTypeName`, and a read through it is typed by the field's
   declaration.
