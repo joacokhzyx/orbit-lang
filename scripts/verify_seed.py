@@ -35,21 +35,19 @@ equality checks run on the snapshot bytes instead; a stale or unreadable dir
 falls back to the full rebuild. The slow path (no flag) is untouched.
 
 ``--shards-dir DIR`` + ``--manifest PATH`` (carril E3, detras de flag)
-ejecutan la verificacion por shards ANTES de la cadena heredada: la mitad
-que no depende del emisor por shard (cat(shards en orden) == canonical
-por hash, mas PUBLISHED_C sobre el concatenado). Sin el flag nada de
-esto se ejecuta y el comportamiento es byte-identico al anterior.
+ejecutan la verificacion por shards ANTES de la cadena heredada. Sin el
+flag nada de esto se ejecuta y el comportamiento es byte-identico al
+anterior. Con header comun (ORBIT_SHARD_COMMON_H en DIR) rige el modo
+header: cat(shards)==canonical es imposible por construccion (layout
+sec. 1), asi que lo que se verifica es fidelidad de particion R10a/b
+del driver contra el canonical (cada cuerpo en exactamente un shard o
+en el header, missing=0 extra=0) mas el canonico contra PUBLISHED_C.
+Sin header rige el modo cat heredado (cat==canonical, cat==PUBLISHED_C).
 
 Heredado e intacto tras el flag: las 4 igualdades (seed builds + C de
 seed/chain2/chain3 == canonical), el contrato --release y la via rapida
 --shared-work con su binario informativo. Nuevo bajo el flag: 2
-igualdades del concatenado (cat == canonical, cat == PUBLISHED_C).
-Pendiente de E1 (manda docs/shard_layout.md): el emisor por shard mas
-la verificacion R10 (a: CAT IDENTICAL sobre slices verbatim; b:
-cobertura header/shards con missing=0; c: los shards enlazados
-re-emiten el SHA canonico). Por sec. 1 del layout, cat==canonical es
-imposible con header (ORBIT_SHARD_COMMON_H): si se detecta header, el
-flag rehusa en vez de informar un mismatch.
+igualdades del modo que corresponda (cat o particion+header).
 
 Exit code 0 iff every hard check passes.
 
@@ -64,6 +62,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -82,7 +81,7 @@ try:
                                 lowmem_cc_flags, resolve_low_mem,
                                 claim_shared_work, write_shared_work,
                                 SHARED_CHAIN_C, SHARED_SEED_C, SHARED_MANIFEST,
-                                shared_chain_bin)
+                                shared_chain_bin, compile_tu_exe)
 except Exception:
     # Degraded mirrors for when the sibling module cannot be imported; the
     # gate still runs. Flags stay unified by construction (same order, same
@@ -109,6 +108,11 @@ except Exception:
     SHARED_SEED_C = None
     SHARED_MANIFEST = None
     shared_chain_bin = None
+
+    def compile_tu_exe(cc, cc_cmd, argv, sources, _c_path, _out_exe,
+                       _work, _tag):
+        _, reused = orbit_ccache.compile_cached(cc_cmd, argv, sources)
+        return reused
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 MAIN_ORB = os.path.join("compiler", "main.orb")
 
@@ -291,6 +295,8 @@ def _manifest_shard_order(manifest_path: str) -> list:
             cols = s.split("\t")
             if len(cols) < 4:
                 cols = s.split()
+            if ln == 1 and cols and cols[0].strip() == "shard":
+                continue
             if len(cols) < 4:
                 raise ValueError(f"{manifest_path}:{ln}: want 4 columns "
                                  "(shard func defstart end)")
@@ -400,10 +406,12 @@ def main() -> int:
         except OSError:
             out.fail(f"Failed: --shards-dir {shards_dir_arg} is unreadable.")
             return 2
-        # Layout sec. 1: header-based shards never cat to the canonical by
-        # construction (declarations + 98 static inline helpers live in
-        # the header). Refuse rather than mis-report that as a mismatch;
-        # R10 needs the E1 emitter/driver, still pending.
+        # Header mode (layout sec. 1): with the common header, declarations
+        # live outside the shards, so cat(shards)==canonical cannot hold by
+        # construction. What does hold is partition fidelity: R10a (verbatim
+        # slices reproduce the TU) plus R10b (every TU body in exactly one
+        # shard or the header), re-run here against the canonical.
+        _headers = []
         for _name in dir_names:
             if _name.endswith(".h"):
                 try:
@@ -412,63 +420,140 @@ def main() -> int:
                 except OSError:
                     continue
                 if b"ORBIT_SHARD_COMMON_H" in _head:
-                    out.fail(f"Failed: header-based shard layout detected "
-                             f"({_name} carries ORBIT_SHARD_COMMON_H); interim "
-                             f"cat(shards)==canonical cannot hold by "
-                             f"construction (shard layout sec. 1). Pending E1: "
-                             f"per-shard emitter + R10a/b/c verification.")
-                    return 1
-        shard_files = _list_shard_files(shards_dir_arg)
-        if not shard_files:
-            out.fail(f"Failed: no *shard*.c files under {shards_dir_arg}.")
-            return 1
-        if manifest_arg is not None:
-            if not os.path.isfile(manifest_arg):
-                out.fail(f"Failed: --manifest {manifest_arg} is missing.")
-                return 2
+                    _headers.append(_name)
+        if _headers:
+            if len(_headers) != 1:
+                out.fail(f"Failed: {_headers} carry ORBIT_SHARD_COMMON_H; "
+                         f"want exactly one common header.")
+                return 1
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import shard_selfhost as _sh
+            _shard_files = _list_shard_files(shards_dir_arg)
+            if not _shard_files:
+                out.fail(f"Failed: no *shard*.c files under {shards_dir_arg}.")
+                return 1
+            _m = re.match(r"^(.*)\.shard(\d+)\.c$",
+                           os.path.basename(_shard_files[0]))
+            _base = _m.group(1) if _m else None
+            _want_names = set()
+            for _p in _shard_files:
+                _m2 = re.match(r"^(.*)\.shard(\d+)\.c$",
+                               os.path.basename(_p))
+                if not _m2 or _m2.group(1) != _base:
+                    _base = None
+                    break
+                _want_names.add(int(_m2.group(2)))
+            if (_base is None
+                    or _want_names != set(range(len(_shard_files)))):
+                out.fail("Failed: shard files are not <base>.shard0..N-1.c "
+                         "with one common base.")
+                return 1
             try:
-                _order = _manifest_shard_order(manifest_arg)
+                _part = _sh.split_tu(
+                    CANONICAL_C,
+                    os.path.join(shards_dir_arg, _headers[0]),
+                    len(_shard_files))
             except (OSError, ValueError) as _e:
-                out.fail(f"Failed: bad manifest: {_e}")
+                out.fail(f"Failed: R10a partition of the canonical: {_e}")
                 return 1
-            _ordered = []
-            for _tok in _order:
-                _hits = [p for p in shard_files
-                         if _tok == os.path.basename(p)
-                         or _tok in os.path.basename(p)]
-                if len(_hits) != 1:
-                    out.fail(f"Failed: manifest shard {_tok!r} matches "
-                             f"{len(_hits)} files; want exactly 1.")
+            _missing, _residual = _sh.verify_shard_coverage(
+                _part, shards_dir_arg, _base)
+            if manifest_arg is not None:
+                if not os.path.isfile(manifest_arg):
+                    out.fail(f"Failed: --manifest {manifest_arg} is missing.")
+                    return 2
+                try:
+                    _order = _manifest_shard_order(manifest_arg)
+                except (OSError, ValueError) as _e:
+                    out.fail(f"Failed: bad manifest: {_e}")
                     return 1
-                _ordered.append(_hits[0])
-            if len(_ordered) != len(shard_files):
-                out.fail(f"Failed: manifest names {len(_ordered)} shards, "
-                         f"dir holds {len(shard_files)}.")
+                _nums = []
+                for _t in _order:
+                    if _t == "header":
+                        continue
+                    try:
+                        _nums.append(int(_t))
+                    except ValueError:
+                        out.fail(f"Failed: manifest shard {_t!r} is not "
+                                 f"a shard index (want 0..N-1 or header).")
+                        return 1
+                _nums.sort()
+                if _nums != sorted(_want_names):
+                    out.fail(f"Failed: manifest shards {_nums} != dir "
+                             f"shards {sorted(_want_names)} "
+                             f"(header rows aside).")
+                    return 1
+            _detail = (f"bodies={len(_part['bodies'])} "
+                       f"header-owned={len(_part['header_dropped'])} "
+                       f"files={len(_shard_files)}")
+            check("shard partition fidelity (R10a/b vs canonical C + header)",
+                  not _missing and not _residual,
+                  f"{_detail} missing={len(_missing)} "
+                  f"extra={len(_residual)}")
+            check("partitioned canonical matches published contract "
+                  "(PUBLISHED_C)",
+                  h_canon.upper() == PUBLISHED_C,
+                  f"canonical={h_canon.upper()} published={PUBLISHED_C}")
+            out.say(f"shard verification cost: {time.time() - t_shards:.2f}s "
+                    f"({_detail}, parse+coverage only)")
+            if _missing or _residual or h_canon.upper() != PUBLISHED_C:
+                out.fail("Failed: shard partition diverges; the inherited "
+                         "chain below is skipped.")
                 return 1
-            shard_files = _ordered
-            out.say(f"shard manifest: {manifest_arg} "
-                    f"({len(_order)} shards in TU order)")
-        _h = hashlib.sha256()
-        _total = 0
-        for _p in shard_files:
-            with open(_p, "rb") as _f:
-                for _chunk in iter(lambda: _f.read(1 << 20), b""):
-                    _h.update(_chunk)
-                    _total += len(_chunk)
-        h_cat = _h.hexdigest()
-        check("shard concatenation (cat(shards in order) == canonical C)",
-              h_cat == h_canon,
-              f"cat={h_cat} canonical={h_canon} "
-              f"files={len(shard_files)} bytes={_total}")
-        check("shard concatenation matches published contract (PUBLISHED_C)",
-              h_cat.upper() == PUBLISHED_C,
-              f"cat={h_cat.upper()} published={PUBLISHED_C}")
-        out.say(f"shard verification cost: {time.time() - t_shards:.2f}s "
-                f"({len(shard_files)} files, {_total} bytes, hashes+cat only)")
-        if h_cat != h_canon or h_cat.upper() != PUBLISHED_C:
-            out.fail("Failed: shard concatenation diverges; the inherited "
-                     "chain below is skipped.")
-            return 1
+        if not _headers:
+            # No common header: the legacy cat mode (pre-E1 bundles
+            # whose shards concatenate back to the canonical).
+            shard_files = _list_shard_files(shards_dir_arg)
+            if not shard_files:
+                out.fail(f"Failed: no *shard*.c files under {shards_dir_arg}.")
+                return 1
+            if manifest_arg is not None:
+                if not os.path.isfile(manifest_arg):
+                    out.fail(f"Failed: --manifest {manifest_arg} is missing.")
+                    return 2
+                try:
+                    _order = _manifest_shard_order(manifest_arg)
+                except (OSError, ValueError) as _e:
+                    out.fail(f"Failed: bad manifest: {_e}")
+                    return 1
+                _ordered = []
+                for _tok in _order:
+                    _hits = [p for p in shard_files
+                             if _tok == os.path.basename(p)
+                             or _tok in os.path.basename(p)]
+                    if len(_hits) != 1:
+                        out.fail(f"Failed: manifest shard {_tok!r} matches "
+                                 f"{len(_hits)} files; want exactly 1.")
+                        return 1
+                    _ordered.append(_hits[0])
+                if len(_ordered) != len(shard_files):
+                    out.fail(f"Failed: manifest names {len(_ordered)} shards, "
+                             f"dir holds {len(shard_files)}.")
+                    return 1
+                shard_files = _ordered
+                out.say(f"shard manifest: {manifest_arg} "
+                        f"({len(_order)} shards in TU order)")
+            _h = hashlib.sha256()
+            _total = 0
+            for _p in shard_files:
+                with open(_p, "rb") as _f:
+                    for _chunk in iter(lambda: _f.read(1 << 20), b""):
+                        _h.update(_chunk)
+                        _total += len(_chunk)
+            h_cat = _h.hexdigest()
+            check("shard concatenation (cat(shards in order) == canonical C)",
+                  h_cat == h_canon,
+                  f"cat={h_cat} canonical={h_canon} "
+                  f"files={len(shard_files)} bytes={_total}")
+            check("shard concatenation matches published contract (PUBLISHED_C)",
+                  h_cat.upper() == PUBLISHED_C,
+                  f"cat={h_cat.upper()} published={PUBLISHED_C}")
+            out.say(f"shard verification cost: {time.time() - t_shards:.2f}s "
+                    f"({len(shard_files)} files, {_total} bytes, hashes+cat only)")
+            if h_cat != h_canon or h_cat.upper() != PUBLISHED_C:
+                out.fail("Failed: shard concatenation diverges; the inherited "
+                         "chain below is skipped.")
+                return 1
 
     fast = consume_shared_work(shared_dir, work, h_canon) if shared_dir else None
     if fast is not None:
@@ -546,7 +631,8 @@ def main() -> int:
                       "-o", fixed_out, shared, *PLATFORM_LINK_FLAGS]
         fixed_argv, fixed_sources = orbit_ccache.windows_stamp(
             fixed_argv, [shared], work, "Orbit compiler", log=out.say)
-        _, reused = orbit_ccache.compile_cached(cc_cmd, fixed_argv, fixed_sources, log=out.say)
+        reused = compile_tu_exe(cc, cc_cmd, fixed_argv, fixed_sources,
+                                shared, fixed_out, work, out_name)
         out.say(f"deterministic rebuild {out_name}"
                 + ("  (from cache)" if reused else ""))
         shutil.move(fixed_out, os.path.join(work, out_name))

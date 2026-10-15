@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
-"""Sharded build driver for the Orbit selfhost compiler C (lane E2).
+"""Sharded build driver for the Orbit selfhost compiler C.
 
-Contract: docs/shard_layout.md (lane E1 owns the layout; this driver
-implements against it). Given the single-TU emission (<base>.c, plus
-<base>.h once E1 lands), the driver partitions the TU into 8 shards
+Contract: docs/shard_layout.md (the emitter owns the layout; this driver
+implements against it). Given the single-TU emission (<base>.c plus the
+compiler-emitted <base>.h), the driver partitions the TU into 8 shards
 (R1-R7), compiles each shard with ``gcc -c`` in parallel plus link (R8),
 and verifies that the linked binary re-emits byte-identical C (R10c).
 
-Two partition modes, selected automatically:
-
-  E1 mode (``--header`` points at the compiler-emitted ``<base>.h``):
-      the TU already carries external linkage; gaps stay in the header
-      (R2), ``static inline`` bodies stay in the header (R3), guard-wrapped
-      bodies keep their ``#if`` openers/closers (R4), shard0 carries the
-      prologue plus the named preamble helpers (R5), the tail goes to the
-      last shard (R6), the rest is dealt greedily by body-line count (R7).
-
-  PROVISIONAL mode (no ``--header``: current main unity emission):
-      the same R1 parser plus the mechanical split the S prototype measured
-      (destaticize + hoisted common header + ``extern`` arena, one defining
-      shard). Every generated file carries a PROVISIONAL banner. This mode
-      exists so the driver is usable and measurable before E1 lands; it is
-      deleted, not adapted, once the compiler emits ``<base>.h``.
+E1 mode (``--header`` points at the compiler-emitted ``<base>.h``; when
+absent, ``<tu-dir>/<base>.h`` is used when it exists): the TU already
+carries external linkage; gaps stay in the header (R2), ``static inline``
+bodies stay in the header (R3), guard-wrapped bodies keep their ``#if``
+openers/closers (R4), shard0 carries the prologue plus the named preamble
+helpers (R5), the tail goes to the last shard (R6), the rest is dealt
+greedily by body-line count (R7). A TU without its E1 header is refused:
+there is no unity fallback here (that fallback lives in the callers,
+which compile unity when this driver fails).
 
 Usage:
-    python scripts/shard_selfhost.py --tu compiler/selfhost/stage3.exe.c
+    python scripts/shard_selfhost.py --tu path/to/orbit_selfhost_build.c
+        --header path/to/orbit_selfhost_build.h
         --shards-dir C:/Temp/sharde2/shards --cc gcc --jobs 8
         --out C:/Temp/sharde2/shardlinked.exe
         --reference C:/Temp/sharde2/fp.exe --verify
@@ -35,6 +30,12 @@ Exit codes: 0 ok; 1 partition/coverage failure; 2 a shard did not compile
 (the message names the shard); 3 link failure; 4 emission SHA mismatch;
 5 usage/environment failure. No state is kept between runs: every output
 goes under --shards-dir and a private temp dir (removed unless --keep).
+
+The header is copied into --shards-dir next to the shards, so the bundle
+(shards + header + TSV) is self-describing for verifiers. Shard compile
+flags mirror the TU flags plus -DORBIT_SEPARATE_COMPILATION, so the link
+needs libruntime_net.a (R8); unity builds omit the flag and carry the
+runtime inline instead, which is why they link with no library.
 
 DB programs stay on the unity build (R8): a TU with a real (column-0)
 ``ORBIT_WITH_DB`` conditional fails here instead of mislinking.
@@ -222,15 +223,10 @@ def region_is_stateful(lines, opener, closer):
                for i in range(opener + 1, closer))
 
 
-# PROVISIONAL runtime-gap decls: symbols the generated TU calls that main's
-# separate-compilation surface (runtime/orbit_api.h) does not declare yet.
-# Each entry mirrors a fix already present in lane E1's branch; the entry is
-# emitted into the PROVISIONAL common header only, and deleted with the mode.
-RUNTIME_GAP_DECLS = (
-    # E1: declared in runtime/orbit_api.h, defined externally in runtime/os.c
-    # (main keeps it `static` inside the unity TU, so no shard can see it).
-    "bool orbit_os_isatty_selfhost(orbit_int fd);",
-)
+# destaticize helpers: kept for the coverage normalizer below, which must
+# accept both spellings of a definition line when it compares TU bytes
+# against shard bytes. The writer itself is verbatim-only (E1): shard
+# bodies keep the TU's external linkage untouched.
 
 
 def destatic_defline(line):
@@ -289,7 +285,9 @@ def check_cat_identical(lines, header, bodies, gaps, tail):
 
 def split_tu(tu_path, header_path, n_shards):
     """Partition per R1-R7. Returns a dict with shard files content,
-    the TSV rows, and the verification evidence."""
+    the TSV rows, and the verification evidence. The E1 header is
+    required: without it the TU's declarations have nowhere to live,
+    so there is no split to verify (callers fall back to unity)."""
     _raw, lines, _nl = read_tu(tu_path)
     header_part, bodies, gaps, tail = parse_tu(lines)
     assert_no_toplevel_else(lines, bodies)
@@ -301,12 +299,19 @@ def split_tu(tu_path, header_path, n_shards):
                 "unity build (R8)" % (i + 1))
 
     pairs = cond_pairs(lines)
-    e1 = bool(header_path)
-    header_text = None
-    if e1:
-        with open(header_path, "r", encoding="utf-8", errors="replace",
-                   newline="") as fh:
-            header_text = fh.read()
+    if not header_path:
+        raise ValueError(
+            "no E1 header: split %s needs the compiler-emitted %s "
+            "(build the TU with the current compiler so <base>.h exists; "
+            "without it there is no shard verification to run)"
+            % (tu_path, "<base>.h"))
+    with open(header_path, "r", encoding="utf-8", errors="replace",
+               newline="") as fh:
+        header_text = fh.read()
+    if "ORBIT_SHARD_COMMON_H" not in header_text:
+        raise ValueError(
+            "%s does not carry ORBIT_SHARD_COMMON_H: not the "
+            "compiler-emitted shard header" % header_path)
 
     if not check_cat_identical(lines, header_part, bodies, gaps, tail):
         raise ValueError("R10a failed: verbatim slices do not reproduce "
@@ -326,22 +331,21 @@ def split_tu(tu_path, header_path, n_shards):
     inline_dropped = {si for si, (st, _en, _name) in enumerate(bodies)
                       if lines[st].startswith('static inline ')}
     header_dropped = set(inline_dropped)
-    if e1:
-        for si in stateful:
-            opener_text = lines[opens_map[si][0]]
-            if opener_text not in header_text:
-                raise ValueError(
-                    "body %s (TU line %d) lives in a stateful region owned "
-                    "by the header, but the header does not carry %r; "
-                    "the layout moved under this driver"
-                    % (bodies[si][2], bodies[si][0] + 1, opener_text[:80]))
-            header_dropped.add(si)
-        for si in inline_dropped:
-            if bodies[si][2] not in header_text:
-                raise ValueError(
-                    "R3 body %s (TU line %d) is not declared in %s; "
-                    "the layout moved under this driver"
-                    % (bodies[si][2], bodies[si][0] + 1, header_path))
+    for si in stateful:
+        opener_text = lines[opens_map[si][0]]
+        if opener_text not in header_text:
+            raise ValueError(
+                "body %s (TU line %d) lives in a stateful region owned "
+                "by the header, but the header does not carry %r; "
+                "the layout moved under this driver"
+                % (bodies[si][2], bodies[si][0] + 1, opener_text[:80]))
+        header_dropped.add(si)
+    for si in inline_dropped:
+        if bodies[si][2] not in header_text:
+            raise ValueError(
+                "R3 body %s (TU line %d) is not declared in %s; "
+                "the layout moved under this driver"
+                % (bodies[si][2], bodies[si][0] + 1, header_path))
 
     helpers = [si for si, (_st, _en, name) in enumerate(bodies)
                if name in PREAMBLE_HELPERS and si not in header_dropped]
@@ -365,88 +369,30 @@ def split_tu(tu_path, header_path, n_shards):
         "bodies": bodies, "gaps": gaps, "tail": tail,
         "pairs": pairs, "opens_map": opens_map, "wrapped": wrapped,
         "header_dropped": header_dropped, "helpers": helpers,
-        "groups": groups, "e1": e1, "header_text": header_text,
+        "groups": groups, "header_text": header_text,
     }
 
 
-def body_text(part, si, destaticize):
+def body_text(part, si):
     lines, bodies, pairs = part["lines"], part["bodies"], part["pairs"]
     st, en, _name = bodies[si]
-    head = destatic_defline(lines[st]) if destaticize else lines[st]
     pre = [lines[o] for o in sorted(part["wrapped"].get(si, []))]
     closers = sorted((pairs[o] for o in part["wrapped"].get(si, [])),
                      reverse=True)
     post = [lines[c] for c in closers]
-    return pre + [head] + lines[st + 1:en + 1] + post
+    return pre + lines[st:en + 1] + post
 
 
-def build_provisional_header(part):
-    """PROVISIONAL: hoist decls to a common header (S recipe). The arena
-    definition and the thread_pool.c include stay out: exactly one shard
-    carries each (R5)."""
-    lines, bodies, gaps = part["lines"], part["bodies"], part["gaps"]
-    decl = list(part["header_part"])
-    for gap in gaps:
-        decl.extend(gap)
-    decl.extend(part["tail"])
-    kept = []
-    for l in decl:
-        if l == 'OrbitArena* arena = NULL;':
-            kept.append('extern OrbitArena* arena;')
-        elif l == 'void __main(void) {}':
-            kept.append('void __main(void);')
-        elif l == '#include "thread_pool.c"':
-            continue
-        elif l.rstrip().endswith(');') and l and l[0] not in ' \t' \
-                and not l.startswith('#'):
-            kept.append(destatic_protoline(l))
-        else:
-            kept.append(l)
-    inline_sec = []
-    for si, (st, en, _name) in enumerate(bodies):
-        if lines[st].startswith('static inline '):
-            pre = [lines[o] for o in sorted(part["wrapped"].get(si, []))]
-            closers = sorted((part["pairs"][o]
-                              for o in part["wrapped"].get(si, [])),
-                             reverse=True)
-            inline_sec.extend(pre + lines[st:en + 1]
-                              + [lines[c] for c in closers])
-    if RUNTIME_GAP_DECLS:
-        kept.append("/* PROVISIONAL runtime-gap decls (see RUNTIME_GAP_DECLS "
-                    "in scripts/shard_selfhost.py; E1's runtime exports "
-                    "these): */")
-        kept.extend(RUNTIME_GAP_DECLS)
-    return kept, inline_sec
-
-
-def write_shards(part, base, shards_dir, newline):
+def write_shards(part, base, shards_dir, newline, header_path=None):
     os.makedirs(shards_dir, exist_ok=True)
-    e1, n = part["e1"], len(part["groups"])
-    destaticize = not e1
+    n = len(part["groups"])
     paths = []
 
-    if not e1:
-        kept, inline_sec = build_provisional_header(part)
-        common_name = base + ".provisional-common.h"
-        banner = ("/* PROVISIONAL mechanical split (lane E2 stopgap): decls "
-                  "hoisted from the unity TU because the compiler does not "
-                  "emit <%s.h> yet. Replaced by the E1 header flow; see "
-                  "scripts/shard_selfhost.py. */\n" % base)
-        with open(os.path.join(shards_dir, common_name), "w",
-                  encoding="utf-8", newline=newline) as fh:
-            fh.write(banner + "\n".join(kept + inline_sec) + "\n")
-
     for k in range(n):
-        if e1:
-            banner = ("/* Shard %d/%d of %s.c: driver-split per "
-                      "docs/shard_layout.md R1-R7. */\n"
-                      % (k, n, base))
-            chunks = ['#include "%s.h"' % base]
-        else:
-            banner = ("/* PROVISIONAL shard %d/%d of %s.c (see "
-                      "<%s.provisional-common.h> banner). */\n"
-                      % (k, n, base, base))
-            chunks = ['#include "%s"' % (base + ".provisional-common.h")]
+        banner = ("/* Shard %d/%d of %s.c: driver-split per "
+                  "docs/shard_layout.md R1-R7. */\n"
+                  % (k, n, base))
+        chunks = ['#include "%s.h"' % base]
         if k == 0:
             # R5 prologue, in order.
             chunks.append('#include "thread_pool.c"')
@@ -455,20 +401,25 @@ def write_shards(part, base, shards_dir, newline):
             chunks.append('void __main(void) {}')
             chunks.append('#endif')
             for si in part["helpers"]:
-                chunks.extend(body_text(part, si, destaticize))
+                chunks.extend(body_text(part, si))
         for si in part["groups"][k]:
-            if destaticize and si in part["header_dropped"]:
-                continue
-            chunks.extend(body_text(part, si, destaticize))
-        if k == n - 1 and part["tail"] and e1:
-            # R6: the tail goes to the last shard (E1; provisional hoists
-            # it to the common header instead).
+            chunks.extend(body_text(part, si))
+        if k == n - 1 and part["tail"]:
+            # R6: the tail goes to the last shard.
             chunks.extend(part["tail"])
         text = banner + "\n".join(c for c in chunks if c.strip()) + "\n"
         path = os.path.join(shards_dir, "%s.shard%d.c" % (base, k))
         with open(path, "w", encoding="utf-8", newline=newline) as fh:
             fh.write(text)
         paths.append(path)
+
+    if header_path:
+        # The bundle carries its own header copy, so a verifier holding
+        # only --shards-dir can re-run R10a/b against the TU. Shard
+        # compilation itself keeps resolving the header from the TU dir.
+        dst = os.path.join(shards_dir, base + ".h")
+        if os.path.abspath(header_path) != os.path.abspath(dst):
+            shutil.copyfile(header_path, dst)
 
     rows = ["shard\tfunc\tdefstart_line\tend_line"]
     order = []
@@ -489,31 +440,23 @@ def write_shards(part, base, shards_dir, newline):
 
 def verify_shard_coverage(part, shards_dir, base):
     """R10b: every shard line traces to a TU line or a documented
-    prologue/wrap line; every assigned TU body line is present."""
+    prologue/wrap line; every assigned TU body line is present. Gaps and
+    the header part live in the compiler-emitted header, R3/stateful
+    bodies live there too; shards carry assigned bodies plus the tail
+    (R6).
+    """
+    owned = set(part["header_dropped"])
     tu_sel = []
-    if part["e1"]:
-        # E1: gaps and the header part live in the compiler-emitted header,
-        # R3/stateful bodies live there too; shards carry assigned bodies
-        # plus the tail (R6).
-        owned = set(part["header_dropped"])
-        for st, en, _name in (b for si, b in enumerate(part["bodies"])
-                              if si not in owned):
-            tu_sel.extend(part["lines"][st:en + 1])
-        tu_sel.extend(part["tail"])
-    else:
-        tu_sel = part["lines"]
+    for st, en, _name in (b for si, b in enumerate(part["bodies"])
+                          if si not in owned):
+        tu_sel.extend(part["lines"][st:en + 1])
+    tu_sel.extend(part["tail"])
     tu_lines = [l for l in tu_sel if l.strip()]
     have = []
     for k in range(len(part["groups"])):
         with open(os.path.join(shards_dir, "%s.shard%d.c" % (base, k)),
                   encoding="utf-8", newline="") as fh:
             have.extend(l for l in fh.read().split("\n") if l.strip())
-    if not part["e1"]:
-        with open(os.path.join(shards_dir,
-                               base + ".provisional-common.h"),
-                  encoding="utf-8", newline="") as fh:
-            have.extend(l for l in fh.read().split("\n") if l.strip())
-
     def norm(line):
         if line and line[0] not in ' \t':
             if is_def(line):
@@ -543,9 +486,6 @@ def verify_shard_coverage(part, shards_dir, base):
         r'^(#include |/\*|OrbitArena\* arena = NULL;|void __main|'
         r'#ifdef _WIN32|#endif|extern OrbitArena\* arena;|void __main\(void\);)')
     residual = [l for l in residual if not prologue_ok.match(norm(l))]
-    if not part["e1"] and RUNTIME_GAP_DECLS:
-        gapset = set(norm(d) for d in RUNTIME_GAP_DECLS)
-        residual = [l for l in residual if norm(l) not in gapset]
     return missing, residual
 
 
@@ -564,6 +504,42 @@ def ensure_lib(cc, work, lib_override):
     if rc != 0:
         raise ValueError("mklib_runtime did not build (rc=%d)" % rc)
     return str(out_path)
+
+
+def ensure_lib_cached(cc, lib_dir, lib_override):
+    """ensure_lib, but reused across calls sharing lib_dir.
+
+    The library TU costs ~5s (-O2); a bootstrap run compiles up to three
+    big TUs, so rebuilding it per TU would eat the shard gain. The bytes
+    depend only on runtime/ + cc, neither of which moves mid-run: when
+    lib_dir already holds the archive, it is reused as-is.
+    """
+    if lib_override:
+        return ensure_lib(cc, lib_dir, lib_override)
+    cand = os.path.join(lib_dir, "libruntime_net.a")
+    if os.path.isfile(cand):
+        return os.path.abspath(cand)
+    return ensure_lib(cc, lib_dir, None)
+
+
+def shard_enabled():
+    """Whether bootstrap callers may try sharded TU compiles.
+
+    Opt-in only (ORBIT_SHARD_BUILD=1/true/yes): without it every compile
+    is the unity build, byte-identical to before. Any shard failure falls
+    back to unity (slow, never a false green).
+    """
+    return os.environ.get("ORBIT_SHARD_BUILD", "").strip().lower() in (
+        "1", "true", "yes")
+
+
+def shard_jobs(default=8):
+    """Parallel shard compiles (ORBIT_SHARD_JOBS overrides)."""
+    try:
+        want = int(os.environ.get("ORBIT_SHARD_JOBS", "").strip() or default)
+    except ValueError:
+        return default
+    return want if want >= 1 else default
 
 
 def compile_shards(cc, shard_paths, work, inc_dirs, defines, jobs):
@@ -603,6 +579,68 @@ def compile_shards(cc, shard_paths, work, inc_dirs, defines, jobs):
             tail = ((proc.stdout or "") + (proc.stderr or "")).strip()
             print("\n".join(tail.splitlines()[-25:]))
     return results, wall, worst, ok
+
+
+def shard_build(cc, tu_path, header_path, out_exe, work, tag="tu",
+                jobs=8, n_shards=None, runtime_dir=None, defines=(),
+                lib_dir=None, log=None):
+    """Compile one compiler-emitted TU via shards; raise on any failure.
+
+    Split (R1-R7, R10a/b enforced) + parallel gcc -c (R8) + link against
+    libruntime_net.a into out_exe. Raises ValueError/RuntimeError with
+    the cause; callers catch it and fall back to the unity compile, so a
+    shard failure costs time, never correctness. work holds shards_<tag>/
+    plus objects; lib_dir (when given) holds the shared libruntime_net.a
+    across calls, else work does. Returns a dict with split/wall/link
+    times. No emission check here: the caller's own convergence hashes
+    are the verdict (a bad shard binary diverges loudly, never green).
+    """
+    say = log or (lambda _m: None)
+    n = n_shards or N_SHARDS
+    rdir = runtime_dir or DEFAULT_RUNTIME
+    tu_abs = os.path.abspath(tu_path)
+    tu_dir, tu_file = os.path.split(tu_abs)
+    base = tu_file[:-2] if tu_file.endswith(".c") else tu_file
+    t0 = time.monotonic()
+    part = split_tu(tu_abs, header_path, n)
+    shards_dir = os.path.join(os.path.abspath(work), "shards_" + tag)
+    _raw, _lines, newline = read_tu(tu_abs)
+    try:
+        shard_paths, _tsv = write_shards(part, base, shards_dir, newline,
+                                         os.path.abspath(header_path))
+    except OSError as exc:
+        raise RuntimeError("cannot write shards: %s" % exc)
+    missing, residual = verify_shard_coverage(part, shards_dir, base)
+    if missing or residual:
+        raise RuntimeError(
+            "R10b coverage failed (missing=%d extra=%d)"
+            % (len(missing), len(residual)))
+    t_split = time.monotonic() - t0
+    lib = ensure_lib_cached(cc.split()[0], os.path.abspath(lib_dir or work),
+                            None)
+    results, wall, worst, ok = compile_shards(
+        cc.split()[0], shard_paths, shards_dir, [rdir, tu_dir],
+        list(defines), jobs)
+    if not ok:
+        bad = sorted(os.path.basename(s) for s, _o, _d, p in results
+                     if p.returncode != 0)
+        raise RuntimeError("shard compile failed: %s" % ", ".join(bad))
+    t1 = time.monotonic()
+    link_argv = [cc.split()[0], "-s", "-o", os.path.abspath(out_exe)] \
+        + [obj for _src, obj, _dt, _p in sorted(results)] \
+        + [lib] + (["-lws2_32"] if os.name == "nt" else [])
+    proc = subprocess.run(link_argv, cwd=ROOT, capture_output=True,
+                          text=True, errors="replace")
+    t_link = time.monotonic() - t1
+    if proc.returncode != 0:
+        tail = ((proc.stdout or "") + (proc.stderr or "")).strip()
+        raise RuntimeError("shard link failed (rc=%d): %s"
+                           % (proc.returncode,
+                              "\n".join(tail.splitlines()[-5:])))
+    say("shard build %s: split %.1fs + compile wall %.1fs "
+        "(slowest %.1fs) + link %.1fs -> %s"
+        % (tag, t_split, wall, worst, t_link, out_exe))
+    return {"split": t_split, "wall": wall, "worst": worst, "link": t_link}
 
 
 def emit_with(compiler, work, cc, tag):
@@ -669,6 +707,8 @@ def run_self_test(cc):
         hdr = os.path.join(work, "synth.h")
         with open(hdr, "w", encoding="utf-8", newline="\n") as fh:
             fh.write('#ifndef SYNTH_H\n#define SYNTH_H\n'
+                     '#define ORBIT_SHARD_COMMON_H\n'
+                     '#include "runtime.h"\n'
                      'static inline int synth_helper(int x);\n'
                      'int synth_first(int a);\n#endif\n')
 
@@ -679,20 +719,19 @@ def run_self_test(cc):
               "got %d" % len(part["bodies"]))
         sd = os.path.join(work, "sh")
         _nl = "\n"
-        paths, _tsv = write_shards(part, "synth", sd, _nl)
+        paths, _tsv = write_shards(part, "synth", sd, _nl, hdr)
         missing, residual = verify_shard_coverage(part, sd, "synth")
         check("e1 coverage missing=0 extra=0",
               not missing and not residual,
               "missing=%s residual=%s" % (missing[:3], residual[:3]))
 
-        # 2. Provisional partition (no header).
-        part2 = split_tu(tu, None, 2)
-        sd2 = os.path.join(work, "sh2")
-        paths2, _tsv2 = write_shards(part2, "synth", sd2, _nl)
-        missing2, residual2 = verify_shard_coverage(part2, sd2, "synth")
-        check("provisional coverage missing=0 extra=0",
-              not missing2 and not residual2,
-              "missing=%s residual=%s" % (missing2[:3], residual2[:3]))
+        # 2. Without the header there is no split (E1 is the only mode).
+        try:
+            split_tu(tu, None, 2)
+            check("missing header is refused", False, "accepted")
+        except ValueError as exc:
+            check("missing header is refused",
+                  "E1 header" in str(exc), str(exc)[:200])
 
         # 3. The R4 precondition can fire (top-level #else names its line).
         bad = os.path.join(work, "bad.c")
@@ -718,10 +757,11 @@ def run_self_test(cc):
         check("gcc rejects bad C (rc!=0)", proc.returncode != 0,
               "rc=%d" % proc.returncode)
 
-        # 5. The synthetic provisional shards compile with the real flags.
-        inc = [DEFAULT_RUNTIME, sd2]
+        # 5. The synthetic E1 shards compile with the real flags (the
+        # header travels from the TU dir, as in a real sharded build).
+        inc = [DEFAULT_RUNTIME, work]
         res, _wall, _worst, ok = compile_shards(
-            cc, paths2, os.path.join(work, "b"), inc, [], 2)
+            cc, paths, os.path.join(work, "b"), inc, [], 2)
         check("synthetic shards compile -c", ok,
               "; ".join(os.path.basename(s) for s, _o, _d, p in res
                         if p.returncode != 0))
@@ -737,9 +777,15 @@ def main():
     ap.add_argument("--tu", default=DEFAULT_TU,
                     help="single-TU C file to shard")
     ap.add_argument("--header", default=None,
-                    help="compiler-emitted <base>.h (E1 mode); default: "
-                         "<tu-dir>/<base>.h when it exists, else "
-                         "PROVISIONAL mode")
+                    help="compiler-emitted <base>.h (required); default: "
+                         "<tu-dir>/<base>.h when it exists")
+    ap.add_argument("--emit-with", default=None, metavar="COMPILER",
+                    help="emit the TU (and its E1 header) with this "
+                         "compiler before splitting; --tu/--header are "
+                         "then ignored")
+    ap.add_argument("--fresh", action="store_true",
+                    help="clear --shards-dir before writing, so the bundle "
+                         "holds only this run's shards")
     ap.add_argument("--shards-dir", default=None,
                     help="where shards + TSV go (default: own temp dir)")
     ap.add_argument("--cc", default=None)
@@ -775,8 +821,6 @@ def main():
     cc = args.cc or os.environ.get("ORBIT_CC") or "gcc"
     if not shutil.which(cc.split()[0]):
         return fail("no C compiler %r on PATH" % cc, 5)
-    if not os.path.isfile(args.tu):
-        return fail("--tu %s does not exist" % args.tu, 5)
     if args.jobs is None or args.jobs < 1:
         return fail("--jobs must be >= 1", 5)
     if args.shards is None or args.shards < 1:
@@ -789,6 +833,22 @@ def main():
     for var in ("TEMP", "TMP", "TMPDIR"):
         os.environ[var] = work
 
+    if args.emit_with:
+        comp = os.path.abspath(args.emit_with)
+        if not os.path.isfile(comp):
+            return fail("--emit-with %s does not exist" % args.emit_with, 5)
+        out.say("emitting the TU with %s ..." % args.emit_with)
+        try:
+            args.tu = emit_with(comp, work, cc, "verify")
+        except SystemExit as exc:
+            return fail("--emit-with %s did not emit (rc=%s)"
+                        % (args.emit_with, exc), 4)
+        args.header = None
+        out.say("emitted: %s (%d bytes)"
+                % (os.path.basename(args.tu), os.path.getsize(args.tu)))
+
+    if not os.path.isfile(args.tu):
+        return fail("--tu %s does not exist" % args.tu, 5)
     tu_abs = os.path.abspath(args.tu)
     tu_dir, tu_file = os.path.split(tu_abs)
     base = tu_file[:-2] if tu_file.endswith(".c") else tu_file
@@ -796,9 +856,12 @@ def main():
     if header is None:
         cand = os.path.join(tu_dir, base + ".h")
         header = cand if os.path.isfile(cand) else None
-    mode = "E1" if header else "PROVISIONAL"
-    out.say("shard-selfhost (%s mode): %s -> %d shards (jobs=%d, cc=%s)"
-            % (mode, tu_abs, args.shards, args.jobs, cc))
+    if header is None:
+        return fail("no E1 header for %s: shard builds need the "
+                    "compiler-emitted %s (build the TU with the current "
+                    "compiler so it exists), else use the unity build" % (tu_abs, base + ".h"), 5)
+    out.say("shard-selfhost (E1): %s -> %d shards (jobs=%d, cc=%s)"
+            % (tu_abs, args.shards, args.jobs, cc))
 
     t0 = time.monotonic()
     try:
@@ -807,9 +870,12 @@ def main():
         return fail(str(exc), 1)
     shards_dir = os.path.abspath(args.shards_dir) if args.shards_dir \
         else os.path.join(work, "shards")
+    if args.fresh:
+        shutil.rmtree(shards_dir, ignore_errors=True)
     _raw, _lines, newline = read_tu(tu_abs)
     try:
-        shard_paths, tsv = write_shards(part, base, shards_dir, newline)
+        shard_paths, tsv = write_shards(part, base, shards_dir, newline,
+                                          header)
     except OSError as exc:
         return fail("cannot write shards: %s" % exc, 5)
     missing, residual = verify_shard_coverage(part, shards_dir, base)
@@ -826,15 +892,14 @@ def main():
 
     if args.no_build:
         out.finish("shard-selfhost", 2, 2,
-                   extra="split-only %s (%d shards)" % (mode, args.shards))
+                   extra="split-only E1 (%d shards)" % args.shards)
         return 0
 
     try:
         lib = ensure_lib(cc.split()[0], work, args.lib)
     except ValueError as exc:
         return fail(str(exc), 5)
-    inc_dirs = [args.runtime_dir] + ([tu_dir] if header
-                                     else [shards_dir])
+    inc_dirs = [args.runtime_dir, tu_dir]
     results, wall, worst, ok = compile_shards(
         cc.split()[0], shard_paths, work, inc_dirs, args.define, args.jobs)
     out.say("shard compile: wall %.1fs, slowest TU %.1fs, all-ok=%s"
@@ -860,8 +925,8 @@ def main():
 
     if not args.verify:
         out.finish("shard-selfhost", 3, 3,
-                   extra="split+compile+link %s, no emission check "
-                         "(--verify off)" % mode)
+                   extra="split+compile+link E1, no emission check "
+                         "(--verify off)")
         return 0
     if args.reference is None and args.expect_sha is None:
         return fail("--verify needs --reference or --expect-sha", 5)
@@ -890,8 +955,8 @@ def main():
         return fail("R10c emission SHA differs (linked=%s reference=%s)"
                     % (got_sha, want_sha), 4)
     out.finish("shard-selfhost", 4, 4,
-               extra="%s split+%d shards+link+emission MATCH %s"
-                     % (mode, args.shards, got_sha[:12]))
+               extra="E1 split+%d shards+link+emission MATCH %s"
+                     % (args.shards, got_sha[:12]))
     return 0
 
 

@@ -132,6 +132,12 @@ def child_env() -> dict:
     ccache.mkdir(parents=True, exist_ok=True)
     env = build_env(scratch_dir, ccache=ccache)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # The dev loop drives the shard lane. Every large-TU compile in the
+    # chain (bootstrap included) may shard when the unity cache misses;
+    # any shard failure falls back to the unity path, and T3's equality
+    # checks stay the verdict on the binary the chain converged to.
+    # Standalone script runs stay unity unless the caller opts in.
+    env["ORBIT_SHARD_BUILD"] = "1"
     return env
 
 
@@ -617,6 +623,14 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
         ],
         3: [
             ("check_stale", [py, f"{s}/build_selfhost.py", "--cc", cc, "--check-stale"]),
+            # E3 bundle for verify_seed below: emit the TU with the fp (its
+            # sibling header is what the split needs) and write the shards
+            # into a bundle only this run wrote. Split-only here -- gcc and
+            # the emission check belong to the shard lane's own tests and to
+            # the CI job, not to every `all`.
+            ("shard_split", [py, f"{s}/shard_selfhost.py", "--emit-with", fp,
+                             "--no-build", "--fresh", "--shards-dir",
+                             str(work / "shards"), "--cc", cc]),
             ("verify_seed", [py, f"{s}/verify_seed.py", "--cc", cc]),
             ("alive_check", [py, f"{s}/alive_check.py", "--cc", cc, "--compiler", fp]),
         ],
@@ -841,6 +855,17 @@ def main() -> int:
             # the filter named fmt files (not some other gate).
             if not any(args.filter in p.as_posix() for p in run_fmt_files):
                 run_fmt_files = None
+
+    # E3 flags ride on verify_seed only when this run's split step survived
+    # the filter: they must describe the bundle shard_split just wrote, not
+    # whatever a previous run left in the dir.
+    _names = {n for n, _ in plan}
+    if {"shard_split", "verify_seed"} <= _names:
+        _shards = str(work / "shards")
+        _manifest = str(work / "shards" / "emit_verify.shards.tsv")
+        plan = [(n, a + ["--shards-dir", _shards, "--manifest", _manifest]
+                 if n == "verify_seed" else a)
+                for n, a in plan]
 
     if not plan and run_fmt_files is None:
         say("  nothing to run")

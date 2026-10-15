@@ -379,9 +379,10 @@ def registry(compiler, cc, work):
              lambda: _script("mklib_runtime.py", "--self-test"),
              r"Finished mklib self-test: 2/2", 300),
         Tool("shard_selfhost.py", "measurement",
-             "sharded build driver: R1-R7 split + parallel gcc -c + link + "
-             "auto-emission SHA check; --self-test partitions a synthetic "
-             "TU both ways and proves a bad shard fails",
+             "sharded build driver: R1-R7 split of the compiler-emitted TU "
+             "+ parallel gcc -c + link + auto-emission SHA check; --self-test "
+             "splits a synthetic TU, refuses a missing header, and proves a "
+             "bad shard is rejected",
              lambda: _script("shard_selfhost.py", "--self-test",
                              "--cc", cc),
              r"Finished shard-selfhost self-test: \d+/\d+", 300),
