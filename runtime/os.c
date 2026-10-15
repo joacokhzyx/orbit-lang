@@ -77,7 +77,7 @@ bool orbit_os_mkdir_p(const char* path) {
 // answer per stream, not TERM alone: piped output stays plain even when TERM
 // names a color terminal, and a redirected stdout with a live stderr still
 // paints its cards. Windows speaks _isatty, everything else isatty.
-static ORBIT_UNUSED bool orbit_os_isatty_selfhost(orbit_int fd) {
+ORBIT_UNUSED bool orbit_os_isatty_selfhost(orbit_int fd) {
     if (fd < 0) return false;
 #ifdef _WIN32
     return _isatty((int)fd) != 0;

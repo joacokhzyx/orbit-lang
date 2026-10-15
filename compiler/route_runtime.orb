@@ -12,7 +12,7 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
     out = out + "#include <signal.h>\n"
     out = out + "\n"
     if hasRoutes {
-        out = out + "static void orbit_print_kynx_gradient(const char* text) {\n"
+        out = out + "void orbit_print_kynx_gradient(const char* text) {\n"
         out = out + "    size_t len = strlen(text);\n"
         out = out + "    if (len == 0) return;\n"
         out = out + "    for (size_t i = 0; i < len; i++) {\n"
@@ -26,7 +26,7 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
         out = out + "}\n"
         out = out + "\n"
     }
-    out = out + "static int orbit_color_enabled(void) {\n"
+    out = out + "int orbit_color_enabled(void) {\n"
     out = out + "    const char* no_color = getenv(\"NO_COLOR\");\n"
     out = out + "    if (no_color != NULL && no_color[0] != 0) return 0;\n"
     out = out + "    const char* term = getenv(\"TERM\");\n"
@@ -37,7 +37,7 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
     // The server banner is server-only: emitting it into plain programs
     // leaves an unused static definition (a -Wall warning) for nothing.
     if hasRoutes {
-        out = out + "static void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double ready_ms) {\n"
+        out = out + "void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double ready_ms) {\n"
         out = out + "    if (orbit_color_enabled() == 0) {\n"
         out = out + "        printf(\"\\n  Orbit 0.1.0\\n\\n\");\n"
         out = out + "        printf(\"   - Local: http://localhost:%d\\n\", port);\n"
@@ -101,12 +101,10 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
     return out
 }
 
-fn routerPreText(logsActive: string, kynxActive: string) -> string {
+// The request-log helper as its own text: the router block and the shard
+// header carry the same definition from this one source.
+fn orbitLogFmtText() -> string {
     var out = ""
-    out = out + "#ifdef ORBIT_WITH_NET\n"
-    out = out + "#define ORBIT_LOGS_ACTIVE " + logsActive + "\n"
-    out = out + "#define ORBIT_KYNX_ACTIVE " + kynxActive + "\n"
-    out = out + "#if ORBIT_LOGS_ACTIVE\n"
     out = out + "static inline void orbit_log_request_fmt(const char* method, const char* path, int status, uint64_t start_rdtsc) {\n"
     out = out + "    uint64_t elapsed_cycles = orbit_rdtsc() - start_rdtsc;\n"
     out = out + "    double ms = (double)elapsed_cycles / 2500000.0;\n"
@@ -149,6 +147,62 @@ fn routerPreText(logsActive: string, kynxActive: string) -> string {
     out = out + "        method_color, method_str, path_str, status_color, status, status_text, ms);\n"
     out = out + "    fflush(stdout);\n"
     out = out + "}\n"
+    return out
+}
+
+fn orbitLogFmtProto() -> string {
+    return "static inline void orbit_log_request_fmt(const char* method, const char* path, int status, uint64_t start_rdtsc);\n"
+}
+
+// Every emitted helper that has a definition but no forward declaration,
+// with the linkage its definition carries. The shard header declares them;
+// their definitions live in exactly one shard.
+fn preambleHelperProtos(hasRoutes: bool) -> string {
+    var out = ""
+    out = out + "int orbit_color_enabled(void);\n"
+    if hasRoutes {
+        out = out + "void orbit_print_kynx_gradient(const char* text);\n"
+        out = out + "void orbit_render_server_banner(int port, int num_workers, int kynx_enabled, double ready_ms);\n"
+    }
+    return out
+}
+
+fn routerHelperProtos() -> string {
+    var out = ""
+    out = out + orbitLogFmtProto()
+    out = out + "int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed);\n"
+    return out
+}
+
+fn serverHelperProtos(hasKynxLimits: bool) -> string {
+    var out = ""
+    out = out + "#ifdef _WIN32\n"
+    out = out + "unsigned __stdcall orbit_worker_loop(void* arg);\n"
+    out = out + "#else\n"
+    out = out + "void* orbit_worker_loop(void* arg);\n"
+    out = out + "#endif\n"
+    out = out + "#ifdef _WIN32\n"
+    out = out + "BOOL WINAPI orbit_ctrl_handler(DWORD type);\n"
+    out = out + "#else\n"
+    out = out + "void orbit_term_handler(int sig);\n"
+    out = out + "#endif\n"
+    if hasKynxLimits {
+        out = out + "void orbit_kynx_register_limits(void);\n"
+    }
+    return out
+}
+
+fn mainProto() -> string {
+    return "int main(int argc, char* argv[]);\n"
+}
+
+fn routerPreText(logsActive: string, kynxActive: string) -> string {
+    var out = ""
+    out = out + "#ifdef ORBIT_WITH_NET\n"
+    out = out + "#define ORBIT_LOGS_ACTIVE " + logsActive + "\n"
+    out = out + "#define ORBIT_KYNX_ACTIVE " + kynxActive + "\n"
+    out = out + "#if ORBIT_LOGS_ACTIVE\n"
+    out = out + orbitLogFmtText()
     out = out + "#endif\n"
     out = out + "\n"
     out = out + "int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {\n"
@@ -296,9 +350,9 @@ fn routerTailText(chain: string) -> string {
 fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: bool) -> string {
     var out = ""
     out = out + "#ifdef _WIN32\n"
-    out = out + "static unsigned __stdcall orbit_worker_loop(void* arg) {\n"
+    out = out + "unsigned __stdcall orbit_worker_loop(void* arg) {\n"
     out = out + "#else\n"
-    out = out + "static void* orbit_worker_loop(void* arg) {\n"
+    out = out + "void* orbit_worker_loop(void* arg) {\n"
     out = out + "#endif\n"
     out = out + "    OrbitWorkerCtx* ctx = (OrbitWorkerCtx*)arg;\n"
     out = out + "\n"
@@ -461,7 +515,7 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "/* Graceful shutdown: Ctrl-C / SIGTERM stops accepting; workers\n"
     out = out + " * finish in-flight requests, then the process exits cleanly. */\n"
     out = out + "#ifdef _WIN32\n"
-    out = out + "static BOOL WINAPI orbit_ctrl_handler(DWORD type) {\n"
+    out = out + "BOOL WINAPI orbit_ctrl_handler(DWORD type) {\n"
     out = out + "    if (type == CTRL_C_EVENT || type == CTRL_BREAK_EVENT) {\n"
     out = out + "        orbit_request_stop();\n"
     out = out + "        return TRUE;\n"
@@ -469,7 +523,7 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "    return FALSE;\n"
     out = out + "}\n"
     out = out + "#else\n"
-    out = out + "static void orbit_term_handler(int sig) {\n"
+    out = out + "void orbit_term_handler(int sig) {\n"
     out = out + "    (void)sig;\n"
     out = out + "    orbit_request_stop();\n"
     out = out + "}\n"

@@ -67,23 +67,156 @@ fn listContainsStr(items: list, value: string) -> bool {
     return false
 }
 
+// The variant-constructor prelude as its own text: the single-TU emission
+// and the shard header carry the same bytes from this one source.
+fn variantBlockText(backend: CBackend) -> string {
+    val cbV = orbit_cbuf_create_selfhost()
+    orbit_cbuf_append_selfhost(cbV, "#ifndef AST_VARIANTS_DEFINED\n")
+    orbit_cbuf_append_selfhost(cbV, "#define AST_VARIANTS_DEFINED\n")
+    orbit_cbuf_append_selfhost(cbV, "typedef struct OrbitASTVariantNode { int tag; void* data; } OrbitASTVariantNode;\n")
+    orbit_cbuf_append_selfhost(cbV, "static inline OrbitASTVariantNode* orbit_create_variant(OrbitArena* a, int tag, void* data) {\n")
+    orbit_cbuf_append_selfhost(cbV, "    OrbitASTVariantNode* n = (OrbitASTVariantNode*)orbit_alloc(a, sizeof(OrbitASTVariantNode));\n")
+    orbit_cbuf_append_selfhost(cbV, "    n->tag = tag; n->data = data; return n;\n")
+    orbit_cbuf_append_selfhost(cbV, "}\n")
+    // Variant constructor macros are generated from the module's union types.
+    // They must use the very same <Type>_TAG_<Variant> constants that pattern
+    // matching compares against (see the tag enum emitted further below and
+    // builder.orb's Type.Variant lowering). These macros used to be hardcoded
+    // for ASTNode only, with a 1-based numbering that skipped the payload-less
+    // variants, so constructors and matches disagreed and no other union type
+    // (IRValue, ...) got a constructor at all.
+    // The `__VA_ARGS__ + 0` form accepts both payload variants, e.g. Literal(n),
+    // and payload-less ones, e.g. Break(), which expands to a null payload.
+    var mvi = 0
+    while mvi < backend.module.types.len() {
+        val mvType: IRTypeDecl = backend.module.types.get(mvi)
+        if mvType.kind == "union_type" {
+            var mvv = 0
+            while mvv < mvType.variants.len() {
+                val mvName: string = mvType.variants.get(mvv)
+                var mrich = ""
+                if mvv < mvType.richVariants.len() {
+                    val mr: string = mvType.richVariants.get(mvv)
+                    mrich = mr
+                }
+                val mparts = splitPayloadDecl(mrich)
+                if mparts.len() > 1 {
+                    // Multi-payload: the generic `V(...)` macro would take
+                    // the comma expression's last value, so the variant
+                    // gets a packing function and a fixed-arity macro. It
+                    // lives here, after orbit_create_variant and after the
+                    // `T_V` struct in the types section above, because it
+                    // needs both visible.
+                    var sig = ""
+                    var call = ""
+                    var fill = ""
+                    var mi = 0
+                    while mi < mparts.len() {
+                        val mp: string = mparts.get(mi)
+                        val mt = mapTypeToC(backend, mp)
+                        if mi > 0 {
+                            sig = sig + ", "
+                            call = call + ", "
+                        }
+                        sig = sig + mt + " a" + mi
+                        call = call + "a" + mi
+                        fill = fill + "    p->_" + mi + " = a" + mi + ";\n"
+                        mi = mi + 1
+                    }
+                    orbit_cbuf_append_selfhost(cbV, "static inline OrbitASTVariantNode* " + mvType.name + "_" + mvName + "_pack(OrbitArena* a, " + sig + ") {\n")
+                    orbit_cbuf_append_selfhost(cbV, "    " + mvType.name + "_" + mvName + "* p = (" + mvType.name + "_" + mvName + "*)orbit_alloc(a, sizeof(" + mvType.name + "_" + mvName + "));\n")
+                    orbit_cbuf_append_selfhost(cbV, fill)
+                    orbit_cbuf_append_selfhost(cbV, "    return orbit_create_variant(a, " + mvType.name + "_TAG_" + mvName + ", (void*)p);\n")
+                    orbit_cbuf_append_selfhost(cbV, "}\n")
+                    orbit_cbuf_append_selfhost(cbV, "#define " + mvName + "(" + call + ") " + mvType.name + "_" + mvName + "_pack(arena, " + call + ")\n")
+                } else {
+                    orbit_cbuf_append_selfhost(cbV, "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
+                }
+                mvv = mvv + 1
+            }
+        }
+        mvi = mvi + 1
+    }
+    orbit_cbuf_append_selfhost(cbV, "#endif\n\n")
+    orbit_cbuf_append_selfhost(cbV, "static inline orbit_bool orbit_val_eq(void* a, void* b) {\n")
+    orbit_cbuf_append_selfhost(cbV, "    if (a == b) return true;\n")
+    orbit_cbuf_append_selfhost(cbV, "    if (!a || !b) return false;\n")
+    orbit_cbuf_append_selfhost(cbV, "    if ((uintptr_t)a < 65536 || (uintptr_t)b < 65536) return false;\n")
+    orbit_cbuf_append_selfhost(cbV, "    return strcmp((const char*)a, (const char*)b) == 0;\n")
+    orbit_cbuf_append_selfhost(cbV, "}\n\n")
+    return orbit_cbuf_build_selfhost(cbV)
+}
+
+fn variantCreateProto() -> string {
+    return "static inline OrbitASTVariantNode* orbit_create_variant(OrbitArena* a, int tag, void* data);\n"
+}
+
+fn variantEqProto() -> string {
+    return "static inline orbit_bool orbit_val_eq(void* a, void* b);\n"
+}
+
+// One forward declaration, with external linkage: a `static` prototype
+// followed by an external definition is a compile error, so the protos
+// dropped `static` together with the definitions. Route and main functions
+// never carried it.
+fn functionProto(backend: CBackend, func: IRFunction) -> string {
+    if func.isExtern { return "" }
+    var fName2 = func.name
+    val isMain2 = isMainFuncName(fName2)
+    val isRoute2 = func.routeMethod != ""
+    if isMain2 {
+        fName2 = "orbit_main"
+    }
+    var isSkipped2 = false
+    if fName2 == "orbit_main" && func.name != "main" && (moduleHasFunction(backend, "main") || moduleHasRoute(backend)) {
+        isSkipped2 = true
+    }
+    if isSkipped2 {
+        return ""
+    }
+    var retType2 = mapTypeToC(backend, func.returnType)
+    if isMain2 {
+        retType2 = "int"
+    }
+    if isRoute2 {
+        retType2 = "OrbitResponse*"
+    }
+    fName2 = sanitizeIdentifier(fName2)
+    var proto = ""
+    var protoAttr = ""
+    if isDualPathFunction(func) {
+        protoAttr = "__attribute__((hot)) "
+    }
+    if isRoute2 {
+        proto = proto + protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena, OrbitRequest* req"
+    } else if isMain2 {
+        proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* _init_arena"
+    } else {
+        proto = protoAttr + retType2 + " " + fName2 + "("
+        if func.params.len() == 0 {
+            proto = proto + "void"
+        } else {
+            var pi2 = 0
+            while pi2 < func.params.len() {
+                proto = proto + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
+                if pi2 < func.params.len() - 1 {
+                    proto = proto + ", "
+                }
+                pi2 = pi2 + 1
+            }
+        }
+    }
+    return proto + ");\n"
+}
+
 fn generateC(backend: CBackend) -> string {
     val hasRoutes = moduleHasRoute(backend)
     var routeLimits = ""
     if hasRoutes {
-        var rli = 0
-        var hasAnyLimit = false
-        while rli < backend.module.functions.len() {
-            val rf: IRFunction = backend.module.functions.get(rli)
-            if rf.routeMethod != "" && rf.routeHasLimit && rf.routeLimitRate > 0 {
-                hasAnyLimit = true
-            }
-            rli = rli + 1
-        }
-        if hasAnyLimit {
+        if routeHasAnyLimit(backend) {
             routeLimits = routeLimits + "#if ORBIT_KYNX_ACTIVE\n"
-            routeLimits = routeLimits + "static void orbit_kynx_register_limits(void) {\n"
-            rli = 0
+            routeLimits = routeLimits + "void orbit_kynx_register_limits(void) {\n"
+            var rli = 0
             while rli < backend.module.functions.len() {
                 val rf2: IRFunction = backend.module.functions.get(rli)
                 if rf2.routeMethod != "" && rf2.routeHasLimit && rf2.routeLimitRate > 0 {
@@ -100,79 +233,7 @@ fn generateC(backend: CBackend) -> string {
     orbit_cbuf_append_selfhost(cbTop, generateRoutePreamble(hasRoutes, backend.module.globals))
     orbit_cbuf_append_selfhost(cbTop, generateRouteTypeDecls(backend))
     if hasRoutes == false && moduleConstructsVariants(backend) {
-        orbit_cbuf_append_selfhost(cbTop, "#ifndef AST_VARIANTS_DEFINED\n")
-        orbit_cbuf_append_selfhost(cbTop, "#define AST_VARIANTS_DEFINED\n")
-        orbit_cbuf_append_selfhost(cbTop, "typedef struct OrbitASTVariantNode { int tag; void* data; } OrbitASTVariantNode;\n")
-        orbit_cbuf_append_selfhost(cbTop, "static inline OrbitASTVariantNode* orbit_create_variant(OrbitArena* a, int tag, void* data) {\n")
-        orbit_cbuf_append_selfhost(cbTop, "    OrbitASTVariantNode* n = (OrbitASTVariantNode*)orbit_alloc(a, sizeof(OrbitASTVariantNode));\n")
-        orbit_cbuf_append_selfhost(cbTop, "    n->tag = tag; n->data = data; return n;\n")
-        orbit_cbuf_append_selfhost(cbTop, "}\n")
-        // Variant constructor macros are generated from the module's union types.
-        // They must use the very same <Type>_TAG_<Variant> constants that pattern
-        // matching compares against (see the tag enum emitted further below and
-        // builder.orb's Type.Variant lowering). These macros used to be hardcoded
-        // for ASTNode only, with a 1-based numbering that skipped the payload-less
-        // variants, so constructors and matches disagreed and no other union type
-        // (IRValue, ...) got a constructor at all.
-        // The `__VA_ARGS__ + 0` form accepts both payload variants, e.g. Literal(n),
-        // and payload-less ones, e.g. Break(), which expands to a null payload.
-        var mvi = 0
-        while mvi < backend.module.types.len() {
-            val mvType: IRTypeDecl = backend.module.types.get(mvi)
-            if mvType.kind == "union_type" {
-                var mvv = 0
-                while mvv < mvType.variants.len() {
-                    val mvName: string = mvType.variants.get(mvv)
-                    var mrich = ""
-                    if mvv < mvType.richVariants.len() {
-                        val mr: string = mvType.richVariants.get(mvv)
-                        mrich = mr
-                    }
-                    val mparts = splitPayloadDecl(mrich)
-                    if mparts.len() > 1 {
-                        // Multi-payload: the generic `V(...)` macro would take
-                        // the comma expression's last value, so the variant
-                        // gets a packing function and a fixed-arity macro. It
-                        // lives here, after orbit_create_variant and after the
-                        // `T_V` struct in the types section above, because it
-                        // needs both visible.
-                        var sig = ""
-                        var call = ""
-                        var fill = ""
-                        var mi = 0
-                        while mi < mparts.len() {
-                            val mp: string = mparts.get(mi)
-                            val mt = mapTypeToC(backend, mp)
-                            if mi > 0 {
-                                sig = sig + ", "
-                                call = call + ", "
-                            }
-                            sig = sig + mt + " a" + mi
-                            call = call + "a" + mi
-                            fill = fill + "    p->_" + mi + " = a" + mi + ";\n"
-                            mi = mi + 1
-                        }
-                        orbit_cbuf_append_selfhost(cbTop, "static inline OrbitASTVariantNode* " + mvType.name + "_" + mvName + "_pack(OrbitArena* a, " + sig + ") {\n")
-                        orbit_cbuf_append_selfhost(cbTop, "    " + mvType.name + "_" + mvName + "* p = (" + mvType.name + "_" + mvName + "*)orbit_alloc(a, sizeof(" + mvType.name + "_" + mvName + "));\n")
-                        orbit_cbuf_append_selfhost(cbTop, fill)
-                        orbit_cbuf_append_selfhost(cbTop, "    return orbit_create_variant(a, " + mvType.name + "_TAG_" + mvName + ", (void*)p);\n")
-                        orbit_cbuf_append_selfhost(cbTop, "}\n")
-                        orbit_cbuf_append_selfhost(cbTop, "#define " + mvName + "(" + call + ") " + mvType.name + "_" + mvName + "_pack(arena, " + call + ")\n")
-                    } else {
-                        orbit_cbuf_append_selfhost(cbTop, "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
-                    }
-                    mvv = mvv + 1
-                }
-            }
-            mvi = mvi + 1
-        }
-        orbit_cbuf_append_selfhost(cbTop, "#endif\n\n")
-        orbit_cbuf_append_selfhost(cbTop, "static inline orbit_bool orbit_val_eq(void* a, void* b) {\n")
-        orbit_cbuf_append_selfhost(cbTop, "    if (a == b) return true;\n")
-        orbit_cbuf_append_selfhost(cbTop, "    if (!a || !b) return false;\n")
-        orbit_cbuf_append_selfhost(cbTop, "    if ((uintptr_t)a < 65536 || (uintptr_t)b < 65536) return false;\n")
-        orbit_cbuf_append_selfhost(cbTop, "    return strcmp((const char*)a, (const char*)b) == 0;\n")
-        orbit_cbuf_append_selfhost(cbTop, "}\n\n")
+        orbit_cbuf_append_selfhost(cbTop, variantBlockText(backend))
     }
     var fo = 0
     while fo < backend.module.models.len() {
@@ -190,53 +251,7 @@ fn generateC(backend: CBackend) -> string {
     i = 0
     while i < backend.module.functions.len() {
         val func: IRFunction = backend.module.functions.get(i)
-        if func.isExtern == false {
-            var fName2 = func.name
-            val isMain2 = isMainFuncName(fName2)
-            val isRoute2 = func.routeMethod != ""
-            if isMain2 {
-                fName2 = "orbit_main"
-            }
-            var isSkipped2 = false
-            if fName2 == "orbit_main" && func.name != "main" && (moduleHasFunction(backend, "main") || hasRoutes) {
-                isSkipped2 = true
-            }
-            if isSkipped2 == false {
-                var retType2 = mapTypeToC(backend, func.returnType)
-                if isMain2 {
-                    retType2 = "int"
-                }
-                if isRoute2 {
-                    retType2 = "OrbitResponse*"
-                }
-                fName2 = sanitizeIdentifier(fName2)
-                var proto = ""
-                var protoAttr = ""
-                if isDualPathFunction(func) {
-                    protoAttr = "__attribute__((hot)) "
-                }
-                if isRoute2 {
-                    proto = proto + protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena, OrbitRequest* req"
-                } else if isMain2 {
-                    proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* _init_arena"
-                } else {
-                    proto = protoAttr + "static " + retType2 + " " + fName2 + "("
-                    if func.params.len() == 0 {
-                        proto = proto + "void"
-                    } else {
-                        var pi2 = 0
-                        while pi2 < func.params.len() {
-                            proto = proto + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
-                            if pi2 < func.params.len() - 1 {
-                                proto = proto + ", "
-                            }
-                            pi2 = pi2 + 1
-                        }
-                    }
-                }
-                orbit_cbuf_append_selfhost(cbTop, proto + ");\n")
-            }
-        }
+        orbit_cbuf_append_selfhost(cbTop, functionProto(backend, func))
         i = i + 1
     }
     if backend.module.functions.len() > 0 {
@@ -326,6 +341,101 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, "}\n")
     }
     return orbit_cbuf_build_selfhost(cbTop)
+}
+
+fn modelCreateProtos(backend: CBackend) -> string {
+    var out = ""
+    var mi = 0
+    while mi < backend.module.models.len() {
+        val modelDecl: IRModelDecl = backend.module.models.get(mi)
+        out = out + "static inline " + modelCreateSignature(backend, modelDecl) + ";\n"
+        mi = mi + 1
+    }
+    return out
+}
+
+// Every definition the single TU carries without a prior prototype, with
+// the linkage its definition carries. Shard TUs see uses before the owning
+// shard's definition, so the header declares them all.
+fn inlineHelperProtos(backend: CBackend, hasRoutes: bool) -> string {
+    var out = ""
+    out = out + modelCreateProtos(backend)
+    if hasRoutes == false && moduleConstructsVariants(backend) {
+        out = out + variantCreateProto()
+        out = out + variantEqProto()
+    }
+    return out
+}
+
+// The sharding header: declarations only, plus the inline helpers (which
+// keep internal linkage and are therefore safe to repeat in every shard
+// TU). Definitions with external linkage live in exactly one shard; the
+// driver owns that placement, this header only declares them. `thread_pool.c`
+// is deliberately not included here: it holds definitions, so the shard
+// that owns the preamble carries the include once.
+fn generateCHeader(backend: CBackend) -> string {
+    val hasRoutes = moduleHasRoute(backend)
+    val cbH = orbit_cbuf_create_selfhost()
+    orbit_cbuf_append_selfhost(cbH, "#ifndef ORBIT_SHARD_COMMON_H\n")
+    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_SHARD_COMMON_H\n")
+    orbit_cbuf_append_selfhost(cbH, "\n")
+    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_CUSTOM_ROUTER\n")
+    orbit_cbuf_append_selfhost(cbH, "#include \"socket_compat.h\"\n")
+    orbit_cbuf_append_selfhost(cbH, "#include \"runtime.h\"\n")
+    orbit_cbuf_append_selfhost(cbH, "#include <signal.h>\n")
+    orbit_cbuf_append_selfhost(cbH, "\n")
+    orbit_cbuf_append_selfhost(cbH, "extern OrbitArena* arena;\n")
+    orbit_cbuf_append_selfhost(cbH, "extern char** _orbit_argv;\n")
+    orbit_cbuf_append_selfhost(cbH, "extern int _orbit_argc;\n")
+    orbit_cbuf_append_selfhost(cbH, "#ifdef _WIN32\n")
+    orbit_cbuf_append_selfhost(cbH, "void __main(void);\n")
+    orbit_cbuf_append_selfhost(cbH, "#endif\n")
+    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_LOGS_ACTIVE " + routerLogsActive() + "\n")
+    orbit_cbuf_append_selfhost(cbH, "#define ORBIT_KYNX_ACTIVE " + routerKynxActive() + "\n")
+    var gi = 0
+    while gi < backend.module.globals.len() {
+        val g: IRGlobal = backend.module.globals.get(gi)
+        orbit_cbuf_append_selfhost(cbH, "#define " + g.name + " " + cDefineLiteral(g.value) + "\n")
+        gi = gi + 1
+    }
+    orbit_cbuf_append_selfhost(cbH, "#ifndef genericParams\n")
+    orbit_cbuf_append_selfhost(cbH, "#define genericParams(...) (void*)0\n")
+    orbit_cbuf_append_selfhost(cbH, "#endif\n")
+    orbit_cbuf_append_selfhost(cbH, "#ifndef _pop\n")
+    orbit_cbuf_append_selfhost(cbH, "#define _pop() (void*)0\n")
+    orbit_cbuf_append_selfhost(cbH, "#endif\n")
+    orbit_cbuf_append_selfhost(cbH, "#ifndef valStr_indexOf\n")
+    orbit_cbuf_append_selfhost(cbH, "#define valStr_indexOf(...) 0\n")
+    orbit_cbuf_append_selfhost(cbH, "#endif\n")
+    orbit_cbuf_append_selfhost(cbH, "\n")
+    orbit_cbuf_append_selfhost(cbH, generateRouteTypeDecls(backend))
+    if hasRoutes == false && moduleConstructsVariants(backend) {
+        orbit_cbuf_append_selfhost(cbH, variantBlockText(backend))
+    }
+    orbit_cbuf_append_selfhost(cbH, "\n")
+    var pi = 0
+    while pi < backend.module.functions.len() {
+        val func: IRFunction = backend.module.functions.get(pi)
+        orbit_cbuf_append_selfhost(cbH, functionProto(backend, func))
+        pi = pi + 1
+    }
+    orbit_cbuf_append_selfhost(cbH, inlineHelperProtos(backend, hasRoutes))
+    orbit_cbuf_append_selfhost(cbH, preambleHelperProtos(hasRoutes))
+    orbit_cbuf_append_selfhost(cbH, routerHelperProtos())
+    if hasRoutes {
+        orbit_cbuf_append_selfhost(cbH, serverHelperProtos(routeHasAnyLimit(backend)))
+    }
+    orbit_cbuf_append_selfhost(cbH, mainProto())
+    if moduleHasFunction(backend, "main") == false {
+        orbit_cbuf_append_selfhost(cbH, "int orbit_main(OrbitArena* _init_arena);\n")
+    }
+    // After every prototype it can call: nothing else in this header calls
+    // it, and the shards include the whole header before their own bodies.
+    orbit_cbuf_append_selfhost(cbH, "#if ORBIT_LOGS_ACTIVE\n")
+    orbit_cbuf_append_selfhost(cbH, orbitLogFmtText())
+    orbit_cbuf_append_selfhost(cbH, "#endif\n")
+    orbit_cbuf_append_selfhost(cbH, "\n#endif /* ORBIT_SHARD_COMMON_H */\n")
+    return orbit_cbuf_build_selfhost(cbH)
 }
 
 fn isEnumType(backend: CBackend, typeName: string) -> bool {
@@ -1502,6 +1612,18 @@ fn cDefineLiteral(value: IRValue) -> string {
     }
 }
 
+fn modelCreateSignature(backend: CBackend, modelDecl: IRModelDecl) -> string {
+    val mName = sanitizeIdentifier(modelDecl.name)
+    var sig = mName + "* orbit_model_" + mName + "_create(OrbitArena* arena_"
+    var fi = 0
+    while fi < modelDecl.fields.len() {
+        val field: IRModelField = modelDecl.fields.get(fi)
+        sig = sig + ", " + mapTypeToC(backend, field.typeName) + " " + sanitizeIdentifier(field.name)
+        fi = fi + 1
+    }
+    return sig + ")"
+}
+
 fn generateRouteTypeDecls(backend: CBackend) -> string {
     var out = ""
     // Forward declare model typedefs
@@ -1627,19 +1749,10 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
         out = out + "} " + mName + ";\n"
         if modelDecl.fields.len() == 0 {
             out = out + "#define " + mName + "() (" + mName + "*)orbit_model_" + mName + "_create(arena)\n"
-            out = out + "static inline " + mName + "* orbit_model_" + mName + "_create(OrbitArena* arena_) {\n"
+            out = out + "static inline " + modelCreateSignature(backend, modelDecl) + " {\n"
         } else {
             out = out + "#define " + mName + "(...) (" + mName + "*)orbit_model_" + mName + "_create(arena, __VA_ARGS__)\n"
-            out = out + "static inline " + mName + "* orbit_model_" + mName + "_create(OrbitArena* arena_"
-            fi = 0
-            while fi < modelDecl.fields.len() {
-                val field: IRModelField = modelDecl.fields.get(fi)
-                val cType = mapTypeToC(backend, field.typeName)
-                val sField = sanitizeIdentifier(field.name)
-                out = out + ", " + cType + " " + sField
-                fi = fi + 1
-            }
-            out = out + ") {\n"
+            out = out + "static inline " + modelCreateSignature(backend, modelDecl) + " {\n"
         }
         out = out + "    " + mName + "* m = (" + mName + "*)orbit_alloc(arena_, sizeof(" + mName + "));\n"
         fi = 0
@@ -1719,16 +1832,32 @@ fn generateRouteHandlerBody(func: IRFunction) -> string {
     return body
 }
 
+fn routerLogsActive() -> string {
+    if orbit_os_env_selfhost("ORBIT_LOGS") == "0" { return "0" }
+    return "1"
+}
+
+fn routerKynxActive() -> string {
+    if orbit_os_env_selfhost("ORBIT_KYNX") == "0" { return "0" }
+    return "1"
+}
+
+fn routeHasAnyLimit(backend: CBackend) -> bool {
+    var i = 0
+    while i < backend.module.functions.len() {
+        val func: IRFunction = backend.module.functions.get(i)
+        if func.routeMethod != "" && func.routeHasLimit && func.routeLimitRate > 0 {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fn generateRouterBlock(backend: CBackend) -> string {
     var out = ""
-    var logsActive = "1"
-    if orbit_os_env_selfhost("ORBIT_LOGS") == "0" {
-        logsActive = "0"
-    }
-    var kynxActive = "1"
-    if orbit_os_env_selfhost("ORBIT_KYNX") == "0" {
-        kynxActive = "0"
-    }
+    val logsActive = routerLogsActive()
+    val kynxActive = routerKynxActive()
     out = out + routerPreText(logsActive, kynxActive)
     // One if/else-if chain for every route: static routes first so a static
     // path always wins over a param pattern covering it, then single-param
@@ -1830,16 +1959,7 @@ fn generateModelDDL(backend: CBackend) -> string {
 fn generateServerMain(backend: CBackend) -> string {
     val db = moduleUsesDatabase(backend.module)
     val auth = moduleUsesAuth(backend.module)
-    var hasKynxLimits = false
-    var sli = 0
-    while sli < backend.module.functions.len() {
-        val sf: IRFunction = backend.module.functions.get(sli)
-        if sf.routeMethod != "" && sf.routeHasLimit && sf.routeLimitRate > 0 {
-            hasKynxLimits = true
-        }
-        sli = sli + 1
-    }
-    return serverMainText(db, auth, generateModelDDL(backend), hasKynxLimits)
+    return serverMainText(db, auth, generateModelDDL(backend), routeHasAnyLimit(backend))
 }
 
 fn isDigitCode(c: int) -> bool {
@@ -2051,7 +2171,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     } else if isMain {
         orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* _init_arena")
     } else {
-        orbit_cbuf_append_selfhost(cbFn, funcAttr + "static " + retType + " " + fName + "(")
+        orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(")
         if func.params.len() == 0 {
             orbit_cbuf_append_selfhost(cbFn, "void")
         } else {

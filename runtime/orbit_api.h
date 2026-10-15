@@ -654,6 +654,7 @@ orbit_int orbit_os_spawn_selfhost(orbit_string command);
 orbit_int orbit_os_spawn_bg_selfhost(orbit_string command, orbit_string logfile);
 orbit_int orbit_os_kill_selfhost(orbit_int pid, orbit_int mode);
 orbit_string orbit_os_env_selfhost(orbit_string var_name);
+bool orbit_os_isatty_selfhost(orbit_int fd);
 orbit_string orbit_os_cwd_selfhost(void);
 orbit_string orbit_os_temp_dir_selfhost(void);
 void orbit_os_exit_selfhost(orbit_int code);
