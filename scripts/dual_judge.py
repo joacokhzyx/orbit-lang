@@ -128,7 +128,12 @@ def resolve_tcc(explicit=None):
 
 
 def resolve_tcc_shim(explicit=None, tcc_path=None):
-    """The carril-T winsock shim dir, or None. Needed on Windows only."""
+    """A winsock shim dir for tcc on Windows, or None.
+
+    Two generations exist: the carril-T local shim (tccenv.h) and the
+    versioned repo shim (vendor/tcc-shim/tcc_toolchain.h). Either is
+    accepted; which header to -include is decided by shim_header().
+    """
     for cand in (explicit, os.environ.get("ORBIT_TCC_SHIM")):
         if cand:
             return cand
@@ -139,6 +144,24 @@ def resolve_tcc_shim(explicit=None, tcc_path=None):
             return cand
     if os.name == "nt" and os.path.isdir(TCCVAL_SHIM):
         return TCCVAL_SHIM
+    repo_shim = os.path.join(ROOT, "vendor", "tcc-shim")
+    if os.name == "nt" and os.path.isdir(repo_shim):
+        return repo_shim
+    return None
+
+
+def shim_header(shimdir):
+    """Which -include header a shim dir provides, or None.
+
+    tccenv.h (carril-T local) wins when both exist: it is the header the
+    87/87 dual validation ran against; tcc_toolchain.h is the versioned
+    equivalent for fresh machines and CI.
+    """
+    if not shimdir:
+        return None
+    for header in ("tccenv.h", "tcc_toolchain.h"):
+        if os.path.isfile(os.path.join(shimdir, header)):
+            return header
     return None
 
 
@@ -176,7 +199,7 @@ def tcc_extra(shimdir, workshim):
     """
     parts = []
     if os.name == "nt":
-        parts += ['-I"%s"' % shimdir, "-include", "tccenv.h"]
+        parts += ['-I"%s"' % shimdir, "-include", shim_header(shimdir) or "tccenv.h"]
     parts += ['-I"%s"' % workshim, "-include", "tcc_dual.h"]
     if os.name == "nt":
         parts += ['"%s"' % ADVAPI32]
@@ -361,11 +384,12 @@ def main() -> int:
     if not substitute and os.name == "nt":
         shimdir = resolve_tcc_shim(args.tcc_shim, tcc)
         if not shimdir or not os.path.isdir(shimdir):
-            out.fail("Failed dual: tcc on Windows needs the carril-T winsock "
-                     "shim (pass --tcc-shim DIR or set ORBIT_TCC_SHIM).")
+            out.fail("Failed dual: tcc on Windows needs a winsock shim "
+                     "(pass --tcc-shim DIR or set ORBIT_TCC_SHIM).")
             return 2
-        if not os.path.isfile(os.path.join(shimdir, "tccenv.h")):
-            out.fail("Failed dual: shim dir %s has no tccenv.h." % shimdir)
+        if shim_header(shimdir) is None:
+            out.fail("Failed dual: shim dir %s has neither tccenv.h nor "
+                     "tcc_toolchain.h." % shimdir)
             return 2
 
     compiler = args.compiler or _common.fixed_point(gcc)

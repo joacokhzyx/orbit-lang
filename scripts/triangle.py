@@ -48,7 +48,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orbit_output as out
 import _common
 from dual_judge import (TCC_DUAL_HEADER, resolve_tcc, resolve_tcc_shim,
-                        ADVAPI32)
+                        shim_header, ADVAPI32)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
@@ -179,8 +179,12 @@ def main() -> int:
     if not substitute and os.name == "nt":
         shimdir = resolve_tcc_shim(args.tcc_shim, tcc)
         if not shimdir or not os.path.isdir(shimdir):
-            out.fail("Failed triangle: tcc on Windows needs the carril-T "
-                     "winsock shim (pass --tcc-shim DIR).")
+            out.fail("Failed triangle: tcc on Windows needs a winsock shim "
+                     "(pass --tcc-shim DIR).")
+            return 2
+        if shim_header(shimdir) is None:
+            out.fail("Failed triangle: shim dir %s has neither tccenv.h nor "
+                     "tcc_toolchain.h." % shimdir)
             return 2
 
     if not os.path.isfile(CANONICAL_C):
@@ -218,7 +222,7 @@ def main() -> int:
     tcc_extras = []
     if not substitute:
         if os.name == "nt":
-            tcc_extras += ["-I" + shimdir, "-include", "tccenv.h"]
+            tcc_extras += ["-I" + shimdir, "-include", shim_header(shimdir) or "tccenv.h"]
         tcc_extras += ["-I" + workshim, "-include", "tcc_dual.h"]
         if os.name == "nt":
             tcc_extras += [ADVAPI32]
