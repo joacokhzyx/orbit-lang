@@ -144,7 +144,8 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
 - Partition acceptance on the new TU: `CAT IDENTICAL`, 1048 functions
   (98 static inline), wrap set = the same 2 NET bodies as the prototype,
   coverage `missing=0`.
-- Gates: `make all` 20/20 green with the T3 wiring (`shard_split` emits the
+- Gates: `make all` 20/20 green when this lane landed, with the T3 wiring
+  (`shard_split` emits the
   TU with the fp and splits it into the bundle; `verify_seed
   --shards-dir/--manifest` re-splits the canonical, checks partition
   coverage and the PUBLISHED_C equality): 1048 bodies, 98 header-owned,

@@ -32,7 +32,7 @@ python scripts/verify_seed.py --cc "$CC" --emit-fixed-point /tmp/orbit_fp
 python scripts/parity_selfhost.py --cc "$CC" --compiler /tmp/orbit_fp
 ```
 
-Exit code is `0` only when all 32 probes match their goldens.
+Exit code is `0` only when all probes in `probes/` match their goldens (33 today).
 
 ## After an intentional compiler change
 

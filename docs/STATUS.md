@@ -34,7 +34,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
 | `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `parseConfigDecl` in `compiler/parser.orb`, generated `main` in `compiler/route_runtime.orb`; see [Architecture](ARCHITECTURE.md#config-declarations-parsed-typechecked-then-discarded) |
 | Standard library | **14 modules, 14 of 14 compile and merge into one program**, verified by a single import-all test. `option` and `bitwise` remain quarantined as `*.orb.quarantined` because the language cannot express them. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
-| `std/` test coverage | **18 files, 18/18 pass**, one of them declared `known-failing` so a fix arrives as a red run | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
+| `std/` test coverage | **22 files, 22/22 pass**, one of them declared `known-failing` so a fix arrives as a red run | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
 | Sockets / threads / bitwise / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
 
 ## Verification Workflow

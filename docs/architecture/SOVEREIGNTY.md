@@ -228,8 +228,9 @@ enables is superlinear in emitted size. The strict warning gate is
 Invariants that must hold afterwards:
 
 - `build_selfhost.py --check-stale` exits 0 on `main`.
-- `verify_seed.py` reports 4/4.
-- `parity_selfhost.py` reports 32/32 against the committed goldens.
+- `verify_seed.py` exits 0; its closing line reports every check it ran.
+- `parity_selfhost.py` exits 0 over every probe in `tests/parity/probes/`
+  against the committed goldens (33 today).
 - CI is green on ubuntu/gcc and windows/clang, and all eight stress legs pass.
 
 ## Related

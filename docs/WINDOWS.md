@@ -55,7 +55,7 @@ as a platform defect rather than a codegen one.
   and it is not on this path.
 - **Not `orbit_db_*`.** Both are `static` inside a `database.c` this program
   never includes.
-- **Not generated C in general.** Parity is 32/32 and `-Werror` was 10/10,
+- **Not generated C in general.** Parity and `-Werror` were both green,
   because not one of those probes contains an object literal — which is how the
   suite went red while the gate built to catch exactly this class stayed green.
 
@@ -151,9 +151,10 @@ database that was never opened. The return code is now checked, the handle is
 closed and left NULL, and a failure prints the path and SQLite's own message to
 stderr. `Runtime C and auth` is green on both platforms.
 
-**The runtime C tests run on Windows**, all twelve, including the one compiled
-with `-Wall` and not `-w` because MSVC is the only toolchain here that calls
-`strncat` unsafe.
+**The runtime C tests run on Windows**: the whole `scripts/runtime_c_tests.py`
+table (twenty programs; nineteen here, because `test_oom` needs fork/waitpid),
+including the one compiled with `-Wall` and not `-w` because MSVC is the only
+toolchain here that calls `strncat` unsafe.
 
 ---
 

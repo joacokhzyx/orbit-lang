@@ -459,7 +459,7 @@ symbol, the dependent module imports the owning module.
 |---|---|
 | `scripts/build_selfhost.py` | Bootstrap the self-hosted compiler; `--check-stale` for CI, `--promote` to replace the canonical |
 | `scripts/verify_seed.py` | Hermetic fixed-point chain; `--release` pins the published hash |
-| `scripts/parity_selfhost.py` | 32 probes against 32 goldens; `--update` to regenerate |
+| `scripts/parity_selfhost.py` | every probe in `tests/parity/probes/` against its golden (33 today); `--update` to regenerate |
 | `scripts/test_suite.py` | Language and std behaviour suites, driven by process exit code |
 | `scripts/werror_gate.py` | `-Werror` over generated C |
 | `scripts/fuzz_frontend.py` | Frontend fuzzing |
