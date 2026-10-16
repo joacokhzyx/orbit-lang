@@ -13,9 +13,11 @@
 // arithmetic on a 32-bit int and neither is visible at the call site.
 import "std/time/time.orb"
 import "std/test/assert.orb"
+import "std/convert/convert.orb"
 
 // Exact, and pinned below at sizes where the sum still fits in an
-// int32. This is the "the loop really ran" witness.
+// int32. This is the "the loop really ran" witness: the assertion holds
+// whether the loop runs or the compiler folds it to its closed form.
 fn spin(iters: int) -> int {
     var acc = 0
     var i = 0
@@ -29,11 +31,23 @@ fn spin(iters: int) -> int {
 // The timing workload. Its result is not asserted: what is asserted is
 // how long it took, and a loop that did not run would be caught by the
 // small-versus-large comparison rather than by this return value.
-fn burn(iters: int) -> int {
+//
+// The body writes every step through `sink`, a real list, because a pure
+// loop is not a workload at all under an optimiser: gcc deletes one whose
+// result nobody reads, and with a constant bound it also replaces the
+// whole loop with the closed form of its accumulator (IPA pure-const +
+// scalar evolution). Measured with the list store absent: at -O1 `total`
+// collapsed to ~200 ns -- the six 1M-iteration chunks gone -- and the
+// chunk assertion failed (exit 20) while -O0 passed. The store is a side
+// effect the compiler cannot see past, so the loop runs at every level.
+// `spin` above is deliberately left pure: it is folded, and the pins hold
+// the folded value.
+fn burn(sink: list < int >, iters: int) -> int {
     var acc = 1
     var i = 0
     while i < iters {
         acc = acc + i
+        sink.set(0, acc)
         i = i + 1
     }
     return acc
@@ -45,14 +59,20 @@ fn main() -> int {
     if assertEqIntMsg(spin(100), 4950, "spin(100)") == false { return 2 }
     if assertEqIntMsg(spin(1000), 499500, "spin(1000)") == false { return 3 }
 
+    // The list `burn` writes through. Seeded with one element so the
+    // store above is a plain set; the value it ends on is printed at the
+    // bottom of main, which is what keeps the list itself live.
+    val sink = []
+    sink.push(0)
+
     // --- the bug this clock exists to fix -----------------------------
     val secsBefore = uptimeSeconds()
     val t0 = tickNs()
-    burn(200000)
+    burn(sink, 200000)
     val small = sinceNs(t0)
     val ms = sinceMs(t0)
     val t1 = tickNs()
-    burn(2000000)
+    burn(sink, 2000000)
     val large = sinceNs(t1)
     val secsAfter = uptimeSeconds()
 
@@ -108,7 +128,7 @@ fn main() -> int {
     var chunkStart = tickNs()
     var round = 0
     while round < 6 {
-        burn(1000000)
+        burn(sink, 1000000)
         val chunkEnd = tickNs()
         val d = sinceNsBetween(chunkStart, chunkEnd)
         if d >= 0 {
@@ -125,11 +145,18 @@ fn main() -> int {
     }
     if assertTrueMsg(skipped == 0, "a 1M-iteration chunk exceeded the 2.15 s cap") == false { return 18 }
     if assertEqIntMsg(chunks, 6, "every chunk was measured") == false { return 19 }
-    // Six 1M chunks are 6M iterations against the 2M of `large` above.
-    // At roughly 6 ns an iteration that is about 35 ms against 7 ms, so
-    // the margin is 5x and this does not depend on the machine being
-    // fast -- only on it not being so slow that 1M iterations reaches
-    // the 2.15 s cap, which is 300x the headroom here.
+    // Six 1M chunks are 6M iterations against the 2M of `large` above, so
+    // three times the work. Measured total/large is ~3.5 at every level
+    // (0.13 s / 0.041 s at -O0, 0.021 / 0.006 at -O1, 0.010 / 0.004 at
+    // -O2): the margin is the ratio itself, and it does not depend on the
+    // machine being fast -- only on it not being so slow that 1M
+    // iterations reaches the 2.15 s cap, which is far more headroom than
+    // that.
     if assertTrueMsg(total > large, "six chunks of 1M did not outlast one span of 2M") == false { return 20 }
+
+    // The observable sink: the value `burn` last wrote through `sink`.
+    // Reading it here is what keeps the list live, and the write is what
+    // keeps every burn above from being folded away.
+    print(intToString(sink.get(0)))
     return 0
 }
