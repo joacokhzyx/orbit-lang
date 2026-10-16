@@ -378,6 +378,22 @@ def registry(compiler, cc, work):
              "--self-test proves a broken TU and a missing runtime still fail",
              lambda: _script("mklib_runtime.py", "--self-test"),
              r"Finished mklib self-test: 2/2", 300),
+        # The IR corpus is a pinned artifact for the same reason the runtime
+        # archive is: R6 regenerates it from this commit and compares hashes,
+        # so the emission itself is the consumer's run (it needs the branch
+        # compiler and a corpus). What can fail here is the contract and the
+        # comparator, and both are what --self-test drives: 89+1 members in
+        # pinned order, and a synthetic manifest against which a changed hash,
+        # a changed size, a missing member, an extra member and a changed
+        # whole-corpus hash must each still be reported. The marker is the full
+        # ratio, so a self-test that quietly stopped asserting one of them
+        # fails this row instead of passing it.
+        Tool("emit_ir_corpus.py", "measurement",
+             "emits the 89+1 IR corpus and its hash manifest; --self-test "
+             "proves the corpus contract and that the comparator catches a "
+             "changed hash, size, member and whole-corpus hash",
+             lambda: _script("emit_ir_corpus.py", "--self-test"),
+             r"Finished emit-ir-corpus self-test: 20/20", 300),
         Tool("tcc_setup.py", "measurement",
              "the pinned tcc 0.9.27 acquisition; --check proves the pin "
              "without installing. Exit 2 is SKIP (no tcc here), not death, "
