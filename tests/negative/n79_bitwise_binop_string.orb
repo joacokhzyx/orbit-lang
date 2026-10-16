@@ -1,0 +1,11 @@
+// case: bitwise-binop-operand-kind
+// what: `&` (like `|`, `^`, `<<`, `>>`) is defined on ints only. The checker
+//      must refuse two strings at check time, naming the operand kinds,
+//      instead of letting the C step emit the operation on pointers.
+// expect-error: bitwise '&' takes two ints, not 'string' and 'string'
+fn main() -> int {
+    val a = "x"
+    val b = "y"
+    print(a & b)
+    return 0
+}

@@ -1440,6 +1440,14 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
         ASTNode.BinaryOp(b) => {
             if b.op == "==" || b.op == "!=" || b.op == "<" || b.op == ">" || b.op == "<=" || b.op == ">=" { return "bool" }
             if b.op == "&&" || b.op == "||" { return "bool" }
+            // Int-only, like the checker says: an int and an int, or an answer
+            // this static reader does not have.
+            if b.op == "&" || b.op == "|" || b.op == "^" || b.op == "<<" || b.op == ">>" {
+                val lhsBitType = staticExprTypeName(builder, b.lhs)
+                val rhsBitType = staticExprTypeName(builder, b.rhs)
+                if lhsBitType == "int" && rhsBitType == "int" { return "int" }
+                return "unknown"
+            }
             val lt = staticExprTypeName(builder, b.lhs)
             val rt = staticExprTypeName(builder, b.rhs)
             if b.op == "+" && (lt == "string" || rt == "string") { return "string" }
@@ -4595,6 +4603,11 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == ">=" { opCode = IROpcode.ge }
             if bin.op == "&&" { opCode = IROpcode.and_op }
             if bin.op == "||" { opCode = IROpcode.or_op }
+            if bin.op == "&" { opCode = IROpcode.bit_and }
+            if bin.op == "|" { opCode = IROpcode.bit_or }
+            if bin.op == "^" { opCode = IROpcode.bit_xor }
+            if bin.op == "<<" { opCode = IROpcode.shl }
+            if bin.op == ">>" { opCode = IROpcode.shr }
             val binInstr = ir_init_instr(opCode)
             val binReg = ir_alloc_register(builder.currentFunction, "unknown")
             binInstr.dest = binReg
@@ -4616,6 +4629,14 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if u.op == "-" {
                 val reg = ir_alloc_register(builder.currentFunction, "unknown")
                 val instr = ir_init_instr(IROpcode.neg)
+                instr.dest = reg
+                instr.operand1 = ir_register(operandReg)
+                ir_emit(builder.currentFunction, instr)
+                return reg
+            }
+            if u.op == "~" {
+                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                val instr = ir_init_instr(IROpcode.bit_not)
                 instr.dest = reg
                 instr.operand1 = ir_register(operandReg)
                 ir_emit(builder.currentFunction, instr)

@@ -168,6 +168,38 @@ val mask = 0xFF          // 255, and 0xff / 0xAbCdEf likewise
 val big = 1_000_000      // one million; _ is only a separator
 ```
 
+### Bitwise and shift operators
+
+`&`, `|`, `^`, `<<` and `>>` take two ints; `~` takes one. Everything is a
+32-bit `int`, two's-complement like the rest of the arithmetic: `~x` is
+`-x - 1`, `>>` is arithmetic (`-8 >> 1` is `-4`), and `<<` drops the bits
+that leave the top. A shift count is masked to five bits, so `x << 33` is
+`x << 1` and `x >> 32` is `x`, never the undefined behaviour C has.
+
+```orbit
+val a = 12 & 10   // 8
+val b = 12 | 10   // 14
+val c = 12 ^ 10   // 6
+val d = 1 << 10   // 1024
+val e = ~0        // -1
+val f = -8 >> 1   // -4
+```
+
+The precedence is C's grouping. Tightest first: `*` `/` `%`, `+` `-`,
+`<<` `>>`, `<` `>` `<=` `>=`, `==` `!=`, `&`, `^`, `|`, `&&`, `||`. So
+`1 << 2 + 1` is `8` and `1 | 2 & 4` is `1`. One consequence surprises
+people: `&` binds looser than `==`, so `12 & 10 == 8` reads as
+`12 & (10 == 8)`, which the checker refuses because the right operand is a
+`bool`; write `(12 & 10) == 8`.
+
+An operand that is not an int is refused with a `Semantic error:` that
+names the operand kind (`bitwise '&' takes two ints, not 'string' and
+'string'`); `tests/negative/n79_bitwise_binop_string.orb` and
+`n80_bitwise_not_string.orb` pin the two forms. `&` in type position is
+still the pointer sigil (`&Point`) and `>>` still closes nested generics
+(`list<list<int>>`): the split lives in the parser's `consumeTypeCloser`,
+where types are parsed.
+
 ### Interpolation
 
 `${…}` inside a string is substituted, in both string forms. That is what
@@ -776,8 +808,7 @@ and need no import. There is no `std/core/result.orb` to import.
   externs live in `std/string/string.orb`; redeclaring them in another module
   collides on merge.
 - Not present: `http_client` and raw sockets (no socket API in the language or
-  the runtime), a thread pool (needs closures), bitwise operators (see
-  quarantine below).
+  the runtime), a thread pool (needs closures).
 
 ## `std/quarantine/`: specified, not implemented
 
@@ -790,10 +821,11 @@ extension.
 | module | missing |
 |---|---|
 | `option.orb.quarantined` | a generic tagged union. The parser has no type parameter list on `union`, and there is no monomorphisation, so there is no way to build a parameterised `Option<T>` |
-| `bitwise.orb.quarantined` | bitwise operators. `^` and `~` are invalid characters in the lexer; `&` and `\|` lex as tokens but are not binary operators; `<<` and `>>` lex as two tokens each |
+| `bitwise.orb.quarantined` | was bitwise operators, which the language has now ([Bitwise and shift operators](#bitwise-and-shift-operators) above); the module returns once its `val` parameters are renamed and it is covered by a `tests/std/` vector test |
 
-Nothing imports these. Both entries name the exact language feature that
-would let them land.
+Nothing imports these. The `option` entry names the exact language feature
+that would let it land; `bitwise` has its feature and waits on the module
+repair.
 
 ## System telemetry
 

@@ -13,6 +13,22 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **Bitwise and shift operators**: `&`, `|`, `^`, `<<`, `>>` and `~`, the
+  last gap in the arithmetic. Int-only, like the checker says: a non-int
+  operand is the uncoded `Semantic error:` `bitwise '&' takes two ints, not
+  'string' and 'string'` (pinned by `tests/negative/n79` and `n80`). Values
+  are 32-bit two's-complement (`~0` is `-1`, `-8 >> 1` is `-4`), shift
+  counts are masked to five bits (`1 << 33` is `2`, never C's undefined
+  shift), and the precedence is C's grouping (`&` binds looser than `==`,
+  so the suite test writes `(12 & 10) != 8` with the parens it needs). `&`
+  stays the pointer sigil in type position and `>>` still closes
+  `list<list<int>>`; `orbit fmt` tells the two spellings of `&` apart the
+  way it already did for unary minus. Pinned by
+  `tests/suite/bitwise_operators.orb`, documented under
+  [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#bitwise-and-shift-operators).
+  The constant folder does not fold the new operators yet, and the
+  quarantined `std/sys/bytes/bitwise.orb` returns once it is repaired and
+  tested.
 - **Object literals**: `return ok { status: "UP", uptime_seconds: ... }`. A
   real value, not a JSON string builder: read a field off it, nest one in
   another, pass it to a function. Backed by a new `OrbitObject` in

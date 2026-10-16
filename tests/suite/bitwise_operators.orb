@@ -1,0 +1,54 @@
+// Bitwise and shift operators: C precedence, mod-32 shift counts,
+// two's-complement `~`, and `>>` splitting in type position.
+// expect-exit 0
+
+fn binops() -> int {
+    if (12 & 10) != 8 { return 1 }
+    if (12 | 10) != 14 { return 2 }
+    if (12 ^ 10) != 6 { return 3 }
+    return 0
+}
+
+fn shifts() -> int {
+    if (1 << 10) != 1024 { return 1 }
+    if (255 >> 2) != 63 { return 2 }
+    if (1 << 33) != 2 { return 3 }
+    if (-8 >> 1) != -4 { return 4 }
+    return 0
+}
+
+fn complement() -> int {
+    if (~0) != -1 { return 1 }
+    if (~5) != -6 { return 2 }
+    return 0
+}
+
+fn precedence() -> int {
+    if (1 | 2 & 4) != 1 { return 1 }
+    if (1 ^ 3 & 1) != 0 { return 2 }
+    if (1 << 2 + 1) != 8 { return 3 }
+    if (2 + 3 << 1) != 10 { return 4 }
+    if (6 & 3 | 8) != 10 { return 5 }
+    return 0
+}
+
+fn type_closers() -> int {
+    val xs: list < list < int >> = [[5]]
+    val ys: list < list < list < int >> > = [[[7]]]
+    if xs[0][0] + ys[0][0][0] != 12 { return 1 }
+    return 0
+}
+
+fn main() -> int {
+    val a = binops()
+    if a != 0 { return a }
+    val b = shifts()
+    if b != 0 { return 10 + b }
+    val c = complement()
+    if c != 0 { return 20 + c }
+    val d = precedence()
+    if d != 0 { return 30 + d }
+    val e = type_closers()
+    if e != 0 { return 40 + e }
+    return 0
+}

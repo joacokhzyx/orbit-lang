@@ -7,6 +7,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Area | Tests |
 |---|---|
 | Arithmetic and unary operators | `arith.orb`, `unary_neg.orb` |
+| Bitwise and shift operators | `bitwise_operators.orb` |
 | Boolean operators and branches | `bool_and_or.orb`, `if_branch.orb` |
 | Strings | `strings_eq.orb`, `strings_concat.orb`, `strings_escape.orb` |
 | Loops and control flow | `while_counter.orb`, `while_break.orb`, `nesting_legal.orb` |

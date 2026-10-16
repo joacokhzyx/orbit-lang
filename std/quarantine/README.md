@@ -36,4 +36,4 @@ record that the feature was wanted; the git history alone does not say
 | module | missing language feature |
 |---|---|
 | `option.orb.quarantined` | a generic tagged union — the parser has no type parameter list on `union`, and there is no monomorphisation (a generic `model` typechecks and then emits a C `T` that does not exist) |
-| `bitwise.orb.quarantined` | bitwise operators — `^` and `~` are invalid characters in the lexer, `&` and `|` are tokens but not binary operators, `<<` and `>>` lex as two separate tokens |
+| `bitwise.orb.quarantined` | none in the language any more: `&`, `|`, `^`, `<<`, `>>` and `~` are operators now (see [LANGUAGE_REFERENCE](../LANGUAGE_REFERENCE.md#bitwise-and-shift-operators)). The file stays quarantined until it is repaired (`val` is a keyword; rename those parameters) and covered by `tests/std/` |

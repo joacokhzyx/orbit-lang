@@ -76,6 +76,8 @@ test('operators have no phantom tokens', () => {
     assert.ok(!src.includes('\\?'), 'spurious ? operator');
     assert.ok(!src.includes('\\+='), 'spurious += operator');
     assert.ok(src.includes('\\|'), 'missing bare |');
+    assert.ok(src.includes('<<') && src.includes('>>'), 'missing shift operators the lexer produces');
+    assert.ok(src.includes('~') && src.includes('^'), 'missing ~ / ^ the lexer produces');
 });
 
 test('char literal has no xHH escape', () => {
@@ -123,7 +125,7 @@ test('snippets are well-formed with unique prefixes', () => {
 
 test('snippets teach nothing removed', () => {
     const src = JSON.stringify(snippets);
-    for (const banned of ['Option<', 'readLine', 'println', 'eprint', 'socket', 'bitwise']) {
+    for (const banned of ['Option<', 'readLine', 'println', 'eprint', 'socket']) {
         assert.ok(!src.includes(banned), 'snippet teaches removed feature: ' + banned);
     }
     assert.ok(!/\bnull\b/.test(src), 'snippet teaches null literal');

@@ -811,6 +811,12 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         IROpcode.div => { inf = "int" }
                         IROpcode.mod => { inf = "int" }
                         IROpcode.neg => { inf = "int" }
+                        IROpcode.bit_and => { inf = "int" }
+                        IROpcode.bit_or => { inf = "int" }
+                        IROpcode.bit_xor => { inf = "int" }
+                        IROpcode.shl => { inf = "int" }
+                        IROpcode.shr => { inf = "int" }
+                        IROpcode.bit_not => { inf = "int" }
                         IROpcode.eq => { inf = "bool" }
                         IROpcode.ne => { inf = "bool" }
                         IROpcode.lt => { inf = "bool" }
@@ -1225,6 +1231,11 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list, warns: list) {
                 IROpcode.mul => { verifyarithBinop(func, inst, dt, "mul", errs) }
                 IROpcode.div => { verifyarithBinop(func, inst, dt, "div", errs) }
                 IROpcode.mod => { verifyarithBinop(func, inst, dt, "mod", errs) }
+                IROpcode.bit_and => { verifybitwiseBinop(func, inst, dt, "bit_and", errs) }
+                IROpcode.bit_or => { verifybitwiseBinop(func, inst, dt, "bit_or", errs) }
+                IROpcode.bit_xor => { verifybitwiseBinop(func, inst, dt, "bit_xor", errs) }
+                IROpcode.shl => { verifybitwiseBinop(func, inst, dt, "shl", errs) }
+                IROpcode.shr => { verifybitwiseBinop(func, inst, dt, "shr", errs) }
                 IROpcode.neg => {
                     val t1 = irVerifierOperandType(func, inst.operand1)
                     if irVerifierKnown(t1) && irVerifierNumeric(t1) == false {
@@ -1232,6 +1243,15 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list, warns: list) {
                     }
                     if irVerifierKnown(dt) && irVerifierNumeric(dt) == false {
                         errs.push("neg destination typed '" + dt + "' in fn '" + func.name + "'")
+                    }
+                }
+                IROpcode.bit_not => {
+                    val t1 = irVerifierOperandType(func, inst.operand1)
+                    if irVerifierKnown(t1) && verifierSimpleKind(t1) != "int" {
+                        errs.push("bit_not of '" + t1 + "' in fn '" + func.name + "'")
+                    }
+                    if irVerifierKnown(dt) && verifierSimpleKind(dt) != "int" {
+                        errs.push("bit_not destination typed '" + dt + "' in fn '" + func.name + "'")
                     }
                 }
                 IROpcode.eq => { verifycmpBinop(backend, func, inst, dt, warns) }
@@ -1309,6 +1329,25 @@ fn verifyarithBinop(func: IRFunction, inst: IRInstruction, dt: string, op: strin
         } else {
             errs.push(op + " of '" + t1 + "' and '" + t2 + "' in fn '" + func.name + "'")
         }
+    }
+}
+
+// The bitwise and shift operators take ints and nothing else: a bit pattern
+// is only defined over an integer, so there is no float arm here the way
+// arithmetic has one, and no numeric-family fallback either. The checker
+// refuses a known non-int operand first; this is the IR-level net under it,
+// for a type that only became known after the check.
+fn verifybitwiseBinop(func: IRFunction, inst: IRInstruction, dt: string, op: string, errs: list) {
+    val t1 = irVerifierOperandType(func, inst.operand1)
+    val t2 = irVerifierOperandType(func, inst.operand2)
+    if irVerifierKnown(t1) && verifierSimpleKind(t1) != "int" {
+        errs.push(op + " of '" + t1 + "' in fn '" + func.name + "'")
+    }
+    if irVerifierKnown(t2) && verifierSimpleKind(t2) != "int" {
+        errs.push(op + " of '" + t2 + "' in fn '" + func.name + "'")
+    }
+    if irVerifierKnown(dt) && verifierSimpleKind(dt) != "int" {
+        errs.push(op + " destination typed '" + dt + "' in fn '" + func.name + "'")
     }
 }
 
@@ -2661,6 +2700,38 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // Signed for the reason given on IROpcode.div above: (0-7) % 2 is
             // -1, and 2^64-7 % 2 is 1.
             orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_int)(uintptr_t)(" + generateValue(instr.operand1) + ") % (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            return
+        }
+        IROpcode.bit_and => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") & (uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            return
+        }
+        IROpcode.bit_or => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") | (uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            return
+        }
+        IROpcode.bit_xor => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") ^ (uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            return
+        }
+        IROpcode.shl => {
+            // The count is masked modulo 32: `int` is 32 bits here, so every
+            // count has a defined answer (`1 << 33` is 2) and the emitted C
+            // does not rely on the undefined `x << s` for s at or past the
+            // width.
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") << ((uintptr_t)(" + generateValue(instr.operand2) + ") & 31)"))
+            return
+        }
+        IROpcode.shr => {
+            // Read as unsigned, narrowed back to 32 signed bits by the cast in
+            // generateRegAssign: the high half of the 64-bit word disappears
+            // there, which is what makes `-8 >> 1` -4 -- an arithmetic shift --
+            // without any signed-shift undefined behavior in the C.
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") >> ((uintptr_t)(" + generateValue(instr.operand2) + ") & 31)"))
+            return
+        }
+        IROpcode.bit_not => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "~(uintptr_t)(" + generateValue(instr.operand1) + ")"))
             return
         }
         IROpcode.eq => {

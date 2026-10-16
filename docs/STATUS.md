@@ -33,9 +33,9 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Native machine-code backend | Not available in the current tree | `native-backend` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
 | `port`/`cors`/`db`/`env` declarations | Parse and typecheck, then discarded. The generated server hardcodes port 3000 and reads an override from `argv[1]`; the C config declaration appears nowhere in the output. | `parseConfigDecl` in `compiler/parser.orb`, generated `main` in `compiler/route_runtime.orb`; see [Architecture](ARCHITECTURE.md#config-declarations-parsed-typechecked-then-discarded) |
-| Standard library | **14 modules, 14 of 14 compile and merge into one program**, verified by a single import-all test. `option` and `bitwise` remain quarantined as `*.orb.quarantined` because the language cannot express them. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
+| Standard library | **14 modules, 14 of 14 compile and merge into one program**, verified by a single import-all test. `option` remains quarantined as `*.orb.quarantined` because the language cannot express a generic tagged union; `bitwise` stays quarantined only until the module is repaired and tested — its missing feature, the bitwise operators, has landed. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
 | `std/` test coverage | **22 files, 22/22 pass** | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
-| Sockets / threads / bitwise / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
+| Sockets / threads / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
 
 ## Verification Workflow
 
@@ -66,9 +66,9 @@ passing gate.
 
 | gate | enforces | what it is | today |
 |---|---|---|---|
-| `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, **68/68 cases rejected with their pinned diagnostics**, **0 known defects** - the last ratchet (F-0009, a bare `list` parameter with no element type) flipped to `expect-error:` when generic functions landed, and the deliberate bare-`list` leniency is documented in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
+| `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, **70/70 cases rejected with their pinned diagnostics**, **0 known defects** - the last ratchet (F-0009, a bare `list` parameter with no element type) flipped to `expect-error:` when generic functions landed, and the deliberate bare-`list` leniency is documented in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
 | `scripts/frontend_gate.py` | **blocking** | `orbit frontend` against `tests/frontend/expected/` | **6/6** |
-| `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.6%** of 57,011 instructions, **45.5%** of those with no diagnostic at all (committed baseline) |
+| `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.6%** of 70,680 instructions, **45.6%** of those with no diagnostic at all (committed baseline) |
 | `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high - 29.6% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | baseline `unknown_per_mille` 296, `silent_per_mille` 135 |
 
 `ci-gate.yml` is the authority on which of these runs on every push; see the

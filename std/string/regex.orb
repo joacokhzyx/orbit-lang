@@ -5,7 +5,7 @@
 // pattern using those is invalid, not silently weaker.
 //
 // Pure Orbit, the way the base64 decoder is: matching by arithmetic on
-// character codes, because bitwise operators have no lexer tokens.
+// character codes, written before Orbit had bitwise operators.
 // Backtracking, so a pathological pattern on a long text takes long;
 // that is the documented cost of this class, not a hang to debug.
 // Matched byte-wise, like every other string scan here.

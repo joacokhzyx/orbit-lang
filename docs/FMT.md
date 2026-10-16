@@ -4,9 +4,9 @@ This document is the contract for `orbit fmt`. It records the de facto style
 inferred from the repository, rule by rule, with evidence. The formatter
 implements exactly what is written here.
 
-Corpus: recursive `*.orb` under `compiler/` (25 files) and `tests/suite/` (68),
-plus `examples/*.orb` (14, minus `orbit_full_expansion.orb`). 106 files -- the
-exact list the fmt gate verifies (`make all` prints `fmt ... (106 files, ...)`).
+Corpus: recursive `*.orb` under `compiler/` (25 files) and `tests/suite/` (69),
+plus `examples/*.orb` (14, minus `orbit_full_expansion.orb`). 107 files -- the
+exact list the fmt gate verifies (`make all` prints `fmt ... (107 files, ...)`).
 The rules below were inferred from that corpus with strings and comments
 stripped, so stylish string contents (JSON payloads, URLs) do not pollute
 them; the evidence lines say what the corpus shows, not how many times, so
@@ -100,18 +100,24 @@ follows a single-line block. Zero violations either way.
 ### 4. Spacing inside lines
 
 - Binary operators and `=` get exactly one space on each side: `=`, `==`,
-  `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `/`, `%`, `&&`, `||`, `|`,
-  `->`, `=>`. Evidence: zero unspaced occurrences outside strings, for
-  every one of them, `|` union pipes included.
-- Unary `!` and `-` attach to their operand with no space after
-  (`!req.has_role("admin")`, `-(-5)`); every unary `!` in the corpus is
-  written that way. A `-` is unary after an operator, `=`, `(`, `[`, `{`,
-  `,`, `;`, `=>`, `->`, `:`, `|`, another `-`/`!`, a keyword, or at a
-  statement start; elsewhere it is binary. (Spacing never affects meaning:
-  the token stream is unchanged.)
-- Prefix `&` (pointer types, e.g. `: &Foo`) attaches with no space after,
-  like `!`. It never occurs in the corpus; the rule follows the grammar in
-  `compiler/parser.orb`, which only allows `&` in prefix position.
+  `!=`, `<`, `<=`, `>`, `>=`, `<<`, `>>`, `+`, `-`, `*`, `/`, `%`, `&&`,
+  `||`, `|`, `^`, `->`, `=>`. Evidence: zero unspaced occurrences outside
+  strings, for every one of them, `|` union pipes included; the bitwise
+  and shift operators occur spaced in `tests/suite/bitwise_operators.orb`.
+- Unary `!`, `-` and `~` attach to their operand with no space after
+  (`!req.has_role("admin")`, `-(-5)`, `~mask`); every unary `!` in the
+  corpus is written that way. A `-` is unary after an operator, `=`, `(`,
+  `[`, `{`, `,`, `;`, `=>`, `->`, `:`, `|`, another `-`/`!`, a keyword, or
+  at a statement start; elsewhere it is binary. `~` has no binary form, so
+  it always attaches. (Spacing never affects meaning: the token stream is
+  unchanged.)
+- `&` is two spellings: the prefix sigil (pointer types, e.g. `: &Foo`)
+  attaches with no space after, like `!`, and the binary operator
+  (bitwise-and) gets one space on each side. The lookback that decides is
+  the unary minus's: after a keyword, an opening delimiter or the start of
+  the file it is the sigil; after a value (a word, `)`, `]`, `}`) it is the
+  operator. The prefix spelling does not occur in the corpus; the operator
+  does, spaced, in `tests/suite/bitwise_operators.orb`.
 - `:` has no space before and one space after (`name: type`, `x: int = 3`;
   zero violations). `::` never occurs.
 - `,` has no space before and one space after (`f(a, b)`); no bare comma

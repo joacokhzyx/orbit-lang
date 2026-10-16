@@ -66,7 +66,17 @@ union IROpcode {
     // Union opcodes
     union_create,
     union_get_tag,
-    union_get_data
+    union_get_data,
+
+    // Bitwise and shift opcodes, appended so existing tag numbers never
+    // shift. Operands and results are ints; the emitter reinterprets them as
+    // unsigned so what the operator sees is the bit pattern and not the sign.
+    bit_and,
+    bit_or,
+    bit_xor,
+    shl,
+    shr,
+    bit_not
 }
 
 model IRValueInt { value: int }

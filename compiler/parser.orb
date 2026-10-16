@@ -223,6 +223,28 @@ fn parseInterpolation(parser: Parser, text: string, tokStart: int) -> ASTNode {
     return ASTNode.Interp(InterpNode(parts, isRaw))
 }
 
+// The closer of a parameterised type. `>>` is one token because a shift is
+// one operator, so `map<k, list<v>>` arrives here as `map < k , list < v
+// >>`, and the inner close has to split it: one `>` closes the inner type,
+// and the other is put back as the current token for the enclosing close.
+// The rewrite is confined to type position -- the one place that parses
+// types -- so `a >> b` in an expression is untouched. The remaining token
+// still satisfies Token's `text == source.slice(start, start + len)`.
+fn consumeTypeCloser(parser: Parser) {
+    if matchToken(parser, TokType.Greater) {
+        return
+    }
+    if check(parser, TokType.ShiftRight) {
+        val tok = parser.currentToken
+        parser.currentToken = Token(TokType.Greater, ">", tok.line, tok.col + 1, tok.start + 1, 1)
+        return
+    }
+    parserError(parser, "Expected '>' after the type parameters.")
+    if isAtEnd(parser) == false {
+        advanceParser(parser)
+    }
+}
+
 fn parseTypeName(parser: Parser) -> string {
     if check(parser, TokType.Identifier) {
         advanceParser(parser)
@@ -237,7 +259,7 @@ fn parseTypeName(parser: Parser) -> string {
             while matchToken(parser, TokType.Comma) {
                 inner = inner + ", " + parseTypeName(parser)
             }
-            consume(parser, TokType.Greater, "Expected '>' after the type parameters.")
+            consumeTypeCloser(parser)
             typeName = typeName + "<" + inner + ">"
         }
         return typeName
@@ -314,20 +336,31 @@ fn consumeMemberName(parser: Parser, message: string) {
     }
 }
 
+// Precedence, low to high, in the order C defines for the same operators:
+// `|` then `^` then `&` then equality, relational, shifts, additive,
+// multiplicative. Matching C is the point -- `1 | 2 & 4` means `1 | (2 & 4)`
+// there and must mean the same here, or the operator is a trap. Numbers are
+// compared only against each other, so renaming the levels is free; the
+// grouping is the contract.
 fn getPrecedence(tag: TokType) -> int {
     if tag == TokType.DoublePipe { return 1 }
     if tag == TokType.DoubleAmpersand { return 2 }
-    if tag == TokType.DoubleEqual { return 3 }
-    if tag == TokType.NotEqual { return 3 }
-    if tag == TokType.Less { return 4 }
-    if tag == TokType.LessEqual { return 4 }
-    if tag == TokType.Greater { return 4 }
-    if tag == TokType.GreaterEqual { return 4 }
-    if tag == TokType.Plus { return 5 }
-    if tag == TokType.Minus { return 5 }
-    if tag == TokType.Asterisk { return 6 }
-    if tag == TokType.Slash { return 6 }
-    if tag == TokType.Percent { return 6 }
+    if tag == TokType.Pipe { return 3 }
+    if tag == TokType.Caret { return 4 }
+    if tag == TokType.Ampersand { return 5 }
+    if tag == TokType.DoubleEqual { return 6 }
+    if tag == TokType.NotEqual { return 6 }
+    if tag == TokType.Less { return 7 }
+    if tag == TokType.LessEqual { return 7 }
+    if tag == TokType.Greater { return 7 }
+    if tag == TokType.GreaterEqual { return 7 }
+    if tag == TokType.ShiftLeft { return 8 }
+    if tag == TokType.ShiftRight { return 8 }
+    if tag == TokType.Plus { return 9 }
+    if tag == TokType.Minus { return 9 }
+    if tag == TokType.Asterisk { return 10 }
+    if tag == TokType.Slash { return 10 }
+    if tag == TokType.Percent { return 10 }
     return 0
 }
 
@@ -390,6 +423,10 @@ fn parsePrimary(parser: Parser) -> ASTNode {
     if matchToken(parser, TokType.Bang) {
         val operand = parsePrimary(parser)
         return ASTNode.UnaryOp(UnaryOpNode("!", operand))
+    }
+    if matchToken(parser, TokType.Tilde) {
+        val operand = parsePrimary(parser)
+        return ASTNode.UnaryOp(UnaryOpNode("~", operand))
     }
     if matchToken(parser, TokType.Minus) {
         val operand = parsePrimary(parser)

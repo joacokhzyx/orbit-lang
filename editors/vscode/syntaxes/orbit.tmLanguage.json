@@ -276,11 +276,11 @@
       ]
     },
     "operators": {
-      "comment": "compiler/lexer.orb + token.orb. No compound assigns (+= etc), no `?`, no bitwise/shift operators. Bare `|` separates union variants, `&` is the &T prefix, `: ; . ,` are delimiters.",
+      "comment": "compiler/lexer.orb + token.orb. No compound assigns (+= etc), no `?`. `&` is the &T pointer prefix and bitwise-and, `|` the union separator and bitwise-or, `<<`/`>>` shifts that also close nested generics -- lexical, so both spellings share the scope. `: ; . ,` are delimiters.",
       "patterns": [
         {
           "name": "keyword.operator.orbit",
-          "match": "(==|!=|<=|>=|->|=>|&&|\\|\\||=|\\+|-|\\*|/|%|<|>|!|&|\\||:|;|\\.|,)"
+          "match": "(==|!=|<=|>=|<<|>>|->|=>|&&|\\|\\||=|\\+|-|\\*|/|%|<|>|!|~|\\^|&|\\||:|;|\\.|,)"
         }
       ]
     },

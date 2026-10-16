@@ -1,0 +1,9 @@
+// case: bitwise-not-operand-kind
+// what: `~` is defined on ints only; `~"x"` must be refused at check time,
+//      naming the operand kind, instead of reaching the C step.
+// expect-error: bitwise '~' takes one int, not 'string'
+fn main() -> int {
+    val s = "x"
+    print(~s)
+    return 0
+}

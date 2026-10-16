@@ -3,9 +3,9 @@
 // hash.orb and std/sys/crypto: these are encodings, neither.
 //
 // Pure Orbit, the way std/sys/crypto/jwt.orb decodes base64url: sextets
-// by arithmetic (`*`, `/`, `%`), because bitwise operators have no lexer
-// tokens. Bulky payloads belong in C; config values, tokens and hashes
-// do not.
+// by arithmetic (`*`, `/`, `%`), written before Orbit had bitwise
+// operators and left that way because the arithmetic is exact. Bulky
+// payloads belong in C; config values, tokens and hashes do not.
 //
 // Both decoders are strict-canonical and answer result: malformed input
 // is err, and so is input that decodes to a NUL byte, because an

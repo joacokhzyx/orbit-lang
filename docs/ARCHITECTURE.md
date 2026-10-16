@@ -443,7 +443,7 @@ and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 | Path | Role |
 |---|---|
 | `std/` | Orbit standard library. 14 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `json/json.orb` |
-| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` (no generic unions) and `bitwise` (no bitwise operators) |
+| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` (no generic unions) and `bitwise` (its operators landed; the module is pending repair and a `tests/std/` test) |
 | `lib/` | One module: `arena.orb`, a counted region and a bound, not an allocator. There is no socket API in the language or the runtime |
 
 `std/` holds **14 modules, 14 of 14** compiling and merging into one program,

@@ -27,6 +27,13 @@ fn tirBinaryType(op: string, leftType: string, rightType: string) -> string {
     if op == ">=" { return "bool" }
     if op == "&&" { return "bool" }
     if op == "||" { return "bool" }
+    // Int-only operators: an int and an int, or an answer this reader does
+    // not have. The `leftType == rightType` rule below would answer "string"
+    // for two strings, which is right for `+` and wrong for `&`.
+    if op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>" {
+        if leftType == "int" && rightType == "int" { return "int" }
+        return "unknown"
+    }
     if leftType == rightType { return leftType }
     return "unknown"
 }
@@ -70,6 +77,9 @@ fn typeOfExpression(bindings: list, node: ASTNode) -> string {
             if unary.op == "-" {
                 if operandType == "int" { return "int" }
                 if operandType == "float" { return "float" }
+            }
+            if unary.op == "~" {
+                if operandType == "int" { return "int" }
             }
             return "unknown"
         }

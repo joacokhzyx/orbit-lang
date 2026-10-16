@@ -32,10 +32,10 @@ rot quietly:
 ```console
 $ python scripts/negative_gate.py --compiler <orbit>
 ...
-Finished negative: 68/68 pass (0 known defects still accepted)
+Finished negative: 70/70 pass (0 known defects still accepted)
 ```
 
-Sixty-eight programs that must be rejected, and every one of them is. The last
+Seventy programs that must be rejected, and every one of them is. The last
 one to be accepted was [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
 and generic functions gave it a diagnostic; what remains is a design choice (the
 bare `list` spelling stays lenient for dynamic values), not a missing check.
@@ -362,7 +362,7 @@ was not computing it:
 | quarantined | the language feature that does not exist |
 |---|---|
 | `option.orb.quarantined` | a generic tagged union. `union` has no type parameter list, and a generic `model` typechecks and then emits a C `T` that does not exist. |
-| `bitwise.orb.quarantined` | bitwise operators. `^` and `~` are invalid characters in the lexer, `&` and `|` are tokens but not binary operators, `<<` and `>>` lex as two separate tokens. |
+| `bitwise.orb.quarantined` | was bitwise operators, which the language has now (see [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#bitwise-and-shift-operators)); what remains before the module returns is repairing it (its `val` parameters renamed) and a `tests/std/` vector test. |
 
 They are not `.orb` on purpose: `.orb` is the toolchain's marker for
 loadable source, and a file the parser cannot read breaks

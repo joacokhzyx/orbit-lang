@@ -593,12 +593,20 @@ fn nextToken(lexer: Lexer) -> Token {
             advance(lexer)
             return Token(TokType.LessEqual, "<=", line, col, start, lexer.pos - start)
         }
+        if peek(lexer) == 60 { // '<<'
+            advance(lexer)
+            return Token(TokType.ShiftLeft, "<<", line, col, start, lexer.pos - start)
+        }
         return Token(TokType.Less, "<", line, col, start, lexer.pos - start)
     }
     if c == 62 { // '>'
         if peek(lexer) == 61 { // '>='
             advance(lexer)
             return Token(TokType.GreaterEqual, ">=", line, col, start, lexer.pos - start)
+        }
+        if peek(lexer) == 62 { // '>>'
+            advance(lexer)
+            return Token(TokType.ShiftRight, ">>", line, col, start, lexer.pos - start)
         }
         return Token(TokType.Greater, ">", line, col, start, lexer.pos - start)
     }
@@ -615,6 +623,12 @@ fn nextToken(lexer: Lexer) -> Token {
             return Token(TokType.DoubleAmpersand, "&&", line, col, start, lexer.pos - start)
         }
         return Token(TokType.Ampersand, "&", line, col, start, lexer.pos - start)
+    }
+    if c == 94 { // '^'
+        return Token(TokType.Caret, "^", line, col, start, lexer.pos - start)
+    }
+    if c == 126 { // '~'
+        return Token(TokType.Tilde, "~", line, col, start, lexer.pos - start)
     }
 
     // Default fallback

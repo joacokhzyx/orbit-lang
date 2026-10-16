@@ -181,6 +181,34 @@ fn fmtIsUnaryMinusContext(pptag: TokType, pprevText: string) -> bool {
     return true
 }
 
+// `&` is two tokens in one spelling: the pointer sigil in type position and
+// the bitwise-and operator in an expression. The sigil hugs what it points at
+// (`&Point`), the operator is spaced (`a & b`), and what came before decides
+// which one this is -- the same lookback the unary minus uses above. A
+// keyword, a colon, an arrow, an opening delimiter or the start of the file is
+// type position; a value (a word, `)`, `]`, `}`) means the expression kind.
+fn fmtIsUnaryAmpersandContext(pptag: TokType) -> bool {
+    if pptag == TokType.EOF {
+        return true
+    }
+    if fmtIsKeyword(pptag) {
+        return true
+    }
+    if fmtIsWordish(pptag) {
+        return false
+    }
+    if pptag == TokType.CloseParen {
+        return false
+    }
+    if pptag == TokType.CloseBracket {
+        return false
+    }
+    if pptag == TokType.CloseBrace {
+        return false
+    }
+    return true
+}
+
 // `ntag` is only consulted for a unary minus, where what follows decides the
 // spacing. Everywhere else the two tokens are enough.
 fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string) -> bool {
@@ -199,8 +227,14 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string
     if ptag == TokType.Bang {
         return false
     }
-    if ptag == TokType.Ampersand {
+    if ptag == TokType.Tilde {
         return false
+    }
+    if ptag == TokType.Ampersand {
+        if fmtIsUnaryAmpersandContext(pptag) {
+            return false
+        }
+        return true
     }
     if ptag == TokType.At {
         return false
@@ -285,6 +319,15 @@ fn fmtTrailSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string
     if ptag == TokType.Pipe {
         return true
     }
+    if ptag == TokType.ShiftLeft {
+        return true
+    }
+    if ptag == TokType.ShiftRight {
+        return true
+    }
+    if ptag == TokType.Caret {
+        return true
+    }
     if ptag == TokType.Arrow {
         return true
     }
@@ -333,6 +376,9 @@ fn fmtTableSpace(ptag: TokType, pptag: TokType, ntag: TokType, pprevText: string
             }
         }
         if ptag == TokType.Plus || ptag == TokType.Minus || ptag == TokType.Asterisk || ptag == TokType.Slash || ptag == TokType.Percent {
+            return true
+        }
+        if ptag == TokType.Ampersand || ptag == TokType.Caret || ptag == TokType.ShiftLeft || ptag == TokType.ShiftRight {
             return true
         }
         if ptag == TokType.PlusEqual || ptag == TokType.MinusEqual || ptag == TokType.StarEqual || ptag == TokType.SlashEqual || ptag == TokType.PercentEqual {

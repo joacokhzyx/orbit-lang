@@ -309,6 +309,16 @@ fn reportErrorAt(sema: Sema, code: string, hint: string, line: int, col: int, me
     sema.errors.push(SemaError(message, line, col, code, hint))
 }
 
+// Whether the checker can name this type. `unknown` is the absence of an
+// answer, and `""`/`void` are the shapes a node with no type rule comes back
+// as; a rule about operand types can only act on a name.
+fn semaKnownType(t: string) -> bool {
+    if t == "" { return false }
+    if t == "unknown" { return false }
+    if t == "void" { return false }
+    return true
+}
+
 // Function names the C backend cannot emit safely. A generated translation
 // unit has <stdio.h>, <stdlib.h>, <string.h>, <stdint.h> in scope, plus
 // <unistd.h>/<sys/socket.h> and friends on POSIX or <winsock2.h> on Windows,
@@ -3319,6 +3329,18 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 return "bool"
             }
             if b.op == "&&" || b.op == "||" { return "bool" }
+            // Bitwise and shift operators are int-only, and the refusal is
+            // here rather than in the C verifier so `orbit check` is enough to
+            // see it. A known non-int operand is a contradiction the checker
+            // can name; `unknown` operands stay silent the way `unknown`
+            // everywhere else does.
+            if b.op == "&" || b.op == "|" || b.op == "^" || b.op == "<<" || b.op == ">>" {
+                if lhsType == "int" && rhsType == "int" { return "int" }
+                if semaKnownType(lhsType) || semaKnownType(rhsType) {
+                    reportError(sema, "bitwise '" + b.op + "' takes two ints, not '" + lhsType + "' and '" + rhsType + "'")
+                }
+                return "unknown"
+            }
             if b.op == "+" && (lhsType == "string" || rhsType == "string") { return "string" }
             if lhsType == "float" || rhsType == "float" { return "float" }
             if lhsType == "int" && rhsType == "int" { return "int" }
@@ -3340,6 +3362,13 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             }
             val operandType = checkNode(sema, u.operand)
             if u.op == "!" { return "bool" }
+            if u.op == "~" {
+                if operandType == "int" { return "int" }
+                if semaKnownType(operandType) {
+                    reportError(sema, "bitwise '~' takes one int, not '" + operandType + "'")
+                }
+                return "unknown"
+            }
             return operandType
         }
         ASTNode.Literal(l) => {

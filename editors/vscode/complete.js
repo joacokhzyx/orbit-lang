@@ -3,7 +3,7 @@
 // source to re-check. Takes `vscode` as a parameter and never requires it, so
 // `node test/extension_test.js` can drive buildCompletions with a stub.
 //
-// Deliberately absent: null, loop{}, Option<T>, bitwise ops, sockets,
+// Deliberately absent: null, loop{}, Option<T>, sockets,
 // readLine/println, req.path/req.method, system.* beyond the 8 counters.
 // Completing those would manufacture a compile error.
 

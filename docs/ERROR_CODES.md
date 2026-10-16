@@ -232,6 +232,8 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `'every' schedules are not supported ...` | `n73` |
 | `Variant 'Both' declares 2 payloads ...` / `Pattern binds 1 names ...` | `n66`, `n68` |
 | `Payload 2 of 'Both' is declared ...` | `n67` |
+| `bitwise '<op>' takes two ints, not ...` (`&`, `\|`, `^`, `<<`, `>>`) | `n79` |
+| `bitwise '~' takes one int, not ...` | `n80` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |
 
 ## F-code index

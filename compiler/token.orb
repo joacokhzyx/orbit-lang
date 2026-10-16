@@ -95,7 +95,16 @@ enum TokType {
     // The range operator `..`, lexed as one token so `a..b` never reads as
     // two member accesses. Only the `for` header builds it; anywhere else it
     // is an unexpected token, which is honest: there is no range value.
-    DotDot
+    DotDot,
+    // Bitwise and shift operators, appended for the same reason as the block
+    // above. `<<` and `>>` are single tokens so a shift is one operator, and
+    // the cost is paid in type position: `map<k, list<v>>` now lexes one
+    // `>>`, and parseTypeName splits it back into two closers -- the one
+    // place that parses types is the one place that has to know.
+    ShiftLeft,
+    ShiftRight,
+    Caret,
+    Tilde
 }
 
 model Token {
@@ -199,10 +208,14 @@ fn tokTagName(tag: TokType) -> string {
         TokType.SemiColon => return "SemiColon"
         TokType.Question => return "Question"
         TokType.DotDot => return "DotDot"
+        TokType.ShiftLeft => return "ShiftLeft"
+        TokType.ShiftRight => return "ShiftRight"
+        TokType.Caret => return "Caret"
+        TokType.Tilde => return "Tilde"
         _ => return "unknown"
     }
 }
 
 fn tokIsSymbol(tag: TokType) -> bool {
-    return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.PlusEqual || tag == TokType.MinusEqual || tag == TokType.StarEqual || tag == TokType.SlashEqual || tag == TokType.PercentEqual || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon || tag == TokType.Question || tag == TokType.DotDot
+    return tag == TokType.Plus || tag == TokType.Minus || tag == TokType.Asterisk || tag == TokType.Slash || tag == TokType.Percent || tag == TokType.PlusEqual || tag == TokType.MinusEqual || tag == TokType.StarEqual || tag == TokType.SlashEqual || tag == TokType.PercentEqual || tag == TokType.Equal || tag == TokType.DoubleEqual || tag == TokType.NotEqual || tag == TokType.Less || tag == TokType.LessEqual || tag == TokType.Greater || tag == TokType.GreaterEqual || tag == TokType.DoublePipe || tag == TokType.Pipe || tag == TokType.DoubleAmpersand || tag == TokType.Ampersand || tag == TokType.Bang || tag == TokType.Arrow || tag == TokType.FatArrow || tag == TokType.At || tag == TokType.OpenBrace || tag == TokType.CloseBrace || tag == TokType.OpenParen || tag == TokType.CloseParen || tag == TokType.OpenBracket || tag == TokType.CloseBracket || tag == TokType.Colon || tag == TokType.Dot || tag == TokType.Comma || tag == TokType.SemiColon || tag == TokType.Question || tag == TokType.DotDot || tag == TokType.ShiftLeft || tag == TokType.ShiftRight || tag == TokType.Caret || tag == TokType.Tilde
 }

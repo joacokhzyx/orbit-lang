@@ -306,7 +306,7 @@ flags and exit codes; [FAQ](FAQ.md) has the common questions.
 
 ## What is not here yet
 
-Raw sockets, threads, bitwise operators, and generic unions — the
+Raw sockets, threads, and generic unions — the
 `std/quarantine/` directory names the exact missing language feature
 for each. [Known Limitations](KNOWN_LIMITATIONS.md) is the honest
 list, and [Status](STATUS.md) says what is being worked on.

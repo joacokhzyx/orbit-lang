@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Highlight: bitwise and shift operators (`& | ^ << >> ~`), now that the lexer
+  produces them as real operators.
 - Highlight: route decl with `:id`/`{id}` params, object keys (bare and quoted),
   `req.*`/`system.*` builtins, `limit N/unit burst M`, `every N unit`, doc
   `@tags`, import paths; `ok`/`err` no longer fire on field access or keys.
