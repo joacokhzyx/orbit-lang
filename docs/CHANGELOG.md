@@ -118,6 +118,22 @@ Language:
   unaffected, wrappers and all. Pinned by `cc-include-failure-is-not-a-missing-
   toolchain` and `cc-absent-names-the-toolchain` in `scripts/cli_probe.py`.
 
+Runtime and generated code:
+
+- **The per-request access log is buffered.** The emitted log path paid a
+  `fflush(stdout)` per line - a `WriteFile` syscall with the msvcrt FILE lock
+  held across it, contended by the eight workers - plus two `getenv` calls
+  per request in `orbit_color_enabled`. The probe is memoized (the
+  environment cannot change under a running server) and the worker loop
+  flushes once per pass under `#if ORBIT_LOGS_ACTIVE`. Measured on
+  `examples/health_service.orb` (60 000 requests at 16 conns unpaced,
+  before/after x logs on/off, 6 windows per arm): log cost 113 421 -> 50 555
+  cycles in-handler (~31.5 -> 14.0 us per logged request, 55 % recovered);
+  whole-process CPU 29.5 -> 25.4 us per request. Emitted log bytes are
+  identical; a hard crash can lose at most the lines of the last pass. The
+  remaining half is the line's own construction, dominated by the `printf`
+  format walk.
+
 Content and docs track; no compiler changes:
 
 - Language tour, tutorials (blog API, file server, deploy,

@@ -26,12 +26,18 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
         out = out + "}\n"
         out = out + "\n"
     }
+    // Memoised: the environment cannot change under a running server, and
+    // this used to cost two getenv calls per logged request.
     out = out + "int orbit_color_enabled(void) {\n"
-    out = out + "    const char* no_color = getenv(\"NO_COLOR\");\n"
-    out = out + "    if (no_color != NULL && no_color[0] != 0) return 0;\n"
-    out = out + "    const char* term = getenv(\"TERM\");\n"
-    out = out + "    if (term != NULL && strcmp(term, \"dumb\") == 0) return 0;\n"
-    out = out + "    return 1;\n"
+    out = out + "    static int cached = -1;\n"
+    out = out + "    if (cached < 0) {\n"
+    out = out + "        cached = 1;\n"
+    out = out + "        const char* no_color = getenv(\"NO_COLOR\");\n"
+    out = out + "        if (no_color != NULL && no_color[0] != 0) cached = 0;\n"
+    out = out + "        const char* term = getenv(\"TERM\");\n"
+    out = out + "        if (term != NULL && strcmp(term, \"dumb\") == 0) cached = 0;\n"
+    out = out + "    }\n"
+    out = out + "    return cached;\n"
     out = out + "}\n"
     out = out + "\n"
     // The server banner is server-only: emitting it into plain programs
@@ -103,8 +109,13 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
 
 // The request-log helper as its own text: the router block and the shard
 // header carry the same definition from this one source.
+//
+// Buffered on purpose: the worker loop flushes once per pass, so a burst
+// of requests costs one write instead of one syscall per line.
 fn orbitLogFmtText() -> string {
     var out = ""
+    out = out + "/* Buffered on purpose: the worker loop flushes once per pass, so a\n"
+    out = out + " * burst of requests costs one write instead of one per line. */\n"
     out = out + "static inline void orbit_log_request_fmt(const char* method, const char* path, int status, uint64_t start_rdtsc) {\n"
     out = out + "    uint64_t elapsed_cycles = orbit_rdtsc() - start_rdtsc;\n"
     out = out + "    double ms = (double)elapsed_cycles / 2500000.0;\n"
@@ -139,13 +150,11 @@ fn orbitLogFmtText() -> string {
     out = out + "    if (orbit_color_enabled() == 0) {\n"
     out = out + "        printf(\"  %-6s %-32s %d %s %.1f ms\\n\",\n"
     out = out + "            method_str, path_str, status, status_text, ms);\n"
-    out = out + "        fflush(stdout);\n"
     out = out + "        return;\n"
     out = out + "    }\n"
     out = out + "\n"
     out = out + "    printf(\"  %s%-6s\\x1b[0m \\x1b[1;37m%-32s\\x1b[0m %s%d %-18s\\x1b[0m \\x1b[2;90m%.1f ms\\x1b[0m\\n\",\n"
     out = out + "        method_color, method_str, path_str, status_color, status, status_text, ms);\n"
-    out = out + "    fflush(stdout);\n"
     out = out + "}\n"
     return out
 }
@@ -502,6 +511,11 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "                i++;\n"
     out = out + "            }\n"
     out = out + "        }\n"
+    out = out + "#if ORBIT_LOGS_ACTIVE\n"
+    out = out + "        /* One flush per pass: every log line this pass produced\n"
+    out = out + "         * goes out in a single write, not one syscall per line. */\n"
+    out = out + "        fflush(stdout);\n"
+    out = out + "#endif\n"
     out = out + "    }\n"
     out = out + "    free(buffer_pool);\n"
     out = out + "    orbit_arena_destroy(thread_arena);\n"

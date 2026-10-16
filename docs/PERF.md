@@ -143,10 +143,30 @@ durable part.
 - **DB pragma and sync policy.** Not compiled into a net-only service, so
   nothing here is measurable against it. Deferred to a database-backed
   service rather than guessed at.
-- **Per-request access `printf`+`fflush` in generated code**, and the Kynx
+- **Per-request access `printf` in generated code**, and the Kynx
   policy and address lookups in generated code. These are the two largest
   per-request costs and they live in the compiler's output, not in the
-  runtime; fixing them is a codegen change, not a runtime change.
+  runtime; fixing them is a codegen change, not a runtime change. The
+  per-line `fflush` half of the access-log item was removed in 2026-10; see
+  the follow-up below.
+
+## Follow-up (2026-10): the access log's per-line flush
+
+The access-log item above was re-measured and half of it is gone. On a quiet
+box (`examples/health_service.orb`, `/ready`, 60 000 requests at 16 conns
+unpaced, before/after arms x logs on/off, 6 windows per arm, medians, TSC
+3.6 GHz), the emitted log path cost +113 421 cycles ~ +31.5 us per request
+inside the handler, and most of it bought nothing: a `fflush(stdout)` per
+line is a `WriteFile` syscall with the msvcrt FILE lock held across it, which
+eight workers then contend on, and `orbit_color_enabled` paid two `getenv`
+calls per request. The probe is memoized (the environment cannot change under
+a running server) and the worker loop flushes once per pass under
+`#if ORBIT_LOGS_ACTIVE`. Log cost: +113 421 -> +50 555 cycles, ~31.5 -> 14.0
+us per request (55 % recovered); whole-process CPU 29.5 -> 25.4 us per
+request -- the difference is blocked syscall and lock time that moved outside
+the handler, not CPU that came back. Emitted log bytes are identical; a hard
+crash can lose at most the lines of the last pass. The remaining half is the
+line's own construction, dominated by the msvcrt `printf` format walk.
 
 ## Kynx route-limit live gate
 
