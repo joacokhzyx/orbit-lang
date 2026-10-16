@@ -290,7 +290,7 @@ fn runStart() {
     }
     startMigrateDb(runQuiet)
     val outputPath = startOutputFor(inputArg)
-    if compileSourceWithFile(source, inputArg, outputPath, runVerbose, true, runColor) == false {
+    if compileSourceWithFile(source, inputArg, outputPath, runVerbose, true, runColor, "") == false {
         orbit_os_exit_selfhost(1)
         return
     }
@@ -500,7 +500,7 @@ fn runDev() {
     if serviceMode {
         startEnsureSqliteDll(outputPath, devQuiet, devVerbose)
     }
-    if compileSourceWithFile(source, inputArg, outputPath, devVerbose, true, devColor) == false {
+    if compileSourceWithFile(source, inputArg, outputPath, devVerbose, true, devColor, "") == false {
         orbit_os_write_stderr_selfhost("orbit dev: initial build failed — watching for fixes.\n")
     }
     var childPid = devwSpawnChild(outputPath, port, serviceMode, devVerbose)
@@ -534,7 +534,7 @@ fn runDev() {
         devwStopChild(childPid)
         childPid = 0
         devwWritePid(0)
-        if compileSourceWithFile(source, inputArg, outputPath, devVerbose, true, devColor) == false {
+        if compileSourceWithFile(source, inputArg, outputPath, devVerbose, true, devColor, "") == false {
             orbit_os_write_stderr_selfhost("orbit dev: rebuild failed — keeping previous binary stopped, watching for fixes.\n")
             continue
         }

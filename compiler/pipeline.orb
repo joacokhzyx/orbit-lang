@@ -8,6 +8,7 @@ import "./resolver.orb"
 import "./sema.orb"
 import "./builder.orb"
 import "./ir.orb"
+import "./ir_emit.orb"
 import "./optimizer.orb"
 import "./cteval.orb"
 import "./c_backend.orb"
@@ -590,7 +591,7 @@ fn compileFailed(inputPath: string, errCount: int, startMs: int, colorMode: stri
     orbit_os_write_stderr_selfhost(palettePaint(paletteDim(), line, useErr) + "\n")
 }
 
-fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string) -> bool {
+fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, emitIrPath: string) -> bool {
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
@@ -646,6 +647,26 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val builder = initIRBuilder()
     val irModule = buildAST(builder, ast)
     reportMemStage("build")
+
+    // --emit-ir dumps IRv1 straight after the builder, before the optimizer
+    // and the C backend touch the module, so registerTypes is what buildAST
+    // produced (P1, docs/IR_SPEC_ALIGNMENT.md §6).  A non-finite float has no
+    // JSON form, so it aborts the build instead of writing a bad document
+    // (V-08); a failed write is reported the same way.
+    if emitIrPath != "" {
+        val badFloat = irNonFiniteFloat(irModule)
+        if badFloat != "" {
+            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " cannot emit IR: non-finite float in " + badFloat + " has no JSON form (V-08)\n")
+            return false
+        }
+        if orbit_file_write_selfhost(emitIrPath, emitIRv1(irModule)) == false {
+            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " could not write IR file '" + emitIrPath + "'.\n")
+            return false
+        }
+        if verbose {
+            print("ir: wrote " + emitIrPath)
+        }
+    }
 
     // Both optimization passes honor the same kill switch
     // (ORBIT_NO_CTE=1 skips them and emits pre-pass IR), and their
