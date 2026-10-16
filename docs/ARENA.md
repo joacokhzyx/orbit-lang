@@ -78,24 +78,28 @@ If an allocation exceeds the 64 MB virtual reservation limit, Arena allocates a 
 
 ## String Pool & Interning
 
-Each arena maintains an optional per-arena string interning table (`OrbitStringPoolLocal`). Strings allocated inside the arena are deduplicated via FNV-1a hash lookups.
+Each arena maintains an optional per-arena string interning table (`OrbitStringPoolLocal`), created lazily on the first intern. It deduplicates the strings one arena epoch makes, but **not** with a hash: the table is two flat `malloc`'d arrays (pointer and length per entry) that the lookup walks linearly.
 
 ```c
-typedef struct OrbitStringNode {
-    uint64_t hash;
-    const char* str;
-    size_t len;
-    struct OrbitStringNode* next;
-} OrbitStringNode;
+typedef struct OrbitStringPoolLocal {
+    const char** strings;
+    size_t*      lengths;
+    int          count;
+    int          capacity;   /* 4096, doubled when full */
+} OrbitStringPoolLocal;
 ```
 
-When `orbit_arena_reset` is called, the interning table hash buckets are cleared in $O(1)$ without freeing individual nodes.
+A lookup compares lengths first and then `memcmp`s, so it is $O(n)$ in the number of strings already interned in this epoch - `runtime/string_pool.c` says as much at the top ("Lookups are O(n) over the pool"). A miss allocates the canonical copy with `orbit_alloc` and appends it. `orbit_arena_reset` clears the table in $O(1)$ by setting `count = 0`; the arrays themselves live until `orbit_arena_destroy` frees them (`runtime/arena.c:258`).
+
+FNV-1a hashing and open-addressed buckets do exist in this runtime, but for `Map<K,V>`, not for string interning: `runtime/collections.c` (`OrbitMapEntry`, 75 % load factor, buckets abandoned in the arena and reclaimed on reset). Do not read that machinery into this table.
+
+`orbit_string_pool_init(capacity)` and `orbit_string_pool_cleanup()` are compatibility stubs that ignore their argument; the generated server calls both (`compiler/route_runtime.orb:567`, `:732`) and they do nothing.
 
 ---
 
 ## Arena Pooling & Thread Caching
 
-To eliminate the cost of repeated OS allocation calls for short-lived tasks (such as HTTP request handlers), Orbit implements a global, concurrency-safe arena pool (`runtime/arena_pool.c`).
+`runtime/arena_pool.c` holds a global, concurrency-safe pool of pre-created arenas.
 
 ```c
 typedef struct {
@@ -110,8 +114,16 @@ typedef struct {
 ```
 
 1. **Init**: `orbit_arena_pool_init(pool_size, arena_capacity)` pre-creates `pool_size` arenas.
-2. **Acquire**: `orbit_arena_pool_acquire()` returns a free arena (reset before use) in $O(1)$; if the pool is exhausted it returns a temporary overflow arena.
+2. **Acquire**: `orbit_arena_pool_acquire()` returns a free arena (reset before use) in $O(1)$; if the pool is exhausted it creates a temporary arena (`orbit_arena_create`) and counts it as an overflow.
 3. **Release**: `orbit_arena_pool_release(arena)` resets the arena (retaining up to 256 KB of hot committed memory) and returns it to the pool.
+
+### The pool is not the request path
+
+The pool serves process **startup** work, not requests. The generated server initializes it and immediately acquires one arena for startup scratch work (`compiler/route_runtime.orb:566`, `:585-587`); after that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:731`). Nothing else in the tree acquires from it, and that is the whole caller list.
+
+The request path is one private arena per worker thread instead. `orbit_worker_loop` creates a 128 KB arena when the thread starts - the emitted comment is "Each thread owns its private arena - zero pool contention" (`:368-369`) - resets it before every `orbit_handle_request` (`:485`), and destroys it when the loop ends (`:521`). That is deliberate: a per-thread arena needs no lock to acquire, and the reset cost lands on the thread that caused it.
+
+So the mechanism that serves requests is `orbit_arena_create` + `orbit_arena_reset` on the worker's own arena, not the pool. Treat the pool as available infrastructure (hand-written C can acquire from it), in the same spirit as `orbit_arena_checkpoint`/`rewind`: real, usable, and outside the generated server's request path.
 
 ---
 

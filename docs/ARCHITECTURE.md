@@ -249,10 +249,11 @@ per-object free.
 
 **Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
 generated connection loop calls `orbit_arena_reset(thread_arena)` before every
-`orbit_handle_request` (`compiler/route_runtime.orb:453`), so each request
+`orbit_handle_request` (`compiler/route_runtime.orb:485`), so each request
 starts from a reset arena. `orbit_arena_reset` is not O(1) and not a rewind: it
 releases the chained overflow segments and decommits every page past the hot
-retention watermark (`runtime/arena.c:526`).
+retention watermark (`runtime/arena.c:525`; the watermark itself is
+`ORBIT_ARENA_HOT_RETENTION_LIMIT`, 256 KB, at `:52`).
 
 `orbit_arena_checkpoint` and `orbit_arena_rewind` exist
 (`runtime/arena.c:582,592`) and a rewind is an O(1) bump-pointer restore, but
@@ -262,8 +263,21 @@ and `runtime/test_arena.c`, the only references are the counter fields in
 `arena_rewind_count` remain zero in a running server. The checkpoint API is
 available to hand-written C; the HTTP path uses whole-arena reset.
 
-`runtime/arena_pool.c` keeps a pool of arenas so a worker borrows one per request
-instead of creating it.
+The request path does not use the pool. Each worker creates one 128 KB arena
+when its thread starts (`compiler/route_runtime.orb:368-369`; the emitted
+comment is "Each thread owns its private arena - zero pool contention"), resets
+it before every request (`:485`) and destroys it when the loop ends (`:521`).
+`runtime/arena_pool.c` is initialized for process-startup scratch work only
+(`:566`, `:585-587`) and has no caller on the request path.
+
+`runtime/oracle.c` implements the *Orbit Arena Oracle*, a per-route prediction of
+how many bytes a route needs (EMA with a cold-start sample count and a safety
+margin, `runtime/oracle.h`) so a session can pre-reserve that much and serve
+allocations from an O(1) TLS bump path (`runtime/arena.c:327`). It is compiled
+into every program (`runtime/runtime.h:62`) and the allocator's fast path is
+live, but nothing in the generated server opens or closes an oracle session, so
+`tls_oracle_session.active` stays 0, the prediction tables stay cold, and no C
+test exercises it.
 See [ARENA.md](ARENA.md).
 
 ---
@@ -350,7 +364,7 @@ Main thread
 
 HTTP server (generated code)
   └── worker pool (runtime/thread_pool.c, count from ORBIT_WORKERS or the CPU count)
-        └── per-request: borrow an arena → handle → return it
+        └── per-request: reset the thread's own arena → handle → respond
 ```
 
 Worker count is resolved in the generated `main`: `ORBIT_WORKERS` if positive,
@@ -365,20 +379,21 @@ contention is on the queue and not on a shared stdout lock.
 ```text
 accept (acceptor thread, server socket)
   -> lock-free accept queue, one per worker (orbit_accept_q)
-  -> worker borrows an arena from the pool (orbit_arena_pool_acquire)
-  -> whole-arena reset (orbit_arena_reset before each orbit_handle_request)
+  -> worker resets its own per-thread arena (orbit_arena_reset before each orbit_handle_request)
+  -> no pool acquire/release on the request path (the pool serves startup only)
   -> Kynx admission check + per-route lease
      (orbit_kynx_check_route, orbit_kynx_lease_create_for_route;
       over-budget -> HTTP 429; SIEGE admits only /health, /auth, /)
   -> router dispatches to the generated handler (orbit_handle_request)
   -> handler runs (SQLite via runtime/database.c when models are present;
      auth via runtime/auth.c)
-  -> response written; arena returned to the pool (orbit_arena_pool_release)
+  -> response written (no pool release: the worker's arena is reset before the next request)
 ```
 
 The connection loop that brackets each request with `orbit_arena_reset`
 followed by `orbit_handle_request` is emitted by
-`compiler/route_runtime.orb`; the pool lives in `runtime/arena_pool.c`, leases
+`compiler/route_runtime.orb`; the arena pool lives in `runtime/arena_pool.c`
+(startup scratch work, not the request path), leases
 and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 
 ---
@@ -418,8 +433,8 @@ and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 |---|---|
 | `runtime/runtime.h` | Aggregation header; includes the `.c` files |
 | `runtime/arena.c` | Epoch virtual-memory allocator |
-| `runtime/arena_pool.c` | Pool of arenas for per-request use |
-| `runtime/oracle.c` | Arena telemetry oracle |
+| `runtime/arena_pool.c` | Pool of arenas for startup and hand-written scratch work (not the request path) |
+| `runtime/oracle.c` | Arena Oracle: predictive pre-reservation allocator. Its O(1) TLS fast path is wired into `arena.c`; the generated server has no session driver yet and there is no test of its own. |
 | `runtime/string_pool.c` | String interning |
 | `runtime/collections.c` | Arrays, hash maps, bytes |
 | `runtime/types.c` | Runtime type system |

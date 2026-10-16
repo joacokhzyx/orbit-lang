@@ -158,6 +158,19 @@ Content and docs track; no compiler changes:
   written. Survivors documented under the Wave 0 std contract.
 - Honesty notes on `sqlite_notes.orb` (bearer routes,
   `:id` routes, writes) and `catalog_service.orb` (writes).
+- ARENA.md and ARCHITECTURE.md now describe the memory system the code
+  actually has. Both presented `runtime/arena_pool.c`'s 16-arena pool as the
+  mechanism serving requests; the generated server uses it only for startup
+  scratch work (`compiler/route_runtime.orb:566`, `:585-587`) while each worker
+  owns a private 128 KB arena (`:368-369`), resets it per request (`:485`) and
+  destroys it at loop end (`:521`). ARENA.md also described string interning as
+  FNV-1a hash lookups over `OrbitStringNode` buckets; `runtime/string_pool.c`
+  has neither - it is a flat array scanned with `memcmp` ("Lookups are O(n)
+  over the pool") - and the FNV-1a plus open addressing in this runtime belongs
+  to `Map<K,V>` (`runtime/collections.c:461`). The same edit records what the
+  Arena Oracle is today: its O(1) TLS fast path is live in `runtime/arena.c:327`,
+  but nothing in the generated server opens or closes a session and no C test
+  exercises it.
 
 ## 0.1.0-rc.2 cycle (September 2026)
 
