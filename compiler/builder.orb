@@ -2547,6 +2547,20 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     // the call's type here, not an opaque word, or the declaration below
     // emits a `void*` where an `orbit_int` belongs.
     vType = resolveFnType(builder, vType)
+    // A read of an object field is lowered from the writes to that key in the
+    // same function, which is blind to an object built elsewhere and to a key
+    // the literal never wrote. The declaration is the read's expected type,
+    // so hand it to the read while it is still visible here; the scan still
+    // wins wherever it has an answer.
+    if v.typeAnnotation != "" {
+        val declKind = fieldKindCode(annotationBaseType(vType))
+        if declKind != 0 {
+            match varVal {
+                IRValue.Register(r) => { recordFieldKindOnDef(builder.currentFunction, r.value, declKind) }
+                _ => {}
+            }
+        }
+    }
     // A float received through try has no static type until the annotation
     // says so: a result carries no payload tag, so the unwrap register is
     // unknown and the backend would convert the word instead of decoding
@@ -4436,6 +4450,54 @@ fn objectFieldSetter(builder: IRBuilder, valueReg: int) -> string {
     if t == "object" { return "orbit_object_set_object" }
     if t == "list" || orbit_string_slice(t, 0, 4) == "list" { return "orbit_object_set_list" }
     return "orbit_object_set_string"
+}
+
+/** @brief The IRFieldKind number a declared type name stands for. 0 for none.
+ *
+ *  Only the kinds an object field can hold and the emitter has a getter for:
+ *  a model, a result or any other name reads back through the string setter
+ *  the object write path already used, so a number for it would pick a getter
+ *  the write cannot match. `list` keeps its own number because the field
+ *  needs `get_list`, which an object reference cannot stand in for. */
+fn fieldKindCode(t: string) -> int {
+    if t == "string" || t == "orbit_string" { return 1 }
+    if t == "int" || t == "orbit_int" { return 2 }
+    if t == "float" || t == "orbit_float" { return 3 }
+    if t == "bool" || t == "orbit_bool" { return 4 }
+    if t == "object" { return 5 }
+    if t == "list" { return 6 }
+    return 0
+}
+
+/** @brief Record the field kind on the instruction that defined @p reg.
+ *
+ *  `val ratio: float = o.ratio` is a read whose kind the setter scan in the
+ *  emitter cannot supply when the object was built in another function, and
+ *  never can for a key no literal wrote. The declaration is the read's
+ *  expected type and the builder is the only stage that sees it, so the kind
+ *  is written onto the read's own instruction and carried from there.
+ *
+ *  The register's first definition is the read: `ir_alloc_register` mints a
+ *  fresh id per value, so the destination names exactly one instruction.
+ *  Anything that is not a load_field -- `val x: int = f(o.a)` stores the
+ *  call's result, not the read's -- records nothing, because a kind on a
+ *  call would answer for all of its arguments. */
+fn recordFieldKindOnDef(func: IRFunction, reg: int, kindCode: int) {
+    if reg < 0 || kindCode == 0 { return }
+    var i = 0
+    while i < func.instructions.len() {
+        val inst: IRInstruction = func.instructions.get(i)
+        if inst != NULL && inst.dest == reg {
+            var isLoad = false
+            match inst.opcode {
+                IROpcode.load_field => { isLoad = true }
+                _ => {}
+            }
+            if isLoad { inst.fieldKind = kindCode }
+            return
+        }
+        i = i + 1
+    }
 }
 
 // The declared type of a top-level constant, or "" when the name is not one.

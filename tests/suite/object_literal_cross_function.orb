@@ -1,0 +1,30 @@
+// A field read off an object built in ANOTHER function.
+//
+// The getter for an object field was resolved by scanning the setters in the
+// function the read is in. `make` is where the literal is written, so nothing
+// in `main` names the kind of `count`, `ratio`, `name` or `flag`, and every
+// read took the raw getter: a float was read as its pointer bits and the
+// program answered 3. The read's declaration names the kind the program meant,
+// and that is what lowers it now.
+
+fn make() -> object {
+    return { count: 42, ratio: 0.5, name: "orbit", flag: true }
+}
+
+fn main() -> int {
+    val o = make()
+    val c: int = o.count
+    if c != 42 { return 1 }
+    val n: string = o.name
+    if n != "orbit" { return 2 }
+    val f: float = o.ratio
+    if f != 0.5 { return 3 }
+    val b: bool = o.flag
+    if b != true { return 4 }
+
+    // The same object read without touching the disk again: the kinds are
+    // per read, so a second read of the same field has to come out the same.
+    val f2: float = o.ratio
+    if f2 != 0.5 { return 5 }
+    return 0
+}

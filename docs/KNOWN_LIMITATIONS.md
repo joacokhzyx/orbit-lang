@@ -419,15 +419,33 @@ lives in git history with it. What is left is a different and smaller hole:
   push the front end could type, which is the intended end state: a diagnostic
   beats an `exit 2` with no line number.
 
-### An object `.get()` is a keyed read, and the key is not typed
+### An object field read is lowered from the writes in the reading function
 
 `{ "a": 1 }.get("a")` no longer lowers to a list read. It reads the field the
 same way a dynamic object is written, and the emitter picks the getter from the
 setter that wrote that key, so an int field reads back an int, a string field
-a string, and a list field a list. An object literal's field types are still not recorded: nothing knows
-them, so a key that was never written still answers with the type of whatever
-was, and a getter chosen from no setter is the raw one. That is the remaining
-gap here, and it needs the object's own field types recorded.
+a string, and a list field a list. That scan only sees the writes in the
+function the read is in, which is silent for an object a function returned and
+for a key the literal never wrote -- and the raw getter it fell back to answers
+a pointer, so `val ratio: float = o.ratio` on an object from another function
+came back as the field's address bits.
+
+Two cases are closed. A read whose declared type names one of the kinds an
+object field holds (`int`, `float`, `bool`, `string`, `object`, `list`) carries
+that kind to the emitter on the read itself, as `IRInstruction.fieldKind`, so
+`val ratio: float = o.ratio` reads `0.5` and `val v: int = o.get("missing")`
+answers `0` -- a key that is absent is not a mismatch, and every typed getter
+already answers the zero of its kind for one. The scan still wins wherever it
+has an answer, so a same-function literal read is lowered exactly as before.
+
+What is still open:
+
+- a read with no declaration (`val o = make(); o.ratio` used without a
+  `: float`) has no kind anywhere and still takes the raw getter;
+- the middle of a chained read is such a read: `o.deep.x` on an object from
+  another function leaves `o.deep` untyped, and the second `.` is lowered as a
+  model field access -- `'OrbitModel' has no member named 'x'` from the C step,
+  with `orbit check` clean (pre-existing, unchanged by the kind above).
 
 ## 29.6% of instructions are `unknown`, and 45.5% of those are silent
 

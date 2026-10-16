@@ -13,6 +13,21 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **An object field read is lowered from the read's declared type.** The getter
+  for `o.field` was chosen by scanning the setters in the function the read is
+  in (`objectFieldGetter`), so an object built in *another* function
+  (`val o = make(); val c: int = o.count`) and a key no literal ever wrote both
+  fell back to `orbit_object_get_raw`, which hands back the field's
+  `const char*`: a float read came back as its pointer bits and the program
+  answered the wrong value while `orbit check` was clean. The builder now
+  records the declared type's kind on the read's own instruction
+  (`IRInstruction.fieldKind`, alongside `elemKind`) and the backend consults it
+  **only when the setter scan answers raw**, so every read the scan already
+  pinned keeps its getter and `tests/suite/object_literals.orb` emits
+  byte-identical C. Pinned by `tests/suite/object_literal_cross_function.orb`
+  and `object_literal_missing_key.orb`; the residuals (an undeclared
+  cross-function read, a chained `o.deep.x`) are recorded in
+  [Known Limitations](KNOWN_LIMITATIONS.md).
 - **A `port` declaration names the port the server binds.** The checker now
   validates the value - an integer literal 1..65535, anything else is the
   new E1008 - and the emitted server binds it; `argv[1]` still overrides at

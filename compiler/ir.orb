@@ -112,6 +112,17 @@ model IRInstruction {
     // "nobody could tell", which lowers to the untyped accessor and to a
     // `void*` destination, exactly as before.
     elemKind: int
+    // The kind of the object field a load_field reads, as an IRFieldKind
+    // number (0 undecided, 1 string, 2 int, 3 float, 4 bool, 5 object,
+    // 6 list). The setter scan in the backend answers from the writes to
+    // that key in the SAME function; a field of an object built in another
+    // function, and a key nothing ever wrote, have no such write. There the
+    // declared type of the read is what the program meant, and the builder
+    // is the only place that sees it, so it records it here, at the read,
+    // once. Like elemKind this exists so the reader and the writer cannot
+    // disagree -- but it is a fallback: the setter scan still wins wherever
+    // it has an answer, so no read that was lowered correctly before moves.
+    fieldKind: int
 }
 
 // Factory functions for IRValue
@@ -150,7 +161,7 @@ fn ir_none() -> IRValue {
 }
 
 fn ir_init_instr(opcode: IROpcode) -> IRInstruction {
-    return IRInstruction(opcode, -1, ir_none(), ir_none(), ir_none(), 0)
+    return IRInstruction(opcode, -1, ir_none(), ir_none(), ir_none(), 0, 0)
 }
 
 model IRFunction {

@@ -1103,7 +1103,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         _ => {}
                     }
                     if oFieldName != "" && oInst.dest >= 0 && oInst.dest < func.registerTypes.len() {
-                        val gotType = objectGetterReturnType(objectFieldGetter(func, oFieldName))
+                        val gotType = objectGetterReturnType(objectGetCallForRead(func, oInst, oFieldName))
                         if gotType != "" {
                             func.registerTypes = setStrAt(func.registerTypes, oInst.dest, gotType)
                         }
@@ -3523,7 +3523,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // wrong bytes at worst, since findFieldOwner answers from a
             // module-wide name table that any model can populate.
             if operandDefType(backend.currentFunction, instr.operand1) == "object" {
-                val getter = objectFieldGetter(backend.currentFunction, fname)
+                val getter = objectGetCallForRead(backend.currentFunction, instr, fname)
                 // Reading a nested object has to leave the result known to be
                 // an object, or `a.b.c` stops at `a.b` and the next `.` is
                 // looked up on a register nothing has a type for.
@@ -4527,6 +4527,34 @@ fn objectGetterReturnType(getter: string) -> string {
     if getter == "orbit_object_get_object" { return "object" }
     if getter == "orbit_object_get_list" { return "list" }
     return ""
+}
+
+// The getter an IRFieldKind number stands for, or "" for 0/unknown: a kind
+// the builder did not record cannot pick one and falls through to the scan.
+fn objectGetterForFieldKind(kind: int) -> string {
+    if kind == 1 { return "orbit_object_get_string" }
+    if kind == 2 { return "orbit_object_get_int" }
+    if kind == 3 { return "orbit_object_get_float" }
+    if kind == 4 { return "orbit_object_get_bool" }
+    if kind == 5 { return "orbit_object_get_object" }
+    if kind == 6 { return "orbit_object_get_list" }
+    return ""
+}
+
+// Which getter a read of @p fieldName lowers to. The writes in this function
+// answer first: that scan is what has always lowered these reads, and a read
+// it pins must not move. When it has no answer -- the object was built in
+// another function, or the key was never written -- the kind the builder
+// recorded on the read from its declared type decides. Raw is the last
+// resort, for a read whose kind nothing states at all.
+fn objectGetCallForRead(func: IRFunction, inst: IRInstruction, fieldName: string) -> string {
+    val scanned = objectFieldGetter(func, fieldName)
+    if scanned != "orbit_object_get_raw" { return scanned }
+    if inst != NULL {
+        val carried = objectGetterForFieldKind(inst.fieldKind)
+        if carried != "" { return carried }
+    }
+    return scanned
 }
 
 fn isObjectFieldSetter(name: string) -> bool {

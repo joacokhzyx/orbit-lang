@@ -1,0 +1,27 @@
+// A key the literal never wrote, read with a declared type.
+//
+// No setter wrote "missing", so the setter scan has no kind to pick a getter
+// from and fell back to the raw one, which answers a pointer: an int read of a
+// key that is not there came back as the address of "" and the program
+// answered 1. A key that is absent is not a mismatch, and every typed getter
+// already answers the zero of its kind for it, so the declared type of the
+// read is what picks the getter.
+
+fn main() -> int {
+    val o = { a: 1 }
+    val v: int = o.get("missing")
+    if v != 0 { return 1 }
+    val s: string = o.get("also_missing")
+    if s != "" { return 2 }
+    val f: float = o.get("float_missing")
+    if f != 0.0 { return 3 }
+
+    // A present field and an absent one in the same function: the present
+    // read must keep the kind its setter wrote, the absent one the declared
+    // kind, and neither may leak into the other.
+    val a: int = o.get("a")
+    if a != 1 { return 4 }
+    val v2: int = o.get("still_missing")
+    if v2 != 0 { return 5 }
+    return 0
+}
