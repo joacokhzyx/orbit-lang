@@ -54,6 +54,34 @@ flag delta on a 32 KB unit is 0.02 s. Consequences, all in place:
 `orbit build compiler/main.orb` on the same box: 35 s wall, of which the
 compiler's own `cc` child is the large majority.
 
+## User-build optimisation level
+
+`orbit build` shipped `cc -s -O0`, so every user program and the runtime it
+links ran unoptimized. The level is now `-O1`, and `orbit build --release`
+selects `-O2`; the two are the only levels the compiler chooses, and
+`ORBIT_CCFLAGS_EXTRA` is still appended last, so `ORBIT_CCFLAGS_EXTRA=-O0`
+(or any other level) overrides either.
+
+`-O1` is the knee. Measured on AMD Ryzen 5 2400G (4 cores / 8 threads, 7.9 GB,
+gcc 16.2.0, Windows 10 19045, quiet box) by the 2026-10-15 ladder, service
+`scratch/W1D/w1d_busy.orb`, 4 keep-alive connections, 120 requests per route,
+5 runs per level, emitted unit built at each level (`orbit build`, p50 per
+route):
+
+| route | `-O0` p50 | `-O1` p50 | `-O2` p50 |
+|---|---|---|---|
+| `/int` (3M-iteration loop) | 49.4 ms | 15.7 ms | 15.5 ms |
+| `/list` (3M list adds) | 102.4 ms | 13.8 ms | 13.5 ms |
+
+`-O1` takes the whole win (3.2x and 7.4x); the `-O1`-to-`-O2` gap is inside
+run noise on both routes. Build wall cost, `examples/hello.orb` and
+`w1d_busy.orb`, 5 rounds each: `-O0` 2.44 / 2.45 s, `-O1` 4.22 / 4.20 s
+(+73 %), `-O2` 6.70 / 6.97 s (+2.5 s more). The trivial route (`/ready`) is
+flat at every level: its cost is the access log and Kynx admission, not the
+handler. So `-O2` is opt-in for a workload that measured a gain, not the
+default, and the `-O2` strict-aliasing surface on generated C is why it is
+opt-in rather than default.
+
 ## The self-host chain, before and after
 
 Same box, same gcc, measured directly. "Before" is the tree at the commit

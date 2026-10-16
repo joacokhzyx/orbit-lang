@@ -590,7 +590,7 @@ fn compileFailed(inputPath: string, errCount: int, startMs: int, colorMode: stri
     orbit_os_write_stderr_selfhost(palettePaint(paletteDim(), line, useErr) + "\n")
 }
 
-fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string) -> bool {
+fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool) -> bool {
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
@@ -777,7 +777,24 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if orbit_os_env_selfhost("ORBIT_WARNINGS") == "0" {
         warnFlags = ""
     }
-    var compCmd = cCompiler + " -s -O0" + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + separateFlags + dbFlags + libRef + linkFlags
+    // Instruction selection for the emitted unit. User builds shipped -O0
+    // because the flag was never revisited after codegen worked; every user
+    // program therefore ran unoptimized across the program and the runtime
+    // alike. -O1 is the measured knee: on the scratch service's CPU-bound
+    // routes gcc at -O1 takes /int p50 49.4 ms -> 15.7 ms and /list
+    // 102.4 ms -> 13.8 ms (3.2x / 7.4x) for +1.77 s of build wall time, and
+    // -O2 buys nothing measurable on either route (15.5 / 13.5 ms) while
+    // adding a further +2.5 s. The trivial routes are unaffected at any level
+    // (their cost is the log and Kynx admission, not the handler). `-s` still
+    // strips the shipped binary. -O2 strict-aliasing on generated C is
+    // pre-anticipated in the emitter, so it is opt-in, not the default:
+    // `orbit build --release` selects it. ORBIT_CCFLAGS_EXTRA is appended
+    // after this, so a caller can still override the level (last -O wins).
+    var optFlag = " -O1"
+    if release {
+        optFlag = " -O2"
+    }
+    var compCmd = cCompiler + " -s" + optFlag + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + separateFlags + dbFlags + libRef + linkFlags
     // Orbit branding: every binary linked on Windows carries the version
     // resource + mark. Fixed metadata, never user input (there is no syntax
     // for it), so services and plain programs alike are recognisably Orbit's.

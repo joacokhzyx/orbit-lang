@@ -145,6 +145,24 @@ Language:
 
 Runtime and generated code:
 
+- **User builds are compiled at `-O1`, and `orbit build --release` selects
+  `-O2`.** `orbit build` shipped `cc -s -O0`, so every user program and the
+  runtime it links ran unoptimized; the flag was never revisited after codegen
+  worked. `-O1` is the measured knee: on the scratch service's CPU-bound routes
+  (`w1d_busy.orb`, 4 keep-alive connections, 120 requests per route, 5
+  alternating runs per level) p50 goes 49.18 -> 15.15 ms on `/int` and
+  97.62 -> 13.35 ms on `/list` (3.25x / 7.31x), for +1.9 s of build wall time
+  (`examples/hello.orb` 2.36 -> 4.29 s). `-O1` to `-O2` is inside the run spread
+  on both routes while costing a further +2.5 s, so `-O2` is opt-in and the
+  `-O2` strict-aliasing surface on generated C stays off by default. The
+  emitted C is byte-identical at every level (the level is a `cc` flag only),
+  so nothing under `tests/parity` moves, and `ORBIT_CCFLAGS_EXTRA` is still
+  appended last so it still overrides the level. The bootstrap is untouched:
+  `build_selfhost.py` and `verify_seed.py` pin `-O0` in `SUPPRESS_FLAGS`. The
+  new default exposed one latent test defect, fixed in the same landing:
+  `tests/std/time_ns`'s pure arithmetic loop was folded away by gcc at `-O1`
+  and `-O2` (exit 6); its workload now writes through a real list, an effect the
+  optimiser cannot see past.
 - **The per-request access log is buffered.** The emitted log path paid a
   `fflush(stdout)` per line - a `WriteFile` syscall with the msvcrt FILE lock
   held across it, contended by the eight workers - plus two `getenv` calls

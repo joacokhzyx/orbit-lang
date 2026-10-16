@@ -118,8 +118,9 @@ MAIN_ORB = os.path.join("compiler", "main.orb")
 
 # -O0 keeps peak memory low: these builds run once per gate and speed is
 # irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
-# -O2 links. The compiler's own internal invocations (pipeline.orb) already
-# use -O0.
+# -O2 links. This is the bootstrap's own choice, not the user-build default:
+# pipeline.orb builds user programs at -O1 (-O2 with --release), while the
+# bootstrap pins -O0 here regardless.
 # The -Wno-error=int-conversion / -Wno-error=incompatible-pointer-types
 # downgrades that used to be here are gone: the emitted C no longer produces
 # either diagnostic on any program in examples/, tests/suite/ or tests/std/, and
@@ -138,7 +139,7 @@ PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by scripts/build_selfhost.py --promote,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "F31D017627BA372D0D212ED200D20857A73F0EB81040D044082CD19ADDD106C2"
+PUBLISHED_C = "9ED6ADB6FB4188A68D9320455A0CEC6BFAE012770005F46C0BED4B19688E5C27"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says

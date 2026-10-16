@@ -51,8 +51,9 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 
 # -O0 keeps peak memory low: these builds run once per gate and speed is
 # irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
-# -O2 links. The compiler's own internal invocations (pipeline.orb) already
-# use -O0.
+# -O2 links. This is the bootstrap's own choice, not the user-build default:
+# pipeline.orb builds user programs at -O1 (-O2 with --release), while the
+# bootstrap pins -O0 here regardless.
 # -O0 keeps peak memory low on 4 GB machines; -DORBIT_WITH_EXEC enables the
 # compiler's own process spawning (its cc invocations) -- trusted infrastructure.
 # No blanket suppressions: generated C must compile warning-free under -Werror

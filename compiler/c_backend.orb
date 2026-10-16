@@ -2205,9 +2205,10 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     fName = sanitizeIdentifier(fName)
     val cbFn = orbit_cbuf_create_selfhost()
     // NOTE: tiny functions used to carry __attribute__((always_inline)),
-    // but without an `inline` keyword that warns under -Wall, and at the
-    // pipeline's fixed -O0 nothing inlines anyway. The dual-path `hot`
-    // marker below is kept; revisit both if -O2 ever lands.
+    // but without an `inline` keyword that warns under -Wall, so it was
+    // dropped. User builds now compile at -O1 (--release: -O2), where gcc
+    // inlines small bodies on its own; the dual-path `hot` marker below is
+    // kept. Re-add always_inline only with a measurement behind it.
     var funcAttr = ""
     if isDualPathFunction(func) {
         funcAttr = funcAttr + "__attribute__((hot)) "
