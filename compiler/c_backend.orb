@@ -1998,7 +1998,14 @@ fn generateModelDDL(backend: CBackend) -> string {
 fn generateServerMain(backend: CBackend) -> string {
     val db = moduleUsesDatabase(backend.module)
     val auth = moduleUsesAuth(backend.module)
-    return serverMainText(db, auth, generateModelDDL(backend), routeHasAnyLimit(backend))
+    // A `port N` declaration is the default the server binds; argv[1] still
+    // overrides it at run time (see serverMainText). Without one the emitted
+    // line is the literal 3000, byte for byte what it always was.
+    var portText = "3000"
+    if backend.module.configPort > 0 {
+        portText = orbit_int_to_string_selfhost(backend.module.configPort)
+    }
+    return serverMainText(db, auth, generateModelDDL(backend), routeHasAnyLimit(backend), portText)
 }
 
 fn isDigitCode(c: int) -> bool {

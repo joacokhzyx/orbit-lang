@@ -201,6 +201,49 @@ fn startSourceHasRoutes(source: string) -> bool {
     return false
 }
 
+// The number of a `port` declaration, or "" when the value is not an integer
+// literal. The checker has already refused a bad value, so this is a read,
+// not a second validation.
+fn startConfigPortValue(value: ASTNode) -> string {
+    match value {
+        ASTNode.Literal(lit) => {
+            if lit.valType == "int" { return lit.text }
+        }
+        _ => {}
+    }
+    return ""
+}
+
+// The port the entry file declares, or "" when it declares none. The banner
+// and the dev line report the port the server will really use: --port reaches
+// the child as argv, and the declaration is the default the child binds when
+// no --port was given.
+fn startSourceConfigPort(source: string) -> string {
+    val parser = initParser(source)
+    val root = parseProgram(parser)
+    match root {
+        ASTNode.Program(p) => {
+            var i = 0
+            while i < p.decls.len() {
+                val decl = p.decls.get(i)
+                match decl {
+                    ASTNode.ConfigDecl(cfg) => {
+                        if cfg.key == "port" {
+                            val declared = startConfigPortValue(cfg.value)
+                            if declared != "" { return declared }
+                        }
+                    }
+                    _ => {}
+                }
+                i = i + 1
+            }
+            return ""
+        }
+        _ => {}
+    }
+    return ""
+}
+
 fn startCollectRoutes(source: string) -> list {
     val out = []
     val parser = initParser(source)
@@ -296,6 +339,7 @@ fn runStart() {
     }
     val serviceMode = startSourceHasRoutes(source)
     var effPort = port
+    if effPort == "" { effPort = startSourceConfigPort(source) }
     if effPort == "" { effPort = "3000" }
     if serviceMode {
         startEnsureSqliteDll(outputPath, runQuiet, runVerbose)
@@ -496,6 +540,7 @@ fn runDev() {
     val outputPath = startOutputFor(inputArg)
     val serviceMode = startSourceHasRoutes(source)
     var effPort = port
+    if effPort == "" { effPort = startSourceConfigPort(source) }
     if effPort == "" { effPort = "3000" }
     if serviceMode {
         startEnsureSqliteDll(outputPath, devQuiet, devVerbose)

@@ -3249,6 +3249,42 @@ fn stringLiteralHasNul(literalText: string) -> bool {
     return false
 }
 
+// The number a `port` declaration was written with, or -1 when its value is
+// not an integer literal. The value node is parsed by the one parser
+// `literal.orb` owns, so hex and `_` separators work as they do everywhere
+// else.
+fn configPortLiteralValue(value: ASTNode) -> int {
+    match value {
+        ASTNode.Literal(lit) => {
+            if lit.valType == "int" { return parseIntSelfhost(lit.text) }
+        }
+        _ => {}
+    }
+    return -1
+}
+
+// `port` is the one config declaration with a runtime meaning, so it is the
+// one with a rule: an integer literal in 1..65535. Before this ran nothing
+// dispatched a ConfigDecl at all, and `port "8080"`, `port 0` and
+// `port nonexistent_fn()` all passed `orbit check` while the emitted server
+// ignored the declaration and bound 3000. The other keys parse as before and
+// are still discarded; their values are checked as expressions for the same
+// reason a route body is.
+fn checkConfigDecl(sema: Sema, cfg: ConfigDeclNode) {
+    if cfg.key != "port" {
+        checkNode(sema, cfg.value)
+        return
+    }
+    val port = configPortLiteralValue(cfg.value)
+    if port < 0 {
+        reportErrorAt(sema, "E1008", "Write the number directly, e.g. `port 8080`; the port is fixed when the program is compiled, so an expression is not read.", cfg.line, cfg.col, "The `port` declaration takes an integer literal, and this value is not one.")
+        return
+    }
+    if port < 1 || port > 65535 {
+        reportErrorAt(sema, "E1008", "Pick a port between 1 and 65535, e.g. `port 8080`.", cfg.line, cfg.col, "Port " + orbit_int_to_string_selfhost(port) + " is out of range: a TCP port is 1 to 65535.")
+    }
+}
+
 // orbit-walk-misses: none
 fn checkNode(sema: Sema, node: ASTNode) -> string {
     match node {
@@ -3298,6 +3334,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 val decl = prog.decls.get(i)
                 match decl {
                     ASTNode.FunctionDecl(f) => { checkFunctionBody(sema, decl) }
+                    ASTNode.ConfigDecl(c) => { checkConfigDecl(sema, c) }
                     ASTNode.RouteDecl(r) => { checkRouteBody(sema, decl) }
                     ASTNode.ImplDecl(im) => {
                         var j = 0
@@ -3855,7 +3892,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         ASTNode.ScheduleDecl(s) => { checkNode(sema, s.handler)
             return ""
         }
-        ASTNode.ConfigDecl(cfg) => { checkNode(sema, cfg.value)
+        ASTNode.ConfigDecl(cfg) => { checkConfigDecl(sema, cfg)
             return ""
         }
         ASTNode.MigrationDecl(m) => { return "" }

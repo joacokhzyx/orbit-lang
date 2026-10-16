@@ -72,8 +72,10 @@ issue when you hit a wall - I read everything.
 ## Running services
 
 **11. How do I set the port?**
-Pass it as the first argument: `./service 8080`. Default is
-3000. There's no config-file port yet.
+Declare it in the entry file - `port 8080` - and the built server binds it
+when started with no argument; `./service 8080` still overrides the
+declaration. With neither, the default is 3000. The declared value must be
+an integer literal in 1..65535; anything else fails `orbit check` (E1008).
 
 **12. Where's the database file?**
 `.orbit/data/app.db` under the project directory, created on

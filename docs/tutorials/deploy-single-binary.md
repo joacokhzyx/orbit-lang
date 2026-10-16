@@ -69,9 +69,10 @@ curl http://127.0.0.1:8080/health
 {"status":"UP","version":"0.1.0-rc.2","uptime_seconds":0}
 ```
 
-The port comes from the first argument. With no argument the
-service uses its default (3000). Pick the port per environment -
-an argument beats a config file here.
+The port comes from the first argument, which overrides the file's
+`port` declaration when it has one. With neither, the service uses its
+default (3000). Pick the port per environment - an argument beats the
+declaration here.
 
 ## 4. Keep it running (UNTESTED - review before using)
 

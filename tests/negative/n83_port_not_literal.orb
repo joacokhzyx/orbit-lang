@@ -1,0 +1,10 @@
+// case: config-port-not-literal
+// what: a `port` config declaration whose value is an expression.
+//
+// The port is fixed when the program is compiled - it is emitted into the
+// server's main, not read from the environment - so an expression cannot
+// mean anything here. The reader never runs, and reporting the unknown name
+// it mentions would be describing a call that was never going to happen;
+// the honest diagnostic is about the declaration, not the name.
+port nonexistent_fn()
+// expect-error: takes an integer literal

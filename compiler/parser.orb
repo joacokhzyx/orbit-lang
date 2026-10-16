@@ -1384,9 +1384,11 @@ fn parseScheduleDecl(parser: Parser) -> ASTNode {
 
 fn parseConfigDecl(parser: Parser) -> ASTNode {
     val key = parser.currentToken.text
+    val keyLine = parser.currentToken.line
+    val keyCol = parser.currentToken.col
     advanceParser(parser)
     val value = parseExpression(parser)
-    return ASTNode.ConfigDecl(ConfigDeclNode(key, value))
+    return ASTNode.ConfigDecl(ConfigDeclNode(key, value, keyLine, keyCol))
 }
 
 fn parseStatement(parser: Parser) -> ASTNode {

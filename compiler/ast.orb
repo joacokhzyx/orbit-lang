@@ -130,7 +130,13 @@ model ScheduleDeclNode {
 
 model ConfigDeclNode {
     key: string
-    value: string
+    // The parsed value: for `port` that is an integer literal. The checker
+    // reports a bad `port` against the declaration itself, and this field is
+    // why it can: it was declared `string` while the parser stored the node,
+    // and no rule downstream could see the value it claimed to hold.
+    value: ASTNode
+    line: int
+    col: int
 }
 
 model MigrationDeclNode {

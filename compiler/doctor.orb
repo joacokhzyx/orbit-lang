@@ -1635,7 +1635,7 @@ fn doctorCheckComplexity(stats: DoctorStats, node: ASTNode, fnName: string, file
 }
 
 /** @brief Decision points in one subtree. */
-// orbit-walk-misses: ConstDeclNode, FieldInitNode, RangeNode, TypedLiteralNode
+// orbit-walk-misses: ConfigDeclNode, ConstDeclNode, FieldInitNode, RangeNode, TypedLiteralNode
 fn doctorDecisionPoints(node: ASTNode) -> int {
     var n = 0
     match node {
@@ -2144,7 +2144,7 @@ fn doctorShadowBody(stats: DoctorStats, node: ASTNode, file: string, declLine: i
 }
 
 /** @brief One statement, with the scope frames a statement introduces. */
-// orbit-walk-misses: BinaryOpNode, CallNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, RangeNode, RouteDeclNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, RangeNode, RouteDeclNode, TypedLiteralNode, UnaryOpNode
 fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     match node {
         ASTNode.VarDecl(v) => {
@@ -2237,7 +2237,7 @@ fn doctorShadowArm(stats: DoctorStats, node: ASTNode, file: string, declLine: in
 }
 
 /** @brief One expression, where a bare identifier is a read of a name. */
-// orbit-walk-misses: AssignmentNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
 fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
     match node {
         ASTNode.Literal(l) => {
@@ -2396,7 +2396,7 @@ fn doctorIsTaintSink(name: string) -> bool {
 }
 
 /** @brief Whether an expression reads a source directly, or mentions a tainted name. */
-// orbit-walk-misses: AssignmentNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, VarDeclNode, WhileNode
 fn doctorExprIsTainted(node: ASTNode, tainted: list) -> bool {
     var found = false
     match node {
@@ -2444,7 +2444,7 @@ fn doctorExprListTainted(items: list, tainted: list) -> bool {
 }
 
 /** @brief One node, tracking taint through bindings and reporting at sinks. */
-// orbit-walk-misses: FieldInitNode, FunctionDeclNode, RouteDeclNode
+// orbit-walk-misses: ConfigDeclNode, FieldInitNode, FunctionDeclNode, RouteDeclNode
 fn doctorTaintWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, label: string, tainted: list) {
     match node {
         ASTNode.VarDecl(v) => { doctorTaintBind(stats, v.name, v.value, file, declLine, label, tainted) }
@@ -2610,7 +2610,7 @@ fn doctorCheckIgnoredResults(stats: DoctorStats, node: ASTNode, file: string, de
 // (`holder.save()`, `xs.at(0).save()`) has no resolvable callee type whether or
 // not the walk descends into the receiver -- verified, both stay silent. The
 // finding lives at the Call node, which is armed.
-// orbit-walk-misses: ExpressionStmtNode, FieldInitNode, IndexAccessNode, MemberAccessNode, UnaryOpNode
+// orbit-walk-misses: ConfigDeclNode, ExpressionStmtNode, FieldInitNode, IndexAccessNode, MemberAccessNode, UnaryOpNode
 fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
     match node {
         ASTNode.Program(p) => {
@@ -2779,7 +2779,7 @@ fn doctorCheckDeadStoresIn(stats: DoctorStats, body: ASTNode, file: string, decl
 }
 
 /** @brief One node; returns the index the next node should use. */
-// orbit-walk-misses: FunctionDeclNode, RouteDeclNode
+// orbit-walk-misses: ConfigDeclNode, FunctionDeclNode, RouteDeclNode
 fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, stores: list, at: int, loopDepth: int) -> int {
     var next = at
     match node {
@@ -3070,7 +3070,7 @@ fn doctorCallsName(body: list, name: string) -> bool {
 }
 
 /** @brief Whether a subtree contains a call to `name`. */
-// orbit-walk-misses: ConstDeclNode, FieldInitNode, IndexAccessNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, TryNode, TypedLiteralNode
+// orbit-walk-misses: ConfigDeclNode, ConstDeclNode, FieldInitNode, IndexAccessNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, TryNode, TypedLiteralNode
 fn doctorNodeCalls(node: ASTNode, name: string) -> bool {
     var found = false
     match node {
@@ -3201,7 +3201,7 @@ fn doctorCheckLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file
  *  made ten times in this file before it was found once and then fixed
  *  everywhere.
  */
-// orbit-walk-misses: FieldInitNode, FunctionDeclNode, RangeNode, RouteDeclNode, TypedLiteralNode
+// orbit-walk-misses: ConfigDeclNode, FieldInitNode, FunctionDeclNode, RangeNode, RouteDeclNode, TypedLiteralNode
 fn doctorScanLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file: string, line: int, inLoop: bool, kind: string) {
     match node {
         ASTNode.While(w) => {
@@ -3466,7 +3466,7 @@ fn doctorFindDeclLine(lines: list, keyword: string, name: string) -> int {
     return 0
 }
 
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, VarDeclNode, WhileNode
 fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
     match node {
         ASTNode.Program(p) => {

@@ -13,6 +13,16 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **A `port` declaration names the port the server binds.** The checker now
+  validates the value - an integer literal 1..65535, anything else is the
+  new E1008 - and the emitted server binds it; `argv[1]` still overrides at
+  run time. Before, the declaration passed `orbit check` with any value at
+  all (`port "8080"`, `port 0`, `port nonexistent_fn()`) and the server
+  bound 3000 regardless. `orbit start` and `orbit dev` report the declared
+  port, and the emitted C is byte-identical for programs that declare none.
+  Pinned by `tests/negative/n81`-`n83`, `tests/suite/port_declaration.orb`,
+  and a live declared-port plus argv-override probe in
+  `scripts/kynx_gate.py`, which is red on the compiler before this change.
 - **Bitwise and shift operators**: `&`, `|`, `^`, `<<`, `>>` and `~`, the
   last gap in the arithmetic. Int-only, like the checker says: a non-int
   operand is the uncoded `Semantic error:` `bitwise '&' takes two ints, not

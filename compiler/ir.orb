@@ -233,6 +233,9 @@ model IRModule {
     models: list
     types: list
     migrations: list
+    // The `port N` service declaration, or 0 when the program declares none.
+    // The emitted server main binds this; argv[1] still overrides at run time.
+    configPort: int
 }
 
 model IRGlobal {
@@ -242,5 +245,5 @@ model IRGlobal {
 }
 
 fn initIRModule() -> IRModule {
-    return IRModule([], [], [], [], [])
+    return IRModule([], [], [], [], [], 0)
 }

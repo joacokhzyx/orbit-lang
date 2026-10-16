@@ -243,8 +243,9 @@ route GET "/greet/:name" {
 ```
 
 That is the whole program. A file with at least one `route` gets a `main`
-generated for it, so you do not write one, and the listen port is the first
-command-line argument:
+generated for it, so you do not write one. The listen port is the file's
+`port` declaration (an integer literal in 1..65535, checked by E1008), and
+the first command-line argument still overrides it:
 
 ```sh
 orbit build greet.orb -o greet

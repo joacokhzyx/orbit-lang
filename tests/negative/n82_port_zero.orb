@@ -1,0 +1,10 @@
+// case: config-port-zero
+// what: a `port` config declaration outside the TCP port range.
+//
+// 0 is the classic "pick any free port" value in socket APIs, but Orbit's
+// declaration promises the port the service will be on, and the banner and
+// the docs both quote it. A server that lands somewhere the declaration does
+// not name makes that promise a lie, so 0 is out of range here; only 1..65535
+// are ports a service can actually declare.
+port 0
+// expect-error: out of range: a TCP port is 1 to 65535

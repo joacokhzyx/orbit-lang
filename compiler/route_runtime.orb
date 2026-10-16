@@ -356,7 +356,7 @@ fn routerTailText(chain: string) -> string {
     return out
 }
 
-fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: bool) -> string {
+fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: bool, portText: string) -> string {
     var out = ""
     out = out + "#ifdef _WIN32\n"
     out = out + "unsigned __stdcall orbit_worker_loop(void* arg) {\n"
@@ -586,7 +586,7 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "    int _orbit_exit_code = orbit_main(startup_arena);\n"
     out = out + "    orbit_arena_pool_release(startup_arena);\n"
     out = out + "\n"
-    out = out + "    int port = 3000;\n"
+    out = out + "    int port = " + portText + ";\n"
     out = out + "    if (argc > 1) {\n"
     out = out + "        port = atoi(argv[1]);\n"
     out = out + "    }\n"

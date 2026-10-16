@@ -139,6 +139,20 @@ literals become a `#define`). Fix hint: put state inside functions.
 Pinned by `tests/negative/n45_top_level_var.orb`, which pins the code
 itself.
 
+## E1008 — bad `port` config declaration
+
+Fires in `compiler/sema.orb`, `checkConfigDecl`, for a top-level `port`
+declaration whose value is not an integer literal, or is one outside
+1..65535. `port` is read: the value becomes the default port the generated
+server binds when no `argv[1]` port is given, so a value that is not a port
+would put the service somewhere the file does not name. Expressions are
+refused, not evaluated — the port is fixed when the program is compiled and
+the reader never runs, so an undeclared name inside the value is not
+diagnosed as an unknown identifier. Fix hint: write the number directly,
+e.g. `port 8080`; pick a port between 1 and 65535. Pinned by
+`tests/negative/n81_port_string.orb` (a string), `n82_port_zero.orb` (out of
+range), and `n83_port_not_literal.orb` (an expression).
+
 ## E2001 — unknown identifier (frontend)
 
 Fires in `compiler/frontend/lower.orb`, `lowerExpression`: a load whose

@@ -1,0 +1,10 @@
+// case: config-port-string
+// what: a `port` config declaration whose value is a string, not an integer.
+//
+// The declaration used to be parsed and then discarded entirely, so any value
+// at all was accepted and the server always bound 3000. The value is now the
+// default port the built server binds, which means it has to be a port: an
+// integer literal in 1..65535. "8080" is not one, and saying so at compile
+// time is cheaper than a service that comes up on the wrong port.
+port "8080"
+// expect-error: takes an integer literal

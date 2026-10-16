@@ -1,0 +1,9 @@
+// A `port` declaration is read and range-checked, and a file that only
+// wants a plain program keeps compiling and running: the value is inert
+// when the file declares no routes.
+// expect-exit 0
+port 8080
+
+fn main() -> int {
+    return 0
+}

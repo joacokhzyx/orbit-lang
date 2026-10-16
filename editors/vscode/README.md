@@ -131,15 +131,16 @@ bash scripts/install.sh
 
 ## Syntax Highlighting Preview
 
-Everything below is a program `orbit check` accepts. The declaration forms
-`port`, `cors`, `db`, `env` and `migrations` are **parsed and then discarded** - the
-generated server hardcodes port 3000 and takes an override from `argv[1]` -
-so they are syntax to read, not settings to rely on. There is no `database`
-declaration (only `db`), and decorators such as `@auth` carry no semantics on
-their own; auth is `req.bearer_token()` / `req.has_role()`.
+Everything below is a program `orbit check` accepts. A `port` declaration is
+read - it is the default port the generated server binds, and `argv[1]` still
+overrides it - while `cors`, `db`, `env` and `migrations` are **parsed and
+then discarded**, so they are syntax to read, not settings to rely on. There
+is no `database` declaration (only `db`), and decorators such as `@auth`
+carry no semantics on their own; auth is `req.bearer_token()` /
+`req.has_role()`.
 
 ```orbit
-// A config declaration parses. It does not configure anything today.
+// A port declaration is read: the server binds it unless argv[1] wins.
 port 3000
 
 model User {

@@ -63,7 +63,7 @@
       ]
     },
     "config-keys": {
-      "comment": "compiler/parser.orb parseConfigDecl plus MigrationDecl, top-level only. port/cors/db/env/migrations parse and are then discarded (server hardcodes 3000 + argv[1]); `database` is not one of them.",
+      "comment": "compiler/parser.orb parseConfigDecl plus MigrationDecl, top-level only. `port` is read (integer literal 1..65535, E1008 otherwise; the server binds it, argv[1] overrides); cors/db/env/migrations parse and are then discarded; `database` is not one of them.",
       "patterns": [
         {
           "name": "meta.config.orbit",

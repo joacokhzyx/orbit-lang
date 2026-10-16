@@ -74,7 +74,8 @@ Other platforms skip it silently.
 `orbit start` builds to `.orbit/<name>[.exe]` (plus `.orbit/data/` for
 the database and `.orbit/logs/` for dev output) and runs it, so the
 binary never lands next to your source. With no file argument it uses
-`main.orb`. `--port N` overrides the service port (default 3000).
+`main.orb`. `--port N` overrides the service port; with no `--port` the
+file's `port` declaration is used, and with neither, the default is 3000.
 
 `Declares routes` means the entry file holds at least one top-level `route METHOD "path"` block, so the build generates a `main` that serves HTTP (service mode) instead of running the `main` you wrote (program mode); see [HTTP routes](SYNTAX_GUIDE.md#http-routes).
 

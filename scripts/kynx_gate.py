@@ -18,7 +18,10 @@ what changed is that phases are function calls now, not processes.
 Subcommands:
 
   live          build examples/blog_api.orb, start it, run route-limit at it.
-                The only gate here that runs the compiler's whole product.
+                Then a service that declares its own port: started with no
+                argv it must bind the declared port, and an argv port must
+                still win. The only gate here that runs the compiler's whole
+                product.
   route-limit   three phases against a RUNNING server (operator starts it):
                 A) 200 requests @ ~10 rps, zero errors;
                 B) 25 rapid GETs at the guarded route -> >=1 x 429 with
@@ -655,10 +658,46 @@ def burst_main(argv=None):
 # sharded rate limiter answers with the limit rather than letting everything
 # through. Everything else in CI reasons about the compiler or about text.
 #
+# The same gate also covers the `port` declaration end to end, on a fixture
+# that declares one. Started with no argv, /health must answer on the declared
+# port: the server reads the declaration rather than the old fixed 3000.
+# Started with an argv port, /health must answer there instead, because argv
+# has always overridden the default and still does. Both are wait_ready
+# assertions, so each half fails red on a server that comes up on the wrong
+# port instead of asserting text about the emission.
+#
 # Unlike `runtime_c_tests.py` this one needs the Orbit compiler, which is why it
 # is not in T0. It uses the fixed point at the path `dev.py` owns; pass `--compiler`
 # to point it elsewhere. Run it as `python scripts/kynx_gate.py live`.
 # --------------------------------------------------------------------------
+def stop_server(proc: subprocess.Popen) -> None:
+    """terminate, 10 s, kill: the shape live_main's `finally` already used."""
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def start_and_wait(srv: pathlib.Path, argv: list, port: int,
+                   log_path: pathlib.Path):
+    """Start a built server; return (Popen, log handle) once /health answers.
+
+    None when it never became ready, so the caller reports which port was
+    expected. The server's output goes to `log_path` for the reason the gate
+    server's does: a pipe nobody reads fills up, and the server blocks in
+    write() forever instead of answering.
+    """
+    log = open(log_path, "w", encoding="utf-8", errors="replace")
+    proc = subprocess.Popen([str(srv)] + argv, cwd=str(ROOT),
+                            stdout=log, stderr=subprocess.STDOUT)
+    if not wait_ready(port):
+        stop_server(proc)
+        log.close()
+        return None
+    return proc, log
+
+
 def live_main(args):
     compiler = args.compiler
     if not compiler:
@@ -735,7 +774,58 @@ def live_main(args):
             proc.kill()
         srv_log.close()
 
-    print("\nFinished kynx-gate: the route-limit burst answered as specified.")
+    # The `port` declaration: no-argv binds the declared port, argv wins.
+    declared = args.port + 1
+    override = args.port + 2
+    decl_src = work / "port_declared.orb"
+    decl_srv = work / ("port_declared" + suffix)
+    decl_src.write_text(
+        "// Written by kynx_gate live: the declaration is the default the\n"
+        "// server binds with no argv; an argv port still overrides it.\n"
+        f"port {declared}\n\n"
+        'route GET "/health" {\n'
+        '    return ok 200 "ok"\n'
+        "}\n",
+        encoding="utf-8")
+    build = subprocess.run(
+        [compiler, "build", str(decl_src), "-o", str(decl_srv)],
+        cwd=str(ROOT), env=env, capture_output=True, text=True)
+    sys.stdout.write(build.stdout)
+    sys.stderr.write(build.stderr)
+    if build.returncode != 0 or not decl_srv.exists():
+        print("Failed: the port_declared fixture did not build.", file=sys.stderr)
+        return 1
+
+    started = start_and_wait(decl_srv, [], declared,
+                             work / "port_declared.log")
+    if started is None:
+        print(f"Failed: the port_declared server never answered on the "
+              f"declared port {declared}; the `port` declaration is not "
+              f"reaching the emitted server (log: port_declared.log).",
+              file=sys.stderr)
+        return 1
+    proc, log = started
+    try:
+        print(f"port declaration: answered on the declared port {declared}.")
+    finally:
+        stop_server(proc)
+        log.close()
+
+    started = start_and_wait(decl_srv, [str(override)], override,
+                             work / "port_declared_argv.log")
+    if started is None:
+        print(f"Failed: argv port {override} did not override the declared "
+              f"{declared} (log: port_declared_argv.log).", file=sys.stderr)
+        return 1
+    proc, log = started
+    try:
+        print(f"port override: answered on the argv port {override}.")
+    finally:
+        stop_server(proc)
+        log.close()
+
+    print("\nFinished kynx-gate: the route-limit burst answered as specified,"
+          " and the declared port answered under both runs.")
     return 0
 
 

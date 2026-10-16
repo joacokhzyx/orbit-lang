@@ -103,16 +103,21 @@ flowchart TD
 Both optimization passes honour the same kill switch: `ORBIT_NO_CTE=1` skips
 them and emits pre-pass IR, and their counters are reported rather than dropped.
 
-### Config declarations: parsed, typechecked, then discarded
+### Config declarations: `port` reaches the server; the rest are reserved
 
 Top-level `port`, `cors`, `db`, and `env` declarations parse as `ConfigDecl`
-nodes (`compiler/parser.orb`, `parseConfigDecl`) and typecheck. The C backend
-does not read them into the generated server (`compiler/route_runtime.orb`):
-the emitted `main` hardcodes `port = 3000` with an `argv[1]` override, always
-initializes the database at `.orbit/data/app.db` when models are present, and
-emits no CORS or environment handling from the declarations. The declarations
-are reserved syntax with no runtime effect; the user-visible consequence is
-recorded in the [project snapshot](STATUS.md).
+nodes (`compiler/parser.orb`, `parseConfigDecl`) and typecheck, and `port` is
+the one with a runtime effect. Sema requires an integer literal in 1..65535
+(`checkConfigDecl` in `compiler/sema.orb`; diagnostic E1008 otherwise), the
+builder reads it into `IRModule.configPort` (`compiler/builder.orb`), and the
+generated `main` (`compiler/route_runtime.orb`) initializes `int port` from
+it — with `argv[1]` still the override. A program that declares no port emits
+exactly the old `port = 3000`, byte for byte.
+
+`cors`, `db`, and `env` parse and typecheck with no runtime effect: the
+emitted server always initializes the database at `.orbit/data/app.db` when
+models are present, and emits no CORS or environment handling from the
+declarations. What is read is recorded in the [project snapshot](STATUS.md).
 
 ### Why the intermediate C has a constant name
 
