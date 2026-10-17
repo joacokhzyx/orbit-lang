@@ -38,6 +38,31 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUITE = os.path.join(ROOT, "tests", "suite")
 
 
+def archive_is_stale(lib_path):
+    """True when the runtime archive is older than any runtime source.
+
+    The archive is built on demand into the ignored `.orbit/`, so nothing
+    notices it predating a runtime change: the emitted TU links against it
+    anyway, and every program in the lane fails with an undefined reference to
+    a symbol that IS in the sources, reported as the C compiler rejecting
+    output it did not reject. A missing archive is not this case; the caller
+    builds that one.
+    """
+    if not os.path.exists(lib_path):
+        return False
+    lib_mtime = os.path.getmtime(lib_path)
+    for dirpath, _, names in os.walk(os.path.join(ROOT, "runtime")):
+        for name in names:
+            if not name.endswith((".c", ".h")):
+                continue
+            try:
+                if os.path.getmtime(os.path.join(dirpath, name)) > lib_mtime:
+                    return True
+            except OSError:
+                return True
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--compiler", required=True)
@@ -90,6 +115,15 @@ def main() -> int:
     # no DB symbols).
     if env.get("ORBIT_LINK_RUNTIME") == "1":
         lib_path = os.path.join(ROOT, ".orbit", "lib", "libruntime_net.a")
+        if archive_is_stale(lib_path):
+            out.say(f"  link lane: {lib_path} is older than runtime/, "
+                    "rebuilding it ...")
+            try:
+                os.remove(lib_path)
+            except OSError as exc:
+                out.fail(f"Failed suite: cannot replace the stale {lib_path} "
+                         f"({exc})")
+                return 1
         if not os.path.exists(lib_path):
             cc_for_lib = args.cc or env.get("ORBIT_CC") or env.get("CC") or "gcc"
             out.say(f"  link lane: building {lib_path} ...")
@@ -103,8 +137,8 @@ def main() -> int:
             sys.stderr.write(proc.stderr or "")
             if proc.returncode != 0 or not os.path.exists(lib_path):
                 out.fail(f"Failed suite: ORBIT_LINK_RUNTIME=1 but {lib_path} is "
-                         f"missing and mklib_runtime.py did not produce it "
-                         f"(rc={proc.returncode})")
+                         f"missing or stale and mklib_runtime.py did not produce "
+                         f"it (rc={proc.returncode})")
                 return 1
 
     ok = 0
