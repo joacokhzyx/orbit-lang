@@ -15,7 +15,7 @@ they stay readable as the corpus grows.
 ## What the formatter is
 
 `orbit fmt` is token-based. It reuses the self-hosted lexer
-(`compiler/lexer.orb`, `compiler/token.orb`), preserves every token, every
+(`compiler/front/lexer.orb`, `compiler/front/token.orb`), preserves every token, every
 string/character literal byte, and every comment, and only rewrites
 whitespace: indentation, intra-line spacing, and line breaks. Because the
 generated C contains no source line directives and string contents are never

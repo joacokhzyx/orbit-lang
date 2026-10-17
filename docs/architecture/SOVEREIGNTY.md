@@ -29,7 +29,7 @@ C, you can audit the compiler.
 The compiler reproduces its own C byte-for-byte:
 
 ```
-canonical C ──(gcc or clang, per CI)──▶ seed ──builds──▶ compiler/main.orb ──emits──▶ the same canonical C
+canonical C ──(gcc or clang, per CI)──▶ seed ──builds──▶ compiler/host/main.orb ──emits──▶ the same canonical C
 ```
 
 The committed C plus the byte-identity check is the contract. Replacing
@@ -57,7 +57,7 @@ source-level self-reproducing backdoor outside what byte-identity can catch.
 The mitigation in use is toolchain diversity at the C step, enforced by the
 Scenario 3 recovery procedure below: gcc and clang, independent front ends,
 optimizers, and linkers, must converge on byte-identical emitted C. Their
-agreement shows the canonical bytes are determined by `compiler/*.orb`
+agreement shows the canonical bytes are determined by `compiler/**/*.orb`
 rather than by quirks or hidden state of one C compiler. This narrows the
 residual risk to the Orbit sources themselves plus a defect shared by both
 toolchains; it does not defend against a self-reproducing backdoor already
@@ -77,12 +77,12 @@ link here instead of redefining them.
 - **seed**: the first working Orbit compiler, produced by compiling the
   canonical with the platform C compiler (gcc or clang in CI).
 - **seed2**: the first compiler Orbit itself produced: the seed compiles
-  `compiler/main.orb`, and that emitted C is recompiled into the `seed2`
+  `compiler/host/main.orb`, and that emitted C is recompiled into the `seed2`
   binary.
 - **chain2**, **chain3**: successive rebuilds, each by its predecessor with
   no host toolchain involved: `seed2` builds `main.orb` and its emitted C
   becomes `chain2`; `chain2` builds `main.orb` and its emitted C becomes
-  `chain3`. Every stage compiles the same source, `compiler/main.orb`.
+  `chain3`. Every stage compiles the same source, `compiler/host/main.orb`.
 - **promote**: `python scripts/build_selfhost.py --promote`, the only
   operation that replaces the canonical, after an intentional compiler
   change. It also updates `PUBLISHED_C` and requires the refreshed parity
@@ -105,7 +105,7 @@ link here instead of redefining them.
 [TRUSTED for one step] platform C compiler translates the amalgamation -> seed
     |  (the only artifact Orbit did not produce)
     v
-[VERIFIED] seed compiles compiler/main.orb -> emitted C byte-equals canonical
+[VERIFIED] seed compiles compiler/host/main.orb -> emitted C byte-equals canonical
     v
 [VERIFIED] emitted C recompiled -> seed2 -> emits canonical (check 2)
     v
@@ -146,14 +146,14 @@ scripts/install.sh          # or scripts/install.ps1 on Windows
 ```
 
 The build resolves the C compiler as `ORBIT_CC`, then `CC`, then the POSIX
-`cc` convention. `compiler/pipeline.orb` is the only place that decides it.
+`cc` convention. `compiler/host/pipeline.orb` is the only place that decides it.
 
 ### What the gates actually assert
 
 `scripts/verify_seed.py` checks four things and reports each one:
 
 1. the seed builds;
-2. the C the seed emits for `compiler/main.orb` equals the canonical;
+2. the C the seed emits for `compiler/host/main.orb` equals the canonical;
 3. the C emitted by **chain2** equals the canonical;
 4. the C emitted by **chain3** equals the canonical.
 
@@ -185,7 +185,7 @@ enables is superlinear in emitted size. The strict warning gate is
 
 ## Rules for contributors
 
-- **Never break the fixed point silently.** If `compiler/*.orb` changes, run
+- **Never break the fixed point silently.** If `compiler/**/*.orb` changes, run
   `python scripts/build_selfhost.py --promote` and commit the canonical, the
   32 parity goldens and the sources in the same commit.
 - **Never introduce a hard dependency on a specific toolchain vendor.** The
@@ -211,7 +211,7 @@ enables is superlinear in emitted size. The strict warning gate is
 
 1. Find the last green commit, or bisect:
    `git bisect run python scripts/build_selfhost.py --cc gcc --check-stale`.
-2. Revert, or fix forward: repair `compiler/*.orb`, then `--promote` plus a
+2. Revert, or fix forward: repair `compiler/**/*.orb`, then `--promote` plus a
    goldens refresh in one commit.
 
 **Scenario 3 - total loss of trust in the chain (suspected poisoning).**
@@ -244,7 +244,7 @@ Invariants that must hold afterwards:
 Terms are defined in the Glossary above; this section records only the
 mechanical per-stage notes. A stage is a working Orbit compiler built by the
 previous stage, and every stage compiles the same source
-(`compiler/main.orb`):
+(`compiler/host/main.orb`):
 
 ```
 seed    (canonical C, compiled by cc)

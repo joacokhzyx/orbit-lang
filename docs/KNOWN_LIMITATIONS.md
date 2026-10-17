@@ -473,7 +473,7 @@ Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend)
 times on the earlier corpus. That is a whole class of expression the
 front end gives up on, and it is not in the unknown total because there
 is no instruction to type. Worst file by share then:
-`compiler/parser.orb` at 49.7% (2,146 of 4,316). Re-run the census
+`compiler/front/parser.orb` at 49.7% (2,146 of 4,316). Re-run the census
 rather than trusting these two sentences.
 
 Two tools, and the difference matters. `unknown_census.py` is the

@@ -1,12 +1,12 @@
 // Orbit Self-Hosted Compiler - Semantic analyzer (sema = semantic analysis)
-// compiler/sema.orb
+// compiler/front/sema.orb
 //
 // Phase: typechecking and name resolution; runs on the AST after parsing,
 // before IR building. Input: AST plus extern/literal tables; output: scopes,
 // type/variant registries, and SemaError diagnostics. Scale note: largest
 // compiler module (~3000 lines); checkNode is the single entry for typing.
 import "./ast.orb"
-import "./extern.orb"
+import "../host/extern.orb"
 import "./literal.orb"
 
 model Symbol {
@@ -1133,8 +1133,8 @@ fn missCount(sema: Sema, kind: string) -> int {
 // only knows declared symbols calls every one of them unresolved.
 //
 // Two groups, and they are not the same kind of debt. The first is the
-// builtins: the emitter recognises them by name (compiler/builder.orb,
-// compiler/c_backend.orb), so a program uses them and nothing declares them.
+// builtins: the emitter recognises them by name (compiler/ir/builder.orb,
+// compiler/emit/c_backend.orb), so a program uses them and nothing declares them.
 // The second is the runtime entry points the compiler itself calls: the
 // emitted C resolves them through <orbit/runtime.h>, which the front end never
 // reads, so `orbit_string_len` is a real Orbit name with no Orbit

@@ -157,7 +157,7 @@ def registry(compiler, cc, work):
         # cost a bootstrap. `allow_rc=(0, 1)` because it is allowed to report a
         # real disagreement -- that is a finding, not a broken tool.
         Tool("schema_conformance.py", "gate",
-             "compiler/ast.orb against the code that builds nodes: arity, "
+             "compiler/front/ast.orb against the code that builds nodes: arity, "
              "phantom models and variants, and a node read with a list operation",
              lambda: _script("schema_conformance.py"),
              r"Finished schema-conformance", 120, allow_rc=(0, 1)),

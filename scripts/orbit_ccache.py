@@ -138,7 +138,7 @@ def _orbit_version():
     """
     try:
         here = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(os.path.dirname(here), "compiler", "pipeline.orb")
+        path = os.path.join(os.path.dirname(here), "compiler", "host", "pipeline.orb")
         with open(path, encoding="utf-8") as f:
             text = f.read()
     except OSError:

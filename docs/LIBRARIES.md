@@ -51,7 +51,7 @@ $ echo $?
 ```
 
 `declareSymbol` walks the current scope and reports `Duplicate symbol: <name>`
-the moment it sees a second one (`compiler/sema.orb:277`, report at `:283`).
+the moment it sees a second one (`compiler/front/sema.orb:277`, report at `:283`).
 The check is on the symbol's name alone - no module, no origin, no overload. It
 does not matter which file is imported first, and it fires even if the two
 functions have different signatures.
@@ -105,7 +105,7 @@ imports.
 ## 3. What is a module, physically
 
 A module is one `.orb` file. The resolver flattens every transitively
-imported file into a single AST (`compiler/resolver.orb`), so "module" means
+imported file into a single AST (`compiler/front/resolver.orb`), so "module" means
 "a file you import", not "a unit of encapsulation" - there is no encapsulation
 at all.
 
@@ -134,7 +134,7 @@ except the compiler failing to read a file.
 ## 4. `std/` resolves against three roots, and that is the install trap
 
 A `std/...` or `lib/...` import is looked up in exactly this order
-(`resolveStdPath`, `compiler/resolver.orb:69-90`):
+(`resolveStdPath`, `compiler/front/resolver.orb:69-90`):
 
 1. the **compiler binary's own directory**,
 2. that directory's **parent**,

@@ -1,8 +1,8 @@
-import "../extern.orb"
-import "../lexer.orb"
+import "../host/extern.orb"
+import "../front/lexer.orb"
 
 fn main() {
-    val source = orbit_file_read_selfhost("compiler/main.orb")
+    val source = orbit_file_read_selfhost("compiler/host/main.orb")
     val lexer = initLexer(source)
     var i = 0
     while i < 400 {

@@ -11,7 +11,7 @@ carry a fact plus a next step, and every tool closes the same way:
     Tip: run `orbit check tests/suite/arith.orb` to see the error card
     Finished suite: 21/21 pass
 
-Color follows the Orbit palette (the same roles as compiler/palette.orb:
+Color follows the Orbit palette (the same roles as compiler/tools/palette.orb:
 red for failures, yellow for tips, green for passing counts) and only
 ever fires on a live terminal: piped output -- every gate, every CI log --
 stays byte-identical to plain text. ORBIT_COLOR=always|never overrides the
@@ -29,7 +29,7 @@ import sys
 
 _QUIET = False
 
-# The Orbit palette for scripts. Same roles as compiler/palette.orb; the
+# The Orbit palette for scripts. Same roles as compiler/tools/palette.orb; the
 # codes match on purpose so a terminal cannot tell which side printed.
 _RESET = "\x1b[0m"
 _BOLD = "\x1b[1m"

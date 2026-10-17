@@ -12,7 +12,7 @@
 //
 // Three siblings are NOT used, and the reason is the same in all three
 // cases: their C signature starts with an OrbitArena* that the backend
-// does not prepend for them (compiler/c_backend.orb:3246
+// does not prepend for them (compiler/emit/c_backend.orb:3246
 // functionNeedsArena), so the emitted call is one argument short and
 // the C step fails. Filed as F-0014; the pure-Orbit bodies below stay
 // until the table learns the names.

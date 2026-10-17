@@ -2,7 +2,7 @@
 // what: `Int` is not a type. `mapTypeToC` has cases for int, float, string,
 //      bool, void, list, map, result and response, and for any other name whose
 //      first character is upper case it answers `sanitizeIdentifier(name) + "*"`
-//      (`compiler/c_backend.orb:264`, case test at :293-300). So the annotation
+//      (`compiler/emit/c_backend.orb:264`, case test at :293-300). So the annotation
 //      is accepted, carried through the whole pipeline as a string, and written
 //      into the C as `Int* r_0` -- and the C step is what reports it. The front
 //      end that has the annotation in front of it says nothing.

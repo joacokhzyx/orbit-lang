@@ -1,8 +1,8 @@
 // Lower the frontend AST into frontend-owned Canonical Typed IR.
 // No backend data structure is imported here.
 
-import "../ast.orb"
-import "./tir.orb"
+import "../front/ast.orb"
+import "./format.orb"
 
 model TirBinding {
     name: string

@@ -17,11 +17,11 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 
 | Area | Current status | Evidence |
 |---|---|---|
-| Self-hosted compiler | Available | `compiler/*.orb`, `compiler/main.orb` |
+| Self-hosted compiler | Available | `compiler/**/*.orb`, `compiler/host/main.orb` |
 | Bootstrap from committed C | Available | `scripts/build_selfhost.py`, `scripts/verify_seed.py` |
 | Canonical C trust root | Committed and verified by the project workflow | `compiler/selfhost/stage3.exe.c` |
-| C code generation | Primary backend | `compiler/c_backend.orb`, `runtime/` |
-| HTTP service runtime | Available for supported service features | `runtime/http.c`, `compiler/route_runtime.orb`, examples |
+| C code generation | Primary backend | `compiler/emit/c_backend.orb`, `runtime/` |
+| HTTP service runtime | Available for supported service features | `runtime/http.c`, `compiler/emit/route_runtime.orb`, examples |
 | Arena-based allocation | Available | `runtime/arena.c`, `runtime/arena_pool.c`, `docs/ARENA.md` |
 | Database integration | Reads, writes and auto-created model tables; migrations still open | `runtime/database.c`, `examples/posts_crud.orb`, `schema-migrations` |
 | Path parameters | `:id`/`{id}`/`*` match with capture, static routes win | `examples/params_service.orb` |
@@ -32,7 +32,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Editor integration | VS Code extension: highlighting, and `orbit check` diagnostics on save. No language server - `orbit` has no `lsp` subcommand. | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `native-backend` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
-| `port`/`cors`/`db`/`env` declarations | `port` is read: an integer literal in 1..65535 (E1008 otherwise) becomes the default port the generated server binds; `argv[1]` still overrides it, and no declaration still means 3000. `cors`, `db`, `env` parse and typecheck with no runtime effect. | `checkConfigDecl` in `compiler/sema.orb`, `generateServerMain` in `compiler/c_backend.orb`; live proof in `scripts/kynx_gate.py live` (declared port, then argv); see [Architecture](ARCHITECTURE.md#config-declarations-port-reaches-the-server-the-rest-are-reserved) |
+| `port`/`cors`/`db`/`env` declarations | `port` is read: an integer literal in 1..65535 (E1008 otherwise) becomes the default port the generated server binds; `argv[1]` still overrides it, and no declaration still means 3000. `cors`, `db`, `env` parse and typecheck with no runtime effect. | `checkConfigDecl` in `compiler/front/sema.orb`, `generateServerMain` in `compiler/emit/c_backend.orb`; live proof in `scripts/kynx_gate.py live` (declared port, then argv); see [Architecture](ARCHITECTURE.md#config-declarations-port-reaches-the-server-the-rest-are-reserved) |
 | Standard library | **14 modules, 14 of 14 compile and merge into one program**, verified by a single import-all test. `option` remains quarantined as `*.orb.quarantined` because the language cannot express a generic tagged union; `bitwise` stays quarantined only until the module is repaired and tested — its missing feature, the bitwise operators, has landed. | `std/`, `tests/std/test_imports.orb`, `std/quarantine/README.md` |
 | `std/` test coverage | **22 files, 22/22 pass** | `tests/std/`, `scripts/test_suite.py --dir tests/std` |
 | Sockets / threads / `Option` | **Do not exist** - not in the language, not in the runtime. The modules that claimed them are deleted or quarantined | `docs/KNOWN_LIMITATIONS.md` |
@@ -76,7 +76,7 @@ passing gate.
 
 The census number is the honest measure of how far the type system has to
 go, and it is what the compiler's one accepted defect is made
-of. `checkCompatibility` (`compiler/sema.orb:326`) returns true when
+of. `checkCompatibility` (`compiler/front/sema.orb:326`) returns true when
 *either* side is `unknown`, and that one line is why most of the list
 exists; see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#the-silent-group-is-empty).
 
@@ -87,7 +87,7 @@ exists; see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#the-silent-group-is-empt
 **Priority:** P0  
 **Status:** active
 
-The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity surface. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds of `compiler/main.orb` run in about 35 s wall on a two-core box, and the self-host chain (`verify_seed.py`) in 10-27 s depending on cache state; see [PERF.md](PERF.md) for the measured before/after and the commands.
+The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity surface. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds of `compiler/host/main.orb` run in about 35 s wall on a two-core box, and the self-host chain (`verify_seed.py`) in 10-27 s depending on cache state; see [PERF.md](PERF.md) for the measured before/after and the commands.
 
 Key work:
 

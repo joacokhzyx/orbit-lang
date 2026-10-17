@@ -2,17 +2,17 @@
 // rendering (error cards, sema errors), and C toolchain probing.
 // Large by intent (~750 lines); the size is the driver surface,
 // not hidden coupling.
-import "./lexer.orb"
-import "./parser.orb"
-import "./resolver.orb"
-import "./sema.orb"
-import "./builder.orb"
-import "./ir.orb"
-import "./ir_emit.orb"
-import "./optimizer.orb"
-import "./cteval.orb"
-import "./c_backend.orb"
-import "./palette.orb"
+import "../front/lexer.orb"
+import "../front/parser.orb"
+import "../front/resolver.orb"
+import "../front/sema.orb"
+import "../ir/builder.orb"
+import "../ir/ir.orb"
+import "../emit/ir_emit.orb"
+import "../ir/optimizer.orb"
+import "../ir/cteval.orb"
+import "../emit/c_backend.orb"
+import "../tools/palette.orb"
 
 fn cteEnabled() -> bool {
     return orbit_os_env_selfhost("ORBIT_NO_CTE") == ""

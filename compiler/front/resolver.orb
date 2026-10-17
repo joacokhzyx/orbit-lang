@@ -1,5 +1,5 @@
 // Recursive Module Resolver for Orbit Self-Hosted Compiler
-// compiler/resolver.orb
+// compiler/front/resolver.orb
 
 import "./ast.orb"
 import "./parser.orb"

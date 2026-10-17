@@ -2,7 +2,7 @@
 // exercised by `node editors/vscode/test/diagnostics_test.js`.
 //
 // The two shapes below are the only two the compiler emits, taken from
-// compiler/pipeline.orb: rustc-style blocks for the parser (it has a
+// compiler/host/pipeline.orb: rustc-style blocks for the parser (it has a
 // Lexer/Parser with positions) and one flat line for sema and the resolver
 // (they carry a message and sometimes a line number, never a column).
 

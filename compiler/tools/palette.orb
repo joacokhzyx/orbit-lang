@@ -1,4 +1,4 @@
-import "./extern.orb"
+import "../host/extern.orb"
 
 // Orbit's own palette: terminal output styles (ANSI), not art assets.
 //

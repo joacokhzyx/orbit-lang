@@ -233,7 +233,7 @@ def main():
     totals, by_op, by_code, by_dir = aggregate(rows)
     known = totals["instr"] - totals["instr_unk"]
     # E2001 fires once per `unknown` load, E2002 once per `unknown` binary op
-    # and E2003 once per `unknown` unary op (compiler/frontend/lower.orb:105,
+    # and E2003 once per `unknown` unary op (compiler/tir/lower.orb:105,
     # :118, :126), so the rest of the `unknown` instructions are silent ones:
     # the front end did not know it had failed.
     silent = totals["instr_unk"] - (by_code.get("E2001", 0)
@@ -296,7 +296,7 @@ def main():
     table(by_op, totals["instr_unk"], args.top, "opcode")
     print("")
     print("Unknown types the front end did not even complain about:")
-    print("  Three of the lowering diagnostics in compiler/frontend/lower.orb "
+    print("  Three of the lowering diagnostics in compiler/tir/lower.orb "
           "fire exactly")
     print("  once per instruction they make `unknown`, and their counts match the "
           "opcode")

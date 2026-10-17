@@ -1,5 +1,5 @@
 // Orbit Self-Hosted Compiler - Optimizer pass
-// compiler/optimizer.orb
+// compiler/ir/optimizer.orb
 
 import "./ir.orb"
 

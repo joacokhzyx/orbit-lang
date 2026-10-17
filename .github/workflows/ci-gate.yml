@@ -152,7 +152,7 @@ jobs:
           exit $rc
 
   # Two checks that read two files of text and need no compiler: what
-  # compiler/ast.orb declares against the code that builds nodes, and what each
+  # compiler/front/ast.orb declares against the code that builds nodes, and what each
   # AST walk in the compiler declares about the fields it skips. About a second
   # between them, which is why they are worth running on every push instead of
   # being discovered by hand.

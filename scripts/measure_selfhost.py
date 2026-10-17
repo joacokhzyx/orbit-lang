@@ -9,7 +9,7 @@ What it does:
                 list grows, arena allocs). No subprocess, safe on any RAM.
   amalgamate  : runs scripts/amalgamate.py on the canonical C, samples RSS.
   seed-cc     : compiles the amalgamated TU with the C compiler, samples RSS.
-  orbit-build : runs seed.exe build compiler/main.orb, samples the orbit
+  orbit-build : runs seed.exe build compiler/host/main.orb, samples the orbit
                 process tree separately from its inner cc child.
   iter-cc     : recompiles the emitted C with our own cc invocation.
 
@@ -44,7 +44,7 @@ import orbit_output as out
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 AMALGAMATE = os.path.join(ROOT, "scripts", "amalgamate.py")
-MAIN_ORB = os.path.join("compiler", "main.orb")
+MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 RUNTIME_DIR = os.path.join(ROOT, "runtime")
 COMPILER_DIR = os.path.join(ROOT, "compiler")
 
@@ -403,15 +403,19 @@ def static_record():
     rec["sys_total_mb"] = total_mb
     rec["sys_avail_mb"] = avail_mb
     files = {}
+    paths = {}
     total_orb = 0
-    for name in sorted(os.listdir(COMPILER_DIR)):
-        if name.endswith(".orb"):
-            p = os.path.join(COMPILER_DIR, name)
+    for dirpath, _dirnames, filenames in os.walk(COMPILER_DIR):
+        for name in sorted(filenames):
+            if not name.endswith(".orb"):
+                continue
+            p = os.path.join(dirpath, name)
             try:
                 sz = os.path.getsize(p)
             except OSError:
                 sz = 0
             files[name] = sz
+            paths[name] = p
             total_orb += sz
     rec["compiler_orb_bytes"] = total_orb
     rec["compiler_orb_files"] = files
@@ -429,23 +433,23 @@ def static_record():
             except OSError:
                 pass
     rec["runtime_bytes"] = rt_total
-    cb = os.path.join(COMPILER_DIR, "c_backend.orb")
+    cb = paths["c_backend.orb"]
     rec["c_backend_out_concat"] = count_in_file(cb, r"out\s*=\s*out\s*\+")
     rec["c_backend_bytes"] = files.get("c_backend.orb", 0)
-    builder = os.path.join(COMPILER_DIR, "builder.orb")
+    builder = paths["builder.orb"]
     rec["builder_bytes"] = files.get("builder.orb", 0)
     # Risky idioms across compiler sources.
     rec["string_concat_all"] = 0
     rec["list_grow_sites"] = 0
     for name in files:
-        p = os.path.join(COMPILER_DIR, name)
+        p = paths[name]
         rec["string_concat_all"] += count_in_file(p, r"out\s*=\s*out\s*\+|\+\s*\"")
         if name in ("resolver.orb", "builder.orb", "parser.orb"):
             rec["list_grow_sites"] += count_in_file(p, r"\.push\(")
     rt = os.path.join(RUNTIME_DIR, "collections.c")
     rec["runtime_concat_def"] = count_in_file(rt, r"orbit_string_concat")
     rec["runtime_list_grow_def"] = count_in_file(rt, r"orbit_list_grow")
-    fe = os.path.join(COMPILER_DIR, "frontend")
+    fe = os.path.join(COMPILER_DIR, "tir")
     if os.path.isdir(fe):
         rec["frontend_bytes"] = sum(
             os.path.getsize(os.path.join(fe, n)) for n in os.listdir(fe)

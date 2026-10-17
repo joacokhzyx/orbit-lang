@@ -24,7 +24,7 @@ make fp       # just the fixed-point compiler, and print its version
 make list     # show what dev would run, without running it
 ```
 
-`dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
+`dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/**/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
 
 **If a gate fails only on windows-latest, read [docs/WINDOWS.md](docs/WINDOWS.md) first.** It records the two Windows gate failures (diagnosed and fixed, 2026-10-09), how to reproduce them, what has already been ruled out, and what is NOT open -- the `0xC0000005` in `test_migrations` is fixed and the runtime C tests are green on both platforms. Those two failures are recorded as gate-sequence(7) in `ENGINEERING.md` §7, diagnosed and fixed there.
 
@@ -62,7 +62,7 @@ These are gates. Do not perform them by hand and do not write them out as a habi
 - `tests/negative/*.orb` must FAIL to compile with the text their header pins. A `known-defect:` asserts the bug is STILL there, so a fix makes the gate red until you re-declare the case as `expect-error:` with the diagnostic you measured, never from memory. See `tests/negative/README.md`.
 - `alive_check` (D8) requires every file in `scripts/` to be able to fail. A new script with no row there is the same class of thing as a gate nobody reads.
 - `unknown_ratchet` fails only when the number goes UP. Raising a baseline is a deliberate act and `--write-baseline` refuses to move it up without `--allow-regression`.
-- `schema_conformance.py` and `walk_coverage.py` run in T0, cost about a second, and need no compiler. They check `compiler/ast.orb` against the code that builds nodes, and require every AST walk to declare the fields it skips.
+- `schema_conformance.py` and `walk_coverage.py` run in T0, cost about a second, and need no compiler. They check `compiler/front/ast.orb` against the code that builds nodes, and require every AST walk to declare the fields it skips.
 
 ## Working with other agents
 
@@ -78,8 +78,8 @@ What may run in parallel, and why:
 
 | Zone | Parallel | Reason |
 |---|---|---|
-| `compiler/*.orb`, promoting | **no** | the canonical is global |
-| `compiler/*.orb`, not promoting | yes, in separate worktrees | `verify_seed` only judges what is committed; nothing looks at an uncommitted tree |
+| `compiler/**/*.orb`, promoting | **no** | the canonical is global |
+| `compiler/**/*.orb`, not promoting | yes, in separate worktrees | `verify_seed` only judges what is committed; nothing looks at an uncommitted tree |
 | `tests/suite/<new>.orb`, `tests/negative/<new>.orb` | yes | additive; the shared thing is a count a gate reads |
 | `tests/doctor/golden/d0NN_*` for different checks | yes | the real collision is an existing check's `expected.txt` |
 | `runtime/*.c` | yes, carefully | the CI step compiles them by filename, so a shared `-D` is a shared change |
@@ -87,7 +87,7 @@ What may run in parallel, and why:
 | `scripts/*.py` | yes, with one condition | a new script arrives with its `alive_check` row in the same commit |
 | `ENGINEERING.md` §7/§8, `AGENTS.md` | **no** | they are contracts; two agents editing the debt table step on each other |
 
-Use `git worktree` for two agents editing `compiler/*.orb` at once. The merge point is a commit, which is where `verify_seed` has something to say again. Without it, whichever agent promotes deletes the other's working binary.
+Use `git worktree` for two agents editing `compiler/**/*.orb` at once. The merge point is a commit, which is where `verify_seed` has something to say again. Without it, whichever agent promotes deletes the other's working binary.
 
 ## The read-only reviewer
 

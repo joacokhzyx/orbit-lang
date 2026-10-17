@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that compiler/ast.orb and compiler/parser.orb still agree.
+"""Check that compiler/front/ast.orb and compiler/front/parser.orb still agree.
 
 Seventeen fields of the AST schema declared `list` while the parser had always
 handed them a single ASTNode. `f.body.len()` on a one-statement function
@@ -49,7 +49,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-AST = ROOT / "compiler" / "ast.orb"
+AST = ROOT / "compiler" / "front" / "ast.orb"
 
 MODEL_RE = re.compile(r"^model (\w+) \{\s*\}", re.M)
 MODEL_BLOCK_RE = re.compile(r"^model (\w+) \{\n(.*?)^\}", re.S | re.M)
@@ -182,14 +182,14 @@ def collect_node_list_ops(models: dict, root: pathlib.Path) -> list:
 
 def check(root: pathlib.Path) -> list:
     """Every disagreement between the schema and the code that builds nodes."""
-    models, unions = parse_schema((root / "compiler" / "ast.orb").read_text())
+    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text())
     built_models, built_variants, findings = collect_constructions(models, root)
     findings += collect_node_list_ops(models, root)
 
     for name, fields in sorted(models.items()):
         if fields and name not in built_models:
             findings.append((
-                "compiler/ast.orb", "unbuilt-model",
+                "compiler/front/ast.orb", "unbuilt-model",
                 f"model {name} declares {len(fields)} field(s) and nothing "
                 f"constructs it. Either it is schema for a node that cannot "
                 f"exist, or the parser stopped building it.",
@@ -198,7 +198,7 @@ def check(root: pathlib.Path) -> list:
         for variant, model in variants:
             if variant not in built_variants:
                 findings.append((
-                    f"compiler/ast.orb ({union})", "unbuilt-variant",
+                    f"compiler/front/ast.orb ({union})", "unbuilt-variant",
                     f"{union} variant `{variant}` is declared and nothing ever "
                     f"constructs it. ENGINEERING.md section 0 forbids this: "
                     f"phantom schema is a contract with no implementation.",
@@ -265,7 +265,7 @@ def self_test() -> int:
 
     with tempfile.TemporaryDirectory(prefix="schema_conformance_selftest_") as td:
         root = pathlib.Path(td)
-        cdir = root / "compiler"
+        cdir = root / "compiler" / "front"
         cdir.mkdir(parents=True)
 
         def fixture(schema: str, body: str) -> set:
@@ -328,7 +328,7 @@ def main() -> int:
         for where, rule, message in findings:
             print(f"{where} [{rule}] {message}")
         print(f"\nFinished schema-conformance: {len(findings)} disagreement(s) "
-              f"between compiler/ast.orb and the code that builds nodes.")
+              f"between compiler/front/ast.orb and the code that builds nodes.")
         return 1
 
     total_fields = sum(len(f) for f in models.values())

@@ -17,15 +17,15 @@
 //
 // The two imports below are load-bearing and neither is obvious.
 //
-// `compiler/extern.orb` declares the runtime functions the lexer and the
+// `compiler/host/extern.orb` declares the runtime functions the lexer and the
 // parser call. Neither file imports it, so without this import the front end
 // cannot resolve `orbit_os_write_stderr_selfhost`, the emitter gives that call
 // an `unknown` result, and gcc rejects the generated C with "invalid use of
 // void expression". That is FINDINGS F-0004, and it is also the argument for
 // this census: the probe is itself a program the compiler cannot fully type.
 //
-// `parseIntSelfhost` is declared in `compiler/builder.orb` and called from
-// `parseRouteDecl` in `compiler/parser.orb`, again with no import between
+// `parseIntSelfhost` is declared in `compiler/ir/builder.orb` and called from
+// `parseRouteDecl` in `compiler/front/parser.orb`, again with no import between
 // them. The emitted C references an undefined symbol, so the definition below
 // is a link-time stub for a function this probe never calls.
 //
@@ -35,14 +35,14 @@
 // wrong field. `instruction.typeName` read that way returns the opcode, which
 // would have reported zero `unknown` types for the whole corpus.
 
-import "../compiler/extern.orb"
-import "../compiler/frontend/frontend.orb"
+import "../compiler/host/extern.orb"
+import "../compiler/tir/entry.orb"
 
 // parseIntSelfhost used to be stubbed here because the front end could not
 // reach the real one: parser.orb called a function that lived in builder.orb,
 // which this probe does not import, and an unresolved call is not a
 // diagnostic. That is fixed (F-0004) -- parseIntSelfhost now lives in
-// compiler/literal.orb, which the parser imports -- so the stub below collided
+// compiler/front/literal.orb, which the parser imports -- so the stub below collided
 // with the real one and this probe stopped building. A report-only tool with
 // no gate behind it rotted without a single signal.
 

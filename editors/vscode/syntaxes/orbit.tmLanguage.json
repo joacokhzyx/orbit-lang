@@ -63,7 +63,7 @@
       ]
     },
     "config-keys": {
-      "comment": "compiler/parser.orb parseConfigDecl plus MigrationDecl, top-level only. `port` is read (integer literal 1..65535, E1008 otherwise; the server binds it, argv[1] overrides); cors/db/env/migrations parse and are then discarded; `database` is not one of them.",
+      "comment": "compiler/front/parser.orb parseConfigDecl plus MigrationDecl, top-level only. `port` is read (integer literal 1..65535, E1008 otherwise; the server binds it, argv[1] overrides); cors/db/env/migrations parse and are then discarded; `database` is not one of them.",
       "patterns": [
         {
           "name": "meta.config.orbit",
@@ -75,7 +75,7 @@
       ]
     },
     "http-methods": {
-      "comment": "Route methods, lexed as keywords by compiler/lexer.orb matchKeyword. The #route-decl rule captures them with the path; this covers stray mentions.",
+      "comment": "Route methods, lexed as keywords by compiler/front/lexer.orb matchKeyword. The #route-decl rule captures them with the path; this covers stray mentions.",
       "patterns": [
         {
           "name": "keyword.operator.http-method.orbit",
@@ -84,7 +84,7 @@
       ]
     },
     "route-decl": {
-      "comment": "compiler/parser.orb parseRouteDecl: `route METHOD \"path\" [limit ...] {`. Placed before #strings so the path keeps route scope. :id and {id} both capture one segment (doctor.orb); * matches without capture.",
+      "comment": "compiler/front/parser.orb parseRouteDecl: `route METHOD \"path\" [limit ...] {`. Placed before #strings so the path keeps route scope. :id and {id} both capture one segment (doctor.orb); * matches without capture.",
       "patterns": [
         {
           "name": "meta.route.orbit",
@@ -106,7 +106,7 @@
       ]
     },
     "keywords-control": {
-      "comment": "compiler/lexer.orb matchKeyword, control half. There is no `loop {}` body: the keyword is reserved but parsing one is an error, so use `while true`.",
+      "comment": "compiler/front/lexer.orb matchKeyword, control half. There is no `loop {}` body: the keyword is reserved but parsing one is an error, so use `while true`.",
       "patterns": [
         {
           "name": "keyword.control.orbit",
@@ -115,7 +115,7 @@
       ]
     },
     "keywords-declaration": {
-      "comment": "compiler/lexer.orb matchKeyword, declaration half. `mut` is the mutable-binding modifier, not a type. `then` stays an ordinary identifier (contextual branch introducer).",
+      "comment": "compiler/front/lexer.orb matchKeyword, declaration half. `mut` is the mutable-binding modifier, not a type. `then` stays an ordinary identifier (contextual branch introducer).",
       "patterns": [
         {
           "name": "keyword.declaration.orbit",
@@ -133,7 +133,7 @@
       ]
     },
     "types": {
-      "comment": "The names compiler/c_backend.orb mapTypeToC knows: lowercase plus List/Map/Result/Response. Any other capitalised spelling (Int, String, Float, Bool, Void, Any, DateTime) is E1006, not a type. See docs/LANGUAGE_REFERENCE.md.",
+      "comment": "The names compiler/emit/c_backend.orb mapTypeToC knows: lowercase plus List/Map/Result/Response. Any other capitalised spelling (Int, String, Float, Bool, Void, Any, DateTime) is E1006, not a type. See docs/LANGUAGE_REFERENCE.md.",
       "patterns": [
         {
           "name": "storage.type.orbit",
@@ -213,7 +213,7 @@
       ]
     },
     "numbers": {
-      "comment": "compiler/lexer.orb isDigit branch + literal.orb: 0x hex, 0b binary, 0o octal, decimal with `_` separators, optional fraction, optional e/E exponent which always forces float (1e2 is 100.0).",
+      "comment": "compiler/front/lexer.orb isDigit branch + literal.orb: 0x hex, 0b binary, 0o octal, decimal with `_` separators, optional fraction, optional e/E exponent which always forces float (1e2 is 100.0).",
       "patterns": [
         {
           "name": "constant.numeric.hex.orbit",
@@ -234,7 +234,7 @@
       ]
     },
     "rate-limit": {
-      "comment": "compiler/parser.orb route limit clause: `limit N[/unit] [burst M]`. Only min/sec/s/ms widen the window; any other unit silently defaults to 1000ms, so an unknown unit here reads as plain text on purpose. Placed before #numbers so the whole clause wins.",
+      "comment": "compiler/front/parser.orb route limit clause: `limit N[/unit] [burst M]`. Only min/sec/s/ms widen the window; any other unit silently defaults to 1000ms, so an unknown unit here reads as plain text on purpose. Placed before #numbers so the whole clause wins.",
       "patterns": [
         {
           "name": "meta.rate-limit.orbit",
@@ -249,7 +249,7 @@
       ]
     },
     "schedule": {
-      "comment": "compiler/parser.orb ScheduleDecl: `every N unit [at T] => handler`. The unit is any identifier (not an enum), so it is scoped generically.",
+      "comment": "compiler/front/parser.orb ScheduleDecl: `every N unit [at T] => handler`. The unit is any identifier (not an enum), so it is scoped generically.",
       "patterns": [
         {
           "name": "meta.schedule.orbit",
@@ -264,7 +264,7 @@
       ]
     },
     "import-path": {
-      "comment": "compiler/parser.orb: `import \"path\"`. A distinct path scope is affordance for Ctrl+click, not a language claim.",
+      "comment": "compiler/front/parser.orb: `import \"path\"`. A distinct path scope is affordance for Ctrl+click, not a language claim.",
       "patterns": [
         {
           "match": "\\b(import)\\s+(\"[^\"]*\")",
@@ -276,7 +276,7 @@
       ]
     },
     "operators": {
-      "comment": "compiler/lexer.orb + token.orb. No compound assigns (+= etc), no `?`. `&` is the &T pointer prefix and bitwise-and, `|` the union separator and bitwise-or, `<<`/`>>` shifts that also close nested generics -- lexical, so both spellings share the scope. `: ; . ,` are delimiters.",
+      "comment": "compiler/front/lexer.orb + token.orb. No compound assigns (+= etc), no `?`. `&` is the &T pointer prefix and bitwise-and, `|` the union separator and bitwise-or, `<<`/`>>` shifts that also close nested generics -- lexical, so both spellings share the scope. `: ; . ,` are delimiters.",
       "patterns": [
         {
           "name": "keyword.operator.orbit",
@@ -285,7 +285,7 @@
       ]
     },
     "builtins": {
-      "comment": "The req/system I/O surface (compiler/builder.orb). Placed before #functions so `query` in `req.query(` keeps builtin scope instead of the generic function one. Exactly these members lower to builtins; anything else (req.path, system.total, ...) is a generic member read.",
+      "comment": "The req/system I/O surface (compiler/ir/builder.orb). Placed before #functions so `query` in `req.query(` keeps builtin scope instead of the generic function one. Exactly these members lower to builtins; anything else (req.path, system.total, ...) is a generic member read.",
       "patterns": [
         {
           "name": "meta.builtin-call.orbit",

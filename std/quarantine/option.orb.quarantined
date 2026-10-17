@@ -7,8 +7,8 @@
 //
 //   1. The parser has no generic parameter list on `union`.
 //      parseTypeDecl calls parseGenericParams for `fn`, `model` and
-//      `trait` (compiler/parser.orb:690, 769, 946) but not on the
-//      `union` and `enum` arms (compiler/parser.orb:812-850), so
+//      `trait` (compiler/front/parser.orb:690, 769, 946) but not on the
+//      `union` and `enum` arms (compiler/front/parser.orb:812-850), so
 //      `union Option<T>` stops at the `<`.
 //         $ printf 'import "std/core/option.orb"\nfn main() { print("ok") }\n' > /tmp/i.orb
 //         $ orbit check /tmp/i.orb
@@ -18,7 +18,7 @@
 //   2. Even with [T] instead of <T>, there is no monomorphisation, so
 //      a type parameter would be nonsense rather than merely
 //      unparseable. The payload type is a bare identifier
-//      (compiler/parser.orb:840), so `T` would reach codegen as a
+//      (compiler/front/parser.orb:840), so `T` would reach codegen as a
 //      type name and be emitted verbatim:
 //         model Box[T] { v: T }
 //         fn main() { val b: Box = Box { v: 7 }  print(b.v) }
@@ -39,8 +39,8 @@
 // that claims a type the language cannot express.
 //
 // Note the asymmetry with `result`: that one already exists, as a
-// builtin type with `ok`/`err` constructors (compiler/sema.orb:236,
-// compiler/lexer.orb:199-200). std/core/result.orb was an unparseable
+// builtin type with `ok`/`err` constructors (compiler/front/sema.orb:236,
+// compiler/front/lexer.orb:199-200). std/core/result.orb was an unparseable
 // shadow of a working builtin and was deleted; this one is the only
 // trace of a feature that does not exist yet.
 //

@@ -4,12 +4,12 @@
 The root of trust is the committed canonical C source
 (``compiler/selfhost/stage3.exe.c``). Any conforming C compiler can turn it
 into a working Orbit compiler; that compiler rebuilds the sources from
-``compiler/main.orb`` and the loop is repeated until the emitted C reaches a
+``compiler/host/main.orb`` and the loop is repeated until the emitted C reaches a
 new fixed point. No toolchain beyond a C compiler is involved at any point.
 
 Modes:
   default        Rebuild from the committed canonical C and verify that the
-                 current ``compiler/*.orb`` sources converge to a fixed point.
+                 current ``compiler/**/*.orb`` sources converge to a fixed point.
   --check-stale  Additionally require the converged C to equal the committed
                  canonical byte-for-byte (CI mode: fails when the canonical
                  was not refreshed after a compiler change).
@@ -46,7 +46,7 @@ import orbit_ccache
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
-MAIN_ORB = os.path.join("compiler", "main.orb")
+MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 
 # -O0 keeps peak memory low: these builds run once per gate and speed is
@@ -251,7 +251,7 @@ def run(argv, cwd=ROOT, env_extra=None, label=""):
 
 
 def orb_build(compiler, out_exe, work, cc, snapshot_path, extra_cc_flags=None) -> str:
-    """Compile compiler/main.orb with `compiler`; snapshot the intermediate C.
+    """Compile compiler/host/main.orb with `compiler`; snapshot the intermediate C.
 
     The compiler's own final cc invocation is redundant here (we recompile the
     snapshot ourselves with known-good flags). If it fails -- e.g. because an

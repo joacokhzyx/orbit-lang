@@ -13,11 +13,11 @@
 //   - `--help, -h` / `--version, -v`
 
 import "./extern.orb"
-import "./fmt.orb"
-import "./frontend/frontend.orb"
-import "./palette.orb"
+import "../tools/fmt.orb"
+import "../tir/entry.orb"
+import "../tools/palette.orb"
 import "./pipeline.orb"
-import "./doctor.orb"
+import "../tools/doctor.orb"
 import "./cluster.orb"
 import "./start.orb"
 

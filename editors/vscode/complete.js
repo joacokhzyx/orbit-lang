@@ -30,7 +30,7 @@ const STD_MODULES = [
     { path: 'std/convert/convert.orb', detail: 'see LANGUAGE_REFERENCE standard library' },
 ];
 
-// compiler/builder.orb req members. Only these 8 lower to builtins.
+// compiler/ir/builder.orb req members. Only these 8 lower to builtins.
 const REQ_MEMBERS = [
     { label: 'param', detail: 'req.param("name") -> string; reads a :id/{id} capture' },
     { label: 'query', detail: 'req.query("key") -> string' },
@@ -42,7 +42,7 @@ const REQ_MEMBERS = [
     { label: 'file', detail: 'req.file(field, dir) -> string; saves a multipart upload' },
 ];
 
-// compiler/builder.orb system counters. All () -> int; no success/error split.
+// compiler/ir/builder.orb system counters. All () -> int; no success/error split.
 const SYSTEM_MEMBERS = [
     { label: 'uptime', detail: 'system.uptime() -> int; seconds since process start' },
     { label: 'pid', detail: 'system.pid() -> int' },
@@ -54,7 +54,7 @@ const SYSTEM_MEMBERS = [
     { label: 'latency_p99_us', detail: 'system.latency_p99_us() -> int; bucket edge' },
 ];
 
-// compiler/builder.orb model ORM surface.
+// compiler/ir/builder.orb model ORM surface.
 const MODEL_METHODS = [
     { label: 'all', detail: 'Note.all() — every row' },
     { label: 'where', detail: 'Note.where("author_id = ?", who) — 2-arg form is parameterized' },
@@ -63,7 +63,7 @@ const MODEL_METHODS = [
     { label: 'delete', detail: 'Note.delete(id) — true only if a row was removed' },
 ];
 
-// compiler/lexer.orb matchKeyword. `loop` (reserved, body is a parse error),
+// compiler/front/lexer.orb matchKeyword. `loop` (reserved, body is a parse error),
 // `with` (reserved-unused) and `then` (contextual identifier) excluded.
 const KEYWORDS = [
     'fn', 'val', 'var', 'mut', 'const', 'private', 'extern', 'async',

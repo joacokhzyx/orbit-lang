@@ -12,8 +12,8 @@
 // valid serialization (V-08).  emitIRv1 assumes finiteness; irNonFiniteFloat
 // names the offender so the caller aborts instead of writing a document the
 // loader would misread.
-import "./extern.orb"
-import "./ir.orb"
+import "../host/extern.orb"
+import "../ir/ir.orb"
 
 fn irJsonHex2(code: int) -> string {
     val digits = "0123456789abcdef"

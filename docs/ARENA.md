@@ -95,7 +95,7 @@ A lookup compares lengths first and then `memcmp`s, so it is $O(n)$ in the numbe
 
 FNV-1a hashing and open-addressed buckets do exist in this runtime, but for `Map<K,V>`, not for string interning: `runtime/collections.c` (`OrbitMapEntry`, 75 % load factor, buckets abandoned in the arena and reclaimed on reset). Do not read that machinery into this table.
 
-`orbit_string_pool_init(capacity)` and `orbit_string_pool_cleanup()` are compatibility stubs that ignore their argument; the generated server calls both (`compiler/route_runtime.orb:567`, `:732`) and they do nothing.
+`orbit_string_pool_init(capacity)` and `orbit_string_pool_cleanup()` are compatibility stubs that ignore their argument; the generated server calls both (`compiler/emit/route_runtime.orb:567`, `:732`) and they do nothing.
 
 ---
 
@@ -121,7 +121,7 @@ typedef struct {
 
 ### The pool is not the request path
 
-The pool serves process **startup** work, not requests. The generated server initializes it and immediately acquires one arena for startup scratch work (`compiler/route_runtime.orb:566`, `:585-587`); after that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:731`). Nothing else in the tree acquires from it, and that is the whole caller list.
+The pool serves process **startup** work, not requests. The generated server initializes it and immediately acquires one arena for startup scratch work (`compiler/emit/route_runtime.orb:566`, `:585-587`); after that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:731`). Nothing else in the tree acquires from it, and that is the whole caller list.
 
 The request path is one private arena per worker thread instead. `orbit_worker_loop` creates a 128 KB arena when the thread starts - the emitted comment is "Each thread owns its private arena - zero pool contention" (`:368-369`) - resets it before every `orbit_handle_request` (`:485`), and destroys it when the loop ends (`:521`). That is deliberate: a per-thread arena needs no lock to acquire, and the reset cost lands on the thread that caused it.
 
@@ -139,7 +139,7 @@ by bump pointer. The word "allocator" is correct for it.
 
 **The request boundary is a whole-arena reset, not a checkpoint.**
 The generated connection loop calls `orbit_arena_reset(thread_arena)`
-before every `orbit_handle_request` (`compiler/route_runtime.orb:453`).
+before every `orbit_handle_request` (`compiler/emit/route_runtime.orb:453`).
 `orbit_arena_checkpoint` and `orbit_arena_rewind` both exist
 (`runtime/arena.c:565,575`) and a rewind *is* an $O(1)$ bump-pointer
 restore, but nothing in the tree calls them outside `arena.c` itself

@@ -1,8 +1,8 @@
 // IR->C emission, register type inference, and IR verifier.
 // Large by intent (~4200 lines); the scale is declared, not hidden.
-import "./builder.orb"
-import "./extern.orb"
-import "./ir.orb"
+import "../ir/builder.orb"
+import "../host/extern.orb"
+import "../ir/ir.orb"
 import "./route_runtime.orb"
 
 model CBackend {

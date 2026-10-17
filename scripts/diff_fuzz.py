@@ -314,7 +314,7 @@ def divzero_cases():
 #
 # What is left in this class is one case, and it is a bug and not a decision:
 # `\x00` is two hex digits, so the documented rule covers it, and the compiler
-# does not decode it (F-0020, `compiler/builder.orb:2481` tests the SUM of the
+# does not decode it (F-0020, `compiler/ir/builder.orb:2481` tests the SUM of the
 # two nibbles against zero instead of testing that both digits are valid). There
 # is no reading of the documentation under which `\x00` stays literal.
 DOCUMENTED_ESCAPES = {"n": 0x0A, "t": 0x09, "r": 0x0D, '"': 0x22, "\\": 0x5C}

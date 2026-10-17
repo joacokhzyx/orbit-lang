@@ -1,4 +1,4 @@
-import "../../compiler/frontend/frontend.orb"
+import "../../compiler/tir/entry.orb"
 
 fn main() {
     val source = "fn choose(flag: bool) -> int { if flag { return 1 } else { return 2 } }"

@@ -73,7 +73,7 @@ download, not to a wizard install: the wizard is what closes it. `ovm`
 
 A `std/...` import resolves against three roots, in order: the compiler
 binary's directory, that directory's parent, then the **current working
-directory** (`compiler/resolver.orb:69-90`). The raw platform binary ships
+directory** (`compiler/front/resolver.orb:69-90`). The raw platform binary ships
 alone: no `std/` in it and no install step that puts one next to the binary.
 (The Windows wizard install and the Linux bundle tarball both close this trap
 by placing `std/` + `runtime/` beside the binary - the trap below is about the

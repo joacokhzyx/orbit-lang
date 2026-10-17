@@ -23,7 +23,7 @@ all to audit it.
 
 The bootstrap builds the compiler through successive stages. Each stage is a
 working compiler; each stage is built by the previous one; every stage compiles
-the same source, `compiler/main.orb`.
+the same source, `compiler/host/main.orb`.
 
 ```
             [canonical C, committed]
@@ -32,15 +32,15 @@ the same source, `compiler/main.orb`.
                         ▼
                   [seed compiler]
                         │
-                        │  builds compiler/main.orb, emits C
+                        │  builds compiler/host/main.orb, emits C
                         ▼
                   [seed2 compiler]
                         │
-                        │  builds compiler/main.orb, emits C
+                        │  builds compiler/host/main.orb, emits C
                         ▼
                    [chain2 compiler]
                         │
-                        │  builds compiler/main.orb, emits C
+                        │  builds compiler/host/main.orb, emits C
                         ▼
                    [chain3 compiler]
 ```
@@ -68,7 +68,7 @@ Two properties follow, and both are load-bearing:
 2. **Every stage must hold, not just the first.** A chain can converge at
    stage one and drift afterwards. `verify_seed.py` therefore asserts the
    emitted C of `seed2`, `chain2` and `chain3` against the canonical, and
-   `compiler/main.orb` is the single source every stage compiles.
+   `compiler/host/main.orb` is the single source every stage compiles.
 
 ## What self-hosting does not buy
 

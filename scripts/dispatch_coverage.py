@@ -33,8 +33,8 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AST = os.path.join(ROOT, "compiler", "ast.orb")
-SEMA = os.path.join(ROOT, "compiler", "sema.orb")
+AST = os.path.join(ROOT, "compiler", "front", "ast.orb")
+SEMA = os.path.join(ROOT, "compiler", "front", "sema.orb")
 
 
 def fail(problems):
@@ -128,14 +128,14 @@ def main():
     # 3. the second walker is gone
     if re.search(r"(?m)^fn inferType\(", sema_text):
         problems.append(
-            "compiler/sema.orb still defines inferType. There is one checker, "
+            "compiler/front/sema.orb still defines inferType. There is one checker, "
             "checkNode; a second walker is how a check ends up running for "
             "some programs and not others."
         )
     leftover = re.findall(r"inferType\(sema,", sema_text)
     if leftover:
         problems.append(
-            "compiler/sema.orb still calls inferType in %d place(s)."
+            "compiler/front/sema.orb still calls inferType in %d place(s)."
             % len(leftover)
         )
 

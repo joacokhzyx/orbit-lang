@@ -60,7 +60,7 @@ do.
 ## What it does
 
 - **Highlighting** for the keywords `orbit` actually lexes, taken from
-  `matchKeyword` in `compiler/lexer.orb` - including hex, binary and octal,
+  `matchKeyword` in `compiler/front/lexer.orb` - including hex, binary and octal,
   digit-separated numbers with `e/E` exponents, `"""` raw strings, `'c'`
   character literals and `${...}` interpolation holes.
 - **Diagnostics on save.** The extension runs `orbit check <file>` and puts

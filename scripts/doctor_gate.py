@@ -180,7 +180,7 @@ def stage_compiler_with_runtime(compiler: str):
             link.symlink_to(compiler)
         except OSError:
             shutil.copy2(compiler, link)
-        # compilerRuntimeDir (compiler/pipeline.orb:205) resolves the runtime as
+        # compilerRuntimeDir (compiler/host/pipeline.orb:205) resolves the runtime as
         # <dir of argv[0]>/runtime and falls back to the relative "runtime", so
         # the headers have to sit in a `runtime` SUBDIRECTORY next to the binary.
         # Copying them flat next to it does not work, and does so quietly: the

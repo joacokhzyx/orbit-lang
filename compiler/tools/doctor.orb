@@ -1,6 +1,6 @@
-import "./ast.orb"
-import "./parser.orb"
-import "./pipeline.orb"
+import "../front/ast.orb"
+import "../front/parser.orb"
+import "../host/pipeline.orb"
 import "./palette.orb"
 
 // orbit doctor: read-only project checks with optional whitespace fixes.
@@ -1582,7 +1582,7 @@ fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: l
             // walks every line of the file and allocates in doctorTrimLeft on
             // each candidate, so calling it per check per function is
             // O(decls x lines) with a string allocation on the hot path. On
-            // compiler/c_backend.orb -- 300 functions over 4257 lines -- that
+            // compiler/emit/c_backend.orb -- 300 functions over 4257 lines -- that
             // was 1.3 GB of arena growth and the process was OOM-killed before
             // it could finish scanning its own compiler.
             val declLine = doctorFindDeclLine(lines, "fn", f.name)
@@ -1956,7 +1956,7 @@ fn doctorDescendValues(node: ASTNode, stats: DoctorStats, file: string) {
  *
  *  Only that shape. A shadowing on its own is not reported: on its own it costs
  *  nothing. The repository contains nineteen of those and every one is correct --
- *  compiler/c_backend.orb recomputes t0..carry2 inside a `while` and never needs
+ *  compiler/emit/c_backend.orb recomputes t0..carry2 inside a `while` and never needs
  *  the outer values again. Two of the goldens are exactly that case, silent.
  *
  *  The reported shape used to be a miscompilation, and not for the reason
@@ -4062,7 +4062,7 @@ fn doctorHasInterpolationOn(lines: list, i: int, lit: string) -> bool {
  *
  *  This used to be, for every `var` line, a scan of every line in the file:
  *  O(vars x lines), with a fresh string slice per offset inside the inner
- *  helper. On compiler/c_backend.orb that was 1.3 GB of arena growth, and
+ *  helper. On compiler/emit/c_backend.orb that was 1.3 GB of arena growth, and
  *  `orbit doctor compiler` was OOM-killed before finishing its own compiler --
  *  which is also why doctor_scope_gate used to report that directory clean: a
  *  killed process prints nothing, and nothing reads as zero findings.

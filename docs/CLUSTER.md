@@ -112,9 +112,9 @@ runtime functions instead:
   Returns 1 on success (probe: alive), 0 on failure (probe: dead/absent).
 
 Both follow the established extern pattern: declaration in
-`compiler/extern.orb`, return type in `feBuildTimeCallType`
-(`compiler/c_backend.orb`), CTE rejection in `isRuntimeFunction`
-(`compiler/cteval.orb`), implementation in `runtime/os.c`, wrapper in
+`compiler/host/extern.orb`, return type in `feBuildTimeCallType`
+(`compiler/emit/c_backend.orb`), CTE rejection in `isRuntimeFunction`
+(`compiler/ir/cteval.orb`), implementation in `runtime/os.c`, wrapper in
 `runtime/selfhost.c`.
 
 ## Platform differences

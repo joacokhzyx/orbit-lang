@@ -1,4 +1,4 @@
-import "../../compiler/frontend/frontend.orb"
+import "../../compiler/tir/entry.orb"
 
 fn main() {
     val source = "fn add(left: int, right: int) -> int { return left + right }"

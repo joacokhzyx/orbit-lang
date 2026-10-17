@@ -51,7 +51,7 @@ flag delta on a 32 KB unit is 0.02 s. Consequences, all in place:
 - `scripts/orbit_ccache.py` makes the repeated compilations of this unit a
   file copy instead of a 24 s compile.
 
-`orbit build compiler/main.orb` on the same box: 35 s wall, of which the
+`orbit build compiler/host/main.orb` on the same box: 35 s wall, of which the
 compiler's own `cc` child is the large majority.
 
 ## User-build optimisation level

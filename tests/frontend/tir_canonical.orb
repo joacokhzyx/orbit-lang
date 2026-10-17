@@ -1,4 +1,4 @@
-import "../../compiler/frontend/tir.orb"
+import "../../compiler/tir/format.orb"
 
 fn main() {
     val module = initTirModule("frontend-test")

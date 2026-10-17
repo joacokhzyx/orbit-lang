@@ -28,7 +28,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 
 One palette everywhere: red for errors, yellow for warnings and tips,
 green for success, cyan for codes and paths, bold for locations, dim for
-secondary text. The compiler owns it in `compiler/palette.orb`, the repo
+secondary text. The compiler owns it in `compiler/tools/palette.orb`, the repo
 scripts mirror it in `scripts/orbit_output.py`, and the generated server
 banner uses the same roles.
 

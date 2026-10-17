@@ -13,9 +13,9 @@
 // Product tooling living in compiler/ for self-host imports, not a
 // compile phase.
 
-import "./token.orb"
-import "./lexer.orb"
-import "./pipeline.orb"
+import "../front/token.orb"
+import "../front/lexer.orb"
+import "../host/pipeline.orb"
 
 model FmtComment {
     line: int

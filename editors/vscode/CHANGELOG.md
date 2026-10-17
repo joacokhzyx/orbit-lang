@@ -21,5 +21,5 @@
 
 - Shippable package: `package.json` (`onLanguage:orbit`, languages/grammars/snippets/commands/configuration), `.vscodeignore`, marketplace README. Packaged with `npx @vscode/vsce package`.
 - `orbit check` diagnostics on save + `Orbit: Check File`; `Orbit: Build and Run File` runs `orbit run` in a terminal. No language server (`orbit` has no `lsp` subcommand).
-- Grammar tracks `compiler/lexer.orb`: binary/octal/exponent numbers, `migrations` config key, `true`/`false` only (no `null` literal), fixed char escapes, no phantom `+=`/`?` operators.
+- Grammar tracks `compiler/front/lexer.orb`: binary/octal/exponent numbers, `migrations` config key, `true`/`false` only (no `null` literal), fixed char escapes, no phantom `+=`/`?` operators.
 - Extension fixes: Windows PATH lookup finds plain `orbit.exe`, `run` is shell-portable (no `ORBIT_CC=` prefix), check saves first and reports unchecked files instead of "no errors".

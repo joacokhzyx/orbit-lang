@@ -1,9 +1,9 @@
 // AST->IR lowering with variable scopes and list-kind tracking.
 // Large by intent (~3900 lines); the scale is declared, not hidden.
-import "./ast.orb"
-import "./extern.orb"
+import "../front/ast.orb"
+import "../host/extern.orb"
 import "./ir.orb"
-import "./literal.orb"
+import "../front/literal.orb"
 
 model IRBuilder {
     module: IRModule

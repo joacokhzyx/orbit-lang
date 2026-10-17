@@ -190,7 +190,7 @@ function setChecking() {
 
 // `orbit check` writes nothing to stdout and diagnostics to stderr on
 // failure, and "Checked <path>: no errors." to stdout with exit 0 on success
-// (compiler/main.orb runCheck). The text side of that lives in diagnostics.js;
+// (compiler/host/main.orb runCheck). The text side of that lives in diagnostics.js;
 // this turns the parsed records into editor ranges.
 function toVscodeDiagnostics(records) {
     return records.map(record => {
@@ -256,7 +256,7 @@ function checkDocument(document) {
 }
 
 // `orbit fmt <file>` rewrites in place and writes only on success
-// (compiler/fmt.orb); exit 1 on parse error or unreadable input. Never pass
+// (compiler/tools/fmt.orb); exit 1 on parse error or unreadable input. Never pass
 // --verbose here: single-file fmt treats it as a usage error (exit 2).
 function formatDocument(document) {
     return new Promise(resolve => {
@@ -281,7 +281,7 @@ function formatDocument(document) {
 }
 
 // `std/...` imports resolve against the compiler binary's directory, its
-// parent, then the working directory (compiler/resolver.orb). Running check
+// parent, then the working directory (compiler/front/resolver.orb). Running check
 // from the workspace root is what makes a `std/` import resolve, so do that.
 function workspaceRootFor(document) {
     const folders = vscode.workspace.workspaceFolders || [];

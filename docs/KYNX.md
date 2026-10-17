@@ -1,7 +1,7 @@
 # Kynx 0.1 - Admission Control
 
 Kynx is Orbit's in-process admission-control and computational-budget layer.
-This document describes measured behavior of what's in `runtime/kynx.c` and wired into every generated server (`compiler/route_runtime.orb`). If behavior and prose disagree, behavior wins and I fix the prose.
+This document describes measured behavior of what's in `runtime/kynx.c` and wired into every generated server (`compiler/emit/route_runtime.orb`). If behavior and prose disagree, behavior wins and I fix the prose.
 
 ---
 
@@ -71,7 +71,7 @@ orbit_kynx_init(cfg);
 ```
 
 Every `orbit build` service starts from the same generated defaults
-(`compiler/route_runtime.orb`): pool 512, rate 50 per 1000 ms window,
+(`compiler/emit/route_runtime.orb`): pool 512, rate 50 per 1000 ms window,
 burst 50, ban threshold 200, increment 10, decay 1, ban 300 s. A
 per-route `limit` annotation overrides rate/window/burst for that route
 only; the global gate keeps the defaults above.
@@ -124,8 +124,8 @@ Syntax and units are defined in `docs/LANGUAGE_REFERENCE.md`:
 and `s` are 1000 ms, `ms` is 1 ms, and an omitted unit means a 1000 ms
 window. `burst` defaults to `rate` when omitted or zero.
 
-Codegen (`compiler/c_backend.orb` `generateC`,
-`compiler/route_runtime.orb` `serverMainText(hasKynxLimits)`): when at
+Codegen (`compiler/emit/c_backend.orb` `generateC`,
+`compiler/emit/route_runtime.orb` `serverMainText(hasKynxLimits)`): when at
 least one route is annotated with rate `> 0`, the compiler emits
 `orbit_kynx_register_limits()`, which issues one
 `orbit_kynx_register_route_limit(method, path, rate, window_ms, burst)`

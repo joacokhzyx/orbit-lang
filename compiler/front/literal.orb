@@ -1,5 +1,5 @@
 // Orbit Self-Hosting Compiler - numeric literal text
-// compiler/literal.orb
+// compiler/front/literal.orb
 //
 // This function used to live in builder.orb, which is the wrong side of the
 // import graph: the parser called it to read a route's `limit` rate, and the

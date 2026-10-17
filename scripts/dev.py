@@ -62,10 +62,10 @@ WITNESS_LOG = ORBIT / "last_run.log"
 # All hashes are lowercase hex of file bytes, except `published` which is the
 # uppercase PUBLISHED_C from verify_seed.py. The writers emit exactly those
 # four keys; the driver merges a fifth of its own, `sources_sha`
-# (compiler_fingerprint: compiler/*.orb content + the C compiler identity),
+# (compiler_fingerprint: compiler/**/*.orb content + the C compiler identity),
 # after build_fp and after a green `all` whose verify_seed rewrote the
 # manifest. shared_is_valid REQUIRES it, because without it an unpromoted
-# compiler/*.orb edit left the snapshots "valid": every file still hashed to
+# compiler/**/*.orb edit left the snapshots "valid": every file still hashed to
 # what hashes.json said, check_stale degraded to a byte compare of two
 # unchanged files, and `all` stayed green while testing the pre-edit
 # compiler (OPS-1). When the directory is absent or stale every helper below
@@ -178,14 +178,14 @@ def cc_identity(cc: str) -> str:
 
 
 def compiler_fingerprint(cc: str) -> str:
-    """Content hash of compiler/*.orb plus the C compiler identity.
+    """Content hash of compiler/**/*.orb plus the C compiler identity.
 
     Content, not mtime, for the same reason the doctor cache is keyed on
-    content: `touch compiler/doctor.orb` must not invalidate anything, and a
+    content: `touch compiler/tools/doctor.orb` must not invalidate anything, and a
     file restored from a backup with a new mtime must.
     """
     digest = hashlib.sha256()
-    for path in sorted(ROOT.glob("compiler/*.orb")):
+    for path in sorted(ROOT.glob("compiler/**/*.orb")):
         digest.update(path.relative_to(ROOT).as_posix().encode())
         digest.update(hashlib.sha256(path.read_bytes()).digest())
     digest.update(cc_identity(cc).encode())
@@ -206,7 +206,7 @@ def fp_path() -> pathlib.Path:
     Both plausible alternatives break something real, and both were tried.
 
     At the repository root, next to runtime/: compilerRuntimeDir
-    (compiler/pipeline.orb:205) resolves the runtime as <dir of argv[0]>/runtime,
+    (compiler/host/pipeline.orb:205) resolves the runtime as <dir of argv[0]>/runtime,
     so doctor_gate's three --fix goldens work with no shim. But cli_probe's
     `cc-include-failure-is-not-a-missing-toolchain` asserts that a C step which
     cannot find socket_compat.h is reported as "the C compiler rejected my
@@ -396,7 +396,7 @@ def shared_is_valid(cc: str) -> tuple:
     Valid means all four contract files exist, hashes.json parses with the
     four writer keys plus dev.py's `sources_sha`, the stored canonical/seed/
     chain3 hashes match the bytes on disk, and sources_sha matches
-    compiler/*.orb plus the C compiler identity right now. That last check is
+    compiler/**/*.orb plus the C compiler identity right now. That last check is
     what keeps the snapshot falsifiable while a compiler source edit is
     unpromoted: the files in the dir still hash to what hashes.json says, so
     without it `all` adopts the pre-edit chain and substitutes a byte compare
@@ -887,7 +887,7 @@ def main() -> int:
     if args.target == "promote":
         # The stamp is deliberately left alone. --promote rewrites
         # compiler/selfhost/stage3.exe.c, which is a .c and not one of the
-        # compiler/*.orb the fingerprint hashes, so the binary at fp_path() still
+        # compiler/**/*.orb the fingerprint hashes, so the binary at fp_path() still
         # describes exactly the sources it was built from. Deleting the stamp
         # here cost a needless 20 s rebuild and was wrong.
         return subprocess.run(

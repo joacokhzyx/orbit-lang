@@ -1,7 +1,7 @@
 // Walk coverage: a read planted in every child field the AST schema declares.
 //
 // The rule this file exists to enforce is that a correct AST walk reaches every
-// field of every node it handles. Three bugs in compiler/doctor.orb were all one
+// field of every node it handles. Three bugs in compiler/tools/doctor.orb were all one
 // mistake wearing three costumes: an arm existed for the node and the walk never
 // descended into one of its fields. Call.callee dropped the receiver's own
 // arguments. Assignment.target dropped the index of `xs[i] = 7`. MatchCase.pattern

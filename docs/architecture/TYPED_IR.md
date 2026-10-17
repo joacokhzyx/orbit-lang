@@ -55,7 +55,7 @@ frontend assigns ids monotonically, starting at zero for each id domain.
 The committed canonical C is compiled by the platform's C compiler into the
 `seed` compiler, which is the only artifact in the chain Orbit did not produce.
 That compiler is a full Orbit front end: it lexes, parses, resolves, typechecks
-and lowers `compiler/main.orb` into IR, and `orbit frontend` emits the canonical
+and lowers `compiler/host/main.orb` into IR, and `orbit frontend` emits the canonical
 Typed IR for inspection. Four fixtures under `tests/frontend/` pin the emitted
 form against the four `.tir` files in `tests/frontend/expected/`.
 

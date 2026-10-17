@@ -6,8 +6,8 @@
   versioned IR spec, and no serialized IR corpus.
 - **Relation to the external draft:** `C:/Users/Usuario/Downloads/orbit-r6/docs/IR_SPEC_DRAFT.md`
   was used as a proposal and has been verified claim by claim against
-  `compiler/ir.orb`, `compiler/builder.orb`, `compiler/c_backend.orb`,
-  `compiler/route_runtime.orb`, `compiler/cteval.orb` and `runtime/orbit_api.h`.
+  `compiler/ir/ir.orb`, `compiler/ir/builder.orb`, `compiler/emit/c_backend.orb`,
+  `compiler/emit/route_runtime.orb`, `compiler/ir/cteval.orb` and `runtime/orbit_api.h`.
   Where this document and the draft disagree, this document prevails; where
   the language publishes something else, the language prevails.
 - **Gap rule:** everything marked `UNSPECIFIED` must fail in the loader with
@@ -16,7 +16,7 @@
 
 ## 1. Opcode inventory (60)
 
-Defined in `compiler/ir.orb:3-70`, in this order (index 0–59):
+Defined in `compiler/ir/ir.orb:3-70`, in this order (index 0–59):
 
 | # | Opcode | # | Opcode | # | Opcode | # | Opcode |
 |---|--------|---|--------|---|--------|---|--------|
@@ -36,7 +36,7 @@ Defined in `compiler/ir.orb:3-70`, in this order (index 0–59):
 | 13 | `le` | 28 | `db_get` | 43 | `list_set` | 58 | `union_get_tag` |
 | 14 | `gt` | 29 | `db_set` | 44 | `list_len` | 59 | `union_get_data` |
 
-The C backend dispatches all 60 in `compiler/c_backend.orb:2422-3599`. Its default
+The C backend dispatches all 60 in `compiler/emit/c_backend.orb:2422-3599`. Its default
 arm (`c_backend.orb:3596-3599`) emits the comment `/* Unknown opcode */` and
 carries on: an IRv1 loader must turn that case into a fatal error, never into
 a comment.
@@ -44,7 +44,7 @@ a comment.
 ### 1.1 Producers observed in the builder
 
 "Producer" means an `ir_init_instr(IROpcode.X)` site in
-`compiler/builder.orb`. Verified by exhaustive search:
+`compiler/ir/builder.orb`. Verified by exhaustive search:
 
 - **With a producer in the builder:** `arg`, `call`, `decl_var`, `load_var`,
   `store_var`, `load_const`, `jump`, `jump_if_false`, `label`, `copy`, `ret`,
@@ -61,12 +61,12 @@ a comment.
   `nop`, `begin_block`, `end_block`, `alloc`, `free`, `db_get`, `db_set`,
   `db_all`, `db_where`, `http_response`, `switch_op`, `type_info`,
   `map_create`, `map_set`, `map_get`, `union_create`.
-  - `nop` is produced by constant folding (`compiler/cteval.orb:953,998`).
+  - `nop` is produced by constant folding (`compiler/ir/cteval.orb:953,998`).
   - Language-level DB access does NOT use `db_*`: it lowers through `call` to
     helpers `orbit_db_query_*` / `orbit_db_insert` / `orbit_db_update` /
     `orbit_db_delete`
     (`builder.orb:295-306`, `3585-3634`, `3838-3869`). The `db_*` opcodes have
-    no producer anywhere in `compiler/*.orb` at this pin.
+    no producer anywhere in `compiler/**/*.orb` at this pin.
   - The map methods `.has` / `.delete` / `.keys` do emit opcodes
     (`builder.orb:4053,4063,4072`); all other map traffic lowers through
     `call` (the backend matches `orbit_map_create` on the call path,
@@ -468,7 +468,7 @@ are pinned in §1.1.
   files are excluded).
 - **DB exclusions, counted: 4 opcodes + 0 corpus files removed, 1 file flagged.**
   The 4 `db_*` opcodes (`db_get`, `db_set`, `db_all`, `db_where`) are excluded
-  from the M1 differential (§4): they have no producer in `compiler/*.orb`
+  from the M1 differential (§4): they have no producer in `compiler/**/*.orb`
   and no symbol in the net runtime. No corpus file is removed: the single
   suite file touching the DB surface, `peephole_no_fold_side_effects.orb`
   (via `Item.all()`/`Item.where()`, which lower through `call` to

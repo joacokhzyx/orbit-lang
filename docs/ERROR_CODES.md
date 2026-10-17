@@ -7,11 +7,11 @@ corpus was built from, kept here so a code and its history meet.
 How to read this file: the E-code table says what each code means, where it
 fires (file and function), how to fix it, and which negative case pins it.
 The F-code index points each finding at the negative case header that owns
-it. Gathered by reading `compiler/*.orb` (`reportErrorAt`, `ParserDiagnostic`,
+it. Gathered by reading `compiler/**/*.orb` (`reportErrorAt`, `ParserDiagnostic`,
 `tirError`) and the headers in `tests/negative/`; no compiler code was
 changed to write it.
 
-Two renderings exist (`compiler/pipeline.orb`, `printSemaErrors`). A check
+Two renderings exist (`compiler/host/pipeline.orb`, `printSemaErrors`). A check
 that knows the source position prints an `error[E....]:` card pointing at
 the line; the rest print the one-line `Semantic error:` form with no code.
 A diagnostic listed below as "uncoded" is the second kind: real rejection,
@@ -19,7 +19,7 @@ no code, pinned by substring like any other.
 
 ## E1000 — frontend re-emit of a parser diagnostic
 
-Fires in `compiler/frontend/frontend.orb`, `appendParserDiagnostics`: every
+Fires in `compiler/tir/entry.orb`, `appendParserDiagnostics`: every
 parser diagnostic is re-emitted into the TIR module with code E1000,
 keeping the parser's original message text. This is the `orbit frontend`
 surface, not `orbit check` (which renders the parser's own E0301–E0304
@@ -29,42 +29,42 @@ covers this path.
 
 ## E0130 — nesting too deep
 
-Fires in `compiler/parser.orb`, `parseDepthGuard`: expression or statement
+Fires in `compiler/front/parser.orb`, `parseDepthGuard`: expression or statement
 nesting past depth 600. Fix hint: break the expression into named
 intermediate values. No negative case pins it.
 
 ## E0301 — unexpected token
 
-Fires in `compiler/parser.orb`, `parserUnexpectedToken`, and the object-literal
+Fires in `compiler/front/parser.orb`, `parserUnexpectedToken`, and the object-literal
 `{` fallback (`parseObjectLiteralFallback`). Fix hint, from
-`compiler/pipeline.orb`, `parserDiagnosticHint`: check for missing brackets,
+`compiler/host/pipeline.orb`, `parserDiagnosticHint`: check for missing brackets,
 quotes, or keywords before the flagged token. Note: the recovery-shape pins
 `n19`/`n20` assert the *uncoded* `parserError` messages (`Parser error`,
 `Expected '}' after block.`), not this code.
 
 ## E0302 — `if` used as a value needs `else`
 
-Fires in `compiler/parser.orb`, `parseIf` when `wantValue` holds and no
+Fires in `compiler/front/parser.orb`, `parseIf` when `wantValue` holds and no
 `else` follows. Fix hint: give the `if` an `else` branch, or use it as a
 statement. Pinned by `tests/negative/n43_if_value_without_else.orb`.
 
 ## E0303 — `if` has no then branch
 
-Fires in `compiler/parser.orb` when `else` arrives with no then branch
+Fires in `compiler/front/parser.orb` when `else` arrives with no then branch
 before it. Fix hint, from `parserDiagnosticHint`: a branch beginning with
 an operator needs `then` before it, as in `if n then -1 else 0`. No
 negative case pins it today.
 
 ## E0304 — `if` branch must be a single expression
 
-Fires in `compiler/parser.orb`, `parseIfBranch`, when a braceless branch
+Fires in `compiler/front/parser.orb`, `parseIfBranch`, when a braceless branch
 starts with a statement-only token. Fix hint: wrap statement branches in
 `{ ... }`. Pinned by
 `tests/negative/n44_if_branch_is_a_statement.orb`.
 
 ## E1001 — non-exhaustive match
 
-Fires in `compiler/sema.orb`, `reportErrorAt` from the match-exhaustiveness
+Fires in `compiler/front/sema.orb`, `reportErrorAt` from the match-exhaustiveness
 check. Fix hint: add a case for every variant, or a `_` arm if the
 fall-through is intended. Pinned by `tests/negative/n01_union_missing_arm.orb`,
 `n23_union_enum_missing_arm.orb`, `n24_union_match_in_expression.orb`, and
@@ -72,14 +72,14 @@ fall-through is intended. Pinned by `tests/negative/n01_union_missing_arm.orb`,
 
 ## E1002 — literal index out of range
 
-Fires in `compiler/sema.orb` when a literal index into a literal string or
+Fires in `compiler/front/sema.orb` when a literal index into a literal string or
 list receiver is past the end. Fix hint: indices run `0` to `len - 1` here;
 guard a computed index with `if i < xs.len()`. Pinned by
 `tests/negative/n32_at_out_of_range.orb`.
 
 ## E1003 — bad member read, bad construction, bad print arity
 
-Fires in `compiler/sema.orb`, `reportErrorAt`, for: a model built with the
+Fires in `compiler/front/sema.orb`, `reportErrorAt`, for: a model built with the
 wrong spelling or arity (`Model { field: value }` literal form, one argument
 per field), a field/variant read nothing declares (`Model 'Point' has no
 field ...`, `'int' has no member ...`, `'Shape' has no variant ...`), and
@@ -92,7 +92,7 @@ count in `match`; `n78`: `res.header`/`res.cookie` take exactly 2).
 
 ## E1004 — literal zero divisor, `INT_MIN / -1`
 
-Fires in `compiler/sema.orb` for a statically decidable bad division: a
+Fires in `compiler/front/sema.orb` for a statically decidable bad division: a
 literal `0` divisor, or dividing the most negative int by `-1` (which
 overflows and faults the same way). Fix hint: guard with `if d != 0`, or
 divide as floats. Pinned by
@@ -102,7 +102,7 @@ case header).
 
 ## E1005 — call argument type mismatch
 
-Fires in `compiler/sema.orb`, `reportErrorAt` at the call site, naming the
+Fires in `compiler/front/sema.orb`, `reportErrorAt` at the call site, naming the
 parameter and both types. Fix hint: change the argument or the parameter's
 declared type. An `int` where a `float` is declared is still accepted (the C
 backend widens it). Pinned by
@@ -116,7 +116,7 @@ a function value carries).
 
 ## E1006 — bad type name or binding mismatch
 
-Fires in `compiler/sema.orb`, `reportErrorAt`, for: a pushed value that
+Fires in `compiler/front/sema.orb`, `reportErrorAt`, for: a pushed value that
 contradicts the list's element type, a type name nothing declares (types are
 lower case, or declared with `model`/`union`), a binding whose value
 contradicts its annotation, a bare generic model in a signature (`Box`
@@ -133,7 +133,7 @@ argument can fix).
 
 ## E1007 — bad top-level declaration
 
-Fires in `compiler/sema.orb`, `reportErrorAt`, for `var` at file scope and
+Fires in `compiler/front/sema.orb`, `reportErrorAt`, for `var` at file scope and
 for a top-level `val` whose value is not an int or bool literal (only
 literals become a `#define`). Fix hint: put state inside functions.
 Pinned by `tests/negative/n45_top_level_var.orb`, which pins the code
@@ -141,7 +141,7 @@ itself.
 
 ## E1008 — bad `port` config declaration
 
-Fires in `compiler/sema.orb`, `checkConfigDecl`, for a top-level `port`
+Fires in `compiler/front/sema.orb`, `checkConfigDecl`, for a top-level `port`
 declaration whose value is not an integer literal, or is one outside
 1..65535. `port` is read: the value becomes the default port the generated
 server binds when no `argv[1]` port is given, so a value that is not a port
@@ -155,7 +155,7 @@ range), and `n83_port_not_literal.orb` (an expression).
 
 ## E2001 — unknown identifier (frontend)
 
-Fires in `compiler/frontend/lower.orb`, `lowerExpression`: a load whose
+Fires in `compiler/tir/lower.orb`, `lowerExpression`: a load whose
 name no binding declares. This is the `orbit frontend` lowering; `orbit
 check` rejects the same program through sema's uncoded `Undeclared
 identifier` diagnostic (pinned by `n09`). Fix hint: declare the name before
@@ -163,20 +163,20 @@ use.
 
 ## E2002 — incompatible binary operands (frontend)
 
-Fires in `compiler/frontend/lower.orb` when a binary expression's result
+Fires in `compiler/tir/lower.orb` when a binary expression's result
 type is `unknown`. Frontend lowering only; the unknown-census counts these.
 Fix hint: make both operand types agree (or bind them first).
 
 ## E2003 — invalid unary operand (frontend)
 
-Fires in `compiler/frontend/lower.orb` when a unary expression's result
+Fires in `compiler/tir/lower.orb` when a unary expression's result
 type is `unknown` (`!` needs `bool`, `-` needs `int`/`float`). Frontend
 lowering only. Fix hint: apply the operator to a value of the type it
 takes.
 
 ## E2004 — untypable member read (frontend)
 
-Fires in `compiler/frontend/lower.orb` when a `.field` read cannot be
+Fires in `compiler/tir/lower.orb` when a `.field` read cannot be
 typed. Added for F-0018: loads, binary ops and unary ops had diagnostics
 and member reads had none, so an untypable member reached codegen silently.
 Frontend lowering only. Fix hint: read the field off a value whose type the
@@ -184,7 +184,7 @@ front end knows.
 
 ## E2005 — untypable call result (frontend)
 
-Fires in `compiler/frontend/lower.orb` when a call's result type is
+Fires in `compiler/tir/lower.orb` when a call's result type is
 `unknown` — a call whose signature the front end does not know. Same F-0018
 origin as E2004, and the larger of the two (unchecked argument types
 reached codegen through it). Frontend lowering only. Fix hint: call a
@@ -192,20 +192,20 @@ declared function with the declared arity.
 
 ## E2100 / E2101 — condition must be `bool` (frontend)
 
-Fire in `compiler/frontend/lower.orb` for `if` (E2100) and `while` (E2101)
+Fire in `compiler/tir/lower.orb` for `if` (E2100) and `while` (E2101)
 conditions whose type is not `bool`. Frontend lowering only. Fix hint:
 compare first, branch on the comparison.
 
 ## E3000 — top-level declaration cannot be lowered (frontend)
 
-Fires in `compiler/frontend/lower.orb`, `lowerProgramToTir`, for a
+Fires in `compiler/tir/lower.orb`, `lowerProgramToTir`, for a
 top-level declaration kind the frontend does not lower. Frontend lowering
 only. Fix hint: this is a frontend-coverage gap, not a program typo — file
 it with the program attached.
 
 ## E3001 — expression cannot be lowered (frontend)
 
-Fires in `compiler/frontend/lower.orb`, `lowerExpression` fallback, for an
+Fires in `compiler/tir/lower.orb`, `lowerExpression` fallback, for an
 expression kind with no lowering rule. Frontend lowering only. Fix hint:
 same as E3000 — a coverage gap, file it. (The 4,190 hits cited in
 KNOWN_LIMITATIONS were measured on an earlier corpus; re-run
@@ -213,7 +213,7 @@ KNOWN_LIMITATIONS were measured on an earlier corpus; re-run
 
 ## E3002 — frontend expected a program root
 
-Fires in `compiler/frontend/lower.orb`, `lowerProgramToTir`, when the root
+Fires in `compiler/tir/lower.orb`, `lowerProgramToTir`, when the root
 node is not a program. Frontend lowering only; unreachable from the normal
 pipeline. Fix hint: none — internal invariant.
 

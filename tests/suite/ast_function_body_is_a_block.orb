@@ -17,8 +17,8 @@
 //
 // This test asserts the corrected schema. It is the reason the fix cannot be
 // reverted by someone who reads `body: list` as a convenience.
-import "../compiler/ast.orb"
-import "../compiler/parser.orb"
+import "../compiler/front/ast.orb"
+import "../compiler/front/parser.orb"
 
 extern fn print(s: string) -> int
 

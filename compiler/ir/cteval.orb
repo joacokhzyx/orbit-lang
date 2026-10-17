@@ -1,5 +1,5 @@
 // Orbit Self-Hosted Compiler - Compile-time evaluator
-// compiler/cteval.orb
+// compiler/ir/cteval.orb
 //
 // Scans IR for calls to pure functions with statically-known integer
 // arguments, evaluates them in a small IR interpreter, and replaces the

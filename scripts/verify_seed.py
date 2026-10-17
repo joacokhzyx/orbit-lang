@@ -5,7 +5,7 @@ Reproduces the verification end to end in a hermetic work directory and
 reports whether the compiler's reproducibility contract still holds:
 
   C fixed point    : the C emitted by the seed when it compiles
-                     ``compiler/main.orb`` must be byte-identical to the
+                     ``compiler/host/main.orb`` must be byte-identical to the
                      canonical ``compiler/selfhost/stage3.exe.c``, and so must
                      the C emitted by every later stage of the chain.
   binary fixed pt  : the seed chain (seed2 -> chain2 -> chain3) is additionally
@@ -114,7 +114,7 @@ except Exception:
         _, reused = orbit_ccache.compile_cached(cc_cmd, argv, sources)
         return reused
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
-MAIN_ORB = os.path.join("compiler", "main.orb")
+MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 
 # -O0 keeps peak memory low: these builds run once per gate and speed is
 # irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during

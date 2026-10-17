@@ -24,7 +24,7 @@ Compiler selection in the build follows this order:
 ORBIT_CC -> CC -> cc
 ```
 
-That is `compiler/pipeline.orb` and nothing else. (`orbit doctor` is the one
+That is `compiler/host/pipeline.orb` and nothing else. (`orbit doctor` is the one
 exception: it reports a finding when no compiler answers, so it also probes
 `gcc` and `clang` off `PATH` - see [orbit doctor](DOCTOR.md).)
 

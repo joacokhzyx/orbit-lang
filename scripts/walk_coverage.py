@@ -2,7 +2,7 @@
 """Report AST walks in this compiler that do not say which fields they skip.
 
 A walk over `ASTNode` that does not reach a child field drops that whole subtree,
-and nothing in the compiler says so. Three bugs in `compiler/doctor.orb` were
+and nothing in the compiler says so. Three bugs in `compiler/tools/doctor.orb` were
 exactly this: an arm existed for the node and the walk never descended into one
 of its fields. `Call.callee` dropped the receiver's own arguments,
 `Assignment.target` dropped the index of `xs[i] = 7`, and `MatchCase.pattern`
@@ -64,7 +64,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from schema_conformance import parse_schema  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-AST = ROOT / "compiler" / "ast.orb"
+AST = ROOT / "compiler" / "front" / "ast.orb"
 
 # re.M matters: `head` is a slice of several lines, and without it `^` and `$`
 # anchor to the whole slice, so an annotation on any line but the first and last
@@ -157,7 +157,7 @@ def collect_walks(models: dict, unions: dict, root: pathlib.Path) -> list:
 
 
 def check(root: pathlib.Path) -> list:
-    models, unions = parse_schema((root / "compiler" / "ast.orb").read_text())
+    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text())
     findings = []
     for w in collect_walks(models, unions, root):
         if w["exempt"]:
@@ -203,8 +203,8 @@ def self_test() -> int:
     def tree(schema_text, source):
         td = tempfile.TemporaryDirectory(prefix="walk_coverage_selftest_")
         root = pathlib.Path(td.name)
-        (root / "compiler").mkdir(parents=True)
-        (root / "compiler" / "ast.orb").write_text(schema_text)
+        (root / "compiler" / "front").mkdir(parents=True)
+        (root / "compiler" / "front" / "ast.orb").write_text(schema_text)
         (root / "compiler" / "a.orb").write_text(source)
         return root, td
 

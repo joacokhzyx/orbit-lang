@@ -11,7 +11,7 @@
 ## Overview
 
 Orbit is an ahead-of-time compiler that turns `.orb` source into native binaries
-through C. The compiler is written in its own language, in `compiler/*.orb`, and
+through C. The compiler is written in its own language, in `compiler/**/*.orb`, and
 bootstraps from a committed C file that it generated itself. The runtime is a
 small, portable C library linked into every generated server.
 
@@ -23,7 +23,7 @@ the pieces fit.
 
 ## Compiler Pipeline
 
-One driver, `compiler/pipeline.orb`, calls each stage in order. The lexer is
+One driver, `compiler/host/pipeline.orb`, calls each stage in order. The lexer is
 driven by the parser: `initParser` owns a `Lexer` and pulls tokens from it, so
 lexing and parsing are one pass, not two.
 
@@ -32,21 +32,21 @@ flowchart TD
     SRC["Source (.orb)"]
 
     subgraph Frontend
-        LEX["Lexer\ncompiler/lexer.orb\n+ compiler/token.orb"]
-        PAR["Parser\ncompiler/parser.orb\n→ AST (compiler/ast.orb)"]
-        RES["Resolver\ncompiler/resolver.orb"]
-        SEM["Sema\ncompiler/sema.orb"]
+        LEX["Lexer\ncompiler/front/lexer.orb\n+ compiler/front/token.orb"]
+        PAR["Parser\ncompiler/front/parser.orb\n→ AST (compiler/front/ast.orb)"]
+        RES["Resolver\ncompiler/front/resolver.orb"]
+        SEM["Sema\ncompiler/front/sema.orb"]
     end
 
     subgraph Middle
-        IR["IR Builder\ncompiler/builder.orb\n(compiler/ir.orb defines IROpcode)"]
-        OPT["IR Optimizer\ncompiler/optimizer.orb"]
-        CTE["Compile-time eval\ncompiler/cteval.orb"]
+        IR["IR Builder\ncompiler/ir/builder.orb\n(compiler/ir/ir.orb defines IROpcode)"]
+        OPT["IR Optimizer\ncompiler/ir/optimizer.orb"]
+        CTE["Compile-time eval\ncompiler/ir/cteval.orb"]
     end
 
     subgraph Codegen
-        CBK["C Backend\ncompiler/c_backend.orb"]
-        RTM["Router and server text\ncompiler/route_runtime.orb"]
+        CBK["C Backend\ncompiler/emit/c_backend.orb"]
+        RTM["Router and server text\ncompiler/emit/route_runtime.orb"]
     end
 
     subgraph Runtime["C Runtime (linked, not embedded as text)"]
@@ -64,11 +64,11 @@ flowchart TD
     end
 
     subgraph Driver
-        MAIN["compiler/main.orb\nCLI dispatch"]
-        FMT["compiler/fmt.orb"]
-        DOC["compiler/doctor.orb"]
-        CLU["compiler/cluster.orb"]
-        FE["compiler/frontend/\nfrontend, lower, tir"]
+        MAIN["compiler/host/main.orb\nCLI dispatch"]
+        FMT["compiler/tools/fmt.orb"]
+        DOC["compiler/tools/doctor.orb"]
+        CLU["compiler/host/cluster.orb"]
+        FE["compiler/tir/\nfrontend, lower, tir"]
     end
 
     SRC --> MAIN
@@ -91,14 +91,14 @@ flowchart TD
 
 | Stage | Module | What it does | On failure |
 |---|---|---|---|
-| Parse | `compiler/parser.orb` | Build the AST. Member names after `.` accept keyword and type tokens and resolve by text. | `ParserDiagnostic` rendered as an error card with a source excerpt and a hint. |
-| Resolve | `compiler/resolver.orb` | Load `import`ed modules, flatten them into one AST. | `Import error: <detail>` per unresolved import, exit non-zero. |
-| Sema | `compiler/sema.orb` | Scope and type resolution. Builds the function return-type table the builder and backend read. | First error rendered as an error card; remaining errors listed to stderr. |
-| Build | `compiler/builder.orb` | AST to IR. `IRModule` of `IRInstruction` over the `IROpcode` union: arithmetic, comparison, control flow, calls, `alloc`/`free`, field access, the collection opcodes, the `result_*` opcodes, and the union opcodes. | No failure path of its own. Sema has already rejected bad code; an expression the builder cannot type degrades to `unknown` in the IR rather than aborting, which the IR type-consistency verifier (`verifyModuleTypes`) and the unknown-type census/ratchet now police. |
-| Optimize | `compiler/optimizer.orb` | Pattern rewrites over the IR; reports `patterns_applied` and `span_saved`. | Not fatal. |
-| CTE | `compiler/cteval.orb` | Compile-time evaluation and folding; reports fold count. | Not fatal. |
-| C backend | `compiler/c_backend.orb` | Emits C. Routes take a separate path: `compiler/route_runtime.orb` supplies the preamble, router, and `main` as generated text, and the route hash is a 64-bit FNV-1a over `METHOD + ':' + PATH`. | No failure path of its own; the driver reports an unwritable output path or a non-zero exit from the C compiler. |
-| Invoke `cc` | `compiler/pipeline.orb` | Writes the C to a **constant** filename, then invokes the C compiler. | The child's exit code and output are surfaced verbatim. |
+| Parse | `compiler/front/parser.orb` | Build the AST. Member names after `.` accept keyword and type tokens and resolve by text. | `ParserDiagnostic` rendered as an error card with a source excerpt and a hint. |
+| Resolve | `compiler/front/resolver.orb` | Load `import`ed modules, flatten them into one AST. | `Import error: <detail>` per unresolved import, exit non-zero. |
+| Sema | `compiler/front/sema.orb` | Scope and type resolution. Builds the function return-type table the builder and backend read. | First error rendered as an error card; remaining errors listed to stderr. |
+| Build | `compiler/ir/builder.orb` | AST to IR. `IRModule` of `IRInstruction` over the `IROpcode` union: arithmetic, comparison, control flow, calls, `alloc`/`free`, field access, the collection opcodes, the `result_*` opcodes, and the union opcodes. | No failure path of its own. Sema has already rejected bad code; an expression the builder cannot type degrades to `unknown` in the IR rather than aborting, which the IR type-consistency verifier (`verifyModuleTypes`) and the unknown-type census/ratchet now police. |
+| Optimize | `compiler/ir/optimizer.orb` | Pattern rewrites over the IR; reports `patterns_applied` and `span_saved`. | Not fatal. |
+| CTE | `compiler/ir/cteval.orb` | Compile-time evaluation and folding; reports fold count. | Not fatal. |
+| C backend | `compiler/emit/c_backend.orb` | Emits C. Routes take a separate path: `compiler/emit/route_runtime.orb` supplies the preamble, router, and `main` as generated text, and the route hash is a 64-bit FNV-1a over `METHOD + ':' + PATH`. | No failure path of its own; the driver reports an unwritable output path or a non-zero exit from the C compiler. |
+| Invoke `cc` | `compiler/host/pipeline.orb` | Writes the C to a **constant** filename, then invokes the C compiler. | The child's exit code and output are surfaced verbatim. |
 
 Both optimization passes honour the same kill switch: `ORBIT_NO_CTE=1` skips
 them and emits pre-pass IR, and their counters are reported rather than dropped.
@@ -106,11 +106,11 @@ them and emits pre-pass IR, and their counters are reported rather than dropped.
 ### Config declarations: `port` reaches the server; the rest are reserved
 
 Top-level `port`, `cors`, `db`, and `env` declarations parse as `ConfigDecl`
-nodes (`compiler/parser.orb`, `parseConfigDecl`) and typecheck, and `port` is
+nodes (`compiler/front/parser.orb`, `parseConfigDecl`) and typecheck, and `port` is
 the one with a runtime effect. Sema requires an integer literal in 1..65535
-(`checkConfigDecl` in `compiler/sema.orb`; diagnostic E1008 otherwise), the
-builder reads it into `IRModule.configPort` (`compiler/builder.orb`), and the
-generated `main` (`compiler/route_runtime.orb`) initializes `int port` from
+(`checkConfigDecl` in `compiler/front/sema.orb`; diagnostic E1008 otherwise), the
+builder reads it into `IRModule.configPort` (`compiler/ir/builder.orb`), and the
+generated `main` (`compiler/emit/route_runtime.orb`) initializes `int port` from
 it — with `argv[1]` still the override. A program that declares no port emits
 exactly the old `port = 3000`, byte for byte.
 
@@ -121,7 +121,7 @@ declarations. What is read is recorded in the [project snapshot](STATUS.md).
 
 ### Why the intermediate C has a constant name
 
-`compiler/pipeline.orb` writes the generated C to `orbit_selfhost_build.c` under
+`compiler/host/pipeline.orb` writes the generated C to `orbit_selfhost_build.c` under
 `TEMP`, not to a name derived from the output. C compilers embed the source path
 in anonymous-struct names and in type diagnostics, so a name derived from the
 output (rather than the fixed `orbit_selfhost_build.c`) would break the fixed-point
@@ -166,7 +166,7 @@ r_2 = (orbit_int)(uintptr_t)(takesStr((orbit_string)(r_1)));
 Three things follow, and all three are user-visible.
 
 **The C cast comes from the static type alone.** `mapTypeToC`
-(`compiler/c_backend.orb:264`) turns an Orbit type name into a C type, and the
+(`compiler/emit/c_backend.orb:264`) turns an Orbit type name into a C type, and the
 callee's declared parameter type is what decides the cast at a call site. The
 runtime is never asked whether the word it was handed is of that type, because
 there is nothing to ask. A function parameter declared `s: string` produces
@@ -175,7 +175,7 @@ there is nothing to ask. A function parameter declared `s: string` produces
 **An unannotated binding is assumed to be a string.** Sema does not track the
 type of a local bound to a literal, so `val v = f()` reads back as `unknown` and
 is allowed through on purpose (`isInterpolatable`,
-`compiler/sema.orb:732`, which returns true for `unknown` and says why in the
+`compiler/front/sema.orb:732`, which returns true for `unknown` and says why in the
 comment above it). Where the backend then has to guess, it guesses
 string. Passing such a binding to a `string` parameter compiles cleanly and
 dereferences an integer as a pointer:
@@ -214,7 +214,7 @@ committed output of the compiler compiling itself, and it is the root of trust.
 compiler/selfhost/stage3.exe.c   (committed canonical C)
         │  gcc (ubuntu-latest) / clang (windows-latest) [CI-verified]
         ▼
-   seed compiler  ──builds──▶  compiler/main.orb
+   seed compiler  ──builds──▶  compiler/host/main.orb
         │                        │
         │                        ▼
         │                  the same canonical C, byte for byte
@@ -223,7 +223,7 @@ compiler/selfhost/stage3.exe.c   (committed canonical C)
 ```
 
 `scripts/verify_seed.py` runs that chain and reports four checks: the seed
-builds; the C the seed emits for `compiler/main.orb` equals the canonical; the C
+builds; the C the seed emits for `compiler/host/main.orb` equals the canonical; the C
 emitted by chain2 equals the canonical; the C emitted by chain3 equals the
 canonical. The last two exist because a chain can fix a point at stage one and
 drift afterwards.
@@ -249,7 +249,7 @@ per-object free.
 
 **Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
 generated connection loop calls `orbit_arena_reset(thread_arena)` before every
-`orbit_handle_request` (`compiler/route_runtime.orb:485`), so each request
+`orbit_handle_request` (`compiler/emit/route_runtime.orb:485`), so each request
 starts from a reset arena. `orbit_arena_reset` is not O(1) and not a rewind: it
 releases the chained overflow segments and decommits every page past the hot
 retention watermark (`runtime/arena.c:515`; the watermark itself is
@@ -264,7 +264,7 @@ and `runtime/test_arena.c`, the only references are the counter fields in
 available to hand-written C; the HTTP path uses whole-arena reset.
 
 The request path does not use the pool. Each worker creates one 128 KB arena
-when its thread starts (`compiler/route_runtime.orb:368-369`; the emitted
+when its thread starts (`compiler/emit/route_runtime.orb:368-369`; the emitted
 comment is "Each thread owns its private arena - zero pool contention"), resets
 it before every request (`:485`) and destroys it when the loop ends (`:521`).
 `runtime/arena_pool.c` is initialized for process-startup scratch work only
@@ -315,7 +315,7 @@ accounting sits alongside it rather than on top of it:
 ---
 
 ### Orbit Cluster (single-host process orchestration)
-File: `compiler/cluster.orb`
+File: `compiler/host/cluster.orb`
 
 `orbit cluster` builds and supervises N local processes of one service:
 `up`, `status`, `drain <node>`, `restart --rolling`, `down`, `logs <node>`.
@@ -327,7 +327,7 @@ and no leader election. See [CLUSTER.md](CLUSTER.md).
 ---
 
 ### Frontend canonical TIR
-Files: `compiler/frontend/frontend.orb`, `lower.orb`, `tir.orb`
+Files: `compiler/tir/entry.orb`, `lower.orb`, `tir.orb`
 
 `orbit frontend <file.orb> -o out.tir` runs the self-hosted frontend alone and
 emits canonical typed IR, without invoking the C backend. It is the debugging
@@ -337,7 +337,7 @@ See [architecture/TYPED_IR.md](architecture/TYPED_IR.md).
 ---
 
 ### Formatter and Doctor
-Files: `compiler/fmt.orb`, `compiler/doctor.orb`
+Files: `compiler/tools/fmt.orb`, `compiler/tools/doctor.orb`
 
 `orbit fmt` formats `.orb` source and writes only on success; `orbit fmt --check`
 lists files that need formatting. `orbit doctor` is a read-only project scan
@@ -360,7 +360,7 @@ only**; it does not cache user builds, and it is not part of the compiler.
 
 ```text
 Main thread
-  └── compiler/main.orb
+  └── compiler/host/main.orb
         ├── lex → parse → resolve → sema → build → optimize → cteval → C  (single-threaded)
         ├── write the generated C
         └── spawn the C compiler subprocess
@@ -395,7 +395,7 @@ accept (acceptor thread, server socket)
 
 The connection loop that brackets each request with `orbit_arena_reset`
 followed by `orbit_handle_request` is emitted by
-`compiler/route_runtime.orb`; the arena pool lives in `runtime/arena_pool.c`
+`compiler/emit/route_runtime.orb`; the arena pool lives in `runtime/arena_pool.c`
 (startup scratch work, not the request path), leases
 and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 
@@ -407,27 +407,27 @@ and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 
 | Path | Role |
 |---|---|
-| `compiler/pipeline.orb` | Build driver: stage order, C emission, C compiler invocation |
-| `compiler/main.orb` | CLI entry point and subcommand dispatch |
-| `compiler/lexer.orb` | Tokeniser (skips a leading UTF-8 BOM) |
-| `compiler/token.orb` | Token type and metadata |
-| `compiler/ast.orb` | AST node definitions |
-| `compiler/parser.orb` | Parser entry point |
-| `compiler/resolver.orb` | `import` resolution and module flattening |
-| `compiler/sema.orb` | Semantic analysis, scopes, function return types |
-| `compiler/ir.orb` | `IROpcode`, `IRInstruction`, `IRModule` |
-| `compiler/builder.orb` | AST to IR, plus expression and argument type inference |
-| `compiler/optimizer.orb` | IR pattern rewrites |
-| `compiler/cteval.orb` | Compile-time evaluation and folding |
-| `compiler/c_backend.orb` | IR to C, including the non-route path |
-| `compiler/route_runtime.orb` | Generated preamble, router, and server `main` text |
-| `compiler/cluster.orb` | `orbit cluster` subcommands |
-| `compiler/doctor.orb` | `orbit doctor` checks and rendering |
-| `compiler/fmt.orb` | `orbit fmt` |
-| `compiler/extern.orb` | `orbit_*_selfhost` extern declarations (typed) |
-| `compiler/frontend/frontend.orb` | `orbit frontend` driver |
-| `compiler/frontend/lower.orb` | AST to typed IR lowering |
-| `compiler/frontend/tir.orb` | Canonical TIR definitions and serialisation |
+| `compiler/host/pipeline.orb` | Build driver: stage order, C emission, C compiler invocation |
+| `compiler/host/main.orb` | CLI entry point and subcommand dispatch |
+| `compiler/front/lexer.orb` | Tokeniser (skips a leading UTF-8 BOM) |
+| `compiler/front/token.orb` | Token type and metadata |
+| `compiler/front/ast.orb` | AST node definitions |
+| `compiler/front/parser.orb` | Parser entry point |
+| `compiler/front/resolver.orb` | `import` resolution and module flattening |
+| `compiler/front/sema.orb` | Semantic analysis, scopes, function return types |
+| `compiler/ir/ir.orb` | `IROpcode`, `IRInstruction`, `IRModule` |
+| `compiler/ir/builder.orb` | AST to IR, plus expression and argument type inference |
+| `compiler/ir/optimizer.orb` | IR pattern rewrites |
+| `compiler/ir/cteval.orb` | Compile-time evaluation and folding |
+| `compiler/emit/c_backend.orb` | IR to C, including the non-route path |
+| `compiler/emit/route_runtime.orb` | Generated preamble, router, and server `main` text |
+| `compiler/host/cluster.orb` | `orbit cluster` subcommands |
+| `compiler/tools/doctor.orb` | `orbit doctor` checks and rendering |
+| `compiler/tools/fmt.orb` | `orbit fmt` |
+| `compiler/host/extern.orb` | `orbit_*_selfhost` extern declarations (typed) |
+| `compiler/tir/entry.orb` | `orbit frontend` driver |
+| `compiler/tir/lower.orb` | AST to typed IR lowering |
+| `compiler/tir/format.orb` | Canonical TIR definitions and serialisation |
 | `compiler/selfhost/stage3.exe.c` | Committed canonical generated C, the root of trust |
 
 ### Runtime (hand-written C, `runtime/`)

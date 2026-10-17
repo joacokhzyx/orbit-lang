@@ -80,7 +80,7 @@ fields.
 **Symptom:** `build_selfhost.py --check-stale` fails - the
 converged output doesn't match the committed canonical source.
 
-**Cause:** someone changed `compiler/*.orb` without promoting,
+**Cause:** someone changed `compiler/**/*.orb` without promoting,
 or generated output drifted.
 
 **Fix:** only after an intentional compiler change, and after

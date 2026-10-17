@@ -11,7 +11,7 @@
 // statements, elements, parts, fields, params.
 
 // Orbit Self-Hosted Compiler - Abstract Syntax Tree Definitions
-// compiler/ast.orb
+// compiler/front/ast.orb
 
 model FieldInitNode {
     name: string

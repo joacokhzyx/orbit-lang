@@ -3,7 +3,7 @@
 
 The committed canonical ``compiler/selfhost/stage3.exe.c`` is compiled three
 times -- with tcc, with gcc -O0 and with gcc -O2 -- and each resulting judge
-binary re-emits the compiler's C (``build compiler/main.orb`` with
+binary re-emits the compiler's C (``build compiler/host/main.orb`` with
 ORBIT_SKIP_CC=1, same as scripts/verify_seed.py's orb_build). The gate
 requires the three SHA-256 digests to be identical.
 
@@ -52,7 +52,7 @@ from dual_judge import (TCC_DUAL_HEADER, resolve_tcc, resolve_tcc_shim,
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
-MAIN_ORB = os.path.join("compiler", "main.orb")
+MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 
 
 def sha256(path):

@@ -201,7 +201,7 @@ def run_empty(compiler, cc, work, name, needle):
 # F-0004 is fixed: parser.orb reached parseIntSelfhost through builder.orb,
 # which a program using the front end does not import, and neither imported
 # extern.orb for orbit_os_write_stderr_selfhost. parseIntSelfhost now lives in
-# compiler/literal.orb, a leaf module both callers import, so the emitted C
+# compiler/front/literal.orb, a leaf module both callers import, so the emitted C
 # declares what it uses. The ratchet that asserted these two stayed broken has
 # been removed -- it would now fire on every run, which is the point at which a
 # ratchet has done its job.

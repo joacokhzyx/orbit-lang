@@ -159,7 +159,7 @@ def disposable_test_env(env, cc=None):
     variable the caller already exported always wins over the default, so
     `ORBIT_SKIP_WINDRES=0` restores the stamp and `ORBIT_WARNINGS=1`
     restores `-Wall` for one run. `ORBIT_SKIP_WINDRES` is inert until the
-    compiler honours it (compiler/pipeline.orb still always stamps); setting
+    compiler honours it (compiler/host/pipeline.orb still always stamps); setting
     it here is forward-compatible and costs nothing meanwhile.
     """
     if cc is None:

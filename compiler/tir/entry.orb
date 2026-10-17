@@ -3,9 +3,9 @@
 // Backends receive the text returned by `compileFrontendSource`; they never
 // call parser or semantic helpers directly.
 
-import "../parser.orb"
+import "../front/parser.orb"
 import "./lower.orb"
-import "./tir.orb"
+import "./format.orb"
 
 fn appendParserDiagnostics(module: TirModule, diagnostics: list) {
     var i = 0

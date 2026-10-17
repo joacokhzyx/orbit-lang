@@ -64,7 +64,7 @@ make list   # show what dev would run, without running it
 ```
 
 A green `make dev` is not a green CI (`dev.py` prints the tiers it skipped).
-A rule change or anything touching `compiler/*.orb` needs `make check`;
+A rule change or anything touching `compiler/**/*.orb` needs `make check`;
 before a commit that promotes the canonical, run `make all`.
 
 When one thing is broken and the rest is noise, use the single-gate targets
@@ -104,7 +104,7 @@ Diagnostics shape how Orbit feels at 3am, so they follow the brand rule: clear h
 
 ### 2. Code Formatting
 
-- **Orbit Compiler Sources**: Keep `compiler/*.orb` consistent with the existing style; any change must converge to a new fixed point (`make promote`, reviewed with `make promote-diff`).
+- **Orbit Compiler Sources**: Keep `compiler/**/*.orb` consistent with the existing style; any change must converge to a new fixed point (`make promote`, reviewed with `make promote-diff`).
 - **C Runtime Engine**: Keep C code in `runtime/` idiomatic, const-correct, and free of compiler warnings (`-Wall -Wextra`).
 - **Documentation Comments**: Use triple-slash doc comments (`///`) for public functions, structs, and module APIs.
 
