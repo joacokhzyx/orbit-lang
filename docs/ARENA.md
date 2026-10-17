@@ -117,7 +117,7 @@ typedef struct {
 
 1. **Init**: `orbit_arena_pool_init(pool_size, arena_capacity)` pre-creates `pool_size` arenas.
 2. **Acquire**: `orbit_arena_pool_acquire()` returns a free arena (reset before use) in $O(1)$; if the pool is exhausted it creates a temporary arena (`orbit_arena_create`) and counts it as an overflow.
-3. **Release**: `orbit_arena_pool_release(arena)` resets the arena (retaining up to 256 KB of hot committed memory) and returns it to the pool.
+3. **Release**: `orbit_arena_pool_release(arena)` resets the arena (retaining the footprint it just used, never below 256 KB and never above `ORBIT_ARENA_HOT_RETENTION_CEILING`) and returns it to the pool.
 
 ### The pool is not the request path
 
@@ -148,8 +148,10 @@ and `runtime/test_arena.c`. I grepped for it. So
 `runtime/performance.h` are always zero in a running server, and
 `orbit_arena_reset` is not the $O(1)$ rewind the table above could
 imply: it releases the chained overflow segments and decommits every
-page past the hot retention watermark
-(`runtime/arena.c:516`). Treat the checkpoint API as available to
+page past the hot retention watermark -- which is the footprint the
+request just used, clamped to [256 KB,
+`ORBIT_ARENA_HOT_RETENTION_CEILING`]
+(`runtime/arena.c:515`). Treat the checkpoint API as available to
 hand-written C, not as the mechanism serving requests.
 
 **`lib/arena.orb` is neither.** It is not an allocator and does not
@@ -170,7 +172,7 @@ of that file rather than with the word "allocator".
 | :--- | :--- | :--- | :--- |
 | `orbit_alloc(size)` (Fast Path) | $O(1)$ | 0 bytes | 0 |
 | `orbit_alloc(size)` (Commit Path) | $O(1)$ amortized | 0 bytes | 1 (`VirtualAlloc` / `mmap`) |
-| `orbit_arena_reset(arena)` | $O(1)$ | 0 bytes | 0 (retains hot pages) |
+| `orbit_arena_reset(arena)` | $O(1)$ | 0 bytes | 1 when committed pages exceed the retained watermark, else 0 |
 | `orbit_arena_destroy(arena)` | $O(1)$ | 0 bytes | 1 (`VirtualFree` / `munmap`) |
 
 ### Garbage Collection Comparison
@@ -198,7 +200,8 @@ measure, don't assume.
 **Configuration** (macros in `runtime/arena.c`): `ORBIT_ARENA_ALIGN` (16),
 `ORBIT_ARENA_DEFAULT_RESERVE` (64 MB), `ORBIT_ARENA_DEFAULT_COMMIT`
 (64 KB), `ORBIT_ARENA_GROWTH_GRANULARITY` (64 KB),
-`ORBIT_ARENA_HOT_RETENTION_LIMIT` (256 KB kept hot after reset).
+`ORBIT_ARENA_HOT_RETENTION_LIMIT` (256 KB floor kept hot after reset),
+`ORBIT_ARENA_HOT_RETENTION_CEILING` (4 MB ceiling on that retention).
 
 **Telemetry** (`runtime/performance.h`): `arena_alloc_count`,
 `arena_requested_bytes`, `arena_aligned_bytes`,

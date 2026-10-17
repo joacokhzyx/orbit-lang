@@ -49,7 +49,11 @@
 #endif
 
 #ifndef ORBIT_ARENA_HOT_RETENTION_LIMIT
-#define ORBIT_ARENA_HOT_RETENTION_LIMIT (256 * 1024) // Retain 256 KB hot committed memory on reset
+#define ORBIT_ARENA_HOT_RETENTION_LIMIT (256 * 1024) // Retain at least 256 KB hot committed memory on reset
+#endif
+
+#ifndef ORBIT_ARENA_HOT_RETENTION_CEILING
+#define ORBIT_ARENA_HOT_RETENTION_CEILING (4 * 1024 * 1024) // Bound one arena's reset retention: worst case workers * ceiling stays resident
 #endif
 
 typedef struct OrbitArenaOverflow {
@@ -512,9 +516,28 @@ void orbit_arena_reset(OrbitArena* arena) {
     }
     arena->overflow_list = NULL;
 
-    /* Step 2: decommit pages beyond the hot-retention watermark. */
-    size_t keep_size = ORBIT_ARENA_HOT_RETENTION_LIMIT;
+    /* Step 2: decommit pages beyond the hot-retention watermark.
+     *
+     * The watermark is this arena's live footprint -- the pages the request just
+     * touched -- clamped to [floor, ceiling] and to the active reservation,
+     * rather than the fixed floor alone. A request that grew past the floor keeps
+     * its pages for the next request on this worker instead of paying one
+     * decommit plus a re-commit of the whole footprint every time. Below the
+     * floor the policy is exactly what it was, so a service whose requests fit in
+     * 256 KB sees the same reset it saw before, and the ceiling bounds the
+     * resident set at workers * ORBIT_ARENA_HOT_RETENTION_CEILING. The cursor is
+     * still on the previous request's end here (Step 3 rewinds it), and after an
+     * overflow it points into the segment the arena last allocated from, so the
+     * measurement is the live segment only. */
     size_t page_size = arena->page_size;
+    size_t used_bytes = (size_t)(arena->cursor - arena->base);
+    size_t keep_size = ORBIT_ARENA_HOT_RETENTION_LIMIT;
+    if (used_bytes > keep_size) {
+        keep_size = used_bytes;
+    }
+    if (keep_size > ORBIT_ARENA_HOT_RETENTION_CEILING) {
+        keep_size = ORBIT_ARENA_HOT_RETENTION_CEILING;
+    }
     keep_size = orbit_align_up(keep_size, page_size);
 
     size_t total_reserved = (size_t)(arena->reserved_end - arena->base);

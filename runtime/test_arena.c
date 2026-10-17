@@ -381,6 +381,42 @@ static void test_cross_request_concurrent_isolation(void) {
     orbit_arena_pool_cleanup();
 }
 
+// 28. Hot retention follows the request footprint, not a fixed 256 KB
+static void test_hot_retention_follows_footprint(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    size_t page = arena->page_size;
+    size_t initial_committed = arena->committed_bytes;
+
+    // A request below the floor makes reset commit nothing: the retention floor
+    // bounds what is kept, it is not a commit minimum.
+    orbit_alloc(arena, 1024);
+    orbit_arena_reset(arena);
+    assert(arena->committed_bytes == initial_committed);
+
+    // A request above the floor keeps the pages it touched, so a following
+    // request of the same size commits nothing. That reuse is the whole point.
+    size_t big = ORBIT_ARENA_HOT_RETENTION_LIMIT * 2;
+    orbit_alloc(arena, big);
+    orbit_arena_reset(arena);
+    assert(arena->committed_bytes == orbit_align_up(big, page));
+
+    unsigned char* committed_end_before = arena->committed_end;
+    assert(orbit_alloc(arena, big) != NULL);
+    assert(arena->committed_end == committed_end_before);
+
+    // One request larger than the ceiling does not pin the worker.
+    orbit_alloc(arena, ORBIT_ARENA_HOT_RETENTION_CEILING * 4);
+    orbit_arena_reset(arena);
+    assert(arena->committed_bytes == orbit_align_up(ORBIT_ARENA_HOT_RETENTION_CEILING, page));
+
+    // The next small request releases the excess back to the floor.
+    orbit_alloc(arena, 1024);
+    orbit_arena_reset(arena);
+    assert(arena->committed_bytes == orbit_align_up(ORBIT_ARENA_HOT_RETENTION_LIMIT, page));
+
+    orbit_arena_destroy(arena);
+}
+
 int main(void) {
     printf("=== ORBIT EPOCHAL ARENA RUNTIME TESTS ===\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -408,7 +444,8 @@ int main(void) {
     RUN_TEST(test_no_leaks_on_error);
     RUN_TEST(test_cross_request_sequential_isolation);
     RUN_TEST(test_cross_request_concurrent_isolation);
+    RUN_TEST(test_hot_retention_follows_footprint);
     
-    printf("All 27 mandatory Orbit Arena runtime tests PASSED successfully!\n");
+    printf("All 28 mandatory Orbit Arena runtime tests PASSED successfully!\n");
     return 0;
 }
