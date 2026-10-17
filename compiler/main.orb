@@ -87,7 +87,7 @@ fn helpText(useColor: bool) -> string {
     var h = "Usage: orbit <command> [options]\n"
     h = h + "\n"
     h = h + "Commands:\n"
-    h = h + "  " + palettePaint(paletteBold(), "build", useColor) + " <file.orb> [-o out] [--release] [--quiet] [--verbose] [--color always|never|auto]\n"
+    h = h + "  " + palettePaint(paletteBold(), "build", useColor) + " <file.orb> [-o out] [--release] [--emit-ir path] [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Compile to a native executable (-O1; --release selects -O2)\n"
     h = h + "  " + palettePaint(paletteBold(), "run", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Build and run it (shares your terminal)\n"
@@ -216,7 +216,7 @@ fn runRun() {
     if osName == "Windows_NT" || winDir != "" {
         outputPath = outputPath + ".exe"
     }
-    if compileSourceWithFile(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false) == false {
+    if compileSourceWithFile(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false, "") == false {
         orbit_os_exit_selfhost(1)
         return
     }
@@ -314,7 +314,7 @@ fn main() {
         }
     }
     if cmd == "build" && wantsHelp() {
-        print("Usage: orbit build <file.orb> [-o out] [--release] [--quiet] [--verbose] [--color always|never|auto]\n  Compile to a native executable (default -O1; --release adds -O2)\n")
+        print("Usage: orbit build <file.orb> [-o out] [--release] [--emit-ir path] [--quiet] [--verbose] [--color always|never|auto]\n  Compile to a native executable (default -O1; --release adds -O2)\n")
         return
     }
     if cmd == "run" {
@@ -363,6 +363,7 @@ fn main() {
     // the -O2 shape for callers who measured their own workload (M1: -O2 adds
     // nothing measurable on the compute routes, so -O1 is the default).
     var buildRelease = false
+    var emitIrPath = ""
     var i = 1
     while true {
         val arg = orbit_os_argv_selfhost(i)
@@ -390,13 +391,22 @@ fn main() {
             buildRelease = true
         } else if arg == "--verbose" {
             buildVerbose = true
+        } else if arg == "--emit-ir" {
+            val irOut = orbit_os_argv_selfhost(i + 1)
+            if irOut == "" {
+                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--release] [--emit-ir path] [--quiet] [--verbose] [--color always|never|auto]\n")
+                orbit_os_exit_selfhost(2)
+                return
+            }
+            emitIrPath = irOut
+            i = i + 1
         } else if arg == "--color" {
             val bc = orbit_os_argv_selfhost(i + 1)
             if bc == "always" || bc == "never" || bc == "auto" {
                 buildColor = bc
                 i = i + 1
             } else {
-                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--release] [--quiet] [--verbose] [--color always|never|auto]\n")
+                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--release] [--emit-ir path] [--quiet] [--verbose] [--color always|never|auto]\n")
                 orbit_os_exit_selfhost(2)
                 return
             }
@@ -404,7 +414,7 @@ fn main() {
             if arg != "build" && inputPath == "" {
                 inputPath = arg
             } else if arg != "build" {
-                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--release] [--quiet] [--verbose] [--color always|never|auto]\n")
+                orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--release] [--emit-ir path] [--quiet] [--verbose] [--color always|never|auto]\n")
                 orbit_os_exit_selfhost(2)
                 return
             }
@@ -413,7 +423,7 @@ fn main() {
     }
 
     if inputPath == "" {
-        orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--release] [--quiet] [--verbose] [--color always|never|auto]\n")
+        orbit_os_write_stderr_selfhost("Usage: orbit build <file.orb> [-o out] [--release] [--emit-ir path] [--quiet] [--verbose] [--color always|never|auto]\n")
         orbit_os_exit_selfhost(2)
         return
     }
@@ -429,7 +439,7 @@ fn main() {
         return
     }
 
-    if compileSourceWithFile(source, inputPath, outputPath, buildVerbose, buildQuiet, buildColor, buildRelease) == false {
+    if compileSourceWithFile(source, inputPath, outputPath, buildVerbose, buildQuiet, buildColor, buildRelease, emitIrPath) == false {
         orbit_os_exit_selfhost(1)
     }
 }

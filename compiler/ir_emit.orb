@@ -1,0 +1,298 @@
+// IRv1 textual emitter for `orbit build --emit-ir <path>` (D1).
+//
+// Serializes the in-memory IRModule exactly as buildAST left it: the pipeline
+// calls this before the optimizer and before the C backend, so registerTypes
+// is the builder's list, not the inferred one (docs/IR_SPEC_ALIGNMENT.md §6,
+// P1).  The text form is docs/IR_SPEC.md §5: one root object
+// {"irVersion":"1","module":{...}}, keys in model declaration order, compact
+// JSON, one trailing LF.  Nothing here invents semantics: every opcode name is
+// an IROpcode variant and every operand comes from the IRValue union.
+//
+// Fail-closed: JSON has no NaN/Infinity literal, so a non-finite float has no
+// valid serialization (V-08).  emitIRv1 assumes finiteness; irNonFiniteFloat
+// names the offender so the caller aborts instead of writing a document the
+// loader would misread.
+import "./extern.orb"
+import "./ir.orb"
+
+fn irJsonHex2(code: int) -> string {
+    val digits = "0123456789abcdef"
+    val hi = code / 16
+    val lo = code - hi * 16
+    return orbit_string_slice(digits, hi, hi + 1) + orbit_string_slice(digits, lo, lo + 1)
+}
+
+// JSON string body escaping (RFC 8259).  c_backend's escapeString cannot be
+// reused: it emits C's `\x1b`, which is not a JSON escape.  Bytes below 0x20
+// and DEL become \u00XX; everything else (UTF-8 continuation bytes included,
+// since the loop slices one byte at a time) passes through untouched.
+fn irJsonEscape(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < s.len() {
+        val c = s.slice(i, i + 1)
+        if c == "\\" {
+            out = out + "\\\\"
+        } else if c == "\"" {
+            out = out + "\\\""
+        } else if c == "\n" {
+            out = out + "\\n"
+        } else if c == "\r" {
+            out = out + "\\r"
+        } else if c == "\t" {
+            out = out + "\\t"
+        } else {
+            val code = orbit_string_char_at_selfhost(c, 0)
+            if code < 32 || code == 127 {
+                out = out + "\\u00" + irJsonHex2(code)
+            } else {
+                out = out + c
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn irJsonBool(v: bool) -> string {
+    if v { return "true" }
+    return "false"
+}
+
+fn irJsonStringList(items: list) -> string {
+    var out = "["
+    var i = 0
+    while i < items.len() {
+        if i > 0 { out = out + "," }
+        val s: string = items.get(i)
+        out = out + "\"" + irJsonEscape(s) + "\""
+        i = i + 1
+    }
+    out = out + "]"
+    return out
+}
+
+// One name per IROpcode variant, in §1 order (the union's declaration order).
+// The trailing arm is unreachable while the union has exactly these 60
+// variants; it returns no name rather than inventing one.
+fn irOpcodeName(op: IROpcode) -> string {
+    match op {
+        IROpcode.nop => { return "nop" }
+        IROpcode.load_const => { return "load_const" }
+        IROpcode.load_var => { return "load_var" }
+        IROpcode.store_var => { return "store_var" }
+        IROpcode.decl_var => { return "decl_var" }
+        IROpcode.add => { return "add" }
+        IROpcode.sub => { return "sub" }
+        IROpcode.mul => { return "mul" }
+        IROpcode.div => { return "div" }
+        IROpcode.mod => { return "mod" }
+        IROpcode.eq => { return "eq" }
+        IROpcode.ne => { return "ne" }
+        IROpcode.lt => { return "lt" }
+        IROpcode.le => { return "le" }
+        IROpcode.gt => { return "gt" }
+        IROpcode.ge => { return "ge" }
+        IROpcode.and_op => { return "and_op" }
+        IROpcode.or_op => { return "or_op" }
+        IROpcode.not_op => { return "not_op" }
+        IROpcode.neg => { return "neg" }
+        IROpcode.begin_block => { return "begin_block" }
+        IROpcode.end_block => { return "end_block" }
+        IROpcode.call => { return "call" }
+        IROpcode.ret => { return "ret" }
+        IROpcode.jump => { return "jump" }
+        IROpcode.jump_if_false => { return "jump_if_false" }
+        IROpcode.alloc => { return "alloc" }
+        IROpcode.free => { return "free" }
+        IROpcode.db_get => { return "db_get" }
+        IROpcode.db_set => { return "db_set" }
+        IROpcode.db_all => { return "db_all" }
+        IROpcode.db_where => { return "db_where" }
+        IROpcode.http_response => { return "http_response" }
+        IROpcode.label => { return "label" }
+        IROpcode.copy => { return "copy" }
+        IROpcode.arg => { return "arg" }
+        IROpcode.load_field => { return "load_field" }
+        IROpcode.store_field => { return "store_field" }
+        IROpcode.switch_op => { return "switch_op" }
+        IROpcode.type_info => { return "type_info" }
+        IROpcode.list_create => { return "list_create" }
+        IROpcode.list_push => { return "list_push" }
+        IROpcode.list_get => { return "list_get" }
+        IROpcode.list_set => { return "list_set" }
+        IROpcode.list_len => { return "list_len" }
+        IROpcode.list_pop => { return "list_pop" }
+        IROpcode.map_create => { return "map_create" }
+        IROpcode.map_set => { return "map_set" }
+        IROpcode.map_get => { return "map_get" }
+        IROpcode.map_has => { return "map_has" }
+        IROpcode.map_delete => { return "map_delete" }
+        IROpcode.map_keys => { return "map_keys" }
+        IROpcode.result_ok => { return "result_ok" }
+        IROpcode.result_err => { return "result_err" }
+        IROpcode.result_unwrap => { return "result_unwrap" }
+        IROpcode.result_is_ok => { return "result_is_ok" }
+        IROpcode.result_unwrap_err => { return "result_unwrap_err" }
+        IROpcode.union_create => { return "union_create" }
+        IROpcode.union_get_tag => { return "union_get_tag" }
+        IROpcode.union_get_data => { return "union_get_data" }
+        _ => { return "" }
+    }
+}
+
+// §5.2 value = none | intVal | floatVal | strVal | symVal | boolVal | regVal
+//             | labelVal;  unused operands are exactly {"kind":"None"}.
+fn irValueText(value: IRValue) -> string {
+    if value == NULL { return "{\"kind\":\"None\"}" }
+    match value {
+        IRValue.Int(v) => { return "{\"kind\":\"Int\",\"value\":" + orbit_int_to_string_selfhost(v.value) + "}" }
+        IRValue.Float(v) => { return "{\"kind\":\"Float\",\"value\":" + orbit_float_to_string_selfhost(v.value) + "}" }
+        IRValue.String(v) => { return "{\"kind\":\"String\",\"value\":\"" + irJsonEscape(v.value) + "\"}" }
+        IRValue.Sym(v) => { return "{\"kind\":\"Sym\",\"value\":\"" + irJsonEscape(v.value) + "\"}" }
+        IRValue.Bool(v) => { return "{\"kind\":\"Bool\",\"value\":" + irJsonBool(v.value) + "}" }
+        IRValue.Register(v) => { return "{\"kind\":\"Register\",\"value\":" + orbit_int_to_string_selfhost(v.value) + "}" }
+        IRValue.Label(v) => { return "{\"kind\":\"Label\",\"value\":" + orbit_int_to_string_selfhost(v.value) + "}" }
+        _ => { return "{\"kind\":\"None\"}" }
+    }
+}
+
+fn irInstructionText(instr: IRInstruction) -> string {
+    var out = "{\"opcode\":\"" + irOpcodeName(instr.opcode) + "\","
+    out = out + "\"dest\":" + orbit_int_to_string_selfhost(instr.dest) + ","
+    out = out + "\"operand1\":" + irValueText(instr.operand1) + ","
+    out = out + "\"operand2\":" + irValueText(instr.operand2) + ","
+    out = out + "\"operand3\":" + irValueText(instr.operand3) + ","
+    out = out + "\"elemKind\":" + orbit_int_to_string_selfhost(instr.elemKind) + "}"
+    return out
+}
+
+fn irFunctionText(f: IRFunction) -> string {
+    var out = "{\"name\":\"" + irJsonEscape(f.name) + "\","
+    out = out + "\"params\":" + irJsonStringList(f.params) + ","
+    out = out + "\"paramTypes\":" + irJsonStringList(f.paramTypes) + ","
+    out = out + "\"instructions\":["
+    var i = 0
+    while i < f.instructions.len() {
+        if i > 0 { out = out + "," }
+        val instr: IRInstruction = f.instructions.get(i)
+        out = out + irInstructionText(instr)
+        i = i + 1
+    }
+    out = out + "],"
+    out = out + "\"registerCount\":" + orbit_int_to_string_selfhost(f.registerCount) + ","
+    out = out + "\"registerTypes\":" + irJsonStringList(f.registerTypes) + ","
+    out = out + "\"returnType\":\"" + irJsonEscape(f.returnType) + "\","
+    out = out + "\"isExtern\":" + irJsonBool(f.isExtern) + ","
+    out = out + "\"routeMethod\":\"" + irJsonEscape(f.routeMethod) + "\","
+    out = out + "\"routePath\":\"" + irJsonEscape(f.routePath) + "\","
+    out = out + "\"routeHasLimit\":" + irJsonBool(f.routeHasLimit) + ","
+    out = out + "\"routeLimitRate\":" + orbit_int_to_string_selfhost(f.routeLimitRate) + ","
+    out = out + "\"routeLimitWindowMs\":" + orbit_int_to_string_selfhost(f.routeLimitWindowMs) + ","
+    out = out + "\"routeLimitBurst\":" + orbit_int_to_string_selfhost(f.routeLimitBurst) + "}"
+    return out
+}
+
+fn irModelText(m: IRModelDecl) -> string {
+    var out = "{\"name\":\"" + irJsonEscape(m.name) + "\",\"fields\":["
+    var i = 0
+    while i < m.fields.len() {
+        if i > 0 { out = out + "," }
+        val f: IRModelField = m.fields.get(i)
+        out = out + "{\"name\":\"" + irJsonEscape(f.name) + "\",\"typeName\":\"" + irJsonEscape(f.typeName) + "\"}"
+        i = i + 1
+    }
+    out = out + "],"
+    out = out + "\"typeParams\":" + irJsonStringList(m.typeParams) + "}"
+    return out
+}
+
+fn irTypeText(t: IRTypeDecl) -> string {
+    var out = "{\"name\":\"" + irJsonEscape(t.name) + "\",\"kind\":\"" + irJsonEscape(t.kind) + "\","
+    out = out + "\"variants\":" + irJsonStringList(t.variants) + ","
+    out = out + "\"richVariants\":" + irJsonStringList(t.richVariants) + ","
+    out = out + "\"methods\":" + irJsonStringList(t.methods) + "}"
+    return out
+}
+
+// A NaN fails `v != v`; ±Infinity fails `v - v != 0.0` because v - v is NaN.
+// Reachable only if the builder ever produces IRValue.Float -- it does not at
+// this pin -- so this is the defensive half of the V-08 rule.
+fn irValueNonFinite(value: IRValue) -> bool {
+    if value == NULL { return false }
+    match value {
+        IRValue.Float(v) => {
+            if v.value != v.value { return true }
+            val d = v.value - v.value
+            if d != 0.0 { return true }
+            return false
+        }
+        _ => { return false }
+    }
+}
+
+// Returns "" when every float in the module is finite, else a description of
+// the first offender (caller turns it into a diagnostic and aborts).
+fn irNonFiniteFloat(module: IRModule) -> string {
+    var fi = 0
+    while fi < module.functions.len() {
+        val f: IRFunction = module.functions.get(fi)
+        var ii = 0
+        while ii < f.instructions.len() {
+            val instr: IRInstruction = f.instructions.get(ii)
+            if irValueNonFinite(instr.operand1) || irValueNonFinite(instr.operand2) || irValueNonFinite(instr.operand3) {
+                return "function '" + f.name + "' instruction " + orbit_int_to_string_selfhost(ii)
+            }
+            ii = ii + 1
+        }
+        fi = fi + 1
+    }
+    var gi = 0
+    while gi < module.globals.len() {
+        val g: IRGlobal = module.globals.get(gi)
+        if irValueNonFinite(g.value) {
+            return "global '" + g.name + "'"
+        }
+        gi = gi + 1
+    }
+    return ""
+}
+
+fn emitIRv1(module: IRModule) -> string {
+    var out = "{\"irVersion\":\"1\",\"module\":{"
+    out = out + "\"functions\":["
+    var fi = 0
+    while fi < module.functions.len() {
+        if fi > 0 { out = out + "," }
+        val f: IRFunction = module.functions.get(fi)
+        out = out + irFunctionText(f)
+        fi = fi + 1
+    }
+    out = out + "],\"globals\":["
+    var gi = 0
+    while gi < module.globals.len() {
+        if gi > 0 { out = out + "," }
+        val g: IRGlobal = module.globals.get(gi)
+        out = out + "{\"name\":\"" + irJsonEscape(g.name) + "\",\"value\":" + irValueText(g.value) + ",\"typeName\":\"" + irJsonEscape(g.typeName) + "\"}"
+        gi = gi + 1
+    }
+    out = out + "],\"models\":["
+    var mi = 0
+    while mi < module.models.len() {
+        if mi > 0 { out = out + "," }
+        val m: IRModelDecl = module.models.get(mi)
+        out = out + irModelText(m)
+        mi = mi + 1
+    }
+    out = out + "],\"types\":["
+    var ti = 0
+    while ti < module.types.len() {
+        if ti > 0 { out = out + "," }
+        val t: IRTypeDecl = module.types.get(ti)
+        out = out + irTypeText(t)
+        ti = ti + 1
+    }
+    out = out + "],\"migrations\":" + irJsonStringList(module.migrations)
+    out = out + "}}\n"
+    return out
+}
