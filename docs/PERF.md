@@ -411,3 +411,70 @@ a fresh zero page. The request-serving runtime was audited for that: all 100
 pages under the floor were already unzeroed before this change, so this widens an
 existing rule rather than introducing one; `docs/ARENA.md` does not promise zeroed
 memory and now says so where it used to pin the constant.
+
+## Follow-up (2026-10): the C cache keyed everything except the headers
+
+`scripts/orbit_ccache.py` keyed a compilation on its argv, its `sources` and the
+destination basename. `sources` is the caller's statement of what the compilation
+reads, and for the emitted C that statement was incomplete: the emitted C is
+compiled with `-I <runtime dir>` and `#include`s the runtime headers, and no
+caller listed them. The key therefore survived a header edit and handed back the
+artifact the *previous* header produced -- a stale binary, built from truth the
+tree no longer contains, reported as a green build. That is the one failure mode
+a content cache must not have, and it is why the key now walks the trees its
+include flags name (and refuses, rather than skips, a tree too large to walk: a
+missed cache costs one compile, a wrong key ships the wrong artifact).
+
+**The falsifier, both trees, one instrument** (`scratch/ccache/key_probe.py`: an
+emitted translation unit that `#include`s a header from `-I runtime`, then that
+header changes from `ORBIT_PROBE 0` to `ORBIT_PROBE 1`):
+
+| tree | key before the edit | key after | control: edit a file in `sources` |
+|---|---|---|---|
+| shipped | `c2359f32…` | `c2359f32…` identical | key changes |
+| this change | `7e5a9dbe…` | `141f126e…` | key changes |
+
+The control is what makes the first row a finding instead of a probe that cannot
+fail. `orbit_ccache.py self-test` is those assertions as a gate: a `-I` header
+edited, a header *appearing* under `-I`, a `-include` file edited, and two
+negative controls (identical inputs give an identical key; a leftover output does
+not enter the key). It caught a wrong assumption while it was being written --
+that the separated, fused and quoted spellings of `-I` would key alike. They do
+not and should not (the key is over the argv); what the test now asserts is what
+matters, that each spelling still walks the tree it points at, quoted because
+`pipeline.orb` emits `-I"<dir>"`.
+
+**Machine.** AMD Ryzen 5 2400G, 4c/8t, 3.6 GHz, Windows 10 Pro 19045, gcc 16.2.0.
+The box was otherwise idle (4 % load), so these are plain interleaved arms rather
+than the paired estimator the arena entry needed.
+
+**What it buys.** `runtime_c_tests.py` compiles 20 programs whose C and headers do
+not change between runs, and now compiles them through the cache. Both arms are
+the same tree and the same gate; `ORBIT_CCACHE=0` is the shipped behaviour, since
+the shipped gate called `gcc` directly and this is that same call with the cache
+disabled. `ORBIT_CCACHE_DIR` pointed at a scratch directory:
+
+```bash
+ORBIT_CCACHE=1 python scripts/runtime_c_tests.py   # cached
+ORBIT_CCACHE=0 python scripts/runtime_c_tests.py   # as shipped
+```
+
+| arm | five runs (s) | median | spread |
+|---|---|---|---|
+| uncached | 18.72, 19.56, 18.48, 18.47, 19.73 | 18.72 s | 1.26 s |
+| cached | 13.56, 12.92, 12.90, 11.56, 13.74 | **12.92 s** | 2.17 s |
+
+Five alternating pairs with the arms in both orders, no overlap between the arms
+(the cached maximum is under the uncached minimum), **-5.80 s, ratio 0.690**. The
+first cached run is cold and took 19.11 s; it fills the cache and is not part of
+the median. Every arm in both orders reported `Finished runtime-c: 20/20 pass`,
+which is the correctness half: the cached binaries run.
+
+**What it costs.** The key re-reads both include trees per compilation, 8.5 MB
+(`runtime/` 49 files, `runtime/vendor` 4 including the vendored `.dll`/`.lib`),
+measured at **67.4 ms** per compilation -- about 1.3 s of the 12.92 s above, or
+22 % of the saving, left on the table deliberately. Narrowing the walk to header
+suffixes, or memoising a tree digest on a stat-based staleness signal, would
+recover it; both trade a sound key for a fast one, and the wrong key is the one
+failure this cache exists to not have. That is a separate, measurable change.
+
