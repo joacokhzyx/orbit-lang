@@ -171,7 +171,7 @@ of that file rather than with the word "allocator".
 | Operation | Time Complexity | Space Overhead | OS Traps |
 | :--- | :--- | :--- | :--- |
 | `orbit_alloc(size)` (Fast Path) | $O(1)$ | 0 bytes | 0 |
-| `orbit_alloc(size)` (Commit Path) | $O(1)$ amortized | 0 bytes | 1 (`VirtualAlloc` / `mmap`) |
+| `orbit_alloc(size)` (Commit Path) | $O(1)$ amortized | 0 bytes | 1 (`VirtualAlloc` / `mprotect`) |
 | `orbit_arena_reset(arena)` | $O(1)$ | 0 bytes | 1 when committed pages exceed the retained watermark, else 0 |
 | `orbit_arena_destroy(arena)` | $O(1)$ | 0 bytes | 1 (`VirtualFree` / `munmap`) |
 
