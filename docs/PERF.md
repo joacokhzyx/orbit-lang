@@ -478,3 +478,41 @@ suffixes, or memoising a tree digest on a stat-based staleness signal, would
 recover it; both trade a sound key for a fast one, and the wrong key is the one
 failure this cache exists to not have. That is a separate, measurable change.
 
+## Follow-up (2026-10): the cache's liveness probe was a race
+
+`orbit_ccache.enabled()` proved that the cache directory was usable by writing a
+file called `.writable` and deleting it. That is a correct answer to the question
+"can this process write here" and a wrong answer to "can this process cache",
+because the name was shared: with two callers probing at once, one removes the
+name the other is midway through removing -- or, on Windows, removes it while the
+other still holds the file open. The loser gets `OSError` and reports no cache
+for the rest of its life. Nothing fails; it just silently stops caching, and the
+callers that overlap are exactly the ones under a time budget.
+
+The probe is now named after the caller (pid plus a nonce). The probe only has to
+prove that *this* process can create and delete a file here, which is a private
+question, so it gets a private name.
+
+**The falsifier, both trees, one instrument** (`scratch/ccache/enabled_race.py`:
+16 real processes probing one `ORBIT_CCACHE_DIR` at once, 20 rounds; the old tree
+is a directory holding the old file, not a memory):
+
+| tree | probes that found a usable cache |
+|---|---|
+| shipped, shared `.writable` | 308/320 — 12 compilations silently uncached |
+| this change, per-caller probe | **320/320** |
+
+`orbit_ccache.py self-test` carries the same assertion as a gate: 80 concurrent
+probes from one process must all report a usable cache, and 16 probes must take
+16 distinct names. The second is what the first one measures; asserting only the
+outcome would pass on a fix that worked by luck of scheduling.
+
+**Machine.** The same box and toolchain as the entry above.
+
+**What it buys.** No timing is claimed here: this fix is what lets the cache be
+used by a *parallel* gate at all, and the gate it was found for -- the suite's
+eight-way compile -- carries its own measurement in the entry that wires it. A
+probe that reports "no cache" 3.75 % of the time is a cache whose speedup is
+30 % smaller and whose cost is a mystery.
+
+

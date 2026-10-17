@@ -62,16 +62,45 @@ def cache_root() -> str:
     return os.path.join(base, "orbit", "cc")
 
 
+def _probe_name(root: str) -> str:
+    """A probe file name no other caller can be holding.
+
+    The pid alone is not enough: threads inside one process call this too, and
+    a caller that probes twice is the normal case, so the name carries a nonce
+    as well. That is the whole fix -- the probe is a private question and gets
+    a private name, instead of a shared `.writable` two callers can fight over.
+    """
+    return os.path.join(root, ".writable-%d-%s"
+                        % (os.getpid(), os.urandom(6).hex()))
+
+
 def enabled() -> bool:
-    """False when ORBIT_CCACHE=0, or when no cache directory is usable."""
+    """False when ORBIT_CCACHE=0, or when no cache directory is usable.
+
+    The probe file is named after the caller. It used to be one shared
+    `.writable`, which is a race as soon as two compilations overlap -- and
+    they routinely do, because the suite compiles eight translation units at
+    once. One caller then removes the name another is midway through removing,
+    or (on Windows) removes it while the other still holds it open: the loser
+    sees OSError and reports "no cache" for the rest of its life, so its share
+    of the compilations is silently uncached.
+    """
     if os.environ.get("ORBIT_CCACHE", "1").strip().lower() in ("0", "false", "no"):
         return False
     try:
-        os.makedirs(cache_root(), exist_ok=True)
-        probe = os.path.join(cache_root(), ".writable")
+        root = cache_root()
+        os.makedirs(root, exist_ok=True)
+        probe = _probe_name(root)
         with open(probe, "w") as f:
             f.write("")
-        os.remove(probe)
+        try:
+            os.remove(probe)
+        except OSError:
+            # A name this process owns failing to delete cannot make the cache
+            # unusable: entries are written under per-pid temp names and moved
+            # into place with os.replace, which needs no delete of a shared
+            # name. Report what the create actually proved.
+            pass
         return True
     except OSError:
         return False
@@ -518,6 +547,26 @@ def compile_cached(cc_cmd, argv, sources, log=None, cwd=None,
     return target, False
 
 
+def _probe_race(rounds=5, workers=16):
+    """Call enabled() `workers` times at once, `rounds` times over.
+
+    Returns (reported_usable, calls). The suite compiles eight translation
+    units through the same cache directory at the same time, so this is the
+    shape enabled() is actually called in; a probe that only works alone is
+    the bug this reproduces. Threads rather than processes because the race is
+    over a name in the filesystem, which does not care who removes it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    usable = 0
+    calls = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for _ in range(rounds):
+            got = list(pool.map(lambda _i: enabled(), range(workers)))
+            usable += sum(1 for g in got if g)
+            calls += len(got)
+    return usable, calls
+
+
 def self_test() -> int:
     """Assert the properties the key must have, on scratch files in a temp dir.
 
@@ -528,8 +577,9 @@ def self_test() -> int:
     must not -- a control (identical inputs, identical key) and the output
     exclusion -- because a key that always changed would pass the rest.
 
-    Hashes only. No compiler runs and no cache directory is touched, so this
-    costs milliseconds and can run anywhere.
+    Hashes, and one scratch cache directory of the self-test's own. No compiler
+    runs and the real cache directory is never touched, so this costs
+    milliseconds and can run anywhere.
     """
     import tempfile
 
@@ -612,6 +662,24 @@ def self_test() -> int:
         rel = ["-O0", "-I", "inc", "prog.c", "-o", "prog.bin"]
         check("a relative source resolves against the compile's cwd",
               argv_inputs(rel, cwd=root) == [source])
+
+        # The probe, in the shape it is called in. A caller that cannot see its
+        # own cache does not fail; it compiles directly, so a race here costs
+        # speed and says nothing.
+        saved = os.environ.get("ORBIT_CCACHE_DIR")
+        probe_dir = os.path.join(td, "cache")
+        os.environ["ORBIT_CCACHE_DIR"] = probe_dir
+        try:
+            usable, calls = _probe_race()
+        finally:
+            if saved is None:
+                os.environ.pop("ORBIT_CCACHE_DIR", None)
+            else:
+                os.environ["ORBIT_CCACHE_DIR"] = saved
+        check("a usable cache survives %d concurrent probes" % calls,
+              usable == calls)
+        check("concurrent probes never share a name",
+              len({_probe_name(probe_dir) for _ in range(16)}) == 16)
 
     print("cc cache self-test: %s" % ("FAILED: " + ", ".join(fails) if fails
                                       else "OK"))
