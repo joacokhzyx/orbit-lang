@@ -515,4 +515,126 @@ eight-way compile -- carries its own measurement in the entry that wires it. A
 probe that reports "no cache" 3.75 % of the time is a cache whose speedup is
 30 % smaller and whose cost is a mystery.
 
+## Follow-up (2026-10): the compiler's inner compile now goes through that cache
+
+`scripts/orbit_ccache.py` was wired into `build_selfhost.py` and
+`verify_seed.py` only. The compiler forks its own C compiler for every program
+it builds (`compiler/host/pipeline.orb`), and that inner compile was uncached:
+every gate that builds a disposable binary recompiled the same emitted C from a
+fresh temporary directory, with the same flags, once per test per run.
+`scripts/cc_cached.py` is a `cc` wrapper that puts that invocation through the
+cache; it needs no compiler change because the compiler already documents
+`ORBIT_CC` as a wrapper with arguments and splices the string into its own cc
+line.
+
+It is wired in one place, `_common.disposable_test_env`, and only when the
+caller **names** the driver -- the `cc=` argument every compiling gate passes.
+Without that argument the toolchain is whatever the ambient environment says,
+and the one caller that relies on it (`test_suite.py`, which passes a no-op
+compiler to run without compiling at all) would pay an interpreter start and a
+key computation per test for a cache that can never hit. `ORBIT_CC` becomes
+`<python> <shim>`, `ORBIT_CC_REAL` and `CC` keep the real driver, and
+`ORBIT_CCACHE=0` leaves the environment exactly where it was: `_common`'s
+self-test asserts that, and it is a gate, because an escape hatch that only
+disables caching but still wraps is not an escape hatch.
+
+**Machine.** AMD Ryzen 5 2400G, 4c/8t, 3.6 GHz, Windows 10 Pro 19045, gcc
+16.2.0. The box was **not** idle: a second session ran an 8-hour watcher that
+compiles with the same fixed-point binary, and `dev.py` re-copies that binary
+into `%TEMP%` on every run, so a running image cannot be overwritten -- 6 of the
+15 samples below needed a retry on that file lock. Both arms ran under the same
+contention, in alternating order, and each round carries its own control.
+
+**What it buys.** `dev.py` owns `TEMP`, the cache directory, the fixed-point
+binary and each gate's flags, and target `all` selects the link lane for these
+two gates, so the measurement is the composition `make all` runs. Arm A is
+`ORBIT_CCACHE=0` (the shipped behaviour), arm B is the default. Five rounds,
+orders A+B+B and B+A+B alternating, so A-B is read in both directions:
+
+```bash
+python scripts/dev.py all --filter suite --cc gcc        # arm B (cache on)
+set ORBIT_CCACHE=0 && python scripts/dev.py all --filter suite --cc gcc   # arm A
+```
+
+| gate | arm A (no cache) | arm B (warm cache) | A-B |
+|---|---|---|---|
+| `suite` (71 tests) | 29, 31, 31, 31, 29 -> **31 s** | 8, 10, 7, 6, 6, 6, 7, 10, 6, 7 -> **7 s** | **-24 s** |
+| `suite_std` (22 tests) | 17, 16, 16, 16, 16 -> **16 s** | ten runs, 11-12 -> **12 s** | **-4 s** |
+| both gates, wall | 46.7, 48.0, 48.5, 47.9, 46.5 -> **47.9 s** | ten runs -> **20.0 s** | **-27.9 s** |
+
+Per round the `suite` difference is +20, +24, +25, +22, +22 s -- the same sign
+in all five. The control is the pair of identical B arms inside each round:
+2, 1, 0, 3, 1 s, max **3 s**. The effect is 7.5x the instrument's floor, which
+is the only reason a number taken under that contention is written down here.
+
+The hits are counted, not assumed: the ten arm-B runs added **0** cache entries
+(361 before and after; ~710 inner compiles served from keys computed in earlier
+runs, which is also what shows the key does not depend on the temporary
+directory the C is emitted into). Every run in both arms reported
+`Finished suite: 71/71 pass` and `22/22 pass`.
+
+One inner compile, same box, unity lane (`tests/suite/arith.orb`, 5 interleaved
+runs, scratch probe): plain **3244 ms** -> hit **236 ms**, ratio 0.07. A cold
+wrapper run took 3216 ms, so the wrapper's own cost -- one interpreter start
+plus the key, which re-reads the 8.5 MB `-I runtime` tree -- is not measurable
+above a 3.2 s compile's spread. On a *miss* the wrapper costs the hashing and
+nothing else.
+
+**The whole gate battery.** In the `all` composition only two gates can be
+touched at all, because `test_suite.py` and `dual_judge.py` are the only callers
+of `disposable_test_env` that name a driver. A whole `make all` at HEAD and
+twice with the change, same box, same contention:
+
+| | HEAD | with the change |
+|---|---|---|
+| `all`, gate sum | 174 s | 170 s, 162 s |
+| `all`, wall | 131 s | 126 s, 121 s |
+| `suite` | 26 s | 8 s, 7 s |
+| `suite_std` | 15 s | 13 s, 12 s |
+| the 19 gates it cannot reach | 133 s | 149 s, 143 s |
+| result | 21/21 | 21/21, 21/21 |
+
+The last two rows are the honest part. The sum of the gates the wrapper cannot
+reach is *higher* in both runs with the change, which is the shape of a busier
+box rather than of a change: both runs happened later than the HEAD one, the
+second session was still compiling through all of them, and eight of those gates
+moved by about a second in both. Nine others (`runtime_c`, `shard_split`,
+`verify_seed`, `dispatch`, `parity`, `check_stale`, ...) did not move at all.
+`werror` is the one worth naming: 16 s at HEAD, 20 s in both runs with the
+change, so it was measured on its own -- 20 s and 17 s with the wrapper, 19 s
+without it, and **0** cache entries added, i.e. its compilations either hit or
+never reach the wrapper. What the aggregate does establish is the thing it is
+good for: `all` stays green with the wrapper wired into it, 21 gates, three
+runs.
+
+A cold cache is the one run that pays without gaining: the hashing is charged
+and no entry is reused. On this box that charge is inside the spread of the
+compiles it wraps -- a wrapper run against an empty cache took 3216 ms against a
+plain 3244 ms on the same file -- and the entries it fills are what every run
+after it reuses. CI restores `ORBIT_CCACHE_DIR` at
+`$GITHUB_WORKSPACE/.ccache` through `actions/cache`, keyed on the canonical, so
+CI's warm runs reuse these entries the same way they already reuse the
+bootstrap's, and a push that changes `stage3.exe.c` starts it cold again.
+
+**What it costs.** The key cannot see headers reached through the toolchain's
+own default search paths. In this repository the emitted C is compiled with
+`-I <runtime dir>` and includes only headers from there, which are hashed; the
+hole is in the wrapper's general contract and it is declared in its docstring
+rather than left for someone to discover.
+
+One trap worth writing down, because it cost a build to find: the value of
+`ORBIT_CC` is spliced into a **shell line**, so it has to be a command line. The
+first version quoted the interpreter, and on Windows every gate failed with the
+compiler reporting `[ERROR: process exited with code 1]` and `El nombre de
+archivo, el nombre de directorio o la sintaxis de la etiqueta del volumen no
+son correctos` -- cmd.exe reading the first token as a program named
+`"C:\...\python.exe"`. Unquoted, the same wiring is fine.
+
+**Correctness.** The cache never invents an artifact: it stores what the real
+compiler produced for byte-identical inputs and copies it back. Asserted on a
+real suite test through the real wiring: sha256 of the plain build, the
+cache-filling build and the cache hit are the same (`b8b81cff...`), the hit
+replaces the deleted artifact and adds no entry, and the built program's exit
+status and output are identical in both arms.
+
 

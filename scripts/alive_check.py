@@ -483,6 +483,17 @@ def registry(compiler, cc, work):
              "still looks green -- and every self-host gate imports it",
              lambda: _script("orbit_ccache.py", "self-test"),
              r"^cc cache self-test: OK", 60),
+        Tool("cc_cached.py", "report",
+             "the ORBIT_CC wrapper that puts the compiler's INNER compile "
+             "through that cache. No gate imports it -- it is wired in as a "
+             "compiler, by environment -- so this row is its only coverage. "
+             "Its self-test drives the wrapper against a compiler stub, "
+             "because the properties that have to hold are the wrapper's own: "
+             "argv and exit status passed through, a repeat served from the "
+             "cache, the fail-open paths still open, and a driver that would "
+             "name this file skipped rather than followed",
+             lambda: _script("cc_cached.py", "--self-test"),
+             r"^cc cache shim self-test: OK", 60),
 
         # ---- libraries: imported by the gates, never run ---------------------
         Tool("orbit_output.py", "library",
