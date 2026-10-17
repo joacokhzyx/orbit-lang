@@ -188,7 +188,8 @@ def main() -> int:
           f"= {norm_total} lines across {r['hunks']} hunk(s)")
     if raw_total:
         share = 100.0 * norm_total / raw_total
-        print(f"  so {share:.1f}% of the diff is register renumbering")
+        print(f"  so {share:.1f}% of the raw diff survives normalisation; the "
+              f"rest is register and label renumbering")
 
     if not norm_total:
         print("\nNothing changed beyond renumbering. The canonical was "
