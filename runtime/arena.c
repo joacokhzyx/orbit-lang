@@ -678,7 +678,9 @@ static OrbitArena* g_orbit_global_fallback_arena = NULL;
 
 OrbitArena* orbit_arena_get_global(void) {
     if (!g_orbit_global_fallback_arena) {
-        g_orbit_global_fallback_arena = orbit_arena_create(64 * 1024 * 1024);
+        /* A worker commits this much and grows on demand; the 64 MB default
+         * belongs in the reservation, not in the first call's commit charge. */
+        g_orbit_global_fallback_arena = orbit_arena_create(131072);
     }
     return g_orbit_global_fallback_arena;
 }
