@@ -32,6 +32,13 @@ port rather than a rewrite:
 Nothing here needs the Orbit compiler. It compiles C with a C compiler, which is
 why it can be its own CI job with no dependency on the bootstrap.
 
+Every compile goes through the shared content-addressed C cache
+(`scripts/orbit_ccache.py`), because the programs' C does not change between
+runs and neither do the headers they include. That second half is what the key
+had to learn: a program's `-I` names the runtime trees its `#include`s resolve
+against, so the key covers those trees and a runtime header change still
+recompiles. A repeat run copies a binary instead of compiling one.
+
 `--self-test` asserts the table can say no: a program that does not compile and a
 program that fails must both be reported.
 """
@@ -43,6 +50,9 @@ import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import orbit_ccache
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / "runtime"
@@ -233,10 +243,15 @@ def main() -> int:
                     except OSError:
                         pass
             binary = pdir / ("t_" + p["name"] + (".exe" if windows() else ""))
-            cc = subprocess.run(compile_argv(args.cc, p, binary),
-                                cwd=str(ROOT), capture_output=True, text=True)
-            if cc.returncode != 0:
-                return (p["name"], "compile-fail", cc.stdout, cc.stderr)
+            argv = compile_argv(args.cc, p, binary)
+            try:
+                orbit_ccache.compile_cached(
+                    [args.cc], argv,
+                    orbit_ccache.argv_inputs(argv, cwd=str(ROOT)),
+                    cwd=str(ROOT), capture_output=True)
+            except subprocess.CalledProcessError as exc:
+                return (p["name"], "compile-fail",
+                        exc.stdout or "", exc.stderr or "")
             # cwd is the program's own scratch dir, NOT the repository root
             # (see the note kept below): these tests use relative paths on
             # purpose, so running them from the root drops files into the

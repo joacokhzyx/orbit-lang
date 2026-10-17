@@ -475,10 +475,14 @@ def registry(compiler, cc, work):
                              "--timeout", "1"),
              r"Finished burst probe: FAIL", 120, allow_rc=(1,), expect_fail=True),
         Tool("orbit_ccache.py", "report",
-             "the content-addressed C cache. It has a main that prints its "
-             "state, so it can be run, and every self-host gate imports it",
-             lambda: _script("orbit_ccache.py"),
-             r"^cc cache: ", 60),
+             "the content-addressed C cache. Its self-test asserts the two "
+             "properties the whole cache rests on: identical inputs give an "
+             "identical key, and every input an include flag can reach moves "
+             "it. It has to assert them because this one fails silently -- the "
+             "artifact outlives the header that produced it and the build "
+             "still looks green -- and every self-host gate imports it",
+             lambda: _script("orbit_ccache.py", "self-test"),
+             r"^cc cache self-test: OK", 60),
 
         # ---- libraries: imported by the gates, never run ---------------------
         Tool("orbit_output.py", "library",

@@ -351,8 +351,9 @@ missing final newline, and files that do not compile). See
 There is no compiled-binary cache keyed on a source hash: every build runs the
 pipeline. There is no project config file: the output name,
 port, and the arena/Kynx/logging knobs are not read from any config
-file. `scripts/orbit_ccache.py` caches C compilations for the **bootstrap gates
-only**; it does not cache user builds, and it is not part of the compiler.
+file. `scripts/orbit_ccache.py` caches C compilations for the **gates** -- the
+self-host chain and the runtime C tests; it does not cache user builds, and it
+is not part of the compiler.
 
 ---
 

@@ -11,7 +11,18 @@ A cache keyed on the exact inputs makes the repeat cost a file copy. The key
 covers everything that can change the output:
 
     cc identity (command + --version)  |  every flag except -o and its value
-    |  every input file's size + SHA-256  |  the destination basename
+    |  every input file's content SHA-256  |  the destination basename
+    |  every file an include flag can reach: the trees named by
+       -I/-isystem/-iquote/-idirafter and the files named by -include/-imacros
+
+The include trees were the key's one hole. Emitted C is compiled with
+`-I <runtime dir>` and `#include`s the runtime headers, and the seed unit is
+compiled with the runtime directory on the same path, so a key that hashed only
+`sources` returned the artifact built against the PREVIOUS header the first time
+a header changed: an invisibly stale binary, the one failure mode a build cache
+must not have. An include tree that does not fit the walk bounds is refused
+rather than skipped, which makes that invocation uncacheable: a missed cache
+costs one compile, a wrong key ships a wrong artifact.
 
 Two details matter for honesty here:
 
@@ -85,7 +96,132 @@ def _file_digest(path: str) -> str:
     return h.hexdigest()
 
 
-def compute_key(cc_cmd, argv, sources) -> str:
+# Flags whose value is a DIRECTORY the translator searches for #include targets.
+# The fused spelling (-Iruntime) is legal for these and is the spelling the
+# compiler's own cc line uses (pipeline.orb wraps the runtime directory in
+# quotes), so both spellings fold to the same directory.
+_INCLUDE_DIR_FLAGS = ("-I", "-isystem", "-iquote", "-idirafter")
+
+# Flags whose value is a FILE opened before the translation unit. Their value is
+# never fused, so only the separated spelling is recognised: treating
+# `-includefoo.h` as one would invent a file name out of `-include-pch`.
+_INCLUDE_FILE_FLAGS = ("-include", "-imacros")
+
+# Bounds for walking an include directory. runtime/ and runtime/vendor are 8.5 MB
+# and 53 files together, so these are roomy rather than tight; the point is that
+# a directory which does not fit REFUSES the key instead of being skipped.
+_INCLUDE_WALK_MAX_FILES = 4096
+_INCLUDE_WALK_MAX_BYTES = 64 << 20
+
+
+def _flag_value(argv, i):
+    """(flag, value, extra_tokens) for the value-taking flag at argv[i], else None."""
+    tok = argv[i]
+    for flag in _INCLUDE_DIR_FLAGS:
+        if tok == flag:
+            return (flag, argv[i + 1], 1) if i + 1 < len(argv) else None
+        if tok.startswith(flag) and len(tok) > len(flag):
+            return flag, tok[len(flag):], 0
+    for flag in _INCLUDE_FILE_FLAGS:
+        if tok == flag:
+            return (flag, argv[i + 1], 1) if i + 1 < len(argv) else None
+    return None
+
+
+def _unquote(path: str) -> str:
+    """Drop one layer of quotes around a path token.
+
+    pipeline.orb writes the runtime directory as -I"<dir>" and that token reaches
+    here through a shell, so the quotes are part of the token, not syntax.
+    """
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in "\"'":
+        return path[1:-1]
+    return path
+
+
+def _extra_inputs(argv, cwd):
+    """(label, path) for every input an include flag lets the compile read.
+
+    Labels carry the path RELATIVE to the directory that named it, so a header
+    moving between two -I directories changes the key even when its bytes do
+    not. A directory that is empty or missing still yields its own label: a
+    header appearing there later must invalidate the entry. Raises OSError when
+    a tree does not fit the walk bounds, which the caller turns into an uncached
+    compile.
+    """
+    out = []
+    i = 0
+    while i < len(argv):
+        got = _flag_value(argv, i)
+        if got is None:
+            i += 1
+            continue
+        flag, value, extra = got
+        i += 1 + extra
+        path = os.path.normpath(os.path.join(cwd, _unquote(value)))
+        if flag in _INCLUDE_FILE_FLAGS:
+            out.append(("file:" + os.path.basename(path), path))
+            continue
+        label = os.path.basename(path.rstrip("\\/")) or path
+        budget = _INCLUDE_WALK_MAX_BYTES
+        count = 0
+        for dirpath, dirnames, filenames in os.walk(path):
+            dirnames.sort()
+            for name in sorted(filenames):
+                full = os.path.join(dirpath, name)
+                count += 1
+                try:
+                    budget -= os.path.getsize(full)
+                except OSError:
+                    budget -= 0
+                if count > _INCLUDE_WALK_MAX_FILES or budget < 0:
+                    raise OSError(
+                        "include directory %s does not fit the key walk bounds "
+                        "(%d files)" % (path, count))
+                rel = os.path.relpath(full, path).replace(os.sep, "/")
+                out.append(("dir:%s/%s" % (label, rel), full))
+        if count == 0:
+            out.append(("dir:" + label, None))
+    return out
+
+
+def argv_inputs(argv, cwd=None):
+    """The input files the argv itself names: non-flag tokens, minus the target.
+
+    `sources` is the caller's statement of what a compile reads. This is the
+    part of that statement the argv carries -- source files and .lib/.a/.res
+    link inputs. The destination is excluded by POSITION, not by existence: a
+    leftover output from the previous run must never enter the key, or every
+    rebuild would key the artifact it is about to replace.
+
+    `cwd` is the directory the compile runs in, and it is not optional in
+    spirit: this repository's gates name their sources relative to the root and
+    run the compiler from there, so resolving against the caller's own directory
+    would drop every source from the key -- a cache that misses is slow, but a
+    cache that keys nothing is wrong. Paths come back absolute so the digest
+    reads the same file the compiler will.
+    """
+    base = cwd or os.getcwd()
+    target = _out_target(argv)
+    target = os.path.abspath(os.path.join(base, target)) if target else None
+    inputs = []
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if tok == "-o":
+            skip = True
+            continue
+        if tok.startswith("-"):
+            continue
+        full = tok if os.path.isabs(tok) else os.path.join(base, tok)
+        if os.path.isfile(full) and os.path.abspath(full) != target:
+            inputs.append(full)
+    return inputs
+
+
+def compute_key(cc_cmd, argv, sources, cwd=None) -> str:
     """SHA-256 over every input that can affect the compiled artifact.
 
     Path arguments are reduced to their BASENAME before hashing. The gates use
@@ -93,6 +229,11 @@ def compute_key(cc_cmd, argv, sources) -> str:
     would make every run a miss; the basenames are already the contract
     (the compilers embed the source name and the linkers the output name, and
     the gates deliberately keep both constant across stages).
+
+    `cwd` is the directory the compile itself runs in, which is what a relative
+    -I path resolves against. It defaults to this process's directory, which is
+    right for the callers that do not pass it because they do not pass a cwd to
+    the compiler either.
     """
     h = hashlib.sha256()
     h.update(_cc_identity(cc_cmd).encode("utf-8", "replace"))
@@ -107,6 +248,16 @@ def compute_key(cc_cmd, argv, sources) -> str:
         h.update(os.path.basename(src).encode("utf-8", "replace"))
         h.update(b"\0")
         h.update(_file_digest(src).encode("ascii"))
+        h.update(b"\0")
+    h.update(b"\0includes\0")
+    for label, path in sorted(_extra_inputs(argv, cwd or os.getcwd()),
+                              key=lambda item: item[0]):
+        h.update(label.encode("utf-8", "replace"))
+        h.update(b"\0")
+        if path is not None and os.path.isfile(path):
+            h.update(_file_digest(path).encode("ascii"))
+        else:
+            h.update(b"-")
         h.update(b"\0")
     return h.hexdigest()
 
@@ -312,23 +463,34 @@ def _store(key: str, artifact: str) -> None:
     os.replace(tmp_meta, entry + ".meta")
 
 
-def compile_cached(cc_cmd, argv, sources, log=None):
+def compile_cached(cc_cmd, argv, sources, log=None, cwd=None,
+                   capture_output=False):
     """Run `argv` (a full cc invocation ending in -o TARGET), cached by content.
 
     Returns (target_path, hit). On a hit the cached artifact is copied to the
     requested target; on a miss `argv` runs and its output is stored.
+
+    `cwd` and `capture_output` pass through to the compiler, and `cwd` is also
+    what a relative -I path resolves against, so it has to reach the key: a gate
+    that compiles from the repository root and one that compiles from a scratch
+    directory are not compiling the same trees. A gate that reports a compile
+    failure needs the compiler's own diagnostics, which is what `capture_output`
+    gives it.
     """
+    run = {"cwd": cwd} if cwd is not None else {}
+    if capture_output:
+        run.update(capture_output=True, text=True, errors="replace")
     target = _out_target(argv)
     if target is None or not enabled():
-        subprocess.run(argv, check=True)
+        subprocess.run(argv, check=True, **run)
         return target, False
 
     try:
-        key = compute_key(cc_cmd, argv, sources)
+        key = compute_key(cc_cmd, argv, sources, cwd=cwd)
     except OSError as e:
         if log:
             log("cc cache: cannot key %s (%s); compiling directly" % (target, e))
-        subprocess.run(argv, check=True)
+        subprocess.run(argv, check=True, **run)
         return target, False
 
     art_path, mode = _load(key)
@@ -346,7 +508,7 @@ def compile_cached(cc_cmd, argv, sources, log=None):
             if log:
                 log("cc cache: cannot restore %s (%s); recompiling" % (target, e))
 
-    subprocess.run(argv, check=True)
+    subprocess.run(argv, check=True, **run)
     if os.path.isfile(target):
         try:
             _store(key, target)
@@ -356,8 +518,111 @@ def compile_cached(cc_cmd, argv, sources, log=None):
     return target, False
 
 
+def self_test() -> int:
+    """Assert the properties the key must have, on scratch files in a temp dir.
+
+    A cache that cannot fail is not a cache, and the way this one fails is
+    silent: a key that omitted an input hands back the artifact the *previous*
+    input produced, so the build looks green and ships the old binary. Every
+    assertion below is a change that MUST move the key, except the two that
+    must not -- a control (identical inputs, identical key) and the output
+    exclusion -- because a key that always changed would pass the rest.
+
+    Hashes only. No compiler runs and no cache directory is touched, so this
+    costs milliseconds and can run anywhere.
+    """
+    import tempfile
+
+    fails = []
+
+    def check(name, ok):
+        print(("  ok   " if ok else "  FAIL ") + name)
+        if not ok:
+            fails.append(name)
+
+    def key(argv, sources, cwd):
+        return compute_key([sys.executable], argv, sources, cwd=cwd)
+
+    with tempfile.TemporaryDirectory(prefix="ccache_selftest_") as td:
+        root = os.path.join(td, "proj")
+        inc = os.path.join(root, "inc")
+        os.makedirs(inc)
+        header = os.path.join(inc, "probe.h")
+        appeared = os.path.join(inc, "appeared.h")
+        source = os.path.join(root, "prog.c")
+        target = os.path.join(root, "prog.bin")
+        forced = os.path.join(root, "forced.h")
+
+        def write(path, text):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+
+        write(header, "#define PROBE 0\n")
+        write(source, '#include "probe.h"\nint main(void) { return PROBE; }\n')
+
+        argv = ["-O0", "-I", inc, source, "-o", target]
+        k0 = key(argv, [source], root)
+        check("identical inputs, identical key",
+              k0 == key(argv, [source], root))
+
+        # The defect this self-test exists for. probe.h is not in `sources`;
+        # only the -I directory names it.
+        write(header, "#define PROBE 1\n")
+        check("editing a header under -I moves the key",
+              key(argv, [source], root) != k0)
+        write(header, "#define PROBE 0\n")
+        check("restoring the header restores the key",
+              key(argv, [source], root) == k0)
+
+        write(appeared, "#define APPEARED 1\n")
+        check("a header appearing under -I moves the key",
+              key(argv, [source], root) != k0)
+        os.remove(appeared)
+
+        write(source, '#include "probe.h"\nint main(void) { return PROBE + 1; }\n')
+        check("editing a source moves the key", key(argv, [source], root) != k0)
+        write(source, '#include "probe.h"\nint main(void) { return PROBE; }\n')
+
+        # The two spellings the compiler itself writes: pipeline.orb emits
+        # -I"<dir>", and a shell may hand it over fused. The key is over the
+        # argv, so the spellings need not agree with each other; what must hold
+        # is that the tree behind each one is read.
+        for label, variant in (("quoted", ["-O0", '-I"%s"' % inc, source,
+                                          "-o", target]),
+                               ("fused", ["-O0", "-I" + inc, source,
+                                          "-o", target])):
+            before = key(variant, [source], root)
+            write(header, "#define PROBE 2\n")
+            walked = key(variant, [source], root) != before
+            write(header, "#define PROBE 0\n")
+            check("a %s -I path still walks the tree it names" % label, walked)
+
+        write(forced, "#define FORCED 0\n")
+        forced_argv = ["-O0", "-include", forced, "-I", inc, source, "-o", target]
+        kf = key(forced_argv, [source], root)
+        write(forced, "#define FORCED 1\n")
+        check("editing a -include file moves the key",
+              key(forced_argv, [source], root) != kf)
+
+        write(target, "leftover from the previous run\n")
+        check("a leftover output does not enter the key",
+              key(argv, [source], root) == k0)
+        check("argv_inputs keeps the source and drops the target and -I value",
+              argv_inputs(argv, cwd=root) == [source])
+        rel = ["-O0", "-I", "inc", "prog.c", "-o", "prog.bin"]
+        check("a relative source resolves against the compile's cwd",
+              argv_inputs(rel, cwd=root) == [source])
+
+    print("cc cache self-test: %s" % ("FAILED: " + ", ".join(fails) if fails
+                                      else "OK"))
+    return 1 if fails else 0
+
+
 def main(argv=None) -> int:
-    """Report the cache location and size (diagnostic only)."""
+    """`self-test` proves the key's properties; no argument reports state."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args[:1] == ["self-test"]:
+        return self_test()
     root = cache_root()
     total, entries = 0, 0
     for dirpath, _dirs, files in os.walk(root):
