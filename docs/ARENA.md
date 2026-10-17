@@ -58,6 +58,8 @@ $$\text{new\_cursor} = \text{align\_up}(\text{cursor} + N, 16)$$
 
 If $\text{new\_cursor} \le \text{committed\_end}$, allocation completes on the fast path without OS traps. The exact instruction count depends on toolchain and CPU - measure on your target rather than trusting a fixed number.
 
+The path never writes into the block it hands out, so a fresh allocation returns whatever is at the cursor, and after a reset that is the previous request's bytes. No caller in the runtime depends on them being zero: a census of the 100 `orbit_alloc`/`orbit_alloc_try` call sites outside `arena.c` finds no read-before-write, and the runtime C suite (arena's 28 among them) plus an emitted request loop both pass against a build whose `orbit_alloc` fills every block with `0xAA` (2026-10-17). A caller that needs zeros zeros its own block, the same contract `malloc` has; a change that starts depending on zeros has to say so and pay for it here.
+
 ### 2. Page Commit Path
 
 If $\text{new\_cursor} > \text{committed\_end}$, Arena invokes the OS virtual memory layer to commit physical pages up to the next growth granularity (64 KB):
@@ -74,7 +76,7 @@ If $\text{new\_cursor} > \text{committed\_end}$, Arena invokes the OS virtual me
 
 If an allocation would land past the 64 MB virtual reservation, Arena allocates a dedicated OS memory block and chains it to `overflow_list` rather than failing the request, and a chained segment is what `arena_overflow` (and D032) counts.
 
-Two things bound when that can happen. The allocation path charges the Kynx lease first (`runtime/arena.c:340`), and the default lease caps a request's arena at **16 MB cumulative** (`runtime/kynx.c:990`); the admission states tighten that figure and none raises it. A request that is admitted therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Measured on `exp/harena`: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained. Where the lease does not bind -- `ORBIT_KYNX=0`, or a budget above the reservation -- one request does chain and the column is non-zero, which is how the end-to-end positive was produced (report section 4).
+Two things bound when that can happen. The allocation path charges the Kynx lease first (`runtime/arena.c:340`), and the default lease caps a request's arena at **16 MB cumulative** (`runtime/kynx.c:990`); the admission states tighten that figure and none raises it. A request that is admitted therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Measured on `exp/harena`: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained. That refusal is a process abort, not a failed request: `orbit_alloc`'s default handler prints the line and ends the process (measured 2026-10-17, exit 3; the same program with `ORBIT_KYNX=0` survives), which is why the chain is unreachable and is the price of the arrangement. Until it has a dispatcher-side answer it is open debt: `ENGINEERING.md` §7, row `kynx-lease-abort`. Where the lease does not bind -- `ORBIT_KYNX=0`, or a budget above the reservation -- one request does chain and the column is non-zero, which is how the end-to-end positive was produced (report section 4).
 
 ---
 
