@@ -322,3 +322,92 @@ Both shapes now mirror the fallback, and the gate asserts the status, the
 `Retry-After` header and the exact body on the wire. The general lesson is the
 one worth keeping: a fast path that is only verified through the same
 abstraction as the slow path is unverified.
+
+## Follow-up (2026-10): the arena's hot retention is the request's footprint
+
+`orbit_arena_reset` decommitted every page past a fixed 256 KB watermark, so a
+request whose footprint exceeded it paid one `MEM_DECOMMIT` plus a re-commit and
+a re-fault of the whole footprint on every request. The 64 MB reservation could
+not help: reset throws the committed pages away before the next request can grow
+back into them. The watermark is now the footprint the previous request actually
+used (`cursor - base`, still on that request's end when reset runs), clamped to
+[`ORBIT_ARENA_HOT_RETENTION_LIMIT`, `ORBIT_ARENA_HOT_RETENTION_CEILING`] =
+[256 KB, 4 MB]. A request under the floor gets exactly the reset it got before:
+the floor is unchanged and the ceiling is what bounds the change.
+
+**Machine.** AMD Ryzen 5 2400G, 4c/8t, 3.6 GHz, Windows 10 19045. The end-to-end
+numbers were taken while two other research lanes were running `gcc` bursts on
+the same box, so each is a *paired* median over alternating arms, de-biased for
+which arm ran first (`sqrt(rA/rB)`, where rA and rB are the paired ratios with
+that arm first and with it second). What the de-biasing cannot remove is
+measurable, and is measured: see the control.
+
+**Mechanism, cycle counters.** `arenaprobe reset`, one emitted C against the two
+runtimes, cycle cost of one `alloc+reset` per request:
+
+| footprint | shipped | this change |
+|---|---|---|
+| 720 B | 283 | 285 |
+| 15 104 B | 1 934 | 1 537 |
+| 260 928 B (1 200 B *under* the floor) | 32 906 | 24 972 |
+| 2 095 984 B | **5 950 647** | **209 991** |
+| 67 109 888 B | 204 786 518 | 204 483 690 |
+
+The 2 MB footprint falls by 96.5 %, and the first reset there shows the whole
+mechanism: `committed 2097152 -> 262144` shipped, `2097152 -> 2097152` here.
+Every row at or under the floor is unchanged within the probe's own spread (the
+two middle rows disagree by 20-25 % run to run while `committed` is identical on
+both arms), and so is the 64 MB row: a footprint past the 64 MB reservation takes
+the overflow path, which resets *into* a fresh segment, and that is not what this
+change touches.
+
+**End to end.** `GET /k1m`, a 2 MB footprint, `ORBIT_WORKERS=1`, 4 connections,
+600 requests per run, 11 alternating pairs in each order. Ratios are
+second arm / first arm:
+
+| order | pairs agreeing | p50 ratio (median) | rps ratio (median) |
+|---|---|---|---|
+| shipped first | 11/11 | 0.479 [0.253, 0.890] | 2.007 [1.151, 3.955] |
+| this change first | 11/11 | 2.089 [1.802, 2.365] | 0.438 [0.313, 0.666] |
+
+Both orders agree on the sign in every pair. De-biased, the change is **p50
+-52 % and rps +114 %** on that route.
+
+**The control, and what it says about the measurement.** `GET /k128` has a
+260 928 B footprint, 1 200 B under the floor, so this change cannot reach it:
+`keep_size` is the same value on both arms and the probe shows `committed
+262144 -> 262144` either way. Measured anyway, it de-biases to +7.5 % rps. That is
+the resolution floor of the paired estimator on this box, and it is an order of
+magnitude below the effect above, which is the point of running it.
+
+**What it costs.** It is a retention, so it is bounded rather than free, and the
+bound is the reason the ceiling exists. Measured with one worker (`curl`, a fresh
+connection per request, working-set delta):
+
+| sequence | shipped | this change |
+|---|---|---|
+| large, large (`/k1m` twice) | +2.12 MB | +2.12 MB |
+| large then small (`/k1m`, `/k128`) | +0.38 MB | +2.12 MB |
+| small, small (`/k128` twice) | +0.38 MB | +0.37 MB |
+
+On a uniform workload the two policies are identical at rest, because reset runs
+*before* a request: a worker that has just served one holds that footprint until
+the next arrives under either policy. The cost is in the transition. After a large
+request, the small request's reset drops the shipped retention to 256 KB and
+leaves this one holding the previous footprint (+2.12 MB against +0.38 MB here),
+so the resting set can be the previous request's footprint rather than 256 KB
+until the next request arrives. That extra is per worker and capped by
+`ORBIT_ARENA_HOT_RETENTION_CEILING`, i.e. `workers * 4 MB` worst case. With eight
+workers on one 2 MB route -- no transition -- the working set rose +16.3 MB in
+**both** arms, which is the figure the research note that proposed this change
+reported as +14.1 MB *for this change*; measured side by side, both arms rise the
+same +16.3 MB, and the third row above is the shape the cost actually has.
+
+**What it is not.** Retaining pages keeps their bytes, so code that reads a
+retained page before writing it now reads the previous request's data instead of
+a fresh zero page. The request-serving runtime was audited for that: all 100
+`orbit_alloc` call sites either zero the block (`collections.c` map buckets,
+`http.c` `OrbitRequest`, `kynx.c` lease) or write it fully before reading it. The
+pages under the floor were already unzeroed before this change, so this widens an
+existing rule rather than introducing one; `docs/ARENA.md` does not promise zeroed
+memory and now says so where it used to pin the constant.
