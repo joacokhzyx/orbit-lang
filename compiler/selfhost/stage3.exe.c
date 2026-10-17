@@ -74714,7 +74714,7 @@ orbit_string routerPreText(orbit_string logsActive, orbit_string kynxActive) {
     r_228 = orbit_string_concat(arena, r_227, "        }\n");
     out = (void*)(r_228);
     r_229 = (void*)(out);
-    r_230 = orbit_string_concat(arena, r_229, "        orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls);\n");
+    r_230 = orbit_string_concat(arena, r_229, "        orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls, arena);\n");
     out = (void*)(r_230);
     r_231 = (void*)(out);
     r_232 = orbit_string_concat(arena, r_231, "        orbit_send_response(client_sock, res);\n");
@@ -88629,7 +88629,7 @@ __attribute__((hot)) orbit_string generateRouteHandlerBody(IRFunction* func) {
     r_11 = orbit_string_concat(arena, r_10, "(arena, req);\n");
     body = (void*)(r_11);
     r_12 = (void*)(body);
-    r_13 = orbit_string_concat(arena, r_12, "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls);\n");
+    r_13 = orbit_string_concat(arena, r_12, "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls, arena);\n");
     body = (void*)(r_13);
     r_14 = (void*)(body);
     r_15 = orbit_string_concat(arena, r_14, "            orbit_send_response(client_sock, res);\n");
@@ -123352,7 +123352,7 @@ label_9118:;
     r_59 = (void*)(r);
     r_60 = (orbit_string)(((DoctorRouteLine*)r_59)->path);
     r_61 = orbit_string_concat(arena, r_58, r_60);
-    r_62 = orbit_string_concat(arena, r_61, " overflowed its predicted arena ");
+    r_62 = orbit_string_concat(arena, r_61, " overflowed its arena segment ");
     r_63 = (orbit_int)(uintptr_t)(overflow);
     r_64 = (orbit_string)(orbit_int_to_string_selfhost((orbit_int)(uintptr_t)(r_63)));
     r_65 = orbit_string_concat(arena, r_62, r_64);
@@ -123360,7 +123360,7 @@ label_9118:;
     r_67 = (void*)(path);
     r_68 = orbit_string_concat(arena, r_66, r_67);
     r_69 = orbit_string_concat(arena, r_68, ".");
-    doctorReport((void*)(uintptr_t)(r_50), (orbit_string)(r_52), (orbit_int)(uintptr_t)(r_54), (orbit_string)("D032"), (orbit_string)(r_69), (orbit_string)("the request needed more memory than the oracle predicted; either the prediction is too tight for this route or the handler allocates per request what it could reuse."));
+    doctorReport((void*)(uintptr_t)(r_50), (orbit_string)(r_52), (orbit_int)(uintptr_t)(r_54), (orbit_string)("D032"), (orbit_string)(r_69), (orbit_string)("the request needed more arena than its segment reserved and the allocator chained another; give the route a larger arena or allocate less per request."));
     goto label_9121;
 label_9120:;
 label_9121:;
@@ -155700,7 +155700,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
             orbit_string html = orbit_ledger_html(arena);
             res = orbit_response_create(arena, 200, "text/html", html);
         }
-        orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls);
+        orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls, arena);
         orbit_send_response(client_sock, res);
 #if ORBIT_LOGS_ACTIVE
         orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);

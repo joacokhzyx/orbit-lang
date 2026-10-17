@@ -241,6 +241,13 @@ OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity
 void orbit_arena_destroy(OrbitArena* arena) {
     if (!arena) return;
     
+    /* Step 0: publish the interval that this arena never got to reset. Worker
+     * arenas are folded at reset; the pool, a child arena, or a worker tearing
+     * down has a final interval, and without this fold the allocations made
+     * after the last reset would never reach the process totals. */
+    orbit_perf_fold_arena(arena->alloc_count, arena->requested_bytes,
+                          arena->aligned_bytes, arena->peak_used);
+
     /* Step 1: release all chained overflow segments. */
     OrbitArenaOverflow* overflow = arena->overflow_list;
     while (overflow) {
@@ -360,11 +367,11 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     unsigned char* new_cursor = arena->cursor + aligned;
 
     /* Fast path: fits inside currently committed space.
-     * Global telemetry uses plain increments here instead of atomic RMWs:
-     * four LOCK-prefixed ops per alloc dominate this path, and the counters
-     * are approximate under contention by design (same tolerance class as
-     * the existing racy min/max/peak updates above). Slow paths below keep
-     * the exact atomic helpers since they run rarely. */
+     * Telemetry is private to this arena and is joined into the process
+     * totals once per request by orbit_arena_reset. Writing the four globals
+     * here put a store per allocation on a line every worker shares; the join
+     * is four RMWs per request instead, and it is exact, where the plain
+     * stores here were approximate by design. */
     if (new_cursor <= arena->committed_end) {
         void* ptr = arena->cursor;
         arena->cursor = new_cursor;
@@ -372,25 +379,15 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
         arena->requested_bytes += bytes;
         arena->aligned_bytes += aligned;
 
-        orbit_perf_stats.arena_alloc_count++;
-        orbit_perf_stats.arena_requested_bytes += (uint64_t)bytes;
-        orbit_perf_stats.total_alloc_bytes += (uint64_t)aligned;
-        orbit_perf_stats.arena_aligned_bytes += (uint64_t)aligned;
-
         size_t current_used = (size_t)(arena->cursor - arena->base);
         if (current_used > arena->peak_used) {
             arena->peak_used = current_used;
-            if (current_used > orbit_perf_stats.arena_peak_used_bytes) {
-                orbit_perf_stats.arena_peak_used_bytes = current_used;
-            }
         }
 
         arena->used = current_used;
 
         return ptr;
     }
-
-    orbit_perf_record_requested_bytes(bytes);
 
     /* Slow path: fits inside reservation, commit more pages */
     if (new_cursor <= arena->reserved_end) {
@@ -420,14 +417,10 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
         size_t current_used = (size_t)(arena->cursor - arena->base);
         if (current_used > arena->peak_used) {
             arena->peak_used = current_used;
-            if (current_used > orbit_perf_stats.arena_peak_used_bytes) {
-                orbit_perf_stats.arena_peak_used_bytes = current_used;
-            }
         }
         
         arena->used = current_used;
 
-        orbit_perf_record_total_alloc(aligned);
         return ptr;
     }
 
@@ -490,8 +483,7 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     arena->alloc_count++;
     arena->requested_bytes += bytes;
     arena->aligned_bytes += aligned;
-    
-    orbit_perf_record_total_alloc(aligned);
+
     return ptr;
 }
 
@@ -558,7 +550,15 @@ void orbit_arena_reset(OrbitArena* arena) {
     arena->committed_bytes = (size_t)(arena->committed_end - arena->base);
     arena->reserved_bytes  = total_reserved;
 
-    /* Step 3: rewind the bump pointer and advance the epoch generation. */
+    /* Step 3: rewind the bump pointer and advance the epoch generation.
+     *
+     * The join happens here, before the interval counters are cleared: this is
+     * the only place the process totals learn about arena allocations, so
+     * they are exact (atomic adds, nothing lost) and cost four RMWs per
+     * request rather than four stores per allocation at each bump. */
+    orbit_perf_fold_arena(arena->alloc_count, arena->requested_bytes,
+                          arena->aligned_bytes, arena->peak_used);
+
     arena->cursor         = arena->base;
     arena->requested_bytes = 0;
     arena->aligned_bytes  = 0;
@@ -649,6 +649,23 @@ uint64_t orbit_arena_alloc_count(const OrbitArena* arena) {
 /** @brief Return the high-water mark of used bytes since creation/reset. */
 size_t orbit_arena_peak_used(const OrbitArena* arena) {
     return arena ? arena->peak_used : 0;
+}
+
+/** @brief Bytes this arena is using in its active segment right now.
+ *
+ *  At the end of a request this is that request's footprint: the bump cursor
+ *  only moves forward within a request (rewind is not used on the request
+ *  path), so the value at exit is the request's high-water mark. After an
+ *  overflow the arena has moved to a fresh segment and this counts the new
+ *  segment only, which is why the per-route row reports orbit_arena_overflowed
+ *  beside it. */
+size_t orbit_arena_active_bytes(const OrbitArena* arena) {
+    return arena ? arena->used : 0;
+}
+
+/** @brief Non-zero when this arena chained an overflow segment since its last reset. */
+int orbit_arena_overflowed(const OrbitArena* arena) {
+    return (arena && arena->overflow_list != NULL) ? 1 : 0;
 }
 
 static OrbitArena* g_orbit_global_fallback_arena = NULL;

@@ -48,7 +48,6 @@
 #define ORBIT_LEDGER_C
 
 #include "performance.h"
-#include "oracle.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -68,6 +67,8 @@ typedef struct {
     uint64_t count;
     uint64_t total_cycles;
     uint64_t db_cycles;
+    uint64_t max_bytes;      /* largest arena footprint seen on this route */
+    uint64_t overflow_count; /* requests on this route that chained a segment */
     uint64_t lat[ORBIT_LEDGER_LAT_BUCKETS];
     int used;
 } OrbitLedgerEntry;
@@ -175,13 +176,25 @@ static uint64_t orbit_ledger_percentile_us(const OrbitLedgerEntry* e, uint64_t p
     return 0;
 }
 
-void orbit_ledger_exit(int idx, uint64_t cycles) {
+/* Closes one request: the row's latency, and its memory when the caller can
+ * say which arena the request ran in. @p arena is NULL for callers that do not
+ * have one (tests, a demo server), which leaves the memory columns untouched. */
+void orbit_ledger_exit(int idx, uint64_t cycles, const OrbitArena* arena) {
     /* Under ORBIT_NO_LEDGER, enter always returns -1, so this is a no-op
      * store apart from clearing the thread-local slot. */
     if (idx >= 0 && idx < ORBIT_LEDGER_MAX) {
         orbit_perf_atomic_inc64(&orbit_ledger_table[idx].count);
         orbit_perf_atomic_add64(&orbit_ledger_table[idx].total_cycles, cycles);
         orbit_perf_atomic_add64(&orbit_ledger_table[idx].lat[orbit_ledger_lat_bucket(cycles)], 1);
+        /* Memory of the request this row just closed, read from the arena the
+         * request ran in: max_bytes is the footprint when the handler
+         * returned, and a second segment means it overflowed. Both are
+         * measured here rather than predicted. */
+        orbit_perf_atomic_max64(&orbit_ledger_table[idx].max_bytes,
+                                (uint64_t)orbit_arena_active_bytes(arena));
+        if (orbit_arena_overflowed(arena)) {
+            orbit_perf_atomic_inc64(&orbit_ledger_table[idx].overflow_count);
+        }
     }
     orbit_ledger_tls_slot = -1;
 }
@@ -331,14 +344,13 @@ orbit_string orbit_ledger_json(OrbitArena* arena) {
             uint64_t p50 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 500);
             uint64_t p95 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 950);
             uint64_t p99 = orbit_ledger_percentile_us(&orbit_ledger_table[i], 990);
-            /* arena_overflow and arena_max_bytes come from the prediction table,
-             * not from here: the ledger times requests, the oracle sizes them.
-             * A non-zero overflow is the one defect in this runtime that source
-             * reading cannot see and that this table knows exactly. */
-            uint64_t overflow = oracle_route_overflow(orbit_ledger_table[i].method,
-                                                      orbit_ledger_table[i].path);
-            size_t max_bytes = oracle_route_max_seen(orbit_ledger_table[i].method,
-                                                     orbit_ledger_table[i].path);
+            /* Memory of this route's requests, recorded by orbit_ledger_exit
+             * from the arena each request ran in. max_bytes is the largest
+             * footprint at handler return; overflow_count counts requests
+             * that needed a second arena segment. Both are measured, so a
+             * non-zero overflow is a request the arena could not hold. */
+            uint64_t overflow = orbit_ledger_table[i].overflow_count;
+            uint64_t max_bytes = orbit_ledger_table[i].max_bytes;
             off += (size_t)snprintf(buf + off, 32768 - off,
                 "%s{\"method\":\"%s\",\"path\":\"%s\",\"req\":%llu,\"avg_ms\":%llu.%02llu,"
                 "\"db_share\":%llu,\"joules_total\":%.6f,\"joules_per_req\":%.6f,"

@@ -39,6 +39,33 @@
   #define orbit_perf_atomic_inc32(ptr) __sync_fetch_and_add((volatile uint32_t*)(ptr), 1)
 #endif
 
+/* Monotone max under concurrency. A plain store loses an update when two
+ * threads raise the same cell at once: the lower store lands last and the
+ * higher value is gone. The peak this guards is a published number, so it
+ * gets a CAS loop rather than the racy treatment the min/max cycle fields
+ * have. Bounded retry: every failure means another thread raised the cell. */
+#ifdef _WIN32
+  #define orbit_perf_atomic_max64(ptr, val) do { \
+      volatile LONG64* _cell = (volatile LONG64*)(ptr); \
+      LONG64 _want = (LONG64)(val); \
+      LONG64 _cur = InterlockedCompareExchange64(_cell, 0, 0); \
+      while (_want > _cur) { \
+          if (InterlockedCompareExchange64(_cell, _want, _cur) == _cur) break; \
+          _cur = InterlockedCompareExchange64(_cell, 0, 0); \
+      } \
+  } while (0)
+#else
+  #define orbit_perf_atomic_max64(ptr, val) do { \
+      volatile uint64_t* _cell = (volatile uint64_t*)(ptr); \
+      uint64_t _want = (uint64_t)(val); \
+      uint64_t _cur = *_cell; \
+      while (_want > _cur) { \
+          if (__sync_bool_compare_and_swap(_cell, _cur, _want)) break; \
+          _cur = *_cell; \
+      } \
+  } while (0)
+#endif
+
 typedef struct {
     // Request Stats
     uint64_t request_count;
@@ -188,14 +215,20 @@ ORBIT_INLINE OrbitPerfStats orbit_perf_get_stats(void) {
 
 /* ── Epochal VM Arena telemetry recording helpers ────────────────────── */
 
-static inline void orbit_perf_record_total_alloc(size_t bytes) {
-    orbit_perf_atomic_inc64(&orbit_perf_stats.arena_alloc_count);
-    orbit_perf_atomic_add64(&orbit_perf_stats.total_alloc_bytes, bytes);
-    orbit_perf_atomic_add64(&orbit_perf_stats.arena_aligned_bytes, bytes);
-}
-
-static inline void orbit_perf_record_requested_bytes(size_t bytes) {
-    orbit_perf_atomic_add64(&orbit_perf_stats.arena_requested_bytes, bytes);
+/* Join one arena's interval counters into the process totals. Called once
+ * per request, from orbit_arena_reset, against four stores per allocation on
+ * the old fast path: fewer shared writes, and exact, because an arena's
+ * counters are private to the worker that owns it and an atomic add cannot
+ * lose one. allocs/requested/aligned are what the arena accumulated since its
+ * last reset; peak_used is the arena's own high-water mark, which reset does
+ * not clear, so the same value is offered again on later resets. */
+static inline void orbit_perf_fold_arena(uint64_t allocs, uint64_t requested,
+                                         uint64_t aligned, uint64_t peak_used) {
+    orbit_perf_atomic_add64(&orbit_perf_stats.arena_alloc_count, allocs);
+    orbit_perf_atomic_add64(&orbit_perf_stats.arena_requested_bytes, requested);
+    orbit_perf_atomic_add64(&orbit_perf_stats.arena_aligned_bytes, aligned);
+    orbit_perf_atomic_add64(&orbit_perf_stats.total_alloc_bytes, aligned);
+    orbit_perf_atomic_max64(&orbit_perf_stats.arena_peak_used_bytes, peak_used);
 }
 
 static inline void orbit_perf_record_virtual_reserved(size_t bytes) {

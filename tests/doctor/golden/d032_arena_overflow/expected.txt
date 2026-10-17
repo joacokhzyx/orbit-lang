@@ -1,3 +1,3 @@
-input.orb:1 warning [D032] route GET /hot overflowed its predicted arena 17 time(s) in the ledger at ledger.json. fix: the request needed more memory than the oracle predicted; either the prediction is too tight for this route or the handler allocates per request what it could reuse.
+input.orb:1 warning [D032] route GET /hot overflowed its arena segment 17 time(s) in the ledger at ledger.json. fix: the request needed more arena than its segment reserved and the allocator chained another; give the route a larger arena or allocate less per request.
 input.orb:5 warning [D031] route GET /never-called is registered but the ledger at ledger.json has no record of it. fix: if nothing requests it, delete it; if it is only used by tests or by another service, say so here rather than leaving the snapshot to be guessed at.
 doctor: 2 finding(s) (0 error(s), 2 warning(s)) in 1 files under "input.orb".

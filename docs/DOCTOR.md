@@ -212,7 +212,8 @@ input: scan a single service, or a single file, when that is the question.
 ## Reading production telemetry
 
 A running service records a per-route ledger: request counts, p50/p95/p99, a
-latency histogram and an energy estimate. Until now it was reachable only at
+latency histogram, the arena footprint of the route's requests, and an energy
+estimate. Until now it was reachable only at
 `/_ledger/data`, on loopback, over HTTP -- which means a static tool could not
 read it. It would have to start a server, drive traffic through it and know when
 to stop, and the interesting cases only exist *after* the service has been up: "this
@@ -235,7 +236,7 @@ hook, the rename, and the opt-in default.
 | Code | What it reports |
 |---|---|
 | `D031` | A route the source registers that the ledger has **no record of**. Dead code that reading the source cannot find: `D003` says "nothing in the scanned files calls this", which is a different and weaker claim than "no request has ever reached it". |
-| `D032` | A route whose **arena overflowed** -- `arena_overflow` non-zero in the snapshot. A leak counted in production, not inferred from reading allocations. |
+| `D032` | A route whose **arena overflowed** -- `arena_overflow` non-zero in the snapshot: requests that needed more arena than the segment reserved, so the allocator chained another. Counted per request from the arena in `orbit_ledger_exit`, so this is a leak counted in production, not inferred from reading allocations. The column is real but narrow: the default Kynx lease caps a request at 16 MB (`runtime/kynx.c:990`), below the arena's 64 MB reservation, so an admitted request cannot chain a segment and this check is structurally silent under the default policy. It fires where the lease does not bind -- `ORBIT_KYNX=0` or a budget above the reservation. |
 | `D033` | A route whose **measured p99 exceeds the budget** in `ENGINEERING.md`. The budget is a claim about production and this is production disagreeing with it. |
 
 These read a snapshot; they are silent without one, which is not "assume the

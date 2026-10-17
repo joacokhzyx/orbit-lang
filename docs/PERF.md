@@ -141,6 +141,11 @@ HTTP-parse and header-byte-identity gates:
    replacing four atomic read-modify-writes per allocation. Slow paths keep
    exact atomics, so this stays in the same race-tolerant class as the
    existing min/max updates. Single-threaded accumulation is exact.
+   *(Superseded: the fast path now writes no global at all, and
+   `orbit_arena_reset` folds the arena's own counters into the process totals
+   once per request. Fewer shared writes than either form, and exact instead
+   of race-tolerant. See "Arena telemetry is a fold, and the ledger's memory
+   columns are measured" below.)*
 3. `runtime/http.c`: manual response-header build, replacing a per-request
    `snprintf`. Single-send behaviour and the `(int)` length truncation are
    unchanged, and pathological inputs keep the bounded `snprintf` fallback.
@@ -177,6 +182,90 @@ durable part.
   runtime; fixing them is a codegen change, not a runtime change. The
   per-line `fflush` half of the access-log item was removed in 2026-10; see
   the follow-up below.
+
+## Arena telemetry is a fold, and the ledger's memory columns are measured
+
+Item 2 above moved arena telemetry from atomics to plain stores. What replaced
+those stores is this: the allocation fast path now writes **no global at all**,
+and the arena's own counters are joined into the process totals once per
+request.
+
+**What changed.** `OrbitArena` accumulates `alloc_count`, `requested_bytes`,
+`aligned_bytes` and its `peak_used` privately (`runtime/arena.c`), and the fast
+path updates them with plain arithmetic on the arena it has already
+dereferenced. `orbit_arena_reset` -- which the emitted loop calls before every
+request -- folds that interval into `orbit_perf_stats`, then re-bases the
+private counters; `orbit_arena_destroy` folds the last interval of an arena that
+will never be reset again. The fold is six atomic read-modify-writes per
+request (one increment for `arena_resets`, four adds, one compare-and-swap for
+the peak) in place of four stores per allocation. `orbit_ledger_exit` takes the
+request's arena as a third argument and publishes `arena_max_bytes` from
+`orbit_arena_active_bytes(arena)` and `arena_overflow` from
+`orbit_arena_overflowed(arena)`.
+
+What that fixes is not the cost, it is the meaning: those two ledger columns
+came from `runtime/oracle.c`'s prediction table, and nothing in the generated
+server ever opened a session (`oracle_begin_session`, `oracle_end_session` and
+`oracle_init` have no callers of their own), so they were structurally zero.
+`tests/doctor/golden/d032_arena_overflow` and its new negative
+`d032_silent_without_overflow` pin the measured behaviour, and D032's row in
+`docs/DOCTOR.md` now states the narrow condition under which the column can be
+non-zero at all.
+
+**The join is exact; it is deferred by one request per worker.** The gate is
+`runtime/test_arena_telemetry.c`: four threads' arenas summed independently and
+compared against the aggregate delta, plus a case that proves the fast path
+publishes nothing. There is one thing it cannot count, an arena that is never
+reset and never destroyed -- in practice the process-wide fallback arena, from
+which nothing on the request path allocates. What the join does change is *when*
+a total appears: a worker's last interval publishes at that worker's next
+request, so `/_pulse`'s `alloc_mb` can trail by up to one request per worker,
+and a worker that stops taking requests holds its interval until it exits. The
+per-route columns in `/_ledger` are not deferred; they are written by the
+request that measures them. Measured end to end (drained, 953 requests, both
+arms): identical `arena_max_bytes` for `/tiny` (720), `/k8` (15104) and `/k64`
+(129840), `alloc_mb` within 0.07 %, and an undrained pair whose 128 MB gap is
+exactly one worker's unfolded interval.
+
+**Cost.** Both arms were compiled from the *same* emitted C, with the shipped
+line, at the level a user build defaults to:
+
+```
+gcc -s -O1 -Wall harena_service.c -o <arm>.exe -I<runtime> -DORBIT_WITH_NET -lws2_32
+```
+
+The arms differ only in `-I`: the old arm is `5dcd957`'s `runtime/` plus a
+three-line shim (`(void)arena`) so the new signature links, the new arm is the
+branch's. The route is `/tiny`, whose whole request footprint is 720 bytes (a
+handful of allocations) against ~97 000 cycles of handler work: the least other
+work there is to hide per-allocation bookkeeping in, so the most sensitive
+configuration available. Eight alternating windows of 150 000 requests at 16
+connections, unpaced, `--pre 2000`, on AMD Ryzen 5 2400G (4c/8t, 3.6 GHz, 8 GB),
+Windows 10 19045, gcc 16.2.0, box quiet at both ends of the session (0 foreign
+compilers, 5 % CPU load). Ratio is new over old:
+
+| instrument | median | new faster | sign test | 95 % CI |
+|---|---|---|---|---|
+| in-handler cycles/request (`/_pulse`, TSC 3.6 GHz) | 0.9958 | 5/8 | p = 0.73 | [0.982, 1.004] |
+| whole-process CPU us/request | 0.9746 | 7/8 | p = 0.07 | [0.939, 0.989] |
+
+**The honest reading is that neither instrument resolves this change.** The
+cycles instrument straddles 1.0, and it is the primary one -- it is what
+`/_pulse` publishes. The CPU instrument's numerator is `GetProcessTimes`',
+quantised to 15.6 ms, which is about 0.1 us/request at this `n`; more to the
+point, its session-to-session spread is larger than any effect here. Two earlier
+sessions of the same pair -- both provisional, a compiler was up at one end --
+put the same ratio at 1.047 and 0.980, 7 % apart and on both sides of 1.0. A
+metric that moves that much between sessions of one change cannot certify a 3 %
+one. What the mechanism gives is the ceiling: four stores times a handful of
+allocations is tens of stores per request against ~97 000 cycles, below the
+~1-2 % this harness resolves. So the result is that the bookkeeping change is
+invisible at this resolution, and neither a win nor a loss may be claimed from
+these runs. The fold's own cost is six atomic read-modify-writes, and its
+contention exposure is per request on a line eight workers share rather than per
+allocation on the same line; if that ever matters it will show up under load,
+which the harness's concurrent-client knob can raise (one Python client leaves
+eight workers well short of saturated).
 
 ## Follow-up (2026-10): the access log's per-line flush
 

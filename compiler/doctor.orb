@@ -843,7 +843,7 @@ fn doctorCheckTelemetry(stats: DoctorStats, routes: list, opts: DoctorOptions) {
         } else {
             val overflow = doctorTelemetryNumber(text, r.method, r.normPath, "arena_overflow")
             if overflow > 0 {
-                doctorReport(stats, r.file, r.line, "D032", "route " + r.method + " " + r.path + " overflowed its predicted arena " + orbit_int_to_string_selfhost(overflow) + " time(s) in the ledger at " + path + ".", "the request needed more memory than the oracle predicted; either the prediction is too tight for this route or the handler allocates per request what it could reuse.")
+                doctorReport(stats, r.file, r.line, "D032", "route " + r.method + " " + r.path + " overflowed its arena segment " + orbit_int_to_string_selfhost(overflow) + " time(s) in the ledger at " + path + ".", "the request needed more arena than its segment reserved and the allocator chained another; give the route a larger arena or allocate less per request.")
             }
             val p99 = doctorTelemetryNumber(text, r.method, r.normPath, "p99_us")
             val budget = doctorLatencyBudgetUs(opts)

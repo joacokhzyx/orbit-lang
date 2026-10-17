@@ -96,6 +96,11 @@ PROGRAMS = [
     prog("exec", warnings=True, defines=["-DORBIT_WITH_EXEC"]),
     prog("http_client", warnings=True),
     prog("query", warnings=True),
+    # The arena's own counters are joined into the process totals once per
+    # request by orbit_arena_reset. This is the gate that says the join is the
+    # only publisher: four threads' arenas against the aggregate delta, plus
+    # the per-route memory columns orbit_ledger_exit fills.
+    prog("arena_telemetry", warnings=True),
 ]
 
 

@@ -24,10 +24,12 @@ int main(void) {
     /* 1 us, 2 us, 4 us, and a 10 ms outlier, all on one route. */
     int slot = orbit_ledger_enter("GET", "/notes/:id");
     assert(slot >= 0);
-    orbit_ledger_exit(slot, US(1));
-    orbit_ledger_exit(slot, US(2));
-    orbit_ledger_exit(slot, US(4));
-    orbit_ledger_exit(slot, US(10000));
+    /* No arena here: the test drives the percentile buckets, and the memory
+     * columns are covered by test_arena_telemetry.c. */
+    orbit_ledger_exit(slot, US(1), NULL);
+    orbit_ledger_exit(slot, US(2), NULL);
+    orbit_ledger_exit(slot, US(4), NULL);
+    orbit_ledger_exit(slot, US(10000), NULL);
     
 
     const OrbitLedgerEntry* e = &orbit_ledger_table[slot];

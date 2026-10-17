@@ -1858,7 +1858,7 @@ fn generateRouteHandlerBody(func: IRFunction) -> string {
     body = body + "            uint64_t _orbit_ls = orbit_rdtsc();\n"
     body = body + "            int _orbit_lslot = orbit_ledger_enter(req->method, req->path);\n"
     body = body + "            OrbitResponse* res = " + sanitizeIdentifier(func.name) + "(arena, req);\n"
-    body = body + "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls);\n"
+    body = body + "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls, arena);\n"
     body = body + "            orbit_send_response(client_sock, res);\n"
     body = body + "#if ORBIT_LOGS_ACTIVE\n"
     body = body + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);\n"

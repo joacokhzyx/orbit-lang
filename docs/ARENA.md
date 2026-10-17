@@ -72,7 +72,9 @@ If $\text{new\_cursor} > \text{committed\_end}$, Arena invokes the OS virtual me
 
 ### 3. Overflow List Chaining
 
-If an allocation exceeds the 64 MB virtual reservation limit, Arena allocates a dedicated OS memory block and chains it to `overflow_list` to prevent out-of-memory crashes.
+If an allocation would land past the 64 MB virtual reservation, Arena allocates a dedicated OS memory block and chains it to `overflow_list` rather than failing the request, and a chained segment is what `arena_overflow` (and D032) counts.
+
+Two things bound when that can happen. The allocation path charges the Kynx lease first (`runtime/arena.c:357`), and the default lease caps a request's arena at **16 MB cumulative** (`runtime/kynx.c:990`); the admission states tighten that figure and none raises it. A request that is admitted therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Measured on `exp/harena`: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained. Where the lease does not bind -- `ORBIT_KYNX=0`, or a budget above the reservation -- one request does chain and the column is non-zero, which is how the end-to-end positive was produced (report section 4).
 
 ---
 
@@ -204,6 +206,39 @@ measure, don't assume.
 `arena_peak_used_bytes`, `arena_resets`, `arena_overflow_allocations`,
 `arena_checkpoint_count`, `arena_rewind_count` (the last two are always
 zero in a running server — see above).
+
+The allocation counters are **private to one arena** and joined into the
+process totals once per request, by `orbit_arena_reset`. The allocation fast
+path writes no global at all: a store per allocation on a line every worker
+shares was the cost being removed, and the join is six RMWs per request instead
+(one increment for `arena_resets`, four adds, one compare-and-swap for the
+peak). The join is also exact, because an atomic add cannot lose an update
+where the plain per-allocation stores could, and because an arena is reset by
+the worker that owns it. `orbit_arena_destroy` folds the final interval of an
+arena that will never be reset again (worker shutdown, a child arena, the
+pool).
+
+What this deliberately does **not** count: an arena that is neither reset nor
+destroyed. In practice that is the process-wide fallback arena
+(`orbit_arena_get_global`), which lives for the life of the process. Nothing on
+the request path allocates from it -- measured on `exp/harena`, its counters stay
+at zero while a route's string work runs, because the runtime's allocation
+helpers keep the arena they are handed -- so this is a gap in the *set* of
+arenas, not a loss of request bytes. A hand-written C program that allocates only
+from the global arena sees the four counters stay at zero.
+
+What the join does change is *when* the totals publish. It happens at
+`orbit_arena_reset`, which the emitted loop calls before each request, and each
+worker owns its arena (eight on the measurement box), so a worker's last interval
+is published by *that worker's* next request and not by a request that lands on
+another worker. Under continuous traffic that is one request per worker; a worker
+that stops taking requests holds its interval until its next request or until
+`orbit_arena_destroy` folds it at shutdown. `/_ledger`'s per-route columns are not
+deferred: they are written in the request that measures them.
+
+`runtime/test_arena_telemetry.c` is the gate: four threads' arenas against the
+aggregate delta, the fast path proved to publish nothing, and the per-route
+memory columns.
 
 **Running the arena tests.** The invariants live in one C test program
 CI runs on every push (`runtime/test_arena.c`):

@@ -1,0 +1,11 @@
+route GET "/hot" {
+    return ok 200 "hot"
+}
+
+route GET "/never-called" {
+    return ok 200 "dead"
+}
+
+fn main() -> int {
+    return 0
+}

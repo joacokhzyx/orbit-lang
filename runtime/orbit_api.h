@@ -341,6 +341,8 @@ size_t orbit_arena_used(const OrbitArena* arena);
 size_t orbit_arena_capacity(const OrbitArena* arena);
 uint64_t orbit_arena_alloc_count(const OrbitArena* arena);
 size_t orbit_arena_peak_used(const OrbitArena* arena);
+size_t orbit_arena_active_bytes(const OrbitArena* arena);
+int orbit_arena_overflowed(const OrbitArena* arena);
 OrbitArena* orbit_arena_get_global(void);
 
 /* ── External functions: arena pool (canonical: runtime/arena_pool.c) ── */
@@ -685,7 +687,7 @@ double orbit_energy_route_joules(uint64_t route_cycles, uint64_t total_cycles);
 
 /* ── External functions: ledger (canonical: runtime/ledger.c) ────────── */
 int orbit_ledger_enter(const char* method, const char* path);
-void orbit_ledger_exit(int idx, uint64_t cycles);
+void orbit_ledger_exit(int idx, uint64_t cycles, const OrbitArena* arena);
 int orbit_ledger_is_loopback(orbit_socket_t s);
 orbit_string orbit_ledger_json(OrbitArena* arena);
 orbit_string orbit_ledger_html(OrbitArena* arena);

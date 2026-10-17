@@ -59,7 +59,7 @@ static void demo_handle(orbit_socket_t c, const char* raw, size_t len, OrbitAren
     } else {
         res = orbit_response_create(arena, 404, "text/plain", "Not Found");
     }
-    orbit_ledger_exit(slot, orbit_rdtsc() - ls);
+    orbit_ledger_exit(slot, orbit_rdtsc() - ls, arena);
     orbit_send_response(c, res);
 }
 
