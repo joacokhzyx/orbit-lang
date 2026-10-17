@@ -730,6 +730,7 @@ typedef struct {
 uint64_t orbit_kynx_now_ns(void);
 void orbit_kynx_add_trusted_proxy(const char* cidr);
 bool orbit_kynx_is_trusted_proxy(const char* ip_str);
+bool orbit_kynx_has_trusted_proxies(void);
 void orbit_kynx_effective_ip(const char* peer, const char* xff, char* out, size_t out_len);
 void orbit_kynx_register_route_limit(const char* method, const char* path, int rate, int window_ms, int burst);
 bool orbit_kynx_check(const char* ip_str);

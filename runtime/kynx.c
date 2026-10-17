@@ -402,6 +402,12 @@ bool orbit_kynx_is_trusted_proxy(const char* ip_str) {
     return false;
 }
 
+/** @brief Whether any trusted reverse proxy is configured. With none, no
+ * X-Forwarded-For value can ever be believed, so callers skip reading it. */
+bool orbit_kynx_has_trusted_proxies(void) {
+    return kynx_trusted_count > 0;
+}
+
 /** Resolve the effective client IP: XFF is believed ONLY when the direct
  * peer is a registered trusted proxy; walk the comma list right-to-left and
  * take the first non-trusted hop. Untrusted peers keep their own address. */
