@@ -125,7 +125,30 @@ fn resolveFilePath(baseDir: string, relPath: string) -> string {
 }
 
 fn normalizePath(p: string) -> string {
-    var s = p
+    // A module is identified by its file, not by the spelling that reached it:
+    // "./x.orb" from a sibling, "../dir/x.orb" from another directory and an
+    // entry path that arrives with Windows backslashes all name the same file.
+    // Used verbatim as an identity they are three modules, and the file loads
+    // once per spelling, duplicating every symbol in it.
+    var s = ""
+    var i = 0
+    while i < p.len() {
+        if p.at(i) == 92 { // '\\'
+            s = s + "/"
+        } else {
+            s = s + p.slice(i, i + 1)
+        }
+        i = i + 1
+    }
+    while true {
+        val dot = orbit_string_indexOf(s, "/./")
+        if dot == -1 { break }
+        s = s.slice(0, dot) + s.slice(dot + 2, s.len())
+    }
+    while s.len() >= 2 {
+        if s.slice(0, 2) != "./" { break }
+        s = s.slice(2, s.len())
+    }
     while true {
         val pos = orbit_string_indexOf(s, "/../")
         if pos == -1 { break }
@@ -137,6 +160,7 @@ fn normalizePath(p: string) -> string {
             s = prefix.slice(0, lastSlash + 1) + s.slice(pos + 4, s.len())
         }
     }
+    if s == "." { return "" }
     return s
 }
 
