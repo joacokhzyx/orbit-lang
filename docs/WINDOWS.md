@@ -158,6 +158,21 @@ toolchain here that calls `strncat` unsafe.
 
 ---
 
+## The path separator is not part of a module's identity
+
+Windows hands an entry path back with backslashes, and the spellings that reach
+the resolver are the ones written in the source: `./x.orb` from a sibling,
+`../dir/x.orb` from another directory, and a path that arrived with backslashes
+all name one file. While the spelling *was* the identity, each of them loaded
+the file again, so the module's symbols were declared once per spelling and the
+build failed on duplicates it had itself created. `compiler/resolver.orb` now
+folds `\` to `/`, drops `/./` and a leading `./`, and identifies a module by the
+resulting path (`0a145cc`). Worth knowing here because the failure does not look
+like a path bug: it reads as duplicate declarations in a file that is imported
+once.
+
+---
+
 ## Reproducing
 
 ```bash
