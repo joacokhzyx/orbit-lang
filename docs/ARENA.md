@@ -74,7 +74,7 @@ If $\text{new\_cursor} > \text{committed\_end}$, Arena invokes the OS virtual me
 
 If an allocation would land past the 64 MB virtual reservation, Arena allocates a dedicated OS memory block and chains it to `overflow_list` rather than failing the request, and a chained segment is what `arena_overflow` (and D032) counts.
 
-Two things bound when that can happen. The allocation path charges the Kynx lease first (`runtime/arena.c:357`), and the default lease caps a request's arena at **16 MB cumulative** (`runtime/kynx.c:990`); the admission states tighten that figure and none raises it. A request that is admitted therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Measured on `exp/harena`: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained. Where the lease does not bind -- `ORBIT_KYNX=0`, or a budget above the reservation -- one request does chain and the column is non-zero, which is how the end-to-end positive was produced (report section 4).
+Two things bound when that can happen. The allocation path charges the Kynx lease first (`runtime/arena.c:340`), and the default lease caps a request's arena at **16 MB cumulative** (`runtime/kynx.c:990`); the admission states tighten that figure and none raises it. A request that is admitted therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Measured on `exp/harena`: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained. Where the lease does not bind -- `ORBIT_KYNX=0`, or a budget above the reservation -- one request does chain and the column is non-zero, which is how the end-to-end positive was produced (report section 4).
 
 ---
 
@@ -91,7 +91,7 @@ typedef struct OrbitStringPoolLocal {
 } OrbitStringPoolLocal;
 ```
 
-A lookup compares lengths first and then `memcmp`s, so it is $O(n)$ in the number of strings already interned in this epoch - `runtime/string_pool.c` says as much at the top ("Lookups are O(n) over the pool"). A miss allocates the canonical copy with `orbit_alloc` and appends it. `orbit_arena_reset` clears the table in $O(1)$ by setting `count = 0`; the arrays themselves live until `orbit_arena_destroy` frees them (`runtime/arena.c:258`).
+A lookup compares lengths first and then `memcmp`s, so it is $O(n)$ in the number of strings already interned in this epoch - `runtime/string_pool.c` says as much at the top ("Lookups are O(n) over the pool"). A miss allocates the canonical copy with `orbit_alloc` and appends it. `orbit_arena_reset` clears the table in $O(1)$ by setting `count = 0`; the arrays themselves live until `orbit_arena_destroy` frees them (`runtime/arena.c:265`).
 
 FNV-1a hashing and open-addressed buckets do exist in this runtime, but for `Map<K,V>`, not for string interning: `runtime/collections.c` (`OrbitMapEntry`, 75 % load factor, buckets abandoned in the arena and reclaimed on reset). Do not read that machinery into this table.
 
@@ -141,7 +141,7 @@ by bump pointer. The word "allocator" is correct for it.
 The generated connection loop calls `orbit_arena_reset(thread_arena)`
 before every `orbit_handle_request` (`compiler/route_runtime.orb:453`).
 `orbit_arena_checkpoint` and `orbit_arena_rewind` both exist
-(`runtime/arena.c:582,592`) and a rewind *is* an $O(1)$ bump-pointer
+(`runtime/arena.c:565,575`) and a rewind *is* an $O(1)$ bump-pointer
 restore, but nothing in the tree calls them outside `arena.c` itself
 and `runtime/test_arena.c`. I grepped for it. So
 `arena_checkpoint_count` and `arena_rewind_count` in
@@ -149,7 +149,7 @@ and `runtime/test_arena.c`. I grepped for it. So
 `orbit_arena_reset` is not the $O(1)$ rewind the table above could
 imply: it releases the chained overflow segments and decommits every
 page past the hot retention watermark
-(`runtime/arena.c:526`). Treat the checkpoint API as available to
+(`runtime/arena.c:516`). Treat the checkpoint API as available to
 hand-written C, not as the mechanism serving requests.
 
 **`lib/arena.orb` is neither.** It is not an allocator and does not

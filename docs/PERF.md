@@ -206,7 +206,8 @@ request's arena as a third argument and publishes `arena_max_bytes` from
 What that fixes is not the cost, it is the meaning: those two ledger columns
 came from `runtime/oracle.c`'s prediction table, and nothing in the generated
 server ever opened a session (`oracle_begin_session`, `oracle_end_session` and
-`oracle_init` have no callers of their own), so they were structurally zero.
+`oracle_init` had no callers of their own, and the module is gone), so they were
+structurally zero.
 `tests/doctor/golden/d032_arena_overflow` and its new negative
 `d032_silent_without_overflow` pin the measured behaviour, and D032's row in
 `docs/DOCTOR.md` now states the narrow condition under which the column can be

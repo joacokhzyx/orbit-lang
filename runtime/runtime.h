@@ -59,7 +59,6 @@
 
 /* ── Memory ─────────────────────────────────────────────────────────── */
 #include "arena.c"
-#include "oracle.c"
 #include "arena_pool.c"
 #include "string_pool.c"
 

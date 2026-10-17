@@ -268,8 +268,6 @@ void orbit_arena_destroy(OrbitArena* arena) {
     free(arena);
 }
 
-#include "oracle.h"
-
 /* ── Allocation ─────────────────────────────────────────────────────── */
 
 /*
@@ -330,21 +328,6 @@ OrbitOomHandler orbit_get_oom_handler(void) {
 /** @brief Allocate @p bytes, reporting exhaustion to the handler instead of aborting. Returns NULL on OOM. */
 void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     if (!arena || bytes == 0) return NULL;
-
-    /* Oracle fast path: O(1) TLS bump, zero atomics, zero bounds check overhead */
-    if (tls_oracle_session.active) {
-        size_t tls_aligned = orbit_align_up(bytes, ORBIT_ARENA_ALIGN);
-        unsigned char* ptr = tls_oracle_session.cursor;
-        unsigned char* next = ptr + tls_aligned;
-        if (next <= tls_oracle_session.block_end) {
-            tls_oracle_session.cursor = next;
-            arena->alloc_count++;
-            arena->requested_bytes += bytes;
-            arena->aligned_bytes += tls_aligned;
-            return (void*)ptr;
-        }
-        tls_oracle_session.slow_path = 1;
-    }
 
     /* Align to ORBIT_ARENA_ALIGN boundary safely */
     size_t aligned = orbit_align_up(bytes, ORBIT_ARENA_ALIGN);

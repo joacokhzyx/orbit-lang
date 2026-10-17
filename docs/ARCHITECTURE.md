@@ -252,11 +252,11 @@ generated connection loop calls `orbit_arena_reset(thread_arena)` before every
 `orbit_handle_request` (`compiler/route_runtime.orb:485`), so each request
 starts from a reset arena. `orbit_arena_reset` is not O(1) and not a rewind: it
 releases the chained overflow segments and decommits every page past the hot
-retention watermark (`runtime/arena.c:525`; the watermark itself is
+retention watermark (`runtime/arena.c:515`; the watermark itself is
 `ORBIT_ARENA_HOT_RETENTION_LIMIT`, 256 KB, at `:52`).
 
 `orbit_arena_checkpoint` and `orbit_arena_rewind` exist
-(`runtime/arena.c:582,592`) and a rewind is an O(1) bump-pointer restore, but
+(`runtime/arena.c:565,575`) and a rewind is an O(1) bump-pointer restore, but
 nothing in the generated server path calls them: outside `runtime/arena.c`
 and `runtime/test_arena.c`, the only references are the counter fields in
 `runtime/performance.h`, so `arena_checkpoint_count` and
@@ -270,14 +270,17 @@ it before every request (`:485`) and destroys it when the loop ends (`:521`).
 `runtime/arena_pool.c` is initialized for process-startup scratch work only
 (`:566`, `:585-587`) and has no caller on the request path.
 
-`runtime/oracle.c` implements the *Orbit Arena Oracle*, a per-route prediction of
-how many bytes a route needs (EMA with a cold-start sample count and a safety
-margin, `runtime/oracle.h`) so a session can pre-reserve that much and serve
-allocations from an O(1) TLS bump path (`runtime/arena.c:327`). It is compiled
-into every program (`runtime/runtime.h:62`) and the allocator's fast path is
-live, but nothing in the generated server opens or closes an oracle session, so
-`tls_oracle_session.active` stays 0, the prediction tables stay cold, and no C
-test exercises it.
+`runtime/oracle.c` used to implement the *Orbit Arena Oracle*, a per-route
+prediction of how many bytes a route needs (EMA with a cold-start sample count
+and a safety margin) so a session could pre-reserve that much and serve
+allocations from an O(1) TLS bump path. Nothing in the generated server ever
+opened a session -- `tls_oracle_session.active` stayed 0 and the prediction
+tables stayed cold -- and the last code that read those tables was the ledger's
+`arena_overflow` / `arena_max_bytes`, which are now measured from the arena that
+served the request (see [PERF.md](PERF.md), "Arena telemetry is a fold"). With
+no consumer left, the predictor is gone, and with it the TLS branch the
+allocator carried on every allocation. The predictive pre-reservation design is
+in the history rather than the tree: `git log -- runtime/oracle.c`.
 See [ARENA.md](ARENA.md).
 
 ---
@@ -434,7 +437,6 @@ and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 | `runtime/runtime.h` | Aggregation header; includes the `.c` files |
 | `runtime/arena.c` | Epoch virtual-memory allocator |
 | `runtime/arena_pool.c` | Pool of arenas for startup and hand-written scratch work (not the request path) |
-| `runtime/oracle.c` | Arena Oracle: predictive pre-reservation allocator. Its O(1) TLS fast path is wired into `arena.c`; the generated server has no session driver yet and there is no test of its own. |
 | `runtime/string_pool.c` | String interning |
 | `runtime/collections.c` | Arrays, hash maps, bytes |
 | `runtime/types.c` | Runtime type system |
