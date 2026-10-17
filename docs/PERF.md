@@ -611,7 +611,14 @@ A cold cache is the one run that pays without gaining: the hashing is charged
 and no entry is reused. On this box that charge is inside the spread of the
 compiles it wraps -- a wrapper run against an empty cache took 3216 ms against a
 plain 3244 ms on the same file -- and the entries it fills are what every run
-after it reuses. CI restores `ORBIT_CCACHE_DIR` at
+after it reuses. Measured 2026-10-17 on the two gates the wrapper reaches,
+adjacent runs in one tree with the cache directory emptied between them:
+`suite` 33 s and `suite_std` 17 s cold, filling 186 entries, 51.8 s wall,
+against 7 s and 11 s warm, 19.4 s wall. The cold pair is that plain cost and not
+a worse one: the pre-wrapper baseline for `suite` on this box is 26-31 s. So a
+compiler change costs one plain run in front of runs that are 4x faster for as
+long as the emitted C stays put, and `ORBIT_CCACHE=0` is the switch that makes a
+run neither pay the charge nor take the gain. CI restores `ORBIT_CCACHE_DIR` at
 `$GITHUB_WORKSPACE/.ccache` through `actions/cache`, keyed on the canonical, so
 CI's warm runs reuse these entries the same way they already reuse the
 bootstrap's, and a push that changes `stage3.exe.c` starts it cold again.
