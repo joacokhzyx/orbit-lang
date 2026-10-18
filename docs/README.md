@@ -42,6 +42,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | Something broke - now what? | [Troubleshooting](tutorials/troubleshooting.md) |
 | How do schemas evolve? | [Migrations guide](guides/migrations.md) - the honest story |
 | How do I measure honestly? | [Performance notes](PERF.md) - what was changed, what was tried and dropped, and why |
+| How big is the C Orbit emits, and what has been tried to cut it? | [Codegen Budget](CODEGEN_BUDGET.md) - emitted size and build cost per program, and the candidates that were tried and dropped |
 | Which toolchain builds what, and what is tcc (not) for? | [Toolchain policy](TOOLCHAIN.md) - the two rules (tcc never produces a quoted number; the multithreaded server is always gcc) plus the per-platform matrix |
 
 ## Authority and Scope
