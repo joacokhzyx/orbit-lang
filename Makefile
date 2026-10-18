@@ -51,9 +51,9 @@ report:
 list:
 	$(DEV) list
 
-## fmt:     format the compiler sources and the test suite in place
+## fmt:     format the files the fmt gate would fail (compiler, tests, std)
 fmt:
-	$(DEV) fp >/dev/null && "$$($(DEV) fp-path)" fmt compiler && "$$($(DEV) fp-path)" fmt tests/suite
+	$(DEV) fmt
 
 # Single gates, for when one thing is broken and the rest is noise.
 #

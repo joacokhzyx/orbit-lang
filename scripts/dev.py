@@ -559,13 +559,14 @@ def _fmt_one(args) -> tuple:
     return (rel, proc.returncode, out)
 
 
-def run_fmt_sharded(exe: str, env: dict, wanted=None) -> tuple:
+def run_fmt_sharded(exe: str, env: dict, wanted=None, quiet: bool = False) -> tuple:
     """fmt --check per file in a thread pool; same files, one aggregated gate.
 
     Returns (label, rc, elapsed, finished_line, bad_files). Per-file outputs
     print only on failure (a clean check is silent, like the binary). The
     Finished line is synthesized -- the binary prints none on clean -- so the
-    witness log still has one fmt row for agent E.
+    witness log still has one fmt row for agent E. `quiet` is for the writer
+    below, which names each file itself after formatting it.
     """
     files = fmt_check_files()
     if wanted:
@@ -582,16 +583,54 @@ def run_fmt_sharded(exe: str, env: dict, wanted=None) -> tuple:
                 bad.append(rel)
                 outputs[rel] = out
     elapsed = time.monotonic() - started
-    for rel in sorted(bad):
-        sys.stdout.write(f"  unformatted: {rel}\n")
-        tail = "\n".join((outputs.get(rel) or "").strip().splitlines()[-5:])
-        if tail:
-            sys.stdout.write(tail + "\n")
-    sys.stdout.flush()
+    if not quiet:
+        for rel in sorted(bad):
+            sys.stdout.write(f"  unformatted: {rel}\n")
+            tail = "\n".join((outputs.get(rel) or "").strip().splitlines()[-5:])
+            if tail:
+                sys.stdout.write(tail + "\n")
+        sys.stdout.flush()
     ok = total - len(bad)
     finished = f"Finished fmt: {ok}/{total} pass"
     rc = 0 if not bad else 1
     return ("fmt", rc, elapsed, finished, bad)
+
+
+def run_fmt_write(exe: str, env: dict) -> int:
+    """`dev.py fmt`: write the formatting for the files the gate would fail.
+
+    A writer, not a gate, and it reads the same list the gate reads
+    (`fmt_check_files`) so `make fmt` cannot disagree with `make check` about
+    what "clean" means. `orbit fmt` takes one file -- which is why this is here
+    and not a Makefile loop over a directory: the recipe passed `compiler`, and
+    the target failed with "could not read input file 'compiler'" for as long
+    as it existed (DX-3). The verdict is the gate's own re-check, not this
+    function's count.
+    """
+    _label, _rc, _elapsed, finished, bad = run_fmt_sharded(exe, env, quiet=True)
+    if not bad:
+        say(f"  {finished}, nothing to format")
+        return 0
+    for rel in bad:
+        proc = subprocess.run(
+            [exe, "fmt", str(ROOT / rel)],
+            cwd=str(ROOT), env=env, capture_output=True, text=True,
+            errors="replace",
+        )
+        if proc.returncode != 0:
+            print(f"Failed: orbit fmt {rel} exited {proc.returncode}",
+                  file=sys.stderr)
+            sys.stderr.write((proc.stdout or "") + (proc.stderr or ""))
+            return proc.returncode
+        say(f"  formatted: {rel}")
+    _label, rc, _elapsed, finished, still = run_fmt_sharded(
+        exe, env, quiet=True)
+    if rc != 0:
+        print("Failed: still unformatted after writing: " + ", ".join(still),
+              file=sys.stderr)
+        return 1
+    say(f"  {finished} after formatting {len(bad)} file(s)")
+    return 0
 
 
 def write_witness(lines: list) -> None:
@@ -840,8 +879,8 @@ def main() -> int:
         description="Developer loop for Orbit: one entry point for the gates."
     )
     ap.add_argument("target", nargs="?", default="dev",
-                    choices=["dev", "check", "all", "fp", "fp-path", "promote", "promote-diff",
-                             "report", "list"])
+                    choices=["dev", "check", "all", "fp", "fp-path", "fmt",
+                             "promote", "promote-diff", "report", "list"])
     ap.add_argument("--cc", default=None, help="C compiler (default: ORBIT_CC/CC/gcc/clang/cc)")
     ap.add_argument("--filter", default=None,
                     help="only run gates whose name contains this substring")
@@ -872,6 +911,12 @@ def main() -> int:
             binary = ensure_fp_for_all(cc, allow_build=not args.no_build)
         print(binary)
         return 0
+
+    if args.target == "fmt":
+        # The writer half of the fmt gate: format the files `fmt --check` names.
+        # `orbit fmt` takes one file, so a Makefile recipe cannot format a
+        # directory; the list has one authority and it is here (DX-3).
+        return run_fmt_write(str(ensure_fp(cc).resolve()), child_env())
 
     changed = touched_files()
 
