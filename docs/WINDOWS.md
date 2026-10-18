@@ -197,14 +197,19 @@ page said otherwise, which meant the first command a Windows user ran was
 `No rule to make target`. The Kynx live gate is `kynx_live` inside T2; run it on
 its own with `python3 scripts/dev.py check --filter kynx_live`.
 
-**Beware `make suite`, `make doctor`, `make parity`, `make werror` and
-`make negative`.** They resolve the compiler through `$(shell $(DEV) fp-path)`,
-and `fp-path` prints its bootstrap log to stdout when the fixed point is stale.
-Make folds the whole log into one argument, so `--compiler` arrives as a
-paragraph of text and Python fails with `FileNotFoundError: [WinError 2]`. It
-does this exactly when the fixed point needs rebuilding, which is exactly when
-you run those targets. `make check` and `make all` are unaffected — they pass
-argument lists, not shell substitutions.
+**`make suite`, `make doctor`, `make parity`, `make werror` and `make negative`
+work.** They resolve the compiler through `$(shell $(DEV) fp-path)`, and that
+broke two ways, both fixed on 2026-10-18. `fp-path` printed its bootstrap log to
+stdout, and make folds everything it captures into one argument, so a stale
+fixed point put a paragraph of log text where a path belongs. It also lost the
+backslash of a Windows path: unquoted, `sh` turned `C:\Temp\orbit-fp-x.exe`
+into `C:orbit-fp-x.exe`, which Windows resolves against the current directory --
+so the targets failed on a warm tree too, with `doctor_gate: no compiler at
+<cwd>orbit-fp-x.exe`, and not only when the fixed point was stale. `fp-path`
+now writes the path and only the path to stdout (everything else, the bootstrap
+included, goes to stderr), and the five recipes quote the substitution.
+`make check` and `make all` were never affected - they pass argument lists, not
+shell substitutions.
 
 **The fixed-point binary lives outside the repository tree, and that is
 load-bearing.** The compiler resolves its runtime as `<dir of argv[0]>/runtime`,

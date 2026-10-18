@@ -257,6 +257,33 @@ def system_temp() -> pathlib.Path:
     return pathlib.Path(f"{drive}\\Temp")
 
 
+class _stdout_to_stderr:
+    """Send everything written to stdout -- children included -- to stderr.
+
+    `fp-path` is consumed by `$(shell ...)` in the Makefile, which captures
+    stdout and folds newlines into spaces, so anything else on stdout becomes
+    part of the path. Redirecting the FILE DESCRIPTOR, not just sys.stdout, is
+    the whole point: the bootstrap is a child process that inherits fd 1, and
+    its chatter is not the smaller half (measured 2026-10-18 on a cold tree:
+    24 log lines plus the path, 25 lines of stdout for one path).
+
+    Only the target whose stdout is a contract uses this. `make fp` and the
+    tiers keep the build chatter where a person reading `make fp` expects it.
+    """
+
+    def __enter__(self):
+        sys.stdout.flush()
+        self._saved = os.dup(1)
+        os.dup2(2, 1)
+        return self
+
+    def __exit__(self, *_exc):
+        sys.stdout.flush()
+        os.dup2(self._saved, 1)
+        os.close(self._saved)
+        return False
+
+
 def fp_is_fresh(cc: str) -> bool:
     binary, stamp = fp_path(), FP_STAMP
     if not binary.exists() or not stamp.exists():
@@ -836,7 +863,14 @@ def main() -> int:
         # how a Makefile target that wants to invoke one gate gets the path
         # without duplicating the naming rule -- which is the duplication that
         # produced fp2 through fp13.
-        print(ensure_fp_for_all(cc, allow_build=not args.no_build))
+        #
+        # The contract is stdout == the path and nothing else, because the caller
+        # is `$(shell ...)` and it keeps every line. Building the fixed point
+        # prints a log and the bootstrap it runs is a child process, so the
+        # redirect has to be at the file-descriptor level (DX-2).
+        with _stdout_to_stderr():
+            binary = ensure_fp_for_all(cc, allow_build=not args.no_build)
+        print(binary)
         return 0
 
     changed = touched_files()

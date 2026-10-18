@@ -56,16 +56,21 @@ fmt:
 	$(DEV) fp >/dev/null && "$$($(DEV) fp-path)" fmt compiler && "$$($(DEV) fp-path)" fmt tests/suite
 
 # Single gates, for when one thing is broken and the rest is noise.
+#
+# The compiler path is quoted: it is built by `$(shell ...)`, and unquoted, sh
+# eats the backslash in a Windows path (`C:\Temp\x.exe` becomes `C:Tempx.exe`,
+# which Windows then resolves against the current directory). Double quotes
+# preserve it, and they cover a temp directory with spaces on any platform.
 doctor:
-	$(PY) scripts/doctor_gate.py --compiler $(shell $(DEV) fp-path)
+	$(PY) scripts/doctor_gate.py --compiler "$(shell $(DEV) fp-path)"
 suite:
-	$(PY) scripts/test_suite.py --cc $(CC) --compiler $(shell $(DEV) fp-path)
+	$(PY) scripts/test_suite.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
 parity:
-	$(PY) scripts/parity_selfhost.py --cc $(CC) --compiler $(shell $(DEV) fp-path)
+	$(PY) scripts/parity_selfhost.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
 werror:
-	$(PY) scripts/werror_gate.py --cc $(CC) --compiler $(shell $(DEV) fp-path)
+	$(PY) scripts/werror_gate.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
 negative:
-	$(PY) scripts/negative_gate.py --cc $(CC) --compiler $(shell $(DEV) fp-path)
+	$(PY) scripts/negative_gate.py --cc $(CC) --compiler "$(shell $(DEV) fp-path)"
 
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /'
