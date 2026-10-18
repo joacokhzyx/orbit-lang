@@ -40,6 +40,13 @@
 // and a module that exists but cannot share a program with the rest is
 // the regression this file exists to catch.
 //
+// `bitwise.orb` came back from quarantine on 2026-10-18 as
+// std/sys/bytes/bitwise.orb, which left that "every module under std/"
+// claim true only as long as this file imports it -- so it does, and
+// the call below is the one into it. It declares no externs, so the
+// import cannot collide; the point of importing it here is that a
+// module nothing imports is the shape of hole this file catches.
+//
 // The longest case is the one that mattered, and it is asserted here
 // end to end rather than only checked: byte framing AND JWT AND
 // console IO AND process AND hashing in the same binary, with one
@@ -50,6 +57,7 @@ import "std/convert/convert.orb"
 import "std/string/string.orb"
 import "std/collections/lists.orb"
 import "std/bytes/bytes.orb"
+import "std/sys/bytes/bitwise.orb"
 import "std/fs/file.orb"
 import "std/hash/hash.orb"
 import "std/io/io.orb"
@@ -90,6 +98,13 @@ fn main() -> int {
     if assertEqInt(readAt(buf, 0), 65) == false { return 4 }
     if assertEqInt(readAt(buf, 1), 66) == false { return 5 }
     if assertEqInt(readAt(buf, 9), -1) == false { return 6 }
+
+    // sys/bytes/bitwise.orb, the module that came back from quarantine.
+    // Both edges the module's header warns about are asserted, because a
+    // shift count is masked to five bits and reading the header is not
+    // evidence that a call through the import does the same.
+    if assertEqInt(bitAnd(12, 10), 8) == false { return 27 }
+    if assertEqInt(shiftLeft(1, 32), 1) == false { return 28 }
 
     // fs/file.orb -- a path that cannot exist, so no side effects
     if assertTrue(exists("no_such_file_for_test_imports.orb")) { return 7 }
