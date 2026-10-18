@@ -283,7 +283,16 @@ fn generateC(backend: CBackend) -> string {
         }
         i = i + 1
     }
-    orbit_cbuf_append_selfhost(cbTop, generateRouterBlock(backend))
+    // The router block is the HTTP entry point (`orbit_handle_request`) and
+    // the logging/Kynx helpers it calls. Those are reached only from the
+    // worker loop that route programs emit, so a program with no routes has
+    // no caller for any of it and links without it. Emitting it anyway cost
+    // ~9 KB of C that no program could reach: measured on examples/hello.orb
+    // this is the difference between 10,838 and 1,762 bytes of emitted C
+    // (84%), with the built program identical. Route programs keep it whole.
+    if hasRoutes {
+        orbit_cbuf_append_selfhost(cbTop, generateRouterBlock(backend))
+    }
     if routeLimits != "" {
         orbit_cbuf_append_selfhost(cbTop, routeLimits)
     }
