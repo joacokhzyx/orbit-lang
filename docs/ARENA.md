@@ -76,7 +76,7 @@ If $\text{new\_cursor} > \text{committed\_end}$, Arena invokes the OS virtual me
 
 If an allocation would land past the 64 MB virtual reservation, Arena allocates a dedicated OS memory block and chains it to `overflow_list` rather than failing the request, and a chained segment is what `arena_overflow` (and D032) counts.
 
-Two things bound when that can happen. The allocation path charges the Kynx lease first (`runtime/arena.c:340`), and the default lease caps a request's arena at **16 MB cumulative** (`runtime/kynx.c:990`); the admission states tighten that figure and none raises it. A request that is admitted therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Measured on `exp/harena`: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained. That refusal is a process abort, not a failed request: `orbit_alloc`'s default handler prints the line and ends the process (measured 2026-10-17, exit 3; the same program with `ORBIT_KYNX=0` survives), which is why the chain is unreachable and is the price of the arrangement. Until it has a dispatcher-side answer it is open debt: `ENGINEERING.md` §7, row `kynx-lease-abort`. Where the lease does not bind -- `ORBIT_KYNX=0`, or a budget above the reservation -- one request does chain and the column is non-zero, which is how the end-to-end positive was produced (report section 4).
+Two things bound when that can happen. The allocation path charges the Kynx lease first (`runtime/arena.c:340`), and the default lease caps a request's arena at **16 MB cumulative** (`runtime/kynx.c:990`); the admission states tighten that figure and none raises it. A request that is admitted therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Reproduced on the runtime in this tree: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained. That refusal is a process abort, not a failed request: `orbit_alloc`'s default handler prints the line and ends the process (measured 2026-10-17, exit 3; the same program with `ORBIT_KYNX=0` survives), which is why the chain is unreachable and is the price of the arrangement. Until it has a dispatcher-side answer it is open debt: `ENGINEERING.md` §7, row `kynx-lease-abort`. Where the lease does not bind -- `ORBIT_KYNX=0`, or a budget above the reservation -- one request does chain and the column is non-zero, and the column's positive control lives in the tree: `runtime/test_arena_telemetry.c` outgrows the reservation on purpose and asserts that both the row and the `/_ledger/data` JSON report one overflow.
 
 ---
 
@@ -226,11 +226,13 @@ pool).
 What this deliberately does **not** count: an arena that is neither reset nor
 destroyed. In practice that is the process-wide fallback arena
 (`orbit_arena_get_global`), which lives for the life of the process. Nothing on
-the request path allocates from it -- measured on `exp/harena`, its counters stay
-at zero while a route's string work runs, because the runtime's allocation
-helpers keep the arena they are handed -- so this is a gap in the *set* of
-arenas, not a loss of request bytes. A hand-written C program that allocates only
-from the global arena sees the four counters stay at zero.
+the request path allocates from it: the emitted loop hands each request its
+worker's arena, and every runtime helper that reaches for the global one takes
+the arena it is handed and falls back to this one only when given none (the
+unconditional callers are the compiler-side helpers and the ledger's exit dump),
+so its counters stay at zero while a route's string work runs. That is a gap in
+the *set* of arenas, not a loss of request bytes. A hand-written C program that
+allocates only from the global arena sees the four counters stay at zero.
 
 What the join does change is *when* the totals publish. It happens at
 `orbit_arena_reset`, which the emitted loop calls before each request, and each
