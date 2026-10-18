@@ -51,9 +51,10 @@ Language:
   way it already did for unary minus. Pinned by
   `tests/suite/bitwise_operators.orb`, documented under
   [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#bitwise-and-shift-operators).
-  The constant folder does not fold the new operators yet, and the
-  quarantined `std/sys/bytes/bitwise.orb` returns once it is repaired and
-  tested.
+  The constant folder does not fold the new operators yet. The quarantined
+  `std/sys/bytes/bitwise.orb` has since returned (2026-10-18): the operators
+  were the missing feature, so what was left was a syntax slip and a test,
+  and `tests/std/test_bitwise.orb` now covers the same vectors.
 - **Object literals**: `return ok { status: "UP", uptime_seconds: ... }`. A
   real value, not a JSON string builder: read a field off it, nest one in
   another, pass it to a function. Backed by a new `OrbitObject` in

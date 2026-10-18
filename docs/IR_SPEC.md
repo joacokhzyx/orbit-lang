@@ -458,14 +458,14 @@ are pinned in §1.1.
   `.orb` files: 71 runnable programs plus `imports.support.orb` (imported by
   `imports.orb`, never compiled alone). The `.skip` file (`fn_call.orb.skip`)
   is not a corpus member.
-- **Standard library: 22 files.** `tests/std/` holds 22 `.orb` programs
-  (`test_assert`, `test_bytes`, `test_codec`, `test_collections`,
+- **Standard library: 23 files.** `tests/std/` holds 23 `.orb` programs
+  (`test_assert`, `test_bitwise`, `test_bytes`, `test_codec`, `test_collections`,
   `test_collections_boxed`, `test_convert`, `test_crypto`, `test_fs`,
   `test_hash`, `test_http_client`, `test_imports`, `test_io`, `test_json`,
   `test_log`, `test_process`, `test_process_exit`, `test_random`,
   `test_regex`, `test_string`, `test_time`, `test_time_ns`, `color_smoke`),
-  covering the 18 shipped `std/**/*.orb` modules (the 2 `std/quarantine/*.orb.quarantined`
-  files are excluded).
+  covering the 19 shipped `std/**/*.orb` modules (the 1 `std/quarantine/*.orb.quarantined`
+  file is excluded).
 - **DB exclusions, counted: 4 opcodes + 0 corpus files removed, 1 file flagged.**
   The 4 `db_*` opcodes (`db_get`, `db_set`, `db_all`, `db_where`) are excluded
   from the M1 differential (§4): they have no producer in `compiler/**/*.orb`

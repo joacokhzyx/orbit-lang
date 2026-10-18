@@ -110,7 +110,8 @@ fn parseClassEnd(pat: string, pi: int) -> int {
             continue
         }
         items = items + 1
-        if c == 45 { prevPlain = false } else { prevPlain = true }
+        if c == 45 { prevPlain = false }
+        else { prevPlain = true }
         i = i + 1
     }
     return -1

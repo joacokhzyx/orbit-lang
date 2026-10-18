@@ -2,35 +2,55 @@
 // Was std/core/option.orb. See std/quarantine/README.md for why it is
 // not a .orb file.
 //
-// MISSING LANGUAGE FEATURE: a generic tagged union. Two things are
-// missing, and the first one hides the second.
+// MISSING LANGUAGE FEATURE: a generic tagged union. Three things are
+// missing, and each one hides the next.
 //
 //   1. The parser has no generic parameter list on `union`.
 //      parseTypeDecl calls parseGenericParams for `fn`, `model` and
-//      `trait` (compiler/front/parser.orb:690, 769, 946) but not on the
-//      `union` and `enum` arms (compiler/front/parser.orb:812-850), so
-//      `union Option<T>` stops at the `<`.
+//      `trait` (compiler/front/parser.orb:987, 1082, 1306) but not on
+//      the `union` and `enum` arms (compiler/front/parser.orb:1171-1250),
+//      so `union Option<T>` stops at the `<`:
 //         $ printf 'import "std/core/option.orb"\nfn main() { print("ok") }\n' > /tmp/i.orb
 //         $ orbit check /tmp/i.orb
 //         Import error: std/core/option.orb:5: Expected '{' after 'union'.
 //         Import error: std/core/option.orb:5: Expected variant name.
 //
-//   2. Even with [T] instead of <T>, there is no monomorphisation, so
-//      a type parameter would be nonsense rather than merely
-//      unparseable. The payload type is a bare identifier
-//      (compiler/front/parser.orb:840), so `T` would reach codegen as a
-//      type name and be emitted verbatim:
+//   2. Nothing would infer the argument at construction. A generic
+//      `model` does monomorphise today, and the reason is that its
+//      literal names the model, so the argument comes from the
+//      initialiser:
 //         model Box[T] { v: T }
-//         fn main() { val b: Box = Box { v: 7 }  print(b.v) }
-//         orbit check  -> no errors
-//         orbit run    -> <build>:74:5: error: unknown type name 'T'
-//                          74 |     T* v;
-//      `orbit check` accepts a generic model and `orbit build` then
-//      hands the C compiler a `T` that does not exist. That is a
-//      compiler bug in its own right (filed as F-0007); it also means
-//      the honest spelling for a payload-carrying union today is a
-//      concrete payload type per variant, e.g.
-//         union OptInt { SomeInt(int)  NoInt }
+//         fn main() { val b = Box { v: 7 }  print(b.v) }
+//         orbit check -> no errors
+//         orbit run   -> 7        (the C carries Box_int, not a `T`)
+//      A union variant names only the variant: `Some(7)` says nothing
+//      about which `Option` it builds, and no signature can name
+//      `Option` bare to say it -- E1006, "a generic model has no one
+//      type: a signature written before any value cannot say which
+//      one".
+//      This section used to claim the opposite: that a generic model
+//      "typechecks and then emits a C `T` that does not exist", filed
+//      as F-0007. That was true when it was written and is not any
+//      more -- the bare annotation is refused at `check`, and F-0007
+//      has no row in the F-code index (docs/ERROR_CODES.md:259) to
+//      point at. The generic model is not the pattern that is missing
+//      here; the parser is.
+//
+//   3. The variant registry is flat by variant name, so two instances
+//      could not coexist even with 1 and 2 solved. Measured today with
+//      two concrete unions:
+//         union A { X(int) }
+//         union B { X(string) }
+//         orbit check -> error[E1005]: Payload 1 of 'X' is declared
+//                        int but the value is string.
+//      findVariantOwner (compiler/front/sema.orb:767) walks
+//      variantRegistry (compiler/front/sema.orb:103) by the bare name,
+//      so `Some` from `Option<int>` and `Some` from `Option<string>`
+//      would collide the same way.
+//
+// So the honest spelling for a payload-carrying union today is a
+// concrete payload type per variant, e.g.
+//    union OptInt { SomeInt(int)  NoInt }
 //
 // This file is kept as the specification of the wanted feature, NOT
 // as a working module. It is not imported by anything and it is not
@@ -45,10 +65,11 @@
 // trace of a feature that does not exist yet.
 //
 // LIFT THE QUARANTINE WHEN: the parser accepts a type parameter list
-// on `union` AND codegen substitutes the argument at each use
-// (`Option<int>` yielding distinct C for `Option<string>`). Then
-// rename this back to std/core/option.orb, give it a test under
-// tests/std/, and ask the docs agent for a LANGUAGE_REFERENCE entry.
+// on `union` AND each use substitutes the argument (`Option<int>`
+// yielding distinct C for `Option<string>`) AND variant lookup resolves
+// through the instance rather than the bare name. Then rename this back
+// to std/core/option.orb, give it a test under tests/std/, and write
+// the LANGUAGE_REFERENCE entry.
 union Option<T> {
     Some(T),
     None

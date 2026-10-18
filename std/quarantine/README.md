@@ -35,5 +35,14 @@ record that the feature was wanted; the git history alone does not say
 
 | module | missing language feature |
 |---|---|
-| `option.orb.quarantined` | a generic tagged union — the parser has no type parameter list on `union`, and there is no monomorphisation (a generic `model` typechecks and then emits a C `T` that does not exist) |
-| `bitwise.orb.quarantined` | none in the language any more: `&`, `|`, `^`, `<<`, `>>` and `~` are operators now (see [LANGUAGE_REFERENCE](../LANGUAGE_REFERENCE.md#bitwise-and-shift-operators)). The file stays quarantined until it is repaired (`val` is a keyword; rename those parameters) and covered by `tests/std/` |
+| `option.orb.quarantined` | a generic tagged union: `union` takes no type parameter list (so `union Option<T>` is a parse error), nothing infers the argument at construction (a variant constructor names the variant, not the union), and the variant registry is flat by variant name, so two instances would collide. A generic `model` is not the pattern to copy here — it monomorphises today, and its literal names the model, which is exactly what a variant constructor does not do |
+
+## Lifted
+
+`bitwise.orb.quarantined` was the counter-example to the rule above: a
+syntax slip (`val`, a keyword, used as a parameter name) sitting in
+quarantine instead of being fixed and tested. Lifted 2026-10-18: it is
+`std/sys/bytes/bitwise.orb` again, `tests/std/test_bitwise.orb` covers
+the vectors its header published, and the import-all imports it. Git
+keeps the record that the module was wanted; this section says where it
+went.

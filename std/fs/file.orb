@@ -75,7 +75,7 @@ fn mkdirAll(path: string) -> bool {
 // file walks as itself; a missing path walks as nothing. Typed
 // list<string>: the entries are built from a C-built list whose kind
 // the builder cannot see, so callers need the promise in the signature.
-fn walk(dir: string) -> list<string> {
+fn walk(dir: string) -> list < string > {
     val out = []
     if isDir(dir) {
         walkInto(dir, out, 0)
@@ -91,7 +91,7 @@ fn walkInto(dir: string, out: list, depth: int) {
     // builder cannot see the element type and an untyped read would
     // stringify the pointer. The annotation records the kind the C
     // side guarantees (it pushes strings and nothing else).
-    val names: list<string> = listDir(dir)
+    val names: list < string > = listDir(dir)
     var i = 0
     while i < names.len() {
         val full = dir + "/" + names.get(i)

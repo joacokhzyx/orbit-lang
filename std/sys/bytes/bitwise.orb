@@ -1,0 +1,33 @@
+// The bitwise operators as functions, for call sites that want a symbol
+// instead of an operator: `a & b` needs no module, but a callback, a
+// dispatch table or a parameterised fold wants a name to import. The
+// semantics are the operators' (LANGUAGE_REFERENCE, "Bitwise and shift
+// operators"); this module adds none of its own.
+//
+// One caveat belongs with the names rather than in the language
+// reference, because it is what a reader of shiftLeft would guess
+// wrong: a shift count is masked to five bits, so shiftLeft(1, 32) is
+// 1, not 0. The masking is the operator's.
+fn bitAnd(a: int, b: int) -> int {
+    return a & b
+}
+
+fn bitOr(a: int, b: int) -> int {
+    return a | b
+}
+
+fn bitXor(a: int, b: int) -> int {
+    return a ^ b
+}
+
+fn bitNot(a: int) -> int {
+    return ~a
+}
+
+fn shiftLeft(value: int, amount: int) -> int {
+    return value << amount
+}
+
+fn shiftRight(value: int, amount: int) -> int {
+    return value >> amount
+}

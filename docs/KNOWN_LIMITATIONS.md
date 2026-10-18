@@ -356,13 +356,17 @@ was not computing it:
 | `std/core/memory.orb` | `alloc` returned a null pointer and `free` was a no-op. |
 | `std/core/result.orb` | `result` is already a builtin with `ok`/`err`. An unparseable shadow of a working builtin. |
 
-**Two are quarantined rather than deleted**, as `*.orb.quarantined` in
-`std/quarantine/`, and both are files the language cannot read today:
+**One is quarantined rather than deleted**, as `*.orb.quarantined` in
+`std/quarantine/`, and it is a file the language cannot read today:
 
 | quarantined | the language feature that does not exist |
 |---|---|
-| `option.orb.quarantined` | a generic tagged union. `union` has no type parameter list, and a generic `model` typechecks and then emits a C `T` that does not exist. |
-| `bitwise.orb.quarantined` | was bitwise operators, which the language has now (see [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#bitwise-and-shift-operators)); what remains before the module returns is repairing it (its `val` parameters renamed) and a `tests/std/` vector test. |
+| `option.orb.quarantined` | a generic tagged union. `union` has no type parameter list, nothing infers the argument at construction, and the variant registry is flat by variant name. A generic `model` is not the same case: it monomorphises today. |
+
+`bitwise.orb.quarantined` used to sit here too, and it was the
+counter-example to the rule below: a syntax slip (`val` as a parameter
+name), not a missing feature. It is `std/sys/bytes/bitwise.orb` again,
+with `tests/std/test_bitwise.orb` over the vectors its header published.
 
 They are not `.orb` on purpose: `.orb` is the toolchain's marker for
 loadable source, and a file the parser cannot read breaks

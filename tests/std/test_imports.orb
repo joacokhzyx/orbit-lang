@@ -13,6 +13,7 @@
 //   orbit_hmac_sha256_base64url      std/hash/hash.orb:6  +  std/sys/crypto/jwt.orb:15
 //   orbit_int_to_string              std/string/string.orb:7  +  std/test/assert.orb
 //   orbit_string_to_int              std/string/string.orb:8  +  std/convert/convert.orb
+//   hexVal                           std/convert/codec.orb:139  +  std/io/io.orb:12
 //
 // The last two are the pair that a new std/convert/convert.orb had to
 // settle in wave 2: number<->text bindings were private externs inside
@@ -29,6 +30,15 @@
 // imports the owner instead of repeating the declaration. Note the
 // five reported conflicts were four symbols; the fifth was the
 // io.orb + process.orb pair on system_env.
+//
+// The `hexVal` one was a plain `fn`, not an extern, and reading the
+// list above would not have found it either: std/convert/codec.orb and
+// std/io/io.orb each decoded a hex digit locally, so this file could
+// only cover 14 of the 18 modules under std/ -- codec.orb collided and
+// the other three merged silently. codec.orb is the owner now and
+// io.orb imports it, so the import-all covers every module under std/
+// and a module that exists but cannot share a program with the rest is
+// the regression this file exists to catch.
 //
 // The longest case is the one that mattered, and it is asserted here
 // end to end rather than only checked: byte framing AND JWT AND
@@ -49,6 +59,10 @@ import "std/log/log.orb"
 import "std/sys/crypto/jwt.orb"
 import "std/sys/term/color.orb"
 import "std/json/json.orb"
+import "std/convert/codec.orb"
+import "std/string/regex.orb"
+import "std/sys/random/random.orb"
+import "std/sys/http/client.orb"
 
 fn main() -> int {
     // string.orb, reached directly and through three importers
@@ -111,5 +125,21 @@ fn main() -> int {
     // first so later replacements are escaped exactly once
     if assertEqStr(jsonQuote("a\"b"), "\"a\\\"b\"") == false { return 20 }
     if assertEqStr(jsonQuote("a\\b"), "\"a\\\\b\"") == false { return 21 }
+
+    // convert/codec.orb -- the owner of hexVal, and the module whose
+    // duplicate made this file stop at 14 of 18
+    if assertEqStr(hexEncode("AB"), "4142") == false { return 22 }
+    if assertEqStr(base64Encode("abc"), "YWJj") == false { return 23 }
+
+    // string/regex.orb
+    if assertTrue(regexMatch("^a+$", "aaa")) == false { return 24 }
+
+    // sys/random/random.orb -- shape only, the bytes are random
+    val rnd: list = try randomBytes(4) catch { return 25 }
+    if assertEqInt(rnd.len(), 4) == false { return 26 }
+
+    // sys/http/client.orb is imported and not called: fetch() wants a
+    // network, and what can collide in this file is the extern
+    // declaration, not the call.
     return 0
 }

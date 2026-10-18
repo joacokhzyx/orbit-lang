@@ -804,11 +804,16 @@ and need no import. There is no `std/core/result.orb` to import.
   carried, not enforced. Its SHA-256/HMAC bindings are shared with
   `std/hash/hash.orb`; redeclaring them in an importer collides on merge.
 - `std/bytes/bytes.orb`: byte buffers with decimal length framing. Bytes are
-  1–255 (C strings cannot hold NUL); out-of-range reads answer -1. Shared C
+  1-255 (C strings cannot hold NUL); out-of-range reads answer -1. Shared C
   externs live in `std/string/string.orb`; redeclaring them in another module
   collides on merge.
-- Not present: `http_client` and raw sockets (no socket API in the language or
-  the runtime), a thread pool (needs closures).
+- `std/sys/bytes/bitwise.orb`: the bitwise and shift operators as functions,
+  for a call site that wants a symbol instead of an operator. The semantics are
+  the operators' ([above](#bitwise-and-shift-operators)): five-bit shift
+  masking included.
+- Not present: raw sockets (there is no socket API in the language or the
+  runtime) and a thread pool (needs closures). `std/sys/http/client.orb` is a
+  minimal blocking GET -- no TLS, no redirect following, no auth, no proxy.
 
 ## `std/quarantine/`: specified, not implemented
 
@@ -820,12 +825,15 @@ extension.
 
 | module | missing |
 |---|---|
-| `option.orb.quarantined` | a generic tagged union. The parser has no type parameter list on `union`, and there is no monomorphisation, so there is no way to build a parameterised `Option<T>` |
-| `bitwise.orb.quarantined` | was bitwise operators, which the language has now ([Bitwise and shift operators](#bitwise-and-shift-operators) above); the module returns once its `val` parameters are renamed and it is covered by a `tests/std/` vector test |
+| `option.orb.quarantined` | a generic tagged union: `union` takes no type parameter list, nothing infers the argument at construction, and the variant registry is flat by variant name, so two instances would collide. A generic `model` is not the pattern to copy -- it monomorphises today |
 
-Nothing imports these. The `option` entry names the exact language feature
-that would let it land; `bitwise` has its feature and waits on the module
-repair.
+`bitwise` left this table: its missing feature (the operators) landed, so
+what remained was a syntax slip (`val` as a parameter name) and a missing
+test, and both are done. It is `std/sys/bytes/bitwise.orb` again and
+`tests/std/test_bitwise.orb` covers the vectors its header published.
+
+Nothing imports the remaining file. Its header names the exact language
+feature that would let it land.
 
 ## System telemetry
 
