@@ -58,7 +58,7 @@ So review the `.orb` diff, the commit's evidence block, and `make promote-diff` 
 
 These are gates. Do not perform them by hand and do not write them out as a habit:
 
-- `fmt --check` runs over the whole `compiler/` and `tests/suite/` directories, not the files you touched. Stricter than necessary is free; looser than CI costs a red.
+- `fmt --check` runs over the whole source trees, not the files you touched: `compiler/`, `tests/suite/`, `std/` and `tests/std/`, plus `examples/` minus `orbit_full_expansion.orb`. Stricter than necessary is free; looser than CI costs a red.
 - `tests/negative/*.orb` must FAIL to compile with the text their header pins. A `known-defect:` asserts the bug is STILL there, so a fix makes the gate red until you re-declare the case as `expect-error:` with the diagnostic you measured, never from memory. See `tests/negative/README.md`.
 - `alive_check` (D8) requires every file in `scripts/` to be able to fail. A new script with no row there is the same class of thing as a gate nobody reads.
 - `unknown_ratchet` fails only when the number goes UP. Raising a baseline is a deliberate act and `--write-baseline` refuses to move it up without `--allow-regression`.

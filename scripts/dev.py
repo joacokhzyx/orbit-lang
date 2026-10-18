@@ -488,15 +488,20 @@ def check_stale_bytes() -> tuple:
 def fmt_check_files() -> list:
     """Every file today's fmt gates verify, as an explicit sorted list.
 
-    Matches `orbit fmt --check <dir>` byte-for-byte: that command lists
-    recursive `*.orb` under the dir (25 under compiler/, 68 under
-    tests/suite/ per --verbose), and examples are already per-file in dev.py
-    minus orbit_full_expansion.orb. A file renamed out from under this list
+    Matches `orbit fmt --check <dir>` byte-for-byte over the source trees the
+    toolchain formats: compiler/, tests/suite/, std/ and tests/std/, plus
+    examples/ (already per-file in dev.py, minus orbit_full_expansion.orb).
+    std/ joined the list because std/quarantine/README.md cites `orbit fmt
+    --check std` as the standard a loadable module must meet, and two modules
+    were outside every gate and unformatted. The counts are whatever the tree
+    holds and are not pinned here. A file renamed out from under this list
     fails loudly (missing file -> gate failure), which is the point: the list
     is the contract, not a glob that silently follows.
     """
     files = [p for p in (ROOT / "compiler").rglob("*.orb")]
     files += [p for p in (ROOT / "tests" / "suite").rglob("*.orb")]
+    files += [p for p in (ROOT / "std").rglob("*.orb")]
+    files += [p for p in (ROOT / "tests" / "std").rglob("*.orb")]
     files += [p for p in (ROOT / "examples").glob("*.orb")
               if p.name != "orbit_full_expansion.orb"]
     # Repo-relative, sorted, deduplicated: argv stability across platforms.
@@ -618,8 +623,8 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     """T0 static gates (no sharding here).
 
     fmt itself no longer lives in this list: it runs sharded per file via
-    run_fmt_sharded (same 25 + 68 + 13 files `fmt --check <dir>` verifies,
-    one pool, aggregated verdict). Checking only the touched files would pass
+    run_fmt_sharded (the same file list fmt_check_files() returns, one pool,
+    aggregated verdict). Checking only the touched files would pass
     locally on a file an earlier commit left unformatted, so the full list
     wins: being stricter than CI is free, being looser is not.
     """
@@ -861,8 +866,9 @@ def main() -> int:
         specs = gate_spec(binary, cc, work)
         say(f"\nfp: {short(binary)}" +
             (f" ({fp_stamp_line(binary)})" if binary.exists() else " (not built)"))
-        say("T0: fmt --check sharded per file (compiler 25 + tests/suite 68 + "
-            "examples 13, minus orbit_full_expansion.orb) + schema + walk")
+        say(f"T0: fmt --check sharded per file ({len(fmt_check_files())} files "
+            "across compiler/, tests/suite/, std/, tests/std/ and examples/) "
+            "+ schema + walk")
         for tier in sorted(specs):
             names = ", ".join(n for n, _ in specs[tier])
             line = f"T{tier}: {names}"
