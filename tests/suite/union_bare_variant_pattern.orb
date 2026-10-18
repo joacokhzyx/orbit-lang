@@ -1,0 +1,60 @@
+// A bare variant pattern is a tag test: `match o { NoInt => ... }` means what
+// `OptInt.NoInt` means. The qualified spelling always worked; the bare one built
+// the name as an ordinary expression, and the C step rejected it with
+// `unknown type name 'NoInt'`.
+//
+// Three shapes, because they resolved their owner differently: a parameter (the
+// scrutinee's own type), a call result (the same, one hop out), and an
+// enumeration (whose scrutinee is the tag itself, not a tag node). The exit code
+// is the assertion: a match that dispatches to the wrong arm, or falls out of
+// the arm it should have taken, comes out as a non-zero code below.
+union OptInt {
+    SomeInt(int)
+    NoInt
+}
+
+enum Mode {
+    Fast
+    Slow
+}
+
+fn classifyParam(o: OptInt) -> int {
+    match o {
+        SomeInt(v) => { return v + 100 }
+        NoInt => { return 7 }
+    }
+    return -1
+}
+
+fn mk(n: int) -> OptInt {
+    if n > 0 { return OptInt.SomeInt(n) }
+    return OptInt.NoInt
+}
+
+fn classifyCall(n: int) -> int {
+    match mk(n) {
+        SomeInt(v) => { return v + 100 }
+        NoInt => { return 7 }
+    }
+    return -1
+}
+
+fn modeCode(m: Mode) -> int {
+    match m {
+        Fast => { return 1 }
+        Slow => { return 2 }
+    }
+    return -1
+}
+
+fn main() -> int {
+    val a = OptInt.SomeInt(5)
+    val b = OptInt.NoInt
+    if classifyParam(a) != 105 { return 90 }
+    if classifyParam(b) != 7 { return 91 }
+    if classifyCall(5) != 105 { return 92 }
+    if classifyCall(0) != 7 { return 93 }
+    if modeCode(Mode.Fast) != 1 { return 94 }
+    if modeCode(Mode.Slow) != 2 { return 95 }
+    return 0
+}

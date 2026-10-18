@@ -397,7 +397,7 @@ def registry(compiler, cc, work):
         # ratio, so a self-test that quietly stopped asserting one of them
         # fails this row instead of passing it.
         Tool("emit_ir_corpus.py", "measurement",
-             "emits the 89+1 IR corpus and its hash manifest; --self-test "
+             "emits the 95+1 IR corpus and its hash manifest; --self-test "
              "proves the corpus contract and that the comparator catches a "
              "changed hash, size, member and whole-corpus hash",
              lambda: _script("emit_ir_corpus.py", "--self-test"),

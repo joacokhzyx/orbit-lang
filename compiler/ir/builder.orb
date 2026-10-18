@@ -1988,6 +1988,72 @@ fn variantPayloadType(builder: IRBuilder, tagName: string) -> string {
     return "unknown"
 }
 
+// Does `typeName` declare a variant called `variantName`? The tag constants are
+// per type, so this is what makes the scrutinee's own type the owner of a bare
+// pattern.
+fn typeDeclaresVariant(builder: IRBuilder, typeName: string, variantName: string) -> bool {
+    var ti = 0
+    while ti < builder.module.types.len() {
+        val t: IRTypeDecl = builder.module.types.get(ti)
+        if t.name == typeName {
+            var vi = 0
+            while vi < t.variants.len() {
+                if t.variants.get(vi) == variantName {
+                    return true
+                }
+                vi = vi + 1
+            }
+            return false
+        }
+        ti = ti + 1
+    }
+    return false
+}
+
+// The tagged type first declaring a variant: a union or an enumeration.
+// variantTagOwner answers the union-only question the payload path asks -- a
+// payload type only a union has -- and a bare `V` pattern has no payload, so an
+// enumeration is one of its possible owners.
+fn taggedVariantOwner(builder: IRBuilder, tagName: string) -> string {
+    if tagName.len() == 0 { return "" }
+    var ti = 0
+    while ti < builder.module.types.len() {
+        val t: IRTypeDecl = builder.module.types.get(ti)
+        if t.kind == "union_type" || t.kind == "enumeration" {
+            var vi = 0
+            while vi < t.variants.len() {
+                if t.variants.get(vi) == tagName {
+                    return t.name
+                }
+                vi = vi + 1
+            }
+        }
+        ti = ti + 1
+    }
+    return ""
+}
+
+// The owner of a bare variant pattern (`V`, no type in front of it).
+//
+// The scrutinee's own type is the answer when the builder can type it: the tag
+// constants are per type, so with two types declaring the same variant name at
+// different positions, "the first type declaring it" is a different number from
+// the scrutinee's. A known type that does not declare the name means the
+// pattern is not a variant pattern at all -- it is an ordinary expression, and
+// comparing values is the behavior to keep.
+//
+// When the builder cannot type the scrutinee, the name decides, the way a bare
+// `V(a)` pattern already resolves its tag.
+fn bareVariantOwner(builder: IRBuilder, scrutinee: ASTNode, variantName: string) -> string {
+    if variantName == "" { return "" }
+    val st = resolveExprType(builder, scrutinee)
+    if st != "unknown" {
+        if typeDeclaresVariant(builder, st, variantName) { return st }
+        return ""
+    }
+    return taggedVariantOwner(builder, variantName)
+}
+
 fn fieldOwnerForObject(builder: IRBuilder, obj: ASTNode, fieldName: string) -> string {
     // Resolve the type of the actual receiver expression, not only bare
     // variables. This preserves the owner in IR for chained accesses such as
@@ -3270,6 +3336,37 @@ fn buildNode(builder: IRBuilder, node: ASTNode) {
 // statement or as an expression, and whether the whole thing hands back a
 // register. A match is a match; the two callers wanted different results from
 // it, not a different algorithm.
+// One variant tag test: the shape a qualified pattern (`T.V`) and a bare one
+// (`V`, with its owner resolved) both lower to. A union scrutinee is a tag
+// node, so its tag is read first; an enumeration scrutinee IS the tag, so the
+// value is compared as it stands. The arm is jumped over when the tag is some
+// other variant.
+fn emitVariantTagTest(builder: IRBuilder, matchReg: int, nextLabel: int, owner: string, field: string) {
+    var cmpReg = matchReg
+    if isUnionTypeName(builder, owner) {
+        cmpReg = ir_alloc_register(builder.currentFunction, "int")
+        val tagInstr = ir_init_instr(IROpcode.union_get_tag)
+        tagInstr.dest = cmpReg
+        tagInstr.operand1 = ir_register(matchReg)
+        ir_emit(builder.currentFunction, tagInstr)
+    }
+    val patReg = ir_alloc_register(builder.currentFunction, "int")
+    val constInstr = ir_init_instr(IROpcode.load_var)
+    constInstr.dest = patReg
+    constInstr.operand1 = ir_symbol(owner + "_TAG_" + field)
+    ir_emit(builder.currentFunction, constInstr)
+    val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+    val eqInstr = ir_init_instr(IROpcode.eq)
+    eqInstr.dest = eqReg
+    eqInstr.operand1 = ir_register(cmpReg)
+    eqInstr.operand2 = ir_register(patReg)
+    ir_emit(builder.currentFunction, eqInstr)
+    val jmp = ir_init_instr(IROpcode.jump_if_false)
+    jmp.operand1 = ir_register(eqReg)
+    jmp.operand2 = ir_label(nextLabel)
+    ir_emit(builder.currentFunction, jmp)
+}
+
 fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
     val matchReg = buildExpr(builder, m.expr)
     // Only the expression form has a value to return. Allocating it
@@ -3302,17 +3399,32 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                         if lit.text == "_" {
                             // Wildcard: always match
                         } else {
-                            val patReg = buildExpr(builder, c.pattern)
-                            val eqReg = ir_alloc_register(builder.currentFunction, "bool")
-                            val eqInstr = ir_init_instr(IROpcode.eq)
-                            eqInstr.dest = eqReg
-                            eqInstr.operand1 = ir_register(matchReg)
-                            eqInstr.operand2 = ir_register(patReg)
-                            ir_emit(builder.currentFunction, eqInstr)
-                            val jmp = ir_init_instr(IROpcode.jump_if_false)
-                            jmp.operand1 = ir_register(eqReg)
-                            jmp.operand2 = ir_label(nextLabel)
-                            ir_emit(builder.currentFunction, jmp)
+                            // A bare name that is a variant of the matched type
+                            // is the same test as the qualified spelling:
+                            // `match o { NoInt => ... }` means what
+                            // `OptInt.NoInt` means. Without this the name built
+                            // as an ordinary expression -- an uppercase name went
+                            // to load_const, and the C step rejected the result
+                            // with `unknown type name 'NoInt'`.
+                            var litOwner = ""
+                            if lit.valType == "identifier" {
+                                litOwner = bareVariantOwner(builder, m.expr, lit.text)
+                            }
+                            if litOwner != "" {
+                                emitVariantTagTest(builder, matchReg, nextLabel, litOwner, lit.text)
+                            } else {
+                                val patReg = buildExpr(builder, c.pattern)
+                                val eqReg = ir_alloc_register(builder.currentFunction, "bool")
+                                val eqInstr = ir_init_instr(IROpcode.eq)
+                                eqInstr.dest = eqReg
+                                eqInstr.operand1 = ir_register(matchReg)
+                                eqInstr.operand2 = ir_register(patReg)
+                                ir_emit(builder.currentFunction, eqInstr)
+                                val jmp = ir_init_instr(IROpcode.jump_if_false)
+                                jmp.operand1 = ir_register(eqReg)
+                                jmp.operand2 = ir_label(nextLabel)
+                                ir_emit(builder.currentFunction, jmp)
+                            }
                         }
                     }
                     ASTNode.MemberAccess(mp) => {
@@ -3324,34 +3436,21 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             ASTNode.Literal(mpl) => { mpOwner = mpl.text }
                             _ => {}
                         }
-                        var cmpReg = matchReg
-                        if isUnionTypeName(builder, mpOwner) {
-                            cmpReg = ir_alloc_register(builder.currentFunction, "int")
-                            val mpTag = ir_init_instr(IROpcode.union_get_tag)
-                            mpTag.dest = cmpReg
-                            mpTag.operand1 = ir_register(matchReg)
-                            ir_emit(builder.currentFunction, mpTag)
-                        }
-                        var mpPatReg = -1
                         if mpOwner != "" {
-                            mpPatReg = ir_alloc_register(builder.currentFunction, "int")
-                            val mpConst = ir_init_instr(IROpcode.load_var)
-                            mpConst.dest = mpPatReg
-                            mpConst.operand1 = ir_symbol(mpOwner + "_TAG_" + mp.field)
-                            ir_emit(builder.currentFunction, mpConst)
+                            emitVariantTagTest(builder, matchReg, nextLabel, mpOwner, mp.field)
                         } else {
-                            mpPatReg = buildExpr(builder, c.pattern)
+                            val mpPatReg = buildExpr(builder, c.pattern)
+                            val mpEqReg = ir_alloc_register(builder.currentFunction, "bool")
+                            val mpEqInstr = ir_init_instr(IROpcode.eq)
+                            mpEqInstr.dest = mpEqReg
+                            mpEqInstr.operand1 = ir_register(matchReg)
+                            mpEqInstr.operand2 = ir_register(mpPatReg)
+                            ir_emit(builder.currentFunction, mpEqInstr)
+                            val mpJmp = ir_init_instr(IROpcode.jump_if_false)
+                            mpJmp.operand1 = ir_register(mpEqReg)
+                            mpJmp.operand2 = ir_label(nextLabel)
+                            ir_emit(builder.currentFunction, mpJmp)
                         }
-                        val mpEqReg = ir_alloc_register(builder.currentFunction, "bool")
-                        val mpEqInstr = ir_init_instr(IROpcode.eq)
-                        mpEqInstr.dest = mpEqReg
-                        mpEqInstr.operand1 = ir_register(cmpReg)
-                        mpEqInstr.operand2 = ir_register(mpPatReg)
-                        ir_emit(builder.currentFunction, mpEqInstr)
-                        val mpJmp = ir_init_instr(IROpcode.jump_if_false)
-                        mpJmp.operand1 = ir_register(mpEqReg)
-                        mpJmp.operand2 = ir_label(nextLabel)
-                        ir_emit(builder.currentFunction, mpJmp)
                     }
                     ASTNode.Call(callPattern) => {
                         // Tagged union variant destructuring pattern e.g. ASTNode.Program(p)
