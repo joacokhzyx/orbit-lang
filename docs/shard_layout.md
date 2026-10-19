@@ -86,7 +86,7 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
   selfhost TU, measured). Wrap lines duplicate the header's copies;
   coverage must show them as the only extras.
 - R5. Shard0 prologue, in order: `#include "<base>.h"`,
-  `#include "thread_pool.c"`, `OrbitArena* arena = NULL;`,
+  `#include "thread_pool.c"`,
   `#ifdef _WIN32` `void __main(void) {}` `#endif`, then the named
   preamble-helper bodies (`orbit_color_enabled`, plus for route programs
   `orbit_print_kynx_gradient`, `orbit_render_server_banner`,

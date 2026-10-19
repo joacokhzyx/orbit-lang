@@ -225,16 +225,14 @@ pool).
 
 What this deliberately does **not** count: an arena that is neither reset nor
 destroyed. In practice that is the process-wide fallback arena
-(`orbit_arena_get_global`), which lives for the life of the process. The request
-path reaches it in exactly one shape: a runtime helper handed no arena falls
-back to this one, and the helper a route calls with no arena is std's file API --
-`readAll`, `append`, `listDir` and `walk` are plain functions, not routes, so the
-arena the emitter hands them is the file-scope global, which a route-only program
-never assigns. A read through a helper therefore allocates here and those bytes
-are counted by nobody; what a route body allocates itself comes from the worker's
-arena, and the unconditional callers are the compiler-side helpers and the
-ledger's exit dump. A hand-written C program that allocates only from the global
-arena sees the four counters stay at zero.
+(`orbit_arena_get_global`), which lives for the life of the process. Generated
+code no longer reaches it: the arena is the first parameter of every emitted
+function, so a route's helper is handed the request arena exactly as the route
+body is, and the emitted server never names the global. What still reaches it is
+C that Orbit does not generate -- the runtime's own helpers handed no arena, the
+ledger's exit dump (`runtime/ledger.c:283`), and a hand-written program that
+allocates only from the global. Bytes allocated there are counted by nobody,
+which is what the four counters reading zero describes.
 
 What the join does change is *when* the totals publish. It happens at
 `orbit_arena_reset`, which the emitted loop calls before each request, and each

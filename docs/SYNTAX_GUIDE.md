@@ -104,6 +104,13 @@ there is no `fn` annotation to pass one as a parameter or return one. A
 generic function has no one signature until a call fixes its parameters, so
 only calling it is allowed; `main` is the entry point, not a value.
 
+The request arena travels as the first parameter of every emitted C function
+and never appears in an Orbit signature, so it changes no arity above. It does
+make `arena` a name of its own in the emitted C: a parameter or a local spelled
+that way collides with the injected one instead of being renamed, and the C
+compiler refuses the build (ENGINEERING.md section 7,
+`arena-param-name-collision`).
+
 ```orbit
 fn inc(x: int) -> int {
     return x + 1

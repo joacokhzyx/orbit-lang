@@ -23,17 +23,21 @@ fn initArena(cap: int) -> Arena {
 }
 
 // O(1) Allocation
-fn alloc(arena: Arena, size: int) -> int {
-    if arena.offset + size > arena.capacity {
+// The parameter is `a` and not `arena` on purpose: every function this
+// compiler emits already opens with an `OrbitArena* arena`, so a parameter
+// of that name collides in the generated C (ENGINEERING.md section 7,
+// `arena-param-name-collision`).
+fn alloc(a: Arena, size: int) -> int {
+    if a.offset + size > a.capacity {
         // Over the hard limit there is no OS to ask: refuse the request.
         return -1
     }
-    val ptr = arena.offset
-    arena.offset = arena.offset + size
+    val ptr = a.offset
+    a.offset = a.offset + size
     return ptr
 }
 
 // O(1) Bulk deallocation (Done at the end of every request)
-fn reset(arena: Arena) {
-    arena.offset = 0
+fn reset(a: Arena) {
+    a.offset = 0
 }

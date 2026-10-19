@@ -217,10 +217,11 @@ non-zero at all.
 `runtime/test_arena_telemetry.c`: four threads' arenas summed independently and
 compared against the aggregate delta, plus a case that proves the fast path
 publishes nothing. There is one thing it cannot count, an arena that is never
-reset and never destroyed -- in practice the process-wide fallback arena, which
-a route reaches only through a helper that was handed no arena (std's `readAll`
-and `listDir` are plain functions, so a route-only program has no request arena
-to give them); what a route body allocates itself comes from the worker's arena.
+reset and never destroyed -- in practice the process-wide fallback arena. Since
+the arena became the first parameter of every emitted function, a route's helper
+is handed the request arena like the route body itself, and generated code no
+longer reaches the fallback; the callers left are C that Orbit does not emit,
+the runtime helpers handed no arena and the ledger's exit dump.
 What the join does change is *when*
 a total appears: a worker's last interval publishes at that worker's next
 request, so `/_pulse`'s `alloc_mb` can trail by up to one request per worker,
