@@ -76,7 +76,6 @@ fn routePreambleText(hasRoutes: bool, globals: string) -> string {
         out = out + "}\n"
         out = out + "\n"
     }
-    out = out + "OrbitArena* arena = NULL;\n"
     out = out + "#ifdef _WIN32\n"
     out = out + "void __main(void) {}\n"
     out = out + "#endif\n"

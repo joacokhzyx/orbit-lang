@@ -190,20 +190,15 @@ fn functionProto(backend: CBackend, func: IRFunction) -> string {
     if isRoute2 {
         proto = proto + protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena, OrbitRequest* req"
     } else if isMain2 {
-        proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* _init_arena"
+        proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena"
     } else {
-        proto = protoAttr + retType2 + " " + fName2 + "("
-        if func.params.len() == 0 {
-            proto = proto + "void"
-        } else {
-            var pi2 = 0
-            while pi2 < func.params.len() {
-                proto = proto + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
-                if pi2 < func.params.len() - 1 {
-                    proto = proto + ", "
-                }
-                pi2 = pi2 + 1
-            }
+        // Same first parameter as the definition below: a function in this
+        // module allocates from the caller's arena, so the prototype names it.
+        proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena"
+        var pi2 = 0
+        while pi2 < func.params.len() {
+            proto = proto + ", " + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
+            pi2 = pi2 + 1
         }
     }
     return proto + ");\n"
@@ -297,8 +292,7 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, routeLimits)
     }
     if moduleHasFunction(backend, "main") == false {
-        orbit_cbuf_append_selfhost(cbTop, "int orbit_main(OrbitArena* _init_arena) {\n")
-        orbit_cbuf_append_selfhost(cbTop, "    (void)_init_arena;\n")
+        orbit_cbuf_append_selfhost(cbTop, "int orbit_main(OrbitArena* arena) {\n")
         orbit_cbuf_append_selfhost(cbTop, "    return 0;\n")
         orbit_cbuf_append_selfhost(cbTop, "}\n")
     }
@@ -393,7 +387,6 @@ fn generateCHeader(backend: CBackend) -> string {
     orbit_cbuf_append_selfhost(cbH, "#include \"runtime.h\"\n")
     orbit_cbuf_append_selfhost(cbH, "#include <signal.h>\n")
     orbit_cbuf_append_selfhost(cbH, "\n")
-    orbit_cbuf_append_selfhost(cbH, "extern OrbitArena* arena;\n")
     orbit_cbuf_append_selfhost(cbH, "extern char** _orbit_argv;\n")
     orbit_cbuf_append_selfhost(cbH, "extern int _orbit_argc;\n")
     orbit_cbuf_append_selfhost(cbH, "#ifdef _WIN32\n")
@@ -436,7 +429,7 @@ fn generateCHeader(backend: CBackend) -> string {
     }
     orbit_cbuf_append_selfhost(cbH, mainProto())
     if moduleHasFunction(backend, "main") == false {
-        orbit_cbuf_append_selfhost(cbH, "int orbit_main(OrbitArena* _init_arena);\n")
+        orbit_cbuf_append_selfhost(cbH, "int orbit_main(OrbitArena* arena);\n")
     }
     // After every prototype it can call: nothing else in this header calls
     // it, and the shards include the whole header before their own bodies.
@@ -2231,31 +2224,25 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     if isRoute {
         orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* arena, OrbitRequest* req")
     } else if isMain {
-        orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* _init_arena")
+        orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* arena")
     } else {
-        orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(")
-        if func.params.len() == 0 {
-            orbit_cbuf_append_selfhost(cbFn, "void")
-        } else {
-            while i < func.params.len() {
-                val pName = func.params.get(i)
-                var pTypeName = "void*"
-                if i < func.paramTypes.len() {
-                    pTypeName = func.paramTypes.get(i)
-                }
-                val pType = mapTypeToC(backend, pTypeName)
-                orbit_cbuf_append_selfhost(cbFn, pType + " " + pName)
-                if i < func.params.len() - 1 {
-                    orbit_cbuf_append_selfhost(cbFn, ", ")
-                }
-                i = i + 1
+        // Every emitted function opens with the request arena. A helper
+        // called from a route then allocates into the arena that request is
+        // reset with; before this it read a process-wide NULL and fell back
+        // to the global arena, which no request ever resets.
+        orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* arena")
+        while i < func.params.len() {
+            val pName = func.params.get(i)
+            var pTypeName = "void*"
+            if i < func.paramTypes.len() {
+                pTypeName = func.paramTypes.get(i)
             }
+            val pType = mapTypeToC(backend, pTypeName)
+            orbit_cbuf_append_selfhost(cbFn, ", " + pType + " " + pName)
+            i = i + 1
         }
     }
     orbit_cbuf_append_selfhost(cbFn, ") {\n")
-    if isMain {
-        orbit_cbuf_append_selfhost(cbFn, "    arena = _init_arena;\n")
-    }
     backend.refLabels = []
     var si = 0
     while si < func.instructions.len() {
@@ -2923,22 +2910,26 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
                 var startIdxI = backend.callArgs.len() - numArgsI
                 if startIdxI < 0 { startIdxI = 0 }
-                var fptrParams = "void"
+                // A function value points at an emitted function, and every
+                // one of those opens with the arena. The cast is explicit, so
+                // omitting it here still compiles -- the arguments would just
+                // be shifted by one at run time, with the first user argument
+                // arriving as the arena.
+                var fptrParams = "OrbitArena* arena"
                 if wantArity > 0 {
-                    fptrParams = ""
                     var pi = 0
                     while pi < wantArity {
-                        if pi > 0 { fptrParams = fptrParams + ", " }
                         var pt = "void*"
                         if backendIsFnType(sig) { pt = mapTypeToC(backend, backendFnTypeParamAt(sig, pi)) }
-                        fptrParams = fptrParams + pt
+                        fptrParams = fptrParams + ", " + pt
                         pi = pi + 1
                     }
                 }
                 var callExprI = "((" + retC + " (*)(" + fptrParams + "))(" + calleeStr + "))("
                 var iI = startIdxI
                 var argIdxI = 0
-                var anyArgI = false
+                var anyArgI = true
+                callExprI = callExprI + "arena"
                 while iI < backend.callArgs.len() {
                     if anyArgI { callExprI = callExprI + ", " }
                     anyArgI = true
@@ -3014,7 +3005,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
             }
             if calleeName == "ir_none" {
-                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "ir_none()"))
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "ir_none(arena)"))
                 return
             }
             var numArgs = 0
@@ -3104,7 +3095,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             var callName = calleeName
             if isCKeyword(callName) { callName = callName + "_" }
             var callExpr = callName + "("
-            val arenaFirst = functionNeedsArena(calleeName)
+            val arenaFirst = calleeTakesArena(backend, calleeName)
             var i = startIdx
             var anyArg = false
             if arenaFirst {
@@ -4445,6 +4436,27 @@ fn functionNeedsArena(name: string) -> bool {
     return false
 }
 
+// Does a call to this name have to pass the request arena? Two kinds of
+// callee answer yes: a runtime helper whose C signature opens with one (the
+// table above), and any function this module emits, because every emitted
+// function now opens with `OrbitArena* arena`. The exception among the
+// module's functions is `extern fn`: the runtime declares it, so its
+// signature is the runtime's and it carries no arena of its own. Without
+// that clause the extern's own arena, injected by the table above, would be
+// joined by a second one from its first argument.
+fn calleeTakesArena(backend: CBackend, name: string) -> bool {
+    if functionNeedsArena(name) { return true }
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == name && f.isExtern == false {
+            return true
+        }
+        fi = fi + 1
+    }
+    return false
+}
+
 // Which getter a field read needs depends on what was stored under that key,
 // and the write is usually in the same function: an object literal builds
 // itself in place, so `{ a: 1 }` above the read is right there in the
@@ -4786,7 +4798,7 @@ fn calleeEnumParamName(backend: CBackend, calleeName: string, argIdx: int) -> st
         val f: IRFunction = backend.module.functions.get(pi)
         if f.name == calleeName {
             var off = 0
-            if functionNeedsArena(calleeName) { off = 1 }
+            if calleeTakesArena(backend, calleeName) { off = 1 }
             val idx = argIdx + off
             if idx < f.paramTypes.len() { pT = f.paramTypes.get(idx) }
             pi = backend.module.functions.len()
