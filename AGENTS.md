@@ -129,7 +129,7 @@ Stop and ask rather than push on, when:
 ## Style / workflow
 
 - Preserve existing shapes: 4-space, no `var` vs `val` concessions; comments explain why code is like this, not what the code says. No new comments unless they say something the code cannot.
-- Name things by what they are. Files, doc sections, examples, tests and gates carry descriptive names (`std_crypto_demo.orb`, not `std_wave4.orb`). Do not invent batch, phase or journey codenames for new work. Component names (`Kynx`) and diagnostic/defect codes (`D001`, `F-000N`) are stable identifiers, not codenames: keep them, and define a new identifier in docs before using it in code. Retired debt-table IDs (`STAB-N`, `PAR-N`, ...) stay retired; do not mint new ones.
+- Name things by what they are. Files, doc sections, examples, tests and gates carry descriptive names (`std_crypto_demo.orb`, not `std_wave4.orb`). Do not invent batch, phase or journey codenames for new work. A commit message and a document name the change or the mechanism, never the plan that produced them. Component names (`Kynx`) and diagnostic/defect codes (`D001`, `F-000N`) are stable identifiers, not codenames: keep them, and define a new identifier in docs before using it in code. Retired debt-table IDs (`STAB-N`, `PAR-N`, ...) stay retired; do not mint new ones.
   - Day-0 read: codename (never invent, e.g. `std_wave4.orb`) vs stable identifier (keep, e.g. `Kynx`, `D001`, `F-000N`) vs retired slug (stay retired, e.g. `STAB-N`).
 - Changes to the emitted C need the whole-prelude byte-diff check: track one program byte-for-byte; only expected fragments (one register renumber, one removed line) should differ.
 - `gh` is the source of truth for CI state: `gh run list --limit 3; gh run view <id> --log` for the failing step's name. The failing step name is the finding; the step text is often as enough.
@@ -169,6 +169,7 @@ Message:
 
 - Subject: `area: what changed`, imperative, under 60 characters, no period.
 - The body says why. The diff says what.
+- No batch, phase or ticket label (`E2`, `B3`, `WT-1`, `wave4`) in the subject or the body. The message describes the change, not the plan that produced it.
 - One claim per sentence. Every number is one the reader can reproduce.
 - End with an Evidence block: one line per command and what it printed.
 - If something is unmeasured or left undone, one sentence says so, with the reason.
