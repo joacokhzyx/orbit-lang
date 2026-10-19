@@ -224,9 +224,9 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-77 cases: all 77 are `expect-error:` - every program is rejected, with a pinned
+78 cases: all 78 are `expect-error:` - every program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets: the gate prints `Finished
-negative: 77/77 pass (0 known defects still accepted)`. The last one was F-0009
+negative: 78/78 pass (0 known defects still accepted)`. The last one was F-0009
 (`n39`), a bare `list` parameter with no element type that crashed instead of
 being refused; generic functions gave it a diagnostic and the case now pins the
 coherence refusal. `wrong-value:`, `cc-rejects:` and `no-diagnostic:` stay in

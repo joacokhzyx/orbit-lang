@@ -3382,6 +3382,25 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                             j = j + 1
                         }
                     }
+                    // The one declaration shape that is not a declaration. The
+                    // three passes above match the kinds they know and drop the
+                    // rest, so a bare expression at file scope used to be
+                    // checked by nobody and built by nobody: `marker()` at file
+                    // scope emitted a definition for `marker`, no call to it,
+                    // and an `orbit_main` that returns 0, with `orbit check` at
+                    // rc 0 (measured 2026-10-19). `parseDeclaration` is the only
+                    // builder of this node and `parseProgram` its only caller
+                    // (parser.orb:1578, :1586), so being here means file scope,
+                    // and the honest answer is to refuse the shape rather than
+                    // to check the expression the output does not contain.
+                    ASTNode.ExpressionStmt(e) => {
+                        // The pass above leaves the last function it checked in
+                        // currentFunction; this refusal is not inside it, and
+                        // "[in marker]" for a file-scope statement reads as a
+                        // lie about where the expression is.
+                        sema.currentFunction = ""
+                        reportError(sema, "Cannot execute an expression at file scope: nothing here runs it, so it is discarded and the program computes something else. Move it into a function, or bind it with `val`.")
+                    }
                     _ => {}
                 }
                 i = i + 1
@@ -4008,6 +4027,14 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
         // checkNode, not inferType: an expression statement reaches the
         // checker only through here, so a check that lives in checkNode is
         // not run for `print(7 / 0)` unless this dispatches to it.
+        //
+        // Measured 2026-10-19: nothing dispatches to it. A bare call inside a
+        // body comes back from `parseStatementInner` unwrapped (parser.orb:1476)
+        // and is checked as a Call, and the file-scope shape -- the only one
+        // `parseDeclaration` builds (parser.orb:1578) -- is not routed through
+        // here either, because the Program pass matches the declaration kinds
+        // itself. That shape is refused in that pass now; this arm still checks
+        // an expression statement if a walk ever hands it one.
         ASTNode.ExpressionStmt(e) => {
             // Unpositioned dispatch like checkReturn: reset valueSite so a
             // literal standing alone as a statement never inherits a line.

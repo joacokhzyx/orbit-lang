@@ -1,0 +1,17 @@
+// case: top-level-expression
+// what: a bare expression in declaration position. `orbit check` accepted it and
+//      the builder discarded it: `marker()` at file scope emitted a definition
+//      for `marker` and no call to it, `orbit_main` returned 0, and the program
+//      agreed with its source while computing something else. Only
+//      `parseDeclaration` builds this node and only `parseProgram` calls that,
+//      so the position is always file scope; it is refused rather than checked.
+// expect-error: Cannot execute an expression at file scope
+fn marker() -> int {
+    return 7
+}
+
+marker()
+
+fn main() -> int {
+    return 0
+}
