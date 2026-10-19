@@ -2,7 +2,7 @@
 
 A one-page skeleton of the language, with every sample here compiled and run
 by the test suite. [Language Reference](LANGUAGE_REFERENCE.md) is the complete
-specification with the semantics; this page is the shape of the thing.
+specification with the semantics. This page is the short version.
 
 New here? [Getting Started](GETTING_STARTED.md) gets you running code first.
 
@@ -16,7 +16,7 @@ fn main() -> int {
 
 `fn main() -> int` is the entry point and the return type is `int`. The
 process exit code is the return value, which is how the test suite asserts
-behaviour. Statements are newline-terminated; there are no semicolons.
+behaviour. Statements are newline-terminated. There are no semicolons.
 
 ## Bindings
 
@@ -61,8 +61,8 @@ fn main() -> int {
 `list` is the dynamic array. There is no hash-map module in `std/`: a
 `{ key: value }` literal is an object (see the reference), and an object
 field cannot hold a map. `map` is a known type name but has no runtime
-collection or std module behind it; use models for fixed shapes and
-objects for dynamic ones.
+collection or std module behind it. Use models when the fields are fixed and
+objects when they are dynamic.
 
 ## Functions
 
@@ -83,7 +83,7 @@ A function declares type parameters in brackets: `fn getOr[T](l: list<T>)`.
 Each call site infers them from its arguments and compiles its own instance
 (`getOr_int`, `getOr_string`), so one body serves every kind with checking
 and code per kind. Two positions fixing one variable to different types
-refuse the call; a variable nothing fixes is refused; bodies check once with
+refuse the call. A variable nothing fixes is refused. Bodies check once with
 parameters opaque. Constraints (`[T: int]`), generic `main`/`extern`, and
 generic methods are refused: inference has nothing to check a constraint
 against, entry points and externs have no call site or body to build from.
@@ -102,7 +102,7 @@ it with the same arity and argument checking as a direct call. There is no
 capture: a value only ever names a function this module emits, never a lambda,
 and there is no `fn` annotation to pass one as a parameter or return one. A
 generic function has no one signature until a call fixes its parameters, so
-only calling it is allowed; `main` is the entry point, not a value; and an
+only calling it is allowed. `main` is the entry point, not a value. An
 `extern fn` takes no arena, so it is called directly rather than through a
 value.
 
@@ -126,7 +126,7 @@ fn main() -> int {
 ## Errors: `result` and `try` / `catch`
 
 A function that can fail returns `result`. The caller handles it with `try` and
-`catch`; there are no exceptions and nothing unwinds implicitly.
+`catch`. There are no exceptions and nothing unwinds implicitly.
 
 ```orbit
 fn parse(text: string) -> result {
@@ -260,7 +260,7 @@ orbit build greet.orb -o greet
 ./greet 8080
 ```
 
-If you need startup work, add `fn main() -> int`; the generated server calls
+If you need startup work, add `fn main() -> int`. The generated server calls
 it before accepting connections, and its return value becomes the exit code
 when it returns.
 
@@ -284,7 +284,7 @@ route GET "/old" {
 
 A name with a colon, or a name or value carrying CR or LF, is refused:
 a value smuggling CRLF would split a second header into the reply.
-`ok` accepts any 2xx or 3xx status; 4xx/5xx belong to `err`, which
+`ok` accepts any 2xx or 3xx status. 4xx/5xx belong to `err`, which
 refuses 2xx/3xx in turn.
 
 Route annotations control admission: `route GET "/x" limit 20 / s burst 20`
@@ -299,7 +299,7 @@ import "std/test/assert.orb"
 
 Paths are relative to the importing file or to the standard library, so the
 two spellings above both resolve from anywhere in the tree. The standard
-library lives in [`std/`](../std); `std/test/assert.orb` provides the assertion
+library lives in [`std/`](../std). `std/test/assert.orb` provides the assertion
 helpers the suite uses.
 
 ## Comments
@@ -310,12 +310,12 @@ helpers the suite uses.
 
 `orbit build`, `orbit run`, `orbit check`, `orbit fmt`, `orbit doctor`,
 `orbit frontend`, `orbit cluster`, and `orbit lextrace` (developer lexer
-trace; output is unstable by design). [Commands](COMMANDS.md) has the
-flags and exit codes; [FAQ](FAQ.md) has the common questions.
+trace, output is unstable by design). [Commands](COMMANDS.md) has the
+flags and exit codes. [FAQ](FAQ.md) has the common questions.
 
 ## What is not here yet
 
 Raw sockets, threads, and generic unions — the
 `std/quarantine/` directory names the exact missing language feature
-for each. [Known Limitations](KNOWN_LIMITATIONS.md) is the honest
-list, and [Status](STATUS.md) says what is being worked on.
+for each. [Known Limitations](KNOWN_LIMITATIONS.md) is the list, and
+[Status](STATUS.md) says what is being worked on.

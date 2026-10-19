@@ -1,19 +1,19 @@
 # Error codes (E-codes) and finding index (F-codes)
 
 Every diagnostic `orbit check` can print, in one place. E-codes are the
-codes the compiler itself emits; F-codes are the finding IDs the negative
+codes the compiler itself emits. F-codes are the finding IDs the negative
 corpus was built from, kept here so a code and its history meet.
 
 How to read this file: the E-code table says what each code means, where it
 fires (file and function), how to fix it, and which negative case pins it.
 The F-code index points each finding at the negative case header that owns
 it. Gathered by reading `compiler/**/*.orb` (`reportErrorAt`, `ParserDiagnostic`,
-`tirError`) and the headers in `tests/negative/`; no compiler code was
+`tirError`) and the headers in `tests/negative/`. No compiler code was
 changed to write it.
 
 Two renderings exist (`compiler/host/pipeline.orb`, `printSemaErrors`). A check
 that knows the source position prints an `error[E....]:` card pointing at
-the line; the rest print the one-line `Semantic error:` form with no code.
+the line. The rest print the one-line `Semantic error:` form with no code.
 A diagnostic listed below as "uncoded" is the second kind: real rejection,
 no code, pinned by substring like any other.
 
@@ -22,7 +22,7 @@ no code, pinned by substring like any other.
 Fires in `compiler/tir/entry.orb`, `appendParserDiagnostics`: every
 parser diagnostic is re-emitted into the TIR module with code E1000,
 keeping the parser's original message text. This is the `orbit frontend`
-surface, not `orbit check` (which renders the parser's own E0301–E0304
+command, not `orbit check` (which renders the parser's own E0301–E0304
 cards). Fix hint: read the message text — it is the underlying parser
 diagnostic. No negative case: the frontend gate (`scripts/frontend_gate.py`)
 covers this path.
@@ -38,7 +38,7 @@ intermediate values. No negative case pins it.
 Fires in `compiler/front/parser.orb`, `parserUnexpectedToken`, and the object-literal
 `{` fallback (`parseObjectLiteralFallback`). Fix hint, from
 `compiler/host/pipeline.orb`, `parserDiagnosticHint`: check for missing brackets,
-quotes, or keywords before the flagged token. Note: the recovery-shape pins
+quotes, or keywords before the flagged token. Note: the recovery cases
 `n19`/`n20` assert the *uncoded* `parserError` messages (`Parser error`,
 `Expected '}' after block.`), not this code.
 
@@ -73,17 +73,18 @@ fall-through is intended. Pinned by `tests/negative/n01_union_missing_arm.orb`,
 ## E1002 — literal index out of range
 
 Fires in `compiler/front/sema.orb` when a literal index into a literal string or
-list receiver is past the end. Fix hint: indices run `0` to `len - 1` here;
-guard a computed index with `if i < xs.len()`. Pinned by
+list receiver is past the end. Fix hint: indices run `0` to `len - 1` here.
+Guard a computed index with `if i < xs.len()`. Pinned by
 `tests/negative/n32_at_out_of_range.orb`.
 
 ## E1003 — bad member read, bad construction, bad print arity
 
-Fires in `compiler/front/sema.orb`, `reportErrorAt`, for: a model built with the
+Fires in `compiler/front/sema.orb`, `reportErrorAt`, for a model built with the
 wrong spelling or arity (`Model { field: value }` literal form, one argument
-per field), a field/variant read nothing declares (`Model 'Point' has no
-field ...`, `'int' has no member ...`, `'Shape' has no variant ...`), and
-`print` called with anything but exactly 1 argument. Fix hint is per site
+per field). It also fires for a field or variant read that nothing declares
+(`Model 'Point' has no field ...`, `'int' has no member ...`,
+`'Shape' has no variant ...`), and for `print` called with anything but exactly
+1 argument. Fix hint is per site
 (see the `reportErrorAt` hint strings at `sema.orb:433-503,2737`): spell the
 member as declared, construct with one argument per field in order, print
 one value. Pinned by `n05`, `n06`, `n13`, `n14`, `n15`, `n47`, `n57`, `n66`,
@@ -116,18 +117,18 @@ a function value carries).
 
 ## E1006 — bad type name or binding mismatch
 
-Fires in `compiler/front/sema.orb`, `reportErrorAt`, for: a pushed value that
-contradicts the list's element type, a type name nothing declares (types are
-lower case, or declared with `model`/`union`), a binding whose value
-contradicts its annotation, a bare generic model in a signature (`Box`
-with no argument — write `Box<int>`), an undeterminable generic type
-parameter (`n52`), and a generic field fixed to one type by an earlier field
-(`n50`). The last two point at the enclosing declaration: object literals
-carry no parser position, so `checkGenericModelFields` reports against the
-declaration site stamped by `checkVarDecl`/`checkConstDecl` (`valueSite`);
-a literal returned directly keeps the one-line form until literal positions
-exist. Fix hint: change the value or the
-annotation; write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
+Fires in `compiler/front/sema.orb`, `reportErrorAt`, for a pushed value that
+contradicts the list's element type. It also fires for a type name nothing
+declares (types are lower case, or declared with `model`/`union`), and for a
+binding whose value contradicts its annotation. Also a bare generic model in a
+signature (`Box` with no argument — write `Box<int>`), an undeterminable
+generic type parameter (`n52`), and a generic field fixed to one type by an
+earlier field (`n50`). The last two point at the enclosing declaration:
+object literals carry no parser position, so `checkGenericModelFields` reports
+against the declaration site stamped by `checkVarDecl`/`checkConstDecl`
+(`valueSite`). A literal returned directly keeps the one-line form until
+literal positions exist. Fix hint: change the value or the
+annotation. Write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
 `n50`, `n51`, `n52`, and `n70` (`n70`: a generic function's parameter no
 argument can fix).
 
@@ -149,14 +150,14 @@ would put the service somewhere the file does not name. Expressions are
 refused, not evaluated — the port is fixed when the program is compiled and
 the reader never runs, so an undeclared name inside the value is not
 diagnosed as an unknown identifier. Fix hint: write the number directly,
-e.g. `port 8080`; pick a port between 1 and 65535. Pinned by
+e.g. `port 8080`. Pick a port between 1 and 65535. Pinned by
 `tests/negative/n81_port_string.orb` (a string), `n82_port_zero.orb` (out of
 range), and `n83_port_not_literal.orb` (an expression).
 
 ## E2001 — unknown identifier (frontend)
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression`: a load whose
-name no binding declares. This is the `orbit frontend` lowering; `orbit
+name no binding declares. This is the `orbit frontend` lowering. `orbit
 check` rejects the same program through sema's uncoded `Undeclared
 identifier` diagnostic (pinned by `n09`). Fix hint: declare the name before
 use.
@@ -164,7 +165,7 @@ use.
 ## E2002 — incompatible binary operands (frontend)
 
 Fires in `compiler/tir/lower.orb` when a binary expression's result
-type is `unknown`. Frontend lowering only; the unknown-census counts these.
+type is `unknown`. Frontend lowering only. The unknown-census counts these.
 Fix hint: make both operand types agree (or bind them first).
 
 ## E2003 — invalid unary operand (frontend)
@@ -208,13 +209,13 @@ it with the program attached.
 Fires in `compiler/tir/lower.orb`, `lowerExpression` fallback, for an
 expression kind with no lowering rule. Frontend lowering only. Fix hint:
 same as E3000 — a coverage gap, file it. (The 4,190 hits cited in
-KNOWN_LIMITATIONS were measured on an earlier corpus; re-run
+KNOWN_LIMITATIONS were measured on an earlier corpus. Re-run
 `scripts/unknown_census.py` rather than trusting the number.)
 
 ## E3002 — frontend expected a program root
 
 Fires in `compiler/tir/lower.orb`, `lowerProgramToTir`, when the root
-node is not a program. Frontend lowering only; unreachable from the normal
+node is not a program. Frontend lowering only, and unreachable from the normal
 pipeline. Fix hint: none — internal invariant.
 
 ## Uncoded rejections (no E-code, still pinned)
@@ -259,7 +260,7 @@ full write-up.
 | finding | owns it | state |
 |---|---|---|
 | F-0001 — match over a union missing a variant falls through silently | `n01_union_missing_arm.orb` | fixed, pinned |
-| F-0002 — lists had no element type; reads dereferenced the wrong shape | `list_mixed_element_kinds.orb`, boundary half in `n39` | fixed, including the `list`-parameter boundary (F-0009): helpers spell `list<T>` and each call site compiles its own proven instance |
+| F-0002 — lists had no element type; reads dereferenced the wrong type | `list_mixed_element_kinds.orb`, boundary half in `n39` | fixed, including the `list`-parameter boundary (F-0009): helpers spell `list<T>` and each call site compiles its own proven instance |
 | F-0004 — calling an undeclared extern reached the C step as a call to a symbol nothing declares | `n22_undeclared_function_call.orb` | fixed, pinned |
 | F-0009 — a `list` parameter with no element type: reads inside the helper are untyped and crash | `n39_list_parameter_has_no_element_type.orb` (now the generic form, refusing the incoherent call) | fixed (generic functions: `n39` pins the coherence refusal; `generic_functions.orb` + `std_lists_generic.orb` prove the sound spelling; a bare `list` stays lenient for dynamic values, the way `unknown` is) |
 | F-0011 — capitalised/unknown type names accepted at the annotation, diagnosed late or misleadingly | `n30_capitalised_type_annotation.orb`, `n34_capitalised_type_parameter.orb` | fixed (E1006), pinned |
@@ -268,4 +269,4 @@ full write-up.
 | F-0018 — frontend member/call expressions with no type rule reached codegen silently | no negative case (frontend-only; E2004/E2005) | fixed in lowering |
 | F-0021 — numbers in documents go stale | counts in `tests/negative/README.md` and siblings; recompute with `python scripts/negative_gate.py --compiler <orbit> --list` | process note, not a defect |
 | F-0023 — literal-zero division is SIGFPE, not a diagnostic | `n41_division_by_zero_is_not_a_diagnostic.orb` | fixed for literal divisors (E1004); variable divisors still fault |
-| F-0024 — `for` over a never-set dynamic field miscompiles (read answers `""`, loop walks it as a list: garbage `.len()`, segfault iteration) | `n59_for_over_unknown_field.orb` | fixed (model-field reads answer declared types; unprovable iterables are check errors) |
+| F-0024 — `for` over a never-set dynamic field miscompiles (read answers `""`, loop walks it as a list: garbage `.len()`, segfault iteration) | `n59_for_over_unknown_field.orb` | fixed (model-field reads answer declared types, and unprovable iterables are check errors) |

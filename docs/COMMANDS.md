@@ -1,6 +1,6 @@
 # Command Reference
 
-This page separates commands you'll use every day from commands I use to develop and verify the compiler.
+This page separates the commands you'll use every day from the commands used to develop and verify the compiler.
 
 ## User Commands
 
@@ -34,22 +34,23 @@ banner uses the same roles.
 
 Color fires only on a live terminal. Piped and redirected output stays
 plain (byte-identical), as do CI logs. `NO_COLOR` set or `TERM=dumb`
-always win; `--color always` forces styled output anywhere (for docs and
+always win. `--color always` forces styled output anywhere (for docs and
 snapshots) and `--color never` forces plain text. The one gradient lives
-on the word `Kynx` in the generated server banner; diagnostics, findings,
+on the word `Kynx` in the generated server banner. Diagnostics, findings,
 help and summaries never use gradients (they must stay greppable).
 
 Progress: `orbit build` prints `Building <in> -> <out>` first and
 `wrote <out> in <N> ms` last (both suppressed by `--quiet`). `orbit
 doctor` closes text runs with a score box (`N / 100` with a 40-cell bar
-plus `N issues across M/F files in Ts`); the box prints on live
+plus `N issues across M/F files in Ts`). The box prints on live
 terminals, so golden files stay plain. Bare `orbit` prints short help to
 stdout and exits 0.
 
-`build`, `run` and `check` accept `--quiet` (less success chatter; errors
-always print), `--verbose` (echoes the C compiler invocation on build
-and run, the input size on check) and `--color always|never|auto` (styled
-output; `auto` paints only on a live terminal and stays plain in pipes).
+`build`, `run` and `check` accept `--quiet`, `--verbose` and `--color`.
+`--quiet` cuts success chatter. Errors always print. `--verbose` echoes the C
+compiler invocation on build and run, and the input size on check.
+`--color always|never|auto` styles the output. `auto` paints only on a live
+terminal and stays plain in pipes.
 `build` additionally accepts `--release`, which compiles the emitted unit
 at `-O2` instead of the default `-O1` (see [Performance](PERF.md#user-build-optimisation-level)).
 `fmt` accepts `--quiet` (single-file
@@ -57,43 +58,43 @@ mode) and `--verbose` (scan totals with `--check`). `doctor` accepts
 `--fix` (whitespace only: trailing whitespace and a missing final
 newline), `--quiet`, `--verbose` (scan scope), `--format json` (findings
 as a JSON array of `{file, line, code, severity, message, fix}` on
-stdout; exit codes unchanged) and `--color always|never|auto`.
+stdout, with exit codes unchanged) and `--color always|never|auto`.
 `cluster up/down/drain/restart` accept `--quiet` (errors
-only); `up` and `restart` echo spawned commands with `--verbose`. The
+only). `up` and `restart` echo spawned commands with `--verbose`. The
 child program owns the terminal under `run`, so its output is never
 silenced.
 
-On Windows, every binary the compiler links carries Orbit's own metadata:
-a version resource (CompanyName `orbit-lang`, ProductName `Orbit`,
+On Windows, every binary the compiler links carries Orbit's own metadata.
+That is a version resource (CompanyName `orbit-lang`, ProductName `Orbit`,
 FileDescription `Orbit program` / `Orbit service` / `Orbit compiler`,
-the compiler version throughout) plus the Orbit mark as its icon whenever
-`orbit.ico` sits beside the compiler (installed layout) or in `assets/`
+the compiler version throughout). It is also the Orbit mark as the icon,
+whenever `orbit.ico` sits beside the compiler (installed layout) or in `assets/`
 (dev checkout). There is deliberately no syntax for this: the branding is
 fixed so a `.orb` file cannot fake it. It needs `windres` or `llvm-rc` on
-PATH; without either the build succeeds unstamped with a note on stderr.
+PATH. Without either the build succeeds unstamped with a note on stderr.
 Other platforms skip it silently.
 
 `orbit start` builds to `.orbit/<name>[.exe]` (plus `.orbit/data/` for
 the database and `.orbit/logs/` for dev output) and runs it, so the
 binary never lands next to your source. With no file argument it uses
-`main.orb`. `--port N` overrides the service port; with no `--port` the
+`main.orb`. `--port N` overrides the service port. With no `--port` the
 file's `port` declaration is used, and with neither, the default is 3000.
 
-`Declares routes` means the entry file holds at least one top-level `route METHOD "path"` block, so the build generates a `main` that serves HTTP (service mode) instead of running the `main` you wrote (program mode); see [HTTP routes](SYNTAX_GUIDE.md#http-routes).
+`Declares routes` means the entry file holds at least one top-level `route METHOD "path"` block, so the build generates a `main` that serves HTTP (service mode) instead of running the `main` you wrote (program mode). See [HTTP routes](SYNTAX_GUIDE.md#http-routes).
 
-`orbit dev` does the same in a watch loop: content-hash poll every
-second over the entry file plus its transitive imports, rebuild on
-change, graceful stop first (SIGTERM drain on POSIX; kill on Windows,
-per [Known Limitations](KNOWN_LIMITATIONS.md#windows-drain-is-kill))
+`orbit dev` does the same in a watch loop. It polls a content hash every
+second over the entry file plus its transitive imports, and rebuilds on
+change. It stops the child gracefully first (SIGTERM drain on POSIX,
+kill on Windows, per [Known Limitations](KNOWN_LIMITATIONS.md#windows-drain-is-kill)),
 escalating to kill after ~3 s. A failed rebuild
-keeps watching without a child; the child pid lives in
+keeps watching without a child. The child pid lives in
 `.orbit/dev.pid` so the next `dev` reaps a stale child from Ctrl-C.
 
-Stop a server with Ctrl-C or `orbit stop`: a service binary writes its pid
+Stop a server with Ctrl-C or `orbit stop`. A service binary writes its pid
 to `.orbit/start.pid` at boot (only when `.orbit/` exists) and removes it
-on graceful shutdown, so `stop` in the project directory ends exactly that
-process — SIGTERM drain first on POSIX, kill on Windows per
-[Known Limitations](KNOWN_LIMITATIONS.md#windows-drain-is-kill) — escalating
+on graceful shutdown. So `stop` in the project directory ends exactly that
+process: SIGTERM drain first on POSIX, kill on Windows per
+[Known Limitations](KNOWN_LIMITATIONS.md#windows-drain-is-kill), escalating
 to kill after ~3 s. `stop` is idempotent: nothing recorded, or a stale
 record from a killed server, both exit 0 after cleanup. `start` refuses to
 build while the recorded server is alive (`already running ... run `orbit stop`
@@ -101,9 +102,9 @@ first`) instead of failing the C step on the locked exe. When the terminal
 dies first, the next `orbit dev` reaps the stale child through `.orbit/dev.pid`.
 A busy port fails quietly on Windows, so confirm the listener (`netstat -ano | findstr <port>`; POSIX: `ss -ltnp | grep <port>`) and pick a free one - see [the port is taken](tutorials/troubleshooting.md#the-port-is-taken---or-is-it). Service output lands under `.orbit/logs/` - tail it (`tail -f .orbit/logs/` on POSIX; `Get-Content -Wait .orbit/logs/` on Windows).
 
-`orbit dev` (watch/reload) is implemented: see above. Calling an
-unknown command treats it as a filename and fails - that error message
-is honest, not a silent stub.
+`orbit dev` (watch/reload) is implemented. Calling an
+unknown command treats it as a filename and fails with a real error,
+not a silent stub.
 
 When Orbit was built locally and is not installed on `PATH`, call it by its path:
 

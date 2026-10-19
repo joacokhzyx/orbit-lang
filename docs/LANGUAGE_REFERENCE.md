@@ -19,11 +19,11 @@ fn main() {
 Top-level
 declarations include `fn`, `model`, `enum`, `union`, `type`, and `route`. A
 top-level `val` or `const` is also accepted when its value is an int or bool
-literal (a constant with file scope, emitted as a C `#define`); anything else
+literal (a constant with file scope, emitted as a C `#define`). Anything else
 at file scope is rejected with E1007. `async fn` and `every` schedules are
 parsed and refused: there is no async or timer runtime, so accepting them
 would compile functions that return without computing and handlers that never
-run. Remove `async` (the body runs synchronously as written); drive scheduled
+run. Remove `async` (the body runs synchronously as written). Drive scheduled
 work from a loop or the process supervisor instead.
 
 ```orbit
@@ -33,7 +33,7 @@ const MAX_RETRIES = 3
 
 ## Variables and types
 
-`val` declares an immutable binding. `var` declares a mutable binding; `var
+`val` declares an immutable binding. `var` declares a mutable binding. `var
 mut` is accepted with the same meaning as `var`. Type annotations are optional
 when inference is enough.
 
@@ -94,8 +94,8 @@ separators (`1_000` is 1000) and exponents (`1.5e2` is `150.0`, `1e-3` is
 ### Annotate your bindings
 
 **An Orbit value is one machine word with no tag on it.** The compiler picks the
-C cast from the static type alone, and a binding you did not annotate is assumed
-to be a string wherever it crosses a `string` boundary. Nothing checks it at
+C cast from the static type alone. A binding you did not annotate is assumed to
+be a string wherever it crosses a `string` boundary. Nothing checks it at
 runtime, because there is nothing to check:
 
 ```orbit
@@ -142,7 +142,7 @@ Three rules, and that is all there is:
   quote inside is ordinary content: `"""a"b"""` is `a"b`.
 - **No escapes exist.** A backslash is a backslash, so a Windows path needs no
   doubling: `"""C:\Users\orbit"""`. The only thing that cannot appear inside is
-  a literal `"""`; split the string or use an ordinary `"…"` for that.
+  a literal `"""`. Split the string or use an ordinary `"…"` for that.
 - **Newlines are kept**, which is what makes a multi-line body readable and
   served the way it is written:
 
@@ -170,7 +170,7 @@ val big = 1_000_000      // one million; _ is only a separator
 
 ### Bitwise and shift operators
 
-`&`, `|`, `^`, `<<` and `>>` take two ints; `~` takes one. Everything is a
+`&`, `|`, `^`, `<<` and `>>` take two ints. `~` takes one. Everything is a
 32-bit `int`, two's-complement like the rest of the arithmetic: `~x` is
 `-x - 1`, `>>` is arithmetic (`-8 >> 1` is `-4`), and `<<` drops the bits
 that leave the top. A shift count is masked to five bits, so `x << 33` is
@@ -190,11 +190,11 @@ The precedence is C's grouping. Tightest first: `*` `/` `%`, `+` `-`,
 `1 << 2 + 1` is `8` and `1 | 2 & 4` is `1`. One consequence surprises
 people: `&` binds looser than `==`, so `12 & 10 == 8` reads as
 `12 & (10 == 8)`, which the checker refuses because the right operand is a
-`bool`; write `(12 & 10) == 8`.
+`bool`. Write `(12 & 10) == 8`.
 
 An operand that is not an int is refused with a `Semantic error:` that
 names the operand kind (`bitwise '&' takes two ints, not 'string' and
-'string'`); `tests/negative/n79_bitwise_binop_string.orb` and
+'string'`). `tests/negative/n79_bitwise_binop_string.orb` and
 `n80_bitwise_not_string.orb` pin the two forms. `&` in type position is
 still the pointer sigil (`&Point`) and `>>` still closes nested generics
 (`list<list<int>>`): the split lives in the parser's `consumeTypeCloser`,
@@ -243,7 +243,7 @@ while sum < 10 {
 
 `for x, i in xs` also binds the position `i` (0-based) alongside the
 element. `for outer: x in xs` names the loop so `break outer` (or
-`continue outer`) inside any nesting hits it; a named jump to no enclosing
+`continue outer`) inside any nesting hits it. A named jump to no enclosing
 loop is an error quoting the label. `while` loops cannot be labeled.
 
 `for x in lo..hi` counts ints from `lo` while the counter is below `hi`
@@ -268,7 +268,7 @@ val label = if score >= 90 { "A" } else { "B" }
 print(if ready then "go" else "wait")
 ```
 
-Both branch shapes work in both positions, so nothing has to be rewritten to
+Both branch forms work in both positions, so nothing has to be rewritten to
 move an `if` from one to the other:
 
 | branch | written as | value of the branch |
@@ -301,22 +301,21 @@ Rules worth knowing:
   all, so a call, a write, or an `ok`/`err` in the untaken branch does not
   happen.
 - **The type of an `if` is the type of its then branch.** There is no union to
-  join two branch types into, and the two are not compared, so keep them the
-  same shape: an `if` that returns `"a"` in one branch and `1` in the other is
+  join two branch types into, and the two are not compared. So keep them the
+  same type: an `if` that returns `"a"` in one branch and `1` in the other is
   an `if` typed `string` that sometimes holds an integer.
 - **`else if` chains are one value**, in either position and either spelling:
   `if a then 1 else if b then 2 else 3`. Every `if` in the chain needs its own
   `else` when the chain is a value.
 - **A branch written without braces is a single expression.** `if c val x = 1
-  else 2` is `E0304`; write `if c { val x = 1 } else { 2 }`.
+  else 2` is `E0304`. Write `if c { val x = 1 } else { 2 }`.
 - **`then` is optional and is not a reserved word.** It introduces a branch, and
-  it exists for the branch the condition would otherwise swallow: the condition
+  it exists for the branch the condition would otherwise swallow. The condition
   is parsed as a full expression, so in `if n - 1` the `-` is a subtraction and
   the then branch is missing (`E0303`). `if n then -1 else 0` is the branch that
-  means minus one. `then` is read as that keyword only when a branch follows it,
-  so `then` is still an ordinary name everywhere else — as a variable, and as
-  the whole branch (`if ready then else 3` is the value of `then` when it is
-  true).
+  means minus one. `then` is read as that keyword only when a branch follows it.
+  Everywhere else `then` is still an ordinary name, as a variable and as the
+  whole branch (`if ready then else 3` is the value of `then` when it is true).
 
 A block branch is worth its last statement, so a block may compute and then
 answer:
@@ -330,20 +329,20 @@ val total = if n > 10 {
 }
 ```
 
-Two shapes are **not** supported today:
+Two forms are **not** supported today:
 
 - A block used as a value on its own — `{ 1 + 2 }` is not an expression. The
   "last statement is the value" rule applies to a branch of an `if` only.
 - `if` inside the experimental typed front end (`orbit frontend`), which reports
   `E3001` for an `if` in expression position. The C backend path compiles and
-  runs these; the TIR lowering does not model a merge value yet.
+  runs these. The TIR lowering does not model a merge value yet.
 
 ## What Orbit does not promise about values
 
 The compiler does not check everything. The rules below are the gaps to code
 around. The mechanism underneath is
-[the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag);
-the full list of programs that compile and compute the wrong answer is in
+[the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag).
+The full list of programs that compile and compute the wrong answer is in
 [known limitations](KNOWN_LIMITATIONS.md).
 
 ### An `int` is 32 bits and it wraps silently
@@ -380,7 +379,7 @@ l.push("twenty")        // error[E1006]
 ```
 
 **Rule: say what a list holds when the pushes are not all one type.** An `int`
-goes into a `list<float>` (converted on the way in); a float into a `list<int>`
+goes into a `list<float>` (converted on the way in). A float into a `list<int>`
 is refused, because that truncates. See [collections](#arrays-elements-and-accessors)
 for the accessor table.
 
@@ -412,7 +411,7 @@ Put an assertion or an `if` where the compiler puts none.
 ## Arrays and objects
 
 Array literals (`[...]`) build `list` values. The type name is `list`,
-optionally with an element type (`list<int>`); there is no `array` type.
+optionally with an element type (`list<int>`). There is no `array` type.
 
 ```orbit
 val ports = [8080, 8081]
@@ -429,7 +428,7 @@ return ok {
 ```
 
 An object literal is a **value**, not text. Read a field off it, nest one
-inside another, hand it to a function - it is a `model` whose shape the
+inside another, hand it to a function - it is a `model` whose fields the
 compiler learns from the source instead of from a declaration.
 
 ```orbit
@@ -458,8 +457,8 @@ What to know:
 - `{}` is a valid empty object.
 - Separators are optional: one field per line, as above, or commas.
 
-A named record with a fixed shape is still a [model](#variables-and-types).
-Use a model when the fields are known up front and you want them checked; use
+A named record with fixed fields is still a [model](#variables-and-types).
+Use a model when the fields are known up front and you want them checked. Use
 an object literal for a response body whose keys are data.
 
 For a body that is mostly static text, a [raw string with
@@ -471,10 +470,11 @@ return ok 200 """{"name":"api","port":${port}}"""
 
 A body is a string or an object. A body the compiler can type as an `int`, a
 `float` or a `bool` is refused with a diagnostic. A body it cannot type at all
-- an index, a call it has no signature for, an expression whose operands do not
-agree - is converted to text with the runtime helper for the settled type, the
-same way a `${...}` hole is. That is a fallback, not a licence: prefer a
-string, a raw string, or an object literal, whose shape you wrote down.
+is converted to text with the runtime helper for the settled type, the same way
+a `${...}` hole is. That covers an index, a call it has no signature for, and
+an expression whose operands do not agree. That is a fallback, not a licence:
+prefer a string, a raw string, or an object literal, whose fields you wrote
+down.
 
 ## Arrays: elements and accessors
 
@@ -499,7 +499,7 @@ names.push("one")        // this push decides: list<string>
 names.push(2)            // error[E1006]
 ```
 
-An `int` goes into a `list<float>` (the emitter converts it on the way in); a
+An `int` goes into a `list<float>` (the emitter converts it on the way in). A
 float into a `list<int>` is refused, because that truncates.
 
 **`.get(i)` is the accessor to use:**
@@ -513,8 +513,8 @@ print(words.get(2))             // gamma
 ```
 
 **Bounds rule:** `.get(i)`, `.at(i)`, `xs[i]`, and `.pop()` are bounds-checked.
-A literal index past the end of a literal receiver is a compile error (E1002);
-any other out-of-range read aborts the process instead of answering a value.
+A literal index past the end of a literal receiver is a compile error (E1002).
+Any other out-of-range read aborts the process instead of answering a value.
 An index past the end of a *string* answers `0`, the byte value of NUL.
 
 `.at(i)`, `xs[i]` and `.pop()` read the same element and answer with the
@@ -535,7 +535,7 @@ val v: int = m.get("a")      // 1
 val s: string = m.get("b")   // "hi"
 ```
 
-There is no map literal syntax; `map` is a separate type name. A key nobody
+There is no map literal syntax. `map` is a separate type name. A key nobody
 wrote has no stored type to be read as.
 
 ## Result values
@@ -553,8 +553,8 @@ In expression position, `ok(v)` builds a success and `err(msg)` / `err(msg,
 code)` builds a failure (the code defaults to 500). After `return`, `ok`
 starts the response shorthand: `return ok [status] body` (status defaults to
 200), and a bare `err [code] message` statement is the failure shorthand (code
-defaults to 500). Inside a `-> result` function these build `result` values;
-inside a route they build HTTP responses.
+defaults to 500). Inside a `-> result` function these build `result` values.
+Inside a route they build HTTP responses.
 
 Because `ok` after `return` is the shorthand, bind first when returning a
 call-built value: `val r = ok(41)` and then `return r`, not `return ok(41)`
@@ -563,7 +563,7 @@ directly.
 `return ok` carries success and `err` carries failure: a 4xx/5xx status through
 `ok` is rejected at check time (use `err` for failures), and `err` with a
 2xx/3xx status is rejected the same way. An `ok` body must be a string or an
-object outside `-> result` functions; an `err` body must be a string.
+object outside `-> result` functions. An `err` body must be a string.
 
 ```orbit
 fn load_value() -> result {
@@ -622,7 +622,7 @@ fn read_value() -> int {
 
 ## HTTP services
 
-Routes declare an HTTP method and a literal path. The response shapes are the
+Routes declare an HTTP method and a literal path. The responses use the
 statement forms of the [result grammar](#result-values): `return ok` carries
 success and a bare `err` carries failure, with the same status rules.
 
@@ -641,11 +641,11 @@ route GET "/private" {
 ```
 
 A raw string is still the form for an error body or a payload that is
-mostly static text (`err 401 """{"error":"pass ?name="}"""`); objects are
-the canonical form for success bodies, because every value inside is
-escaped on the way out, which a hand-written JSON string cannot promise.
+mostly static text (`err 401 """{"error":"pass ?name="}"""`). Objects are
+the canonical form for success bodies. Every value inside is escaped on the
+way out, which a hand-written JSON string cannot promise.
 
-HTML answers keep the same `return` shape through an extern binding, not a
+HTML answers keep the same `return` form through an extern binding, not a
 new keyword: `ok` always sends `application/json`, so a page needs the
 `text/html` wrapper explicitly.
 
@@ -657,11 +657,11 @@ route GET "/" {
 }
 ```
 
-The body is sent as-is (no escaping, no JSON encoding); a page built from
+The body is sent as-is (no escaping, no JSON encoding). A page built from
 user input must escape it first.
 
 Path segments starting with `:` or wrapped in `{...}` capture one
-non-empty segment, readable with `req.param("name")`; `*` matches one
+non-empty segment, readable with `req.param("name")`. `*` matches one
 segment without capturing. A trailing `:name...` segment captures the
 non-empty rest of the path, slashes included, under `name`
 (`route GET "/files/:path..."` then `req.param("path")` answers `"a/b/c"`
@@ -670,7 +670,7 @@ multi: a static route always wins over a param pattern covering the same
 path, and `:id` still wins over `:path...` on one-segment requests. The
 multi must end the path and name a name — anything else is a check error,
 and an empty remainder never matches. Captured values are
-percent-decoded by `req.param`; a trailing slash is tolerated.
+percent-decoded by `req.param`. A trailing slash is tolerated.
 
 ```orbit
 route GET "/notes/:id" {
@@ -688,17 +688,17 @@ route GET "/heavy" limit 100/min burst 20 {
 ```
 
 `limit` takes a positive integer rate plus an optional `/unit` window:
-`min` is 60000 ms, `sec` and `s` are 1000 ms, `ms` is 1 ms; with no
+`min` is 60000 ms, `sec` and `s` are 1000 ms, `ms` is 1 ms. With no
 `/unit` the window is 1000 ms. `burst` is optional and sets the bucket
-capacity; when omitted (or zero) it defaults to the rate. The compiler
+capacity. When omitted (or zero) it defaults to the rate. The compiler
 rejects a `limit` whose rate is not `> 0`, whose window is not `> 0`, or
 whose burst is negative. Routes without `limit` fall back to the global
 gate only (see `docs/KYNX.md`). The runtime keeps at most 32 annotated
-routes; a further annotation is dropped at startup, while a repeated identical
+routes. A further annotation is dropped at startup, while a repeated identical
 annotation is idempotent.
 
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
-Their API surface is under active development. Check the runtime and examples
+Their API is under active development. Check the runtime and examples
 before depending on a new helper in a public service.
 
 ## SQLite
@@ -707,7 +707,7 @@ Orbit links SQLite through its runtime. Models provide schema metadata and the
 runtime exposes database operations to generated programs. SQLite is usable for
 embedded service storage, but migrations, transaction boundaries, backups, and
 input validation remain application responsibilities. Do not build SQL strings
-from untrusted input; prefer the parameterized runtime operations where available.
+from untrusted input. Prefer the parameterized runtime operations where available.
 
 Every model maps to one table (lowercase plural: `Note` → `notes`,
 `string`→`TEXT`, `int`/`bool`→`INTEGER`, `float`→`REAL`, an `id` field is
@@ -726,7 +726,7 @@ the primary key) and carries these static methods:
 | `M.update(id, json)` | `bool` | partial: only present keys are written, `id` never; false when no row changed |
 | `M.delete(id)` | `bool` | true only when a row was removed |
 
-Reads answer JSON strings, not typed model values; `count` answers `int`.
+Reads answer JSON strings, not typed model values. `count` answers `int`.
 Indexes ride `migrations "CREATE INDEX ..."` lines (see
 `docs/guides/migrations.md`). There are no joins, no `ORDER BY`/`LIMIT`
 modifiers, and no transactions: one writer per file.
@@ -761,11 +761,11 @@ the whole import graph, and `private` does not restrict anything.
 ## Standard library: test, strings and hashing
 
 Shipped modules are exercised under `tests/std/` (run with
-`test_suite.py --dir tests/std`). Each module's header is the API reference;
-only the scope is listed here:
+`test_suite.py --dir tests/std`). Each module's header is the API reference.
+Only the scope is listed here:
 
 - `std/test/assert.orb`: assertions for exit-code tests.
-- `std/string/string.orb`: byte-wise, ASCII-only string helpers; the checked
+- `std/string/string.orb`: byte-wise, ASCII-only string helpers. The checked
   conversions answer `result`, consumed with inline try.
 - `std/hash/hash.orb`: SHA-256 and HMAC bindings from the runtime.
 
@@ -775,12 +775,12 @@ and need no import. There is no `std/core/result.orb` to import.
 ## Standard library: collections, files, IO, time and logging
 
 - `std/collections/lists.orb`: safe accessors and searches over builtin lists.
-  Every helper declares its payload (`list<string>`, `list<int>`, …): a caller
+  Every helper declares its payload (`list<string>`, `list<int>`, …). A caller
   that names the element type and passes a different one fails `orbit check`
-  with E1005 naming both; a caller handing a bare `list` still compiles, and a
+  with E1005 naming both. A caller handing a bare `list` still compiles, and a
   mistyped read fails at runtime with a type mismatch instead of a misread.
 - `std/fs/file.orb`: path-based reads, writes, existence, removal, and
-  directory listing. No open handles, no buffered streams; append is
+  directory listing. No open handles, no buffered streams. Append is
   read-modify-write, never atomic.
 - `std/io/io.orb`: color-capability queries (`NO_COLOR`/`TERM=dumb` honored)
   with styling in `std/sys/term/color.orb`. No `readLine`, no `eprint`, no
@@ -793,19 +793,19 @@ and need no import. There is no `std/core/result.orb` to import.
 - `std/log/log.orb`: leveled logging with the request context passed
   explicitly. No globals.
 - `std/json/json.orb`: JSON-escaping helper for hand-built bodies via
-  interpolation. Object literals already escape on serialization; this is for
+  interpolation. Object literals already escape on serialization. This is for
   the interpolation case, which does not.
 
 ## Standard library: cryptography and bytes
 
 - `std/sys/crypto/jwt.orb`: HS256 signing and verification only (no
-  `alg:none`); time travels explicitly as `nowUnix` because Orbit has no wall
-  clock. `exp` is required; `nbf`, when present, must not be future; `iat` is
+  `alg:none`). Time travels explicitly as `nowUnix` because Orbit has no wall
+  clock. `exp` is required. `nbf`, when present, must not be future. `iat` is
   carried, not enforced. Its SHA-256/HMAC bindings are shared with
-  `std/hash/hash.orb`; redeclaring them in an importer collides on merge.
+  `std/hash/hash.orb`. Redeclaring them in an importer collides on merge.
 - `std/bytes/bytes.orb`: byte buffers with decimal length framing. Bytes are
-  1-255 (C strings cannot hold NUL); out-of-range reads answer -1. Shared C
-  externs live in `std/string/string.orb`; redeclaring them in another module
+  1-255 (C strings cannot hold NUL). Out-of-range reads answer -1. Shared C
+  externs live in `std/string/string.orb`. Redeclaring them in another module
   collides on merge.
 - `std/sys/bytes/bitwise.orb`: the bitwise and shift operators as functions,
   for a call site that wants a symbol instead of an operator. The semantics are
@@ -858,9 +858,9 @@ measurement of one request.
 Every server records per-route handler cost automatically - no annotations.
 `/_ledger` serves a live table (loopback only), `/_ledger/data` the same as
 JSON. Columns: requests, mean ms, p50/p95/p99 µs, DB share, energy, source.
-Percentiles are approximate bucket boundaries; the energy column is estimated
+Percentiles are approximate bucket boundaries. The energy column is estimated
 (see `docs/ENERGY.md`). Paths starting with `/_` are reserved for
-runtime endpoints; do not define routes there.
+runtime endpoints. Do not define routes there.
 
 ## Compiler commands
 
@@ -886,7 +886,7 @@ list and exit codes.
 
 ## Appendix: where detail lives
 
-This reference states current behavior only; history lives in git. The value
+This reference states current behavior only. History lives in git. The value
 model is described in [ARCHITECTURE.md](ARCHITECTURE.md), measured gaps in
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md), module APIs in the `std/`
 headers (exercised under `tests/std/`), and command details in
