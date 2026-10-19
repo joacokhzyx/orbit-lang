@@ -20,7 +20,7 @@ marked `-text` in `.gitattributes` so no line-ending conversion can touch it).
 The CI-verified compilers are gcc on `ubuntu-latest` and clang on
 `windows-latest` (see `.github/workflows/ci-gate.yml`). The design goal is
 that any conforming C compiler can build the canonical into a working Orbit
-compiler; only gcc and clang are exercised in CI, and other compilers
+compiler. Only gcc and clang are exercised in CI, and other compilers
 (including MSVC `cl`) are not verified. The trust story is: if you can read
 C, you can audit the compiler.
 
@@ -41,7 +41,7 @@ Threat model: following Ken Thompson's Reflections on Trusting Trust, a
 backdoor inserted into the compiler sources, or into the C toolchain that
 compiles them, reproduces itself through every bootstrap stage. Byte identity
 alone cannot detect such a backdoor, because each stage inherits whatever the
-previous stage embedded: a compromised compiler reproduces the compromise
+previous stage embedded. A compromised compiler reproduces the compromise
 exactly.
 
 Diverse Double-Compiling (DDC) is the standard countermeasure: rebuild the
@@ -49,23 +49,23 @@ same sources with a second, independently implemented compiler and compare the
 output. Agreement between two independent lineages shows the bytes are a
 property of the sources rather than of one implementation's hidden state.
 Orbit has no second Orbit implementation, and building and maintaining one
-solely as a check would double the trusted surface along with its own
-correctness burden. That is the trade-off: a single lineage keeps the
-auditable surface to one readable C file, at the cost of leaving a
+solely as a check would double the code that has to be trusted, along with its
+own correctness burden. That is the trade-off: a single lineage keeps the
+auditable code to one readable C file, at the cost of leaving a
 source-level self-reproducing backdoor outside what byte-identity can catch.
 
 The mitigation in use is toolchain diversity at the C step, enforced by the
-Scenario 3 recovery procedure below: gcc and clang, independent front ends,
-optimizers, and linkers, must converge on byte-identical emitted C. Their
-agreement shows the canonical bytes are determined by `compiler/**/*.orb`
-rather than by quirks or hidden state of one C compiler. This narrows the
-residual risk to the Orbit sources themselves plus a defect shared by both
-toolchains; it does not defend against a self-reproducing backdoor already
-present in the Orbit sources. That residual risk is accepted and managed by
-keeping the canonical as readable C source, requiring each promote to move
-the canonical, the 32 parity goldens, and the `.orb` sources in one
-reviewable commit, and backing behavior with the parity battery and the
-behavior suite.
+Scenario 3 recovery procedure below. There, gcc and clang, with independent
+front ends, optimizers, and linkers, must converge on byte-identical emitted C.
+Their agreement shows the canonical bytes are determined by `compiler/**/*.orb`
+rather than by quirks or hidden state of one C compiler. This narrows what is
+left of the risk to the Orbit sources themselves plus a defect shared by both
+toolchains. It does not defend against a self-reproducing backdoor already
+present in the Orbit sources. That remaining risk is accepted and managed in
+three ways. The canonical stays readable C source, each promote moves the
+canonical, the 32 parity goldens, and the `.orb` sources in one reviewable
+commit, and behavior is backed by the parity gate suite and the behavior
+suite.
 
 ## Glossary - canonical bootstrap terms
 
@@ -86,13 +86,13 @@ link here instead of redefining them.
 - **promote**: `python scripts/build_selfhost.py --promote`, the only
   operation that replaces the canonical, after an intentional compiler
   change. It also updates `PUBLISHED_C` and requires the refreshed parity
-  goldens; canonical, goldens, and `.orb` sources move in one commit.
+  goldens. Canonical, goldens, and `.orb` sources move in one commit.
 - **PUBLISHED_C**: the published hash contract in `scripts/verify_seed.py`,
   enforced by `--release` against a self-hosted rebuild.
 - **amalgamate**: `scripts/amalgamate.py`, a mechanical step that inlines
   the include graph from the canonical into one self-contained C
   file (system includes left alone) so the seed compiles from a single
-  translation unit. It changes packaging, not semantics; see the trust
+  translation unit. It changes packaging, not semantics. See the trust
   boundary below for where it fits.
 
 ## Trust boundary: what is trusted vs verified
@@ -120,8 +120,8 @@ link here instead of redefining them.
 
 Trusted: the canonical C source, the one-step translation by the platform C
 compiler, and the Python drivers that sequence the chain. Verified: every
-emitted-C equality (the four `verify_seed.py` checks; the C-source hash is
-the cross-platform contract). Amalgamation sits between the two: a mechanical
+emitted-C equality (the four `verify_seed.py` checks, with the C-source hash
+as the cross-platform contract). Amalgamation sits between the two: a mechanical
 include-inlining with no semantic content, covered downstream by the same
 emitted-C comparisons.
 
@@ -169,7 +169,7 @@ want it, and read the result as informational.
 ## Speeding the gates up without weakening them
 
 The bootstrap recompiles the same multi-megabyte C unit dozens of times per
-gate. `scripts/orbit_ccache.py` makes that a file copy: it is
+gate. `scripts/orbit_ccache.py` makes that a file copy. It is
 content-addressed on the compiler identity, its version, the exact flags, and
 the SHA-256 of every input, so a stale entry can only ever cause a miss and
 never a wrong artifact. When the cache serves one of the three contract
@@ -178,7 +178,7 @@ pass, because a cache hit would make it a tautology. The C comparisons are
 unaffected, and they are the contract.
 
 The bootstrap also builds the compiler without `-Wall`: on the 3.9 MB unit
-that flag is a 5.7x penalty and surfaces 89 warnings, because the analysis it
+that flag is a 5.7x penalty and reports 89 warnings, because the analysis it
 enables is superlinear in emitted size. The strict warning gate is
 `scripts/werror_gate.py`, which runs `-Werror` over generated C in CI. Set
 `ORBIT_BOOTSTRAP_WARNINGS=1` to get `-Wall` back locally.
@@ -228,7 +228,7 @@ enables is superlinear in emitted size. The strict warning gate is
 Invariants that must hold afterwards:
 
 - `build_selfhost.py --check-stale` exits 0 on `main`.
-- `verify_seed.py` exits 0; its closing line reports every check it ran.
+- `verify_seed.py` exits 0. Its closing line reports every check it ran.
 - `parity_selfhost.py` exits 0 over every probe in `tests/parity/probes/`
   against the committed goldens (33 today).
 - CI is green on ubuntu/gcc and windows/clang, and all eight stress legs pass.
@@ -241,7 +241,7 @@ Invariants that must hold afterwards:
 
 ## Appendix: stages in detail
 
-Terms are defined in the Glossary above; this section records only the
+Terms are defined in the Glossary above. This section records only the
 mechanical per-stage notes. A stage is a working Orbit compiler built by the
 previous stage, and every stage compiles the same source
 (`compiler/host/main.orb`):
@@ -260,10 +260,10 @@ chain3
 ```
 
 Per stage: `amalgamate.py` inlines the `#include "..."` graph from the
-canonical into one self-contained C file (system includes left alone); a C
+canonical into one self-contained C file (system includes left alone). A C
 compiler turns it into `seed` with `-DORBIT_WITH_EXEC` so the compiler can
 spawn its own `cc` (the only step needing more than a C compiler and
-Python); each stage builds `main.orb`, writes one intermediate C file of a
+Python). Each stage builds `main.orb`, writes one intermediate C file of a
 fixed name (`compilers embed the source path in the binary, so a per-stage
 name would break byte-comparability`), and `verify_seed.py` recompiles that
 C itself with known-good flags.

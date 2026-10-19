@@ -1,9 +1,9 @@
 # Known Limitations (0.1.0)
 
-This is the honest list. I keep it next to the docs that use these
+This is the measured list. I keep it next to the docs that use these
 features so you don't discover them at midnight. Each entry says
 what happens today, how to work around it, and what would change it.
-Nothing here is a roadmap promise with a date - it's what I measured
+Nothing here is a roadmap promise with a date. It is what I measured
 on this build.
 
 Verified on: `orbit 0.1.0-rc.2` (fixed-point build, gcc 16.2.0),
@@ -14,7 +14,7 @@ marked UNTESTED below where I couldn't run them.
 gap you can design around. The first section is about the programs `orbit
 check` refuses, which used to be the reason to distrust it: nineteen of them
 translated cleanly and computed something else. All of those are diagnostics
-now, and the section records what they answer instead -- including the two
+now, and the section records what they answer instead. It includes the two
 checks that were wrong in the direction of refusing valid code, which is the
 failure mode worth reading about.
 
@@ -25,9 +25,9 @@ and does not*, and it was the reason this document existed. Every entry in it
 is now a diagnostic, so it has been replaced rather than kept as a museum.
 
 The reason to write that down rather than just delete the heading is that the
-list was load-bearing. It is the evidence that `orbit check` is worth running,
-and it was produced by one command which is also a CI gate, so it could not
-rot quietly:
+document depended on the list. It is the evidence that `orbit check` is worth
+running. One command produced it, and that command is also a CI gate, so it
+could not rot quietly:
 
 ```console
 $ make negative
@@ -37,7 +37,7 @@ Finished negative: 78/78 pass (0 known defects still accepted)
 
 Seventy-three programs that must be rejected, and every one of them is. The last
 one to be accepted was [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
-and generic functions gave it a diagnostic; what remains is a design choice (the
+and generic functions gave it a diagnostic. What remains is a design choice (the
 bare `list` spelling stays lenient for dynamic values), not a missing check.
 
 ## A shadowed `val` gets its own C variable (fixed)
@@ -45,8 +45,8 @@ bare `list` spelling stays lenient for dynamic values), not a missing check.
 This one used to compute something other than what you wrote: it typechecked,
 it ran, and the answer was wrong. The checker always resolved it correctly --
 `v` inside the `if` is a different `val` with its own scope -- but the emitter
-declared one C variable per *name*, so both `val v` became a single
-`orbit_int v` and the outer read came back clobbered:
+declared one C variable per *name*. So both `val v` became a single
+`orbit_int v`, and the outer read came back clobbered:
 
 ```orbit
 fn f(flag: bool) -> int {
@@ -59,9 +59,9 @@ fn f(flag: bool) -> int {
 ```
 
 Every declaration now owns a distinct C symbol, minted where the IR value is
-created (`defineVariable` in builder.orb): the spelling when no live outer
-scope declares it, `name__sN` when one does, resolved innermost-first at
-every read and write. Without shadowing the symbol IS the spelling, which is
+created (`defineVariable` in builder.orb). It is the spelling when no live outer
+scope declares it, and `name__sN` when one does. It is resolved innermost-first
+at every read and write. Without shadowing the symbol IS the spelling, which is
 why the canonical barely moved. Pinned by
 `tests/suite/scope_shadow_clobbers_outer.orb` (exit 0, including the
 parameter-shadowing case).
@@ -69,7 +69,7 @@ parameter-shadowing case).
 ## Four bugs that typechecked, ran and were wrong
 
 None of these was a missing check. Every one compiled clean, ran, and produced
-a wrong answer, which is why no gate found them: a gate runs the program and
+a wrong answer, which is why no gate found them. A gate runs the program and
 compares what it prints, and a program that prints `7.0` instead of `7` prints
 something.
 
@@ -100,9 +100,9 @@ time, which is the only place a coin flip is not allowed to land.
 Where the shared derivations live, and why that file exists: `literal.orb` is a
 leaf module importing nothing, so `builder.orb`, `sema.orb` and `parser.orb` can
 all depend on it and the import graph stays a DAG. It was created for exactly
-this reason ([F-0004](ERROR_CODES.md#f-code-index): a helper in the wrong side of the graph was an unresolved
-call, which is not an error - `orbit check` stayed clean and the C compiler
-rejected the output with a name it had never been given).
+this reason ([F-0004](ERROR_CODES.md#f-code-index)). A helper in the wrong side of the graph was an unresolved
+call, which is not an error: `orbit check` stayed clean and the C compiler
+rejected the output with a name it had never been given.
 
 The tests that pin all four are `tests/suite/model_field_owner_typing.orb`,
 `generic_nested_argument.orb` and `parameter_type_fallback.orb`.
@@ -130,17 +130,17 @@ wearing different clothes.
 **A check that only knows one table is a check that guesses.** [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) refuses
 a capitalised type name that nothing declares, which is what makes `val n: Int
 = 1` a diagnostic. Its first version asked the checker's two type registries,
-and those registries do not hold models -- `checkModelDecl` fills
-`modelFieldOwner` and `TypeDecl` never sees a model -- so it also refused
+and those registries do not hold models. `checkModelDecl` fills
+`modelFieldOwner` and `TypeDecl` never sees a model, so it also refused
 `List`, `Map`, `Result` and `Response`, which are real. Forty-three green
 tests did not notice, because nothing in the suite used the capitalised
 spelling. `tests/suite/type_spellings.orb` exists so that it cannot happen
 again.
 
-**The loud group is now silent too.** The table this section used to carry --
-programs that translated cleanly and were rejected by the C compiler, with an
-error naming a C symbol or a C struct member instead of the Orbit source --
-is empty. Those messages reached the user as `orbit build: couldn't finish
+**The loud group is now silent too.** The table this section used to carry is
+empty. It listed programs that translated cleanly and were rejected by the C
+compiler, with an error naming a C symbol or a C struct member instead of the
+Orbit source. Those messages reached the user as `orbit build: couldn't finish
 the C step - this one is on me, not your code`, which is a sentence about the
 compiler's feelings, not about the program. Every one of them is now an
 [`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity) with a line and a column in the user's own file.
@@ -157,7 +157,7 @@ and the measurement that says how much of the front end is still untyped is
 `false` when the `id` already exists (PRIMARY KEY) or the JSON
 payload has no usable fields. `Model.update(id, json)` writes only the
 keys present in the payload (never `id`) and returns `true` only when a
-row actually changed; a missing id or a fieldless payload is `false`.
+row actually changed. A missing id or a fieldless payload is `false`.
 `Model.delete()` returns `true` only
 when a row was actually removed. Verified live with literal JSON
 and `req.body()` input, including round-trip reads
@@ -165,12 +165,12 @@ and `req.body()` input, including round-trip reads
 
 ## Auth helpers work against the sessions table
 
-`req.bearer_token()` extracts the token (never crashes on missing
-headers), `req.has_role("admin")` and `req.role()` resolve through
+`req.bearer_token()` extracts the token and never crashes on missing
+headers. `req.has_role("admin")` and `req.role()` resolve through
 `sessions` joined to `users.role_name`, with `expires_at` honored
 (`0` means never). Verified live on `examples/sqlite_notes.orb`:
 401 without token, 403 for non-admin deletes, 200 for admin.
-Using any auth helper links the database automatically; tokens
+Using any auth helper links the database automatically. Tokens
 themselves are rows you insert (see `tests/auth/auth_harness.c`).
 
 ## Path parameters match, values are decoded
@@ -186,11 +186,11 @@ working alongside.
 
 On startup the runtime creates the four built-in tables (`notes`,
 `products`, `users`, `sessions`, plus demo seeds) and one table
-per model in your program (`CREATE TABLE IF NOT EXISTS` from the
-model fields: `string`→`TEXT`, `int`/`bool`→`INTEGER`,
-`float`→`REAL`, an `id` field becomes the primary key). Forward
+per model in your program (`CREATE TABLE IF NOT EXISTS`). The columns
+come from the model fields: `string`→`TEXT`, `int`/`bool`→`INTEGER`,
+`float`→`REAL`, and an `id` field becomes the primary key. Forward
 DDL now runs through `migrations "<SQL>"` lines (each once, in
-declaration order, tracked in `_orbit_migrations`); see
+declaration order, tracked in `_orbit_migrations`). See
 `docs/guides/migrations.md`. What does not exist: `down`
 migrations, a version-required startup check, and a standalone
 `orbit migrate`.
@@ -203,7 +203,7 @@ boundaries, matches the part by `name=`, sanitizes the part's
 payload to `dest_dir/<name>`. Returns the saved path or "" when the
 request is not multipart or the field is absent. Binaries containing
 NUL bytes are length-delimited on the wire but cannot round-trip as
-`orbit_string`; treat them as saved bytes. Pinned by
+`orbit_string`. Treat them as saved bytes. Pinned by
 `runtime/test_upload.c`.
 
 ## Cluster is single-host only
@@ -211,13 +211,13 @@ NUL bytes are length-delimited on the wire but cannot round-trip as
 `orbit cluster` starts N copies of one service on this machine.
 There is no shared state, no proxying, no failover, and no
 multi-host story. `up`, `status`, and `down` are verified in the
-deploy tutorial; `drain` and rolling restart follow the platform
+deploy tutorial. `drain` and rolling restart follow the platform
 rule below.
 
 ## No joules on Windows
 
 Energy is reported in joules only where sensors exist (Linux
-RAPL). On Windows the honest proxy is CPU time plus memory -
+RAPL). On Windows the proxy is CPU time plus memory -
 never converted to joules with a universal factor. The measurement
 record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 
@@ -227,7 +227,7 @@ record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 exist alongside uptime, pid, worker count, total requests, and mean
 latency. They read a 100 µs-resolution histogram (1 ms-wide buckets
 up to 100 ms, then an overflow bucket answered from the recorded
-maximum), so a reported p99 is the boundary of the bucket holding 99%
+maximum). So a reported p99 is the boundary of the bucket holding 99%
 of requests, not a measurement of one request. Anything past 100 ms
 collapses into a single bucket and reports the max. What isn't
 measured still isn't exposed: there is no success/error split.
@@ -245,7 +245,7 @@ phase of `restart`/`down` are best-effort stops there.
 
 Starting two servers on the same port on Windows doesn't fail
 loudly in my test - both processes kept running and the port
-answered. Don't rely on a bind error to catch the mistake; check
+answered. Don't rely on a bind error to catch the mistake. Check
 with `netstat -ano | findstr <port>` and stop the older process.
 UNTESTED on Linux.
 
@@ -278,8 +278,8 @@ static inline Box_string* orbit_model_Box_string_create(OrbitArena* arena_, orbi
 
 There is nothing new in the emitter. An instantiation is an ordinary
 model whose fields are already substituted, so it goes out through the
-code that has always emitted a model struct, and `mapTypeToC` is handed
-`int` where the declaration said `T` -- it still has no case for `T`, and
+code that has always emitted a model struct. `mapTypeToC` is handed
+`int` where the declaration said `T`. It still has no case for `T`, and
 still does not need one. The generic declaration itself is never emitted.
 
 **Why the literal infers but a signature names.** There is no grammar
@@ -294,12 +294,12 @@ fn take(b: Box<int>) -> int { return b.v }
 fn make() -> Box<int> { return Box { v: 3 } }
 ```
 
-`Box<int>` is not decoration: it names the instance the literal infers, and
-the checker and the emitter have to agree on that string or the program
+`Box<int>` is not decoration. It names the instance the literal infers, and
+the checker and the emitter have to agree on that string. Otherwise the program
 passes `orbit check` and reads the wrong member. So the instance name is
 built by one function in `literal.orb`, which both sides import -- the same
 reason that module exists. `Box` with NO argument is still refused in a
-signature (n51): a signature is written before any value exists, so there
+signature (n51). A signature is written before any value exists, so there
 is nothing to infer from, and the emitter would be handed a struct name
 that only ever exists as `Box_int`.
 
@@ -327,8 +327,8 @@ val strs = Pair { left: "a", right: "b" }   // Pair_string_string
 ```
 
 **A field read has to be typed off its owner.** This is worth knowing
-because it was a live defect and monomorphisation made it easy to hit:
-two models declaring the same field name with different types used to
+because it was a live defect and monomorphisation made it easy to hit.
+Two models declaring the same field name with different types used to
 type each other's member reads from a module-wide scan of field *names*,
 last match winning. `Pair_int_string` and `Pair_string_int` both have a
 field called `second`, so any program instantiating one generic model
@@ -343,14 +343,13 @@ backend had been discarding.
 calls into each, and it passes. `tests/std/` is 23 files and runs
 23/23 green.
 
-`std/` was 20 modules. **Six were deleted, and deleting them was the
-honest response**, because each was a function that returned a value and
-was not computing it:
+`std/` was 20 modules. **Six were deleted, and the reason was measured**:
+each was a function that returned a value and was not computing it:
 
 | deleted | why it had to go |
 |---|---|
 | `std/sys/crypto/hash.orb` | `fnv1aHash` was `1469598103 + data.len()`, so `fnv1aHash("hello") == fnv1aHash("hellp")` was **true**. `generateKynxToken("user42")` derived a security token from the *length* of the seed. |
-| `std/sys/bytes/buffer.orb` | `appendByte` stored nothing, and `readAt` returned 1/0 and never returned the byte. `writeU16LE`/`writeU32LE` cannot be repaired either: a NUL byte vanishes from a string, measured — `from_char(65) + from_char(0) + from_char(66)` is length 2. `std/bytes/bytes.orb` already owns the honest version. |
+| `std/sys/bytes/buffer.orb` | `appendByte` stored nothing, and `readAt` returned 1/0 and never returned the byte. `writeU16LE`/`writeU32LE` cannot be repaired either: a NUL byte vanishes from a string, measured — `from_char(65) + from_char(0) + from_char(66)` is length 2. `std/bytes/bytes.orb` already owns a working version. |
 | `std/sys/net/socket.orb` | There is no socket API anywhere in the language or the runtime. `bindAddress` returned `true` for a valid port on a socket whose `fd` is 0, i.e. stdin. |
 | `std/sys/io/io_threading.orb` | No thread primitive exists in the lexer or the runtime. `createPool` set `is_active: true` and `dispatch` incremented a counter. |
 | `std/core/memory.orb` | `alloc` returned a null pointer and `free` was a no-op. |
@@ -369,10 +368,10 @@ name), not a missing feature. It is `std/sys/bytes/bitwise.orb` again,
 with `tests/std/test_bitwise.orb` over the vectors its header published.
 
 They are not `.orb` on purpose: `.orb` is the toolchain's marker for
-loadable source, and a file the parser cannot read breaks
+loadable source. A file the parser cannot read breaks
 `orbit fmt --check std` on every run and can only be `import`ed to
 produce a parse error. A quarantined module is not deleted because
-deleting loses the only written record that the feature was wanted; the
+deleting loses the only written record that the feature was wanted. The
 git history alone does not say *which* feature or *why* it is
 impossible. `std/quarantine/README.md` has the convention and the
 "what does not belong here" list.
@@ -390,8 +389,8 @@ names the absences.
 This entry used to be a description of a hole: eight programs that segfaulted
 or silently misbehaved. The hole is closed for the receivers the checker can
 name. Annotations, literals, pushes and reads are all compared while compiling
-([`E1005`](ERROR_CODES.md#e1005--call-argument-type-mismatch) at calls, [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) at pushes, reads and bindings); an empty `[]` plus
-pushes is typed by first-push-wins; `int` widens into `list<float>` but the
+([`E1005`](ERROR_CODES.md#e1005--call-argument-type-mismatch) at calls, [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) at pushes, reads and bindings). An empty `[]` plus
+pushes is typed by first-push-wins. `int` widens into `list<float>`, but the
 reverse is refused. The before/after table was the fix's own evidence and now
 lives in git history with it. What is left is a different and smaller hole:
 
@@ -399,7 +398,7 @@ lives in git history with it. What is left is a different and smaller hole:
 
 - **A `list` parameter declared without its element.** `fn read(xs: list, i: int)`
   has nothing to check a read against, and that spelling stays lenient on
-  purpose — the way `unknown` is — because dynamic values cannot be refused
+  purpose, the way `unknown` is. Dynamic values cannot be refused
   without breaking code that works. The crash it used to hide is closed
   ([F-0009](ERROR_CODES.md#f-code-index), fixed): generic functions fix the
   element per call site and `tests/negative/n39_list_parameter_has_no_element_type.orb`
@@ -411,9 +410,9 @@ lives in git history with it. What is left is a different and smaller hole:
   as everywhere else in the checker: an unknown is an inference gap, and
   refusing it would turn every gap into an error at every use.
 - **A model or a union as the element.** `list<Point>` is checked for
-  pointerness and nothing more; the fields of the value are not checked against
+  pointerness and nothing more. The fields of the value are not checked against
   the model's declaration here.
-- **A heterogeneous list.** Not expressible in this shape of list, and that is
+- **A heterogeneous list.** Not expressible in this list, and that is
   a decision about the representation (one boxed element per slot) rather than a
   gap in the check. See
   `tests/negative/list_mixed_element_kinds.orb` for why a boxed element would
@@ -426,19 +425,19 @@ lives in git history with it. What is left is a different and smaller hole:
 ### An object field read is lowered from the writes in the reading function
 
 `{ "a": 1 }.get("a")` no longer lowers to a list read. It reads the field the
-same way a dynamic object is written, and the emitter picks the getter from the
+same way a dynamic object is written. The emitter picks the getter from the
 setter that wrote that key, so an int field reads back an int, a string field
 a string, and a list field a list. That scan only sees the writes in the
 function the read is in, which is silent for an object a function returned and
-for a key the literal never wrote -- and the raw getter it fell back to answers
+for a key the literal never wrote. The raw getter it fell back to answers
 a pointer, so `val ratio: float = o.ratio` on an object from another function
 came back as the field's address bits.
 
 Two cases are closed. A read whose declared type names one of the kinds an
 object field holds (`int`, `float`, `bool`, `string`, `object`, `list`) carries
-that kind to the emitter on the read itself, as `IRInstruction.fieldKind`, so
-`val ratio: float = o.ratio` reads `0.5` and `val v: int = o.get("missing")`
-answers `0` -- a key that is absent is not a mismatch, and every typed getter
+that kind to the emitter on the read itself, as `IRInstruction.fieldKind`.
+So `val ratio: float = o.ratio` reads `0.5` and `val v: int = o.get("missing")`
+answers `0`. A key that is absent is not a mismatch, and every typed getter
 already answers the zero of its kind for one. The scan still wins wherever it
 has an answer, so a same-function literal read is lowered exactly as before.
 
@@ -463,12 +462,12 @@ when this section and that file disagree:
 | instructions the front end types `unknown` | 16,888 | **29.6%** |
 | ...with no diagnostic at all | 7,689 | **45.5% of the unknown** |
 
-The silent half is the honest number. [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)/[E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)/[E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend) account for
+The silent half is the measured number. [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)/[E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)/[E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend) account for
 the rest to the unit — their counts equal the unknown `load` /
 binary / unary counts exactly — so 9,199 is measured, not
 estimated. Those are `call` and `member` expressions: the two
 places where the front end does not know it has failed, and the same
-name-and-shape classification as the list problem above. This is the
+classification error as the list problem above. This is the
 same measurement as the root-cause table that used to live in
 [nineteen programs the compiler should reject](#the-silent-group-is-empty),
 and it is what the nineteen entries there were made of.
@@ -486,8 +485,8 @@ is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
 29.6% is the number the type work has to be scoped against, and a
-zero-bar gate is a gate everybody deletes. Example run (numbers move;
-the baseline file is current, this transcript is not):
+zero-bar gate is a gate everybody deletes. Example run (numbers move.
+The baseline file is current, this transcript is not):
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
@@ -505,7 +504,7 @@ people follow into a property the build enforces.
 
 `scripts/frontend_gate.py` runs six fixtures and all six pass (two of them,
 `syntax_error.orb` and `unresolved_type.orb`, could not build for most of this
-cycle; both missing imports are fixed).
+cycle, and both missing imports are fixed).
 
 ## `lib/net.orb` is gone
 

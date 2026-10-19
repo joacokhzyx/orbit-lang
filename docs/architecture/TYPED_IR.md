@@ -35,14 +35,14 @@ end-function <id>
 ```
 
 `<escaped …>` uses backslash escaping: `\\`, `\n`, `\r` and `\t`.  A newline is
-always `\n`; no platform-dependent line ending is permitted.  Functions,
+always `\n`. No platform-dependent line ending is permitted.  Functions,
 parameters, blocks and instructions are emitted in their stored order.  The
 frontend assigns ids monotonically, starting at zero for each id domain.
 
 ## Invariants
 
 1. TIR is emitted only when there are no error diagnostics.
-2. A value id is unique inside a function; a block id is unique inside it too.
+2. A value id is unique inside a function. A block id is unique inside it too.
 3. Every instruction has a non-empty, resolved opcode and type. `unknown` is
    an analysis-only sentinel and must make emission fail. `unit` is used for
    statements that do not create a language value.
@@ -55,12 +55,12 @@ frontend assigns ids monotonically, starting at zero for each id domain.
 The committed canonical C is compiled by the platform's C compiler into the
 `seed` compiler, which is the only artifact in the chain Orbit did not produce.
 That compiler is a full Orbit front end: it lexes, parses, resolves, typechecks
-and lowers `compiler/host/main.orb` into IR, and `orbit frontend` emits the canonical
+and lowers `compiler/host/main.orb` into IR. `orbit frontend` emits the canonical
 Typed IR for inspection. Four fixtures under `tests/frontend/` pin the emitted
 form against the four `.tir` files in `tests/frontend/expected/`.
 
 The C backend consumes IR directly rather than round-tripping through a TIR
-file, which is a deliberate simplification: TIR is specified and pinned as the
+file, which is a deliberate simplification. TIR is specified and pinned as the
 stable contract between front end and back end, and the in-process path is an
 implementation detail behind it. The format must not drift to accommodate a
 backend, and parsing and typechecking must never move back into a backend.

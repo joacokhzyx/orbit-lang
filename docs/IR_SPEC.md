@@ -8,7 +8,7 @@
   was used as a proposal and has been verified claim by claim against
   `compiler/ir/ir.orb`, `compiler/ir/builder.orb`, `compiler/emit/c_backend.orb`,
   `compiler/emit/route_runtime.orb`, `compiler/ir/cteval.orb` and `runtime/orbit_api.h`.
-  Where this document and the draft disagree, this document prevails; where
+  Where this document and the draft disagree, this document prevails. Where
   the language publishes something else, the language prevails.
 - **Gap rule:** everything marked `UNSPECIFIED` must fail in the loader with
   a diagnostic identifying the opcode/field. No approximating, no shims,
@@ -68,13 +68,13 @@ a comment.
     (`builder.orb:295-306`, `3585-3634`, `3838-3869`). The `db_*` opcodes have
     no producer anywhere in `compiler/**/*.orb` at this pin.
   - The map methods `.has` / `.delete` / `.keys` do emit opcodes
-    (`builder.orb:4053,4063,4072`); all other map traffic lowers through
+    (`builder.orb:4053,4063,4072`). All other map traffic lowers through
     `call` (the backend matches `orbit_map_create` on the call path,
     `c_backend.orb:773`).
   - Route HTTP responses lower through `call`, not through `http_response`.
 
 Consequence for the loader: the 16 producer-less opcodes are syntactically
-valid in IRv1 but the corpus (§5) does not exercise them; their execution
+valid in IRv1 but the corpus (§5) does not exercise them. Their execution
 semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 
 ### 1.2 Observable per-opcode semantics (observed C lowering)
@@ -167,12 +167,12 @@ with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 ### 2.2 `IRInstruction` (`ir.orb:91-105`)
 
 - `opcode`: one of the 60 (§1).
-- `dest`: `int`; `-1` means no destination. Default factory value `-1`
+- `dest`: `int`. `-1` means no destination. Default factory value `-1`
   (`ir_init_instr`, `ir.orb:142-144`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
 - `elemKind`: `int` holding the list element-type code
   (`builder.orb:1356-1363`): `0` undecided, `1` string, `2` int, `3` float,
-  `4` bool, `5` ref. Only the collection opcodes set it; only the builder
+  `4` bool, `5` ref. Only the collection opcodes set it. Only the builder
   decides it (`ir.orb:97-104`). `0` lowers to the untyped accessor and to a
   `void*` destination. Which exact spellings yield `5`
   (`isReferenceKindName`) is not audited here:
@@ -187,8 +187,8 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 `returnType`, `isExtern`, `routeMethod`, `routePath`, `routeHasLimit`,
 `routeLimitRate`, `routeLimitWindowMs`, `routeLimitBurst`.
 
-- `ir_alloc_register` (`ir.orb:171-176`): the number is the current counter; it
-  appends the typeName to `registerTypes`. Observed type vocabulary (open, not
+- `ir_alloc_register` (`ir.orb:171-176`): the number is the current counter, and
+  it appends the typeName to `registerTypes`. Observed type vocabulary (open, not
   restricted): `"int"`, `"bool"`, `"string"`, `"float"`, `"unknown"`, `"void"`,
   `"void*"`, `"result"`/`"Result"`/`"OrbitResult"`, `"response"`, `"map"`,
   `"list"`, `"object"`, `"string_list"`/`"int_list"`/`"float_list"`/`"bool_list"`/`"ref_list"`,
@@ -204,7 +204,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   type to `"OrbitResponse*"` (`ir.orb:167-169`). Optional Kynx route limits
   (`c_backend.orb:78-90,1837`).
 - Parameters additionally live in a flat name-keyed kind registry
-  (`listKinds`) restored per scope (`listKindMarks`); two functions sharing a
+  (`listKinds`) restored per scope (`listKindMarks`). Two functions sharing a
   parameter name share one entry (`builder.orb:44-74,110-123,
   AGENTS.md`). Not reproducible in serialized IR: `UNSPECIFIED` (U-02).
 
@@ -215,11 +215,11 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 - `IRGlobal` (`ir.orb:228-232`): `name`, `value` (`IRValue`), `typeName`.
   Observed constructors: `ir_string` value (`builder.orb:2336,2372`) or
   `ir_register` value (`builder.orb:2377`). Top-level `var`/`const` is error
-  E1007; `val NAME = <int|bool lit>` is a global `#define` emitted by
+  E1007. `val NAME = <int|bool lit>` is a global `#define` emitted by
   `generateRoutePreamble`, not by `route_runtime` (AGENTS.md).
 - `IRModelDecl` (`ir.orb:187-198`): `name`, `fields` (`IRModelField{name,
   typeName}`), `typeParams`. A declaration with non-empty `typeParams` NEVER
-  reaches the module: it lives in `builder.genericModels`; only synthesized
+  reaches the module: it lives in `builder.genericModels`. Only synthesized
   instances (`Box_int`, fields already substituted) enter `module.models`
   with `typeParams == []` (`builder.orb:647,682,2026-2034`).
 - `IRTypeDecl` (`ir.orb:212-218`): `name`, `kind`, `variants` (strings),
@@ -260,7 +260,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 7. No `dest` needed when the callee returns void or is `orbit_list_set`
    (`2768-2771`).
 8. Names that are C keywords get a trailing `_` at the call site
-   (`isCKeyword`, `2884-2891`); the definition uses `sanitizeIdentifier`
+   (`isCKeyword`, `2884-2891`). The definition uses `sanitizeIdentifier`
    with the same rule.
 9. Some calls receive `arena` as the first argument (`functionNeedsArena`,
    `2893`): the exact list is not audited here → `UNSPECIFIED` (U-04).
@@ -290,7 +290,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 ## 4. Runtime and DB drift (contractual)
 
 - `runtime/orbit_api.h` is the separate-compilation header against
-  `.orbit/lib/libruntime_net.a` (**net variant, no DB**; `orbit_api.h:3-13,106`):
+  `.orbit/lib/libruntime_net.a` (**net variant, no DB**, `orbit_api.h:3-13,106`):
   ```c
   typedef const char* orbit_string;   /* h:113 */
   typedef int         orbit_int;      /* h:114 — 32 bits on both x86-64 targets */
@@ -313,7 +313,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 ### 5.1 Format decision
 
 IRv1 text is a **UTF-8 JSON document** (RFC 8259): a single root object, no
-BOM, trailing LF. JSON is the format; there is no assembly-like text
+BOM, trailing LF. JSON is the format. There is no assembly-like text
 representation and no binary encoding at this pin (no `--emit-ir` exists, so
 this section defines the text form from the in-memory model in §2).
 
@@ -328,23 +328,23 @@ this section defines the text form from the in-memory model in §2).
 - Integers are JSON numbers without fraction or exponent, within the signed
   32-bit range except register/label numbers, which are non-negative, and
   `dest`, which is `-1` or non-negative (§5.4, rules V-06/V-07).
-- Floats are JSON numbers; non-finite values are rejected (V-08). The
+- Floats are JSON numbers. Non-finite values are rejected (V-08). The
   rendering of a float back to C is `orbit_float_to_string_selfhost`
   (§2.1), not JSON formatting.
-- Strings are JSON strings; the C-side escaping table is `escapeString`
-  (`c_backend.orb:2338-2361`); its exact byte coverage stays `UNSPECIFIED`
+- Strings are JSON strings. The C-side escaping table is `escapeString`
+  (`c_backend.orb:2338-2361`). Its exact byte coverage stays `UNSPECIFIED`
   (U-07).
 - Booleans are JSON `true`/`false`. Unused operands are the value object
   `{"kind":"None"}` (§5.2).
 - Field order in the emitted document follows the model declaration order
-  (§2.3/§2.4); the loader must accept any order but must reject unknown
+  (§2.3/§2.4). The loader must accept any order but must reject unknown
   keys (V-02).
 - A document containing an authoring-tool elision marker (the
-  `…[N chars]` shape left by a cut-off write) must fail validation (V-01).
+  `…[N chars]` text left by a cut-off write) must fail validation (V-01).
 
 ### 5.2 JSON text grammar (EBNF) + minimal runnable example
 
-EBNF over JSON values (`(* … *)` are comments; terminals are JSON literals):
+EBNF over JSON values (`(* … *)` are comments, and terminals are JSON literals):
 
 ```ebnf
 document    = object, "irVersion", ":1", "module";
@@ -423,7 +423,7 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 
 ### 5.4 Validation rules (19, numbered V-01–V-19)
 
-A loader must apply these in order; the first failure wins and its diagnostic
+A loader must apply these in order. The first failure wins, and its diagnostic
 names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 
 | # | Rule |
@@ -451,7 +451,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 ### 5.5 Designated corpus
 
 At this pin the corpus is the language test tree itself (no serialized IR
-exists yet); each source below maps to IR through the builder whose producers
+exists yet). Each source below maps to IR through the builder whose producers
 are pinned in §1.1.
 
 - **Suite: 72 runnable files + 1 support file.** `tests/suite/` holds 73
@@ -470,16 +470,16 @@ are pinned in §1.1.
   The 4 `db_*` opcodes (`db_get`, `db_set`, `db_all`, `db_where`) are excluded
   from the M1 differential (§4): they have no producer in `compiler/**/*.orb`
   and no symbol in the net runtime. No corpus file is removed: the single
-  suite file touching the DB surface, `peephole_no_fold_side_effects.orb`
+  suite file touching DB access, `peephole_no_fold_side_effects.orb`
   (via `Item.all()`/`Item.where()`, which lower through `call` to
   `orbit_db_query_*`, `builder.orb:295-306`), stays as `call`-opcode coverage.
-  No `tests/std/*.orb` file uses the DB surface.
+  No `tests/std/*.orb` file uses DB access.
 
 ## 6. Gaps (17, U-01–U-17)
 
 Every item below is `UNSPECIFIED`: the loader rejects any document that
 depends on it, with a diagnostic naming the opcode/field (gap rule, header).
-Numbers U-01–U-06, U-09, U-12, U-14–U-17 are kept as cited in §§1–4; U-07,
+Numbers U-01–U-06, U-09, U-12, U-14–U-17 are kept as cited in §§1–4. U-07,
 U-08, U-10, U-11, U-13 complete the sequence.
 
 | # | Gap | Why it is open at this pin |
@@ -500,4 +500,4 @@ U-08, U-10, U-11, U-13 complete the sequence.
 | U-14 | Union `{int tag; void* data;}` layout | Locally emitted text, no contractual runtime helper (§1.2). |
 | U-15 | Definition point of `ORBIT_API_RESPONSE` | Not declared in `runtime/orbit_api.h` (§1.2). |
 | U-16 | Resolution of `isExtern` symbols | Backend emits nothing; resolution is outside (§2.3). |
-| U-17 | `print` formatting contract | Observed behavior only; multi-arg shape is a comment (§3.1). |
+| U-17 | `print` formatting contract | Observed behavior only; the multi-arg case is a comment (§3.1). |
