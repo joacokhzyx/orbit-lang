@@ -7,7 +7,7 @@
 
 This document is the implementation contract. It describes quality gates, invariants, and active engineering work. For the dated current snapshot, use [docs/STATUS.md](docs/STATUS.md). For project sequencing, use [docs/ROADMAP.md](docs/ROADMAP.md). For user-facing language behavior, use [docs/LANGUAGE_REFERENCE.md](docs/LANGUAGE_REFERENCE.md). For the complete documentation map, use [docs/README.md](docs/README.md).
 
-The build is the self-hosted Orbit compiler. `compiler/**/*.orb` is the only implementation of the compiler; there is no second implementation and no predecessor language in the tree. It reads `.orb` source, emits C, and bootstraps from the committed canonical C at `compiler/selfhost/stage3.exe.c`. The C runtime is `runtime/*.c`. The gates are Python 3 standard-library scripts in `scripts/`. See [docs/architecture/SOVEREIGNTY.md](docs/architecture/SOVEREIGNTY.md) for the trust model and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the pipeline.
+The build is the self-hosted Orbit compiler. `compiler/**/*.orb` is the only implementation of the compiler. There is no second implementation and no predecessor language in the tree. It reads `.orb` source, emits C, and bootstraps from the committed canonical C at `compiler/selfhost/stage3.exe.c`. The C runtime is `runtime/*.c`. The gates are Python 3 standard-library scripts in `scripts/`. See [docs/architecture/SOVEREIGNTY.md](docs/architecture/SOVEREIGNTY.md) for the trust model and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the pipeline.
 
 Every path cited in this document is a path that exists today. If you find a claim here that does not match the tree, that is a defect in this document: fix the document in the same commit as the code change that made it stale.
 
@@ -28,9 +28,9 @@ Every path cited in this document is a path that exists today. If you find a cla
 
 > **A function either performs its stated contract fully, or it does not exist.**
 
-If a feature is genuinely deferred, it must not appear in the public CLI surface, must not print banners, and must return an error from an internal API - never from a user-facing command. A user-facing command that is not implemented must not be registered.
+If a feature is genuinely deferred, it must not appear in the public CLI, must not print banners, and must return an error from an internal API - never from a user-facing command. A user-facing command that is not implemented must not be registered.
 
-The recorded instance of this violation, a `runClusterMode` that printed a placeholder notice and exited 0, was catalogued as **cluster-supervisor** and is closed. The replacement is not "cluster may now exist": §3 states exactly what `orbit cluster` is allowed to do, and that is a narrower contract than the CLI surface.
+The recorded instance of this violation, a `runClusterMode` that printed a placeholder notice and exited 0, was catalogued as **cluster-supervisor** and is closed. The replacement is not "cluster may now exist": §3 states exactly what `orbit cluster` is allowed to do, and that is a narrower contract than the CLI.
 
 ---
 
@@ -47,7 +47,7 @@ Orbit competes with Go, C, C++, and Java for production server workloads. These 
 | `orbit doctor` scan time | ≤ 50 ms on 100 000 LOC project | external wall clock around `orbit doctor <dir>`; see note below |
 | Arena alloc per request | ≤ 50 ns amortised over 1M calls | timed allocation loop compiled from an Orbit program, median of 5 runs |
 
-No performance number is published until it comes with the command that produced it, the hardware it ran on, the flags it ran with, and the spread across at least 5 runs. A number without its reproducible command is not a claim, it is an anecdote, and it does not go in this document. `scripts/orbit_ccache.py` and `scripts/measure_selfhost.py` exist to make bootstrap-side measurements cheap enough to repeat; `scripts/kynx_gate.py load` is the load generator for live-service measurements.
+No performance number is published until it comes with the command that produced it, the hardware it ran on, the flags it ran with, and the spread across at least 5 runs. A number without its reproducible command is not a claim, it is an anecdote, and it does not go in this document. `scripts/orbit_ccache.py` and `scripts/measure_selfhost.py` exist to make bootstrap-side measurements cheap enough to repeat. `scripts/kynx_gate.py load` is the load generator for live-service measurements.
 
 **Note on the doctor row.** `DoctorStats` carries a duration per phase (`textMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them. Read the phases from `orbit_clock_ms()`, never a nanosecond clock: `orbit_int` is a 32-bit `int`, so nanoseconds wrap every 4.29 s and a subtraction across the wrap returns a NEGATIVE duration. It printed `-417 ms text` before this was fixed.
 
@@ -62,7 +62,7 @@ cold and warm with `ORBIT_DOCTOR_CACHE`:
 
 Expressed against the budget, because "ms in a column" hides the ratio. The
 budget row is per 100 000 LOC, so a 23 714 LOC tree has an allowance of 11.9 ms
-of wall clock; the per-100K columns scale the measurement up rather than
+of wall clock. The per-100K columns scale the measurement up rather than
 comparing a quarter-size tree to a full-size allowance:
 
 | | measured here | per KLOC | per 100K LOC | vs 50 ms budget |
@@ -84,8 +84,8 @@ better, and both are corrected above. A budget table is the one place in this
 document where an arithmetic error is a lie rather than a typo.
 
 **Still 188x over, warm.** Do not read the 2.23 s as a pass. What the
-optimisation work bought is that the residual is two identifiable things rather
-than a mystery, and this measurement says which is which:
+optimisation work bought is that the cost that is left is two identifiable things
+rather than a mystery, and this measurement says which is which:
 
 - **Warm, the AST phase is the parser.** Measured by disabling every
   AST-based check (D017, D018, D019, D021, D022) and re-running: the AST phase
@@ -115,19 +115,19 @@ measured effect of the current contract is the difference between 6.19 s and
 touch the parser.
 
 What it does not fix, stated so the proposal is not oversold: the warm run stays
-at ~2.2 s, because warm D008 already costs nothing and the residual is the
+at ~2.2 s, because warm D008 already costs nothing and what is left is the
 parse. A cold run would land near 3.6 s. Neither is inside 50 ms per 100K LOC,
-and no contract change gets there -- at 23 714 LOC the budget allows 11.9 ms of
+and no contract change gets there. At 23 714 LOC the budget allows 11.9 ms of
 total wall clock, and this tool spends 2.2 s of it on a tree a quarter of the
 size. The budget is only reachable with a materially faster parser, or with the
 budget restated to say what doctor is: a per-file report whose cost is one parse
 per file.
 
-The two honest options are therefore (a) make the parser faster, which is real
-work with a real payoff for the compiler and not just for doctor, or (b) restate
-the row as "one parse per file plus the typechecks, cached", which is what the
-tool actually is. Option (b) is a sentence; option (a) is not. Neither is
-decided here.
+The two options are therefore these. Option (a) is to make the parser faster,
+which is real work with a real payoff for the compiler and not just for doctor.
+Option (b) is to restate the row as "one parse per file plus the typechecks,
+cached", which is what the tool actually is. Option (b) is a sentence. Option
+(a) is not. Neither is decided here.
 
 The AST phase used to be 4454 ms, not 968 ms. `doctorFindDeclLine` called
 `splitBuildLines` once per declaration -- 780 calls over the compiler itself --
@@ -155,7 +155,7 @@ Two things this measurement decided:
 1. **Dropping the typecheck was rejected, on evidence.** It was measured, and re-measured on the current tree: removing it leaves the warm run at ~2.2 s, still 188x over, because the parse dominates what remains and nothing else moves the ratio. And it loses real signal -- a file with a syntax error, a type error, or a broken import then reports `no findings`, because the AST pass skips unparseable files and the typecheck is the only other thing looking. A linter that reports a broken file as clean is worse than a slow one.
 2. **The parse-error half of D008 is now free.** A file that does not parse is reported from `parser.diagnostics`, which the AST pass already produced, so the guarantee survives without paying for a typecheck that cannot succeed anyway. `d008_parse_error` and `d008_semantic_error` in the goldens pin both halves.
 
-The cache is keyed on the CONTENT hash, not the path or an mtime: move a file and its answer still applies; change one byte and it does not (`d008_survives_edit`). `ORBIT_DOCTOR_CACHE=0` turns it off. Its only limitation is that a cache hit does not reprint the compiler diagnostic, so the finding points at `orbit check` rather than promising "see the error above" -- a promise a cache hit cannot keep.
+The cache is keyed on the CONTENT hash, not the path or an mtime: move a file and its answer still applies. Change one byte and it does not (`d008_survives_edit`). `ORBIT_DOCTOR_CACHE=0` turns it off. Its only limitation is that a cache hit does not reprint the compiler diagnostic, so the finding points at `orbit check` rather than promising "see the error above" -- a promise a cache hit cannot keep.
 
 ---
 
@@ -163,7 +163,7 @@ The cache is keyed on the CONTENT hash, not the path or an mtime: move a file an
 
 ### 2.1 Current State
 
-`compiler/tools/doctor.orb` is the whole of doctor. It scans `.orb` files under a directory and reports findings under 28 codes: `D001`-`D019` (there is no `D020`), `D021`-`D023`, `D025`, `D027`, `D028`, and `D031`-`D033`; `D024`, `D026`, `D029` and `D030` are unassigned. `docs/DOCTOR.md` is the code-by-code contract - messages, severity, fixes, and the limits each check states for itself - and wins when it and the table below disagree:
+`compiler/tools/doctor.orb` is the whole of doctor. It scans `.orb` files under a directory and reports findings under 28 codes: `D001`-`D019` (there is no `D020`), `D021`-`D023`, `D025`, `D027`, `D028`, and `D031`-`D033`. `D024`, `D026`, `D029` and `D030` are unassigned. `docs/DOCTOR.md` is the code-by-code contract - messages, severity, fixes, and the limits each check states for itself - and wins when it and the table below disagree:
 
 | Code | What exists today | Implementation |
 |---|---|---|
@@ -196,7 +196,7 @@ The cache is keyed on the CONTENT hash, not the path or an mtime: move a file an
 | `D032` | A route whose arena overflowed in the ledger snapshot (`arena_overflow` non-zero): a leak counted in production, not inferred. | `doctorCheckTelemetry` |
 | `D033` | A route whose measured p99 exceeds the budget read out of `ENGINEERING.md`. With no budget found, the check stays off. | `doctorCheckTelemetry` |
 
-**It is a scan, not a whole-program analysis.** It reads tokens, lines, ASTs, and the compiler's own verdict on each file. The three-layer design in §2.2 is no longer a promise: §2.3 and §2.4 are shipped, and §2.5 is reconciled rather than open - the one analysis there worth building, taint, ships on the AST as `D025`, and the other two either have no subject in the current language (module-level mutable state is `E1007`) or duplicate `D019`'s shape. What it still cannot do is stated where it bites: a single-directory scan cannot establish whole-program reachability, which is why unused-declaration reporting stays conservative (`D003`/`D004`, §2.4).
+**It is a scan, not a whole-program analysis.** It reads tokens, lines, ASTs, and the compiler's own verdict on each file. The three-layer design in §2.2 is no longer a promise. §2.3 and §2.4 are shipped, and §2.5 is reconciled rather than open. The one analysis there worth building, taint, ships on the AST as `D025`. The other two either have no subject in the current language (module-level mutable state is `E1007`) or repeat what `D019` already does. What it still cannot do is stated where it bites: a single-directory scan cannot establish whole-program reachability, which is why unused-declaration reporting stays conservative (`D003`/`D004`, §2.4).
 
 ### 2.2 Architecture
 
@@ -233,7 +233,7 @@ earlier draft of D017 reported a complexity of 1 for a function of 25:
 Neither was visible because no code called `.len()` on either field. sema.orb
 passes `f.body` straight into `checkNode`, which matches rather than measures, so
 every AST walk in the compiler was correct by accident of never asking.
-`tests/suite/ast_function_body_is_a_block.orb` asserts the corrected shape, so the
+`tests/suite/ast_function_body_is_a_block.orb` asserts the corrected field types, so the
 fix cannot be undone by someone reading `body: list` as a convenience.
 
 Layer 2 now does exactly one thing does exactly one thing: it parses each file with `initParser`/`parseProgram`, walks the AST to collect declarations and references, and reports unused private functions and unused models. It then falls back to a whole-word text search (`doctorUsedInText`) before reporting anything. It is deliberately conservative, because a name may be used by a file outside the scan. Any analysis added to Layer 2 inherits that constraint: a false positive that silences a real dead-code report is worse than a missed one.
@@ -284,7 +284,7 @@ The numbers `D020` through `D023` appear in no version of this document. They
 were an invention of a planning note, listed as "what a doctor could grow next",
 and reading them back as spec is how a plan starts promising things the spec
 never did. `D022` (duplicate match arm) and `D023` (shadowing) were real ideas,
-recorded below as candidates rather than as commitments; both have since shipped.
+recorded below as candidates rather than as commitments. Both have since shipped.
 
 Implemented in `compiler/tools/doctor.orb`, reusing the AST `doctorRun` already builds. Parse errors must convert to a warning diagnostic rather than aborting the run: the existing contract is that doctor still runs its text checks on a file that does not parse and skips only the AST-based analysis. Budget: ≤ 20 ms per 10K LOC.
 
@@ -313,7 +313,7 @@ Both were written down so the next person would not have to re-derive them,
 and both have since shipped (`D022`, `D023`). The bullets are the record of the
 argument, not open work.
 
-- **Duplicate `match` arm.** (Record; shipped as `D022`.) The original argument
+- **Duplicate `match` arm.** (Record, shipped as `D022`.) The original argument
   was that it is not a doctor check: `patternVariantName` and
   `qualifiedVariantName` (`sema.orb:1757`, `:1782`) need a `Sema`, and doctor's
   only door to it is `checkSourceWithFile(...) -> bool` (`pipeline.orb:161`).
@@ -321,21 +321,21 @@ argument, not open work.
   `covered` (`sema.orb:1801`) accumulates variant names and never checks for a
   repeat. Note the wildcard bails first (`sema.orb:1814`, `:1825`), so a check
   placed after that bail would skip exactly the dead arms.
-- **Shadowing.** (Record; shipped as `D023`.) Shadowing is intended: `builder.orb:79-80` and
+- **Shadowing.** (Record, shipped as `D023`.) Shadowing is intended: `builder.orb:79-80` and
   `resolveSymbol` (`sema.orb:601`) both resolve innermost-first on purpose, and
   same-scope re-declaration is already a hard error (`sema.orb:557`). The only
   useful form -- "this name shadows an outer one that is used afterwards" -- is
-  the most expensive candidate here, because `LiteralNode` (`ast.orb:146`) has
+  the most expensive candidate here. `LiteralNode` (`ast.orb:146`) has
   no `line`/`col`, so a *use* has no position and the answer needs a parser
   change plus a scope-tracking pass. Low diagnostic value for that price.
 
 #### Dead Function Detection (partial: private only)
 
-A `private fn` that no scanned file calls is unreachable; that is `D003` and it exists. A public `fn` unreachable from any `route`, `schedule`, or other reachable `fn` is also dead, but reporting it requires whole-program reachability from the entry point, which a single-directory scan cannot establish. The general form of the finding stands: `"fn <name> is never called from any route or schedule and will not be compiled into the output binary."` It is not implementable at directory-scan scope without false positives, so it is deferred, not solved.
+A `private fn` that no scanned file calls is unreachable. That is `D003`, and it exists. A public `fn` unreachable from any `route`, `schedule`, or other reachable `fn` is also dead, but reporting it requires whole-program reachability from the entry point, which a single-directory scan cannot establish. The general form of the finding stands: `"fn <name> is never called from any route or schedule and will not be compiled into the output binary."` It is not implementable at directory-scan scope without false positives. It is deferred, not solved.
 
 ### 2.5 Layer 3: Semantic Graph Analyses
 
-**Status: reconciled. This section promised three analyses; none of them can be
+**Status: reconciled. This section promised three analyses. None of them can be
 built as written, and the reason is worth writing down rather than discovering a
 third time.**
 
@@ -402,19 +402,19 @@ nothing else, and only 7 of 43 AST models carry `line`/`col` (`ast.orb:102`,
 `:110`, `:221`, `:243`, `:259`, `:269`, `:276`). An IR-only finding can be
 attributed to a function, and attributing it to a line means guessing one. The
 AST plus sema's scope chain carries the same information with real positions,
-which is the same reason `checkNode(sema, node: ASTNode)` is the shape the rest
+which is the same reason `checkNode(sema, node: ASTNode)` is the form the rest
 of the compiler walks in.
 
 ### 2.6 Implementation Contract
 
 Every analysis added to doctor must satisfy all of the following before it is considered done:
 
-1. A golden in `tests/doctor/golden/` for the check, plus its `.orb` fixture, and `scripts/doctor_gate.py` passing in CI. That gate runs each case against a throwaway copy of its fixtures and compares stdout character for character, so it pins the severity, file, line, wording and exit code at once. It is wired into CI; `tests/doctor/` is no longer a manual-only directory. A check with no golden is not shipped. `--update` is the only way a golden changes, and it must be reviewed as a diff.
+1. A golden in `tests/doctor/golden/` for the check, plus its `.orb` fixture, and `scripts/doctor_gate.py` passing in CI. That gate runs each case against a throwaway copy of its fixtures and compares stdout character for character, so it pins the severity, file, line, wording and exit code at once. It is wired into CI. `tests/doctor/` is no longer a manual-only directory. A check with no golden is not shipped. `--update` is the only way a golden changes, and it must be reviewed as a diff.
 2. Completion within the per-layer time budget, with the per-phase durations `DoctorStats` now records printed by `--verbose` as evidence.
 3. No abort on malformed input. Parse and lex failures are always caught, converted to a finding, and the scan continues.
-4. Every finding includes: file path, line number, code, severity, and a one-sentence actionable suggestion. The rendered line is `file:line [CODE] message fix: action`. The JSON carries the same six keys plus `column`, `layer`, `fix_kind`, `applied` and `edits`; the original six are the contract, the rest are additive.
-5. A new code is added to the `D00X` table in `docs/DOCTOR.md` in the same commit. Doctor's code space is a public contract; renumbering an existing code is a breaking change.
-6. A fixable finding carries its edits. A check that can fix itself emits `edits` rather than describing the fix in prose only, marks them `safe` or `unsafe`, and is exercised through the shared fix engine by a golden that passes `--fix`. Two invariants hold for every fix that engine applies and are pinned by the `crlf_preserved` and `dry_run_changes_nothing` goldens: the file is byte-identical outside the edited ranges, and nothing is written unless the result still passes the checks it was verified against.
+4. Every finding includes: file path, line number, code, severity, and a one-sentence actionable suggestion. The rendered line is `file:line [CODE] message fix: action`. The JSON carries the same six keys plus `column`, `layer`, `fix_kind`, `applied` and `edits`. The original six are the contract, the rest are additive.
+5. A new code is added to the `D00X` table in `docs/DOCTOR.md` in the same commit. Doctor's code space is a public contract. Renumbering an existing code is a breaking change.
+6. A fixable finding carries its edits. A check that can fix itself emits `edits` rather than describing the fix in prose only, marks them `safe` or `unsafe`, and is exercised through the shared fix engine by a golden that passes `--fix`. Two invariants hold for every fix that engine applies, and the `crlf_preserved` and `dry_run_changes_nothing` goldens pin both. The file is byte-identical outside the edited ranges. Nothing is written unless the result still passes the checks it was verified against.
 
 ### 2.7 Expected Output After Full Implementation
 
@@ -430,7 +430,7 @@ Every analysis added to doctor must satisfy all of the following before it is co
   6 files scanned, 41.8 ms (token 2.1 ms, ast 11.4 ms, semantic 19.7 ms, io 8.6 ms)
 ```
 
-The block above is the original sketch, not today's output: `D009` through `D012` have shipped since, under messages of their own (`docs/DOCTOR.md`), and the per-layer timing line is the stats §2.6 records. What survives from the sketch is the shape: one line per finding, location, code, message, and a fix the reader can act on without opening the file.
+The block above is the original sketch, not today's output: `D009` through `D012` have shipped since, under messages of their own (`docs/DOCTOR.md`), and the per-layer timing line is the stats §2.6 records. What survives from the sketch is the format: one line per finding, location, code, message, and a fix the reader can act on without opening the file.
 
 ---
 
@@ -468,7 +468,7 @@ None of these four properties is present today. `orbit cluster restart --rolling
 
 ### 3.3 Phase 1: Node Identity, Gossip, Routing, Leader Election
 
-All of this is unimplemented. There is no `compiler/cluster/` directory; `compiler/host/cluster.orb` is the single-host supervisor described in §3.1 and must keep working unchanged. A multi-host implementation belongs in new modules alongside it, with the transport in `runtime/` where the socket and thread layers already are.
+All of this is unimplemented. There is no `compiler/cluster/` directory. `compiler/host/cluster.orb` is the single-host supervisor described in §3.1 and must keep working unchanged. A multi-host implementation belongs in new modules alongside it, with the transport in `runtime/` where the socket and thread layers already are.
 
 #### Node identity
 
@@ -489,7 +489,7 @@ ClusterNode:
 
 #### Gossip
 
-Push-pull gossip over TCP. Every 500 ms, each node selects 3 random peers and sends its full membership table as a compact binary frame. The receiver merges using last-write-wins on `(node_id, generation)`. A node missing more than 3 consecutive gossip cycles transitions to `suspected`; after 2 more it transitions to `dead`.
+Push-pull gossip over TCP. Every 500 ms, each node selects 3 random peers and sends its full membership table as a compact binary frame. The receiver merges using last-write-wins on `(node_id, generation)`. A node missing more than 3 consecutive gossip cycles transitions to `suspected`. After 2 more it transitions to `dead`.
 
 Wire format (fixed-width, no JSON, no text):
 
@@ -527,7 +527,7 @@ Bully election (correct and fast for clusters ≤ 32 nodes):
 
 ### 3.4 Phase 2: Load-Aware Routing and Drain
 
-After Phase 1 passes a 3-node integration test. Note that the drain and rolling-restart *behaviour* already exists in the single-host form (§3.1); what is missing is the load-driven node choice.
+After Phase 1 passes a 3-node integration test. Note that the drain and rolling-restart *behaviour* already exists in the single-host form (§3.1). What is missing is the load-driven node choice.
 
 **Load score** per node, over a 5-second sliding window:
 - `active_conns`: in-flight HTTP requests currently being processed
@@ -551,7 +551,7 @@ This is a hard requirement for the ≥ 1M RPS target. Blocking I/O in the gossip
 ### 3.6 Implementation Contract for Agents
 
 1. `orbit cluster` may not gain a subcommand that the implemented design in §3.1 does not describe. Multi-host features do not enter the help text until Phase 1 is complete and a 3-node integration test passes. No such test exists today.
-2. Each cluster module must have a test that exercises its state machine transitions over loopback TCP. A Python gate in `scripts/` is acceptable and is the pattern used for the rest of the build; `scripts/routes_probe.py` is the closest existing example.
+2. Each cluster module must have a test that exercises its state machine transitions over loopback TCP. A Python gate in `scripts/` is acceptable and is the pattern used for the rest of the build. `scripts/routes_probe.py` is the closest existing example.
 3. No ad-hoc printing of operational detail in cluster code. Diagnostics go through the existing `orbit <cmd>: fact.` stderr convention, or behind an explicit `--verbose`.
 4. The gossip wire format at version 1 is frozen once shipped. Breaking changes require bumping `protocol_version` and providing a decoder for version 1 frames.
 5. Cluster state is never persisted to disk by default. It is reconstructed from gossip on startup. The single-host `.orbit/cluster.json` is an explicit exception and exists only because there is no gossip to reconstruct from.
@@ -579,9 +579,9 @@ There is one lineage. There is no second implementation of the compiler to cross
 
 How it is produced and checked:
 
-1. **Amalgamate.** `scripts/amalgamate.py` inlines every project-relative `#include "..."` reachable from the canonical (resolved from the including file's directory, falling back to `runtime`), wraps each inlined file in its own per-path include guard so an `#ifdef`-gated occurrence cannot mask a later unconditional one, and leaves system includes untouched. Output is deterministic: fixed order, LF newlines. Result: `dist/orbit_bootstrap.c`.
+1. **Amalgamate.** `scripts/amalgamate.py` inlines every project-relative `#include "..."` reachable from the canonical, resolved from the including file's directory, falling back to `runtime`. It wraps each inlined file in its own per-path include guard, so an `#ifdef`-gated occurrence cannot mask a later unconditional one. It leaves system includes untouched. Output is deterministic: fixed order, LF newlines. Result: `dist/orbit_bootstrap.c`.
 2. **Build the seed.** `scripts/build_seed.sh` (Linux/macOS) and `scripts/build_seed.bat` (Windows) auto-detect the C compiler and invoke it. Detection order: `$ORBIT_CC`/`%ORBIT_CC%` → `gcc` → `clang` → `cc`/`cl`. A missing `dist/orbit_bootstrap.c` triggers the amalgamation first. Output: `dist/orbit_seed`.
-3. **Verify the fixed point.** `python scripts/verify_seed.py` runs the chain (amalgamate → seed → seed2 → chain2 → chain3) and reports four checks: the seed builds; the C the seed emits for `compiler/host/main.orb` equals the canonical; the C emitted by chain2 equals the canonical; the C emitted by chain3 equals the canonical. Checks 3 and 4 exist because a chain can fix a point at stage one and drift afterwards. `--release` additionally asserts the hash against `PUBLISHED_C`.
+3. **Verify the fixed point.** `python scripts/verify_seed.py` runs the chain (amalgamate → seed → seed2 → chain2 → chain3) and reports four checks. The seed builds. The C the seed emits for `compiler/host/main.orb` equals the canonical. The C emitted by chain2 equals the canonical. The C emitted by chain3 equals the canonical. Checks 3 and 4 exist because a chain can fix a point at stage one and drift afterwards. `--release` additionally asserts the hash against `PUBLISHED_C`.
 
 **Byte-identity of the three binaries is reported but not asserted.** Linkers embed timestamps, PDB paths, section order, and relocations, so binary bytes are a property of the C compiler and the linker, not of the language. The reproducible cross-platform contract is the C source hash.
 
@@ -589,7 +589,7 @@ How it is produced and checked:
 
 **Gate**: a user with only a C compiler and a stock `python3` can fully bootstrap Orbit from source. No language-specific toolchain is required, at any stage.
 
-**One historical finding worth keeping, because it is a class and not an incident.** `orbit_os_exec_selfhost` was untyped in sema, so a `result.indexOf(...)` call on the self-host source emitted a call to a nonexistent C helper (`compOutput_indexOf`) and the build failed at link time, not at the point of the mistake. It is now declared `-> string` in `compiler/host/extern.orb:8`, and every other `orbit_*_selfhost` extern is declared with a real return type. When adding an extern, type it. The compiler will not tell you it is missing.
+**One historical finding worth keeping, because it is a class and not an incident.** `orbit_os_exec_selfhost` was untyped in sema. A `result.indexOf(...)` call on the self-host source therefore emitted a call to a nonexistent C helper (`compOutput_indexOf`). The build failed at link time, not at the point of the mistake. It is now declared `-> string` in `compiler/host/extern.orb:8`, and every other `orbit_*_selfhost` extern is declared with a real return type. When adding an extern, type it. The compiler will not tell you it is missing.
 
 ### Phase S2: Native Backend in Orbit Source
 
@@ -654,7 +654,7 @@ records its Definition of Done so completion is machine-checkable.
 | auditable-release | Release | Ship a release that a user can audit and rebuild with nothing but a C compiler. Attach the amalgamated `dist/orbit_bootstrap.c` to the release artifacts rather than leaving it only in the working tree. | A CI job builds the release on a gcc-only runner, and the published asset list includes the amalgamated C. | ✅ Resolved. The release workflow already uploads `dist/orbit_bootstrap.c`, `dist/orbit_seed`, and the fixed-point binary from both legs (`--refresh` regenerates them on the tagged commit), and the publish step ships everything downloaded to the GitHub release. |
 | result-values | SemA/Codegen | Result-value handling gaps: ~~(1) `return ok(int-expr)` directly is rejected~~ (2) ~~the `.to_int()` method emits a call to a nonexistent C helper~~. Closed: binding a result-returning call to a `val`, annotated or not, and passing a result as an argument, both miscompiled as an aggregate-value C error because the frontend type table does not know user functions and that verdict discarded the register type the builder had already taken from the return type. | Helpers over results (isOk/unwrapOr/assertErr) compile, run, and read correctly; `return ok(expr)` accepted for any typed expr in `-> result` functions; `.to_int()` links. | ✅ Resolved. `ReturnOk`/`ReturnErr` in the builder now lower to `result_ok`/`result_err` when the enclosing function's return type is `result`, and sema accepts any typed body for them there; `s.to_int()` lowers to `orbit_string_to_int`. |
 
-native-backend remains the large catalogue item; ir-type-verifier and auditable-release
+native-backend remains the large catalogue item. ir-type-verifier and auditable-release
 are prerequisites or independently valuable even if native-backend is deferred.
 
 ---
@@ -662,11 +662,11 @@ are prerequisites or independently valuable even if native-backend is deferred.
 ## 7. Debt Catalogue
 
 This table is the single log of known debt: each row records one defect or gap with file, line, description, and priority.
-The ID is a stable slug for referencing the row, not a codename for new work; never mint codename-style IDs.
-An open row ends in a priority (**High**/**Medium**/**Low**); a finished row strikes through the ID (`~~slug~~`) and ends in ✅ Resolved/closed.
-Read `~~struck~~` + ✅ Resolved as done (notes like coverage thin/manual are caveats, not reopenings); read a priority label as still open.
-A row carries one signal, never both: a finished row keeps the Resolved marker and drops the priority, an open one keeps the priority, so a priority beside a Resolved marker is a stale label rather than a reopening, and the count below is re-derivable from the table body rather than remembered.
-The executable gate order is not here; it lives in §8 (`make dev`/`make check`/`make all` via `scripts/dev.py`).
+The ID is a stable slug for referencing the row, not a codename for new work. Never mint codename-style IDs.
+An open row ends in a priority (**High**/**Medium**/**Low**). A finished row strikes through the ID (`~~slug~~`) and ends in ✅ Resolved/closed.
+Read `~~struck~~` + ✅ Resolved as done (notes like coverage thin/manual are caveats, not reopenings). Read a priority label as still open.
+A row carries one signal, never both. A finished row keeps the Resolved marker and drops the priority. An open one keeps the priority. A priority beside a Resolved marker is therefore a stale label rather than a reopening, and the count below is re-derivable from the table body rather than remembered.
+The executable gate order is not here. It lives in §8 (`make dev`/`make check`/`make all` via `scripts/dev.py`).
 
 Count: 9 open, 32 resolved/closed, 41 rows total.
 
@@ -724,7 +724,7 @@ Read this entire document before writing any code. Then:
 2. **Implement the full contract.** If a section specifies 4 analyses, implement all 4. If one cannot be done due to a missing dependency, state exactly what is missing - do not silently omit.
 3. **Write the test before the implementation.** If you cannot write a test for a function, the function is not well-specified. Stop and clarify.
 4. **Run the gate sequence below and report the exact output** before declaring completion. Do not report a test count you did not read.
-5. **After any change to `compiler/**/*.orb`, run `python scripts/build_selfhost.py --check-stale`.** If the change was intentional and correct, regenerate the root of trust with `python scripts/build_selfhost.py --promote`, refresh the parity goldens, and commit the canonical, the goldens, and the sources in the same commit. `--promote` is the only way to replace the canonical; never regenerate it as a side effect of an unrelated change.
+5. **After any change to `compiler/**/*.orb`, run `python scripts/build_selfhost.py --check-stale`**. If the change was intentional and correct, regenerate the root of trust with `python scripts/build_selfhost.py --promote`, refresh the parity goldens, and commit the canonical, the goldens, and the sources in the same commit. `--promote` is the only way to replace the canonical. Never regenerate it as a side effect of an unrelated change.
 6. **Log new debt items in §7** if you defer anything. Include file, line, description, and priority.
 7. The words `TODO`, `FIXME`, `placeholder`, `stub`, `scheduled for`, `coming soon` must not appear in any committed `.orb`, `.c`, `.h`, or `.py` source file outside of this planning document.
 8. **Keep this document true.** If your change invalidates a claim here, fix the claim in the same commit. A stale contract is a defect with a longer half-life than the code it describes.
@@ -755,26 +755,26 @@ passes. **A green `make dev` is therefore not a green CI**, and
 `dev.py` prints which tiers it skipped at the end of every run. `check` and
 `all` name the missing tiers and the target that runs them.
 
-`dev.py` owns four things that had no owner: `TEMP`/`TMP` (pointed at
+`dev.py` owns four things that had no owner. `TEMP`/`TMP` is pointed at
 `.orbit/tmp`, because the system temp is a different filesystem on some machines
-and is the first thing anyone cleans), `ORBIT_CCACHE_DIR`, the fixed-point binary
+and is the first thing anyone cleans. The other three are `ORBIT_CCACHE_DIR`, the fixed-point binary
 path and its freshness stamp, and the flags each gate takes. Twenty-one scripts
 accept `--cc`, fifteen accept `--compiler`, ten accept neither, and
 `doctor_gate.py` accepts `--cc` and ignores it.
 
 One thing this does NOT do, recorded as **gate-sequence** in §7: CI no longer
 carries a copy of the sequence for the two to drift apart. The `gates` job calls
-`scripts/dev.py all` and `scripts/dev.py report` and nothing else of it; what is
+`scripts/dev.py all` and `scripts/dev.py report` and nothing else of it. What is
 still spelled out by hand lives in separate jobs split by blast radius (bootstrap
 root of trust, static trio and gate self-tests, runtime C and auth, the tcc shim,
 dual/triangle, the stress legs), not a second sequence. `make all` still does not
 drive the report tier -- `routes_probe.py`, the raw census and `diff_fuzz.py`,
 measurements CI prints and never fails on -- so `make all && make report` is the
-`gates` job, and a green CI also needs the jobs the local budget keeps out
+`gates` job. A green CI also needs the jobs the local budget keeps out
 (dual/triangle at ~80 s and ~90 s, the eight stress legs, the tcc shim smoke).
 
 The list below is what the tiers run, and why each step is there. Every step is a
-stock Python 3 script or a C compiler invocation; no other toolchain is required.
+stock Python 3 script or a C compiler invocation. No other toolchain is required.
 The steps marked **[CI]** are the ones `.github/workflows/ci-gate.yml` runs on
 every push, on ubuntu/gcc and windows/clang.
 
@@ -904,10 +904,10 @@ python scripts/alive_check.py --cc "$CC" --compiler /tmp/orbit_fp \
 ```
 
 **Two things in that list are not the same kind of thing, and the difference has
-already cost this project once.** Step 14 cannot fail; it is a measurement whose
+already cost this project once.** Step 14 cannot fail. It is a measurement whose
 output goes to the job summary. Step 15 is the gate. Before the ratchet existed,
-the census was the only tool, it was report-only, and when the probe stopped
-building the only symptom was a line on stderr - while a human quoted the number
+the census was the only tool and it was report-only. When the probe stopped
+building, the only symptom was a line on stderr, and a human quoted the number
 twice, authoritatively, without checking that the thing producing it still
 worked. D8 on the board is the general form of that lesson: a tool in `scripts/`
 must either have a gate or have an aliveness check, because a tool that cannot
