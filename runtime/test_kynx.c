@@ -419,6 +419,51 @@ static void test_route_limit_overflow_counted(void) {
     g_passed++;
 }
 
+/* T15: a request that asks for more than its lease allows is refused back to
+ * the request boundary, not fatal. Before the boundary existed the refusal
+ * reached the default OOM handler, which printed the arena line and exited --
+ * exit code 3, measured against this same fixture. The boundary takes the
+ * caller's jmp_buf, so a refusal lands in the caller's frame and the process
+ * keeps serving (ENGINEERING.md section 7, kynx-lease-abort). */
+static void test_lease_refusal_returns_to_boundary(void) {
+    OrbitArena* arena = orbit_arena_create(64 * 1024 * 1024);
+    assert(arena != NULL);
+    orbit_request_oom_install();
+
+    OrbitKynxLease* lease = orbit_kynx_lease_create_for_route("/grow", "GET", arena);
+    assert(lease != NULL);
+    assert(lease->arena_limit == 16 * 1024 * 1024);
+
+    assert(orbit_alloc(arena, 8 * 1024 * 1024) != NULL);
+
+    jmp_buf jb;
+    orbit_request_oom_arm(&jb);
+    if (setjmp(jb) == 0) {
+        /* 8 MB in use, 16 MB + 1 asked: more than the lease allows. */
+        orbit_alloc(arena, 16 * 1024 * 1024 + 1);
+        assert(!"the refusal did not reach the boundary");
+    }
+
+    /* Reaching here at all is the assertion: the process is alive. The
+     * message names the refusal, and abandoning the lease frees room for the
+     * 503 that answers it. */
+    assert(orbit_request_oom_message()[0] != '\0');
+    orbit_request_oom_disarm();
+    orbit_kynx_lease_abandon();
+    assert(current_lease == NULL);
+
+    OrbitResponse* res = orbit_response_create(arena, 503, "text/plain",
+                                               orbit_request_oom_message());
+    assert(res != NULL);
+    assert(res->status == 503);
+    assert(res->body_len > 0);
+
+    orbit_arena_destroy(arena);
+    orbit_set_oom_handler(NULL); /* restore the aborting default */
+    printf("T15 lease refusal returns to the boundary: PASSED\n");
+    g_passed++;
+}
+
 int main(void) {
     test_legit_client_never_denied();
     test_burst_capacity_and_retry();
@@ -434,6 +479,7 @@ int main(void) {
     test_pool_fraction_states();
     test_custom_ban_duration();
     test_route_limit_overflow_counted();
-    printf("kynx 0.1 property tests: %d/14 PASSED\n", g_passed);
-    return g_passed == 14 ? 0 : 1;
+    test_lease_refusal_returns_to_boundary();
+    printf("kynx 0.1 property tests: %d/15 PASSED\n", g_passed);
+    return g_passed == 15 ? 0 : 1;
 }

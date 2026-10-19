@@ -97,6 +97,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <setjmp.h>
 #include "socket_compat.h"
 #include "crt_compat.h"
 #include "inline.h"
@@ -330,6 +331,16 @@ OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity
 void orbit_arena_destroy(OrbitArena* arena);
 void orbit_set_oom_handler(OrbitOomHandler handler);
 OrbitOomHandler orbit_get_oom_handler(void);
+/* Request-boundary OOM recovery: a refusal inside one request is answered
+ * instead of ending the process. The mechanism is arena.c; the generated
+ * router arms and disarms it around one request -- arming hands over the
+ * jmp_buf of the frame that will take the longjmp -- and answers with a 503
+ * that carries the refusal's numbers. ENGINEERING.md section 7,
+ * kynx-lease-abort. */
+void orbit_request_oom_install(void);
+void orbit_request_oom_arm(jmp_buf* target);
+void orbit_request_oom_disarm(void);
+const char* orbit_request_oom_message(void);
 void* orbit_alloc_try(OrbitArena* arena, size_t bytes);
 void* orbit_alloc(OrbitArena* arena, size_t bytes);
 char* orbit_arena_strdup(OrbitArena* arena, const char* src);
@@ -740,6 +751,7 @@ void orbit_kynx_cleanup(void);
 void orbit_kynx_reset(void);
 OrbitKynxLease* orbit_kynx_lease_create_for_route(const char* path, const char* method, OrbitArena* arena);
 void orbit_kynx_lease_destroy(OrbitKynxLease* lease);
+void orbit_kynx_lease_abandon(void);
 bool orbit_kynx_lease_check_limits(size_t additional_response_bytes);
 uint64_t orbit_kynx_get_total_checks(void);
 uint64_t orbit_kynx_get_total_blocked(void);

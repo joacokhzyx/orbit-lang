@@ -1085,6 +1085,19 @@ void orbit_kynx_lease_destroy(OrbitKynxLease* lease) {
     kynx_update_admission_state();
 }
 
+/** @brief Release the request's lease, if it has one: the boundary answer's first step.
+ *
+ * A refused request still holds its lease, and the lease is what refused, so
+ * the 503 the boundary sends must be built after this. The generated worker
+ * loop calls it (runtime/arena.c has the mechanism; ENGINEERING.md section 7,
+ * kynx-lease-abort). This is a function rather than a direct
+ * orbit_kynx_lease_destroy because the generated C would otherwise have to
+ * name current_lease, which unity builds declare and separate builds do not.
+ */
+void orbit_kynx_lease_abandon(void) {
+    if (current_lease) orbit_kynx_lease_destroy(current_lease);
+}
+
 /** @brief Validate that the current lease's response-size and deadline budgets are not exceeded.  Returns false if any limit is hit. */
 bool orbit_kynx_lease_check_limits(size_t additional_response_bytes) {
     if (!current_lease) return true;

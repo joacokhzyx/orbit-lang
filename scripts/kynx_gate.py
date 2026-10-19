@@ -20,8 +20,11 @@ Subcommands:
   live          build examples/blog_api.orb, start it, run route-limit at it.
                 Then a service that declares its own port: started with no
                 argv it must bind the declared port, and an argv port must
-                still win. The only gate here that runs the compiler's whole
-                product.
+                still win. Then a request above the Kynx lease: it must be
+                answered 503, and the service must keep serving, because a
+                refusal at the request boundary is one failed request and not
+                a dead process. The only gate here that runs the compiler's
+                whole product.
   route-limit   three phases against a RUNNING server (operator starts it):
                 A) 200 requests @ ~10 rps, zero errors;
                 B) 25 rapid GETs at the guarded route -> >=1 x 429 with
@@ -50,6 +53,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import Counter
 
@@ -666,6 +670,16 @@ def burst_main(argv=None):
 # assertions, so each half fails red on a server that comes up on the wrong
 # port instead of asserting text about the emission.
 #
+# It covers the request boundary too, on a third fixture. A Kynx lease caps
+# one request's arena, and a request that asks for more than the cap must be
+# answered 503 and leave the process serving (ENGINEERING.md section 7,
+# kynx-lease-abort). The fixture's route grows one string past the lease's
+# 16 MB default, which is a request asking for more than its share; no C-level
+# test needs to reach into the allocator to produce it. On the pre-boundary
+# compiler the refusal ended the process: /grow then reports a transport error
+# instead of 503, and the /health after it never answers, so both assertions
+# fail red rather than asserting text about the emission.
+#
 # Unlike `runtime_c_tests.py` this one needs the Orbit compiler, which is why it
 # is not in T0. It uses the fixed point at the path `dev.py` owns; pass `--compiler`
 # to point it elsewhere. Run it as `python scripts/kynx_gate.py live`.
@@ -824,8 +838,75 @@ def live_main(args):
         stop_server(proc)
         log.close()
 
+    # The request boundary (ENGINEERING.md section 7, kynx-lease-abort): a
+    # request that asks for more than its Kynx lease allows is answered, not
+    # fatal. The route grows one string past the lease's 16 MB default, which
+    # is a request asking for more than its share. Before the boundary, the
+    # refusal ended the process, so /grow answers with a transport error (no
+    # 503) and /health never answers at all.
+    ovf = args.port + 3
+    ovf_src = work / "lease_overflow.orb"
+    ovf_srv = work / ("lease_overflow" + suffix)
+    ovf_src.write_text(
+        "// Written by kynx_gate live: a request that asks for more than its\n"
+        "// Kynx lease allows must be answered 503, not end the process. The\n"
+        "// loop grows one string past the 16 MB lease: 4000 appends trip the\n"
+        "// cap around iteration 1833, at 16 770 112 of 16 777 216 bytes.\n"
+        "\n"
+        'route GET "/grow" {\n'
+        '    var s = ""\n'
+        "    var i = 0\n"
+        "    while i < 4000 {\n"
+        '        s = s + "0123456789"\n'
+        "        i = i + 1\n"
+        "    }\n"
+        "    return ok 200 s\n"
+        "}\n"
+        "\n"
+        'route GET "/health" {\n'
+        '    return ok 200 "ok"\n'
+        "}\n",
+        encoding="utf-8")
+    build = subprocess.run(
+        [compiler, "build", str(ovf_src), "-o", str(ovf_srv)],
+        cwd=str(ROOT), env=env, capture_output=True, text=True)
+    sys.stdout.write(build.stdout)
+    sys.stderr.write(build.stderr)
+    if build.returncode != 0 or not ovf_srv.exists():
+        print("Failed: the lease_overflow fixture did not build.", file=sys.stderr)
+        return 1
+
+    started = start_and_wait(ovf_srv, [str(ovf)], ovf,
+                             work / "lease_overflow.log")
+    if started is None:
+        print(f"Failed: the lease_overflow server never answered on port "
+              f"{ovf} (log: lease_overflow.log).", file=sys.stderr)
+        return 1
+    proc, log = started
+    try:
+        status, _retry, body = get(f"http://127.0.0.1:{ovf}/grow")
+        if status != 503:
+            print(f"Failed: a request above the lease was answered {status!r}, "
+                  f"not 503: a refusal at the request boundary must be an "
+                  f"answer, not a dead process. Body: {body[:200]!r} "
+                  f"(log: lease_overflow.log).", file=sys.stderr)
+            return 1
+        health, _h_retry, _h_body = get(f"http://127.0.0.1:{ovf}/health")
+        if health != 200:
+            print(f"Failed: the lease_overflow server did not survive the "
+                  f"refusal: /health answered {health!r} (log: "
+                  f"lease_overflow.log).", file=sys.stderr)
+            return 1
+        print("request boundary: a request above the lease was answered 503 ("
+              + repr(body.decode("utf-8", "replace")[:70])
+              + "); /health still answered 200.")
+    finally:
+        stop_server(proc)
+        log.close()
+
     print("\nFinished kynx-gate: the route-limit burst answered as specified,"
-          " and the declared port answered under both runs.")
+          " the declared port answered under both runs, and the request"
+          " boundary answered 503 without taking the service down.")
     return 0
 
 

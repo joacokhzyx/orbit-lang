@@ -22,7 +22,10 @@ This document describes measured behavior of what's in `runtime/kynx.c` and wire
 5. **Computational leases.** Every route handler acquires a lease carrying
    deadline / arena cap / DB-query & step budgets; `lease_check_limits`
    enforces response-size and deadline at response time; SQLite progress
-   handler spends steps cooperatively.
+   handler spends steps cooperatively. The arena cap is enforced in the
+   allocator, and a request that asks for more than the cap is answered at the
+   request boundary rather than ending the process (see [Request
+   boundary](#request-boundary)).
 
 ## Honest design notes
 
@@ -88,6 +91,7 @@ OrbitKynxLease*  orbit_kynx_lease_create_for_route(const char* path,
                                                    const char* method,
                                                    OrbitArena* arena);
 bool             orbit_kynx_lease_check_limits(size_t additional_response_bytes);
+void             orbit_kynx_lease_abandon(void);
 void             orbit_kynx_lease_destroy(OrbitKynxLease* lease);
 double           orbit_kynx_lease_joules(const OrbitKynxLease* lease);
 uint64_t         orbit_kynx_lease_cycles(const OrbitKynxLease* lease);
@@ -96,6 +100,34 @@ int              orbit_kynx_get_suspicion(const char* ip_str);
 uint64_t         orbit_kynx_get_total_checks(void);
 uint64_t         orbit_kynx_get_total_blocked(void);
 ```
+
+## Request boundary
+
+The arena cap is the one budget a request can exceed on its own, and exceeding
+it is answered rather than fatal. `orbit_alloc`'s OOM handler formats the
+refusal from the numbers it still has -- the arena, its usage, and the lease's
+-- and lands back in the generated router, which abandons the request's lease
+with `orbit_kynx_lease_abandon()` so the answer has room in the same arena, then
+creates and sends:
+
+```
+503 request refused: 18311 bytes refused; arena ... holds 16770848 of 67108864 bytes in 1833 allocations; lease holds 16770112 of 16777216 bytes
+```
+
+The boundary lives in the emitted router and not in a helper, because a helper
+that called `setjmp` and returned would hand the handler a frame that is already
+gone: measured while this was written, the caller's `setjmp` then returns
+garbage instead of `1`. The router declares the `jmp_buf`, `orbit_request_oom_arm()`
+records where to land, and `orbit_request_oom_disarm()` closes the span once the
+request is dispatched. `orbit_request_oom_install()` runs once per worker.
+
+An unarmed exhaustion still aborts -- `orbit_alloc`'s default handler prints the
+arena line and exits 3 -- and so does a refusal where the reservation itself is
+gone, since an exhausted arena has no room to answer with. That case belongs to
+the reservation, not to this boundary.
+
+Before/after and the fixture are in `ENGINEERING.md` §7 row `kynx-lease-abort`;
+`python scripts/kynx_gate.py live` and `runtime/test_kynx.c` (T15) pin it.
 
 ## Verifying it yourself
 
