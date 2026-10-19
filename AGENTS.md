@@ -152,3 +152,24 @@ Write for the maintainer who joined yesterday. They read English; they do not re
 Banned in new text: shape, surface, lane, load-bearing, battery, premise, clause, witness, residual, honest. They are our own metaphors, and a reader cannot look them up. Generic AI vocabulary is not the problem here: counting this repository on 2026-10-19 found none of it, so do not spend lines banning it.
 
 Defined once, used freely: **contract** (ENGINEERING.md §7, which a change must not contradict), **gate** (a check that fails the build), **row** (one line of the §7 table), **ceiling** (a measured upper bound on a named machine).
+
+## Commits
+
+Commits are how a change is found again, reviewed and undone. One defect, one commit.
+
+- Commit when the change is small, verified and complete. A correction that changes behaviour or a document's claim gets its own commit, even if it is one line.
+- Do not wait for the rest of the work. A verified fix left in the working tree is a fix nobody can find in the history.
+- Do not mix. A code change and a documentation change are two commits, unless the document is the reason the code changed.
+- Do not commit a state you have not gated. The evidence block names the gate.
+- The exception is the root of trust: a promote commits the sources, `compiler/selfhost/stage3.exe.c`, the refreshed goldens and `PUBLISHED_C` together. They are one file in four copies, and a commit that splits them describes a tree that never existed.
+- A pushed commit is a record. Fix forward: the next commit carries the correction and says what it corrects. Do not rewrite history to make an old message tidy.
+- A commit is not a checkpoint or a diary. If the message needs "also", it is two commits.
+
+Message:
+
+- Subject: `area: what changed`, imperative, under 60 characters, no period.
+- The body says why. The diff says what.
+- One claim per sentence. Every number is one the reader can reproduce.
+- End with an Evidence block: one line per command and what it printed.
+- If something is unmeasured or left undone, one sentence says so, with the reason.
+- Never: "this commit", "as requested", a list of the files, or a summary of the diff.
