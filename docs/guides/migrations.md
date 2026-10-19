@@ -12,8 +12,8 @@ migrations "CREATE INDEX IF NOT EXISTS ix_notes_rank ON notes(rank)"
 
 Each line runs once, in declaration order, inside a transaction, and a
 `_orbit_migrations` table records the applied versions. Rerunning the
-program does not re-apply; a failed statement prints `orbit: migrations
-failed to apply` and exits 1; two writers against one database file remain
+program does not re-apply. A failed statement prints `orbit: migrations
+failed to apply` and exits 1. Two writers against one database file remain
 out of scope.
 
 `model`-derived `CREATE TABLE IF NOT EXISTS` still runs automatically as
@@ -23,7 +23,7 @@ before.
 
 1. **One database file per service directory.** The default file is
    `.orbit/data/app.db` under the project directory (`orbit start`
-   creates it; a legacy `./orbit.db` is moved there once). Never run
+   creates it. A legacy `./orbit.db` is moved there once). Never run
    two services against one file - locking behavior there is
    UNTESTED, and silent corruption is the failure mode you
    won't see until restore time.
@@ -47,7 +47,7 @@ before.
 
 - **Writes fail silently-ish.** `create()` answers `false` when
   the `id` is already in the table (the primary key) or the
-  payload has no usable fields; your handler's `400` branch runs
+  payload has no usable fields. Your handler's `400` branch runs
   and, without it, the client sees an empty reply. Always code
   the failure branch - a re-post of a stored id lands there.
 - **Two writers, one file.** UNTESTED and explicitly out of
@@ -61,6 +61,6 @@ before.
 ## What is deliberately not there
 
 `down` migrations, a `schema_version` check that refuses newer-than-known,
-and `orbit migrate` as a standalone command do not exist; migrations
+and `orbit migrate` as a standalone command do not exist. Migrations
 run at startup, inside the process, in order. That is the whole of the
-contract, and `runtime/test_migrations.c` pins exactly this shape.
+contract, and `runtime/test_migrations.c` pins exactly this behavior.

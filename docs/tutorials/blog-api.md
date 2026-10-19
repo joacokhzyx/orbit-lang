@@ -2,7 +2,7 @@
 
 You'll build a small blog API: list posts, search by author, and
 publish through a key-checked route. The runnable file is
-`examples/blog_api.orb`; every expected output below comes from a
+`examples/blog_api.orb`. Every expected output below comes from a
 real run of that file on `orbit 0.1.0` (Windows, September 2026).
 
 ## The service
@@ -44,7 +44,7 @@ route POST "/posts" {
 }
 ```
 
-Two honest notes before you run it:
+Two notes on scope before you run it:
 
 - The model is `Note`, not `Post`: the runtime creates the
   `notes` table on startup, so reads work with zero setup. A
@@ -64,7 +64,7 @@ Copy-Item runtime\vendor\win-x64\sqlite3.dll .   # Windows only: DB services nee
 ```
 
 Linux/macOS (UNTESTED on this machine - same commands the CI
-path uses, adjust for your shell):
+path uses, adjust for your shell).
 
 ```sh
 ./orbit build examples/blog_api.orb -o blog_api
@@ -72,12 +72,12 @@ path uses, adjust for your shell):
 ```
 
 First start takes a couple of seconds while SQLite opens and
-seeds (`Ready in 1744.3 ms` in my run); restarts answer in
+seeds (`Ready in 1744.3 ms` in my run). Restarts answer in
 milliseconds (`Ready in 8.1 ms`).
 
 ## Expected outputs
 
-List posts - seeded rows, no setup:
+List posts - seeded rows, no setup.
 
 ```sh
 curl http://127.0.0.1:8080/posts
@@ -88,7 +88,7 @@ curl http://127.0.0.1:8080/posts
      {"id":"note_102","title":"Superluminal Optimizer Guide", …}]
 ```
 
-Search by author - the `?` keeps input parameterized:
+Search by author - the `?` keeps input parameterized.
 
 ```sh
 curl "http://127.0.0.1:8080/posts/search?author=usr_dev"
@@ -98,7 +98,7 @@ curl "http://127.0.0.1:8080/posts/search?author=usr_dev"
 200 [{"id":"note_102", …}]
 ```
 
-Publish without the key - rejected:
+Publish without the key - rejected.
 
 ```sh
 curl -X POST -H "Content-Type: application/json" \
@@ -110,7 +110,7 @@ curl -X POST -H "Content-Type: application/json" \
 401 a valid ?key= value is required to publish
 ```
 
-Publish with the key - accepted and echoed:
+Publish with the key - accepted and echoed.
 
 ```sh
 curl -X POST -H "Content-Type: application/json" \
@@ -122,7 +122,7 @@ curl -X POST -H "Content-Type: application/json" \
 201 {"id":"p9","title":"T","body":"B"}
 ```
 
-Empty body with the key - caught by validation:
+Empty body with the key - caught by validation.
 
 ```text
 400
@@ -130,7 +130,7 @@ Empty body with the key - caught by validation:
 
 One quirk I hit while testing: an empty POST body arrives as
 `"{}"`, not `""`, which is why the route checks both. The route
-echoes the accepted entry instead of storing it; for persistent
+echoes the accepted entry instead of storing it. For persistent
 writes see `Model.create()` in `examples/posts_crud.orb`, which
 stores the row and answers `false` only on duplicate ids.
 

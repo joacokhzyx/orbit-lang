@@ -6,9 +6,9 @@ This guide builds the Orbit compiler and runs a first program. You don't need mu
 
 Install:
 
-- Git;
-- Python 3.10 or newer;
-- GCC, Clang, or MSVC.
+- Git
+- Python 3.10 or newer
+- GCC, Clang, or MSVC
 
 Platform details are listed in [Platform Support](SUPPORT.md).
 
@@ -35,7 +35,7 @@ python scripts/build_selfhost.py --out orbit.exe
 python3 scripts/build_selfhost.py --out orbit
 ```
 
-When automatic compiler detection is insufficient, pass `--cc gcc`, `--cc clang`, or `--cc cl` explicitly. You can also set `ORBIT_CC`; see [Platform Support](SUPPORT.md).
+When automatic compiler detection is insufficient, pass `--cc gcc`, `--cc clang`, or `--cc cl` explicitly. You can also set `ORBIT_CC`. See [Platform Support](SUPPORT.md).
 
 The commands above create a local executable in the repository root. Unless you install Orbit or add that directory to `PATH`, invoke the compiler using its local path as shown below.
 
@@ -97,7 +97,7 @@ The installer registers the VS Code extension automatically. For a manual setup,
 
 ## Troubleshooting
 
-Toolchain problems are covered in [Platform Support](SUPPORT.md); symptoms
+Toolchain problems are covered in [Platform Support](SUPPORT.md). Symptoms
 you'll meet while running a service are in the
 [troubleshooting tutorial](tutorials/troubleshooting.md).
 

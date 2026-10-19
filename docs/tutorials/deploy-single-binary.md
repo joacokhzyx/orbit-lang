@@ -3,7 +3,7 @@
 Orbit compiles to one native executable. This tutorial takes
 `examples/health_service.orb` - no database, no setup - from
 build to a running service, on both platforms. Windows commands
-are verified on this machine; Linux commands follow the same
+are verified on this machine. Linux commands follow the same
 documented path but are marked UNTESTED where I couldn't run
 them.
 
@@ -25,7 +25,7 @@ python3 scripts/build_selfhost.py --cc gcc --out orbit
 
 The compiler step emits C, then your platform C compiler
 produces the binary. Expect the compiler build to take a few
-minutes (it is a 90k-line C file); the service build takes under
+minutes (it is a 90k-line C file). The service build takes under
 a minute.
 
 ## 2. What to ship
@@ -76,8 +76,8 @@ declaration here.
 
 ## 4. Keep it running (UNTESTED - review before using)
 
-Windows, Task Scheduler or a service wrapper of your choice;
-run from a dedicated writable directory so `orbit.db` (when
+Windows: Task Scheduler or a service wrapper of your choice.
+Run from a dedicated writable directory so `orbit.db` (when
 used) lives with the service, not with your home folder.
 
 Linux, a minimal systemd unit:
@@ -137,7 +137,7 @@ Both nodes answered `/health` with `200`. Shut it down:
 cluster down: all 2 nodes stopped, state removed.
 ```
 
-State lives in `.orbit/` (git-ignored); logs stay in
+State lives in `.orbit/` (git-ignored). Logs stay in
 `.orbit/logs/` after `down`. One cluster per directory.
 `drain` and rolling restart are best-effort stops on Windows
 (drain is kill there) - see [Known Limitations](../KNOWN_LIMITATIONS.md).

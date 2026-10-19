@@ -41,7 +41,7 @@ make dev    # gates proportionate to what the working tree touched
 binary and each gate's flags. Do not export those variables by hand and do
 not pass `--cc`/`--compiler` by hand. Windows runners have no `make`, so
 call `scripts/dev.py` directly there (`python scripts/dev.py dev`, and so
-on); see `Makefile` and `AGENTS.md`.
+on). See `Makefile` and `AGENTS.md`.
 
 End users who just want Orbit installed take the CI release wizard
 (`Orbit-Setup-<version>.exe`, built from `installer/orbit.iss` as described
@@ -64,8 +64,8 @@ make list   # show what dev would run, without running it
 ```
 
 A green `make dev` is not a green CI (`dev.py` prints the tiers it skipped).
-A rule change or anything touching `compiler/**/*.orb` needs `make check`;
-before a commit that promotes the canonical, run `make all`.
+A rule change or anything touching `compiler/**/*.orb` needs `make check`.
+Before a commit that promotes the canonical, run `make all`.
 
 When one thing is broken and the rest is noise, use the single-gate targets
 (`make doctor`, `make suite`, `make parity`, `make werror`, `make negative`,
@@ -74,7 +74,7 @@ inside these tiers (via `scripts/runtime_c_tests.py`).
 
 `scripts/werror_gate.py` is the strict warning gate. The bootstrap
 deliberately builds without `-Wall` because it costs 5.7x on the compiler's own
-multi-megabyte output unit; see [Performance notes](docs/PERF.md). Set
+multi-megabyte output unit. See [Performance notes](docs/PERF.md). Set
 `ORBIT_BOOTSTRAP_WARNINGS=1` to get warnings back while hacking.
 
 Every gate runs on a C compiler plus a stock `python3`. There is nothing to
@@ -92,7 +92,7 @@ superiority.
 
 ### 1. Diagnostic Formatting & Error Messages
 
-Diagnostics shape how Orbit feels at 3am, so they follow the brand rule: clear header, helpful body.
+Diagnostics decide how Orbit feels at 3am, so they follow the brand rule: clear header, helpful body.
 
 - **No borders or emojis**: clean text, no decorative boxes or emojis.
 - **English suggestions**: write all hints and explanations in English with contractions where natural (`can't`, `doesn't`, `here's`).
@@ -104,7 +104,7 @@ Diagnostics shape how Orbit feels at 3am, so they follow the brand rule: clear h
 
 ### 2. Code Formatting
 
-- **Orbit Compiler Sources**: Keep `compiler/**/*.orb` consistent with the existing style; any change must converge to a new fixed point (`make promote`, reviewed with `make promote-diff`).
+- **Orbit Compiler Sources**: Keep `compiler/**/*.orb` consistent with the existing style. Any change must converge to a new fixed point (`make promote`, reviewed with `make promote-diff`).
 - **C Runtime Engine**: Keep C code in `runtime/` idiomatic, const-correct, and free of compiler warnings (`-Wall -Wextra`).
 - **Documentation Comments**: Use triple-slash doc comments (`///`) for public functions, structs, and module APIs.
 

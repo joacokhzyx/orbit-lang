@@ -30,7 +30,7 @@ Linux (UNTESTED): `ss -ltnp | grep 8080`, then `kill <pid>`.
 log, no error.
 
 **Cause:** `sqlite3.dll` isn't next to the exe. Windows loads
-it from the application directory; the build links against
+it from the application directory. The build links against
 `runtime/vendor/win-x64/sqlite3.lib` but the DLL must travel
 with the binary.
 
@@ -46,7 +46,7 @@ Services without database use (`health_service`,
 
 ## Slow first start, fast restarts
 
-**Symptom:** first boot prints `Ready in 1744.3 ms`; later
+**Symptom:** first boot prints `Ready in 1744.3 ms`. Later
 boots print `Ready in 8.1 ms`. Is something wrong?
 
 **Cause:** no. First start opens `orbit.db` in the working
@@ -91,8 +91,8 @@ python scripts/build_selfhost.py --promote
 ```
 
 Then run the full gate (bootstrap → parity → suite) before
-committing. Procedure per [Getting Started](../GETTING_STARTED.md);
-the promote step itself is UNTESTED in this track - I changed no
+committing. Procedure per [Getting Started](../GETTING_STARTED.md).
+The promote step itself is UNTESTED in this track - I changed no
 compiler code.
 
 ## curl prints `000` then the real code on POST
@@ -102,7 +102,7 @@ compiler code.
 
 **Cause:** connection-close timing between curl and the server
 on requests with a body. The second line - with the body - is
-the authoritative one; the server log shows one request.
+the authoritative one. The server log shows one request.
 
 **Fix:** compare against the server log line, not the first
 curl line. GETs don't show this.

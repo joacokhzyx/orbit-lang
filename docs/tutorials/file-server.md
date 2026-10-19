@@ -2,15 +2,15 @@
 
 You'll run a small file service: list files, serve text content,
 and accept uploads. The runnable file is
-`examples/file_server.orb`; every expected output below comes
+`examples/file_server.orb`. Every expected output below comes
 from a real run on `orbit 0.1.0` (Windows, September 2026).
 
 ## Honest scope first
 
-Multipart parsing and disk persistence *are* implemented -
+Multipart parsing and disk persistence *are* implemented.
 `req.file(field, dir)` saves the named part to `dir` and returns
-the path - so this tutorial could use it. It keeps uploads as raw
-request bodies anyway: the server measures what arrived and
+the path, so this tutorial could use it. It keeps uploads as raw
+request bodies anyway. The server measures what arrived and
 answers with the byte count, which demonstrates the same flow
 without touching the filesystem in the walkthrough.
 
@@ -56,7 +56,7 @@ for this one.
 .\file_server.exe 8080
 ```
 
-Linux/macOS (UNTESTED on this machine):
+Linux/macOS (UNTESTED on this machine).
 
 ```sh
 ./orbit build examples/file_server.orb -o file_server
@@ -90,7 +90,7 @@ curl "http://127.0.0.1:8080/files/content?name=nope.txt"
 ```
 
 Upload twelve bytes (the count is exact - `"hello upload"`
-is 12 characters):
+is 12 characters).
 
 ```sh
 curl -X POST -H "Content-Type: text/plain" -d "hello upload" \
@@ -101,7 +101,7 @@ curl -X POST -H "Content-Type: text/plain" -d "hello upload" \
 201 {"received_bytes":12}
 ```
 
-Without the key:
+Without the key.
 
 ```text
 401

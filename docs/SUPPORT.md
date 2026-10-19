@@ -1,6 +1,6 @@
 # Platform Support
 
-This page covers the supported paths for the current self-hosted compiler. It separates what you need from what is optional.
+This page covers the supported paths for the current self-hosted compiler.
 
 ## Support Matrix
 
@@ -24,9 +24,9 @@ Compiler selection in the build follows this order:
 ORBIT_CC -> CC -> cc
 ```
 
-That is `compiler/host/pipeline.orb` and nothing else. (`orbit doctor` is the one
+That is `compiler/host/pipeline.orb` and nothing else. `orbit doctor` is the one
 exception: it reports a finding when no compiler answers, so it also probes
-`gcc` and `clang` off `PATH` - see [orbit doctor](DOCTOR.md).)
+`gcc` and `clang` off `PATH` - see [orbit doctor](DOCTOR.md).
 
 Set `ORBIT_CC` when the compiler is not discoverable or when a specific compiler must be tested.
 
@@ -81,4 +81,4 @@ The installers prefer a released fixed-point binary when one is present. Otherwi
 
 ## Support Policy
 
-A platform is supported when its documented compiler path passes the self-host, fixed-point, parity, and behavior-suite gates in CI or in an equivalent local environment. Performance numbers are not portable guarantees; they must carry the hardware, operating system, compiler, workload, and measurement procedure.
+A platform is supported when its documented compiler path passes the self-host, fixed-point, parity, and behavior-suite gates in CI or in an equivalent local environment. Performance numbers are not portable guarantees. They must carry the hardware, operating system, compiler, workload, and measurement procedure.
