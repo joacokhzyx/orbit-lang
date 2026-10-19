@@ -136,7 +136,7 @@ A native backend is a long-term sovereignty and performance project. It depends 
 
 | Risk | Impact | Current response |
 |---|---|---|
-| The bootstrap builds the compiler's own unit without `-Wall` (it costs 5.7x there; see [PERF.md](PERF.md)) | A warning in generated C would not fail the bootstrap build | `make werror` compiles eleven probe shapes - expression, IO, server, db, builtin-heavy - under `-Werror` and runs them; `ORBIT_BOOTSTRAP_WARNINGS=1` turns the warnings back on while hacking |
+| The bootstrap builds the compiler's own unit without `-Wall` (it costs 5.7x there; see [PERF.md](PERF.md)) | A warning in generated C would not fail the bootstrap build | `make werror` compiles eleven probes - expression, IO, server, db and builtin-heavy shapes - under `-Werror` and runs them; `ORBIT_BOOTSTRAP_WARNINGS=1` turns the warnings back on while hacking |
 | Engineering catalog contains historical paths and stale status details | Contributors may choose the wrong implementation surface | Use this snapshot and `docs/README.md` as navigation; reconcile the catalog progressively |
 | Behavior suite is small relative to the language surface | Regressions can escape CI | Grow the suite by contract area, starting with focused tests |
 | Database schema evolution is not a complete public contract | Existing services cannot roll a schema back, and nothing checks the applied version at startup | Forward DDL ships: `migrations "<SQL>"` lines run once each, in declaration order, tracked in `_orbit_migrations`, covered by `runtime/test_migrations.c` and the [Migrations guide](guides/migrations.md). Missing: `down` migrations, a version-required startup check, and a standalone `orbit migrate` |
