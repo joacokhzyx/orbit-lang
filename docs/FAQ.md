@@ -12,10 +12,13 @@ under load. I'm building it to test whether servers can do the
 same work with less energy - still measuring how far that goes.
 
 **2. Is Orbit ready for production?**
-No. It's 0.1.0 pre-release research. Reads, writes, bearer auth
-and path parameters all work; what isn't there is migrations,
-multipart uploads, and latency percentiles. Good for learning
-and experimenting; don't bet a business on it.
+No. It's 0.1.0 pre-release research. Reads, writes, bearer auth,
+path parameters and forward migrations all work; what isn't there
+is multi-host clustering, `down` migrations and a language server.
+Uploads save files, but a binary payload doesn't round-trip as a
+string, and the latency percentiles are bucket edges with no
+success/error split. Good for learning and experimenting; don't bet
+a business on it.
 
 **3. What do I need to build it?**
 A C compiler (gcc, clang, or MSVC), Python 3.10+, and git.
@@ -44,9 +47,12 @@ request bodies, filtered queries, status codes, live telemetry.
 The [Tour](TOUR.md) takes 30 minutes; the tutorials go further.
 
 **7. What can't Orbit do yet?**
-The honest list: migrations, multipart uploads (stub), latency
-percentiles, joules on Windows, graceful drain on Windows,
-multi-host clustering. Full list with workarounds:
+The honest list: multi-host clustering, `down` migrations, a
+language server, joules on Windows (no sensor - CPU time plus
+memory is the proxy), graceful drain on Windows (the stop is a
+kill), and a success/error split in the latency percentiles.
+Multipart uploads and forward migrations used to be on this list
+and work now. Full list with workarounds:
 [Known Limitations](KNOWN_LIMITATIONS.md).
 
 **8. When does `create()` return `false`?**
