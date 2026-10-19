@@ -25,9 +25,9 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | How are HTTP protections implemented? | [Kynx](KYNX.md) |
 | What is experimental or still being researched? | [Superluminal](SUPERLUMINAL.md) |
 | Something fails only on Windows? | [Windows](WINDOWS.md) - two diagnosed-and-fixed Windows gate failures, with reproductions and ruled-out lists |
-| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the honest list, with workarounds. **Start with the first section**: the nineteen programs that used to compile cleanly are diagnostics now |
+| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the known list, with workarounds. **Start with the first section**: the nineteen programs that used to compile cleanly are diagnostics now |
 | What changed? | [Changelog](CHANGELOG.md) |
-| What do people ask? | [FAQ](FAQ.md) - twenty honest questions |
+| What do people ask? | [FAQ](FAQ.md) - twenty questions |
 | What are the engineering invariants and quality gates? | [Engineering Contract](../ENGINEERING.md) |
 | How does the compiler bootstrap itself? | [Self-Hosting](architecture/SELF_HOSTING.md) |
 | What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
@@ -40,7 +40,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | How do I serve files and accept uploads? | [File server tutorial](tutorials/file-server.md) + [`examples/file_server.orb`](../examples/file_server.orb) |
 | How do I ship one binary? | [Deploy tutorial](tutorials/deploy-single-binary.md) |
 | Something broke - now what? | [Troubleshooting](tutorials/troubleshooting.md) |
-| How do schemas evolve? | [Migrations guide](guides/migrations.md) - the honest story |
+| How do schemas evolve? | [Migrations guide](guides/migrations.md) - the full story |
 | How do I measure honestly? | [Performance notes](PERF.md) - what was changed, what was tried and dropped, and why |
 | How big is the C Orbit emits, and what has been tried to cut it? | [Codegen Budget](CODEGEN_BUDGET.md) - emitted size and build cost per program, and the candidates that were tried and dropped |
 | Which toolchain builds what, and what is tcc (not) for? | [Toolchain policy](TOOLCHAIN.md) - the two rules (tcc never produces a quoted number; the multithreaded server is always gcc) plus the per-platform matrix |
@@ -50,7 +50,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 - `README.md` is the public introduction, installation guide, and quickstart.
 - `docs/STATUS.md` is the dated snapshot of current capabilities, risks, and active workstreams.
 - `ENGINEERING.md` is the implementation contract and records executable quality gates.
-- `docs/ROADMAP.md` describes sequencing and priorities; it does not replace an implementation contract.
+- `docs/ROADMAP.md` describes sequencing and priorities. It does not replace an implementation contract.
 - `docs/architecture/` contains architecture decisions, invariants, and historical transition records.
 - `docs/LANGUAGE_REFERENCE.md` defines user-visible language behavior.
 - `tests/` and `examples/` are executable evidence. When prose and executable behavior disagree, the discrepancy must be resolved before the feature is considered documented.

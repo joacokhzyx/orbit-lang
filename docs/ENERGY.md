@@ -1,8 +1,8 @@
 # Resource and Energy Measurement
 
 Orbit tries to use less CPU time, less memory, and less energy to run software.
-This document defines how to measure that. No improvement is claimed until it
-has been reproduced under the same conditions.
+No improvement is claimed until it has been reproduced under the same
+conditions.
 
 ## What to Measure
 
@@ -61,7 +61,7 @@ CPU time per request = total CPU seconds / completed requests
 
 When direct energy measurement is unavailable, report CPU time, memory, and
 throughput as resource proxies and label them as proxies. Do not convert CPU
-time into energy using a universal factor; processor power depends on hardware,
+time into energy using a universal factor. Processor power depends on hardware,
 frequency, utilization, and system state.
 
 A useful comparison reports both absolute and normalized results, for example:
@@ -82,7 +82,7 @@ never depends on a package install:
 | `scripts/kynx_gate.py load` | keep-alive HTTP load with latency percentiles and per-source-IP control |
 | `scripts/measure_selfhost.py` | per-phase wall time, peak RSS and output size of the self-host bootstrap |
 | `examples/demo-ledger-server.c` | a loopback fixture that exercises the cost ledger and the energy sampler |
-| `runtime/pulse.c` | the `/_pulse` and `/_pulse/data` telemetry surface |
+| `runtime/pulse.c` | the `/_pulse` and `/_pulse/data` telemetry endpoints |
 
 A report adds the machine and configuration record required above and does not
 place unqualified performance claims in the project README.
@@ -103,7 +103,7 @@ columns backed by the sampler in `runtime/energy.c`:
 | Windows, macOS, or Linux without a sensor | `cpu-proxy` | always `0` (never synthesized) | labeled CPU proxy, not energy |
 
 The `p50_us`/`p95_us`/`p99_us` fields are latency, not energy, and are
-metered the same way on every platform: one bucket per power of two of
+metered the same way on every platform. One bucket per power of two of
 handler cycles per route, 32 KB of static state for all 64 route slots. A
 reported percentile is the bucket's upper boundary, which is why the 1 µs
 request and the 4 µs request above it can report the same number. The JSON
@@ -123,15 +123,15 @@ are a proxy, never converted to joules. With a sensor it reads "X J/req
   `max_energy_range_uj` for counter-wrap handling. When no file reads, there is
   no thread and every joule accessor returns `0`.
 - With a sensor, one background thread reads `energy_uj` at 1 Hz (it blocks in
-  `nanosleep` between reads; no busy loop) and accumulates package microjoules
-  with atomic adds. `orbit_http_cleanup` stops and joins it, so the sampler
-  lives exactly as long as the server. Both calls are idempotent.
+  `nanosleep` between reads, with no busy loop) and accumulates package
+  microjoules with atomic adds. `orbit_http_cleanup` stops and joins it, so
+  the sampler lives exactly as long as the server. Both calls are idempotent.
 - Idle baseline: the first 5 samples form the baseline only when no request
-  completed in that window; `idle_watts` is their mean power. When requests
+  completed in that window. `idle_watts` is their mean power. When requests
   arrived first, the box was never observed idle, so the sampler reports gross
   energy (no subtraction) instead of subtracting load as "idle".
 - Attribution (ESTIMATE): `attributable = total - idle_watts * uptime`, clamped
-  at zero; each route gets `attributable * route_cycles / total_cycles`. Energy
+  at zero. Each route gets `attributable * route_cycles / total_cycles`. Energy
   is not proportional to cycles under turbo, idle, or IO wait, so per-route
   joules are an engineering estimate, documented as such wherever they appear.
 
@@ -139,7 +139,7 @@ are a proxy, never converted to joules. With a sensor it reads "X J/req
 
 The ledger's per-request enter and exit hooks must stay cheap, because they run
 on every request. `ORBIT_NO_LEDGER` compiles them to no-ops, so the cost of the
-ledger is measurable by difference: build the same request-parse loop twice,
+ledger is measurable by difference. Build the same request-parse loop twice,
 once with the hooks and once without, and report the absolute per-request
 delta. The budget is 1000 ns per request, which is under 2% of any request
 slower than 50 us. A breach means the ledger change reverts.
@@ -154,7 +154,7 @@ jitters run to run, so it is not a valid denominator.
 
 Machine: Windows 10 Pro 19045, AMD Ryzen 5 2400G (4 cores / 8 threads, up to
 3.6 GHz), 8 GB RAM, gcc 16.2.0, Python 3.13.11. Power sensor absent, so
-everything here was a proxy. RAPL has not been exercised live; the Linux plan
+everything here was a proxy. RAPL has not been exercised live. The Linux plan
 is below. The instrument that produced the original figures has been removed
 from the repository, so the magnitudes are gone and the findings are kept.
 
@@ -191,5 +191,5 @@ from the repository, so the magnitudes are gone and the findings are kept.
 4. Re-run the whole measurement and confirm the per-route figures stay inside
    the spread of the first run; then `kill -9` the server mid-load and confirm
    no sampler thread outlives the process (the thread is joined on the normal
-   path; abnormal death is OS-reaped).
+   path. Abnormal death is OS-reaped).
 5. Report the machine record and the raw ledger JSON alongside any claim.

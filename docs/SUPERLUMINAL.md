@@ -18,7 +18,7 @@ proves only `fact(5)`).
 
 Aggregate performance claims are never attributed to static estimates. The
 pass reports how many patterns it applied and how much span it saved
-(`OptStats`); that is a count of rewrites, never a speedup.
+(`OptStats`). That is a count of rewrites, never a speedup.
 
 ## Current pipeline
 
@@ -58,7 +58,7 @@ Orbit source
   - Rewrites `add`, `sub`, `mul`, `div`, `neg` and `not_op` when the
     identity operand is a constant and the other operand resolves to an
     int literal, so a string or float operand is vetoed instead of
-    folded. Both operand orders are checked for `add` and `mul`; `sub`
+    folded. Both operand orders are checked for `add` and `mul`. `sub`
     and `div` check the second operand.
   - `OptStats.constant_folds` is still never incremented: the pass
     removes identities, it does not evaluate general arithmetic.
@@ -75,7 +75,7 @@ Orbit source
   - `isImpureOp` (`:34-52`) vs `hasSideEffects` (`:80-110`): both answer
     `true` for every effectful opcode - `db_get`, `db_all`, `db_where`,
     `http_response`, `alloc`, `load_field`, `switch_op`, and the
-    `list_*`, `map_*`, `result_*` and `union_*` families - so DCE driven
+    `list_*`, `map_*`, `result_*` and `union_*` families. So DCE driven
     by the predicate (`dceFunction` at `compiler/ir/cteval.orb:980`) cannot
     delete a live database, response, or allocation operation.
 
@@ -84,9 +84,9 @@ Orbit source
     exists in `compiler/emit/c_backend.orb`.
   - Handler emission calls route functions as
     `sanitizeIdentifier(func.name) + "(arena, req)"`
-    (`compiler/emit/c_backend.orb:1209`); dispatch matches `req->path` and
+    (`compiler/emit/c_backend.orb:1209`). Dispatch matches `req->path` and
     `req->method` against `routePath` / `routeMethod`
-    (`compiler/emit/c_backend.orb:1231`); allocation goes through
+    (`compiler/emit/c_backend.orb:1231`). Allocation goes through
     `orbit_arena_alloc` (`compiler/emit/c_backend.orb:2354`) and no `free` is
     emitted at all - the request's arena epoch reclaims it.
   - `compiler/ir/ir.orb:3-70` has flat opcodes with labels and jumps but
@@ -104,8 +104,8 @@ Aspiration, for the record and with no plan attached: full SSA, CFG
 construction, e-graphs, cost-model search, DP/recursion recognition, learned
 guidance, recursive memoization with static caches. Recursive memoization
 stays dead until, at minimum: a complete purity conjunction with negative
-tests per clause, a key specification, a concurrency design for the worker
-loop, and a generalization gate on more than one recursion shape.
+tests per condition, a key specification, a concurrency design for the worker
+loop, and a generalization gate on more than one recursive pattern.
 
 ## Engineering principles
 

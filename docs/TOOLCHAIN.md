@@ -1,6 +1,6 @@
 # Toolchain policy: tcc and the reference compilers
 
-tcc 0.9.27 is the fast-build lane: it compiles a translation unit in a
+tcc 0.9.27 is the fast-build toolchain: it compiles a translation unit in a
 fraction of gcc's time and is therefore the right tool for single-file
 probes and edit-compile-run loops. It is not a reference toolchain. Two
 rules draw that boundary, and both are mechanical consequences of what
@@ -15,17 +15,17 @@ No benchmark, performance comparison, latency percentile, or energy /
 power figure may come from a tcc-built binary. Not as a headline, not
 as a baseline, not "just to see". Three independent reasons:
 
-1. Its codegen is unoptimised by design; a timing compares tcc's
+1. Its codegen is unoptimised by design. A timing compares tcc's
    codegen against the other toolchain's, not the two programs.
 2. The shim's `YieldProcessor` is `Sleep(0)`, a timeslice yield, not a
    pause hint — spin behaviour under tcc is not the shipped behaviour.
 3. The shim's `GetTickCount64` is the 32-bit `GetTickCount` and wraps
-   every ~49 days; any clock arithmetic past a restart is wrong.
+   every ~49 days. Any clock arithmetic past a restart is wrong.
 
 Instruments that stay on the reference toolchain: `scripts/kynx_gate.py
 load`, `scripts/measure_selfhost.py`, the `/_ledger` energy columns.
-`docs/PERF.md` and `docs/ENERGY.md` record what those instruments say;
-a tcc timing belongs in neither file.
+`docs/PERF.md` and `docs/ENERGY.md` record what those instruments say.
+A tcc timing belongs in neither file.
 
 ## Rule 2 — the multithreaded server always builds with gcc
 
@@ -33,7 +33,7 @@ a tcc timing belongs in neither file.
 needs 64-bit interlocked imports, and several runtime TUs need
 thread-local storage. tcc 0.9.27 on Windows has none of the three:
 
-| Need | Under tcc 0.9.27 | Witness |
+| Need | Under tcc 0.9.27 | Appears in |
 |---|---|---|
 | `__atomic_load_n` / `__atomic_store_n` | undeclared, hard compile error | `thread_pool.c` acceptor/worker rings |
 | `InterlockedIncrement64` / `InterlockedExchangeAdd64` | declared by tcc's `winbase.h`, missing from its `kernel32.def`: `undefined symbol` at link | `performance.h` counters, `arena_pool.c`, `kynx.c` |
@@ -41,10 +41,10 @@ thread-local storage. tcc 0.9.27 on Windows has none of the three:
 | `pthread.h` | include not found | POSIX-only test helpers |
 
 So a tcc build of any threaded TU fails loudly at compile or link
-time, and the server lane stays gcc (Linux) / clang (Windows CI).
+time, and the server build stays gcc (Linux) / clang (Windows CI).
 `tcc_setup.py` and the shim never try to close these gaps: a forked
 import lib for the 64-bit interlocked calls would make tcc build code
-whose atomics no lane verifies, which is worse than a loud failure.
+whose atomics no gate verifies, which is worse than a loud failure.
 
 ## Platform matrix
 
@@ -67,14 +67,14 @@ whose atomics no lane verifies, which is worse than a loud failure.
   only the latter). All `__TINYC__`-guarded so gcc/clang builds are
   unaffected.
 - `ws2_32.def` / `sqlite3.def`: minimal import libraries. The ws2 set
-  is exactly the 29 header functions; the sqlite set is exactly the 19
+  is exactly the 29 header functions. The sqlite set is exactly the 19
   `sqlite3_*` symbols `runtime/database.c` and
   `tests/auth/auth_harness.c` use, each confirmed as a real export of
   `runtime/vendor/win-x64/sqlite3.dll`.
 
 Verification, all in throwaway dirs (never in the repo):
 
-| Build | Command shape | Result |
+| Build | Command form | Result |
 |---|---|---|
 | socket + toolchain mappings | `tcc -I vendor/tcc-shim -include tcc_toolchain.h probe_socket.c ws2_32.def` | clean compile, `TCC-SHIM-SOCKET-PASS` at runtime (ephemeral-port loopback: non-blocking connect, select, `SO_ERROR`, accept, send/recv) |
 | same probe, gcc + real SDK headers | `gcc probe_socket.c -lws2_32` | same `TCC-SHIM-SOCKET-PASS`: behavioural equivalence, not just "it links" |
@@ -82,9 +82,9 @@ Verification, all in throwaway dirs (never in the repo):
 | negative: `gethostname` (real export, outside the 29) | same flags | `undefined symbol` at link — the closed set holds |
 | negative: `__atomic_load_n` | bare tcc | undeclared, hard error — Rule 2's backing |
 
-Re-run the two positive probes after any shim change; they live at
+Re-run the two positive probes after any shim change. They live at
 `vendor/tcc-shim/probe_socket.c` and `vendor/tcc-shim/probe_sqlite.c`.
-CI runs them on Windows and skips the lane cleanly (visible `TCC-SKIP`,
+CI runs them on Windows and skips this step cleanly (visible `TCC-SKIP`,
 never a silent pass) where tcc is unavailable.
 
 One near-miss worth recording: during validation the shim briefly

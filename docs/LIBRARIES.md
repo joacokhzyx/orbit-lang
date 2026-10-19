@@ -16,7 +16,7 @@ something, it says UNTESTED rather than asserting it.
 2. **A name may be declared once across the whole import graph.** Two modules
    that declare the same name is a hard error, not a shadow.
 3. **`private` does not restrict anything at an import boundary.** It is
-   accepted on `fn` and ignored; on a `type` it is a parse error.
+   accepted on `fn` and ignored. On a `type` it is a parse error.
 4. **Imports are by path.** Relative paths resolve against the importing
    file. `std/...` and `lib/...` resolve against three fixed roots.
 5. **A library cannot declare its dependencies.** There is nothing to
@@ -90,7 +90,7 @@ Checked r.orb: no errors.
 ```
 
 `private` is consumed by the parser and then never consulted again. On a
-function it is accepted and dropped; on a type declaration it is rejected
+function it is accepted and dropped. On a type declaration it is rejected
 outright:
 
 ```console
@@ -191,8 +191,8 @@ this:
 - **Keep the file self-contained.** Import only what you use, and prefer
   `std/` over `lib/` - both resolve the same way, but `std/` is the tree the
   gates exercise.
-- **Do not rely on `private`.** If a helper must not be part of your surface,
-  put it in a file you never import, or name it so nobody will.
+- **Do not rely on `private`.** If a helper must not be part of your
+  public names, put it in a file you never import, or name it so nobody will.
 - **Document the expected layout** next to your library: which `std/` copy the
   importer needs and where. Today that is the whole install story.
 - **State your compiler version.** There is no compatibility range machinery

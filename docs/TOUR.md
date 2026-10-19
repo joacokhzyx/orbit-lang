@@ -39,7 +39,7 @@ fn main() -> int {
 ```
 
 Build, run, check the exit code: **42**. `fn main() -> int`
-is the entry point; its return value is the process exit code,
+is the entry point. Its return value is the process exit code,
 which is how the test suite asserts behavior, too.
 
 ## 2. Bindings and types (3 min)
@@ -54,7 +54,7 @@ fn main() -> int {
 }
 ```
 
-`val` never changes; `var mut` does. Annotations are optional
+`val` never changes. `var mut` does. Annotations are optional
 when inference is enough. `name.len()` is 5, so this exits **8**.
 (Verified pattern: `.len()` on strings, per the behavior suite.)
 
@@ -91,7 +91,7 @@ fn main() -> int {
 }
 ```
 
-Models are named records; construct with positional fields, read
+Models are named records. Construct with positional fields, read
 with dot access. Exit code: **7**.
 
 ## 5. Result values and try/catch (4 min)
@@ -147,7 +147,7 @@ curl.exe http://127.0.0.1:8080/health
 ```
 
 On Windows use `curl.exe` (bare `curl` is an alias for
-`Invoke-WebRequest`); the `curl` examples in steps 7-9 work the same
+`Invoke-WebRequest`). The `curl` examples in steps 7-9 work the same
 way on either platform.
 
 Expected (from a real run of `examples/health_service.orb`):
@@ -173,7 +173,7 @@ route GET "/greet" {
 ```
 
 `curl "http://127.0.0.1:8080/greet?name=ada"` → `200` with
-`{"hello":"ada"}`; without the query value → `401`. Verified
+`{"hello":"ada"}`. Without the query value → `401`. Verified
 pattern from the tutorial services. `err 401 …` inside the `if`
 works the same way when you prefer it.
 
@@ -206,7 +206,7 @@ directory and seeds demo rows, so `GET /notes` answers `200`
 immediately. The `?` placeholder keeps input parameterized -
 never build SQL by concatenating query values. Writes via
 `Note.create()` store the row and answer `true` (duplicates
-answer `false`); see [Known Limitations](KNOWN_LIMITATIONS.md).
+answer `false`). See [Known Limitations](KNOWN_LIMITATIONS.md).
 
 ## 9. Live telemetry (2 min)
 
@@ -240,5 +240,5 @@ no code.
    content, and raw-body uploads.
 3. [Troubleshooting](tutorials/troubleshooting.md) - ports,
    sqlite3.dll, slow first boot, stale canonical.
-4. [FAQ](FAQ.md) - twenty honest questions, hard ones included.
+4. [FAQ](FAQ.md) - twenty questions, hard ones included.
 5. [Language Reference](LANGUAGE_REFERENCE.md) - the full contract.

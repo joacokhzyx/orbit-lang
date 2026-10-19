@@ -13,11 +13,11 @@ same work with less energy - still measuring how far that goes.
 
 **2. Is Orbit ready for production?**
 No. It's 0.1.0 pre-release research. Reads, writes, bearer auth,
-path parameters and forward migrations all work; what isn't there
+path parameters and forward migrations all work. What isn't there
 is multi-host clustering, `down` migrations and a language server.
 Uploads save files, but a binary payload doesn't round-trip as a
 string, and the latency percentiles are bucket edges with no
-success/error split. Good for learning and experimenting; don't bet
+success/error split. Good for learning and experimenting. Don't bet
 a business on it.
 
 **3. What do I need to build it?**
@@ -44,10 +44,10 @@ ahead of the data.
 **6. What can I build today?**
 Read-heavy JSON services over SQLite: routes, query values,
 request bodies, filtered queries, status codes, live telemetry.
-The [Tour](TOUR.md) takes 30 minutes; the tutorials go further.
+The [Tour](TOUR.md) takes 30 minutes. The tutorials go further.
 
 **7. What can't Orbit do yet?**
-The honest list: multi-host clustering, `down` migrations, a
+The known list: multi-host clustering, `down` migrations, a
 language server, joules on Windows (no sensor - CPU time plus
 memory is the proxy), graceful drain on Windows (the stop is a
 kill), and a success/error split in the latency percentiles.
@@ -59,7 +59,7 @@ and work now. Full list with workarounds:
 When the `id` already exists - it is the primary key - or when
 the payload has no usable fields. `delete()` answers `false`
 when no row was removed, which is how a handler tells a 404 from
-a write. Code both branches; they're real answers, not filler.
+a write. Code both branches. They're real answers, not filler.
 
 **9. Is the language stable? Will my code compile next month?**
 No stability promise before 1.0. Minor releases in the 0.x
@@ -68,7 +68,7 @@ series may include documented breaking changes (see
 
 **10. Does Orbit have generics / async / pattern matching?**
 Functions and models take inferred type parameters (`fn getOr[T]`,
-`model Box[T]`); unions and `match` cover tagged alternatives. There is no
+`model Box[T]`). Unions and `match` cover tagged alternatives. There is no
 `async fn` and no `every` schedules -- both parse and are refused, because
 there is no async or timer runtime behind them. Collection APIs,
 concurrency ergonomics, and module imports are still settling.
@@ -79,9 +79,9 @@ issue when you hit a wall - I read everything.
 
 **11. How do I set the port?**
 Declare it in the entry file - `port 8080` - and the built server binds it
-when started with no argument; `./service 8080` still overrides the
+when started with no argument. `./service 8080` still overrides the
 declaration. With neither, the default is 3000. The declared value must be
-an integer literal in 1..65535; anything else fails `orbit check` (E1008).
+an integer literal in 1..65535. Anything else fails `orbit check` (E1008).
 
 **12. Where's the database file?**
 `.orbit/data/app.db` under the project directory, created on

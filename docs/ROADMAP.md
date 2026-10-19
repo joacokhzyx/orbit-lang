@@ -24,14 +24,14 @@ For the dated implementation snapshot, current verification commands, and active
 
 ## Phase 0: Project Clarity
 
-**Status:** Complete for documentation; automation and release evidence remain active.
+**Status:** Complete for documentation. Automation and release evidence remain active.
 
 **Goal:** establish one current description of the project.
 
 Tasks:
 
 - Keep this roadmap separate from detailed engineering contracts.
-- Delete historical seed material rather than annotating it, wherever it is no longer load-bearing.
+- Delete historical seed material rather than annotating it, wherever nothing depends on it.
 - Maintain a support matrix for Windows and Linux, including C compiler requirements.
 - Define the release and compatibility policy for the language and standard library. See [Versioning and Compatibility](VERSIONING.md). ✅
 - Document release artifacts and their verification. See [Release Artifacts](RELEASES.md). ✅
