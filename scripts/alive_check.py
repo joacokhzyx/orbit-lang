@@ -32,6 +32,8 @@ Usage:
 assertion at the end still reads the whole registry, because the invariant it
 checks -- one row per file in scripts/ -- is a property of the tree, not of a
 run.
+`--list` prints the rows that would run and exits: a listing mode, so it runs
+none of them and asserts nothing, the shape `dev.py list` has for the tiers.
 `--quick` runs only the checks marked cheap (the ones that need no compile).
 `--self-test` feeds the checker deliberately broken tools and asserts that each
 failure class is caught, which is the only way to know a gate can fail.
@@ -183,6 +185,16 @@ def registry(compiler, cc, work):
              "every counted claim about the corpus in the docs equals the tree",
              lambda: _script("doc_counts.py"),
              r"Finished doc-counts", 120, allow_rc=(0, 1)),
+        # The companion to the three above for a claim one level out: a CLI flag
+        # is a promise written in --help, and a promise nothing reads is the
+        # quietest failure there is, because the run succeeds and the thing that
+        # was asked for did not happen. It found this file's own `--list`, which
+        # is why the listing mode above exists and why nothing caught it sooner.
+        Tool("flag_coverage.py", "gate",
+             "every flag a script in scripts/ declares is read by the script "
+             "that owns it, or carries a declared reason why not",
+             lambda: _script("flag_coverage.py"),
+             r"Finished flag-coverage", 120, allow_rc=(0, 1)),
         # This one exists to be read, not to fail. It diffs the canonical with
         # the generated register numbering flattened, so a reviewer can see what
         # a promote did without reading 20 000 lines of renumbering. Its
@@ -1037,6 +1049,17 @@ def main():
         if not selected:
             out.fail("Failed aliveness: no tool matched %s" % ", ".join(sorted(wanted)))
             return 1
+
+    if args.list:
+        # A listing mode, not a verification one: it prints what would run and
+        # exits before the rows and the D8 coverage assertion, which is what
+        # `dev.py list` does for the tiers. It prints `selected` rather than the
+        # whole registry so that --only composes with it and the answer is the
+        # same as the one the run would give.
+        for tool in selected:
+            out.say("%-30s %-10s %s" % (tool.name, tool.kind, tool.why))
+        out.say("\n%d tool(s)." % len(selected))
+        return 0
 
     witness_text, witness_age = None, None
     witness_load_problems = []

@@ -469,7 +469,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--compiler", required=True)
     ap.add_argument("--update", action="store_true")
-    ap.add_argument("--cc", default=None)
     ap.add_argument("--scope-only", action="store_true",
                     help="only the clean-directories check over compiler, std "
                          "and tests/suite (was scripts/doctor_scope_gate.py)")
