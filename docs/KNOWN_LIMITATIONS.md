@@ -30,12 +30,12 @@ and it was produced by one command which is also a CI gate, so it could not
 rot quietly:
 
 ```console
-$ python scripts/negative_gate.py --compiler <orbit>
+$ make negative
 ...
-Finished negative: 70/70 pass (0 known defects still accepted)
+Finished negative: 73/73 pass (0 known defects still accepted)
 ```
 
-Seventy programs that must be rejected, and every one of them is. The last
+Seventy-three programs that must be rejected, and every one of them is. The last
 one to be accepted was [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
 and generic functions gave it a diagnostic; what remains is a design choice (the
 bare `list` spelling stays lenient for dynamic values), not a missing check.
