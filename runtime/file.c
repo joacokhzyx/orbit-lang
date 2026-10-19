@@ -28,6 +28,19 @@
 #endif
 
 OrbitResult orbit_file_read(OrbitArena* arena, const char* filename) {
+    /* The returned buffer is allocated, so this function needs an arena, and
+     * its caller may not have one: std's file helpers (readAll, append) are
+     * plain functions, not routes, so they hold no request arena, and the arena
+     * the emitter hands them is the file-scope global -- which a route-only
+     * program never assigns. Handed that NULL, `orbit_alloc` answers a quiet
+     * NULL (argument errors are excluded from the OOM policy by design), so a
+     * file that was there came back as Err(OUT_OF_MEMORY): a failure that was
+     * never attempted. The fallback below is what the modules that allocate for
+     * a nullable arena do (collections.c:131, os.c:91); the five that do not
+     * (auth.c, database.c, pulse.c, kynx.c, string_pool.c) are only ever handed
+     * an arena by the router, and this one is reached the other way. */
+    if (!arena || !arena->base) arena = orbit_arena_get_global();
+
     /* Windows fopen_s validates (NULL), POSIX fopen(NULL) segfaults in
      * glibc: guard here so both platforms answer Err(IO). */
     if (!filename) return orbit_result_err(ORBIT_ERR_IO, "Failed to open file");
@@ -118,6 +131,13 @@ bool orbit_file_write(const char* filename, const char* content) {
 }
 
 OrbitList* orbit_file_list_dir(OrbitArena* arena, const char* path) {
+    /* The fallback of the read above, and it has to happen before the list is
+     * created: `orbit_list_create` normalizes the arena it stores internally
+     * (collections.c:131) but cannot fix the local one, and every entry string
+     * below is allocated with that. Handed NULL, each entry allocation answered
+     * NULL, each `if (!str)` guard took its early return, and listDir answered
+     * an empty list -- which a caller cannot tell from an empty directory. */
+    if (!arena || !arena->base) arena = orbit_arena_get_global();
     OrbitList* list = (OrbitList*)orbit_list_create(arena, sizeof(orbit_string), 16).value;
     if (!list) return list;
     /* opendir(NULL) fails cleanly on POSIX but path[plen] dereferences on

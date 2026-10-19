@@ -204,6 +204,48 @@ static void test_null_paths_are_safe(void) {
     orbit_arena_destroy(arena);
 }
 
+/* 9. An arena-less read reaches the process-wide fallback instead of
+ * reporting a failure it never attempted. This is the shape a std helper has
+ * in a route-only program: `readAll` is not a route, so it has no request
+ * arena, and the file-scope `arena` it passes is NULL there. The read used to
+ * take that NULL straight to `orbit_alloc`, get a quiet NULL back (argument
+ * errors are deliberately excluded from the OOM policy) and answer
+ * Err(OUT_OF_MEMORY) -- so every `try readAll(p) catch` in a route answered
+ * the catch branch for every path, and a file that was there read as absent. */
+static void test_read_without_an_arena_uses_the_fallback(void) {
+    assert(orbit_file_write(TEST_PATH, "fallback") == true);
+
+    OrbitResult r = orbit_file_read(NULL, TEST_PATH);
+    assert(r.ok == true);
+    assert(r.value != NULL);
+    assert(strcmp((const char*)r.value, "fallback") == 0);
+
+    /* The same case with an arena that exists but is unusable (no base), which
+     * is the predicate the rest of the runtime tests. */
+    OrbitArena unusable;
+    memset(&unusable, 0, sizeof(unusable));
+    r = orbit_file_read(&unusable, TEST_PATH);
+    assert(r.ok == true);
+    assert(strcmp((const char*)r.value, "fallback") == 0);
+
+    remove(TEST_PATH);
+}
+
+/* 10. The same for the listing: with no arena the entries were allocated
+ * nowhere, every `if (!str)` guard took the early return, and listDir/walk
+ * answered an empty list rather than the directory's contents. A caller
+ * cannot tell that from an empty directory, which is the whole reason this
+ * needs an arena rather than a quiet answer. */
+static void test_list_dir_without_an_arena_lists_entries(void) {
+    assert(orbit_file_write(TEST_PATH, "entry") == true);
+
+    OrbitList* entries = orbit_file_list_dir(NULL, ".");
+    assert(entries != NULL);
+    assert(orbit_list_len(entries) > 0);
+
+    remove(TEST_PATH);
+}
+
 int main(void) {
     printf("=== Orbit runtime file-IO tests ===\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -215,6 +257,8 @@ int main(void) {
     RUN_TEST(test_read_directory_fails_cleanly);
     RUN_TEST(test_read_write_interop);
     RUN_TEST(test_null_paths_are_safe);
-    printf("All 8 Orbit runtime file-IO tests PASSED successfully!\n");
+    RUN_TEST(test_read_without_an_arena_uses_the_fallback);
+    RUN_TEST(test_list_dir_without_an_arena_lists_entries);
+    printf("All 10 Orbit runtime file-IO tests PASSED successfully!\n");
     return 0;
 }
