@@ -1,0 +1,21 @@
+// case: extern-fn-is-not-a-value
+// what: a value is called through a C cast whose first argument is the request
+//      arena. Every function this module emits takes one; an extern does not,
+//      so a reassigned binding shifted its arguments: `val f =
+//      orbit_file_exists` then `f = orbit_file_delete` emitted
+//      `((orbit_bool (*)(OrbitArena* arena, orbit_string))(f))(arena, path)`
+//      against `bool orbit_file_exists(const char* filename)`, and the callee
+//      read the arena pointer as its path. The unreassigned form devirtualises
+//      into a direct call and works, which is why the spelling cannot be the
+//      rule: naming an extern as a value is refused outright.
+// expect-error: Cannot use extern function
+extern fn probe_thing(path: string) -> bool
+
+fn pick(p: string) -> bool {
+    val f = probe_thing
+    return true
+}
+
+fn main() -> int {
+    return 0
+}

@@ -99,10 +99,12 @@ fn getOr[T](l: list < T >, i: int, dflt: T) -> T {
 A bare function name in value position is the function as a value:
 `val f = add` binds `f` to `add`'s signature, and `f(2, 3)` calls through
 it with the same arity and argument checking as a direct call. There is no
-capture: a value only ever names a declared function, never a lambda, and
-there is no `fn` annotation to pass one as a parameter or return one. A
+capture: a value only ever names a function this module emits, never a lambda,
+and there is no `fn` annotation to pass one as a parameter or return one. A
 generic function has no one signature until a call fixes its parameters, so
-only calling it is allowed; `main` is the entry point, not a value.
+only calling it is allowed; `main` is the entry point, not a value; and an
+`extern fn` takes no arena, so it is called directly rather than through a
+value.
 
 The request arena travels as the first parameter of every emitted C function
 and never appears in an Orbit signature, so it changes no arity above. `arena`

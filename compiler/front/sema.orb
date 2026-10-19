@@ -188,12 +188,22 @@ model Sema {
     // point at: each call site monomorphises its own instance.
     genericFnNames: list
     genericFnDecls: list
+    // Names of the `extern fn` declarations the program makes. A `fn` value is
+    // called through a C cast whose first argument is the request arena, which
+    // is true of every function this compiler emits and false of an extern:
+    // `val f = orbit_file_exists` reassigned to `orbit_file_delete` emitted
+    // `((orbit_bool (*)(OrbitArena* arena, orbit_string))(f))(arena, path)`
+    // against `bool orbit_file_exists(const char* filename)`, so the callee
+    // read the arena pointer as its path and the real argument was never read.
+    // The symbol table carries no extern flag, so the name is recorded here
+    // where the declaration is in hand.
+    externFnNames: list
 }
 
 fn initSema() -> Sema {
     val initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [], [], [], [])
 }
 
 // The model a bound variable was built from, or "" when it was not built
@@ -520,6 +530,17 @@ fn isGenericFn(sema: Sema, name: string) -> bool {
     var i = 0
     while i < sema.genericFnNames.len() {
         if sema.genericFnNames.get(i) == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// Whether the name was declared `extern fn`. A value cannot name one: see the
+// note on `externFnNames`.
+fn isExternFnName(sema: Sema, name: string) -> bool {
+    var i = 0
+    while i < sema.externFnNames.len() {
+        if sema.externFnNames.get(i) == name { return true }
         i = i + 1
     }
     return false
@@ -2211,6 +2232,9 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
                 sema.genericFnNames.push(f.name)
                 sema.genericFnDecls.push(node)
             }
+            if f.isExtern {
+                sema.externFnNames.push(f.name)
+            }
             declareSymbolWithParams(sema, f.name, returnType, false, true, checkableParamTypes(sema, f.paramTypes))
         }
         _ => {}
@@ -3452,6 +3476,21 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // would monomorphise nothing.
                         if isGenericFn(sema, l.text) {
                             reportError(sema, "Cannot use generic function '" + l.text + "' as a value: call it so the arguments fix its type parameters; a bare reference has nothing to infer them from.")
+                            return "unknown"
+                        }
+                        // A value is called through a C cast that passes the
+                        // request arena first, which is correct for every
+                        // function this module emits and wrong for an extern:
+                        // `val f = orbit_file_exists` reassigned emitted
+                        // `(... (OrbitArena* arena, orbit_string))(f))(arena,
+                        // path)` against `bool orbit_file_exists(const char*
+                        // filename)`, so the callee read the arena as its path.
+                        // An unreassigned binding is devirtualised into a direct
+                        // call and works, but nothing in the spelling tells the
+                        // two apart, and a rule the checker cannot make visible
+                        // is worse than a refusal.
+                        if isExternFnName(sema, l.text) {
+                            reportError(sema, "Cannot use extern function '" + l.text + "' as a value: a value is called through a C cast that passes the request arena first, and an extern does not take one, so its arguments would shift; call the extern directly instead.")
                             return "unknown"
                         }
                         return fnTypeSpelling(foundSym.typeName, foundSym.paramTypes)

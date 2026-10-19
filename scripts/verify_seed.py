@@ -139,7 +139,7 @@ PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by scripts/build_selfhost.py --promote,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "B5893FC5A6C35C926A4CC541E891244BF0FF31384A0E3237C38C19F87EBA01CF"
+PUBLISHED_C = "66FC7A2084432357B48AE3F06CCAC1EF58FC5C29A4FF25F58CC8E43AB3E2FA0A"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says
