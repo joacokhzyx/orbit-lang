@@ -62,7 +62,7 @@ These are gates. Do not perform them by hand and do not write them out as a habi
 - `tests/negative/*.orb` must FAIL to compile with the text their header pins. A `known-defect:` asserts the bug is STILL there, so a fix makes the gate red until you re-declare the case as `expect-error:` with the diagnostic you measured, never from memory. See `tests/negative/README.md`.
 - `alive_check` (D8) requires every file in `scripts/` to be able to fail. A new script with no row there is the same class of thing as a gate nobody reads.
 - `unknown_ratchet` fails only when the number goes UP. Raising a baseline is a deliberate act and `--write-baseline` refuses to move it up without `--allow-regression`.
-- `schema_conformance.py` and `walk_coverage.py` run in T0, cost about a second, and need no compiler. They check `compiler/front/ast.orb` against the code that builds nodes, and require every AST walk to declare the fields it skips.
+- `schema_conformance.py`, `walk_coverage.py` and `doc_counts.py` run in T0, cost about a second, and need no compiler. They check `compiler/front/ast.orb` against the code that builds nodes, require every AST walk to declare the fields it skips, and require every counted claim about the corpus in the docs to equal the tree.
 
 ## Working with other agents
 

@@ -702,9 +702,12 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     # gate in the repo and the one that catches a whole class of silent wrong
     # answers -- the schema declaring a field a list when the parser hands it a
     # node -- so it belongs where it runs every time, including for a clean tree.
+    # doc_counts is its sibling for a different kind of stale text: a document's
+    # counted claim about the corpus still matching the tree it describes.
     return [
         ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
         ("walk_coverage", [py, f"{s_dir}/walk_coverage.py"]),
+        ("doc_counts", [py, f"{s_dir}/doc_counts.py"]),
     ]
 
 
@@ -947,7 +950,7 @@ def main() -> int:
             (f" ({fp_stamp_line(binary)})" if binary.exists() else " (not built)"))
         say(f"T0: fmt --check sharded per file ({len(fmt_check_files())} files "
             "across compiler/, tests/suite/, std/, tests/std/ and examples/) "
-            "+ schema + walk")
+            "+ schema + walk + doc_counts")
         for tier in sorted(specs):
             names = ", ".join(n for n, _ in specs[tier])
             line = f"T{tier}: {names}"

@@ -170,6 +170,15 @@ def registry(compiler, cc, work):
              "every declaration matches the arms",
              lambda: _script("walk_coverage.py"),
              r"Finished walk-coverage", 120, allow_rc=(0, 1)),
+        # The companion to schema_conformance and walk_coverage for a different
+        # kind of stale text: a document's counted claim about the corpus. It
+        # reads the tree and the claim and fails when they disagree.
+        # `allow_rc=(0, 1)` because a real disagreement is a finding, not a
+        # broken tool.
+        Tool("doc_counts.py", "gate",
+             "every counted claim about the corpus in the docs equals the tree",
+             lambda: _script("doc_counts.py"),
+             r"Finished doc-counts", 120, allow_rc=(0, 1)),
         # This one exists to be read, not to fail. It diffs the canonical with
         # the generated register numbering flattened, so a reviewer can see what
         # a promote did without reading 20 000 lines of renumbering. Its
