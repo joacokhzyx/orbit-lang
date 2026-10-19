@@ -9,7 +9,7 @@ Bootstrap terms (canonical, seed, seed2, chain2, chain3, promote, PUBLISHED_C, a
 
 ## Executive Summary
 
-Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with the CI-verified compilers (gcc on Ubuntu, clang on Windows); other C compilers are not exercised in CI.
+Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with the CI-verified compilers (gcc on Ubuntu, clang on Windows). Other C compilers are not exercised in CI.
 
 The project is past the bootstrap proof-of-concept stage. Its mission is to help software do more work with fewer CPU cycles, less memory, and lower energy use. The next challenge is to make that goal measurable while tightening compiler parity, reducing unsafe type degradation in generated C, defining the public language contract, and making the runtime observable and operationally predictable.
 
@@ -42,7 +42,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 
 The supported development workflow is a C compiler plus a stock `python3`. Nothing else is required for build, verification, installation, or release of the self-hosted compiler.
 
-From the repository root, one entry point runs the gates (`scripts/dev.py`, wrapped by `make`; Windows runners have no `make`, so they call `python scripts/dev.py <target>`):
+From the repository root, one entry point runs the gates: `scripts/dev.py`, wrapped by `make`. Windows runners have no `make`, so they call `python scripts/dev.py <target>`.
 
 ```sh
 make dev      # gates proportionate to what the working tree touched (default)
@@ -54,9 +54,9 @@ make list     # what dev would run, without running it
 make promote  # the only way to replace the committed canonical
 ```
 
-A single gate, for when one thing is broken and the rest is noise: `make doctor`, `make suite`, `make parity`, `make werror`, `make negative`, `make fmt`. The scripts under `scripts/` are still the implementation, but their flags (`--cc`, the fixed-point path, `TEMP`/`ORBIT_CCACHE_DIR`) belong to `scripts/dev.py`, which owns them; passing them by hand is how the workflow and CI drift apart.
+A single gate, for when one thing is broken and the rest is noise: `make doctor`, `make suite`, `make parity`, `make werror`, `make negative`, `make fmt`. The scripts under `scripts/` are still the implementation, but their flags (`--cc`, the fixed-point path, `TEMP`/`ORBIT_CCACHE_DIR`) belong to `scripts/dev.py`, which owns them. Passing them by hand is how the workflow and CI drift apart.
 
-The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite, plus the four gates added in September 2026. For the trust boundary (what is trusted vs verified, where amalgamation fits) see [Sovereignty](architecture/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified); for the per-request path see [Architecture](ARCHITECTURE.md#request-path).
+The CI contract is defined in `.github/workflows/ci-gate.yml`. It covers the self-host gate on Ubuntu and Windows, canonical seed verification, parity probes, runtime C tests, and the Orbit behavior suite, plus the four gates added in September 2026. For the trust boundary (what is trusted vs verified, where amalgamation fits) see [Sovereignty](architecture/SOVEREIGNTY.md#trust-boundary-what-is-trusted-vs-verified). For the per-request path see [Architecture](ARCHITECTURE.md#request-path).
 
 The `enforces` column distinguishes blocking gates from measurements:
 `unknown_census.py` is report-only (`continue-on-error: true`, output to the
@@ -72,14 +72,14 @@ passing gate.
 | `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.5%** of 72,213 instructions over 154 files, **45.7%** of those with no diagnostic at all (2026-10-18; 9,749 of 21,318) |
 | `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high - 29.5% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | baseline `unknown_per_mille` 296, `silent_per_mille` 135 |
 
-`ci-gate.yml` is the authority on which of these runs on every push; see the
+`ci-gate.yml` is the authority on which of these runs on every push. See the
 `enforces` column and the workflow file for the current mapping.
 
-The census number is the honest measure of how far the type system has to
+The census number is the measure of how far the type system has to
 go, and it is what the compiler's one accepted defect is made
 of. `checkCompatibility` (`compiler/front/sema.orb:1577`) returns true when
 *either* side is `unknown`, and that one line is why most of the list
-exists; see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#the-silent-group-is-empty).
+exists. See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#the-silent-group-is-empty).
 
 ## Active Workstreams
 
@@ -88,7 +88,7 @@ exists; see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#the-silent-group-is-empt
 **Priority:** P0  
 **Status:** active
 
-The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity surface. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds of `compiler/host/main.orb` measured 33.5 s wall warm and 76.9 s on the first run of a session, on an 8-logical-core box (2026-10-18); the self-host chain (`verify_seed.py`) is cache-sensitive in the same way. [PERF.md](PERF.md) has the method and the earlier numbers.
+The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity coverage. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds of `compiler/host/main.orb` measured 33.5 s wall warm and 76.9 s on the first run of a session, on an 8-logical-core box (2026-10-18). The self-host chain (`verify_seed.py`) is cache-sensitive in the same way. [PERF.md](PERF.md) has the method and the earlier numbers.
 
 Key work:
 
@@ -102,7 +102,7 @@ Key work:
 **Priority:** P1  
 **Status:** needs consolidation
 
-The language reference and examples cover the main syntax, but the project still needs a single compatibility policy for types, errors, imports, arenas, routes, models, and standard-library APIs. `Result` construction, returns, and `try/catch` handling are covered by the behavior suite, including binding a result to a `val` (annotated or not) and passing one as an argument, pinned by [`tests/suite/result_binding.orb`](../tests/suite/result_binding.orb). Public behavior should be specified before adding a large feature surface. The broader language mission includes general software; the current server focus is driven by the opportunity to measure resource use in continuously running systems.
+The language reference and examples cover the main syntax, but the project still needs a single compatibility policy for types, errors, imports, arenas, routes, models, and standard-library APIs. `Result` construction, returns, and `try/catch` handling are covered by the behavior suite, including binding a result to a `val` (annotated or not) and passing one as an argument, pinned by [`tests/suite/result_binding.orb`](../tests/suite/result_binding.orb). Public behavior should be specified before adding a large feature set. The broader language mission includes general software. The current server focus is driven by the opportunity to measure resource use in continuously running systems.
 
 ### Developer Workflow
 
@@ -136,20 +136,20 @@ A native backend is a long-term sovereignty and performance project. It depends 
 
 | Risk | Impact | Current response |
 |---|---|---|
-| The bootstrap builds the compiler's own unit without `-Wall` (it costs 5.7x there; see [PERF.md](PERF.md)) | A warning in generated C would not fail the bootstrap build | `make werror` compiles eleven probes - expression, IO, server, db and builtin-heavy shapes - under `-Werror` and runs them; `ORBIT_BOOTSTRAP_WARNINGS=1` turns the warnings back on while hacking |
-| Engineering catalog contains historical paths and stale status details | Contributors may choose the wrong implementation surface | Use this snapshot and `docs/README.md` as navigation; reconcile the catalog progressively |
-| Behavior suite is small relative to the language surface | Regressions can escape CI | Grow the suite by contract area, starting with focused tests |
+| The bootstrap builds the compiler's own unit without `-Wall` (it costs 5.7x there; see [PERF.md](PERF.md)) | A warning in generated C would not fail the bootstrap build | `make werror` compiles eleven probes - expression, IO, server, db and builtin-heavy programs - under `-Werror` and runs them; `ORBIT_BOOTSTRAP_WARNINGS=1` turns the warnings back on while hacking |
+| Engineering catalog contains historical paths and stale status details | Contributors may choose the wrong implementation | Use this snapshot and `docs/README.md` as navigation; reconcile the catalog progressively |
+| Behavior suite is small relative to the language | Regressions can escape CI | Grow the suite by contract area, starting with focused tests |
 | Database schema evolution is not a complete public contract | Existing services cannot roll a schema back, and nothing checks the applied version at startup | Forward DDL ships: `migrations "<SQL>"` lines run once each, in declaration order, tracked in `_orbit_migrations`, covered by `runtime/test_migrations.c` and the [Migrations guide](guides/migrations.md). Missing: `down` migrations, a version-required startup check, and a standalone `orbit migrate` |
-| Native backend and multi-host clustering have large dependency chains | High cost and broad failure surface | Keep them behind the compiler-trust and runtime milestones |
+| Native backend and multi-host clustering have large dependency chains | High cost and broad failure modes | Keep them behind the compiler-trust and runtime milestones |
 
 ## Definition of a Meaningful Milestone
 
 A milestone is meaningful when it changes one of these user-visible properties and includes evidence:
 
-- a new supported language behavior;
-- a safer or more reproducible compiler path;
-- a runtime capability with failure tests;
-- a documented workflow a new contributor can execute;
+- a new supported language behavior.
+- a safer or more reproducible compiler path.
+- a runtime capability with failure tests.
+- a documented workflow a new contributor can execute.
 - a measured performance or resource improvement with a reproducible command.
 
 Documentation-only changes may improve project clarity, but they do not close compiler or runtime milestones by themselves.
@@ -163,7 +163,7 @@ Documentation-only changes may improve project clarity, but they do not close co
 - [Self-Hosting](architecture/SELF_HOSTING.md)
 - [Sovereignty](architecture/SOVEREIGNTY.md)
 - [Behavior Suite](../tests/suite/README.md)
-- [Parity Battery](../tests/parity/README.md)
+- [Parity probes](../tests/parity/README.md)
 - [Versioning and Compatibility](VERSIONING.md)
 - [Resource and Energy Measurement](ENERGY.md)
 - [Release Artifacts](RELEASES.md)

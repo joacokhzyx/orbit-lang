@@ -2,18 +2,18 @@
 
 Both Windows gate failures are **diagnosed and fixed**. Neither was a Windows
 defect. What follows is what was measured and what was ruled out, because the
-ruled-out lists are the part worth keeping: they are what stops the next person
+ruled-out lists are the part worth keeping. They are what stops the next person
 re-deriving them.
 
 - `tests/suite/object_literals.orb` did not build on the Windows leg — fixed in
   `17bd1b4`.
 - The Kynx live gate completed 34 of 200 requests — fixed in `56f4f8d`.
 
-Both were surfaced on 2026-10-09 by splitting CI into five independent jobs.
-Before that they were invisible: `Runtime C tests` sat sixth of twenty-four
-steps, a failing `run:` skips every step after it, so the fourteen gates below
-it had not run on Windows at all. That was the shape of the problem and it is
-fixed; these two were what was underneath it.
+Both were found on 2026-10-09 by splitting CI into five independent jobs.
+Before that they were invisible. `Runtime C tests` sat sixth of twenty-four
+steps, and a failing `run:` skips every step after it. The fourteen gates below
+it had not run on Windows at all. That was what hid them, and it is
+fixed. These two were what was underneath it.
 
 **Neither was a platform defect.** Both reproduced on a Windows development
 machine, and both were fixed without touching anything Windows-specific. Read
@@ -50,7 +50,7 @@ as a platform defect rather than a codegen one.
 ### Ruled out, and worth keeping
 
 - **Not `buildObjectLiteralAsModel`.** It only runs when the declared type is a
-  declared model; `-> object` is not one, so `isModelDeclName` is false and the
+  declared model. `-> object` is not one, so `isModelDeclName` is false and the
   dynamic `buildObjectLiteral` runs instead. It was the handoff's first suspect
   and it is not on this path.
 - **Not `orbit_db_*`.** Both are `static` inside a `database.c` this program
@@ -79,7 +79,7 @@ Phase A failed: completed=34 error_rate=0.83 status={'200': 34}
 ```
 
 `kynx_live_gate.py` started the gate server with `stdout=subprocess.PIPE` and
-then never read it. On Windows that pipe holds **4352 bytes**; on Linux,
+then never read it. On Windows that pipe holds **4352 bytes**. On Linux it holds
 65536. The service writes **118 bytes per request**. So the pipe filled at
 request ~38, the server blocked in `write()`, and it never served again. Linux
 would have needed ~554 requests to fill the pipe and Phase A only asks 200.
@@ -108,7 +108,7 @@ The runner was never the problem.
   at 60 requests: 60/60 in 6.1s. Two connections at the exact Phase A config:
   200/200 in 20.06s. All of it passes when the server's stdout goes to a file.
 - **Not a send that silently truncates.** This one was real and is recorded
-  because it nearly went the other way: Winsock *does* propagate the listening
+  because it nearly went the other way. Winsock *does* propagate the listening
   socket's non-blocking mode to accepted sockets (measured) where POSIX
   `accept()` does not, and `orbit_send_response` writes with a single unchecked
   `send()`, which is unsound on a non-blocking socket. Restoring blocking mode
@@ -151,19 +151,19 @@ the open fails, so every statement in `orbit_db_init` ran against a database
 that was never opened. The return code is now checked, the handle is closed and
 left NULL, and a failure prints the path and SQLite's own message to stderr.
 That is a plausible mechanism for a fault whose `ExceptionAddress` was exactly
-`0x0000000000000000` -- the only function pointer taken on that path is
+`0x0000000000000000`. The only function pointer taken on that path is
 `sqlite3_progress_handler(..., orbit_sqlite_progress_handler, ...)` in
-`orbit_db_init` -- and plausible is not proven: the crash never reproduced, so
-what the fix buys is that a recurrence names whether it got past the open.
+`orbit_db_init`. Plausible is not proven: the crash never reproduced, so what
+the fix buys is that a recurrence names whether it got past the open.
 `ENGINEERING.md` section 7's `gate-sequence` item (6) is the contract here and
-says the same thing; this paragraph said "is fixed" and named a root cause, and
+says the same thing. This paragraph said "is fixed" and named a root cause, and
 the weaker reading is the measured one. `Runtime C and auth` is green on both
 platforms, and on a Windows development machine `runtime_c` ran 20/20 with
 `migrations ok` among them.
 
 **The runtime C tests run on Windows**: the whole `scripts/runtime_c_tests.py`
-table (twenty-one programs; twenty here, because `test_oom` needs fork/waitpid),
-which is what the workflow calls instead of holding the programs' include paths,
+table (twenty-one programs; twenty here, because `test_oom` needs fork/waitpid).
+That is what the workflow calls instead of holding the programs' include paths,
 `-D` flags and link flags itself. One of them, `test_float_format`, is compiled
 with `-Wall` and not `-w` on purpose: the line it covers was a `strncat` in
 `orbit_float_to_string`, and MSVC is the only toolchain here that calls `strncat`
@@ -174,7 +174,7 @@ unsafe.
 ## The path separator is not part of a module's identity
 
 Windows hands an entry path back with backslashes, and the spellings that reach
-the resolver are the ones written in the source: `./x.orb` from a sibling,
+the resolver are the ones written in the source. `./x.orb` from a sibling,
 `../dir/x.orb` from another directory, and a path that arrived with backslashes
 all name one file. While the spelling *was* the identity, each of them loaded
 the file again, so the module's symbols were declared once per spelling and the
@@ -200,14 +200,14 @@ python3 scripts/test_suite.py --cc gcc --compiler "$(python3 scripts/dev.py fp-p
 ```
 
 `make` is the entry point. `scripts/dev.py` owns `TEMP`/`TMP`,
-`ORBIT_CCACHE_DIR`, the fixed-point binary and every gate's flags; you should not
+`ORBIT_CCACHE_DIR`, the fixed-point binary and every gate's flags. You should not
 need to pass `--cc` or `--compiler` by hand. On a Windows runner, `make` is
-available through Git Bash; CI calls `python3 scripts/dev.py` directly because
+available through Git Bash. CI calls `python3 scripts/dev.py` directly because
 the Windows image has no `make`.
 
 There is no `make kynx` target, and there never was — an earlier version of this
 page said otherwise, which meant the first command a Windows user ran was
-`No rule to make target`. The Kynx live gate is `kynx_live` inside T2; run it on
+`No rule to make target`. The Kynx live gate is `kynx_live` inside T2. Run it on
 its own with `python3 scripts/dev.py check --filter kynx_live`.
 
 **`make suite`, `make doctor`, `make parity`, `make werror` and `make negative`
@@ -215,18 +215,19 @@ work.** They resolve the compiler through `$(shell $(DEV) fp-path)`, and that
 broke two ways, both fixed on 2026-10-18. `fp-path` printed its bootstrap log to
 stdout, and make folds everything it captures into one argument, so a stale
 fixed point put a paragraph of log text where a path belongs. It also lost the
-backslash of a Windows path: unquoted, `sh` turned `C:\Temp\orbit-fp-x.exe`
-into `C:orbit-fp-x.exe`, which Windows resolves against the current directory --
-so the targets failed on a warm tree too, with `doctor_gate: no compiler at
-<cwd>orbit-fp-x.exe`, and not only when the fixed point was stale. `fp-path`
-now writes the path and only the path to stdout (everything else, the bootstrap
-included, goes to stderr), and the five recipes quote the substitution.
+backslash of a Windows path. Unquoted, `sh` turned `C:\Temp\orbit-fp-x.exe`
+into `C:orbit-fp-x.exe`, which Windows resolves against the current directory,
+so the targets failed on a warm tree too, with
+`doctor_gate: no compiler at <cwd>orbit-fp-x.exe`, and not only when the fixed
+point was stale. `fp-path` now writes the path and only the path to stdout
+(everything else, the bootstrap included, goes to stderr), and the five recipes
+quote the substitution.
 `make check` and `make all` were never affected - they pass argument lists, not
 shell substitutions.
 
-**The fixed-point binary lives outside the repository tree, and that is
-load-bearing.** The compiler resolves its runtime as `<dir of argv[0]>/runtime`,
-so a binary inside the repo makes `doctor_gate`'s `--fix` goldens fail over a
+**The fixed-point binary lives outside the repository tree, and the build
+depends on that.** The compiler resolves its runtime as `<dir of argv[0]>/runtime`.
+A binary inside the repo makes `doctor_gate`'s `--fix` goldens fail over a
 missing `socket_compat.h` AND silently void `cli_probe`'s
 `cc-include-failure-is-not-a-missing-toolchain` probe, because that probe
 asserts a C include failure that a compiler able to see `runtime/` never
@@ -243,11 +244,11 @@ after it. In a single twenty-four-step job that makes the step order the
 coverage policy — and one order was chosen by where a block happened to sit in
 the file. The workflow is now seven independent jobs with no `needs:` between
 them (`bootstrap`, `gates`, `static`, `runtime-c`, `tcc-shim`, `dual-triangle`,
-`stress-gate`; the split started with five on 2026-10-09), and CI calls
+`stress-gate`). The split started with five on 2026-10-09. CI calls
 `make all && make report`, so the sequence has one executable form instead of
 three that had already drifted apart.
 
-The same shape bit the Kynx gate from the inside: a phase that could not run
+The same failure bit the Kynx gate from the inside: a phase that could not run
 could not report, and the record written from that run was wrong in three
 places. A gate that suppresses its own evidence is the same defect as a job that
 skips its steps.
