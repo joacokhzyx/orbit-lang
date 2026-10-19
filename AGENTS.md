@@ -134,3 +134,21 @@ Stop and ask rather than push on, when:
 - Changes to the emitted C need the whole-prelude byte-diff check: track one program byte-for-byte; only expected fragments (one register renumber, one removed line) should differ.
 - `gh` is the source of truth for CI state: `gh run list --limit 3; gh run view <id> --log` for the failing step's name. The failing step name is the finding; the step text is often as enough.
 - Register-name number shifts (`r_N`) in emitted C are benign renumbering; hash goldens will still flip, which is one probe, not a proof.
+
+## Writing
+
+Write for the maintainer who joined yesterday. They read English; they do not read our history.
+
+- Documentation is impersonal. The page says what was measured, not who measured it. A commit body may say "I".
+- One idea per sentence. Average under 22 words, none over 40. A semicolon usually means two sentences.
+- Write what the reader can act on. A §7 row holds a defect, its measurement and its decision. It is not a diary, and the list of everything checked is not the finding.
+- A table is for more than two columns. Two facts are a sentence.
+- Name the thing. "The 99 `return ""` sites", not "the surface". "What is left", not "the residual". "The line the gate checks", not "the witness".
+- Every claim carries a command, a number or a line. "Faster", "cleaner" and "more robust" carry nothing.
+- "Honest" describes the author, not the code. Write "measured", "unchecked" or "the reason". A measurement is enough; a confession is not a finding.
+- No hedges. "Should", "likely" and "probably" become a measurement or a question.
+- Do not explain the sentence you are about to write, or the one you just wrote. Delete the first sentence of a section if it only announces the section.
+
+Banned in new text: shape, surface, lane, load-bearing, battery, premise, clause, witness, residual, honest. They are our own metaphors, and a reader cannot look them up. Generic AI vocabulary is not the problem here: counting this repository on 2026-10-19 found none of it, so do not spend lines banning it.
+
+Defined once, used freely: **contract** (ENGINEERING.md §7, which a change must not contradict), **gate** (a check that fails the build), **row** (one line of the §7 table), **ceiling** (a measured upper bound on a named machine).
