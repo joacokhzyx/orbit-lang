@@ -1868,9 +1868,15 @@ fn generateRouteHandlerBody(func: IRFunction) -> string {
     body = body + "            int _orbit_lslot = orbit_ledger_enter(req->method, req->path);\n"
     body = body + "            OrbitResponse* res = " + sanitizeIdentifier(func.name) + "(arena, req);\n"
     body = body + "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls, arena);\n"
+    // A handler that returns no response is one that failed to build it: a
+    // route body cannot have answered already, because the router is the only
+    // sender. Answering 500 here, and logging the status actually sent, is the
+    // difference between an honest internal error and a 200 in the log for a
+    // socket nothing wrote to.
+    body = body + "            res = orbit_response_or_500(arena, res);\n"
     body = body + "            orbit_send_response(client_sock, res);\n"
     body = body + "#if ORBIT_LOGS_ACTIVE\n"
-    body = body + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 200), start);\n"
+    body = body + "            orbit_log_request_fmt(req->method, req->path, (res ? res->status : 500), start);\n"
     body = body + "#endif\n"
     body = body + "#if ORBIT_KYNX_ACTIVE\n"
     body = body + "            if (lease) orbit_kynx_lease_destroy(lease);\n"

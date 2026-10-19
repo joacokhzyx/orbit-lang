@@ -45,6 +45,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import socket
 import subprocess
@@ -904,9 +905,93 @@ def live_main(args):
         stop_server(proc)
         log.close()
 
+    # A route whose body answers nothing (ENGINEERING.md section 7): the
+    # emitter writes `return NULL` for an empty body, and the 500 it writes on
+    # the next line is code after a return, so what reaches the dispatch is a
+    # handler that could not build a response. Before the boundary the request
+    # was answered with an empty socket while the log said the branch's status.
+    # This route is the shortest way to reach it -- no lease, no allocation
+    # failure, just a body with no answer in it.
+    nul = args.port + 4
+    nul_log = work / "empty_route.log"
+    nul_src = work / "empty_route.orb"
+    nul_srv = work / ("empty_route" + suffix)
+    nul_src.write_text(
+        "// Written by kynx_gate live: a route body that answers nothing must be\n"
+        "// answered 500 and logged 500, not dropped and logged 200.\n"
+        "\n"
+        'route GET "/empty" { }\n'
+        "\n"
+        'route GET "/health" {\n'
+        '    return ok 200 "ok"\n'
+        "}\n",
+        encoding="utf-8")
+    build = subprocess.run(
+        [compiler, "build", str(nul_src), "-o", str(nul_srv)],
+        cwd=str(ROOT), env=env, capture_output=True, text=True)
+    sys.stdout.write(build.stdout)
+    sys.stderr.write(build.stderr)
+    if build.returncode != 0 or not nul_srv.exists():
+        print("Failed: the empty_route fixture did not build.", file=sys.stderr)
+        return 1
+
+    started = start_and_wait(nul_srv, [str(nul)], nul, nul_log)
+    if started is None:
+        print(f"Failed: the empty_route server never answered on port {nul} "
+              f"(log: empty_route.log).", file=sys.stderr)
+        return 1
+    proc, log = started
+    try:
+        status, _n_retry, _n_body = get(f"http://127.0.0.1:{nul}/empty")
+        if status != 500:
+            # get() reports a transport failure as the string "err:<reason>",
+            # which is this check's worst case: the route answered nothing at
+            # all. Both shapes have the same fix and must read as one failure.
+            why = ("closed the connection instead of answering"
+                   if isinstance(status, str) else f"was answered {status!r}")
+            print(f"Failed: a route that answers nothing {why}, and it must be "
+                  f"answered 500: a response this program could not build is an "
+                  f"internal error the client can see, not an empty socket "
+                  f"(log: empty_route.log).", file=sys.stderr)
+            return 1
+        # The status the client can see and the status in the log have to be
+        # the same number. The worker loop flushes once per pass, so the line
+        # lands just after the response; retry a bounded number of times
+        # instead of sleeping for a guess. Colour is stripped first: the
+        # service colourises its log whether or not stdout is a terminal.
+        ansi = re.compile(r"\x1b\[[0-9;]*m")
+        toks: list = []
+        for _ in range(50):
+            for candidate in nul_log.read_text(
+                    encoding="utf-8", errors="replace").splitlines():
+                parts = ansi.sub("", candidate).split()
+                if len(parts) >= 3 and parts[1] == "/empty":
+                    toks = parts
+                    break
+            if toks:
+                break
+            time.sleep(0.1)
+        if len(toks) < 3 or toks[2] != "500":
+            print(f"Failed: /empty was answered 500 and the log line for it reads "
+                  f"{' '.join(toks)!r}; the log has to report the status the "
+                  f"client received (log: empty_route.log).", file=sys.stderr)
+            return 1
+        health, _h_retry2, _h_body2 = get(f"http://127.0.0.1:{nul}/health")
+        if health != 200:
+            print(f"Failed: the empty_route server did not survive answering it: "
+                  f"/health answered {health!r} (log: empty_route.log).",
+                  file=sys.stderr)
+            return 1
+        print(f"empty route: answered {status} and logged "
+              f"{' '.join(toks[:3])!r}; /health still answered 200.")
+    finally:
+        stop_server(proc)
+        log.close()
+
     print("\nFinished kynx-gate: the route-limit burst answered as specified,"
-          " the declared port answered under both runs, and the request"
-          " boundary answered 503 without taking the service down.")
+          " the declared port answered under both runs, the request boundary"
+          " answered 503 without taking the service down, and a route that"
+          " answered nothing was answered and logged 500.")
     return 0
 
 

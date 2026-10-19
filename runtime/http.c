@@ -438,6 +438,23 @@ OrbitResponse* orbit_response_error(OrbitArena* arena, int status, const char* m
     return orbit_response_create(arena, status, "text/plain", message);
 }
 
+/** @brief Return @p resp, or a fresh 500 when @p resp is NULL.
+ *
+ * A NULL response is one this program failed to build, never one it already
+ * answered: the router holds no other reply. Every dispatch site sends what it
+ * built here, and reads the status it logs from the same pointer, so a build
+ * that returned NULL used to reach the client as nothing while the log said the
+ * status the code meant to send -- a 200 for a request that was answered with
+ * an empty socket.
+ *
+ * The 500 can fail too, when the arena is what failed. That is the caller's
+ * `res ? res->status : 500`, which is honest the only way it can be: nothing
+ * left the process, and 500 is what it should have been. */
+OrbitResponse* orbit_response_or_500(OrbitArena* arena, OrbitResponse* resp) {
+    if (resp) return resp;
+    return orbit_response_error(arena, 500, "500 Internal Server Error - the response could not be built");
+}
+
 /* â”€â”€ Send response to socket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /** @brief Append the decimal rendering of @p v (exact %d semantics, sign-safe) and return the new end. */
@@ -811,6 +828,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
     // â”€â”€ System Routes: Orbit Pulse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (req->path && strcmp(req->path, "/_pulse") == 0) {
         OrbitResponse* res = orbit_response_create(arena, 200, "text/html", ORBIT_PULSE_DASHBOARD_HTML);
+        res = orbit_response_or_500(arena, res);
         orbit_send_response(client_sock, res);
         orbit_perf_end_request(start);
         return keep_alive;
@@ -819,6 +837,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
     if (req->path && strcmp(req->path, "/_pulse/data") == 0) {
         orbit_string json = orbit_pulse_get_stats_json(arena);
         OrbitResponse* res = orbit_response_json(arena, 200, json);
+        res = orbit_response_or_500(arena, res);
         orbit_send_response(client_sock, res);
         orbit_perf_end_request(start);
         return keep_alive;
@@ -826,6 +845,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
 
     // â”€â”€ Application Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     OrbitResponse* res = orbit_response_create(arena, 404, "text/plain", "Not Found");
+    res = orbit_response_or_500(arena, res);
     orbit_send_response(client_sock, res);
 
     orbit_perf_end_request(start);

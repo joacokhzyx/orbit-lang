@@ -715,6 +715,7 @@ void orbit_response_add_headers(OrbitArena* arena, OrbitResponse* resp, const ch
 OrbitResponse* orbit_response_json(OrbitArena* arena, int status, const char* json);
 OrbitResponse* orbit_response_html(OrbitArena* arena, int status, const char* html);
 OrbitResponse* orbit_response_error(OrbitArena* arena, int status, const char* message);
+OrbitResponse* orbit_response_or_500(OrbitArena* arena, OrbitResponse* resp);
 const char* orbit_reason_phrase(int status);
 void orbit_send_response(orbit_socket_t client, OrbitResponse* resp);
 orbit_string orbit_http_header_get(OrbitArena* arena, OrbitRequest* req, orbit_string name);
