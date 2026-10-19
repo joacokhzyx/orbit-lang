@@ -336,12 +336,12 @@ twice walked straight into it. The read is now typed from the model the
 field reference names, which the builder had been writing down and the
 backend had been discarding.
 
-## `std/` is 14 modules, and 8 of the 20 it used to be are not coming back
+## `std/` is 19 modules; the six deleted ones are not coming back
 
-**14 modules, 14 of 14 compile and merge into one program.** Verified:
-`tests/std/test_imports.orb` imports all fourteen into a single binary and
-calls into each, and it passes. `tests/std/` is 22 files and runs
-22/22 green.
+**19 modules, and all 19 compile and merge into one program.** Verified:
+`tests/std/test_imports.orb` imports all nineteen into a single binary and
+calls into each, and it passes. `tests/std/` is 23 files and runs
+23/23 green.
 
 `std/` was 20 modules. **Six were deleted, and deleting them was the
 honest response**, because each was a function that returned a value and

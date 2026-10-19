@@ -465,12 +465,12 @@ and admission in `runtime/kynx.c`, persistence in `runtime/database.c`.
 
 | Path | Role |
 |---|---|
-| `std/` | Orbit standard library. 14 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `string/string.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `json/json.orb` |
-| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` (no generic unions) and `bitwise` (its operators landed; the module is pending repair and a `tests/std/` test) |
+| `std/` | Orbit standard library. 19 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `convert/codec.orb`, `string/string.orb`, `string/regex.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `sys/bytes/bitwise.orb`, `sys/http/client.orb`, `sys/random/random.orb`, `json/json.orb` |
+| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` alone (no generic unions); `bitwise` left on 2026-10-18 as `std/sys/bytes/bitwise.orb`, and the import-all imports it |
 | `lib/` | One module: `arena.orb`, a counted region and a bound, not an allocator. There is no socket API in the language or the runtime |
 
-`std/` holds **14 modules, 14 of 14** compiling and merging into one program,
-pinned by `tests/std/test_imports.orb`, which imports all fourteen into one
+`std/` holds **19 modules, 19 of 19** compiling and merging into one program,
+pinned by `tests/std/test_imports.orb`, which imports all nineteen into one
 program. `convert/convert.orb` owns the number-to-text bindings and
 `json/json.orb` provides the quoting helper for hand-built bodies. The
 invariant is one definition per program: when two modules need the same C
