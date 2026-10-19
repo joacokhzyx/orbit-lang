@@ -1,0 +1,20 @@
+// case: bare-ok-and-err-are-not-values
+// what: `ok` and `err` in value position -- `return err 500 "boom"` in a route,
+// and `val r = ok` in a function.
+//
+// docs/LANGUAGE_REFERENCE.md gives this grammar two statement shapes and no
+// third: `return ok [status] body`, a bare `err [code] message`, and `return
+// expr`. `return err ...` is not one of them, so the parser read `err` as an
+// ordinary name; `isProvidedName` silenced the undeclared-identifier report for
+// it, and the C backend hoisted an uninitialized `uintptr_t err` for the slot.
+// The route returned that slot and the code and message after it became
+// unreachable: it answered nothing, and the router logged 200 for it.
+route GET "/x" {
+    return err 500 "boom"
+}
+
+fn f() -> result {
+    val r = ok
+    return r
+}
+// expect-error: 'err' is not a value

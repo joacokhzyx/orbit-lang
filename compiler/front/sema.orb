@@ -3451,6 +3451,23 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         val first = l.text.slice(0, 1)
                         if first >= "A" && first <= "Z" { return l.text }
                     }
+                    // `ok` and `err` are statements, not values, and they are
+                    // the pair `isProvidedName` must not silence: a bare one
+                    // resolves to nothing, so the backend hoisted an
+                    // uninitialized slot for it and `return err 500 "boom"`
+                    // returned that slot, leaving the code and the message
+                    // unreachable -- the route answered nothing and the router
+                    // logged 200 for it. The rest of the provided names are
+                    // method and builtin names, which are called; these two are
+                    // the only ones the grammar gives a statement form to.
+                    if l.text == "ok" {
+                        reportError(sema, "'ok' is not a value: it starts a response. Write 'return ok <status> <body>' in a route, or 'ok(value)' inside a '-> result' function.")
+                        return "unknown"
+                    }
+                    if l.text == "err" {
+                        reportError(sema, "'err' is not a value: it starts an error response. Write 'err <code> <message>' as a statement, or 'err(\"message\", code)' inside a '-> result' function.")
+                        return "unknown"
+                    }
                     if !isProvidedName(l.text) {
                         recordMiss(sema, "name", l.text)
                         reportError(sema, "Undeclared identifier: " + l.text + "; nothing in scope declares it")
