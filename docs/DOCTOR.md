@@ -48,7 +48,7 @@ action`, with the location bolded, the severity red/yellow and the
 code cyan when colors are on. Paths print relative to the scanned
 directory when possible. Colors follow `--color always|never|auto`
 (`auto` honors `NO_COLOR` and `TERM`, and stays plain on consoles
-that do not advertise themselves); `--format json` never colors.
+that do not advertise themselves). `--format json` never colors.
 
 Exit codes: `0` means clean, `1` means there are findings, `2` means the arguments were not understood.
 
@@ -72,9 +72,9 @@ app.orb:12 [D002] route GET /users/:id collides with app.orb:8 (GET /users/{id})
 | `D009` | A string literal that looks like a hardcoded credential (`sk-`, `ghp_`, `AKIA`, `-----BEGIN`, `password=`, `secret=`, `token=`, `apikey=`). **The value is never printed**, only the matched prefix: a diagnostic that quoted the string would copy the credential into CI logs and every terminal that ran the tool. A literal must have real content after the prefix, so the check does not flag its own prefix table. |
 | `D010` | A SQL statement (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `DROP`) built by string interpolation. A keyword alone is not a finding, and only the closing line is inspected, so this under-reports rather than guessing. |
 | `D011` | A `POST`/`PUT`/`PATCH`/`DELETE` route that returns without a role guard or a request validation block. Reads the runtime's own guard vocabulary (`orbit_auth_*`, `req.body`, an early-returning `if`), so a route guarded through a helper is not reported -- it under-reports rather than guess. |
-| `D012` | An import whose module is named nowhere, directly or through what that module itself imports. The transitive part is load-bearing: without it, removing the flagged imports from `std/io/io.orb` broke both files at the very next build. |
+| `D012` | An import whose module is named nowhere, directly or through what that module itself imports. The transitive part is the rule the check depends on. Without it, removing the flagged imports from `std/io/io.orb` broke both files at the very next build. |
 | `D014` | A database query inside a loop: one round trip per iteration where one per request was meant. |
-| `D015` | A **string** built by `+` inside a loop over a collection, so the whole prefix is copied every iteration. It requires the accumulator to be known to be a string -- `sum = sum + items.get(i)` over ints is the same shape and costs nothing, and reporting it put 32 findings into `std/` and `tests/suite/`. Advisory: the scope gate prints it and does not fail on it, because a test whose purpose is to assert `joined` produces `"red,blue,"` cannot also be told to stop concatenating. |
+| `D015` | A **string** built by `+` inside a loop over a collection, so the whole prefix is copied every iteration. It requires the accumulator to be known to be a string -- `sum = sum + items.get(i)` over ints is the same pattern and costs nothing, and reporting it put 32 findings into `std/` and `tests/suite/`. Advisory: the scope gate prints it and does not fail on it, because a test whose purpose is to assert `joined` produces `"red,blue,"` cannot also be told to stop concatenating. |
 | `D016` | A bare number of three or more digits that appears twice in a file under a name that says nothing about what it is. Keyed on the NUMBER, not on number-and-name: the same timeout written under two vague names is one constant hiding in two places. |
 | `D017` | Cyclomatic complexity: base 1 plus one per `if`, `while`, `for`, match arm and `try`. 11-20 is a warning, over 20 is an error. Advisory in the scope gate, because a test whose `main` asserts fifteen behaviours IS complexity 20 and the advice would be about the test. |
 | `D019` | An allocation inside a loop, so it is repeated on every iteration. Matches the runtime's allocating constructors by name. An empty list literal is exempt: `var acc = []` inside a loop is how an accumulator is written, and hoisting it would be wrong. |
@@ -127,7 +127,7 @@ Every fix goes through one engine, and that engine holds three promises:
   `--fast`. The result is only written if both pass.
 
 `--unsafe` extends `--fix` to fixes marked `unsafe` (structural ones). No
-check emits those yet; the flag exists so that the day one does, the safe path
+check emits those yet. The flag exists so that the day one does, the safe path
 is the default rather than the other way round. `--dry-run` reports the fix
 and its verification without writing anything.
 
@@ -170,7 +170,7 @@ ORBIT_DOCTOR_CACHE=0 orbit doctor .          # do not use or write the cache
 ORBIT_DOCTOR_CACHE=/tmp/mycache orbit doctor .
 ```
 
-The first run on a fresh clone pays for every file; later runs on the same tree
+The first run on a fresh clone pays for every file. Later runs on the same tree
 do not. One consequence is worth knowing: a cached answer does not reprint the
 compiler's diagnostic, so that finding points you at `orbit check <file>` for
 the detail instead of showing it above the line.
@@ -216,7 +216,7 @@ latency histogram, the arena footprint of the route's requests, and an energy
 estimate. Until now it was reachable only at
 `/_ledger/data`, on loopback, over HTTP -- which means a static tool could not
 read it. It would have to start a server, drive traffic through it and know when
-to stop, and the interesting cases only exist *after* the service has been up: "this
+to stop. The interesting cases only exist *after* the service has been up: "this
 route has never been requested" is not knowable from a fresh process.
 
 Set one environment variable and the service writes the same JSON to a file at
@@ -239,7 +239,7 @@ hook, the rename, and the opt-in default.
 | `D032` | A route whose **arena overflowed** -- `arena_overflow` non-zero in the snapshot: requests that needed more arena than the segment reserved, so the allocator chained another. Counted per request from the arena in `orbit_ledger_exit`, so this is a leak counted in production, not inferred from reading allocations. The column is real but narrow: the default Kynx lease caps a request at 16 MB (`orbit_kynx_lease_create_for_route`, `runtime/kynx.c:996`), below the arena's 64 MB reservation, so an admitted request cannot chain a segment and this check is structurally silent under the default policy. It fires where the lease does not bind -- `ORBIT_KYNX=0` or a budget above the reservation. |
 | `D033` | A route whose **measured p99 exceeds the budget** in `ENGINEERING.md`. The budget is a claim about production and this is production disagreeing with it. |
 
-These read a snapshot; they are silent without one, which is not "assume the
+These read a snapshot. They are silent without one, which is not "assume the
 best" but "a check that reports production problems with no production data is
 guessing, and a guess here cannot be acted on or refuted".
 

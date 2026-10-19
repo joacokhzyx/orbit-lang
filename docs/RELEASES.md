@@ -1,6 +1,6 @@
 # Release Artifacts
 
-Releases publish a fixed-point compiler and the source you need to verify its trust root. The workflow lives in `.github/workflows/release.yml`. If verification fails, the release fails - I don't publish what I can't reproduce.
+Releases publish a fixed-point compiler and the source you need to verify its trust root. The workflow lives in `.github/workflows/release.yml`. If verification fails, the release fails: nothing is published that cannot be reproduced.
 
 ## Published Platforms
 
@@ -51,7 +51,7 @@ refreshes the release contract before emitting the platform compiler.
 
 `installer/orbit.iss` is the Inno Setup source. CI compiles it on tag after
 the seed chain passes (`iscc /DOrbitVersion=<tag-v-stripped>
-installer\orbit.iss`); validate locally with
+installer\orbit.iss`). Validate locally with
 `iscc /DOrbitVersion=0.0.0-dev installer\orbit.iss` against a `dist/`
 holding `orbit-windows-x86_64.exe`. Verified end to end on 2026-10-12:
 silent per-user install, `orbit --version` on PATH, `.orb` association +
@@ -66,7 +66,7 @@ orbit.exe  orbit.ico  LICENSE.txt  std\  runtime\
 
 The install trap below applies to the raw `orbit-windows-x86_64.exe`
 download, not to a wizard install: the wizard is what closes it. `ovm`
-(Orbit Version Manager) will own upgrades later; there is intentionally no
+(Orbit Version Manager) will own upgrades later. There is intentionally no
 `orbit install` command.
 
 ## The raw binary does not ship `std/`, so the verification has to prove it knows that
@@ -92,7 +92,7 @@ printf 'import "std/string/string.orb"\nfn main() -> int { return 0 }\n' > /tmp/
 "$FP" --version                          # must succeed
 ```
 
-`check` needs no C compiler; `build` does, and `build` additionally requires a
+`check` needs no C compiler. `build` does, and `build` additionally requires a
 `runtime/` directory in the working directory, because the generated C is
 compiled with the relative include path `-I"runtime"`. Both facts are
 assumptions about the filesystem that only a user outside the repository hits,

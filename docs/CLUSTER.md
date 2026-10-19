@@ -9,7 +9,7 @@ one host is out of scope for v1.
 ## Commands
 
 All commands run from the directory that holds the service file. State is
-kept in `.orbit/cluster.json` (git-ignored); logs default to
+kept in `.orbit/cluster.json` (git-ignored). Logs default to
 `.orbit/logs/node-<id>.log`.
 
 ```
@@ -22,7 +22,7 @@ orbit cluster logs <node>
 ```
 
 `--quiet` leaves errors (and the `status`/`logs` payloads) but silences
-progress lines; `--verbose` echoes spawned node commands.
+progress lines. `--verbose` echoes spawned node commands.
 
 `up` compiles the service exactly once (via the existing
 `compileSourceWithFile` path) to `.orbit/cluster-service` (plus `.exe` on
@@ -34,7 +34,7 @@ ports. `up` refuses when `.orbit/cluster.json` already exists. Defaults:
 
 `status` prints one line per node: id, port, pid, `alive` or `dead`, plus a
 `draining` flag when set. Exit 0 when the state file is readable, even if
-some nodes are dead; exit 1 when there is no state file.
+some nodes are dead. Exit 1 when there is no state file.
 
 `drain <node>` records the node as draining and sends a graceful stop. The
 generated server stops accepting new connections on SIGTERM and exits after
@@ -42,9 +42,10 @@ in-flight requests complete. Drained nodes are not restarted and are skipped
 by `restart --rolling`. There is no respawn: once the process exits it stays
 down until a `restart --rolling` (which replaces it) or a new `up`.
 
-`restart --rolling` walks nodes in id order: graceful stop, wait for exit
-(up to 10 s, then SIGKILL and 5 s more), start a replacement on the same
-port with the same log file (appended), verify health, then move to the next
+`restart --rolling` walks nodes in id order. For each node it sends a graceful
+stop, then waits for exit
+(up to 10 s, then SIGKILL and 5 s more). It starts a replacement on the same
+port with the same log file (appended), verifies health, then moves to the next
 node. On any failure it aborts immediately and leaves remaining nodes
 untouched. Draining nodes are skipped.
 
@@ -54,7 +55,7 @@ Exit 1 if any pid is still alive or the state file could not be removed.
 `down` with no state file is a no-op that exits 0. Log files are kept.
 
 `logs <node>` prints the node's log file. It works after `down` (logs are
-kept; the log directory falls back to `.orbit/logs` when no state file
+kept. The log directory falls back to `.orbit/logs` when no state file
 exists).
 
 Exit codes: 0 success, 1 operational failure (compile/spawn/health/kill
@@ -71,10 +72,10 @@ example:
 ```
 
 The layout is internal, not a public API. Do not hand-edit it while nodes
-are running. `port_base` records the base port; `draining` lists node ids
+are running. `port_base` records the base port. `draining` lists node ids
 with a pending graceful stop. `service` is stored as an absolute path so a
 node can never resolve to a stale same-named binary through the OS
-executable search order; the compiler likewise resolves its `runtime/`
+executable search order. The compiler likewise resolves its `runtime/`
 headers from its own location, so `up` works from any working directory
 inside a source checkout.
 
@@ -84,7 +85,7 @@ Health is process liveness only: pid present in the OS process table. No
 HTTP check is performed. Rationale: the `fetch()` builtin seen in examples
 is a route-handler builtin whose runtime implementation is a stub returning
 fixed mock JSON (`runtime/builtins.c`), so it cannot verify a listening
-port; it is also unavailable to plain programs such as the compiler itself.
+port. It is also unavailable to plain programs such as the compiler itself.
 `up` and `restart --rolling` treat a node as healthy when its pid probes
 alive immediately and still probes alive after a 2-second settle delay.
 A node that crashes on startup (for example a port already in use, which
@@ -105,10 +106,10 @@ runtime functions instead:
   the standard handles on the log file (append mode, so restarts keep
   history). Returns the child pid, or -1 on failure.
 - `orbit_os_kill(pid, mode) -> int`: mode 0 is forceful (SIGKILL /
-  `TerminateProcess`), mode 1 is graceful (SIGTERM / `TerminateProcess`),
-  mode 2 probes only (`kill(pid, 0)` with a `waitpid` reap check for own
+  `TerminateProcess`), and mode 1 is graceful (SIGTERM / `TerminateProcess`).
+  Mode 2 probes only: `kill(pid, 0)` with a `waitpid` reap check for own
   exited children so a just-crashed node reads as dead rather than as a
-  lingering zombie; `OpenProcess` + `WaitForSingleObject(0)` on Windows).
+  lingering zombie. On Windows it is `OpenProcess` + `WaitForSingleObject(0)`.
   Returns 1 on success (probe: alive), 0 on failure (probe: dead/absent).
 
 Both follow the established extern pattern: declaration in
@@ -126,7 +127,7 @@ does not run: connections drop and in-flight requests are lost. The Windows
 console handler only fires for console Ctrl events, which a detached
 process never receives, so there is no graceful path on Windows in v1.
 `drain` and the graceful phase of `restart`/`down` are therefore best-effort
-stops on Windows; the commands still report per-node outcomes honestly.
+stops on Windows. The commands still report what happened on each node.
 
 Polling sleeps use `sleep 1` on POSIX and `timeout /T 1` on Windows via the
 existing exec path (the compiler binary is built with `ORBIT_WITH_EXEC`).
@@ -138,7 +139,7 @@ Directory creation uses `mkdir -p` / `mkdir`.
   until `down` removes the state.
 - No supervisor: crashed nodes stay down until `restart --rolling`.
 - Concurrent `up` invocations share the compiler's single intermediate C
-  file (`orbit_selfhost_build.c`); do not run two at once.
-- Node ids are dense from 0; `drain`/`logs` accept only recorded ids.
-- Ports are checked for range (1..65535) but not pre-scanned; a conflict
-  surfaces as a failed health check with the bind error in the node log.
+  file (`orbit_selfhost_build.c`). Do not run two at once.
+- Node ids are dense from 0. `drain`/`logs` accept only recorded ids.
+- Ports are checked for range (1..65535) but not pre-scanned. A conflict
+  shows up as a failed health check with the bind error in the node log.
