@@ -28,6 +28,10 @@ Usage:
     python scripts/alive_check.py [--compiler PATH] [--cc CC] [--quick]
                                   [--only NAME]... [--list] [--self-test] [--witness RUNLOG]
 
+`--only` narrows which rows RUN; it is not a coverage mode. The D8 coverage
+assertion at the end still reads the whole registry, because the invariant it
+checks -- one row per file in scripts/ -- is a property of the tree, not of a
+run.
 `--quick` runs only the checks marked cheap (the ones that need no compile).
 `--self-test` feeds the checker deliberately broken tools and asserts that each
 failure class is caught, which is the only way to know a gate can fail.
@@ -916,7 +920,7 @@ def self_test():
          ["hung"]),
     ]
     passed = 0
-    total = len(cases) + 3
+    total = len(cases) + 4
     for name, src, marker, allow_rc, timeout, wants in cases:
         tool = Tool("synthetic", "gate", "self-test", lambda s=src: py(s), marker,
                     timeout=timeout, allow_rc=allow_rc)
@@ -950,6 +954,28 @@ def self_test():
         print("  ok    %-42s -> no dangling repo paths" % "shell_checks on a real script")
     else:
         out.fail("  WRONG shell_checks on install.sh: %s" % "; ".join(problems))
+    # Flag handling: --only used to rebind the registry before the D8 coverage
+    # assertion, so every filtered run listed every other script in scripts/ as
+    # "no gate and no row" and exited 1. Nothing above drives main()'s flags --
+    # check() and the *_checks() helpers are the units -- so this guard is end
+    # to end: one compiler-free row selected must still leave coverage reading
+    # the whole registry. Asserted on the coverage verdict and not on the exit
+    # code, because an unrelated unregistered script is the D8 gate's finding
+    # and must not be reported twice.
+    proc = subprocess.run(
+        [sys.executable, os.path.join(SCRIPTS, "alive_check.py"),
+         "--only", "schema_conformance.py"],
+        cwd=ROOT, capture_output=True, text=True, errors="replace", timeout=600)
+    blob = (proc.stdout or "") + (proc.stderr or "")
+    if "all gated, rowed or exempted" in blob and "Failed coverage" not in blob:
+        passed += 1
+        print("  ok    %-42s -> coverage still reads the whole registry"
+              % "--only does not narrow coverage")
+    else:
+        tail = blob.strip().splitlines()
+        out.fail("  WRONG %-39s -> rc=%d, no coverage verdict%s"
+                 % ("--only narrowed the coverage registry", proc.returncode,
+                    (": " + tail[-1][:60]) if tail else " (no output)"))
     out.finish("aliveness self-test", passed, total)
     return 0 if passed == total else 1
 
@@ -968,7 +994,9 @@ def main():
     ap.add_argument("--quick", action="store_true",
                     help="only the checks that need no compile")
     ap.add_argument("--only", action="append", default=None,
-                    help="run only this tool (repeatable)")
+                    help="run only this tool (repeatable); this narrows which "
+                         "rows execute and leaves the D8 coverage assertion "
+                         "reading the whole registry")
     ap.add_argument("--workers", type=int, default=None,
                     help="registry rows to run at once (default: up to 4; "
                          "1 runs them one by one)")
@@ -995,10 +1023,18 @@ def main():
     ctx = {"cc": args.cc, "ccache": ctx_cache()}
 
     tools = registry(args.compiler, args.cc, work)
+    # --only narrows which rows EXECUTE. It must not rebind `tools`, because the
+    # D8 coverage assertion at the bottom of this function reads `tools` to
+    # decide whether the registry accounts for every file in scripts/. Rebinding
+    # it here made every --only run report every other script as "no gate and no
+    # row": a false positive, and worse, a way to make the coverage check go
+    # quiet by selecting a subset. --quick already had the right shape -- it
+    # narrows `runnable` below and leaves the registry alone.
+    selected = tools
     if args.only:
         wanted = set(args.only)
-        tools = [t for t in tools if t.name in wanted]
-        if not tools:
+        selected = [t for t in tools if t.name in wanted]
+        if not selected:
             out.fail("Failed aliveness: no tool matched %s" % ", ".join(sorted(wanted)))
             return 1
 
@@ -1026,7 +1062,7 @@ def main():
         return 2
 
     runnable = []
-    for tool in tools:
+    for tool in selected:
         label = "%-28s %-12s" % (tool.name, tool.kind)
         if witness_active and tool.witness is not None:
             # Witness mode: the verification is a runlog grep, so it is cheap
