@@ -129,6 +129,8 @@ The request path is one private arena per worker thread instead. `orbit_worker_l
 
 So the mechanism that serves requests is `orbit_arena_create` + `orbit_arena_reset` on the worker's own arena, not the pool. Treat the pool as available infrastructure (hand-written C can acquire from it), in the same spirit as `orbit_arena_checkpoint`/`rewind`: real, usable, and outside the generated server's request path.
 
+One arena is process-wide rather than per thread: the fallback `orbit_arena_get_global` answers when a helper is handed no arena (128 KB committed inside a 64 MB reservation). It is created on the first call, once, under a lock - a first call from several threads yields one arena rather than one per caller, which is what `test_global_fallback_singleton_is_created_once` in `runtime/test_arena.c` gates. `docs/PERF.md` records why its bytes are counted by nobody; generated code reaches it at all only through C Orbit does not emit.
+
 ---
 
 ## What "epoch" means in practice, and what `lib/arena.orb` is not

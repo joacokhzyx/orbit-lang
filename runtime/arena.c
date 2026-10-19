@@ -764,15 +764,52 @@ int orbit_arena_overflowed(const OrbitArena* arena) {
     return (arena && arena->overflow_list != NULL) ? 1 : 0;
 }
 
-static OrbitArena* g_orbit_global_fallback_arena = NULL;
+static OrbitArena* volatile g_orbit_global_fallback_arena = NULL;
+
+/* The first call is a race: several threads can read the pointer above as NULL
+ * before any of them has published an arena. The shape without this lock
+ * (check, create, assign) then created one arena per racing caller and leaked
+ * every one but the last -- they became unreachable when the loser's pointer
+ * was overwritten in the global. Only the create is guarded, so a call site
+ * that finds the arena already there never takes the lock. */
+#ifdef _WIN32
+static volatile LONG g_orbit_global_fallback_lock = 0;
+
+static void orbit_global_fallback_lock_acquire(void) {
+    while (InterlockedCompareExchange(&g_orbit_global_fallback_lock, 1, 0) != 0) {
+        YieldProcessor();
+    }
+}
+
+static void orbit_global_fallback_lock_release(void) {
+    InterlockedExchange(&g_orbit_global_fallback_lock, 0);
+}
+#else
+static volatile int g_orbit_global_fallback_lock = 0;
+
+static void orbit_global_fallback_lock_acquire(void) {
+    while (!__sync_bool_compare_and_swap(&g_orbit_global_fallback_lock, 0, 1)) {
+    }
+}
+
+static void orbit_global_fallback_lock_release(void) {
+    __sync_lock_release(&g_orbit_global_fallback_lock);
+}
+#endif
 
 OrbitArena* orbit_arena_get_global(void) {
+    OrbitArena* arena = g_orbit_global_fallback_arena;
+    if (arena) return arena;
+
+    orbit_global_fallback_lock_acquire();
     if (!g_orbit_global_fallback_arena) {
         /* A worker commits this much and grows on demand; the 64 MB default
          * belongs in the reservation, not in the first call's commit charge. */
         g_orbit_global_fallback_arena = orbit_arena_create(131072);
     }
-    return g_orbit_global_fallback_arena;
+    arena = g_orbit_global_fallback_arena;
+    orbit_global_fallback_lock_release();
+    return arena;
 }
 
 #endif

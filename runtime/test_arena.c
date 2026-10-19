@@ -4,6 +4,11 @@
 #include <assert.h>
 #include <stdint.h>
 
+#ifndef _WIN32
+#include <pthread.h>
+#include <sched.h>
+#endif
+
 #include "runtime.h"
 
 // Define a test runner framework
@@ -381,7 +386,98 @@ static void test_cross_request_concurrent_isolation(void) {
     orbit_arena_pool_cleanup();
 }
 
-// 28. Hot retention follows the request footprint, not a fixed 256 KB
+// 28. The process-wide fallback singleton: one arena across a first-call race
+/* orbit_arena_get_global is what a runtime helper reaches when it was handed
+ * no arena, and its first call is the only instant at which more than one
+ * arena can be created. A start gate holds eight threads until every one of
+ * them is at the call, so they enter the create together; the property
+ * asserted is the guarantee -- every caller sees the same arena -- because a
+ * second arena would answer a different pointer to its creator. This test is
+ * first in `main` on purpose: once anything in the process has called it, the
+ * singleton exists and there is no first call left to race. */
+#define GLOBAL_RACE_THREADS 8
+
+typedef struct {
+    volatile int* arrived;
+    volatile int* release;
+    OrbitArena* got;
+} GlobalRaceArgs;
+
+static void global_race_yield(void) {
+#ifdef _WIN32
+    Sleep(0);
+#else
+    sched_yield();
+#endif
+}
+
+#ifdef _WIN32
+static DWORD WINAPI global_race_worker(LPVOID arg) {
+#else
+static void* global_race_worker(void* arg) {
+#endif
+    GlobalRaceArgs* a = (GlobalRaceArgs*)arg;
+#ifdef _WIN32
+    InterlockedIncrement((volatile LONG*)a->arrived);
+#else
+    __sync_fetch_and_add((volatile int*)a->arrived, 1);
+#endif
+    while (!*a->release) global_race_yield();
+    a->got = orbit_arena_get_global();
+    return 0;
+}
+
+static void test_global_fallback_singleton_is_created_once(void) {
+    volatile int arrived = 0;
+    volatile int release = 0;
+    GlobalRaceArgs args[GLOBAL_RACE_THREADS];
+
+    /* A pass here would be vacuous if the arena already existed, so say so
+     * instead of letting a green line mean nothing. */
+    assert(g_orbit_global_fallback_arena == NULL);
+
+    for (int i = 0; i < GLOBAL_RACE_THREADS; i++) {
+        args[i].arrived = &arrived;
+        args[i].release = &release;
+        args[i].got = NULL;
+    }
+
+#ifdef _WIN32
+    HANDLE threads[GLOBAL_RACE_THREADS];
+    for (int i = 0; i < GLOBAL_RACE_THREADS; i++) {
+        threads[i] = CreateThread(NULL, 0, global_race_worker, &args[i], 0, NULL);
+        assert(threads[i] != NULL);
+    }
+#else
+    pthread_t threads[GLOBAL_RACE_THREADS];
+    for (int i = 0; i < GLOBAL_RACE_THREADS; i++) {
+        assert(pthread_create(&threads[i], NULL, global_race_worker, &args[i]) == 0);
+    }
+#endif
+
+    while (arrived < GLOBAL_RACE_THREADS) global_race_yield();
+    release = 1;
+
+#ifdef _WIN32
+    for (int i = 0; i < GLOBAL_RACE_THREADS; i++) {
+        WaitForSingleObject(threads[i], INFINITE);
+        CloseHandle(threads[i]);
+    }
+#else
+    for (int i = 0; i < GLOBAL_RACE_THREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+#endif
+
+    for (int i = 0; i < GLOBAL_RACE_THREADS; i++) {
+        assert(args[i].got != NULL);
+        assert(args[i].got == args[0].got);
+    }
+    assert(orbit_arena_get_global() == args[0].got);
+    assert(args[0].got->base != NULL);
+}
+
+// 29. Hot retention follows the request footprint, not a fixed 256 KB
 static void test_hot_retention_follows_footprint(void) {
     OrbitArena* arena = orbit_arena_create(65536);
     size_t page = arena->page_size;
@@ -423,7 +519,11 @@ int main(void) {
     
     // Initialize global performance stats so telemetry increments don't crash
     memset(&orbit_perf_stats, 0, sizeof(OrbitPerfStats));
-    
+
+    /* First, because the singleton it races exists from its first successful
+     * call onward and nothing before this line has made one. */
+    RUN_TEST(test_global_fallback_singleton_is_created_once);
+
     RUN_TEST(test_create_destroy);
     RUN_TEST(test_alignment_sizes);
     RUN_TEST(test_struct_alignments);
@@ -446,6 +546,6 @@ int main(void) {
     RUN_TEST(test_cross_request_concurrent_isolation);
     RUN_TEST(test_hot_retention_follows_footprint);
     
-    printf("All 28 mandatory Orbit Arena runtime tests PASSED successfully!\n");
+    printf("All 22 mandatory Orbit Arena runtime tests PASSED successfully!\n");
     return 0;
 }
