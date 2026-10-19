@@ -100,8 +100,10 @@ service.orb` - single host only, no failover. Verified walkthrough:
 
 **15. How do I know it's healthy?**
 `GET /health` if you write one, process liveness via
-`cluster status`, and live counters at `/metrics` and
-`/_ledger/data`. There are no built-in alerts or dashboards.
+`cluster status`, and the built-in request ledger at `/_ledger`
+(JSON at `/_ledger/data`, loopback only). A `/metrics` endpoint is
+yours to write - `examples/health_service.orb` is one. There are no
+built-in alerts or dashboards.
 
 ## Measuring
 

@@ -50,8 +50,6 @@ The runner reports the number of successful programs and fails when a program ca
 
 The current behavior suite does not yet provide dedicated executable coverage for:
 
-- imports and module resolution;
-- `catch` blocks for `Result` errors;
 - HTTP routes and request access;
 - database operations and migrations;
 - authentication and authorization;
