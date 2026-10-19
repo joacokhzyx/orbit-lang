@@ -105,11 +105,10 @@ generic function has no one signature until a call fixes its parameters, so
 only calling it is allowed; `main` is the entry point, not a value.
 
 The request arena travels as the first parameter of every emitted C function
-and never appears in an Orbit signature, so it changes no arity above. It does
-make `arena` a name of its own in the emitted C: a parameter or a local spelled
-that way collides with the injected one instead of being renamed, and the C
-compiler refuses the build (ENGINEERING.md section 7,
-`arena-param-name-collision`).
+and never appears in an Orbit signature, so it changes no arity above. `arena`
+is the one name that parameter takes, so declaring a value of that name is
+refused: `fn helper(arena: int)` and `val arena = 7` are both errors, and the
+diagnostic says which name to pick instead.
 
 ```orbit
 fn inc(x: int) -> int {

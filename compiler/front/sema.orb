@@ -1003,6 +1003,21 @@ fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, is
 }
 
 fn declareSymbolWithParams(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool, paramTypes: list) {
+    // The C backend opens every function it emits with an `OrbitArena* arena`
+    // parameter, so this name is already taken in the generated C: `fn f(arena:
+    // int)` emitted `orbit_int f(OrbitArena* arena, orbit_int arena)` and the C
+    // compiler refused it (`conflicting types`), while `val arena = 7` emitted
+    // `arena = (orbit_int)(uintptr_t)(7)`, an assignment to the injected
+    // parameter, so every later allocation in that function ran through a
+    // clobbered pointer. `orbit check` accepted both, because the arena is not
+    // part of an Orbit signature and the name exists only after emission. The
+    // other fix is to mangle the backend's own parameter, which is a
+    // scope-aware rename of every identifier the backend emits; reserving the
+    // name is the one the language can make honestly today.
+    if name == "arena" {
+        reportError(sema, "Cannot declare 'arena': every function this compiler emits already takes an OrbitArena* arena, so the generated C would declare it twice. Rename it - 'region' and 'pool' read the same.")
+        return
+    }
     val scope = sema.scopes.get(sema.currentScope)
     var i = 0
     while i < scope.symbols.len() {

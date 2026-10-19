@@ -1,0 +1,13 @@
+// case: arena-parameter-is-refused
+// what: the same name in a parameter list is refused at the C step rather than
+//      silently: `fn f(arena: int)` emitted `orbit_int f(OrbitArena* arena,
+//      orbit_int arena)`, which the C compiler rejected with `conflicting
+//      types for 'arena'`. The diagnostic is the same one the local gets.
+// expect-error: Cannot declare 'arena'
+fn helper(arena: int) -> int {
+    return 1
+}
+
+fn main() -> int {
+    return 0
+}

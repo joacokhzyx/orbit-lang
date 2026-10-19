@@ -1,0 +1,11 @@
+// case: arena-is-the-compilers-own-name
+// what: the C backend opens every function it emits with an `OrbitArena* arena`
+//      parameter, so a local of that name is not a local: `val arena = 7`
+//      emitted `arena = (orbit_int)(uintptr_t)(7)`, an assignment to the
+//      injected parameter, and every allocation after it in that function ran
+//      through a clobbered pointer. `orbit check` accepted it.
+// expect-error: Cannot declare 'arena'
+fn main() -> int {
+    val arena = 7
+    return 0
+}
