@@ -608,8 +608,8 @@ moved by about a second in both. Nine others (`runtime_c`, `shard_split`,
 change, so it was measured on its own -- 20 s and 17 s with the wrapper, 19 s
 without it, and **0** cache entries added, i.e. its compilations either hit or
 never reach the wrapper. What the aggregate does establish is the thing it is
-good for: `all` stays green with the wrapper wired into it, 21 gates, three
-runs.
+good for: `all` stays green with the wrapper wired into it, 21 gates then and 23
+today, three runs.
 
 A cold cache is the one run that pays without gaining: the hashing is charged
 and no entry is reused. On this box that charge is inside the spread of the

@@ -143,18 +143,31 @@ them.
 Recorded because these were open once and are green now, and a red herring
 costs a whole session.
 
-**The `0xC0000005` in `runtime/test_migrations.c` is fixed.** Root cause:
-`runtime/database.c` discarded the return value of `sqlite3_open` and guarded
-on the handle with `if (orbit_db_conn)`. SQLite returns a non-NULL handle even
-when the open fails, so every statement in `orbit_db_init` ran against a
-database that was never opened. The return code is now checked, the handle is
-closed and left NULL, and a failure prints the path and SQLite's own message to
-stderr. `Runtime C and auth` is green on both platforms.
+**The `0xC0000005` in `runtime/test_migrations.c` has not recurred, and its
+mechanism is not proven.** One real defect on that path is fixed:
+`runtime/database.c` discarded the return value of `sqlite3_open` and guarded on
+the handle with `if (orbit_db_conn)`. SQLite returns a non-NULL handle even when
+the open fails, so every statement in `orbit_db_init` ran against a database
+that was never opened. The return code is now checked, the handle is closed and
+left NULL, and a failure prints the path and SQLite's own message to stderr.
+That is a plausible mechanism for a fault whose `ExceptionAddress` was exactly
+`0x0000000000000000` -- the only function pointer taken on that path is
+`sqlite3_progress_handler(..., orbit_sqlite_progress_handler, ...)` in
+`orbit_db_init` -- and plausible is not proven: the crash never reproduced, so
+what the fix buys is that a recurrence names whether it got past the open.
+`ENGINEERING.md` section 7's `gate-sequence` item (6) is the contract here and
+says the same thing; this paragraph said "is fixed" and named a root cause, and
+the weaker reading is the measured one. `Runtime C and auth` is green on both
+platforms, and on a Windows development machine `runtime_c` ran 20/20 with
+`migrations ok` among them.
 
 **The runtime C tests run on Windows**: the whole `scripts/runtime_c_tests.py`
-table (twenty programs; nineteen here, because `test_oom` needs fork/waitpid),
-including the one compiled with `-Wall` and not `-w` because MSVC is the only
-toolchain here that calls `strncat` unsafe.
+table (twenty-one programs; twenty here, because `test_oom` needs fork/waitpid),
+which is what the workflow calls instead of holding the programs' include paths,
+`-D` flags and link flags itself. One of them, `test_float_format`, is compiled
+with `-Wall` and not `-w` on purpose: the line it covers was a `strncat` in
+`orbit_float_to_string`, and MSVC is the only toolchain here that calls `strncat`
+unsafe.
 
 ---
 
@@ -228,9 +241,11 @@ Worth reading once, because the fix is the reason you can read this page at
 all. In GitHub Actions a failing `run:` aborts its step and skips every step
 after it. In a single twenty-four-step job that makes the step order the
 coverage policy — and one order was chosen by where a block happened to sit in
-the file. The workflow is now five independent jobs with no `needs:` between
-them, and CI calls `make all && make report`, so the sequence has one executable
-form instead of three that had already drifted apart.
+the file. The workflow is now seven independent jobs with no `needs:` between
+them (`bootstrap`, `gates`, `static`, `runtime-c`, `tcc-shim`, `dual-triangle`,
+`stress-gate`; the split started with five on 2026-10-09), and CI calls
+`make all && make report`, so the sequence has one executable form instead of
+three that had already drifted apart.
 
 The same shape bit the Kynx gate from the inside: a phase that could not run
 could not report, and the record written from that run was wrong in three
