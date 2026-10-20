@@ -27,7 +27,7 @@ This document describes measured behavior of what's in `runtime/kynx.c` and wire
    request boundary rather than ending the process (see [Request
    boundary](#request-boundary)).
 
-## Honest design notes
+## Design notes
 
 - **Bloom filter = write-only ban index, never authority.** Bans are recorded with
   k=4 double-derived hashes (set on ban, cleared on unban), but nothing reads

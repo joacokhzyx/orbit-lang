@@ -1,4 +1,4 @@
-# IRv1 — Orbit IR Specification (lane M0, language side)
+# IRv1 — Orbit IR Specification (language side)
 
 - **Language pin:** `5c01cea68f125f06dd3ac82a61776827bdb0c6f3`
 - **Status:** language-side proposal for R6. It is not a normative

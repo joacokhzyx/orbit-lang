@@ -87,7 +87,7 @@ would have needed ~554 requests to fill the pipe and Phase A only asks 200.
 Every later request timed out: 161 × 5s ÷ 2 connections = 409s, against the
 419.72s in the log.
 
-### Every number in the failing log was honest and none meant what it appeared to
+### Every number in the failing log was accurate and none meant what it appeared to
 
 - `p50=0.213ms` said the server was fast. It was — for the 34 requests it still
   answered. Latency percentiles are computed over the successes only.

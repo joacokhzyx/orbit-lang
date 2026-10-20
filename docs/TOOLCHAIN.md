@@ -90,5 +90,5 @@ never a silent pass) where tcc is unavailable.
 One near-miss worth recording: during validation the shim briefly
 defined `WSAEWOULDBLOCK` as 14035 from memory, and the loopback probe
 failed. The DLL, MinGW-w64's `winerror.h` (`WSABASEERR+35`), and tcc's
-own `winerror.h` all say 10035 — three witnesses against one memory.
+own `winerror.h` all say 10035 — three sources agree.
 The shim carries 10035, and the memory lost.

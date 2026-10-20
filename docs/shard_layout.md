@@ -123,7 +123,7 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
 | `ORBIT_WITH_NET` (`#ifdef` … `orbit_log_request_fmt` + `orbit_handle_request` + dispatch … `#endif`) | spans bodies | R4 wrap (2 bodies). Liveness comes from the inherited `-D` flag (R9). |
 | `ORBIT_LOGS_ACTIVE` / `ORBIT_KYNX_ACTIVE` (`#if`/`#define`) | values baked at emission | header carries the same baked values (§3.4); re-tests agree. |
 
-## 6. Known limits (stop conditions for the driver lane)
+## 6. Known limits (stop conditions for the driver)
 
 - Route programs: `thread_pool.c` types are visible only in the shard
   that includes it. Until the runtime step splits its declarations,
@@ -136,7 +136,7 @@ For the selfhost TU this is 947 IR protos + 101 synthesized
   0.004%, measured): the typical rebuild recompiles the 1–2 shards the
   new bodies land in plus link.
 
-## 7. This lane's measurements
+## 7. Driver measurements
 
 - Emission acceptance: 9 probe programs (plain, model, route, dispatch,
   auth) emit byte-identical C old-vs-new except the mechanical

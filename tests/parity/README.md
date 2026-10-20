@@ -1,4 +1,4 @@
-# Parity / stability battery
+# Parity / stability goldens
 
 The contract is stability against committed goldens: every probe built by the
 fixed-point compiler must reproduce its recorded outcome exactly. No silent

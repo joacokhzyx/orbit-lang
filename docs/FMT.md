@@ -79,7 +79,7 @@ An opening brace is always joined to the preceding token with one space:
 - No blank line is ever added or kept directly after `{` or directly before
   `}` (0 occurrences in the corpus).
 
-### 3. `else` follows the shape of the block it closes
+### 3. `else` aligns with the block it closes
 
 Evidence: every `} else` / `} else if` same-line closer in the corpus closes
 a multi-line block, and every `else` / `else if` line that starts a new line

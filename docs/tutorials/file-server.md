@@ -5,7 +5,7 @@ and accept uploads. The runnable file is
 `examples/file_server.orb`. Every expected output below comes
 from a real run on `orbit 0.1.0` (Windows, September 2026).
 
-## Honest scope first
+## Scope first
 
 Multipart parsing and disk persistence *are* implemented.
 `req.file(field, dir)` saves the named part to `dir` and returns

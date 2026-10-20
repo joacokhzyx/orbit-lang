@@ -265,7 +265,7 @@ SECRET_PREFIXES = [
 
 For each match: emit a finding with file path, line number, code, and the matched prefix only. Do NOT include the full string value in the diagnostic output - that would re-expose the secret. This constraint is part of the finding, not a detail of the rendering.
 
-#### SQL Injection Surface Detection (shipped as `D010`)
+#### SQL Injection Detection (shipped as `D010`)
 
 When a string literal contains any of the SQL keywords `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `DROP` (case-insensitive substring search) and an interpolated string literal appears within the following 3 tokens, flag a warning: `"Interpolated string used in SQL context at <file>:<line>. Use parameterised queries."`
 
@@ -370,7 +370,7 @@ The general finding -- "shared mutable state needs a guard" -- stays true for a
 language that will grow one. The check waits for that language. The code number
 is not spent.
 
-#### Arena Leak Detection -- re-expressible, but D019 already owns the shape
+#### Arena Leak Detection -- re-expressible, but D019 already covers it
 
 `alloc`/`free` are not emitted, so there is nothing to walk. Allocation reaches
 the IR as an ordinary `IROpcode.call` to a runtime name, and the arena argument

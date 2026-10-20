@@ -151,7 +151,7 @@ and the measurement that says how much of the front end is still untyped is
 [below](#296-of-instructions-are-unknown-and-455-of-those-are-silent).
 
 
-## Writes work; duplicates and missing tables fail honestly
+## Writes work, but duplicates and missing tables fail
 
 `Model.create()` stores the row and returns `true`. It returns
 `false` when the `id` already exists (PRIMARY KEY) or the JSON
