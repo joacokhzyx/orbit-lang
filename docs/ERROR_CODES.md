@@ -154,6 +154,22 @@ e.g. `port 8080`. Pick a port between 1 and 65535. Pinned by
 `tests/negative/n81_port_string.orb` (a string), `n82_port_zero.orb` (out of
 range), and `n83_port_not_literal.orb` (an expression).
 
+## E1009 — bad assignment target
+
+Fires in `compiler/front/sema.orb`, `checkAssignmentTarget`, for the target of
+an assignment. The target has to name a declared binding, that binding has to
+be mutable, and the value has to agree with its declared type. A `val` is
+bound once; a store into it is refused instead of writing the second value. A
+name nothing declares is refused before the builder, which used to invent a C
+variable and drop the store. A field or an element target is an expression
+with a receiver, not a binding, and is not checked here. An `int` into an
+enum-typed binding is accepted: the C slot is an int, and the formatter stores
+token tags through int fields. Fix hint: declare the name with `var`, or
+assign a value of the declared type. Pinned by
+`tests/negative/n90_val_reassignment.orb` (a `val` store),
+`n91_assignment_type_mismatch.orb` (a string into an `int`), and
+`n92_assignment_target_undeclared.orb` (a name nothing declares).
+
 ## E2001 — unknown identifier (frontend)
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression`: a load whose
@@ -270,4 +286,4 @@ full write-up.
 | F-0021 — numbers in documents go stale | counts in `tests/negative/README.md` and siblings; recompute with `python scripts/negative_gate.py --compiler <orbit> --list` | process note, not a defect |
 | F-0023 — literal-zero division is SIGFPE, not a diagnostic | `n41_division_by_zero_is_not_a_diagnostic.orb` | fixed for literal divisors (E1004); variable divisors still fault |
 | F-0024 — `for` over a never-set dynamic field miscompiles (read answers `""`, loop walks it as a list: garbage `.len()`, segfault iteration) | `n59_for_over_unknown_field.orb` | fixed (model-field reads answer declared types, and unprovable iterables are check errors) |
-| F-0025 — assignment target is never checked: a `val` store, a type mismatch, and an undeclared name all pass `check` | `n90_val_reassignment.orb`, `n91_assignment_type_mismatch.orb`, `n92_assignment_target_undeclared.orb` | open |
+| F-0025 - assignment target is never checked: a `val` store, a type mismatch, and an undeclared name all pass `check` | `n90_val_reassignment.orb`, `n91_assignment_type_mismatch.orb`, `n92_assignment_target_undeclared.orb` | fixed (E1009), pinned |

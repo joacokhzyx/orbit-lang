@@ -1763,7 +1763,7 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
         ASTNode.Call(c) => {
             var calleeName = ""
             var calleeIsMember = false
-            val calleeObject: ASTNode = ASTNode.Empty
+            var calleeObject = ASTNode.Empty
             match c.callee {
                 ASTNode.Literal(lit2) => {
                     if lit2.valType == "identifier" {
@@ -2530,7 +2530,7 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
             recordListKind(builder, pc, pElem)
         }
         val instr = ir_init_instr(IROpcode.arg)
-        val regType = pInstance
+        var regType = pInstance
         if regType == "" { regType = pBase }
         instr.dest = ir_alloc_register(func, regType)
         instr.operand1 = ir_int(i)
@@ -4604,7 +4604,7 @@ fn recordFieldKindOnDef(func: IRFunction, reg: int, kindCode: int) {
 // builder's first heuristic -- "capitalised means enum constant" -- typed a
 // register NAME and the C came out as `NAME* r_0`.
 fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
-    val gi = 0
+    var gi = 0
     while gi < builder.module.globals.len() {
         val g: IRGlobal = builder.module.globals.get(gi)
         if g.name == name { return g.typeName }

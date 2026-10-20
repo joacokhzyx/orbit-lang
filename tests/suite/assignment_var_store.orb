@@ -1,0 +1,32 @@
+// expect-exit 0
+// Every store the target accepts: a var, a compound store, an int value under
+// a float annotation, a list that acquires its element type, and a field and
+// an element reached through a val.
+model Point {
+    x: int
+}
+
+fn main() -> int {
+    var total = 0
+    total = total + 1
+    total += 2
+    var ratio: float = 1
+    ratio = 2.5
+    ratio = 3.5
+    if ratio > 2.0 {
+        total = total + 1
+    }
+    var growing = []
+    growing = [1, 2]
+    total = total + growing.len()
+    val p = Point { x: 1 }
+    p.x = 7
+    val xs = [1, 2]
+    xs[0] = 9
+    val answer = total + p.x + xs[0]
+    if answer != 22 {
+        return 1
+    }
+    print(answer)
+    return 0
+}

@@ -249,7 +249,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             return exitBlock
         }
         _ => {
-            _ = lowerExpression(module, function, blockId, bindings, node)
+            lowerExpression(module, function, blockId, bindings, node)
             return blockId
         }
     }

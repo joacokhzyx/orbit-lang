@@ -224,16 +224,16 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-82 cases: 79 are `expect-error:` - each program is rejected, with a pinned
-diagnostic - and 3 are `known-defect:` ratchets for F-0025, the assignment
-target no pass visits: the gate prints `Finished negative: 82/82 pass (3 known defects still accepted)`. The three are `n90` (a `val` store, which prints the
-second value), `n91` (a type mismatch, which dies with no output), and `n92` (an
-undeclared name, which compiles and drops the store). The last ratchet to close
-was F-0009 (`n39`), a bare `list` parameter with no element type that crashed
-instead of being refused; generic functions gave it a diagnostic and the case
-now pins the coherence refusal. `wrong-value:` and `no-diagnostic:` are used by
-the F-0025 ratchets; `cc-rejects:` stays in the gate for the next case whose
-wrong answer is a rejected C program. The split is not a balance to aim for:
+82 cases: 82 are `expect-error:` - each program is rejected, with a pinned
+diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
+negative: 82/82 pass (0 known defects still accepted)`. The last ratchet to
+close was F-0025, the assignment target no pass visits: `n90` (a `val` store),
+`n91` (a type mismatch), and `n92` (an undeclared name) now pin the E1009
+diagnostics. Before it, F-0009 (`n39`), a bare `list` parameter with no element
+type, flipped when generic functions gave it a diagnostic. `wrong-value:` and
+`no-diagnostic:` stay in the gate for the next crash-shaped ratchet;
+`cc-rejects:` stays for the next case whose wrong answer is a rejected C
+program. The split is not a balance to aim for:
 the priority list for this corpus was the census's silent class, and a silent
 defect is by definition one the compiler accepts.
 

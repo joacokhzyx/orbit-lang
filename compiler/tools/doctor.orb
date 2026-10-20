@@ -188,7 +188,7 @@ fn doctorStartOffset(starts: list, line: int, total: int) -> int {
  *  so two edits to the same line are adjacent after the sort and the overlap
  *  check sees both. */
 fn doctorSortEdits(edits: list) -> list {
-    val out = []
+    var out = []
     var i = 0
     while i < edits.len() {
         val e: DoctorEdit = edits.get(i)
@@ -221,7 +221,7 @@ fn doctorEditsConflict(edits: list) -> string {
     var i = 0
     while i < sorted.len() {
         val a: DoctorEdit = sorted.get(i)
-        val j = i + 1
+        var j = i + 1
         while j < sorted.len() {
             val b: DoctorEdit = sorted.get(j)
             if b.startLine <= a.endLine {
@@ -246,8 +246,8 @@ fn doctorApplyEdits(source: string, edits: list) -> string {
     var i = 0
     while i < sorted.len() {
         val e: DoctorEdit = sorted.get(i)
-        val from = doctorStartOffset(starts, e.startLine, total)
-        val to = from
+        var from = doctorStartOffset(starts, e.startLine, total)
+        var to = from
         if e.endLine >= e.startLine {
             val endLine = e.endLine + 1
             if endLine <= starts.len() {
@@ -1368,7 +1368,7 @@ fn doctorScanMagicNumbers(stats: DoctorStats, lines: list, file: string) {
     var i = 0
     while i < lines.len() {
         val code = doctorCodePart(lines.get(i))
-        val j = doctorFirstBigNumber(code, 0)
+        var j = doctorFirstBigNumber(code, 0)
         while j > 0 {
             val num = doctorNumberAt(code, j)
             val name = doctorMagicOwnerName(code, j)
@@ -3307,7 +3307,7 @@ fn doctorScanLoopStmts(stats: DoctorStats, stmts: list, fnName: string, file: st
         val stmt = doctorNodeAt(stmts, i)
         val at = doctorAllocLine(stmt)
         if inLoop && at != 0 {
-            val where = line
+            var where = line
             if at > 0 { where = at }
             doctorReport(stats, file, where, "D019", "fn " + fnName + " allocates inside a " + kind + " loop, so the allocation is repeated on every iteration.", "build the collection once before the loop and reuse it, or reuse one collection across iterations.")
         }
@@ -4876,7 +4876,7 @@ fn doctorRun(opts: DoctorOptions) {
             doctorScanLoops(stats, fplines, fp3)
             doctorScanMutableDecls(stats, fplines, fp3)
             val slen = orbit_string_len(src3)
-            val endsNl = false
+            var endsNl = false
             if slen > 0 {
                 if orbit_string_char_at_selfhost(src3, slen - 1) == 10 { endsNl = true }
             }

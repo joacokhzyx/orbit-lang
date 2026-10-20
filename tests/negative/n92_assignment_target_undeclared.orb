@@ -1,8 +1,7 @@
 // case: assignment-target-undeclared
-// what: the target names nothing. The builder emits
-//      `__attribute__((unused)) orbit_int missing;` for it, so the generated C
-//      compiles, the store is dropped, and the program exits 0 with no output.
-// known-defect: F-0025
+// what: the target names nothing. A store needs a declared binding; the
+//      builder used to invent a C variable and drop the store.
+// expect-error: Undeclared identifier: missing; nothing in scope declares it
 fn main() -> int {
     missing = 1
     return 0

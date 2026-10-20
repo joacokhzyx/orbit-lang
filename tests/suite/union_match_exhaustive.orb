@@ -56,7 +56,7 @@ fn areaTwice(s: Shape) -> int {
 
 fn main() -> int {
     val total = area(Circle(2)) + area(Square(3)) + area(Shape.Unit)
-    val flags = 0
+    var flags = 0
     if isCircle(Circle(1)) { flags = flags + 1 }
     if isCircle(Shape.Unit) { flags = flags + 10 }
     val colors = colorCode(Color.Red) + colorCode(Color.Green) + colorCode(Color.Blue)

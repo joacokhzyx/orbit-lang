@@ -1,5 +1,5 @@
 fn joinit(names: list) -> string {
-    val out = ""
+    var out = ""
     for name in names {
         out = out + name
     }

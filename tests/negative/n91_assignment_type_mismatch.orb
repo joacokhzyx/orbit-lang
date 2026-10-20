@@ -1,10 +1,8 @@
 // case: assignment-type-mismatch
-// what: a `var` declared int is given a string. The target is never checked,
-//      so the builder keeps `x` typed int while the value is a string; the
-//      emitted C calls `print("%s", x)` with an integer and the program dies
-//      with an access violation, printing nothing.
-// known-defect: F-0025
-// no-diagnostic:
+// what: a `var` declared int is given a string. The store has to agree with
+//      the declared type; the emitter would cast the pointer and the program
+//      would print an address as a number.
+// expect-error: Cannot store string in 'x': it is declared int
 fn main() -> int {
     var x: int = 1
     x = "s"

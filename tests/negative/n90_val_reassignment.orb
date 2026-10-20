@@ -1,9 +1,7 @@
 // case: assignment-target-immutable
-// what: a `val` is reassigned. The assignment arm checks the value and never
-//      looks at the target, so the emitter stores into the slot the `val` was
-//      declared in. Built today, the program prints `2`.
-// known-defect: F-0025
-// wrong-value: 2
+// what: a `val` is reassigned. A `val` is bound once; the store has to be
+//      refused instead of writing the second value into the slot.
+// expect-error: Cannot assign to 'x': it is a val
 fn main() -> int {
     val x = 1
     x = 2

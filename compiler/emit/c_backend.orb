@@ -1629,7 +1629,7 @@ fn modelCtorFieldType(backend: CBackend, name: string, argIdx: int) -> string {
 // rendering IRValue is a backend job; route_runtime only concatenates.
 fn generateRoutePreamble(hasRoutes: bool, globals: list) -> string {
     var defs = ""
-    val gi = 0
+    var gi = 0
     while gi < globals.len() {
         val g: IRGlobal = globals.get(gi)
         defs = defs + "#define " + g.name + " " + cDefineLiteral(g.value) + "\n"
@@ -2152,7 +2152,7 @@ fn markUsedLocals(body: string, names: list, registerCount: int) -> list {
 // Is this name a top-level `val`/`const`, and therefore a #define in the
 // emitted C rather than a variable?
 fn isTopLevelConstant(backend: CBackend, name: string) -> bool {
-    val gi = 0
+    var gi = 0
     while gi < backend.module.globals.len() {
         val g: IRGlobal = backend.module.globals.get(gi)
         if g.name == name { return true }
@@ -4490,7 +4490,7 @@ fn objectFieldGetter(func: IRFunction, fieldName: string) -> string {
                 _ => {}
             }
             if isObjectFieldSetter(callee) && setterKeyIs(func, i, fieldName) {
-                val found = ""
+                var found = ""
                 if callee == "orbit_object_set_int" { found = "int" }
                 if callee == "orbit_object_set_float" { found = "float" }
                 if callee == "orbit_object_set_bool" { found = "bool" }

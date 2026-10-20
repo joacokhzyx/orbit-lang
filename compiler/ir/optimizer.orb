@@ -362,7 +362,7 @@ fn resolveConstInt(func: IRFunction, operand: IRValue, useIdx: int, depth: int) 
                     if vn != "" {
                         var stores = 0
                         var storeIdx = -1
-                        val stored: IRValue = operand
+                        var stored = operand
                         var si = 0
                         while si < func.instructions.len() {
                             val sin: IRInstruction = func.instructions.get(si)

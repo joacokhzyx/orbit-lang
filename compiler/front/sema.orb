@@ -1017,6 +1017,13 @@ fn isTaggedTypeIndex(sema: Sema, index: int) -> bool {
     return false
 }
 
+fn isEnumTypeName(sema: Sema, name: string) -> bool {
+    val idx = findType(sema, name)
+    if idx < 0 { return false }
+    val t: TypeInfo = sema.typeRegistry.get(idx)
+    return t.kind == "enum"
+}
+
 fn typeHasVariant(sema: Sema, typeName: string, variantName: string) -> bool {
     val idx = findType(sema, typeName)
     if idx < 0 { return false }
@@ -1621,6 +1628,10 @@ fn checkListPush(sema: Sema, objType: string, recvName: string, argTypes: list, 
  *  its own answer is the same one. */
 fn bindingTypeName(annotation: string, valueType: string) -> string {
     if annotation == "" { return valueType }
+    // The C slot is the annotation, so the checker has to agree with it: an int
+    // value under a float annotation is the one widening this checker allows,
+    // and recording the int would refuse a later float store.
+    if annotation == "float" && valueType == "int" { return annotation }
     if compatTypeListElement(annotation) == "" { return valueType }
     if compatTypeListElement(valueType) != "" { return valueType }
     return annotation
@@ -1740,6 +1751,36 @@ fn checkAnnotation(sema: Sema, name: string, declared: string, actual: string, l
     }
     if checkCompatibility(declared, actual) == false {
         reportErrorAt(sema, "E1006", "Change the annotation, or change the value.", line, col, "'" + name + "' is declared " + declared + " but the value is " + actual + ".")
+    }
+}
+
+// The assignment target, which no pass visited: `val x = 1; x = 2`,
+// `var x = 1; x = "s"` and `missing = 1` all checked clean and the emitter
+// stored into the C variable anyway. A field or index target is left alone:
+// it is a different opcode with a receiver, not a binding.
+fn checkAssignmentTarget(sema: Sema, target: ASTNode, valueType: string) {
+    val name = bareNameOf(target)
+    if name == "" { return }
+    val sym = nearestSymbol(sema, name)
+    if sym == NULL {
+        recordMiss(sema, "name", name)
+        reportError(sema, "Undeclared identifier: " + name + "; nothing in scope declares it")
+        return
+    }
+    if sym.isFunction {
+        reportError(sema, "Cannot assign to '" + name + "': it is a function, not a binding.")
+        return
+    }
+    if sym.isMutable == false {
+        reportError(sema, "Cannot assign to '" + name + "': it is a val, so it keeps the value it was declared with. Declare it with var if it must change.")
+        return
+    }
+    // An enum's C slot is an int, and the formatter stores its token tags
+    // through int fields (fmt.orb). A store is the one place that round-trip
+    // is visible; a declaration still has to name a variant.
+    if valueType == "int" && isEnumTypeName(sema, sym.typeName) { return }
+    if checkCompatibility(sym.typeName, valueType) == false {
+        reportError(sema, "Cannot store " + valueType + " in '" + name + "': it is declared " + sym.typeName + ". Change the value, or the binding's type.")
     }
 }
 
@@ -2191,7 +2232,7 @@ fn checkConstantIndex(sema: Sema, recv: list, indexNode: list, line: int, col: i
     val name = identifierName(recv)
     if name == "" { return }
     val slen = constBoundLen(sema, name, "string")
-    val llen = -1
+    var llen = -1
     if slen < 0 {
         llen = constBoundLen(sema, name, "list")
         if llen < 0 { return }
@@ -2408,7 +2449,7 @@ fn checkBlock(sema: Sema, block: ASTNode) -> string {
         ASTNode.Block(b) => {
             pushScope(sema)
             var i = 0
-            val lastType = "void"
+            var lastType = "void"
             while i < b.statements.len() {
                 lastType = checkNode(sema, b.statements.get(i))
                 i = i + 1
@@ -3816,7 +3857,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // The receiver's own name, when it is a bare identifier.
                     // A `push` on it is what makes a recorded length stale, so
                     // it is needed before the builtin table, not after.
-                    val callObjName = ""
+                    var callObjName = ""
                     match ma.object {
                         ASTNode.Literal(ol) => {
                             if ol.valType == "identifier" { callObjName = ol.text }
@@ -3877,7 +3918,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             // a field of some model of the same name is not: only a declared
             // variant of the receiver's own type is a union value.
             if typeHasVariant(sema, objType, member) { return objType }
-            val objName = ""
+            var objName = ""
             match ma.object {
                 ASTNode.Literal(l) => { if l.valType == "identifier" { objName = l.text } }
                 _ => {}
@@ -4059,7 +4100,9 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             checkNode(sema, e.expr)
             return ""
         }
-        ASTNode.Assignment(a) => { checkNode(sema, a.value)
+        ASTNode.Assignment(a) => {
+            val valueType = checkNode(sema, a.value)
+            checkAssignmentTarget(sema, a.target, valueType)
             forgetListElem(sema, bareNameOf(a.target))
             return ""
         }
