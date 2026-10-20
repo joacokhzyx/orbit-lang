@@ -32,11 +32,12 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 79/79 pass (0 known defects still accepted)
+Finished negative: 82/82 pass (3 known defects still accepted)
 ```
 
-Seventy-nine programs that must be rejected, and every one of them is. The last
-one to be accepted was [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
+Eighty-two programs: seventy-nine must be rejected and are; three are the open
+F-0025 assignment ratchets, and the checker accepts them today. The last
+program to be fixed was [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it),
 and generic functions gave it a diagnostic. What remains is a design choice (the
 bare `list` spelling stays lenient for dynamic values), not a missing check.
 

@@ -133,7 +133,7 @@ CLAIMS = [
     ("docs/STATUS.md", r"\*\*{N} files, {N}/{N} pass\*\*",
      ["std_tests", "std_tests", "std_tests"], "tests/std coverage"),
     ("docs/STATUS.md",
-     r"\*\*{N}/{N} cases rejected with their pinned diagnostics\*\*, \*\*{N} known defects\*\*",
+     r"\*\*{N}/{N} cases hold their pinned outcome\*\*, \*\*{N} known defects\*\*",
      ["negative_cases", "negative_cases", "negative_known_defect"],
      "negative ratchet"),
 
@@ -214,9 +214,9 @@ CLAIMS = [
     ("tests/parity/README.md", r"match their goldens \({N} today\)",
      ["parity_probes"], "parity probe count"),
     ("tests/negative/README.md",
-     r"{N} cases: all {N} are `expect-error:`.*?and {N} are `known-defect:`"
+     r"{N} cases: {N} are `expect-error:`.*?and {N} are `known-defect:`"
      r".*?negative: {N}/{N} pass \({N} known defects",
-     ["negative_cases", "negative_cases", "negative_known_defect",
+     ["negative_cases", "negative_expect_error", "negative_known_defect",
       "negative_cases", "negative_cases", "negative_known_defect"],
      "negative corpus census"),
 ]
@@ -319,10 +319,9 @@ def self_test() -> int:
     invariants = [
         (real["suite_runnable"] == real["suite_files"] - real["suite_support"],
          "the suite's runnable count is not its file count minus its support"),
-        (real["negative_expect_error"] == real["negative_cases"],
-         "every negative case must pin one expect-error directive"),
-        (real["negative_known_defect"] == 0,
-         "a known-defect ratchet is outstanding, and the docs say 0"),
+        (real["negative_expect_error"] + real["negative_known_defect"]
+         == real["negative_cases"],
+         "every negative case must pin exactly one of expect-error: and known-defect:"),
         (real["parity_probes"] == real["parity_goldens"],
          "every parity probe needs one golden"),
         (real["runtime_windows"] == real["runtime_programs"] - 1,

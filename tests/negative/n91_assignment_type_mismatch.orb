@@ -1,0 +1,13 @@
+// case: assignment-type-mismatch
+// what: a `var` declared int is given a string. The target is never checked,
+//      so the builder keeps `x` typed int while the value is a string; the
+//      emitted C calls `print("%s", x)` with an integer and the program dies
+//      with an access violation, printing nothing.
+// known-defect: F-0025
+// no-diagnostic:
+fn main() -> int {
+    var x: int = 1
+    x = "s"
+    print(x)
+    return 0
+}
