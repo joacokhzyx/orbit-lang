@@ -2,7 +2,7 @@
 
 Modules that are **specified but not implemented**. A module lands here
 when the language cannot yet express the feature it describes and the
-honest alternative would be to ship something that looks like the
+alternative would be to ship something that looks like the
 feature and is not.
 
 ## Why these are not `.orb`

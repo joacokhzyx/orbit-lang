@@ -3,7 +3,7 @@
 A ladder, not a pile. Start at step 1 and climb: plain programs
 first, then the standard library, then one idea per service, then
 the full combinations. Every `.orb` file below passes
-`orbit check`; run status is per-file and honest - limits point at
+`orbit check`; run status is per-file and measured - limits point at
 [Known Limitations](../docs/KNOWN_LIMITATIONS.md), never at
 silence.
 

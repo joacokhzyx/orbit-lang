@@ -1,7 +1,7 @@
 # Negative compilation corpus
 
 Every program in this directory **must fail** `orbit check`. They are the
-negative half of the test battery, and until now they did not exist: the repo
+negative half of the test suite, and until now they did not exist: the repo
 had 32 parity probes, five of which recorded parse diagnostics, and **not one
 test asserting a type error**. That is why three audit rounds in a row found
 defects every gate passed — a `union` match missing a variant, `.at()` on a
@@ -86,12 +86,12 @@ fuzzer output for a whole wave.
 | `scripts/diff_fuzz.py` | what the **compiler computes**, against a reference implementation in Python with the same truncating semantics. | anything it has no case for. It generates integer arithmetic, integer literals, division by zero, string escapes and floats; it has never looked at a list, a map, a model or a control-flow edge. |
 | `scripts/unknown_ratchet.py` | the static measure: what share of emitted instructions the front end typed `unknown`. | the behaviour. 75% of that can be right. |
 
-The hole is the shape both of the other two leave: a **compile-only** gate cannot
+The hole is what both of the other two leave: a **compile-only** gate cannot
 see a wrong value, and a **crash-only** fuzzer cannot either, because a wrong
 answer is not an event. `scripts/fuzz_frontend.py` looks for crashes; a crash
 announces itself. `print(1.5)` returns 1 and nothing anywhere says a word. That
 hole is where all 99 were, and it is not a gap in coverage so much as a gap in
-*kind*: nothing in the battery had ever executed a program and compared the
+*kind*: nothing in the suite had ever executed a program and compared the
 value to anything.
 
 So: a case belongs here when the defect is that the compiler **accepts** a
@@ -202,7 +202,7 @@ the index in `docs/ERROR_CODES.md` if one exists, otherwise the name of the
 check that is missing. If `orbit check`
 rejects it, put the real diagnostic substring in the header. Do not invent a
 diagnostic: a case that cannot pass because the compiler is wrong is a finding,
-and the honest thing to do is file it and pin the current behaviour.
+and the correct thing to do is file it and pin the current behaviour.
 
 **Then pin the answer, not just the acceptance.** A case that only records
 "`orbit check` is clean" is a weak case: it cannot tell a wrong value from a

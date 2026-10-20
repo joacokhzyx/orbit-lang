@@ -48,7 +48,7 @@ Do not rename any `std/` path to fit the convention; imports are the
 contract.
 
 `std/sys/` nests one level deeper (`std/sys/<area>/<module>.orb`)
-for platform-adjacent modules that bind OS or runtime surface rather
+for platform-adjacent modules that bind the OS or runtime API rather
 than pure Orbit logic: `bytes/bitwise`, `crypto/jwt`, `http/client`,
 `proc/process`, `random/random`, `term/color`.
 
