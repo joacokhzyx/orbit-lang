@@ -519,6 +519,23 @@ def registry(compiler, cc, work):
              "name this file skipped rather than followed",
              lambda: _script("cc_cached.py", "--self-test"),
              r"^cc cache shim self-test: OK", 60),
+        Tool("phase_times.py", "measurement",
+             "phase boundaries read from the [mem] stamps the binary already "
+             "prints, for one small program; the self-test is the part that "
+             "matters, because a timer that never runs and a timer that "
+             "measures nothing print the same table",
+             lambda: _script("phase_times.py", "--compiler", compiler,
+                             "--only", "hello", "--runs", "1"),
+             r"^Finished phase-times: 1/1 pass \(\d+ program\(s\), 1 run\(s\),",
+             300, allow_rc=(0,), needs=("compiler",)),
+        Tool("phase_times.py", "measurement",
+             "the two ways this harness must say no: an invalid --compiler "
+             "path is refused with exit 2, and a program that cannot build is "
+             "recorded as a non-zero run",
+             lambda: _script("phase_times.py", "--compiler", compiler,
+                             "--self-test"),
+             r"^Finished phase-times: 2/2 pass \(self-test\)$",
+             120, allow_rc=(0,), needs=("compiler",)),
 
         # ---- libraries: imported by the gates, never run ---------------------
         Tool("orbit_output.py", "library",
