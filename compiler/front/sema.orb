@@ -366,6 +366,15 @@ fn reservedCFunctionName(name: string) -> bool {
     if name == "calloc" { return true }
     if name == "realloc" { return true }
     if name == "free" { return true }
+    if name == "strlen" { return true }
+    if name == "strcmp" { return true }
+    if name == "strncmp" { return true }
+    if name == "strcpy" { return true }
+    if name == "strncpy" { return true }
+    if name == "strcat" { return true }
+    if name == "memcpy" { return true }
+    if name == "memmove" { return true }
+    if name == "memset" { return true }
     if name == "index" { return true }
     if name == "abs" { return true }
     if name == "labs" { return true }
@@ -373,6 +382,13 @@ fn reservedCFunctionName(name: string) -> bool {
     if name == "remove" { return true }
     if name == "rename" { return true }
     if name == "tmpnam" { return true }
+    if name == "printf" { return true }
+    if name == "fprintf" { return true }
+    if name == "sprintf" { return true }
+    if name == "puts" { return true }
+    if name == "fgets" { return true }
+    if name == "fopen" { return true }
+    if name == "fclose" { return true }
     if name == "signal" { return true }
     if name == "raise" { return true }
     if name == "socket" { return true }
