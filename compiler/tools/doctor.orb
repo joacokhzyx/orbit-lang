@@ -4125,9 +4125,19 @@ fn doctorScanMutableDecls(stats: DoctorStats, lines: list, file: string) {
                 val at = doctorIndexOfString(writeNames, name)
                 var writes = 0
                 if at >= 0 { writes = writeCounts.get(at) }
-                // One write is the declaration itself. Zero would mean the
-                // declaration line did not look like an assignment, which means
-                // we do not understand this form and must not report it.
+                // An annotated declaration (`var x: int = 0`) writes x, but the
+                // line scanner does not see it: that scanner wants whitespace
+                // and `=` straight after the name, and here a `:` comes first.
+                // Count the declaration here, so one real store still raises the
+                // total above it.
+                val afterName = doctorTrimSpace(orbit_string_slice(rest, orbit_string_len(name), orbit_string_len(rest)))
+                if doctorStartsWith(afterName, ":") {
+                    writes = writes + 1
+                }
+                // One write is the declaration itself. Zero would mean an
+                // unannotated declaration line did not look like an assignment,
+                // which means we do not understand this form and must not
+                // report it.
                 if writes == 1 {
                     doctorReport(stats, file, li + 1, "D013", "'" + name + "' is declared var but never assigned again.", "make it a val: nothing can reassign it, and the compiler stops checking every write.")
                 }

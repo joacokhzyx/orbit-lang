@@ -1,0 +1,2 @@
+input.orb:2 warning [D013] 'count' is declared var but never assigned again. fix: make it a val: nothing can reassign it, and the compiler stops checking every write.
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 1 files under "input.orb".

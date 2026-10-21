@@ -1,0 +1,7 @@
+fn main() -> int {
+    var count: int = 0
+    print(orbit_int_to_string_selfhost(count))
+    return 0
+}
+extern fn print(s: string) -> int
+extern fn orbit_int_to_string_selfhost(v: int) -> string

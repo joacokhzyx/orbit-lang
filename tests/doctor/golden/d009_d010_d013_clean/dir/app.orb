@@ -5,7 +5,9 @@ fn handler(req: string) -> int {
     total = total + rows.len()
     var counter = 0
     counter = counter + 1
-    print(req + key + orbit_int_to_string_selfhost(total + counter))
+    var annotated: int = 0
+    annotated = annotated + 1
+    print(req + key + orbit_int_to_string_selfhost(total + counter + annotated))
     return 0
 }
 extern fn print(s: string) -> int

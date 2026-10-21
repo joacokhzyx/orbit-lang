@@ -1388,8 +1388,8 @@ fn verifyBoolBinop(func: IRFunction, inst: IRInstruction, dt: string, errs: list
 }
 
 fn verifyModuleTypes(backend: CBackend) -> list {
-    var errs: list = []
-    var warns: list = []
+    val errs: list = []
+    val warns: list = []
     var i = 0
     while i < backend.module.functions.len() {
         val f: IRFunction = backend.module.functions.get(i)
