@@ -157,18 +157,32 @@ range), and `n83_port_not_literal.orb` (an expression).
 ## E1009 — bad assignment target
 
 Fires in `compiler/front/sema.orb`, `checkAssignmentTarget`, for the target of
-an assignment. The target has to name a declared binding, that binding has to
-be mutable, and the value has to agree with its declared type. A `val` is
-bound once; a store into it is refused instead of writing the second value. A
-name nothing declares is refused before the builder, which used to invent a C
-variable and drop the store. A field or an element target is an expression
-with a receiver, not a binding, and is not checked here. An `int` into an
-enum-typed binding is accepted: the C slot is an int, and the formatter stores
-token tags through int fields. Fix hint: declare the name with `var`, or
+an assignment. A bare-name target has to name a declared binding, that binding
+has to be mutable, and the value has to agree with its declared type. A `val`
+is bound once; a store into it is refused instead of writing the second value.
+A name nothing declares is refused before the builder, which used to invent a C
+variable and drop the store. An `int` into an enum-typed binding is accepted:
+the C slot is an int, and the formatter stores token tags through int fields.
+
+A member or index target is checked against the declaration that owns the
+slot. `p.x = "s"` where `P.x` is declared `int` reports
+`Cannot store string in field 'P.x': it is declared int.`. A field the model
+does not declare reports `Model 'P' has no field 'y'.`, the same message a
+read of that field gets. `xs[0] = "s"` where `xs` is `list<int>` reports
+`Cannot store string in list<int>: the element is int.`. A receiver that is
+`unknown`, a bare `list`, or a string stays unchecked: there is no declaration
+to hold the value against, and refusing it would turn a gap in inference into
+an error at the store. An enum value into an `int` field, or an `int` into an
+enum-typed field, is accepted: an enum's C representation is an int, so the
+two round-trip. Fix hint: declare the name with `var`, or
 assign a value of the declared type. Pinned by
 `tests/negative/n90_val_reassignment.orb` (a `val` store),
-`n91_assignment_type_mismatch.orb` (a string into an `int`), and
-`n92_assignment_target_undeclared.orb` (a name nothing declares).
+`n91_assignment_type_mismatch.orb` (a string into an `int`),
+`n92_assignment_target_undeclared.orb` (a name nothing declares),
+`n93_member_store_string.orb` (a string into an `int` field),
+`n94_index_store_string.orb` (a string into a `list<int>` slot),
+`n95_member_store_unknown_field.orb` (a field the model does not declare), and
+`n96_member_store_float.orb` (a float into an `int` field).
 
 ## E2001 — unknown identifier (frontend)
 

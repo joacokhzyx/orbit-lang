@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Emit the designated IR corpus with `orbit build --emit-ir`.
 
-The corpus is tests/suite (73 programs plus imports.support.orb) and
-tests/std (23 programs): the 96+1 programs docs/IR_SPEC.md section 5.5
+The corpus is tests/suite (74 programs plus imports.support.orb) and
+tests/std (23 programs): the 97+1 programs docs/IR_SPEC.md section 5.5
 designates, with the same discovery scripts/test_suite.py and
 scripts/unknown_census.py already use (`.orb`, minus `*.support.orb`,
 which is kept here because the corpus is about IR and the support module
@@ -54,7 +54,7 @@ SCHEMA = "r6-ir-corpus/1"
 
 # The corpus size docs/IR_SPEC.md section 5.5 designates. Named here so the
 # self-test asserts a contract rather than re-deriving it from the listing.
-SUITE_PROGRAMS = 73
+SUITE_PROGRAMS = 74
 STD_PROGRAMS = 23
 SUPPORT_MODULES = 1
 PROGRAMS = SUITE_PROGRAMS + STD_PROGRAMS

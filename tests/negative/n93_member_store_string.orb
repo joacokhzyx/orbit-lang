@@ -1,0 +1,15 @@
+// case: member-store-string
+// what: a string stored into an int field. The field's declared type is the
+//      contract the store has to meet; the emitter would cast the pointer into
+//      the int member and the program would print an address.
+// expect-error: Cannot store string in field 'P.x': it is declared int
+model P {
+    x: int
+}
+
+fn main() -> int {
+    val p = P { x: 1 }
+    p.x = "s"
+    print(p.x)
+    return 0
+}

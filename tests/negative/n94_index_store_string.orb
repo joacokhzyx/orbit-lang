@@ -1,0 +1,10 @@
+// case: index-store-string
+// what: a string stored into a list<int> slot. The element type is part of the
+//      list's declaration, and a pointer in that slot prints as an address.
+// expect-error: Cannot store string in list<int>: the element is int
+fn main() -> int {
+    val xs = [1, 2]
+    xs[0] = "s"
+    print(xs[0])
+    return 0
+}

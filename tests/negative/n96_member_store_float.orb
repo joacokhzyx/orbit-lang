@@ -1,0 +1,14 @@
+// case: member-store-float
+// what: a float stored into an int field. The C backend truncates it, so the
+//      program printed 1 for a value it never asked for.
+// expect-error: Cannot store float in field 'P.x': it is declared int
+model P {
+    x: int
+}
+
+fn main() -> int {
+    val p = P { x: 1 }
+    p.x = 1.5
+    print(p.x)
+    return 0
+}

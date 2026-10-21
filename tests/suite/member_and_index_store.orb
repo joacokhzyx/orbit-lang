@@ -1,0 +1,22 @@
+// Field and element stores checked against the declarations that own their
+// slots.
+// expect-exit 0
+model Pair {
+    left: int
+    right: int
+}
+
+fn main() -> int {
+    val p = Pair { left: 1, right: 2 }
+    p.left = 7
+    val q = Pair { left: 0, right: 0 }
+    q.right = p.left
+    val xs = [1, 2]
+    xs[0] = 9
+    val answer = p.left + q.right + xs[0]
+    if answer != 23 {
+        return 1
+    }
+    print(answer)
+    return 0
+}

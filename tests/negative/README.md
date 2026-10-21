@@ -224,12 +224,13 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-82 cases: 82 are `expect-error:` - each program is rejected, with a pinned
+86 cases: 86 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 82/82 pass (0 known defects still accepted)`. The last ratchet to
+negative: 86/86 pass (0 known defects still accepted)`. The last ratchet to
 close was F-0025, the assignment target no pass visits: `n90` (a `val` store),
 `n91` (a type mismatch), and `n92` (an undeclared name) now pin the E1009
-diagnostics. Before it, F-0009 (`n39`), a bare `list` parameter with no element
+diagnostics; `n93`-`n96` extend it to member and index stores. Before it,
+F-0009 (`n39`), a bare `list` parameter with no element
 type, flipped when generic functions gave it a diagnostic. `wrong-value:` and
 `no-diagnostic:` stay in the gate for the next crash-shaped ratchet;
 `cc-rejects:` stays for the next case whose wrong answer is a rejected C

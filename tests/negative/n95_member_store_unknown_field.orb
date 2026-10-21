@@ -1,0 +1,14 @@
+// case: member-store-unknown-field
+// what: a store into a field the model does not declare. A read of `p.y` is
+//      already refused; the store used to pass `check` and then fail in the C
+//      step with "'OrbitModel' has no member named 'y'".
+// expect-error: Model 'P' has no field 'y'
+model P {
+    x: int
+}
+
+fn main() -> int {
+    val p = P { x: 1 }
+    p.y = 2
+    return 0
+}

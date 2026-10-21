@@ -1756,11 +1756,28 @@ fn checkAnnotation(sema: Sema, name: string, declared: string, actual: string, l
 
 // The assignment target, which no pass visited: `val x = 1; x = 2`,
 // `var x = 1; x = "s"` and `missing = 1` all checked clean and the emitter
-// stored into the C variable anyway. A field or index target is left alone:
-// it is a different opcode with a receiver, not a binding.
+// stored into the C variable anyway.
+//
+// A member or index target is a different opcode with a receiver, not a
+// binding, so the binding rules do not apply to it. What does apply is the
+// declaration that owns the slot: a model names its fields and a `list<T>`
+// names what its slots hold, so `p.x = "s"`, `xs[0] = "s"` and `p.y = 2` are
+// decided before the emitter hands the C step an int member assigned a
+// pointer, or a member the struct never declared. A receiver that is neither a
+// known model nor a `list<T>` -- `unknown`, a bare `list`, a string -- stays
+// unchecked on purpose: unknown is the documented escape hatch, and reading it
+// as an error would reject a program at every store for a gap the store did
+// not create.
 fn checkAssignmentTarget(sema: Sema, target: ASTNode, valueType: string) {
     val name = bareNameOf(target)
-    if name == "" { return }
+    if name == "" {
+        match target {
+            ASTNode.MemberAccess(ma) => { checkMemberStore(sema, ma, valueType) }
+            ASTNode.IndexAccess(ia) => { checkIndexStore(sema, ia, valueType) }
+            _ => {}
+        }
+        return
+    }
     val sym = nearestSymbol(sema, name)
     if sym == NULL {
         recordMiss(sema, "name", name)
@@ -1781,6 +1798,63 @@ fn checkAssignmentTarget(sema: Sema, target: ASTNode, valueType: string) {
     if valueType == "int" && isEnumTypeName(sema, sym.typeName) { return }
     if checkCompatibility(sym.typeName, valueType) == false {
         reportError(sema, "Cannot store " + valueType + " in '" + name + "': it is declared " + sym.typeName + ". Change the value, or the binding's type.")
+    }
+}
+
+// A store into a model's field. The field set is closed because the model
+// declaration wrote it down, so both halves are decidable here: the field has
+// to exist, and the value has to fit the type the field was declared with.
+// The read path asks the same question through checkMemberResolution and
+// answers a missing field with the same message, so a store and a read agree
+// about what the model declares.
+fn checkMemberStore(sema: Sema, ma: MemberAccessNode, valueType: string) {
+    val member = ma.field
+    val objType = checkNode(sema, ma.object)
+    val objName = bareNameOf(ma.object)
+    var instModel = ""
+    // An instance binds its model's parameters (`Box_float`), so the declared
+    // field type has to be substituted before it is compared. A receiver with
+    // no instance behind it still names a model when its annotation did, and
+    // that model's field types are compared as declared.
+    var instBindings = []
+    if objName != "" {
+        instModel = instanceModelOf(sema, objName)
+        if instModel != "" {
+            instBindings = instanceBindingsOf(sema, objName)
+        } else if isModelName(sema, objType) {
+            instModel = objType
+        }
+    } else if isModelName(sema, objType) {
+        instModel = objType
+    }
+    if instModel == "" { return }
+    val fieldType = modelSubstitutedType(modelFieldType(sema, instModel, member), instBindings)
+    if fieldType == "" {
+        reportErrorAt(sema, "E1009", "The field is spelled as declared; a model has no other members.", ma.line, ma.col, "Model '" + instModel + "' has no field '" + member + "'.")
+        return
+    }
+    // The two directions an enum and an int substitute for each other, the
+    // same pair argTypeFits already lets through at a construction: an enum's
+    // C slot is an int, and `FmtState.prevTag` is declared int to keep a
+    // TokType store out of an enum-typed struct member.
+    if fieldType == "int" && isEnumTypeName(sema, valueType) { return }
+    if valueType == "int" && isEnumTypeName(sema, fieldType) { return }
+    if checkCompatibility(fieldType, valueType) == false {
+        reportErrorAt(sema, "E1009", "Change the value, or the field's declared type.", ma.line, ma.col, "Cannot store " + valueType + " in field '" + instModel + "." + member + "': it is declared " + fieldType + ".")
+    }
+}
+
+// A store into `xs[i]`, which is a store into the element type the list
+// declares. A bare `list` carries no element type -- the runtime adopts one on
+// the first push -- and a string or a map has members this pass does not
+// enumerate, so all three stay unchecked rather than guessed at.
+fn checkIndexStore(sema: Sema, ia: IndexAccessNode, valueType: string) {
+    val objType = checkNode(sema, ia.object)
+    if compatTypeBase(objType) != "list" { return }
+    val elem = listElementOf(sema, objType, bareNameOf(ia.object))
+    if semaKnownType(elem) == false { return }
+    if checkCompatibility(elem, valueType) == false {
+        reportErrorAt(sema, "E1009", "Change the value, or the list's element type.", ia.line, ia.col, "Cannot store " + valueType + " in " + objType + ": the element is " + elem + ".")
     }
 }
 
