@@ -59,17 +59,20 @@ fn irJsonBool(v: bool) -> string {
     return "false"
 }
 
-fn irJsonStringList(items: list) -> string {
-    var out = "["
+// Appends into the caller's buffer.  The returning form allocated one buffer
+// per call -- three per function, and a buffer reserves 64 KB up front -- so a
+// 1012-function module charged ~190 MB for lists that are a few hundred bytes
+// each.  Writing into the document buffer costs no extra allocation.
+fn irAppendStringList(buf: string, items: list) {
+    orbit_cbuf_append_selfhost(buf, "[")
     var i = 0
     while i < items.len() {
-        if i > 0 { out = out + "," }
+        if i > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val s: string = items.get(i)
-        out = out + "\"" + irJsonEscape(s) + "\""
+        orbit_cbuf_append_selfhost(buf, "\"" + irJsonEscape(s) + "\"")
         i = i + 1
     }
-    out = out + "]"
-    return out
+    orbit_cbuf_append_selfhost(buf, "]")
 }
 
 // One name per IROpcode variant, in §1 order (the union's declaration order).
@@ -157,6 +160,9 @@ fn irValueText(value: IRValue) -> string {
     }
 }
 
+// The text of one instruction returns a string: a few hundred bytes, so the
+// `+` prefix copy inside it costs kilobytes, while the document and the
+// function must not do this (that copy is what made emission quadratic).
 fn irInstructionText(instr: IRInstruction) -> string {
     var out = "{\"opcode\":\"" + irOpcodeName(instr.opcode) + "\","
     out = out + "\"dest\":" + orbit_int_to_string_selfhost(instr.dest) + ","
@@ -167,52 +173,58 @@ fn irInstructionText(instr: IRInstruction) -> string {
     return out
 }
 
-fn irFunctionText(f: IRFunction) -> string {
-    var out = "{\"name\":\"" + irJsonEscape(f.name) + "\","
-    out = out + "\"params\":" + irJsonStringList(f.params) + ","
-    out = out + "\"paramTypes\":" + irJsonStringList(f.paramTypes) + ","
-    out = out + "\"instructions\":["
+fn irAppendFunctionText(buf: string, f: IRFunction) {
+    orbit_cbuf_append_selfhost(buf, "{\"name\":\"" + irJsonEscape(f.name) + "\",")
+    orbit_cbuf_append_selfhost(buf, "\"params\":")
+    irAppendStringList(buf, f.params)
+    orbit_cbuf_append_selfhost(buf, ",\"paramTypes\":")
+    irAppendStringList(buf, f.paramTypes)
+    orbit_cbuf_append_selfhost(buf, ",\"instructions\":[")
     var i = 0
     while i < f.instructions.len() {
-        if i > 0 { out = out + "," }
+        if i > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val instr: IRInstruction = f.instructions.get(i)
-        out = out + irInstructionText(instr)
+        orbit_cbuf_append_selfhost(buf, irInstructionText(instr))
         i = i + 1
     }
-    out = out + "],"
-    out = out + "\"registerCount\":" + orbit_int_to_string_selfhost(f.registerCount) + ","
-    out = out + "\"registerTypes\":" + irJsonStringList(f.registerTypes) + ","
-    out = out + "\"returnType\":\"" + irJsonEscape(f.returnType) + "\","
-    out = out + "\"isExtern\":" + irJsonBool(f.isExtern) + ","
-    out = out + "\"routeMethod\":\"" + irJsonEscape(f.routeMethod) + "\","
-    out = out + "\"routePath\":\"" + irJsonEscape(f.routePath) + "\","
-    out = out + "\"routeHasLimit\":" + irJsonBool(f.routeHasLimit) + ","
-    out = out + "\"routeLimitRate\":" + orbit_int_to_string_selfhost(f.routeLimitRate) + ","
-    out = out + "\"routeLimitWindowMs\":" + orbit_int_to_string_selfhost(f.routeLimitWindowMs) + ","
-    out = out + "\"routeLimitBurst\":" + orbit_int_to_string_selfhost(f.routeLimitBurst) + "}"
-    return out
+    orbit_cbuf_append_selfhost(buf, "],")
+    orbit_cbuf_append_selfhost(buf, "\"registerCount\":" + orbit_int_to_string_selfhost(f.registerCount) + ",")
+    orbit_cbuf_append_selfhost(buf, "\"registerTypes\":")
+    irAppendStringList(buf, f.registerTypes)
+    orbit_cbuf_append_selfhost(buf, ",\"returnType\":\"" + irJsonEscape(f.returnType) + "\",")
+    orbit_cbuf_append_selfhost(buf, "\"isExtern\":" + irJsonBool(f.isExtern) + ",")
+    orbit_cbuf_append_selfhost(buf, "\"routeMethod\":\"" + irJsonEscape(f.routeMethod) + "\",")
+    orbit_cbuf_append_selfhost(buf, "\"routePath\":\"" + irJsonEscape(f.routePath) + "\",")
+    orbit_cbuf_append_selfhost(buf, "\"routeHasLimit\":" + irJsonBool(f.routeHasLimit) + ",")
+    orbit_cbuf_append_selfhost(buf, "\"routeLimitRate\":" + orbit_int_to_string_selfhost(f.routeLimitRate) + ",")
+    orbit_cbuf_append_selfhost(buf, "\"routeLimitWindowMs\":" + orbit_int_to_string_selfhost(f.routeLimitWindowMs) + ",")
+    orbit_cbuf_append_selfhost(buf, "\"routeLimitBurst\":" + orbit_int_to_string_selfhost(f.routeLimitBurst) + "}")
 }
 
-fn irModelText(m: IRModelDecl) -> string {
-    var out = "{\"name\":\"" + irJsonEscape(m.name) + "\",\"fields\":["
+fn irAppendModelText(buf: string, m: IRModelDecl) {
+    orbit_cbuf_append_selfhost(buf, "{\"name\":\"" + irJsonEscape(m.name) + "\",\"fields\":[")
     var i = 0
     while i < m.fields.len() {
-        if i > 0 { out = out + "," }
+        if i > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val f: IRModelField = m.fields.get(i)
-        out = out + "{\"name\":\"" + irJsonEscape(f.name) + "\",\"typeName\":\"" + irJsonEscape(f.typeName) + "\"}"
+        orbit_cbuf_append_selfhost(buf, "{\"name\":\"" + irJsonEscape(f.name) + "\",\"typeName\":\"" + irJsonEscape(f.typeName) + "\"}")
         i = i + 1
     }
-    out = out + "],"
-    out = out + "\"typeParams\":" + irJsonStringList(m.typeParams) + "}"
-    return out
+    orbit_cbuf_append_selfhost(buf, "],")
+    orbit_cbuf_append_selfhost(buf, "\"typeParams\":")
+    irAppendStringList(buf, m.typeParams)
+    orbit_cbuf_append_selfhost(buf, "}")
 }
 
-fn irTypeText(t: IRTypeDecl) -> string {
-    var out = "{\"name\":\"" + irJsonEscape(t.name) + "\",\"kind\":\"" + irJsonEscape(t.kind) + "\","
-    out = out + "\"variants\":" + irJsonStringList(t.variants) + ","
-    out = out + "\"richVariants\":" + irJsonStringList(t.richVariants) + ","
-    out = out + "\"methods\":" + irJsonStringList(t.methods) + "}"
-    return out
+fn irAppendTypeText(buf: string, t: IRTypeDecl) {
+    orbit_cbuf_append_selfhost(buf, "{\"name\":\"" + irJsonEscape(t.name) + "\",\"kind\":\"" + irJsonEscape(t.kind) + "\",")
+    orbit_cbuf_append_selfhost(buf, "\"variants\":")
+    irAppendStringList(buf, t.variants)
+    orbit_cbuf_append_selfhost(buf, ",\"richVariants\":")
+    irAppendStringList(buf, t.richVariants)
+    orbit_cbuf_append_selfhost(buf, ",\"methods\":")
+    irAppendStringList(buf, t.methods)
+    orbit_cbuf_append_selfhost(buf, "}")
 }
 
 // A NaN fails `v != v`; ±Infinity fails `v - v != 0.0` because v - v is NaN.
@@ -258,41 +270,47 @@ fn irNonFiniteFloat(module: IRModule) -> string {
     return ""
 }
 
+// A growable buffer, not `out = out + piece`.  `+` copies the whole prefix on
+// every step, so the document cost the sum of its prefixes in time and in arena
+// bytes -- quadratic in the output size, which is 550 MB of arena for the
+// 550 KB document of compiler/front/lexer.orb.  The buffer is the same one
+// std/string join/toUpper use (runtime/collections.c orbit_cbuf_append).
 fn emitIRv1(module: IRModule) -> string {
-    var out = "{\"irVersion\":\"1\",\"module\":{"
-    out = out + "\"functions\":["
+    val buf = orbit_cbuf_create_selfhost()
+    orbit_cbuf_append_selfhost(buf, "{\"irVersion\":\"1\",\"module\":{\"functions\":[")
     var fi = 0
     while fi < module.functions.len() {
-        if fi > 0 { out = out + "," }
+        if fi > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val f: IRFunction = module.functions.get(fi)
-        out = out + irFunctionText(f)
+        irAppendFunctionText(buf, f)
         fi = fi + 1
     }
-    out = out + "],\"globals\":["
+    orbit_cbuf_append_selfhost(buf, "],\"globals\":[")
     var gi = 0
     while gi < module.globals.len() {
-        if gi > 0 { out = out + "," }
+        if gi > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val g: IRGlobal = module.globals.get(gi)
-        out = out + "{\"name\":\"" + irJsonEscape(g.name) + "\",\"value\":" + irValueText(g.value) + ",\"typeName\":\"" + irJsonEscape(g.typeName) + "\"}"
+        orbit_cbuf_append_selfhost(buf, "{\"name\":\"" + irJsonEscape(g.name) + "\",\"value\":" + irValueText(g.value) + ",\"typeName\":\"" + irJsonEscape(g.typeName) + "\"}")
         gi = gi + 1
     }
-    out = out + "],\"models\":["
+    orbit_cbuf_append_selfhost(buf, "],\"models\":[")
     var mi = 0
     while mi < module.models.len() {
-        if mi > 0 { out = out + "," }
+        if mi > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val m: IRModelDecl = module.models.get(mi)
-        out = out + irModelText(m)
+        irAppendModelText(buf, m)
         mi = mi + 1
     }
-    out = out + "],\"types\":["
+    orbit_cbuf_append_selfhost(buf, "],\"types\":[")
     var ti = 0
     while ti < module.types.len() {
-        if ti > 0 { out = out + "," }
+        if ti > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val t: IRTypeDecl = module.types.get(ti)
-        out = out + irTypeText(t)
+        irAppendTypeText(buf, t)
         ti = ti + 1
     }
-    out = out + "],\"migrations\":" + irJsonStringList(module.migrations)
-    out = out + "}}\n"
-    return out
+    orbit_cbuf_append_selfhost(buf, "],\"migrations\":")
+    irAppendStringList(buf, module.migrations)
+    orbit_cbuf_append_selfhost(buf, "}}\n")
+    return orbit_cbuf_build_selfhost(buf)
 }
