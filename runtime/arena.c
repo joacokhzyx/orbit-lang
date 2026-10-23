@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <setjmp.h>
+#include "crt_compat.h"
 
 #ifdef _WIN32
   #ifndef WIN32_LEAN_AND_MEAN
@@ -43,6 +44,13 @@
 
 #ifndef ORBIT_ARENA_DEFAULT_COMMIT
 #define ORBIT_ARENA_DEFAULT_COMMIT (64 * 1024) // 64 KB initial physical commit
+#endif
+
+/* Fallback ceiling on committed bytes when the platform will not report its
+ * physical memory. Normally ORBIT_ARENA_MAX_MB names the ceiling, and when it
+ * does not the default is three quarters of physical memory. */
+#ifndef ORBIT_ARENA_DEFAULT_MAX
+#define ORBIT_ARENA_DEFAULT_MAX ((size_t)2048 * 1024 * 1024)
 #endif
 
 #ifndef ORBIT_ARENA_GROWTH_GRANULARITY
@@ -78,6 +86,12 @@ typedef struct OrbitArena {
     size_t peak_used;
     size_t committed_bytes;
     size_t reserved_bytes;
+    /* The ceiling on committed bytes for this arena, from ORBIT_ARENA_MAX_MB,
+     * and whether the last refusal was that ceiling rather than the OS. A
+     * process that would keep growing until the machine swaps stops here with
+     * one line that names the limit. */
+    size_t max_rule;
+    bool ceiling_hit;
 
     uint64_t generation;
     uint64_t alloc_count;
@@ -166,6 +180,58 @@ static inline size_t orbit_align_up(size_t size, size_t alignment) {
 static void orbit_string_pool_local_destroy(struct OrbitStringPoolLocal* pool);
 static void orbit_string_pool_local_reset(struct OrbitStringPoolLocal* pool);
 
+/* A decimal megabyte count from `name`, or `fallback` when the variable is
+ * unset, empty, zero, negative, non-numeric or overflows. A malformed value is
+ * not a new way for a process to fail to start. */
+static size_t orbit_arena_megabytes_from_env(const char* name, size_t fallback) {
+    const char* raw = orbit_env_get(name);
+    if (!raw || raw[0] == '\0') return fallback;
+
+    size_t mb = 0;
+    for (const char* p = raw; *p; p++) {
+        if (*p < '0' || *p > '9') return fallback;
+        size_t digit = (size_t)(*p - '0');
+        if (mb > ((size_t)-1 - digit) / 10) return fallback;
+        mb = mb * 10 + digit;
+    }
+    if (mb == 0) return fallback;
+    if (mb > ((size_t)-1) / (1024 * 1024)) return fallback;
+    return mb * 1024 * 1024;
+}
+
+/* Total physical memory, or 0 when the platform will not say. The ceiling is
+ * a fraction of it, so the number does not have to be guessed per machine. */
+static size_t orbit_physical_memory_bytes(void) {
+#ifdef _WIN32
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status)) return (size_t)status.ullTotalPhys;
+    return 0;
+#else
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page = sysconf(_SC_PAGE_SIZE);
+    if (pages <= 0 || page <= 0) return 0;
+    return (size_t)pages * (size_t)page;
+#endif
+}
+
+/* The default ceiling: three quarters of physical memory, which is the point
+ * past which a process that keeps committing makes the machine swap. The
+ * compiled value answers only when the platform will not report the total. */
+static size_t orbit_arena_default_max(void) {
+    size_t physical = orbit_physical_memory_bytes();
+    if (physical == 0) return ORBIT_ARENA_DEFAULT_MAX;
+    return physical - physical / 4;
+}
+
+/* The committed-bytes ceiling: ORBIT_ARENA_MAX_MB, or the default above. It
+ * stops a runaway allocation before the machine swaps, which is how an
+ * emitter that kept growing presented as a freeze rather than as an error. */
+static size_t orbit_arena_max_rule_from_env(void) {
+    size_t from_env = orbit_arena_megabytes_from_env("ORBIT_ARENA_MAX_MB", 0);
+    return from_env != 0 ? from_env : orbit_arena_default_max();
+}
+
 /* ── Creation & Destruction ─────────────────────────────────────────── */
 
 /** @brief Create a new root arena, reserving at least @p initial_capacity bytes of virtual address space. */
@@ -212,6 +278,8 @@ OrbitArena* orbit_arena_create(size_t initial_capacity) {
     arena->peak_used = 0;
     arena->committed_bytes = commit_size;
     arena->reserved_bytes = reserve_size;
+    arena->max_rule = orbit_arena_max_rule_from_env();
+    arena->ceiling_hit = false;
     
     arena->generation = 1;
     arena->alloc_count = 0;
@@ -238,6 +306,7 @@ OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity
     OrbitArena* child = orbit_arena_create(initial_capacity);
     if (child) {
         child->parent = parent;
+        child->max_rule = parent->max_rule;
     }
     return child;
 }
@@ -308,9 +377,15 @@ typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);
 static void orbit_oom_abort_default(OrbitArena* arena, size_t bytes) {
     fflush(stdout);
     if (arena) {
-        fprintf(stderr,
-                "orbit: out of memory allocating %zu bytes; arena %p holds %zu of %zu bytes in %zu allocations\n",
-                bytes, (void*)arena, arena->used, arena->capacity, arena->alloc_count);
+        if (arena->ceiling_hit) {
+            fprintf(stderr,
+                    "orbit: arena ceiling reached allocating %zu bytes; %zu of %zu bytes committed, the limit is %zu MB from ORBIT_ARENA_MAX_MB\n",
+                    bytes, arena->committed_bytes, arena->max_rule, arena->max_rule / (1024 * 1024));
+        } else {
+            fprintf(stderr,
+                    "orbit: out of memory allocating %zu bytes; arena %p holds %zu of %zu bytes in %zu allocations\n",
+                    bytes, (void*)arena, arena->used, arena->capacity, arena->alloc_count);
+        }
     } else {
         fprintf(stderr, "orbit: out of memory allocating %zu bytes\n", bytes);
     }
@@ -419,9 +494,22 @@ const char* orbit_request_oom_message(void) {
     return orbit_request_oom_text;
 }
 
+/* True when committing @p more bytes would pass the arena's ceiling. Recorded
+ * on the arena so the default exhaustion report can name the limit instead of
+ * blaming the operating system for a decision this process made. */
+static bool orbit_arena_ceiling_reached(OrbitArena* arena, size_t more) {
+    if (!arena || arena->max_rule == 0) return false;
+    if (more > arena->max_rule || arena->committed_bytes > arena->max_rule - more) {
+        arena->ceiling_hit = true;
+        return true;
+    }
+    return false;
+}
+
 /** @brief Allocate @p bytes, reporting exhaustion to the handler instead of aborting. Returns NULL on OOM. */
 void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     if (!arena || bytes == 0) return NULL;
+    arena->ceiling_hit = false;
 
     /* Align to ORBIT_ARENA_ALIGN boundary safely */
     size_t aligned = orbit_align_up(bytes, ORBIT_ARENA_ALIGN);
@@ -474,6 +562,10 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
             orbit_perf_record_oom();
             return NULL;
         }
+        if (orbit_arena_ceiling_reached(arena, page_aligned)) {
+            orbit_perf_record_oom();
+            return NULL;
+        }
 
         orbit_perf_record_commit_op();
         if (!orbit_virtual_commit(arena->committed_end, page_aligned)) {
@@ -510,15 +602,20 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
         return NULL;
     }
     
+    size_t new_commit = aligned > ORBIT_ARENA_DEFAULT_COMMIT ? aligned : ORBIT_ARENA_DEFAULT_COMMIT;
+    new_commit = orbit_align_up(new_commit, arena->page_size);
+    if (new_commit == 0 || orbit_arena_ceiling_reached(arena, new_commit)) {
+        orbit_perf_record_oom();
+        return NULL;
+    }
+
     void* new_mem = orbit_virtual_reserve(new_reserve);
     if (!new_mem) {
         orbit_perf_record_oom();
         return NULL;
     }
     
-    size_t new_commit = aligned > ORBIT_ARENA_DEFAULT_COMMIT ? aligned : ORBIT_ARENA_DEFAULT_COMMIT;
-    new_commit = orbit_align_up(new_commit, arena->page_size);
-    if (new_commit == 0 || !orbit_virtual_commit(new_mem, new_commit)) {
+    if (!orbit_virtual_commit(new_mem, new_commit)) {
         orbit_virtual_release(new_mem, new_reserve);
         orbit_perf_record_oom();
         return NULL;

@@ -513,6 +513,61 @@ static void test_hot_retention_follows_footprint(void) {
     orbit_arena_destroy(arena);
 }
 
+// 23. The ceiling stops an arena that would keep growing, through the
+//     exhaustion path the allocator already has. A handler that returns makes
+//     the refusal observable without aborting the test process, and a value
+//     that is not a positive count keeps the machine-derived default.
+static int ceiling_calls = 0;
+
+static void counting_ceiling_handler(OrbitArena* arena, size_t bytes) {
+    (void)arena;
+    (void)bytes;
+    ceiling_calls++;
+}
+
+static void test_ceiling_stops_a_runaway_arena(void) {
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "1") == 0);
+    OrbitArena* arena = orbit_arena_create(65536);
+    assert(arena != NULL);
+    assert(arena->max_rule == (size_t)1024 * 1024);
+
+    orbit_set_oom_handler(counting_ceiling_handler);
+    ceiling_calls = 0;
+
+    // Two megabytes do not fit under a one-megabyte ceiling, so the allocator
+    // answers through the handler instead of committing them.
+    assert(orbit_alloc(arena, 2 * 1024 * 1024) == NULL);
+    assert(ceiling_calls == 1);
+    assert(arena->ceiling_hit == true);
+
+    // A request that fits still succeeds, and the flag describes the last
+    // refusal rather than sticking to the arena.
+    assert(orbit_alloc(arena, 4096) != NULL);
+    assert(arena->ceiling_hit == false);
+
+    // A child inherits the ceiling and does not re-read the environment.
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "8") == 0);
+    OrbitArena* child = orbit_arena_create_child(arena, 65536);
+    assert(child != NULL);
+    assert(child->max_rule == arena->max_rule);
+    orbit_arena_destroy(child);
+
+    orbit_set_oom_handler(NULL);
+
+    // Zero and non-numeric values keep the machine-derived default.
+    static const char* bad[] = {"0", "lots", "-4"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        assert(orbit_env_set("ORBIT_ARENA_MAX_MB", bad[i]) == 0);
+        OrbitArena* a = orbit_arena_create(65536);
+        assert(a != NULL);
+        assert(a->max_rule == orbit_arena_default_max());
+        orbit_arena_destroy(a);
+    }
+
+    orbit_env_unset("ORBIT_ARENA_MAX_MB");
+    orbit_arena_destroy(arena);
+}
+
 int main(void) {
     printf("=== ORBIT EPOCHAL ARENA RUNTIME TESTS ===\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -545,7 +600,8 @@ int main(void) {
     RUN_TEST(test_cross_request_sequential_isolation);
     RUN_TEST(test_cross_request_concurrent_isolation);
     RUN_TEST(test_hot_retention_follows_footprint);
+    RUN_TEST(test_ceiling_stops_a_runaway_arena);
     
-    printf("All 22 mandatory Orbit Arena runtime tests PASSED successfully!\n");
+    printf("All 23 mandatory Orbit Arena runtime tests PASSED successfully!\n");
     return 0;
 }

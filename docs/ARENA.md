@@ -206,6 +206,15 @@ current design answers each of those. Measure, don't assume.
 `ORBIT_ARENA_HOT_RETENTION_LIMIT` (256 KB floor kept hot after reset),
 `ORBIT_ARENA_HOT_RETENTION_CEILING` (4 MB ceiling on that retention).
 
+`ORBIT_ARENA_MAX_MB` is the stop, not the size: it caps the bytes an arena may
+commit at three quarters of physical memory by default, and an allocation that
+would pass the cap answers the same exhaustion path the OS running out does.
+The report names the cap (`ORBIT_ARENA_MAX_MB`) instead of blaming the OS. It
+exists because a runaway allocator used to grow until the machine swapped,
+which reads as a freeze with no output rather than as a failure. Unset, zero
+and malformed values keep the default, which is 2048 MB on a platform that
+will not report its memory; a child arena inherits its parent's cap.
+
 **Telemetry** (`runtime/performance.h`): `arena_alloc_count`,
 `arena_requested_bytes`, `arena_aligned_bytes`,
 `arena_virtual_reserved_bytes`, `arena_committed_bytes`,
