@@ -246,6 +246,7 @@ static int kynx_parse_v6_span(const char* s, const char* end, uint8_t* dst) {
             tmp[n] = '\0';
             uint32_t v4 = 0;
             if (!kynx_fast_parse_ipv4(tmp, &v4)) return -1;
+            if (written + 4 > 16) return -1;
             dst[written++] = (uint8_t)(v4 >> 24);
             dst[written++] = (uint8_t)(v4 >> 16);
             dst[written++] = (uint8_t)(v4 >> 8);

@@ -464,6 +464,30 @@ static void test_lease_refusal_returns_to_boundary(void) {
     g_passed++;
 }
 
+/* T16: a dotted-quad tail is four bytes, and the head may already have
+ * written fourteen or sixteen. The parser must refuse instead of writing
+ * past the sixteen-byte array; a string assertion cannot see that write,
+ * so the guard bytes after the array are checked directly. */
+static void test_v6_span_never_overruns(void) {
+    uint8_t buf[16 + 8];
+    int i;
+
+    memset(buf, 0xA5, sizeof(buf));
+    assert(kynx_parse_ipv6("1:2:3:4:5:6:1.2.3.4", buf));
+    for (i = 16; i < (int)sizeof(buf); i++) assert(buf[i] == 0xA5);
+
+    memset(buf, 0xA5, sizeof(buf));
+    assert(!kynx_parse_ipv6("1:2:3:4:5:6:7:1.2.3.4", buf));
+    for (i = 16; i < (int)sizeof(buf); i++) assert(buf[i] == 0xA5);
+
+    memset(buf, 0xA5, sizeof(buf));
+    assert(!kynx_parse_ipv6("1:2:3:4:5:6:7:8:1.2.3.4", buf));
+    for (i = 16; i < (int)sizeof(buf); i++) assert(buf[i] == 0xA5);
+
+    printf("T16 v6 parser stays inside 16 bytes: PASSED\n");
+    g_passed++;
+}
+
 int main(void) {
     test_legit_client_never_denied();
     test_burst_capacity_and_retry();
@@ -480,6 +504,7 @@ int main(void) {
     test_custom_ban_duration();
     test_route_limit_overflow_counted();
     test_lease_refusal_returns_to_boundary();
-    printf("kynx 0.1 property tests: %d/15 PASSED\n", g_passed);
-    return g_passed == 15 ? 0 : 1;
+    test_v6_span_never_overruns();
+    printf("kynx 0.1 property tests: %d/16 PASSED\n", g_passed);
+    return g_passed == 16 ? 0 : 1;
 }
