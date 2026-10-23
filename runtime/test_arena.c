@@ -258,6 +258,25 @@ static void test_string_interning(void) {
     orbit_arena_destroy(arena);
 }
 
+// 20b. String pool growth keeps every entry and grows at capacity
+static void test_string_pool_growth(void) {
+    OrbitArena* arena = orbit_arena_create(4 * 1024 * 1024);
+    char name[32];
+    int i;
+
+    for (i = 0; i < 4097; i++) {
+        snprintf(name, sizeof(name), "interned_%d", i);
+        assert(orbit_string_intern(arena, name) != NULL);
+    }
+    /* The pool starts at 4096 slots, so this run forced one growth. */
+    for (i = 0; i < 4097; i += 512) {
+        snprintf(name, sizeof(name), "interned_%d", i);
+        assert(strcmp(orbit_string_intern(arena, name), name) == 0);
+    }
+
+    orbit_arena_destroy(arena);
+}
+
 // 21. Concurrent acquire/release of the pool
 // 22. Pool exhaustion
 // 23. Arena overflow in pool
@@ -594,6 +613,7 @@ int main(void) {
     RUN_TEST(test_child_arena);
     RUN_TEST(test_promote_bytes);
     RUN_TEST(test_string_interning);
+    RUN_TEST(test_string_pool_growth);
     RUN_TEST(test_pool_concurrency_and_overflow);
     RUN_TEST(test_thousands_of_resets);
     RUN_TEST(test_no_leaks_on_error);
@@ -602,6 +622,6 @@ int main(void) {
     RUN_TEST(test_hot_retention_follows_footprint);
     RUN_TEST(test_ceiling_stops_a_runaway_arena);
     
-    printf("All 23 mandatory Orbit Arena runtime tests PASSED successfully!\n");
+    printf("All 24 mandatory Orbit Arena runtime tests PASSED successfully!\n");
     return 0;
 }
