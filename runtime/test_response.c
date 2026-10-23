@@ -241,6 +241,15 @@ int main(void) {
         assert(strcmp(r->extra_headers, "Location: /new\r\nX-A: b\r\n") == 0);
     }
 
+    /* Optional whitespace before the colon is trimmed from the source
+     * bytes; reading the not-yet-written copy trims nothing or garbage. */
+    {
+        OrbitResponse* r = orbit_response_create(arena, 200, "text/plain", "ok");
+        assert(r != NULL);
+        orbit_response_add_headers(arena, r, "X-Space : 1\r\n");
+        assert(strcmp(r->extra_headers, "X-Space: 1\r\n") == 0);
+    }
+
     /* The wire: a staged block under 128 B keeps the fast path, 600+ B
      * forces the fallback, and 9000+ B forces the direct send (header +
      * body past 8192). All three must arrive byte-exact. */

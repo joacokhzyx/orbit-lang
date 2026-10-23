@@ -398,6 +398,7 @@ void orbit_response_add_headers(OrbitArena* arena, OrbitResponse* resp, const ch
             }
             if (!bad) {
                 size_t nlen = (size_t)(colon - p);
+                while (nlen > 0 && (p[nlen - 1] == ' ' || p[nlen - 1] == '\t')) nlen--;
                 char* name = (char*)orbit_alloc(arena, nlen + 1);
                 if (name) {
                     const char* vs2 = vs;
@@ -405,7 +406,6 @@ void orbit_response_add_headers(OrbitArena* arena, OrbitResponse* resp, const ch
                     char* value;
                     while (vs2 < ve2 && (*vs2 == ' ' || *vs2 == '\t')) vs2++;
                     while (ve2 > vs2 && (ve2[-1] == ' ' || ve2[-1] == '\t')) ve2--;
-                    while (nlen > 0 && (name[nlen - 1] == ' ' || name[nlen - 1] == '\t')) nlen--;
                     memcpy(name, p, nlen);
                     name[nlen] = '\0';
                     value = (char*)orbit_alloc(arena, (size_t)(ve2 - vs2) + 1);
