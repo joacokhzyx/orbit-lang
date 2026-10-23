@@ -1,0 +1,16 @@
+// case: fn-name-collides-with-c-type
+// what: `size_t` is a typedef the generated translation unit already has in
+//      scope. A user function is emitted under its own name, so `fn size_t`
+//      was a second declaration with a different type, and the C compiler
+//      rejected it with `conflicting types` after `orbit check` had accepted
+//      the program. checkFunctionSignature read the function-name list and
+//      never the type-name list.
+// expect-error: 'size_t' is a C type name and cannot be used as an Orbit function name
+fn size_t(value: int) -> int {
+    return value
+}
+
+fn main() -> int {
+    print(size_t(1))
+    return 0
+}

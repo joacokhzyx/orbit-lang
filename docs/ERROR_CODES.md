@@ -269,6 +269,26 @@ Fires in `compiler/tir/lower.orb`, `lowerProgramToTir`, when the root
 node is not a program. Frontend lowering only, and unreachable from the normal
 pipeline. Fix hint: none — internal invariant.
 
+## Reserved C names
+
+Three lists decide what a user `fn` or `model` may not be called. The libc
+function names and the C type names (`FILE`, `size_t`, `va_list`, ...) are
+hand-written in `compiler/front/sema.orb`, because they come from the build
+host's headers: a list generated there would accept a program on Linux and
+refuse it on Windows. The runtime names (`orbit_*`, `system_*`, `ORBIT_*`) are
+generated into `compiler/front/c_namespace.orb` from `runtime/*.h`,
+`runtime/database.c` and `runtime/auth.c`. Run
+`python scripts/gen_c_namespace.py` after a runtime change; `--check` fails
+when the committed table is stale, and T0 runs that check.
+
+A `fn` name is tested against the libc list, the runtime table and the type
+list. An `extern fn` is exempt from the runtime table, because that is how the
+compiler reaches the runtime. A `model` name is tested against the type list
+and the `orbit_` prefix, because a model becomes `typedef struct N N;`. The
+negative cases are `n89` (libc function), `n100` and `n101` (type as a
+function), `n102` (type as a model) and `n103` (runtime export);
+`tests/suite/namespace_user_names.orb` holds the names that must stay accepted.
+
 ## Uncoded rejections (no E-code, still pinned)
 
 These print the one-line `Semantic error:` form and pin a substring:
@@ -300,6 +320,10 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `Payload 2 of 'Both' is declared ...` | `n67` |
 | `bitwise '<op>' takes two ints, not ...` (`&`, `\|`, `^`, `<<`, `>>`) | `n79` |
 | `bitwise '~' takes one int, not ...` | `n80` |
+| `'...' is a C library function name ...` | `n89` |
+| `'...' is a runtime C name ...` | `n103` |
+| `'...' is a C type name ... as an Orbit function name ...` | `n100`, `n101` |
+| `'...' is a C type name ... as an Orbit model name ...` | `n102` |
 | `Parser error` / `Expected '}' after block.` (uncoded recovery) | `n19`, `n20` |
 
 ## F-code index

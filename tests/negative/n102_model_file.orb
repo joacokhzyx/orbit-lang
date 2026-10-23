@@ -1,0 +1,15 @@
+// case: model-name-collides-with-c-type
+// what: a model becomes `typedef struct FILE FILE;` under the user's own name,
+//      which collides with the `FILE` typedef from <stdio.h>. The C compiler
+//      says `conflicting types for 'FILE'`, which names neither the model nor
+//      the header. This case pins the check that refuses it earlier.
+// expect-error: 'FILE' is a C type name and cannot be used as an Orbit model name
+model FILE {
+    path: string
+}
+
+fn main() -> int {
+    val f = FILE { path: "notes.txt" }
+    print(f.path)
+    return 0
+}

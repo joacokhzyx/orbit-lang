@@ -8,6 +8,7 @@
 import "./ast.orb"
 import "../host/extern.orb"
 import "./literal.orb"
+import "./c_namespace.orb"
 
 model Symbol {
     name: string
@@ -343,6 +344,13 @@ fn semaKnownType(t: string) -> bool {
 // and suggesting a rename, not a C toolchain message. The better long-term
 // answer is to mangle emitted user symbols so no name can ever collide; that
 // touches every call site in every program and is tracked as c-name-collisions.
+//
+// The runtime half of the same namespace (`orbit_*`, `system_*`, `ORBIT_*`) is
+// generated into c_namespace.orb from the runtime's own sources, because
+// whoever adds an export there must not have to remember a list here. These
+// names stay hand-written: they come from the build host's headers, and a list
+// generated from the host would accept a program on Linux and refuse it on
+// Windows.
 fn reservedCFunctionName(name: string) -> bool {
     if name == "read" { return true }
     if name == "write" { return true }
@@ -421,11 +429,14 @@ fn reservedRuntimePrefix(name: string) -> bool {
 // A `model` becomes a C struct under the user's own name, so a model named
 // after a C type or typedef collides with a declaration the program never
 // wrote. `model FILE` fails at C compile time with "conflicting types for
-// 'FILE'; have 'struct FILE'", which says nothing about the model. The runtime
-// prefix is excluded here too, because a model named `orbit_Foo` would
-// collide with a runtime type of that name just as a function would.
+// 'FILE'; have 'struct FILE'", which says nothing about the model. The same
+// fifteen names are refused as function names, because a typedef and a
+// function share one C namespace.
+//
+// The runtime prefix is not part of this list. `model orbit_Foo` collides with
+// a runtime type, but `extern fn orbit_string_len` is how the compiler reaches
+// the runtime, so each caller decides the prefix for itself.
 fn reservedCTypeName(name: string) -> bool {
-    if reservedRuntimePrefix(name) { return true }
     if name == "FILE" { return true }
     if name == "size_t" { return true }
     if name == "ssize_t" { return true }
@@ -1681,7 +1692,7 @@ fn popScope(sema: Sema) {
 }
 
 fn checkModelName(sema: Sema, name: string) {
-    if reservedCTypeName(name) {
+    if reservedRuntimePrefix(name) || reservedCTypeName(name) {
         sema.currentFunction = name
         reportError(sema, "'" + name + "' is a C type name and cannot be used as an Orbit model name; rename it (for example Orbit" + name + ")")
         sema.currentFunction = ""
@@ -2347,6 +2358,14 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
             } else if f.isExtern == false && reservedRuntimePrefix(f.name) {
                 sema.currentFunction = f.name
                 reportError(sema, "'" + f.name + "' starts with orbit_, which is reserved for the runtime; rename it (drop the prefix, or use a different one)")
+                sema.currentFunction = ""
+            } else if f.isExtern == false && reservedRuntimeName(f.name) {
+                sema.currentFunction = f.name
+                reportError(sema, "'" + f.name + "' is a runtime C name and cannot be used as an Orbit function name; rename it (for example user_" + f.name + ")")
+                sema.currentFunction = ""
+            } else if reservedCTypeName(f.name) {
+                sema.currentFunction = f.name
+                reportError(sema, "'" + f.name + "' is a C type name and cannot be used as an Orbit function name; rename it (for example user_" + f.name + ")")
                 sema.currentFunction = ""
             }
             // The entry point is one concrete function: nothing calls it with

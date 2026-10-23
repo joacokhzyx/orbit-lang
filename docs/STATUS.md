@@ -28,7 +28,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Path parameters | `:id`/`{id}`/`*` match with capture, static routes win | `examples/params_service.orb` |
 | Bearer auth and roles | Token extraction, role lookup, expiry; `has_role` enforced | `examples/sqlite_notes.orb`, `tests/auth/` |
 | CLI consistency | Errors to stderr, per-command help, `--quiet`/`--verbose`, doctor JSON | `scripts/cli_probe.py` |
-| Behavior suite | **75 runnable programs (76 files; `imports.support.orb` is a support module), one behavior each** | `tests/suite/`, `tests/suite/README.md` |
+| Behavior suite | **76 runnable programs (77 files; `imports.support.orb` is a support module), one behavior each** | `tests/suite/`, `tests/suite/README.md` |
 | Parity and stability probes | Documented gate against committed goldens | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension: highlighting, and `orbit check` diagnostics on save. No language server - `orbit` has no `lsp` subcommand. | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `native-backend` in `ENGINEERING.md` |
@@ -67,7 +67,7 @@ passing gate.
 
 | gate | enforces | what it is | today |
 |---|---|---|---|
-| `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, **89/89 cases hold their pinned outcome**, **0 known defects** - the last ratchet to close was F-0025, the assignment target no pass visits (`n90`-`n92`), which flipped to `expect-error:` when E1009 landed; before it, F-0009 (a bare `list` parameter with no element type) flipped when generic functions landed, and the deliberate bare-`list` leniency is documented in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
+| `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, **93/93 cases hold their pinned outcome**, **0 known defects** - the last ratchet to close was F-0025, the assignment target no pass visits (`n90`-`n92`), which flipped to `expect-error:` when E1009 landed; before it, F-0009 (a bare `list` parameter with no element type) flipped when generic functions landed, and the deliberate bare-`list` leniency is documented in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
 | `scripts/frontend_gate.py` | **blocking** | `orbit frontend` against `tests/frontend/expected/` | **6/6** |
 | `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.5%** of 72,213 instructions over 154 files, **45.7%** of those with no diagnostic at all (2026-10-18; 9,749 of 21,318) |
 | `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high - 29.5% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | baseline `unknown_per_mille` 296, `silent_per_mille` 135 |
