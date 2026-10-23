@@ -421,6 +421,10 @@ static const char* json_parse_string(JsonParse* j, const char** p) {
                     json_fail(j, "json: lone surrogate");
                     return NULL;
                 }
+                if (!q[7] || !q[8] || !q[9] || !q[10]) {
+                    json_fail(j, "json: truncated unicode escape");
+                    return NULL;
+                }
                 lo = json_unicode_unit(q + 7);
                 if (lo < 0 || lo < 0xDC00 || lo > 0xDFFF) {
                     json_fail(j, "json: lone surrogate");
