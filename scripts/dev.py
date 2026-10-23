@@ -58,16 +58,18 @@ WITNESS_LOG = ORBIT / "last_run.log"
 #   <dir>/chain3.exe  the converged fixed-point compiler (copy source for fp)
 #   <dir>/chain3.c    the converged C that must equal the canonical byte-for-byte
 #   <dir>/seed.c      the seed-stage C snapshot (diagnostics, cache reuse)
-#   <dir>/hashes.json {canonical_sha, seed_sha, chain3_sha, published}
+#   <dir>/hashes.json {canonical_sha, seed_sha, chain3_sha, published, runtime_sha}
 # All hashes are lowercase hex of file bytes, except `published` which is the
-# uppercase PUBLISHED_C from verify_seed.py. The writers emit exactly those
-# four keys; the driver merges a fifth of its own, `sources_sha`
-# (compiler_fingerprint: compiler/**/*.orb content + the C compiler identity),
-# after build_fp and after a green `all` whose verify_seed rewrote the
-# manifest. shared_is_valid REQUIRES it, because without it an unpromoted
-# compiler/**/*.orb edit left the snapshots "valid": every file still hashed to
-# what hashes.json said, check_stale degraded to a byte compare of two
-# unchanged files, and `all` stayed green while testing the pre-edit
+# uppercase PUBLISHED_C from verify_seed.py. `runtime_sha` covers the
+# runtime/**/*.c and *.h the canonical C includes: without it a snapshot built
+# before a runtime edit was adopted by both consumers, because the canonical
+# text had not moved. The driver merges a sixth key of its own, `sources_sha`
+# (compiler_fingerprint: compiler/**/*.orb + runtime/**/*.c|h content and the C
+# compiler identity), after build_fp and after a green `all` whose verify_seed
+# rewrote the manifest. shared_is_valid REQUIRES it, because without it an
+# unpromoted compiler/**/*.orb edit left the snapshots "valid": every file
+# still hashed to what hashes.json said, check_stale degraded to a byte compare
+# of two unchanged files, and `all` stayed green while testing the pre-edit
 # compiler (OPS-1). When the directory is absent or stale every helper below
 # falls back to the current behaviour (rebuild per gate). The fallback is
 # deliberate: dev.py must stay green on a tree where --shared-work is still
@@ -178,14 +180,25 @@ def cc_identity(cc: str) -> str:
 
 
 def compiler_fingerprint(cc: str) -> str:
-    """Content hash of compiler/**/*.orb plus the C compiler identity.
+    """Content hash of every source the fixed point is compiled from.
+
+    `compiler/**/*.orb` is the language, and `runtime/**/*.c|h` is textually
+    included by the canonical C (`stage3.exe.c` includes `runtime.h`), so a
+    runtime edit changes the binary exactly as a compiler edit does. Hashing
+    only the compiler sources let `dev.py fp` adopt a snapshot built before
+    such an edit: measured with an edited `runtime/arena.c`, `shared_is_valid`
+    answered ok and `fp` printed "copied from chain3.exe (no rebuild)". The C
+    compiler's identity is part of the key for the same reason.
 
     Content, not mtime, for the same reason the doctor cache is keyed on
     content: `touch compiler/tools/doctor.orb` must not invalidate anything, and a
     file restored from a backup with a new mtime must.
     """
     digest = hashlib.sha256()
-    for path in sorted(ROOT.glob("compiler/**/*.orb")):
+    inputs = sorted(ROOT.glob("compiler/**/*.orb"))
+    inputs += sorted(ROOT.glob("runtime/**/*.c"))
+    inputs += sorted(ROOT.glob("runtime/**/*.h"))
+    for path in inputs:
         digest.update(path.relative_to(ROOT).as_posix().encode())
         digest.update(hashlib.sha256(path.read_bytes()).digest())
     digest.update(cc_identity(cc).encode())
@@ -421,13 +434,13 @@ def shared_is_valid(cc: str) -> tuple:
     """Whether .orbit/shared/ describes the current canonical (no rebuild needed).
 
     Valid means all four contract files exist, hashes.json parses with the
-    four writer keys plus dev.py's `sources_sha`, the stored canonical/seed/
+    five writer keys plus dev.py's `sources_sha`, the stored canonical/seed/
     chain3 hashes match the bytes on disk, and sources_sha matches
-    compiler/**/*.orb plus the C compiler identity right now. That last check is
-    what keeps the snapshot falsifiable while a compiler source edit is
-    unpromoted: the files in the dir still hash to what hashes.json says, so
-    without it `all` adopts the pre-edit chain and substitutes a byte compare
-    over it (OPS-1).
+    compiler/**/*.orb, runtime/**/*.c|h and the C compiler identity right now.
+    That last check is what keeps the snapshot falsifiable while a compiler or
+    runtime source edit is unpromoted: the files in the dir still hash to what
+    hashes.json says, so without it `all` adopts the pre-edit chain and
+    substitutes a byte compare over it (OPS-1).
     Anything else is (False, reason) and the caller falls back to rebuilding.
     """
     for p in (SHARED_CHAIN3_EXE, SHARED_CHAIN3_C, SHARED_SEED_C, SHARED_HASHES):
@@ -455,7 +468,7 @@ def shared_is_valid(cc: str) -> tuple:
     if "sources_sha" not in doc:
         return False, "hashes.json has no sources_sha (snapshot predates OPS-1)"
     if doc["sources_sha"] != compiler_fingerprint(cc):
-        return False, "compiler sources moved on since the snapshot was built"
+        return False, "build inputs moved on since the snapshot was built"
     return True, "ok"
 
 

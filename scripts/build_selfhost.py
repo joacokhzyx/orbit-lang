@@ -316,13 +316,16 @@ def update_published_c(new_hash: str) -> None:
 #   <dir>/chain3.c    converged fixed-point C
 #   <dir>/chain3.exe  converged compiler binary (chain3, no suffix, off Windows)
 #   <dir>/seed.c      seed-stage emitted C
-#   <dir>/hashes.json {"canonical_sha":..,"seed_sha":..,"chain3_sha":..,"published":..}
+#   <dir>/hashes.json {"canonical_sha":..,"seed_sha":..,"chain3_sha":..,"published":..,"runtime_sha":..}
 #
-# The three _sha values are lowercase hex of the bytes as written; published is
-# PUBLISHED_C verbatim (uppercase): compare case-insensitively. Presence of
-# hashes.json means THIS run converged; absence means it did not -- the writer
-# deletes a stale manifest at startup and writes the manifest last
-# (tmp+rename), so a failed run can never leave a fresh-looking manifest.
+# The four _sha values are lowercase hex of the bytes as written; published is
+# PUBLISHED_C verbatim (uppercase): compare case-insensitively. runtime_sha
+# covers runtime/**/*.c and *.h, which the canonical C includes textually, so a
+# snapshot is not reused after a runtime edit that leaves the canonical text
+# unchanged. Presence of hashes.json means THIS run converged; absence means it
+# did not -- the writer deletes a stale manifest at startup and writes the
+# manifest last (tmp+rename), so a failed run can never leave a fresh-looking
+# manifest.
 # The writer never touches the canonical or PUBLISHED_C; --promote stays the
 # single writer of the root of trust. Concurrent writers to one dir must be
 # serialized by the driver; at a true fixed point both scripts write identical
@@ -345,6 +348,30 @@ def published_c_contract() -> str:
         return ""
     m = re.search(r'PUBLISHED_C = "([0-9A-Fa-f]{64})"', text)
     return m.group(1).upper() if m else ""
+
+
+def runtime_tree_sha() -> str:
+    """Content hash of the runtime sources the fixed point is compiled with.
+
+    The canonical C includes runtime/runtime.h, so the binary is a function of
+    these files as much as of `compiler/**/*.orb`. Hashing them here is what
+    stops a snapshot from being reused after a runtime edit: the binary
+    predates the edit, the canonical text has not moved, and nothing else in
+    the manifest notices.
+    """
+    runtime = os.path.join(ROOT, "runtime")
+    digest = hashlib.sha256()
+    for dirpath, dirnames, filenames in os.walk(runtime):
+        dirnames.sort()
+        for name in sorted(filenames):
+            if not name.endswith((".c", ".h")):
+                continue
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, runtime).replace(os.sep, "/")
+            digest.update(rel.encode())
+            with open(path, "rb") as f:
+                digest.update(hashlib.sha256(f.read()).digest())
+    return digest.hexdigest()
 
 
 def claim_shared_work(path: str) -> str:
@@ -380,6 +407,7 @@ def write_shared_work(shared_dir: str, *, canonical_c: str, seed_c: str,
         "seed_sha": sha256(dst_seed),
         "chain3_sha": sha256(dst_chain),
         "published": published_c_contract(),
+        "runtime_sha": runtime_tree_sha(),
     }
     tmp = os.path.join(shared_dir, SHARED_MANIFEST + ".tmp%d" % os.getpid())
     with open(tmp, "w", encoding="utf-8", newline="\n") as f:

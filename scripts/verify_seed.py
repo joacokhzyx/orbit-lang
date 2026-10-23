@@ -81,7 +81,8 @@ try:
                                 lowmem_cc_flags, resolve_low_mem,
                                 claim_shared_work, write_shared_work,
                                 SHARED_CHAIN_C, SHARED_SEED_C, SHARED_MANIFEST,
-                                shared_chain_bin, compile_tu_exe)
+                                shared_chain_bin, compile_tu_exe,
+                                runtime_tree_sha)
 except Exception:
     # Degraded mirrors for when the sibling module cannot be imported; the
     # gate still runs. Flags stay unified by construction (same order, same
@@ -108,6 +109,7 @@ except Exception:
     SHARED_SEED_C = None
     SHARED_MANIFEST = None
     shared_chain_bin = None
+    runtime_tree_sha = None
 
     def compile_tu_exe(cc, cc_cmd, argv, sources, _c_path, _out_exe,
                        _work, _tag):
@@ -225,10 +227,13 @@ def consume_shared_work(shared_dir, work, h_canon):
 
     Fast path for ``--shared-work DIR`` when DIR already describes the
     current canonical: copy seed.c / chain3.c / the chain3 binary into work
-    and hash the copies. Valid means the manifest parses with its four keys,
-    its canonical_sha matches the current canonical, and the snapshot bytes
-    hash to the manifest's seed_sha/chain3_sha. Anything else is None and the
-    caller rebuilds the chain exactly as without the flag.
+    and hash the copies. Valid means the manifest parses with its five keys,
+    its canonical_sha matches the current canonical, its runtime_sha matches
+    the runtime sources on disk, and the snapshot bytes hash to the manifest's
+    seed_sha/chain3_sha. The runtime check is not redundant with the canonical
+    one: the canonical C includes runtime/runtime.h, so a runtime edit changes
+    the binary while leaving the canonical text byte-identical. Anything else
+    is None and the caller rebuilds the chain exactly as without the flag.
 
     The four equality checks still run on these bytes below (same check()
     calls, same digest comparisons); only the frontend rebuilds are skipped.
@@ -236,7 +241,8 @@ def consume_shared_work(shared_dir, work, h_canon):
     hashed -- never what the shared dir claimed at validation time.
     """
     if (not shared_dir or SHARED_CHAIN_C is None or SHARED_SEED_C is None
-            or SHARED_MANIFEST is None or shared_chain_bin is None):
+            or SHARED_MANIFEST is None or shared_chain_bin is None
+            or runtime_tree_sha is None):
         return None
     try:
         with open(os.path.join(shared_dir, SHARED_MANIFEST), encoding="utf-8") as f:
@@ -245,7 +251,11 @@ def consume_shared_work(shared_dir, work, h_canon):
         return None
     if any(k not in doc for k in ("canonical_sha", "seed_sha", "chain3_sha", "published")):
         return None
+    if "runtime_sha" not in doc:
+        return None
     if doc["canonical_sha"].lower() != h_canon.lower():
+        return None
+    if doc["runtime_sha"].lower() != runtime_tree_sha().lower():
         return None
     try:
         seed_c = os.path.join(work, "seed.selfhost.c")
