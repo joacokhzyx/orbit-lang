@@ -10,6 +10,10 @@ fn read_success() -> result {
 }
 
 fn main() -> int {
-    read_success()
+    val r: result = read_success()
+    val value: int = try r catch {
+        return 1
+    }
+    if value != 41 { return 2 }
     return 0
 }

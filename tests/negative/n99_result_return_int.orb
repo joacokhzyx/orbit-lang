@@ -1,0 +1,13 @@
+// case: result-body-returns-int
+// what: a `-> result` function whose body returns an int. `result` was
+//      compatible with every type in checkCompatibility, so the signature
+//      promised a value a caller can propagate and the body produced one no
+//      `try` can read.
+// expect-error: Return type mismatch: expected result, got int
+fn f() -> result {
+    return 42
+}
+
+fn main() -> int {
+    return 0
+}

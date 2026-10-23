@@ -2511,6 +2511,48 @@ fn checkRouteBody(sema: Sema, node: ASTNode) {
     }
 }
 
+// The callee of a statement that is a call, for the diagnostic that names it.
+// "" for a statement of any other shape.
+fn discardedCallName(node: ASTNode) -> string {
+    match node {
+        ASTNode.Call(c) => {
+            match c.callee {
+                ASTNode.Literal(l) => {
+                    if l.valType == "identifier" { return l.text }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    return ""
+}
+
+// A `result` is the one value in the language that reports a failure by being
+// a value: nothing in the runtime logs it, so a statement whose type is
+// `result` is a call whose answer was dropped, and the process exits 0 while
+// the write, fetch or parse it stood for did not happen. `try` with a `catch`,
+// `match`, a binding that is read afterwards, and `return` from a `-> result`
+// function are how one is consumed.
+//
+// A statement of some other shape (a bare name, an `if` used as a statement)
+// has no callee to name and carries no position, so it gets the one-line form.
+fn checkDiscardedResult(sema: Sema, node: ASTNode, typeName: string) {
+    if typeName != "result" { return }
+    val hint = "Consume it: bind it with `val r = ...` and read it with `try r catch`, match on it, or return it from a `-> result` function."
+    val callee = discardedCallName(node)
+    if callee == "" {
+        reportError(sema, "A result is discarded here, so a failure it reports is lost and the program carries on as if it had succeeded. " + hint)
+        return
+    }
+    match node {
+        ASTNode.Call(c) => {
+            reportErrorAt(sema, "E1010", hint, c.line, c.col, "The result of '" + callee + "' is discarded, so a failure it reports is lost and the program carries on as if it had succeeded.")
+        }
+        _ => {}
+    }
+}
+
 // Returns the type of the last statement, which is what a block used as an
 // expression is worth.
 //
@@ -2518,14 +2560,36 @@ fn checkRouteBody(sema: Sema, node: ASTNode) {
 // the caller would mean a second walk of the last statement after popScope,
 // and every name that statement declared would then be undeclared -- a real
 // diagnostic, and a false one.
+//
+// `keepLast` says whether the last statement is that value. A branch of an `if`
+// and a `match` case can be one, so a result there is handed to whatever reads
+// the branch. A function body, a loop body and a nested `{ ... }` have no
+// reader, so `checkBlock` keeps nothing.
 fn checkBlock(sema: Sema, block: ASTNode) -> string {
+    return checkBlockReading(sema, block, false)
+}
+
+// A branch or case body, whose last statement may be the value of the `if` or
+// `match` it belongs to.
+fn checkValueBlock(sema: Sema, branch: ASTNode) -> string {
+    match branch {
+        ASTNode.Block(b) => { return checkBlockReading(sema, branch, true) }
+        _ => { return checkNode(sema, branch) }
+    }
+}
+
+fn checkBlockReading(sema: Sema, block: ASTNode, keepLast: bool) -> string {
     match block {
         ASTNode.Block(b) => {
             pushScope(sema)
             var i = 0
             var lastType = "void"
             while i < b.statements.len() {
-                lastType = checkNode(sema, b.statements.get(i))
+                val stmt = b.statements.get(i)
+                lastType = checkNode(sema, stmt)
+                if keepLast == false || i + 1 < b.statements.len() {
+                    checkDiscardedResult(sema, stmt, lastType)
+                }
                 i = i + 1
             }
             popScope(sema)
@@ -2550,10 +2614,10 @@ fn checkIf(sema: Sema, node: ASTNode) -> string {
     match node {
         ASTNode.If(stmt) => {
             checkNode(sema, stmt.condition)
-            val thenType = checkNode(sema, stmt.thenBody)
+            val thenType = checkValueBlock(sema, stmt.thenBody)
             match stmt.elseBody {
                 ASTNode.Empty => {}
-                _ => { checkNode(sema, stmt.elseBody) }
+                _ => { checkValueBlock(sema, stmt.elseBody) }
             }
             return thenType
         }
@@ -2850,7 +2914,7 @@ fn checkMatchCase(sema: Sema, c: MatchCaseNode) {
         declareSymbol(sema, name, "unknown", false, false)
         bi = bi + 1
     }
-    checkNode(sema, c.body)
+    checkValueBlock(sema, c.body)
     popScope(sema)
 }
 
@@ -3240,6 +3304,26 @@ fn checkGenericModelFields(sema: Sema, modelName: string, node: ASTNode) {
     }
 }
 
+// One returned value against the declared return type.
+//
+// `result` is compatible with every other type in checkCompatibility, which is
+// what let `fn f() -> result { return 42 }` pass: the signature promised a value
+// a caller can propagate and the body produced an int no `try` can read. A
+// `-> result` function builds one with `return ok ...` or `return err ...`
+// (different nodes, checked beside this), or returns a value already typed
+// result. `unknown` stays accepted, the way every other comparison here does.
+fn checkReturnValue(sema: Sema, expectedType: string, actualType: string) {
+    if expectedType == "result" {
+        if actualType == "result" { return }
+        if semaKnownType(actualType) == false { return }
+        reportError(sema, "Return type mismatch: expected result, got " + actualType + ": build one with ok(value) or err(message), or return a result bound with `val`")
+        return
+    }
+    if checkCompatibility(expectedType, actualType) == false {
+        reportError(sema, "Return type mismatch: expected " + expectedType + ", got " + actualType)
+    }
+}
+
 fn checkReturn(sema: Sema, node: ASTNode) {
     // ReturnNode carries no position, so a stale valueSite would point at an
     // unrelated line. Reset: a generic literal returned directly keeps the
@@ -3263,16 +3347,12 @@ fn checkReturn(sema: Sema, node: ASTNode) {
                         checkObjectLiteralModel(sema, expectedType, r.expr)
                     } else {
                         val actualType = checkNode(sema, r.expr)
-                        if checkCompatibility(expectedType, actualType) == false {
-                            reportError(sema, "Return type mismatch: expected " + expectedType + ", got " + actualType)
-                        }
+                        checkReturnValue(sema, expectedType, actualType)
                     }
                 }
                 _ => {
                     val actualType = checkNode(sema, r.expr)
-                    if checkCompatibility(expectedType, actualType) == false {
-                        reportError(sema, "Return type mismatch: expected " + expectedType + ", got " + actualType)
-                    }
+                    checkReturnValue(sema, expectedType, actualType)
                 }
             }
         }
@@ -3782,7 +3862,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                             declareSymbol(sema, name, "unknown", false, false)
                             bi = bi + 1
                         }
-                        val caseType = checkNode(sema, mc.body)
+                        val caseType = checkValueBlock(sema, mc.body)
                         popScope(sema)
                         return caseType
                     }
@@ -3859,8 +3939,24 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             match c.callee {
                 ASTNode.Literal(l) => {
                     if l.valType == "identifier" {
-                        if l.text == "ok" { return "result" }
-                        if l.text == "err" { return "result" }
+                        // `ok` carries the value a `try` yields and `err`
+                        // carries a message and an optional code; one built
+                        // with the wrong number of positions has nothing to
+                        // hand the consumer, and the builder emitted whichever
+                        // argument it found. The reference grammar is
+                        // `ok(expr)` and `err(expr[, expr])`.
+                        if l.text == "ok" {
+                            if c.args.len() != 1 {
+                                reportErrorAt(sema, "E1003", "Give ok exactly one value: the value a later `try` yields.", c.line, c.col, "ok takes exactly 1 argument, got " + orbit_int_to_string_selfhost(c.args.len()) + ".")
+                            }
+                            return "result"
+                        }
+                        if l.text == "err" {
+                            if c.args.len() < 1 || c.args.len() > 2 {
+                                reportErrorAt(sema, "E1003", "Give err a message, and a code only if you mean one: err(message) or err(message, code).", c.line, c.col, "err takes 1 or 2 arguments, got " + orbit_int_to_string_selfhost(c.args.len()) + ".")
+                            }
+                            return "result"
+                        }
                         if l.text == "print" {
                             // Multi-argument print emits nothing at all: the
                             // backend lowers `print(a, b)` to a comment, so a
@@ -4171,7 +4267,11 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             // literal standing alone as a statement never inherits a line.
             sema.valueSiteLine = 0
             sema.valueSiteCol = 0
-            checkNode(sema, e.expr)
+            // The dispatch exists so a check that lives in checkNode runs for
+            // a statement; the statement's type has to be looked at too, or a
+            // `result` is computed and dropped here.
+            val exprType = checkNode(sema, e.expr)
+            checkDiscardedResult(sema, e.expr, exprType)
             return ""
         }
         ASTNode.Assignment(a) => {

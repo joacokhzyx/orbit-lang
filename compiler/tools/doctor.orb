@@ -2651,8 +2651,8 @@ fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: lis
         ASTNode.ReturnErr(r) => { doctorIgnoredWalk(stats, r.expr, file, decls) }
         ASTNode.If(x) => {
             doctorIgnoredWalk(stats, x.condition, file, decls)
-            doctorIgnoredWalk(stats, x.thenBody, file, decls)
-            if x.elseBody != NULL { doctorIgnoredWalk(stats, x.elseBody, file, decls) }
+            doctorIgnoredBranch(stats, x.thenBody, file, decls)
+            if x.elseBody != NULL { doctorIgnoredBranch(stats, x.elseBody, file, decls) }
         }
         ASTNode.While(w) => {
             doctorIgnoredWalk(stats, w.condition, file, decls)
@@ -2671,7 +2671,7 @@ fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: lis
                 i = i + 1
             }
         }
-        ASTNode.MatchCase(c) => { doctorIgnoredWalk(stats, c.body, file, decls) }
+        ASTNode.MatchCase(c) => { doctorIgnoredBranch(stats, c.body, file, decls) }
         ASTNode.Try(t) => {
             doctorIgnoredWalk(stats, t.expr, file, decls)
             doctorIgnoredWalk(stats, t.catchBody, file, decls)
@@ -2688,6 +2688,30 @@ fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: lis
         ASTNode.Interp(inp) => { doctorIgnoredWalkList(stats, inp.parts, file, decls) }
         ASTNode.TypedLiteral(t) => { doctorIgnoredWalk(stats, t.value, file, decls) }
         _ => {}
+    }
+}
+
+/** @brief A branch body, whose last statement is the branch's value.
+ *
+ *  `val r = if c { ok(1) } else { err("x") }` hands the call to the binding, so
+ *  the last statement of an `if` branch or a `match` case is not discarded.
+ *  When nothing reads the branch, sema rejects the outer statement; D027 must
+ *  stay silent on the accepted shape or the doctor contradicts the compiler.
+ */
+fn doctorIgnoredBranch(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+    match node {
+        ASTNode.Block(b) => {
+            val stmts = b.statements
+            var i = 0
+            while i + 1 < stmts.len() {
+                doctorIgnoredStatement(stats, doctorNodeAt(stmts, i), file, decls)
+                i = i + 1
+            }
+            if stmts.len() > 0 {
+                doctorIgnoredWalk(stats, doctorNodeAt(stmts, stmts.len() - 1), file, decls)
+            }
+        }
+        _ => { doctorIgnoredWalk(stats, node, file, decls) }
     }
 }
 

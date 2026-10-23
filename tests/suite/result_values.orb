@@ -10,7 +10,15 @@ fn make_failure() -> result {
 }
 
 fn main() -> int {
-    make_success()
-    make_failure()
+    val success: result = make_success()
+    val failure: result = make_failure()
+    val value: int = try success catch {
+        return 1
+    }
+    if value != 41 { return 2 }
+    val recovered: int = try failure catch {
+        return 0
+    }
+    if recovered != 0 { return 3 }
     return 0
 }

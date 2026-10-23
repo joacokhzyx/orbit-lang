@@ -1,0 +1,33 @@
+// expect-exit 0
+// The accepted half of result handling: a result built with one value, consumed
+// by `try`, returned from a `-> result` function, and produced in the tail of an
+// `if` branch that a binding reads.
+fn make_success() -> result {
+    val value: result = ok(41)
+    return value
+}
+
+fn make_failure() -> result {
+    val value: result = err("invalid input", 7)
+    return value
+}
+
+fn pass_through(flag: bool) -> result {
+    val r = if flag { make_success() }
+    else { make_failure() }
+    return r
+}
+
+fn unwrap(r: result) -> int {
+    val value: int = try r catch {
+        return 0 - 1
+    }
+    return value
+}
+
+fn main() -> int {
+    if unwrap(make_success()) != 41 { return 1 }
+    if unwrap(pass_through(true)) != 41 { return 2 }
+    if unwrap(pass_through(false)) != 0 - 1 { return 3 }
+    return 0
+}

@@ -89,7 +89,12 @@ per field). It also fires for a field or variant read that nothing declares
 member as declared, construct with one argument per field in order, print
 one value. Pinned by `n05`, `n06`, `n13`, `n14`, `n15`, `n47`, `n57`, `n66`,
 `n68`, and `n78` (`n66`: variant arity at construction; `n68`: pattern binding
-count in `match`; `n78`: `res.header`/`res.cookie` take exactly 2).
+count in `match`; `n78`: `res.header`/`res.cookie` take exactly 2). The same
+code covers `ok` and `err` built with the wrong number of positions: `ok` takes
+exactly one value, and `err` takes a message and an optional code, which is the
+grammar in `docs/LANGUAGE_REFERENCE.md`. Before that check both answered
+`result` before their argument count was looked at. Pinned by
+`tests/negative/n97_result_no_value.orb` (`ok()`).
 
 ## E1004 — literal zero divisor, `INT_MIN / -1`
 
@@ -184,7 +189,23 @@ assign a value of the declared type. Pinned by
 `n95_member_store_unknown_field.orb` (a field the model does not declare), and
 `n96_member_store_float.orb` (a float into an `int` field).
 
-## E2001 — unknown identifier (frontend)
+## E1010 - a `result` value is discarded
+
+Fires in `compiler/front/sema.orb`, `checkDiscardedResult`, for a statement
+whose type is `result`: a call that can fail, whose answer nothing reads. A
+failure is reported by the value and nothing in the runtime logs it, so the
+program exits 0 while the write, fetch or parse the call stood for did not
+happen. Every statement a block walks is checked. The last statement of an `if`
+branch and of a `match` case is that branch's value, so a `result` there is
+consumed by whatever reads the branch (`val r = if c { ok(1) } else { err("x") }`
+is accepted). Fix hint: bind it with `val r = ...` and read it with
+`try r catch`, `match` on it, or return it from a `-> result` function. The
+message names the callee when the statement is a call; a statement of another
+shape (a bare name, an `if` used as a statement) has no position in the AST and
+prints the one-line form without the code. Pinned by
+`tests/negative/n98_result_discarded.orb`.
+
+## E2001 - unknown identifier (frontend)
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression`: a load whose
 name no binding declares. This is the `orbit frontend` lowering. `orbit
@@ -261,7 +282,7 @@ These print the one-line `Semantic error:` form and pin a substring:
 | `Cannot use generic function ... as a value` | `n76` |
 | `Cannot use 'main' as a value` | `n77` |
 | `Duplicate symbol` | `n21` |
-| `expected int, got string` (return/binding mismatch) | `n03`, `n07`, `n16`, `n17`, `n18` |
+| `expected int, got string` (return/binding mismatch) | `n03`, `n07`, `n16`, `n17`, `n18`, `n99` (`n99`: a `-> result` body returns an int) |
 | `Nothing declares a type named` is E1006, but `expected float, got Float` | `n34` |
 | `a string cannot contain a NUL byte` | `n42` |
 | `does not fit an orbit_int` | `n29` |

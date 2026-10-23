@@ -1,0 +1,10 @@
+// case: result-built-with-no-value
+// what: `ok()` builds a result with no success value. There is nothing to hand
+//      the `try` that reads it, and before this check `ok` answered `result`
+//      before its arity was looked at, so the builder emitted whichever
+//      argument it found.
+// expect-error: ok takes exactly 1 argument, got 0
+fn main() -> int {
+    val r: result = ok()
+    return 0
+}

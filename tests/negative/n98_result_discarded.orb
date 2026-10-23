@@ -1,0 +1,11 @@
+// case: result-call-discarded
+// what: a result-returning call used as a statement. A failure is reported as
+//      a value and nothing else logs it, so the read this stands for did not
+//      happen and the process carries on and exits 0.
+// expect-error: The result of 'orbit_file_read' is discarded
+extern fn orbit_file_read(path: string) -> result
+
+fn main() -> int {
+    orbit_file_read("notes.txt")
+    return 0
+}

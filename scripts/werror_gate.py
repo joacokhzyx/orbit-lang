@@ -17,7 +17,7 @@ PROBES = [
     ("arith", "fn main() -> int {\n    return (6 * 7) + 1 - 1\n}", 42),
     ("string_eq", 'fn main() -> int {\n    val a = "orbit"\n    val b = "orb" + "it"\n    if a == b {\n        return 5\n    }\n    return 6\n}', 5),
     ("while_loop", "fn main() -> int {\n    var i = 0\n    while i < 5 {\n        i = i + 1\n    }\n    return i\n}", 5),
-    ("try_ok", "fn make_success() -> result {\n    val value: result = ok(41)\n    return value\n}\nfn main() -> int {\n    make_success()\n    return 1\n}", 1),
+    ("try_ok", "fn make_success() -> result {\n    val value: result = ok(41)\n    return value\n}\nfn main() -> int {\n    val r: result = make_success()\n    val v: int = try r catch {\n        return 2\n    }\n    if v != 41 { return 3 }\n    return 1\n}", 1),
     ("try_catch", 'fn make_failure() -> result {\n    val value: result = err("invalid input", 7)\n    return value\n}\nfn read_failure() -> int {\n    val value: int = try make_failure() catch {\n        return 7\n    }\n    return value\n}\nfn main() -> int {\n    return read_failure()\n}', 7),
     ("string_ops", 'fn main() -> int {\n    val s = "ab" + "cd"\n    return s.len()\n}', 4),
     ("http_routes", 'fn helper() -> int {\n    return 5\n}\nroute GET "/p" {\n    val n = helper()\n    val s = "n=" + n\n    return ok 200 s\n}\nfn main() -> int {\n    return 0\n}', "serve",
