@@ -49,12 +49,11 @@ CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 
-# -O0 keeps peak memory low: these builds run once per gate and speed is
-# irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
-# -O2 links. This is the bootstrap's own choice, not the user-build default:
-# pipeline.orb builds user programs at -O1 (-O2 with --release), while the
-# bootstrap pins -O0 here regardless.
-# -O0 keeps peak memory low on 4 GB machines; -DORBIT_WITH_EXEC enables the
+# The bootstrap builds at -O1, or at -O0 under the low-memory profile
+# (--low-mem, auto-enabled below 4 GB of free commit): low-RAM machines (4 GB)
+# were OOMing inside LLVM/lld during -O2 links. pipeline.orb builds user
+# programs at -O1 (-O2 with --release).
+# -DORBIT_WITH_EXEC enables the
 # compiler's own process spawning (its cc invocations) -- trusted infrastructure.
 # No blanket suppressions: generated C must compile warning-free under -Werror
 # on the supported toolchains. -Werror itself stays out of the bootstrap path
@@ -76,7 +75,7 @@ VERIFY_SEED = os.path.join(ROOT, "scripts", "verify_seed.py")
 # to cover (int-conversion, incompatible-pointer-types) across the whole corpus,
 # so GCC 14+ compiling these as errors is no longer a hazard. A regression now
 # fails loudly here instead of being silently downgraded to a warning.
-SUPPRESS_FLAGS = ["-O0", "-DORBIT_WITH_EXEC"] + (
+SUPPRESS_FLAGS = ["-DORBIT_WITH_EXEC"] + (
     ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
 
 # Low-memory profile: drop unwind tables and debug info so the multi-MB
@@ -156,6 +155,16 @@ def resolve_low_mem(setting, log=None) -> bool:
     return auto
 
 
+def bootstrap_opt_flag(low_mem: bool) -> str:
+    """-O1 by default, -O0 under the low-memory profile.
+
+    On the 5.9 MB compiler unit with gcc 16.2.0 (8 cores) -O1 makes the
+    compiler 4x faster at emitting itself (2.5 s against 10.8 s at -O0) for
+    6 s more of gcc time. -O0 stays for machines where -O1 does not fit.
+    """
+    return "-O0" if low_mem else "-O1"
+
+
 def bootstrap_cc_middle(cc: str, low_mem: bool) -> list:
     """The unified middle of every bootstrap cc argv (Fase A, pieza F).
 
@@ -164,7 +173,7 @@ def bootstrap_cc_middle(cc: str, low_mem: bool) -> list:
     hash to one orbit_ccache entry no matter which script stored it first.
     Order is pinned: the cache key hashes argv tokens in order.
     """
-    return [*cc_strip_flags(cc), *SUPPRESS_FLAGS,
+    return [*cc_strip_flags(cc), bootstrap_opt_flag(low_mem), *SUPPRESS_FLAGS,
             *(lowmem_cc_flags(cc) if low_mem else [])]
 
 
@@ -285,7 +294,7 @@ def orb_build(compiler, out_exe, work, cc, snapshot_path, extra_cc_flags=None) -
                 "(stale baked-in flags?); continuing with our own cc invocation.")
     shutil.copyfile(inter_c, snapshot_path)
     # The shard header travels with the snapshot: sharded TU compiles
-    # (ORBIT_SHARD_BUILD=1) resolve it as the sibling <base>.h.
+    # (sharding is on by default) resolve it as the sibling <base>.h.
     inter_h = os.path.splitext(inter_c)[0] + ".h"
     if os.path.isfile(inter_h):
         shutil.copyfile(inter_h, os.path.splitext(snapshot_path)[0] + ".h")
@@ -446,8 +455,8 @@ def compile_tu_exe(cc, cc_cmd, iter_argv, iter_sources, c_path, next_exe,
                    work, tag) -> bool:
     """Build one iteration compiler, sharded when asked and worthwhile.
 
-    ORBIT_SHARD_BUILD=1 tries scripts/shard_selfhost.py on the emitted TU
-    (its sibling <base>.h must exist) and falls back to the unity
+    Sharding (on unless ORBIT_SHARD_BUILD=0) tries scripts/shard_selfhost.py
+    on the emitted TU (its sibling <base>.h must exist) and falls back to the unity
     compile_cached on any failure. The cache is probed first: a unity hit
     is a file copy, cheaper than any sharding, so shards only run on a
     confident miss. Returns the compile_cached-style reused flag (False
@@ -470,7 +479,8 @@ def compile_tu_exe(cc, cc_cmd, iter_argv, iter_sources, c_path, next_exe,
                 cc, c_path, header, next_exe, work, tag=tag,
                 jobs=shard_selfhost.shard_jobs(),
                 runtime_dir=os.path.join(ROOT, "runtime"),
-                lib_dir=os.path.join(work, "shardlib"), log=out.say)
+                lib_dir=os.path.join(work, "shardlib"), log=out.say,
+                opt="-O0" if "-O0" in iter_argv else "-O1")
             out.say(f"shard-built {tag} (unity fallback skipped; "
                     f"no Windows branding stamp on this intermediate)")
             return False
@@ -583,10 +593,16 @@ def main() -> int:
             iter_argv, [c_i], work, "Orbit compiler", log=out.say)
         reused = compile_tu_exe(cc, cc_cmd, iter_argv, iter_sources, c_i,
                                 next_exe, work, f"iter{i}")
+        # The canonical is a fixed point by construction (verify_seed asserts
+        # it reproduces itself), so a first emission equal to it needs no
+        # second round to show convergence. A canonical that is not a fixed
+        # point never takes this path and runs the full loop.
+        equals_canonical = i == 1 and h_i == h_canonical
         out.say(f"Iteration {i}: {h_i}"
                 + ("  (fixed point)" if h_i == prev_c_hash else "")
+                + ("  (equals canonical; fixed point)" if equals_canonical else "")
                 + ("  (cc from cache)" if reused else ""))
-        if h_i == prev_c_hash:
+        if h_i == prev_c_hash or equals_canonical:
             converged_c = c_i
             final_exe = next_exe
             break

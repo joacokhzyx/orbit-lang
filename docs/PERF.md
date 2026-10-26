@@ -54,6 +54,33 @@ flag delta on a 32 KB unit is 0.02 s. Consequences, all in place:
 `orbit build compiler/host/main.orb` on the same box: 35 s wall, of which the
 compiler's own `cc` child is the large majority.
 
+### Bootstrap on 8 cores (2026-10-26)
+
+Measured on an 8-logical-core Windows box, gcc 16.2.0, `ORBIT_CCACHE=0`,
+`compiler/selfhost/stage3.exe.c` (5.9 MB) as the input unit, two runs per row.
+The bootstrap builds at `-O1` (`-O0` under `--low-mem`), stops its loop when the
+first emission equals the canonical, and shards the compile of the compiler
+unit. Each change was measured against the one before it.
+
+| Command | Before | After |
+|---|---|---|
+| `fp build compiler/host/main.orb` with `ORBIT_SKIP_CC=1`, `-O0` then `-O1` fixed point | 10.3 s, 9.7 s | 2.5 s, 2.1 s |
+| `build_selfhost.py --cc gcc --check-stale`, `-O0` then `-O1` | 67.1 s, 60.9 s | 68.2 s, 62.2 s |
+| same, loop stops at iteration 1 | 68.2 s, 62.2 s | 42.4 s, 38.5 s |
+| same, sharded compile (`ORBIT_SHARD_BUILD=0` against default) | 47.8 s, 50.1 s | 42.0 s, 40.6 s |
+| `verify_seed.py --cc gcc`, `-O0` then `-O1` | 96.1 s, 95.0 s | 93.7 s, 89.4 s |
+| same, sharded compile (`ORBIT_SHARD_BUILD=0` against default) | 102.7 s, 93.0 s | 79.2 s, 63.6 s |
+
+Rows within one change share a machine state; the rows are not comparable
+across changes, because other processes loaded the box differently between
+sessions. The `-O1` change leaves the bootstrap itself flat, since gcc takes
+longer on the unit by about what the faster emission saves. It pays on every
+later compile with the fixed point.
+
+In a scratch copy with `/* perturbed */` appended to the canonical, the same
+`build_selfhost.py` command runs both iterations (62.9 s) and reports
+`diverged from canonical`.
+
 ## User-build optimisation level
 
 `orbit build` shipped `cc -s -O0`, so every user program and the runtime it

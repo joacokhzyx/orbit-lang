@@ -532,12 +532,13 @@ def ensure_lib_cached(cc, lib_dir, lib_override):
 def shard_enabled():
     """Whether bootstrap callers may try sharded TU compiles.
 
-    Opt-in only (ORBIT_SHARD_BUILD=1/true/yes): without it every compile
-    is the unity build, byte-identical to before. Any shard failure falls
-    back to unity (slow, never a false green).
+    On unless ORBIT_SHARD_BUILD is 0/false/no (the unity build). The
+    sharded compile of the 5.9 MB compiler unit takes 5-8 s of compile wall
+    on 8 cores against 18-20 s for the unity -O1 build. Any shard failure
+    falls back to unity (slow, never a false green).
     """
-    return os.environ.get("ORBIT_SHARD_BUILD", "").strip().lower() in (
-        "1", "true", "yes")
+    return os.environ.get("ORBIT_SHARD_BUILD", "").strip().lower() not in (
+        "0", "false", "no")
 
 
 def shard_jobs(default=8):
@@ -549,10 +550,10 @@ def shard_jobs(default=8):
     return want if want >= 1 else default
 
 
-def compile_shards(cc, shard_paths, work, inc_dirs, defines, jobs):
+def compile_shards(cc, shard_paths, work, inc_dirs, defines, jobs, opt="-O0"):
     obj_dir = os.path.join(work, "obj")
     os.makedirs(obj_dir, exist_ok=True)
-    flags = ["-O0", "-DORBIT_WITH_EXEC", "-DORBIT_SEPARATE_COMPILATION",
+    flags = [opt, "-DORBIT_WITH_EXEC", "-DORBIT_SEPARATE_COMPILATION",
              "-g0", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables"]
     for d in defines:
         flags.append("-D" + d)
@@ -590,7 +591,7 @@ def compile_shards(cc, shard_paths, work, inc_dirs, defines, jobs):
 
 def shard_build(cc, tu_path, header_path, out_exe, work, tag="tu",
                 jobs=8, n_shards=None, runtime_dir=None, defines=(),
-                lib_dir=None, log=None):
+                lib_dir=None, log=None, opt="-O0"):
     """Compile one compiler-emitted TU via shards; raise on any failure.
 
     Split (R1-R7, R10a/b enforced) + parallel gcc -c (R8) + link against
@@ -627,7 +628,7 @@ def shard_build(cc, tu_path, header_path, out_exe, work, tag="tu",
                             None)
     results, wall, worst, ok = compile_shards(
         cc.split()[0], shard_paths, shards_dir, [rdir, tu_dir],
-        list(defines), jobs)
+        list(defines), jobs, opt)
     if not ok:
         bad = sorted(os.path.basename(s) for s, _o, _d, p in results
                      if p.returncode != 0)

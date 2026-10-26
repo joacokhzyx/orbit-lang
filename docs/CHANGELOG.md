@@ -159,7 +159,7 @@ Runtime and generated code:
   emitted C is byte-identical at every level (the level is a `cc` flag only),
   so nothing under `tests/parity` moves, and `ORBIT_CCFLAGS_EXTRA` is still
   appended last so it still overrides the level. The bootstrap is untouched:
-  `build_selfhost.py` and `verify_seed.py` pin `-O0` in `SUPPRESS_FLAGS`. The
+  `build_selfhost.py` and `verify_seed.py` pinned `-O0` in `SUPPRESS_FLAGS` (since 2026-10-26: `-O1`, `-O0` under `--low-mem`). The
   new default exposed one latent test defect, fixed in the same landing:
   `tests/std/time_ns`'s pure arithmetic loop was folded away by gcc at `-O1`
   and `-O2` (exit 6); its workload now writes through a real list, an effect the
