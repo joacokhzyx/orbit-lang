@@ -1441,6 +1441,19 @@ fn isCKeyword(name: string) -> bool {
     if name == "void" { return true }
     if name == "volatile" { return true }
     if name == "while" { return true }
+    if name == "_Alignas" { return true }
+    if name == "_Alignof" { return true }
+    if name == "_Atomic" { return true }
+    if name == "_Bool" { return true }
+    if name == "_Complex" { return true }
+    if name == "_Generic" { return true }
+    if name == "_Imaginary" { return true }
+    if name == "_Noreturn" { return true }
+    if name == "_Static_assert" { return true }
+    if name == "_Thread_local" { return true }
+    if name == "asm" { return true }
+    if name == "bool" { return true }
+    if name == "typeof" { return true }
     return false
 }
 
@@ -2549,6 +2562,19 @@ fn generateValue(value: IRValue) -> string {
     }
 }
 
+// A function used as a value is its C symbol, and the definition of a function
+// whose name is a C keyword is emitted as `name_` (sanitizeIdentifier). The
+// value has to be spelled the same way: `val f = double` emitted `(uintptr_t)(double)`.
+fn generateOperand(backend: CBackend, value: IRValue) -> string {
+    match value {
+        IRValue.Sym(v) => {
+            if isCKeyword(v.value) && moduleHasFunction(backend, v.value) { return v.value + "_" }
+            return v.value
+        }
+        _ => { return generateValue(value) }
+    }
+}
+
 fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string {
     if orbit_string_indexOf(valStr, "orbit_string_concat") != -1 || orbit_string_indexOf(valStr, "orbit_string_slice") != -1 || orbit_string_indexOf(valStr, "orbit_list_get") != -1 || orbit_string_indexOf(valStr, "_lr.value") != -1 || orbit_string_indexOf(valStr, "orbit_alloc") != -1 {
         return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
@@ -2594,7 +2620,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.load_const => {
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, generateValue(instr.operand1)))
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, generateOperand(backend, instr.operand1)))
             return
         }
         IROpcode.load_var => {
@@ -2603,7 +2629,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             match instr.operand1 {
                 IRValue.String(s) => { valStr = s.value
                     vn = s.value }
-                IRValue.Sym(s) => { valStr = s.value
+                IRValue.Sym(s) => { valStr = generateOperand(backend, instr.operand1)
                     vn = s.value }
                 _ => { valStr = generateValue(instr.operand1) }
             }
@@ -2653,12 +2679,12 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
         }
         IROpcode.store_var => {
             val svName = generateValue(instr.operand1)
-            orbit_cbuf_append_selfhost(cb, "    " + svName + " = " + storeCastFor(backend, svName) + "(" + generateValue(instr.operand2) + ");\n")
+            orbit_cbuf_append_selfhost(cb, "    " + svName + " = " + storeCastFor(backend, svName) + "(" + generateOperand(backend, instr.operand2) + ");\n")
             return
         }
         IROpcode.decl_var => {
             val dvName = generateValue(instr.operand1)
-            orbit_cbuf_append_selfhost(cb, "    " + dvName + " = " + storeCastFor(backend, dvName) + "(" + generateValue(instr.operand2) + ");\n")
+            orbit_cbuf_append_selfhost(cb, "    " + dvName + " = " + storeCastFor(backend, dvName) + "(" + generateOperand(backend, instr.operand2) + ");\n")
             return
         }
         IROpcode.add => {
@@ -2874,7 +2900,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 orbit_cbuf_append_selfhost(cb, "")
                 return
             }
-            backend.callArgs.push(generateValue(instr.operand1))
+            backend.callArgs.push(generateOperand(backend, instr.operand1))
             orbit_cbuf_append_selfhost(cb, "")
             return
         }

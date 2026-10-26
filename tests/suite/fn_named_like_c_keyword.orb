@@ -1,0 +1,35 @@
+// A function named after a C keyword is emitted under a suffixed name. The
+// definition and a direct call used the suffix; a function used as a value
+// did not, so `val f = double` produced C the compiler could not parse. The
+// names `bool`, `asm`, `typeof` and `_Bool` were missing from the keyword list.
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn register(n: int) -> int {
+    return n + 100
+}
+
+fn bool(n: int) -> int {
+    return n + 1000
+}
+
+fn typeof(n: int) -> int {
+    return n + 10000
+}
+
+fn main() -> int {
+    if double(4) != 8 { return 1 }
+    if register(1) != 101 { return 2 }
+    if bool(1) != 1001 { return 3 }
+    if typeof(1) != 10001 { return 4 }
+    val f = double
+    if f(5) != 10 { return 5 }
+    var g = register
+    if g(1) != 101 { return 6 }
+    g = bool
+    if g(2) != 1002 { return 7 }
+    var h = typeof
+    if h(3) != 10003 { return 8 }
+    return 0
+}

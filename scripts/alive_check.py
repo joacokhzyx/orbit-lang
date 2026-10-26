@@ -425,14 +425,14 @@ def registry(compiler, cc, work):
         # archive is: R6 regenerates it from this commit and compares hashes,
         # so the emission itself is the consumer's run (it needs the branch
         # compiler and a corpus). What can fail here is the contract and the
-        # comparator, and both are what --self-test drives: 130+1 members in
+        # comparator, and both are what --self-test drives: 131+1 members in
         # pinned order, and a synthetic manifest against which a changed hash,
         # a changed size, a missing member, an extra member and a changed
         # whole-corpus hash must each still be reported. The marker is the full
         # ratio, so a self-test that quietly stopped asserting one of them
         # fails this row instead of passing it.
         Tool("emit_ir_corpus.py", "measurement",
-             "emits the 130+1 IR corpus and its hash manifest; --self-test "
+             "emits the 131+1 IR corpus and its hash manifest; --self-test "
              "proves the corpus contract and that the comparator catches a "
              "changed hash, size, member and whole-corpus hash",
              lambda: _script("emit_ir_corpus.py", "--self-test"),
