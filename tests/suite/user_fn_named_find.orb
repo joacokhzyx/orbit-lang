@@ -1,0 +1,56 @@
+// A user function named like a string method keeps its own call. `find`,
+// `indexOf`, `slice` and `at` were rewritten to the string runtime's functions
+// at every call site, so `find(items, 2)` read a list as a string.
+model Item {
+    id: int
+    name: string
+}
+
+fn find(items: list < Item >, id: int) -> int {
+    var i = 0
+    while i < items.len() {
+        val it = items.get(i)
+        if it.id == id {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn indexOf(items: list < Item >, name: string) -> int {
+    var i = 0
+    while i < items.len() {
+        val it = items.get(i)
+        if it.name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn slice(items: list < Item >, from: int) -> int {
+    return items.len() - from
+}
+
+fn at(items: list < Item >, i: int) -> int {
+    val it = items.get(i)
+    return it.id
+}
+
+fn main() -> int {
+    val items: list < Item > = []
+    items.push(Item(1, "a"))
+    items.push(Item(2, "b"))
+    items.push(Item(3, "c"))
+    if find(items, 3) != 2 { return 1 }
+    if find(items, 9) != -1 { return 2 }
+    if indexOf(items, "b") != 1 { return 3 }
+    if slice(items, 1) != 2 { return 4 }
+    if at(items, 1) != 2 { return 5 }
+    val word = "hello"
+    if word.indexOf("l") != 2 { return 6 }
+    if word.slice(1, 3) != "el" { return 7 }
+    return 0
+}

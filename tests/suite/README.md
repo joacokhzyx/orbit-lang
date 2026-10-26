@@ -40,7 +40,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Large lists, stacks, queues, sorting | `list_large_loop.orb`, `list_stack_queue.orb` |
 | Compiler-style programs | `mini_parser.orb`, `parallel_lists_table.orb` |
 | List fields read through a model built by constructor call | `model_ctor_list_field_read.orb` |
-| User functions named like compiler helpers | `user_fn_named_check.orb` |
+| User functions named like compiler helpers or string methods | `user_fn_named_check.orb`, `user_fn_named_find.orb` |
 
 ## Running
 

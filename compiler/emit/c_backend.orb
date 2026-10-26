@@ -2961,13 +2961,21 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 orbit_cbuf_append_selfhost(cb, "    " + callExprI + ";\n")
                 return
             }
-            if calleeName == "slice" {
+            // These spellings stand for the string runtime's functions only
+            // when the program declares no function of that name; a user `find`
+            // taking a list was rewritten to orbit_string_indexOf and read the
+            // list as a string.
+            val calleeIsUserFn = userFunctionDeclared(backend, calleeName)
+            if calleeName == "slice" && calleeIsUserFn == false {
                 calleeName = "orbit_string_slice"
             }
-            if calleeName == "at" {
+            if calleeName == "at" && calleeIsUserFn == false {
                 calleeName = "orbit_string_at"
             }
-            if calleeName == "find" || calleeName == "indexOf" || calleeName == "orbit_string_find" {
+            if (calleeName == "find" || calleeName == "indexOf") && calleeIsUserFn == false {
+                calleeName = "orbit_string_indexOf"
+            }
+            if calleeName == "orbit_string_find" {
                 calleeName = "orbit_string_indexOf"
             }
             var destNeeded = instr.dest != -1
@@ -4388,6 +4396,16 @@ fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {
         return raw
     }
     return "orbit_int_to_string_selfhost((orbit_int)(uintptr_t)(" + raw + "))"
+}
+
+fn userFunctionDeclared(backend: CBackend, name: string) -> bool {
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == name { return true }
+        fi = fi + 1
+    }
+    return false
 }
 
 fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
