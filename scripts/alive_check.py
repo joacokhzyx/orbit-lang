@@ -437,6 +437,12 @@ def registry(compiler, cc, work):
              "changed hash, size, member and whole-corpus hash",
              lambda: _script("emit_ir_corpus.py", "--self-test"),
              r"Finished emit-ir-corpus self-test: 20/20", 300),
+        Tool("ir_unknown_census.py", "measurement",
+             "unknown register types in the emitted IR, by defining opcode; "
+             "--self-test proves the count on a synthetic document and that "
+             "a destination-less instruction and a non-.ir file are ignored",
+             lambda: _script("ir_unknown_census.py", "--self-test"),
+             r"Finished ir-unknown-census self-test: 6/6", 60, needs=()),
         Tool("tcc_setup.py", "measurement",
              "the pinned tcc 0.9.27 acquisition; --check proves the pin "
              "without installing. Exit 2 is SKIP (no tcc here), not death, "
