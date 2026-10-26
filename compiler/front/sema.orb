@@ -4204,10 +4204,16 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // The name the catch binds has to be in scope before the
                     // body is walked, or every use of it inside the body is an
                     // undeclared identifier.
+                    //
+                    // The name lives in a scope of its own: declared in the
+                    // function's scope, a second `catch e` in the same function
+                    // was a duplicate symbol.
+                    pushScope(sema)
                     if tr.errName != "" {
                         declareSymbol(sema, tr.errName, "string", false, false)
                     }
                     checkNode(sema, tr.catchBody)
+                    popScope(sema)
                 }
             }
             return "unknown"

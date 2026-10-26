@@ -31,7 +31,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Many short-lived models | `model_alloc_loop.orb` |
 | Union payloads and match | `union_payload_return.orb`, `union_model_payload.orb`, `union_nested_match.orb` |
 | Enumerations | `enum_values.orb` |
-| Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb` |
+| Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb`, `result_catch_binding_scope.orb` |
 | Function values chosen at run time | `fn_value_dispatch.orb` |
 | String scanning, building and comparison | `string_scan.orb`, `string_builder_loop.orb`, `string_compare_order.orb` |
 | Generic functions over lists | `generic_multi.orb` |
