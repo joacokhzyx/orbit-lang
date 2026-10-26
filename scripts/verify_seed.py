@@ -101,7 +101,7 @@ except Exception:
         low = cc.lower()
         strip = [] if ("cl" in low.split() or low.strip() == "cl") else (
             ["-s"] if any(t in low for t in ("gcc", "clang", "cc")) else [])
-        return [*strip, *SUPPRESS_FLAGS]
+        return [*strip, "-O0" if low_mem else "-O1", *SUPPRESS_FLAGS]
 
     claim_shared_work = None
     write_shared_work = None
@@ -118,11 +118,9 @@ except Exception:
 CANONICAL_C = os.path.join(ROOT, "compiler", "selfhost", "stage3.exe.c")
 MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 
-# -O0 keeps peak memory low: these builds run once per gate and speed is
-# irrelevant, but low-RAM machines (4 GB) were OOMing inside LLVM/lld during
-# -O2 links. This is the bootstrap's own choice, not the user-build default:
-# pipeline.orb builds user programs at -O1 (-O2 with --release), while the
-# bootstrap pins -O0 here regardless.
+# The bootstrap builds at -O1, or at -O0 under the low-memory profile
+# (bootstrap_opt_flag in build_selfhost.py). pipeline.orb builds user programs
+# at -O1 (-O2 with --release).
 # The -Wno-error=int-conversion / -Wno-error=incompatible-pointer-types
 # downgrades that used to be here are gone: the emitted C no longer produces
 # either diagnostic on any program in examples/, tests/suite/ or tests/std/, and
@@ -133,7 +131,7 @@ MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 # against 3.7 s without it (5.7x, 2-core runner, gcc 13.3). The fixed point is
 # about emitted C bytes, not warnings; warnings are werror_gate.py's job. Set
 # ORBIT_BOOTSTRAP_WARNINGS=1 to restore it locally.
-SUPPRESS_FLAGS = ["-O0", "-DORBIT_WITH_EXEC"] + (
+SUPPRESS_FLAGS = ["-DORBIT_WITH_EXEC"] + (
     ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
 PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
 # Published fixed-point contract for the current compiler source. The C hash is
