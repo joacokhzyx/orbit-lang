@@ -1,0 +1,35 @@
+// A failure raised three calls down is propagated by `try` through every
+// frame and handled once at the top; the success path threads a value up.
+fn parse_digit(c: int) -> result {
+    if c < 48 || c > 57 {
+        val bad: result = err("not a digit", 22)
+        return bad
+    }
+    val good: result = ok(c - 48)
+    return good
+}
+
+fn pair_sum(a: int, b: int) -> result {
+    val x: int = try parse_digit(a)
+    val y: int = try parse_digit(b)
+    val r: result = ok(x + y)
+    return r
+}
+
+fn triple_sum(a: int, b: int, c: int) -> result {
+    val p: int = try pair_sum(a, b)
+    val q: int = try parse_digit(c)
+    val r: result = ok(p + q)
+    return r
+}
+
+fn main() -> int {
+    val s: int = try triple_sum(49, 50, 51) catch {
+        return 1
+    }
+    if s != 6 { return 2 }
+    val failed: int = try triple_sum(49, 120, 51) catch {
+        return 0
+    }
+    return 3
+}
