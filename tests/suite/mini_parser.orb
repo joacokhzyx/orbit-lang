@@ -1,0 +1,85 @@
+// A small recursive-descent calculator, written the way the compiler's own
+// front end is: a cursor model passed by reference and advanced by callees, a token
+// scan over bytes, precedence by one function per level, a union for the
+// outcome. `1 + 2 * (3 + 4) - 5` evaluates to 10.
+model Cursor {
+    src: string
+    pos: int
+}
+
+union Outcome {
+    Value(int),
+    Fail(string)
+}
+
+fn peek(c: Cursor) -> int {
+    while c.pos < c.src.len() && c.src.at(c.pos) == 32 {
+        c.pos = c.pos + 1
+    }
+    return c.src.at(c.pos)
+}
+
+fn number(c: Cursor) -> int {
+    var v = 0
+    while c.pos < c.src.len() && c.src.at(c.pos) >= 48 && c.src.at(c.pos) <= 57 {
+        v = v * 10 + (c.src.at(c.pos) - 48)
+        c.pos = c.pos + 1
+    }
+    return v
+}
+
+fn primary(c: Cursor) -> int {
+    val ch = peek(c)
+    if ch == 40 {
+        c.pos = c.pos + 1
+        val v = expr(c)
+        peek(c)
+        c.pos = c.pos + 1
+        return v
+    }
+    return number(c)
+}
+
+fn term(c: Cursor) -> int {
+    var v = primary(c)
+    while peek(c) == 42 {
+        c.pos = c.pos + 1
+        v = v * primary(c)
+    }
+    return v
+}
+
+fn expr(c: Cursor) -> int {
+    var v = term(c)
+    var ch = peek(c)
+    while ch == 43 || ch == 45 {
+        c.pos = c.pos + 1
+        val rhs = term(c)
+        if ch == 43 { v = v + rhs } else { v = v - rhs }
+        ch = peek(c)
+    }
+    return v
+}
+
+fn run(src: string) -> Outcome {
+    if src.len() == 0 { return Outcome.Fail("empty") }
+    val c = Cursor { src: src, pos: 0 }
+    val v = expr(c)
+    return Outcome.Value(v)
+}
+
+fn value_or(o: Outcome, dflt: int) -> int {
+    match o {
+        Outcome.Value(v) => { return v }
+        Outcome.Fail(m) => { return dflt }
+    }
+}
+
+fn main() -> int {
+    if value_or(run("1 + 2 * (3 + 4) - 5"), -1) != 10 { return 1 }
+    if value_or(run("7"), -1) != 7 { return 2 }
+    if value_or(run("((2))*((3))"), -1) != 6 { return 3 }
+    if value_or(run(""), -1) != -1 { return 4 }
+    if value_or(run("100 - 1 - 1"), -1) != 98 { return 5 }
+    return 0
+}

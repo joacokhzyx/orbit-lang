@@ -1,0 +1,49 @@
+// A symbol table kept as two parallel lists (names, values), with insert,
+// update and lookup by linear scan; the idiom the compiler uses where a map
+// would otherwise go. Lookup misses answer a sentinel.
+model Table {
+    names: list<string>
+    values: list<int>
+}
+
+fn slot(t: Table, name: string) -> int {
+    for n, i in t.names {
+        if n == name { return i }
+    }
+    return -1
+}
+
+fn put(t: Table, name: string, v: int) {
+    val i = slot(t, name)
+    if i >= 0 {
+        t.values[i] = v
+    } else {
+        t.names.push(name)
+        t.values.push(v)
+    }
+}
+
+fn lookup(t: Table, name: string, miss: int) -> int {
+    val i = slot(t, name)
+    if i < 0 { return miss }
+    return t.values.get(i)
+}
+
+fn main() -> int {
+    val t = Table { names: [], values: [] }
+    put(t, "a", 1)
+    put(t, "b", 2)
+    put(t, "c", 3)
+    put(t, "b", 20)
+    if t.names.len() != 3 { return 1 }
+    if lookup(t, "a", -1) != 1 { return 2 }
+    if lookup(t, "b", -1) != 20 { return 3 }
+    if lookup(t, "c", -1) != 3 { return 4 }
+    if lookup(t, "zz", -1) != -1 { return 5 }
+    for i in 0..50 {
+        put(t, "k${i}", i)
+    }
+    if t.names.len() != 53 { return 6 }
+    if lookup(t, "k49", -1) != 49 { return 7 }
+    return 0
+}
