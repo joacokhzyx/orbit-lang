@@ -4748,13 +4748,15 @@ fn unaryResultType(builder: IRBuilder, op: string, operandReg: int) -> string {
 
 // The register type of a model field read. The owner is the receiver's model,
 // resolved by the declared type of the receiver, and the field's type is the
-// one the model declares. Only the scalar spellings are written: a field typed
-// with a model, a list or a type parameter keeps "unknown" until its spelling
-// is checked against what a backend does with it.
+// one the model declares. The scalar spellings, `list`, a declared enumeration
+// and a declared non-generic model are written; a `list<T>` spelling, a generic
+// instance and a type parameter keep "unknown".
 fn fieldRegisterType(builder: IRBuilder, ownerName: string, fieldName: string) -> string {
     if ownerName == "" { return "unknown" }
     val ft = fieldTypeOfModel(builder, ownerName, fieldName)
-    if ft == "int" || ft == "float" || ft == "bool" || ft == "string" { return ft }
+    if ft == "int" || ft == "float" || ft == "bool" || ft == "string" || ft == "list" { return ft }
+    if isEnumerationTypeName(builder, ft) { return ft }
+    if modelDeclared(builder, ft) && genericModelByName(builder, ft) == NULL { return ft }
     return "unknown"
 }
 
