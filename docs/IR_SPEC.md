@@ -202,7 +202,10 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   front end proves it, and `"unknown"` otherwise. `eq`, `ne`, `lt`, `le`, `gt`
   and `ge` always have `"bool"`. A `load_var` of a local declared from a
   literal, an operator expression or an interpolation has that expression's
-  static type (`int`, `float`, `bool` or `string`). No new spelling enters the vocabulary above;
+  static type (`int`, `float`, `bool` or `string`). `add`, `sub`, `mul` and `div` have the operands' type when both are `int` or
+  both `float` (`add` also when both are `string`); `mod` and the bitwise
+  operators when both are `int`; `neg` the operand's type when it is `int` or
+  `float`; `bit_not` `int` when the operand is `int`. No new spelling enters the vocabulary above;
   a consumer that reads `"unknown"` must still infer.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume

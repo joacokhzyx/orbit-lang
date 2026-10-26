@@ -4671,11 +4671,54 @@ fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
     return ""
 }
 
+// The type an operand value carries: an inline literal is its own type and a
+// register is whatever the builder allocated it as.
+fn operandTypeName(builder: IRBuilder, v: IRValue) -> string {
+    match v {
+        IRValue.Int(i) => { return "int" }
+        IRValue.Float(f) => { return "float" }
+        IRValue.String(s) => { return "string" }
+        IRValue.Bool(b) => { return "bool" }
+        IRValue.Register(r) => {
+            val types = builder.currentFunction.registerTypes
+            if r.value >= 0 && r.value < types.len() {
+                val t: string = types.get(r.value)
+                return t
+            }
+            return "unknown"
+        }
+        _ => { return "unknown" }
+    }
+}
+
 // A comparison is a bool whatever its operands are: the language has no
-// operator overload, so the result type needs no operand type. Every other
-// operator keeps "unknown" until the operands are typed.
-fn binaryResultType(op: string) -> string {
+// operator overload, so the result type needs no operand type. An arithmetic
+// or bitwise operator is typed only when both operands carry the same proven
+// type it is defined on; mixed or unknown operands keep "unknown".
+fn binaryResultType(builder: IRBuilder, op: string, lhs: IRValue, rhs: IRValue) -> string {
     if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" { return "bool" }
+    val lt = operandTypeName(builder, lhs)
+    val rt = operandTypeName(builder, rhs)
+    if lt != rt { return "unknown" }
+    if op == "+" && lt == "string" { return "string" }
+    if op == "+" || op == "-" || op == "*" || op == "/" {
+        if lt == "int" || lt == "float" { return lt }
+        return "unknown"
+    }
+    if op == "%" || op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>" {
+        if lt == "int" { return "int" }
+    }
+    return "unknown"
+}
+
+// Negation keeps the operand's type when that is a number; complement is
+// defined on int only.
+fn unaryResultType(builder: IRBuilder, op: string, operandReg: int) -> string {
+    val types = builder.currentFunction.registerTypes
+    if operandReg < 0 || operandReg >= types.len() { return "unknown" }
+    val t: string = types.get(operandReg)
+    if op == "-" && (t == "int" || t == "float") { return t }
+    if op == "~" && t == "int" { return "int" }
     return "unknown"
 }
 
@@ -4860,7 +4903,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == "<<" { opCode = IROpcode.shl }
             if bin.op == ">>" { opCode = IROpcode.shr }
             val binInstr = ir_init_instr(opCode)
-            val binReg = ir_alloc_register(builder.currentFunction, binaryResultType(bin.op))
+            val binReg = ir_alloc_register(builder.currentFunction, binaryResultType(builder, bin.op, lhsOperand, rhsOperand))
             binInstr.dest = binReg
             binInstr.operand1 = lhsOperand
             binInstr.operand2 = rhsOperand
@@ -4878,7 +4921,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 return reg
             }
             if u.op == "-" {
-                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                val reg = ir_alloc_register(builder.currentFunction, unaryResultType(builder, "-", operandReg))
                 val instr = ir_init_instr(IROpcode.neg)
                 instr.dest = reg
                 instr.operand1 = ir_register(operandReg)
@@ -4886,7 +4929,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 return reg
             }
             if u.op == "~" {
-                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                val reg = ir_alloc_register(builder.currentFunction, unaryResultType(builder, "~", operandReg))
                 val instr = ir_init_instr(IROpcode.bit_not)
                 instr.dest = reg
                 instr.operand1 = ir_register(operandReg)
