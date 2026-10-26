@@ -3676,6 +3676,16 @@ fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
     return buildMatchBody(builder, m, true)
 }
 
+fn isEnumerationTypeName(builder: IRBuilder, name: string) -> bool {
+    var ei = 0
+    while ei < builder.module.types.len() {
+        val et: IRTypeDecl = builder.module.types.get(ei)
+        if et.name == name && et.kind == "enumeration" { return true }
+        ei = ei + 1
+    }
+    return false
+}
+
 fn isUnionTypeName(builder: IRBuilder, name: string) -> bool {
     var ui = 0
     while ui < builder.module.types.len() {
@@ -5032,7 +5042,9 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     return ctorReg
                 }
                 // Enum constant reference: Type.Variant -> Type_TAG_Variant
-                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                var constType = "unknown"
+                if isEnumerationTypeName(builder, enumOwnerName) { constType = enumOwnerName }
+                val reg = ir_alloc_register(builder.currentFunction, constType)
                 val instr = ir_init_instr(IROpcode.load_var)
                 instr.dest = reg
                 instr.operand1 = ir_string(enumConstName)

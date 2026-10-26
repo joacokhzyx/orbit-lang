@@ -208,7 +208,8 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   `float`; `bit_not` `int` when the operand is `int`. `load_field` of a model field whose receiver type is resolved and whose
   declared type is `int`, `float`, `bool` or `string` has that type; a model,
   list or type-parameter field stays `unknown`. A `call` by name to a model that is not generic has that model's name, and a
-  call to the builtin `print` has `void`. No new spelling enters the vocabulary above;
+  call to the builtin `print` has `void`. A `load_var` of `Enum_TAG_Variant` written as `Enum.Variant`, where `Enum` is
+  an enumeration, has the enumeration's name. No new spelling enters the vocabulary above;
   a consumer that reads `"unknown"` must still infer.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume
