@@ -200,7 +200,9 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   model and enum types. The loader must accept any string.
 - Typed destinations: the builder writes the type of the destination when the
   front end proves it, and `"unknown"` otherwise. `eq`, `ne`, `lt`, `le`, `gt`
-  and `ge` always have `"bool"`. No new spelling enters the vocabulary above;
+  and `ge` always have `"bool"`. A `load_var` of a local declared from a
+  literal, an operator expression or an interpolation has that expression's
+  static type (`int`, `float`, `bool` or `string`). No new spelling enters the vocabulary above;
   a consumer that reads `"unknown"` must still infer.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume

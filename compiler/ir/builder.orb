@@ -1868,7 +1868,10 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
             }
             return resolveExprType(builder, node)
         }
-        _ => { return resolveExprType(builder, node) }
+        // A literal, an operator and an interpolation are typed by
+        // staticExprTypeName; resolveExprType answers unknown for all of them,
+        // which left `var i = 0` untyped and every read of i with it.
+        _ => { return staticExprTypeName(builder, node) }
     }
 }
 
