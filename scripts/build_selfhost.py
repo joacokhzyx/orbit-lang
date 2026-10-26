@@ -592,10 +592,16 @@ def main() -> int:
             iter_argv, [c_i], work, "Orbit compiler", log=out.say)
         reused = compile_tu_exe(cc, cc_cmd, iter_argv, iter_sources, c_i,
                                 next_exe, work, f"iter{i}")
+        # The canonical is a fixed point by construction (verify_seed asserts
+        # it reproduces itself), so a first emission equal to it needs no
+        # second round to show convergence. A canonical that is not a fixed
+        # point never takes this path and runs the full loop.
+        equals_canonical = i == 1 and h_i == h_canonical
         out.say(f"Iteration {i}: {h_i}"
                 + ("  (fixed point)" if h_i == prev_c_hash else "")
+                + ("  (equals canonical; fixed point)" if equals_canonical else "")
                 + ("  (cc from cache)" if reused else ""))
-        if h_i == prev_c_hash:
+        if h_i == prev_c_hash or equals_canonical:
             converged_c = c_i
             final_exe = next_exe
             break
