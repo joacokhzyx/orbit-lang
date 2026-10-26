@@ -1,0 +1,33 @@
+// Float arithmetic through variables, parameters and loops: a running mean,
+// a Horner polynomial, and comparisons. Values are exact in binary so the
+// equalities are stable.
+fn mean(xs: list<float>) -> float {
+    var s = 0.0
+    for x in xs { s = s + x }
+    return s / 4.0
+}
+
+fn horner(c0: float, c1: float, c2: float, x: float) -> float {
+    return c0 + x * (c1 + x * c2)
+}
+
+fn halve_n(x: float, n: int) -> float {
+    var v = x
+    for i in 0..n { v = v / 2.0 }
+    return v
+}
+
+fn main() -> int {
+    if mean([1.0, 2.0, 3.0, 6.0]) != 3.0 { return 1 }
+    if horner(1.0, 2.0, 3.0, 2.0) != 17.0 { return 2 }
+    if halve_n(8.0, 3) != 1.0 { return 3 }
+    if halve_n(1.0, 4) != 0.0625 { return 4 }
+    val a: float = 0.5
+    val b: float = 0.25
+    if a + b != 0.75 { return 5 }
+    if a * b != 0.125 { return 6 }
+    if (a < b) { return 7 }
+    if (b < a) == false { return 8 }
+    if -a != 0.0 - 0.5 { return 9 }
+    return 0
+}

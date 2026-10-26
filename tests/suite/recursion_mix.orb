@@ -1,0 +1,44 @@
+// Direct and mutual recursion: Fibonacci, Ackermann, Euclid's gcd, Collatz
+// length and an even/odd pair that call each other.
+fn fib(n: int) -> int {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn ack(m: int, n: int) -> int {
+    if m == 0 { return n + 1 }
+    if n == 0 { return ack(m - 1, 1) }
+    return ack(m - 1, ack(m, n - 1))
+}
+
+fn gcd(a: int, b: int) -> int {
+    if b == 0 { return a }
+    return gcd(b, a % b)
+}
+
+fn collatz(n: int, steps: int) -> int {
+    if n == 1 { return steps }
+    if n % 2 == 0 { return collatz(n / 2, steps + 1) }
+    return collatz(3 * n + 1, steps + 1)
+}
+
+fn is_even(n: int) -> bool {
+    if n == 0 { return true }
+    return is_odd(n - 1)
+}
+
+fn is_odd(n: int) -> bool {
+    if n == 0 { return false }
+    return is_even(n - 1)
+}
+
+fn main() -> int {
+    if fib(20) != 6765 { return 1 }
+    if ack(2, 3) != 9 { return 2 }
+    if gcd(1071, 462) != 21 { return 3 }
+    if collatz(27, 0) != 111 { return 4 }
+    if is_even(10) == false { return 5 }
+    if is_odd(10) { return 6 }
+    if is_odd(7) == false { return 7 }
+    return 0
+}
