@@ -2,8 +2,7 @@
 // update and lookup by linear scan; the idiom the compiler uses where a map
 // would otherwise go. Lookup misses answer a sentinel.
 model Table {
-    names: list<string>
-    values: list<int>
+    names: list < string > values: list < int >
 }
 
 fn slot(t: Table, name: string) -> int {

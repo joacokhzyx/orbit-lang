@@ -4,15 +4,15 @@ model Item {
     price: int
 }
 
-fn catalog(n: int) -> list<Item> {
-    val out: list<Item> = []
+fn catalog(n: int) -> list < Item > {
+    val out: list < Item > = []
     for i in 1..n + 1 {
         out.push(Item { id: i, price: i * 10 })
     }
     return out
 }
 
-fn total_price(items: list<Item>) -> int {
+fn total_price(items: list < Item >) -> int {
     var s = 0
     for it in items {
         s = s + it.price
@@ -20,7 +20,7 @@ fn total_price(items: list<Item>) -> int {
     return s
 }
 
-fn lookup(items: list<Item>, id: int) -> int {
+fn lookup(items: list < Item >, id: int) -> int {
     for it in items {
         if it.id == id { return it.price }
     }
