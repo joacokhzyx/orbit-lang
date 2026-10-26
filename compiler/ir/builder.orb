@@ -4722,6 +4722,18 @@ fn unaryResultType(builder: IRBuilder, op: string, operandReg: int) -> string {
     return "unknown"
 }
 
+// The register type of a model field read. The owner is the receiver's model,
+// resolved by the declared type of the receiver, and the field's type is the
+// one the model declares. Only the scalar spellings are written: a field typed
+// with a model, a list or a type parameter keeps "unknown" until its spelling
+// is checked against what a backend does with it.
+fn fieldRegisterType(builder: IRBuilder, ownerName: string, fieldName: string) -> string {
+    if ownerName == "" { return "unknown" }
+    val ft = fieldTypeOfModel(builder, ownerName, fieldName)
+    if ft == "int" || ft == "float" || ft == "bool" || ft == "string" { return ft }
+    return "unknown"
+}
+
 // orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     // A type annotation is not a runtime operation: the value underneath is the
@@ -5015,12 +5027,12 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             }
             // Regular field access
             val objReg = buildExpr(builder, ma.object)
-            val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val ownerName = fieldOwnerForObject(builder, ma.object, memberText)
+            val fieldReg = ir_alloc_register(builder.currentFunction, fieldRegisterType(builder, ownerName, memberText))
             val fieldInstr = ir_init_instr(IROpcode.load_field)
             fieldInstr.dest = fieldReg
             fieldInstr.operand1 = ir_register(objReg)
             var fieldRef = memberText
-            val ownerName = fieldOwnerForObject(builder, ma.object, memberText)
             if ownerName != "" {
                 fieldRef = ownerName + "." + memberText
             }

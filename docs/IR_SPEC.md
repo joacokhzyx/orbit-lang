@@ -205,7 +205,9 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   static type (`int`, `float`, `bool` or `string`). `add`, `sub`, `mul` and `div` have the operands' type when both are `int` or
   both `float` (`add` also when both are `string`); `mod` and the bitwise
   operators when both are `int`; `neg` the operand's type when it is `int` or
-  `float`; `bit_not` `int` when the operand is `int`. No new spelling enters the vocabulary above;
+  `float`; `bit_not` `int` when the operand is `int`. `load_field` of a model field whose receiver type is resolved and whose
+  declared type is `int`, `float`, `bool` or `string` has that type; a model,
+  list or type-parameter field stays `unknown`. No new spelling enters the vocabulary above;
   a consumer that reads `"unknown"` must still infer.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume
