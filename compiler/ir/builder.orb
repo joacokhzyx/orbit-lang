@@ -1868,7 +1868,10 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
             }
             return resolveExprType(builder, node)
         }
-        _ => { return resolveExprType(builder, node) }
+        // A literal, an operator and an interpolation are typed by
+        // staticExprTypeName; resolveExprType answers unknown for all of them,
+        // which left `var i = 0` untyped and every read of i with it.
+        _ => { return staticExprTypeName(builder, node) }
     }
 }
 
@@ -3673,6 +3676,16 @@ fn buildMatchExpr(builder: IRBuilder, m: MatchNode) -> int {
     return buildMatchBody(builder, m, true)
 }
 
+fn isEnumerationTypeName(builder: IRBuilder, name: string) -> bool {
+    var ei = 0
+    while ei < builder.module.types.len() {
+        val et: IRTypeDecl = builder.module.types.get(ei)
+        if et.name == name && et.kind == "enumeration" { return true }
+        ei = ei + 1
+    }
+    return false
+}
+
 fn isUnionTypeName(builder: IRBuilder, name: string) -> bool {
     var ui = 0
     while ui < builder.module.types.len() {
@@ -3932,6 +3945,20 @@ fn buildResHeaderCall(builder: IRBuilder, c: CallNode, memberName: string) -> in
     ir_emit(builder.currentFunction, storeInstr)
     val resReg = ir_alloc_register(builder.currentFunction, "void")
     return resReg
+}
+
+// The register type of a call by name. The function table and the builtin
+// table answer first. What neither knows is the builtin `print`, which the
+// checker types void, and the construction of a model, which is a value of
+// that model (the checker's rule for a callee that names a model). A generic
+// model's own name is not a type, so its construction keeps "unknown".
+fn callResultType(builder: IRBuilder, callName: string) -> string {
+    val declared = lookupFunctionReturnType(builder, callName)
+    if declared != "unknown" { return declared }
+    if findFunction(builder.module, callName) >= 0 { return "unknown" }
+    if callName == "print" { return "void" }
+    if modelDeclared(builder, callName) && genericModelByName(builder, callName) == NULL { return callName }
+    return "unknown"
 }
 
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
@@ -4479,7 +4506,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                         ir_emit(builder.currentFunction, argInstr)
                         ei = ei + 1
                     }
-                    val resReg = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, callName))
+                    val resReg = ir_alloc_register(builder.currentFunction, callResultType(builder, callName))
                     val callInstr = ir_init_instr(IROpcode.call)
                     callInstr.dest = resReg
                     callInstr.operand1 = ir_string(callName)
@@ -4668,6 +4695,71 @@ fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
     return ""
 }
 
+// The type an operand value carries: an inline literal is its own type and a
+// register is whatever the builder allocated it as.
+fn operandTypeName(builder: IRBuilder, v: IRValue) -> string {
+    match v {
+        IRValue.Int(i) => { return "int" }
+        IRValue.Float(f) => { return "float" }
+        IRValue.String(s) => { return "string" }
+        IRValue.Bool(b) => { return "bool" }
+        IRValue.Register(r) => {
+            val types = builder.currentFunction.registerTypes
+            if r.value >= 0 && r.value < types.len() {
+                val t: string = types.get(r.value)
+                return t
+            }
+            return "unknown"
+        }
+        _ => { return "unknown" }
+    }
+}
+
+// A comparison is a bool whatever its operands are: the language has no
+// operator overload, so the result type needs no operand type. An arithmetic
+// or bitwise operator is typed only when both operands carry the same proven
+// type it is defined on; mixed or unknown operands keep "unknown".
+fn binaryResultType(builder: IRBuilder, op: string, lhs: IRValue, rhs: IRValue) -> string {
+    if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" { return "bool" }
+    val lt = operandTypeName(builder, lhs)
+    val rt = operandTypeName(builder, rhs)
+    if lt != rt { return "unknown" }
+    if op == "+" && lt == "string" { return "string" }
+    if op == "+" || op == "-" || op == "*" || op == "/" {
+        if lt == "int" || lt == "float" { return lt }
+        return "unknown"
+    }
+    if op == "%" || op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>" {
+        if lt == "int" { return "int" }
+    }
+    return "unknown"
+}
+
+// Negation keeps the operand's type when that is a number; complement is
+// defined on int only.
+fn unaryResultType(builder: IRBuilder, op: string, operandReg: int) -> string {
+    val types = builder.currentFunction.registerTypes
+    if operandReg < 0 || operandReg >= types.len() { return "unknown" }
+    val t: string = types.get(operandReg)
+    if op == "-" && (t == "int" || t == "float") { return t }
+    if op == "~" && t == "int" { return "int" }
+    return "unknown"
+}
+
+// The register type of a model field read. The owner is the receiver's model,
+// resolved by the declared type of the receiver, and the field's type is the
+// one the model declares. The scalar spellings, `list`, a declared enumeration
+// and a declared non-generic model are written; a `list<T>` spelling, a generic
+// instance and a type parameter keep "unknown".
+fn fieldRegisterType(builder: IRBuilder, ownerName: string, fieldName: string) -> string {
+    if ownerName == "" { return "unknown" }
+    val ft = fieldTypeOfModel(builder, ownerName, fieldName)
+    if ft == "int" || ft == "float" || ft == "bool" || ft == "string" || ft == "list" { return ft }
+    if isEnumerationTypeName(builder, ft) { return ft }
+    if modelDeclared(builder, ft) && genericModelByName(builder, ft) == NULL { return ft }
+    return "unknown"
+}
+
 // orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     // A type annotation is not a runtime operation: the value underneath is the
@@ -4849,7 +4941,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == "<<" { opCode = IROpcode.shl }
             if bin.op == ">>" { opCode = IROpcode.shr }
             val binInstr = ir_init_instr(opCode)
-            val binReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val binReg = ir_alloc_register(builder.currentFunction, binaryResultType(builder, bin.op, lhsOperand, rhsOperand))
             binInstr.dest = binReg
             binInstr.operand1 = lhsOperand
             binInstr.operand2 = rhsOperand
@@ -4867,7 +4959,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 return reg
             }
             if u.op == "-" {
-                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                val reg = ir_alloc_register(builder.currentFunction, unaryResultType(builder, "-", operandReg))
                 val instr = ir_init_instr(IROpcode.neg)
                 instr.dest = reg
                 instr.operand1 = ir_register(operandReg)
@@ -4875,7 +4967,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                 return reg
             }
             if u.op == "~" {
-                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                val reg = ir_alloc_register(builder.currentFunction, unaryResultType(builder, "~", operandReg))
                 val instr = ir_init_instr(IROpcode.bit_not)
                 instr.dest = reg
                 instr.operand1 = ir_register(operandReg)
@@ -4952,7 +5044,9 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     return ctorReg
                 }
                 // Enum constant reference: Type.Variant -> Type_TAG_Variant
-                val reg = ir_alloc_register(builder.currentFunction, "unknown")
+                var constType = "unknown"
+                if isEnumerationTypeName(builder, enumOwnerName) { constType = enumOwnerName }
+                val reg = ir_alloc_register(builder.currentFunction, constType)
                 val instr = ir_init_instr(IROpcode.load_var)
                 instr.dest = reg
                 instr.operand1 = ir_string(enumConstName)
@@ -4961,12 +5055,12 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             }
             // Regular field access
             val objReg = buildExpr(builder, ma.object)
-            val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val ownerName = fieldOwnerForObject(builder, ma.object, memberText)
+            val fieldReg = ir_alloc_register(builder.currentFunction, fieldRegisterType(builder, ownerName, memberText))
             val fieldInstr = ir_init_instr(IROpcode.load_field)
             fieldInstr.dest = fieldReg
             fieldInstr.operand1 = ir_register(objReg)
             var fieldRef = memberText
-            val ownerName = fieldOwnerForObject(builder, ma.object, memberText)
             if ownerName != "" {
                 fieldRef = ownerName + "." + memberText
             }
