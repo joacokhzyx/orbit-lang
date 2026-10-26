@@ -1,0 +1,29 @@
+// A result-returning function called from a loop: each failure is caught and
+// counted, each success accumulated, with results bound to a val first.
+fn half(n: int) -> result {
+    if n % 2 != 0 {
+        val r: result = err("odd", 9)
+        return r
+    }
+    val r: result = ok(n / 2)
+    return r
+}
+
+fn main() -> int {
+    var good = 0
+    var bad = 0
+    var sum = 0
+    for n in 1..11 {
+        val r = half(n)
+        val h: int = try r catch {
+            bad = bad + 1
+            continue
+        }
+        good = good + 1
+        sum = sum + h
+    }
+    if good != 5 { return 1 }
+    if bad != 5 { return 2 }
+    if sum != 15 { return 3 }
+    return 0
+}

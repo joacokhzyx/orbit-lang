@@ -1,0 +1,31 @@
+// `catch e` binds the error message; the handler can branch on it and the
+// function still returns a value, so a failed result is data, not a crash.
+fn check_age(age: int) -> result {
+    if age < 0 {
+        val r: result = err("negative", 1)
+        return r
+    }
+    if age > 150 {
+        val r: result = err("too old", 2)
+        return r
+    }
+    val r: result = ok(age)
+    return r
+}
+
+fn classify(age: int) -> int {
+    val v: int = try check_age(age) catch e {
+        if e == "negative" { return -1 }
+        if e == "too old" { return -2 }
+        return -3
+    }
+    return v
+}
+
+fn main() -> int {
+    if classify(30) != 30 { return 1 }
+    if classify(-5) != -1 { return 2 }
+    if classify(200) != -2 { return 3 }
+    if classify(0) != 0 { return 4 }
+    return 0
+}

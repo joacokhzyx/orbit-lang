@@ -1,0 +1,34 @@
+// A model field whose type is another model, read and written through the
+// chain, and the inner model returned from a function.
+model Inner {
+    n: int
+    label: string
+}
+
+model Outer {
+    id: int
+    inner: Inner
+}
+
+fn build(id: int) -> Outer {
+    val i = Inner { n: id * 2, label: "in" }
+    return Outer { id: id, inner: i }
+}
+
+fn inner_of(o: Outer) -> Inner {
+    return o.inner
+}
+
+fn main() -> int {
+    val o = build(21)
+    if o.id != 21 { return 1 }
+    if o.inner.n != 42 { return 2 }
+    if o.inner.label != "in" { return 3 }
+    o.inner.n = 7
+    if o.inner.n != 7 { return 4 }
+    val i = inner_of(o)
+    if i.n != 7 { return 5 }
+    i.label = "changed"
+    if o.inner.label != "changed" { return 6 }
+    return 0
+}

@@ -1,0 +1,26 @@
+// Many short-lived models and strings created in a loop, each iteration
+// dropping the previous one: the allocator and the arena must keep up and
+// the running totals must still be exact.
+model Cell {
+    n: int
+    tag: string
+}
+
+fn make(n: int) -> Cell {
+    return Cell { n: n, tag: "c" + "${n}" }
+}
+
+fn churn(rounds: int) -> int {
+    var total = 0
+    for i in 0..rounds {
+        val c = make(i)
+        total = total + c.n + c.tag.len()
+    }
+    return total
+}
+
+fn main() -> int {
+    if churn(10) != 65 { return 1 }
+    if churn(10000) != 50043890 { return 2 }
+    return 0
+}

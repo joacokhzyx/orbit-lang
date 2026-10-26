@@ -1,0 +1,26 @@
+// A result carrying a string, returned from a function, passed to another
+// function as an argument, and unwrapped with try.
+fn greeting(name: string) -> result {
+    if name == "" {
+        val e: result = err("empty name", 3)
+        return e
+    }
+    val ok_value: result = ok("hello " + name)
+    return ok_value
+}
+
+fn shout(r: result) -> string {
+    val s: string = try r catch {
+        return "?"
+    }
+    return s + "!"
+}
+
+fn main() -> int {
+    if shout(greeting("ada")) != "hello ada!" { return 1 }
+    if shout(greeting("")) != "?" { return 2 }
+    val kept = greeting("bo")
+    if shout(kept) != "hello bo!" { return 3 }
+    if shout(kept) != "hello bo!" { return 4 }
+    return 0
+}

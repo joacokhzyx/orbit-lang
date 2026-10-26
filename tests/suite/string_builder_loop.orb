@@ -1,0 +1,33 @@
+// Strings built up in a loop: concatenation in a while, interpolation of
+// every scalar kind, and a result compared byte for byte. A thousand appends
+// exercise the per-request string arena without any I/O.
+fn repeat(s: string, n: int) -> string {
+    var out = ""
+    var i = 0
+    while i < n {
+        out = out + s
+        i = i + 1
+    }
+    return out
+}
+
+fn digits(n: int) -> string {
+    var out = ""
+    for i in 0..n {
+        out = out + "${i % 10}"
+    }
+    return out
+}
+
+fn main() -> int {
+    val r = repeat("ab", 1000)
+    if r.len() != 2000 { return 1 }
+    if r.slice(0, 4) != "abab" { return 2 }
+    if r.slice(1996, 2000) != "abab" { return 3 }
+    val d = digits(25)
+    if d != "0123456789012345678901234" { return 4 }
+    val label = "n=${42} f=${1.5} b=${true} s=${"x"}"
+    if label != "n=42 f=1.5 b=true s=x" { return 5 }
+    if repeat("", 50) != "" { return 6 }
+    return 0
+}

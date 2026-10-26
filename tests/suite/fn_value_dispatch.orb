@@ -1,0 +1,26 @@
+// Function values chosen at run time: reassigned in a loop, chooseed by a
+// branch, and applied in a fold. Same signature for every candidate.
+fn twice(x: int) -> int { return x * 2 }
+fn sq(x: int) -> int { return x * x }
+fn neg(x: int) -> int { return 0 - x }
+
+fn choose(n: int) -> int {
+    var f = twice
+    if n == 1 { f = sq }
+    if n == 2 { f = neg }
+    return f(7)
+}
+
+fn main() -> int {
+    if choose(0) != 14 { return 1 }
+    if choose(1) != 49 { return 2 }
+    if choose(2) != -7 { return 3 }
+    var f = twice
+    var acc = 1
+    for i in 0..6 {
+        if i % 2 == 0 { f = twice } else { f = sq }
+        acc = f(acc) % 1000
+    }
+    if acc != 384 { return 4 }
+    return 0
+}

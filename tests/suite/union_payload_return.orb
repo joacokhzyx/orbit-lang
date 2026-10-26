@@ -1,0 +1,45 @@
+// A function returns a union; the caller matches on the variant and reads its
+// payload. Covers unit, single-payload and multi-payload variants, a union
+// passed as an argument, and a match used to pick an int.
+union Figure {
+    Circle(int),
+    Rect(int, int),
+    Empty
+}
+
+fn make(kind: int) -> Figure {
+    if kind == 0 { return Figure.Circle(5) }
+    if kind == 1 { return Figure.Rect(3, 4) }
+    return Figure.Empty
+}
+
+fn area(s: Figure) -> int {
+    match s {
+        Figure.Circle(r) => { return 3 * r * r }
+        Figure.Rect(w, h) => { return w * h }
+        Figure.Empty => { return 0 }
+    }
+}
+
+fn describe(s: Figure) -> string {
+    match s {
+        Figure.Circle(r) => { return "circle" }
+        Figure.Rect(w, h) => { return "rect" }
+        Figure.Empty => { return "empty" }
+    }
+}
+
+fn main() -> int {
+    if area(make(0)) != 75 { return 1 }
+    if area(make(1)) != 12 { return 2 }
+    if area(make(2)) != 0 { return 3 }
+    if describe(make(0)) != "circle" { return 4 }
+    if describe(make(1)) != "rect" { return 5 }
+    if describe(make(2)) != "empty" { return 6 }
+    var total = 0
+    for k in 0..3 {
+        total = total + area(make(k))
+    }
+    if total != 87 { return 7 }
+    return 0
+}

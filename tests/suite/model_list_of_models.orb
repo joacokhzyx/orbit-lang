@@ -1,0 +1,39 @@
+// A list whose elements are models: build in a loop, read back, and select.
+model Item {
+    id: int
+    price: int
+}
+
+fn catalog(n: int) -> list<Item> {
+    val out: list<Item> = []
+    for i in 1..n + 1 {
+        out.push(Item { id: i, price: i * 10 })
+    }
+    return out
+}
+
+fn total_price(items: list<Item>) -> int {
+    var s = 0
+    for it in items {
+        s = s + it.price
+    }
+    return s
+}
+
+fn lookup(items: list<Item>, id: int) -> int {
+    for it in items {
+        if it.id == id { return it.price }
+    }
+    return -1
+}
+
+fn main() -> int {
+    val items = catalog(4)
+    if items.len() != 4 { return 1 }
+    if total_price(items) != 100 { return 2 }
+    if lookup(items, 3) != 30 { return 3 }
+    if lookup(items, 9) != -1 { return 4 }
+    val first = items.get(0)
+    if first.id != 1 { return 5 }
+    return 0
+}

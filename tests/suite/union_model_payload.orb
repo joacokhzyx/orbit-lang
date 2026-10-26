@@ -1,0 +1,36 @@
+// Union variants that carry a model and a string, matched with a wildcard arm,
+// and a union built in a loop and summed.
+model Account {
+    id: int
+    balance: int
+}
+
+union Event {
+    Deposit(Account, int),
+    Note(string),
+    Noop
+}
+
+fn apply(e: Event) -> int {
+    match e {
+        Event.Deposit(a, n) => {
+            a.balance = a.balance + n
+            return a.balance
+        }
+        Event.Note(s) => { return s.len() }
+        _ => { return -1 }
+    }
+}
+
+fn main() -> int {
+    val acct = Account { id: 1, balance: 100 }
+    if apply(Event.Deposit(acct, 50)) != 150 { return 1 }
+    if acct.balance != 150 { return 2 }
+    if apply(Event.Note("hello")) != 5 { return 3 }
+    if apply(Event.Noop) != -1 { return 5 }
+    for i in 0..4 {
+        apply(Event.Deposit(acct, 10))
+    }
+    if acct.balance != 190 { return 6 }
+    return 0
+}

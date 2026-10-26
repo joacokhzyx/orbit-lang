@@ -1,0 +1,49 @@
+// A stack on push/pop and a queue on a head cursor, then an insertion sort
+// done with index stores. Pops come back in reverse order.
+fn reverse_via_stack(xs: list<int>) -> list<int> {
+    val stack: list<int> = []
+    for x in xs { stack.push(x) }
+    val out: list<int> = []
+    while stack.len() > 0 {
+        out.push(stack.pop())
+    }
+    return out
+}
+
+fn sort(xs: list<int>) {
+    var i = 1
+    while i < xs.len() {
+        val key = xs.get(i)
+        var j = i - 1
+        while j >= 0 {
+            if xs.get(j) <= key { break }
+            xs[j + 1] = xs.get(j)
+            j = j - 1
+        }
+        xs[j + 1] = key
+        i = i + 1
+    }
+}
+
+fn main() -> int {
+    val r = reverse_via_stack([1, 2, 3, 4])
+    if r.get(0) != 4 { return 1 }
+    if r.get(3) != 1 { return 2 }
+    val q: list<int> = [10, 20, 30]
+    var head = 0
+    var seen = 0
+    while head < q.len() {
+        seen = seen * 100 + q.get(head)
+        if head == 0 { q.push(40) }
+        head = head + 1
+    }
+    if seen != 10203040 { return 3 }
+    val xs = [5, 2, 9, 1, 5, 6]
+    sort(xs)
+    if xs.get(0) != 1 { return 4 }
+    if xs.get(1) != 2 { return 5 }
+    if xs.get(2) != 5 { return 6 }
+    if xs.get(3) != 5 { return 7 }
+    if xs.get(5) != 9 { return 8 }
+    return 0
+}

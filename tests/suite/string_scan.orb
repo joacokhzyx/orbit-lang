@@ -1,0 +1,67 @@
+// Byte-wise string scanning, the loop a lexer is built from: `at(i)` yields a
+// byte, `slice(a, b)` copies a range, and tokens are collected into a list.
+fn is_digit(c: int) -> bool {
+    return c >= 48 && c <= 57
+}
+
+fn is_alpha(c: int) -> bool {
+    return (c >= 97 && c <= 122) || (c >= 65 && c <= 90)
+}
+
+fn count_tokens(src: string) -> int {
+    var i = 0
+    var n = 0
+    while i < src.len() {
+        val c = src.at(i)
+        if c == 32 {
+            i = i + 1
+        } else if is_digit(c) {
+            while i < src.len() && is_digit(src.at(i)) { i = i + 1 }
+            n = n + 1
+        } else if is_alpha(c) {
+            while i < src.len() && is_alpha(src.at(i)) { i = i + 1 }
+            n = n + 1
+        } else {
+            i = i + 1
+            n = n + 1
+        }
+    }
+    return n
+}
+
+fn words(src: string) -> list<string> {
+    val out: list<string> = []
+    var start = 0
+    var i = 0
+    while i <= src.len() {
+        if i == src.len() || src.at(i) == 32 {
+            if i > start { out.push(src.slice(start, i)) }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn number_value(s: string) -> int {
+    var v = 0
+    for i in 0..s.len() {
+        v = v * 10 + (s.at(i) - 48)
+    }
+    return v
+}
+
+fn main() -> int {
+    if count_tokens("let x = 42 + y1") != 7 { return 1 }
+    if count_tokens("") != 0 { return 2 }
+    val ws = words("  alpha beta   gamma ")
+    if ws.len() != 3 { return 3 }
+    if ws.get(0) != "alpha" { return 4 }
+    if ws.get(2) != "gamma" { return 5 }
+    if number_value("12034") != 12034 { return 6 }
+    val abc = "abcdef"
+    if abc.slice(2, 4) != "cd" { return 7 }
+    val past = abc.len()
+    if abc.at(past) != 0 { return 8 }
+    return 0
+}
