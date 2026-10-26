@@ -1,0 +1,21 @@
+// String equality is by content, not identity: the same text built two ways
+// compares equal, and a different byte anywhere compares unequal.
+fn make(a: string, b: string) -> string {
+    return a + b
+}
+
+fn main() -> int {
+    val x = make("foo", "bar")
+    val y = "foobar"
+    if x != y { return 1 }
+    if x == "foobaz" { return 2 }
+    if make("", "") != "" { return 3 }
+    if "a" == "A" { return 4 }
+    if "abc" == "abcd" { return 5 }
+    if "tab\there" != "tab" + "\t" + "here" { return 6 }
+    val long1 = "0123456789012345678901234567890123456789x"
+    val long2 = "0123456789012345678901234567890123456789y"
+    if long1 == long2 { return 7 }
+    if long1.len() != 41 { return 8 }
+    return 0
+}
