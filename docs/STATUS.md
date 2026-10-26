@@ -88,7 +88,7 @@ exists. See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md#the-silent-group-is-empt
 **Priority:** P0  
 **Status:** active
 
-The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity coverage. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds of `compiler/host/main.orb` measured 33.5 s wall warm and 76.9 s on the first run of a session, on an 8-logical-core box (2026-10-18). The self-host chain (`verify_seed.py`) is cache-sensitive in the same way. [PERF.md](PERF.md) has the method and the earlier numbers.
+The self-hosted pipeline is the source of truth, but the engineering catalog still records an incomplete combined route, model, and database parity coverage. The next compiler changes should be narrow, differential-tested, and followed by fixed-point promotion. Self-builds of `compiler/host/main.orb` measured 33.5 s wall warm and 76.9 s on the first run of a session, on an 8-logical-core box (2026-10-18). The self-host chain (`verify_seed.py`) is cache-sensitive in the same way. As of 2026-10-26 `build_selfhost.py --cc gcc --check-stale` takes 40.6 s to 42.0 s on the same box with the `-O1` bootstrap, the early stop and the sharded compile. [PERF.md](PERF.md) has the method and the earlier numbers.
 
 Key work:
 
