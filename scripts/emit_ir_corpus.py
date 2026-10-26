@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Emit the designated IR corpus with `orbit build --emit-ir`.
 
-The corpus is tests/suite (101 programs plus imports.support.orb) and
-tests/std (23 programs): the 124+1 programs docs/IR_SPEC.md section 5.5
+The corpus is tests/suite (109 programs plus imports.support.orb) and
+tests/std (23 programs): the 132+1 programs docs/IR_SPEC.md section 5.5
 designates, with the same discovery scripts/test_suite.py and
 scripts/unknown_census.py already use (`.orb`, minus `*.support.orb`,
 which is kept here because the corpus is about IR and the support module
@@ -29,7 +29,7 @@ hash or size differs, plus members that appeared or disappeared; it exits
 1 on any drift.  Emission is deterministic, so drift means a different
 compiler or changed sources -- which is the point of the check.
 
-`--self-test` is the hermetic half: it asserts the corpus contract (124
+`--self-test` is the hermetic half: it asserts the corpus contract (132
 executables plus imports.support.orb, discovered in pinned order) and
 drives the comparator with a synthetic manifest, so the drift detector is
 proven to catch a changed hash, a changed size, a missing member, an extra
@@ -54,7 +54,7 @@ SCHEMA = "r6-ir-corpus/1"
 
 # The corpus size docs/IR_SPEC.md section 5.5 designates. Named here so the
 # self-test asserts a contract rather than re-deriving it from the listing.
-SUITE_PROGRAMS = 101
+SUITE_PROGRAMS = 109
 STD_PROGRAMS = 23
 SUPPORT_MODULES = 1
 PROGRAMS = SUITE_PROGRAMS + STD_PROGRAMS

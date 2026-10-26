@@ -880,7 +880,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                                 IRValue.Sym(s) => { cn = s.value }
                                 _ => {}
                             }
-                            if isStringReturningFunction(cn) {
+                            if isStringReturningFunction(backend, cn) {
                                 inf = "string"
                             } else if cn == "orbit_string_at" || cn == "orbit_string_len" || cn == "orbit_list_len" {
                                 inf = "int"
@@ -1441,6 +1441,19 @@ fn isCKeyword(name: string) -> bool {
     if name == "void" { return true }
     if name == "volatile" { return true }
     if name == "while" { return true }
+    if name == "_Alignas" { return true }
+    if name == "_Alignof" { return true }
+    if name == "_Atomic" { return true }
+    if name == "_Bool" { return true }
+    if name == "_Complex" { return true }
+    if name == "_Generic" { return true }
+    if name == "_Imaginary" { return true }
+    if name == "_Noreturn" { return true }
+    if name == "_Static_assert" { return true }
+    if name == "_Thread_local" { return true }
+    if name == "asm" { return true }
+    if name == "bool" { return true }
+    if name == "typeof" { return true }
     return false
 }
 
@@ -2344,7 +2357,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
                     IRValue.Sym(s) => { cn = s.value }
                     _ => {}
                 }
-                if isStringReturningFunction(cn) {
+                if isStringReturningFunction(backend, cn) {
                     backend.strRegs.push(inst.dest)
                 }
             }
@@ -2549,6 +2562,19 @@ fn generateValue(value: IRValue) -> string {
     }
 }
 
+// A function used as a value is its C symbol, and the definition of a function
+// whose name is a C keyword is emitted as `name_` (sanitizeIdentifier). The
+// value has to be spelled the same way: `val f = double` emitted `(uintptr_t)(double)`.
+fn generateOperand(backend: CBackend, value: IRValue) -> string {
+    match value {
+        IRValue.Sym(v) => {
+            if isCKeyword(v.value) && moduleHasFunction(backend, v.value) { return v.value + "_" }
+            return v.value
+        }
+        _ => { return generateValue(value) }
+    }
+}
+
 fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string {
     if orbit_string_indexOf(valStr, "orbit_string_concat") != -1 || orbit_string_indexOf(valStr, "orbit_string_slice") != -1 || orbit_string_indexOf(valStr, "orbit_list_get") != -1 || orbit_string_indexOf(valStr, "_lr.value") != -1 || orbit_string_indexOf(valStr, "orbit_alloc") != -1 {
         return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
@@ -2594,7 +2620,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.load_const => {
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, generateValue(instr.operand1)))
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, generateOperand(backend, instr.operand1)))
             return
         }
         IROpcode.load_var => {
@@ -2603,7 +2629,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             match instr.operand1 {
                 IRValue.String(s) => { valStr = s.value
                     vn = s.value }
-                IRValue.Sym(s) => { valStr = s.value
+                IRValue.Sym(s) => { valStr = generateOperand(backend, instr.operand1)
                     vn = s.value }
                 _ => { valStr = generateValue(instr.operand1) }
             }
@@ -2653,12 +2679,12 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
         }
         IROpcode.store_var => {
             val svName = generateValue(instr.operand1)
-            orbit_cbuf_append_selfhost(cb, "    " + svName + " = " + storeCastFor(backend, svName) + "(" + generateValue(instr.operand2) + ");\n")
+            orbit_cbuf_append_selfhost(cb, "    " + svName + " = " + storeCastFor(backend, svName) + "(" + generateOperand(backend, instr.operand2) + ");\n")
             return
         }
         IROpcode.decl_var => {
             val dvName = generateValue(instr.operand1)
-            orbit_cbuf_append_selfhost(cb, "    " + dvName + " = " + storeCastFor(backend, dvName) + "(" + generateValue(instr.operand2) + ");\n")
+            orbit_cbuf_append_selfhost(cb, "    " + dvName + " = " + storeCastFor(backend, dvName) + "(" + generateOperand(backend, instr.operand2) + ");\n")
             return
         }
         IROpcode.add => {
@@ -2874,7 +2900,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 orbit_cbuf_append_selfhost(cb, "")
                 return
             }
-            backend.callArgs.push(generateValue(instr.operand1))
+            backend.callArgs.push(generateOperand(backend, instr.operand1))
             orbit_cbuf_append_selfhost(cb, "")
             return
         }
@@ -2961,13 +2987,21 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 orbit_cbuf_append_selfhost(cb, "    " + callExprI + ";\n")
                 return
             }
-            if calleeName == "slice" {
+            // These spellings stand for the string runtime's functions only
+            // when the program declares no function of that name; a user `find`
+            // taking a list was rewritten to orbit_string_indexOf and read the
+            // list as a string.
+            val calleeIsUserFn = userFunctionDeclared(backend, calleeName)
+            if calleeName == "slice" && calleeIsUserFn == false {
                 calleeName = "orbit_string_slice"
             }
-            if calleeName == "at" {
+            if calleeName == "at" && calleeIsUserFn == false {
                 calleeName = "orbit_string_at"
             }
-            if calleeName == "find" || calleeName == "indexOf" || calleeName == "orbit_string_find" {
+            if (calleeName == "find" || calleeName == "indexOf") && calleeIsUserFn == false {
+                calleeName = "orbit_string_indexOf"
+            }
+            if calleeName == "orbit_string_find" {
                 calleeName = "orbit_string_indexOf"
             }
             var destNeeded = instr.dest != -1
@@ -3158,6 +3192,13 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     } else {
                         callExpr = callExpr + aStr
                     }
+                } else if declaredParamCast(backend, calleeName, argIdx, aStr) != "" {
+                    // The callee's own declared parameter type wins over the
+                    // per-name arms below. They describe the compiler's
+                    // internal functions by name, and a user function that
+                    // shares one of those names (`check`, `consume`) took the
+                    // compiler's argument casts instead of its own.
+                    callExpr = callExpr + declaredParamCast(backend, calleeName, argIdx, aStr)
                 } else if calleeName == "check" || calleeName == "matchToken" || calleeName == "consume" {
                     if argIdx == 1 {
                         callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
@@ -4383,6 +4424,16 @@ fn stringifyConcatOperand(backend: CBackend, operand: IRValue) -> string {
     return "orbit_int_to_string_selfhost((orbit_int)(uintptr_t)(" + raw + "))"
 }
 
+fn userFunctionDeclared(backend: CBackend, name: string) -> bool {
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == name { return true }
+        fi = fi + 1
+    }
+    return false
+}
+
 fn functionReturnsVoid(backend: CBackend, name: string) -> bool {
     if name == "orbit_list_set" { return true }
     // orbit_list_clear is a void function the emitter did not know about, so
@@ -4606,22 +4657,19 @@ fn isRouteRuntimeBuiltin(name: string) -> bool {
     return false
 }
 
-fn isStringReturningFunction(name: string) -> bool {
+// A function the program declares is typed by its declared return type. Only a
+// callee with no declaration in the module, which is a runtime function, is
+// typed by the table below.
+fn isStringReturningFunction(backend: CBackend, name: string) -> bool {
+    if backend != NULL && backend.module != NULL && backend.module.functions != NULL {
+        var di = 0
+        while di < backend.module.functions.len() {
+            val df: IRFunction = backend.module.functions.get(di)
+            if df.name == name { return df.returnType == "string" }
+            di = di + 1
+        }
+    }
     if name == "slice" { return true }
-    if name == "generateValue" { return true }
-    if name == "escapeString" { return true }
-    if name == "unescapeString" { return true }
-    if name == "stripQuotes" { return true }
-    if name == "getDir" { return true }
-    if name == "resolveFilePath" { return true }
-    if name == "normalizePath" { return true }
-    if name == "fieldRefOwner" { return true }
-    if name == "fieldRefName" { return true }
-    if name == "extractMemberAccessName" { return true }
-    if name == "getEnumNameFromTag" { return true }
-    if name == "frontendOutputPath" { return true }
-    if name == "mapTypeToC" { return true }
-    if name == "tokTypeToString" { return true }
     if name == "orbit_string_slice" { return true }
     if name == "orbit_string_slice_known_len" { return true }
     if name == "orbit_string_concat" { return true }
@@ -4789,6 +4837,27 @@ fn isStringFieldName(backend: CBackend, fieldName: string) -> bool {
     }
     if found == false { return false }
     return allString
+}
+
+// The argument cast a declared scalar, string, float or result parameter
+// demands, or "" when the callee is not a declared function or the parameter
+// is a pointer, model, list or enumeration.
+fn declaredParamCast(backend: CBackend, calleeName: string, argIdx: int, aStr: string) -> string {
+    var ci = 0
+    while ci < backend.module.functions.len() {
+        val cf: IRFunction = backend.module.functions.get(ci)
+        if cf.name == calleeName {
+            if argIdx < 0 || argIdx >= cf.paramTypes.len() { return "" }
+            val pt = cf.paramTypes.get(argIdx)
+            if pt == "int" || pt == "bool" { return "(orbit_int)(uintptr_t)(" + aStr + ")" }
+            if pt == "string" { return "(orbit_string)(" + aStr + ")" }
+            if pt == "float" { return "(orbit_float)(" + aStr + ")" }
+            if pt == "result" { return aStr }
+            return ""
+        }
+        ci = ci + 1
+    }
+    return ""
 }
 
 fn calleeEnumParamName(backend: CBackend, calleeName: string, argIdx: int) -> string {

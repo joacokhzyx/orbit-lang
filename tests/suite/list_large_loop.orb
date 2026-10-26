@@ -1,15 +1,15 @@
 // A list grown to a hundred thousand elements, then walked: a sum, a sieve of
 // Eratosthenes over a list of flags, and a running maximum. Memory-heavy and
 // loop-heavy with no I/O.
-fn build(n: int) -> list<int> {
-    val xs: list<int> = []
+fn build(n: int) -> list < int > {
+    val xs: list < int > = []
     for i in 0..n {
         xs.push(i % 1000)
     }
     return xs
 }
 
-fn sum(xs: list<int>) -> int {
+fn sum(xs: list < int >) -> int {
     var s = 0
     for x in xs {
         s = s + x
@@ -18,7 +18,7 @@ fn sum(xs: list<int>) -> int {
 }
 
 fn count_primes(limit: int) -> int {
-    val composite: list<int> = []
+    val composite: list < int > = []
     for i in 0..limit + 1 {
         composite.push(0)
     }

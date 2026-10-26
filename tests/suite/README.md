@@ -8,7 +8,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 |---|---|
 | Arithmetic and unary operators | `arith.orb`, `unary_neg.orb` |
 | Bitwise and shift operators | `bitwise_operators.orb` |
-| Boolean operators and branches | `bool_and_or.orb`, `if_branch.orb` |
+| Boolean operators and branches | `bool_and_or.orb`, `bool_short_circuit.orb`, `if_branch.orb` |
 | Strings | `strings_eq.orb`, `strings_concat.orb`, `strings_escape.orb` |
 | Loops and control flow | `while_counter.orb`, `while_break.orb`, `nesting_legal.orb` |
 | Functions | `fn_recursive.orb` |
@@ -29,9 +29,9 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Models passed, returned and nested | `model_param_return.orb`, `model_nested.orb` |
 | Models with list fields and lists of models | `model_list_field.orb`, `model_list_of_models.orb` |
 | Many short-lived models | `model_alloc_loop.orb` |
-| Union payloads and match | `union_payload_return.orb`, `union_model_payload.orb`, `union_nested_match.orb` |
+| Union payloads and match | `union_payload_return.orb`, `union_model_payload.orb`, `union_nested_match.orb`, `union_multi_payload_unit_variant.orb` |
 | Enumerations | `enum_values.orb` |
-| Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb` |
+| Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb`, `result_catch_binding_scope.orb` |
 | Function values chosen at run time | `fn_value_dispatch.orb` |
 | String scanning, building and comparison | `string_scan.orb`, `string_builder_loop.orb`, `string_compare_order.orb` |
 | Generic functions over lists | `generic_multi.orb` |
@@ -39,6 +39,8 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Recursion | `recursion_mix.orb` |
 | Large lists, stacks, queues, sorting | `list_large_loop.orb`, `list_stack_queue.orb` |
 | Compiler-style programs | `mini_parser.orb`, `parallel_lists_table.orb` |
+| List fields read through a model built by constructor call | `model_ctor_list_field_read.orb` |
+| User functions named like compiler helpers or string methods | `user_fn_named_check.orb`, `user_fn_named_find.orb`, `fn_named_like_c_keyword.orb`, `user_fn_named_like_compiler_helper.orb` |
 
 ## Running
 

@@ -1,0 +1,25 @@
+// A user function named like one of the compiler's own helpers takes its
+// arguments by its declared parameter types. `check` was cast as the
+// compiler's own `check`, which hands an int argument over as a pointer.
+fn half(n: int) -> result {
+    return ok(n)
+}
+
+fn check(n: int, label: string) -> int {
+    try half(n) catch e {
+        return 1
+    }
+    return label.len()
+}
+
+fn consume(n: int) -> int {
+    return n + 1
+}
+
+fn main() -> int {
+    var k = 84
+    k = k + 0
+    if check(k, "abc") != 3 { return 1 }
+    if consume(k) != 85 { return 2 }
+    return 0
+}

@@ -2,7 +2,7 @@
 // and pass the model on to a function that sums the list.
 model Bucket {
     name: string
-    items: list<int>
+    items: list < int >
 }
 
 fn fill(b: Bucket, n: int) {

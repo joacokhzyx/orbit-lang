@@ -1,0 +1,33 @@
+// A `catch e` binding belongs to its catch block. Two handlers in one function
+// can use the same name, each reading its own error message.
+fn check_age(age: int) -> result {
+    if age < 0 {
+        val r: result = err("negative", 1)
+        return r
+    }
+    if age > 150 {
+        val r: result = err("too old", 2)
+        return r
+    }
+    val r: result = ok(age)
+    return r
+}
+
+fn classify(low: int, high: int) -> int {
+    val a: int = try check_age(low) catch e {
+        if e == "negative" { return -1 }
+        return -9
+    }
+    val b: int = try check_age(high) catch e {
+        if e == "too old" { return -2 }
+        return -8
+    }
+    return a + b
+}
+
+fn main() -> int {
+    if classify(10, 20) != 30 { return 1 }
+    if classify(-5, 20) != -1 { return 2 }
+    if classify(10, 200) != -2 { return 3 }
+    return 0
+}

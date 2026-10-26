@@ -29,8 +29,8 @@ fn count_tokens(src: string) -> int {
     return n
 }
 
-fn words(src: string) -> list<string> {
-    val out: list<string> = []
+fn words(src: string) -> list < string > {
+    val out: list < string > = []
     var start = 0
     var i = 0
     while i <= src.len() {

@@ -1,7 +1,7 @@
 // Float arithmetic through variables, parameters and loops: a running mean,
 // a Horner polynomial, and comparisons. Values are exact in binary so the
 // equalities are stable.
-fn mean(xs: list<float>) -> float {
+fn mean(xs: list < float >) -> float {
     var s = 0.0
     for x in xs { s = s + x }
     return s / 4.0

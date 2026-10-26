@@ -55,7 +55,8 @@ fn expr(c: Cursor) -> int {
     while ch == 43 || ch == 45 {
         c.pos = c.pos + 1
         val rhs = term(c)
-        if ch == 43 { v = v + rhs } else { v = v - rhs }
+        if ch == 43 { v = v + rhs }
+        else { v = v - rhs }
         ch = peek(c)
     }
     return v

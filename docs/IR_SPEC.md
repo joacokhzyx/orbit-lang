@@ -51,8 +51,8 @@ a comment.
   `list_len`, `lt`, `list_get`, `add`, `sub`, `result_ok`, `result_err`, `eq`,
   `union_get_tag`, `union_get_data`, `load_field`, `store_field`, `list_push`,
   `list_set`, `list_pop`, `map_has`, `map_delete`, `map_keys`, `list_create`,
-  `not_op`, `neg`, `mul`, `div`, `mod`, `ne`, `le`, `gt`, `ge`, `and_op`,
-  `or_op`, `result_is_ok`, `result_unwrap`, `result_unwrap_err`.
+  `not_op`, `neg`, `mul`, `div`, `mod`, `ne`, `le`, `gt`, `ge`,
+  `result_is_ok`, `result_unwrap`, `result_unwrap_err`.
   (Representative sites: `builder.orb:1218-1231` arg/call, `2606-2681`
   jumps/labels/copy, `2906-2910` and `3910-3975` collections, `3117-3192`
   results, `3285-3378` unions/fields, `4584-4597` binop table,
@@ -60,7 +60,11 @@ a comment.
 - **With no producer in the builder (exist only in the enum + lowering):**
   `nop`, `begin_block`, `end_block`, `alloc`, `free`, `db_get`, `db_set`,
   `db_all`, `db_where`, `http_response`, `switch_op`, `type_info`,
-  `map_create`, `map_set`, `map_get`, `union_create`.
+  `map_create`, `map_set`, `map_get`, `union_create`, `and_op`, `or_op`.
+  - `and_op` and `or_op` had a producer until `&&` and `||` were lowered to
+    `copy`, `jump_if_false`, `jump` and `label`, so that the right operand runs
+    only when the left one does not decide the result. A document that carries
+    them still means C `&&` / `||` over two evaluated operands (§1.2).
   - `nop` is produced by constant folding (`compiler/ir/cteval.orb:953,998`).
   - Language-level DB access does NOT use `db_*`: it lowers through `call` to
     helpers `orbit_db_query_*` / `orbit_db_insert` / `orbit_db_update` /
@@ -73,7 +77,7 @@ a comment.
     `c_backend.orb:773`).
   - Route HTTP responses lower through `call`, not through `http_response`.
 
-Consequence for the loader: the 16 producer-less opcodes are syntactically
+Consequence for the loader: the 18 producer-less opcodes are syntactically
 valid in IRv1 but the corpus (§5) does not exercise them. Their execution
 semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 
@@ -93,7 +97,7 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `div` / `mod` | Float division/remainder, or **signed** division/remainder over `orbit_int` (`2525-2545`, comment F-0014) | `operandDefType` |
 | `eq` / `ne` | `strcmp()==0` / `!=0` if both are strings; float comparison; else equality over `(uintptr_t)` (`2546-2573`) | `isStringOperand`, `operandDefType` |
 | `lt` / `le` / `gt` / `ge` | Float comparison, or **signed** comparison over `(intptr_t)` (`2582-2612`) | `operandDefType` |
-| `and_op` / `or_op` / `not_op` | `&&`, `\|\|`, `!` in C (`2614-2625`) | — |
+| `and_op` / `or_op` / `not_op` | `&&`, `\|\|`, `!` in C (`2614-2625`). The builder emits only `not_op`; source `&&` / `\|\|` is control flow (see §1.1) | — |
 | `neg` | Negation (`2626-2633`) | float or integer type |
 | `begin_block` / `end_block` | Open/close `{` / `}` (`2634-2641`) | — |
 | `label` | `label_N:;` only if the label is referenced (`2642-2647`) | `refLabels` |
@@ -454,8 +458,8 @@ At this pin the corpus is the language test tree itself (no serialized IR
 exists yet). Each source below maps to IR through the builder whose producers
 are pinned in §1.1.
 
-- **Suite: 101 runnable files + 1 support file.** `tests/suite/` holds 102
-  `.orb` files: 101 runnable programs plus `imports.support.orb` (imported by
+- **Suite: 109 runnable files + 1 support file.** `tests/suite/` holds 110
+  `.orb` files: 109 runnable programs plus `imports.support.orb` (imported by
   `imports.orb`, never compiled alone). The `.skip` file (`fn_call.orb.skip`)
   is not a corpus member.
 - **Standard library: 23 files.** `tests/std/` holds 23 `.orb` programs
