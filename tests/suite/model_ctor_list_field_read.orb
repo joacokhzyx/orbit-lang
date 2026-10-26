@@ -1,0 +1,14 @@
+// A model built by its constructor call keeps its field types, so a string
+// read off a list field is a string and not a pointer printed as an integer.
+model Bag {
+    id: int
+    names: list < string >
+}
+
+fn main() -> int {
+    val bag = Bag(7, ["a", "bc"])
+    if bag.names.get(1) != "bc" { return 1 }
+    if bag.names.get(0) + "x" != "ax" { return 2 }
+    if bag.names.get(1).len() != 2 { return 3 }
+    return 0
+}

@@ -1793,6 +1793,12 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
                     if builderIsFnType(vt) { return builderFnTypeReturn(vt) }
                 }
             }
+            // `Bag(7, xs)` constructs a model, so the call is worth the model's
+            // name; without it `val bag = Bag(...)` bound bag to unknown and
+            // `bag.names.get(1)` had no field type to read an element kind from.
+            if calleeIsMember == false && calleeName != "" && findFunction(builder.module, calleeName) < 0 {
+                if modelDeclared(builder, calleeName) { return calleeName }
+            }
             return lookupFunctionReturnType(builder, calleeName)
         }
         ASTNode.If(ifn) => { return branchTypeName(builder, ifn.thenBody) }
@@ -1864,6 +1870,16 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
         }
         _ => { return resolveExprType(builder, node) }
     }
+}
+
+fn modelDeclared(builder: IRBuilder, name: string) -> bool {
+    var i = 0
+    while i < builder.module.models.len() {
+        val m: IRModelDecl = builder.module.models.get(i)
+        if m.name == name { return true }
+        i = i + 1
+    }
+    return false
 }
 
 fn modelHasField(builder: IRBuilder, typeName: string, fieldName: string) -> bool {
