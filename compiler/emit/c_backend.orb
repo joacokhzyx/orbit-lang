@@ -3158,6 +3158,13 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     } else {
                         callExpr = callExpr + aStr
                     }
+                } else if declaredParamCast(backend, calleeName, argIdx, aStr) != "" {
+                    // The callee's own declared parameter type wins over the
+                    // per-name arms below. They describe the compiler's
+                    // internal functions by name, and a user function that
+                    // shares one of those names (`check`, `consume`) took the
+                    // compiler's argument casts instead of its own.
+                    callExpr = callExpr + declaredParamCast(backend, calleeName, argIdx, aStr)
                 } else if calleeName == "check" || calleeName == "matchToken" || calleeName == "consume" {
                     if argIdx == 1 {
                         callExpr = callExpr + "(uintptr_t)(" + aStr + ")"
@@ -4789,6 +4796,27 @@ fn isStringFieldName(backend: CBackend, fieldName: string) -> bool {
     }
     if found == false { return false }
     return allString
+}
+
+// The argument cast a declared scalar, string, float or result parameter
+// demands, or "" when the callee is not a declared function or the parameter
+// is a pointer, model, list or enumeration.
+fn declaredParamCast(backend: CBackend, calleeName: string, argIdx: int, aStr: string) -> string {
+    var ci = 0
+    while ci < backend.module.functions.len() {
+        val cf: IRFunction = backend.module.functions.get(ci)
+        if cf.name == calleeName {
+            if argIdx < 0 || argIdx >= cf.paramTypes.len() { return "" }
+            val pt = cf.paramTypes.get(argIdx)
+            if pt == "int" || pt == "bool" { return "(orbit_int)(uintptr_t)(" + aStr + ")" }
+            if pt == "string" { return "(orbit_string)(" + aStr + ")" }
+            if pt == "float" { return "(orbit_float)(" + aStr + ")" }
+            if pt == "result" { return aStr }
+            return ""
+        }
+        ci = ci + 1
+    }
+    return ""
 }
 
 fn calleeEnumParamName(backend: CBackend, calleeName: string, argIdx: int) -> string {
