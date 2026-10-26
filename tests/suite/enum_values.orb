@@ -1,0 +1,26 @@
+// A plain enum: compared, passed, returned and switched on with match.
+enum Level { Low, Mid, High }
+
+fn rank(l: Level) -> int {
+    match l {
+        Level.Low => { return 1 }
+        Level.Mid => { return 2 }
+        Level.High => { return 3 }
+    }
+}
+
+fn pick(n: int) -> Level {
+    if n < 10 { return Level.Low }
+    if n < 100 { return Level.Mid }
+    return Level.High
+}
+
+fn main() -> int {
+    if rank(pick(5)) != 1 { return 1 }
+    if rank(pick(50)) != 2 { return 2 }
+    if rank(pick(500)) != 3 { return 3 }
+    val l = pick(50)
+    if l != Level.Mid { return 4 }
+    if l == Level.High { return 5 }
+    return 0
+}

@@ -1,0 +1,43 @@
+// A match inside the arm of another match, over two unions, plus a union
+// returned from a function that itself matches another union (an expression
+// evaluator, as a compiler front end writes one).
+union Op {
+    Add,
+    Mul,
+    Neg
+}
+
+union Expr {
+    Num(int),
+    Bin(Op, int, int),
+    Un(Op, int)
+}
+
+fn eval(e: Expr) -> int {
+    match e {
+        Expr.Num(n) => { return n }
+        Expr.Bin(op, a, b) => {
+            match op {
+                Op.Add => { return a + b }
+                Op.Mul => { return a * b }
+                _ => { return 0 }
+            }
+        }
+        Expr.Un(op, a) => {
+            match op {
+                Op.Neg => { return 0 - a }
+                _ => { return a }
+            }
+        }
+    }
+}
+
+fn main() -> int {
+    if eval(Expr.Num(9)) != 9 { return 1 }
+    if eval(Expr.Bin(Op.Add, 2, 3)) != 5 { return 2 }
+    if eval(Expr.Bin(Op.Mul, 4, 5)) != 20 { return 3 }
+    if eval(Expr.Bin(Op.Neg, 4, 5)) != 0 { return 4 }
+    if eval(Expr.Un(Op.Neg, 8)) != -8 { return 5 }
+    if eval(Expr.Un(Op.Add, 8)) != 8 { return 6 }
+    return 0
+}
