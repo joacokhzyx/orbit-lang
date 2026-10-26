@@ -294,7 +294,7 @@ def orb_build(compiler, out_exe, work, cc, snapshot_path, extra_cc_flags=None) -
                 "(stale baked-in flags?); continuing with our own cc invocation.")
     shutil.copyfile(inter_c, snapshot_path)
     # The shard header travels with the snapshot: sharded TU compiles
-    # (ORBIT_SHARD_BUILD=1) resolve it as the sibling <base>.h.
+    # (sharding is on by default) resolve it as the sibling <base>.h.
     inter_h = os.path.splitext(inter_c)[0] + ".h"
     if os.path.isfile(inter_h):
         shutil.copyfile(inter_h, os.path.splitext(snapshot_path)[0] + ".h")
@@ -455,8 +455,8 @@ def compile_tu_exe(cc, cc_cmd, iter_argv, iter_sources, c_path, next_exe,
                    work, tag) -> bool:
     """Build one iteration compiler, sharded when asked and worthwhile.
 
-    ORBIT_SHARD_BUILD=1 tries scripts/shard_selfhost.py on the emitted TU
-    (its sibling <base>.h must exist) and falls back to the unity
+    Sharding (on unless ORBIT_SHARD_BUILD=0) tries scripts/shard_selfhost.py
+    on the emitted TU (its sibling <base>.h must exist) and falls back to the unity
     compile_cached on any failure. The cache is probed first: a unity hit
     is a file copy, cheaper than any sharding, so shards only run on a
     confident miss. Returns the compile_cached-style reused flag (False
@@ -479,7 +479,8 @@ def compile_tu_exe(cc, cc_cmd, iter_argv, iter_sources, c_path, next_exe,
                 cc, c_path, header, next_exe, work, tag=tag,
                 jobs=shard_selfhost.shard_jobs(),
                 runtime_dir=os.path.join(ROOT, "runtime"),
-                lib_dir=os.path.join(work, "shardlib"), log=out.say)
+                lib_dir=os.path.join(work, "shardlib"), log=out.say,
+                opt="-O0" if "-O0" in iter_argv else "-O1")
             out.say(f"shard-built {tag} (unity fallback skipped; "
                     f"no Windows branding stamp on this intermediate)")
             return False
