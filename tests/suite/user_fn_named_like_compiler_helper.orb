@@ -1,0 +1,41 @@
+// A user function is typed by its declared return type. The emitter kept a list
+// of the compiler's own helper names (`generateValue`, `escapeString`,
+// `normalizePath`, `mapTypeToC`, `tokTypeToString`) that return strings, and a
+// user function with one of those names was treated as returning a string
+// whatever it declared, so its int result was concatenated instead of added.
+fn generateValue(n: int) -> int {
+    return n * 10
+}
+
+fn escapeString(n: int) -> int {
+    return n + 1
+}
+
+fn normalizePath(n: int) -> int {
+    return n - 1
+}
+
+fn mapTypeToC(n: int) -> int {
+    return n * 2
+}
+
+fn getDir(n: int) -> int {
+    return n + 100
+}
+
+fn label(n: int) -> string {
+    return "n=" + "x"
+}
+
+fn main() -> int {
+    val a = generateValue(2) + 1
+    if a != 21 { return 1 }
+    val b = escapeString(4) * 2
+    if b != 10 { return 2 }
+    val c = normalizePath(8) + mapTypeToC(3)
+    if c != 13 { return 3 }
+    val d = getDir(1) - 1
+    if d != 100 { return 4 }
+    if label(1) != "n=x" { return 5 }
+    return 0
+}

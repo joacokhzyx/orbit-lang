@@ -880,7 +880,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                                 IRValue.Sym(s) => { cn = s.value }
                                 _ => {}
                             }
-                            if isStringReturningFunction(cn) {
+                            if isStringReturningFunction(backend, cn) {
                                 inf = "string"
                             } else if cn == "orbit_string_at" || cn == "orbit_string_len" || cn == "orbit_list_len" {
                                 inf = "int"
@@ -2357,7 +2357,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
                     IRValue.Sym(s) => { cn = s.value }
                     _ => {}
                 }
-                if isStringReturningFunction(cn) {
+                if isStringReturningFunction(backend, cn) {
                     backend.strRegs.push(inst.dest)
                 }
             }
@@ -4657,22 +4657,19 @@ fn isRouteRuntimeBuiltin(name: string) -> bool {
     return false
 }
 
-fn isStringReturningFunction(name: string) -> bool {
+// A function the program declares is typed by its declared return type. Only a
+// callee with no declaration in the module, which is a runtime function, is
+// typed by the table below.
+fn isStringReturningFunction(backend: CBackend, name: string) -> bool {
+    if backend != NULL && backend.module != NULL && backend.module.functions != NULL {
+        var di = 0
+        while di < backend.module.functions.len() {
+            val df: IRFunction = backend.module.functions.get(di)
+            if df.name == name { return df.returnType == "string" }
+            di = di + 1
+        }
+    }
     if name == "slice" { return true }
-    if name == "generateValue" { return true }
-    if name == "escapeString" { return true }
-    if name == "unescapeString" { return true }
-    if name == "stripQuotes" { return true }
-    if name == "getDir" { return true }
-    if name == "resolveFilePath" { return true }
-    if name == "normalizePath" { return true }
-    if name == "fieldRefOwner" { return true }
-    if name == "fieldRefName" { return true }
-    if name == "extractMemberAccessName" { return true }
-    if name == "getEnumNameFromTag" { return true }
-    if name == "frontendOutputPath" { return true }
-    if name == "mapTypeToC" { return true }
-    if name == "tokTypeToString" { return true }
     if name == "orbit_string_slice" { return true }
     if name == "orbit_string_slice_known_len" { return true }
     if name == "orbit_string_concat" { return true }
