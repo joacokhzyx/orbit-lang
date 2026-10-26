@@ -2722,6 +2722,41 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
 //
 // asExpr false allocates no result register at all: an `if` used as a
 // statement would only carry a dead declaration into the emitted C.
+/** @brief `a && b` and `a || b`, with the right operand evaluated only when the left one allows it.
+ *
+ *  The result register takes the left value and, when the right operand runs,
+ *  the right value, so the control flow is the whole of the semantics: both
+ *  operands used to be built before an and_op/or_op instruction, which ran a
+ *  guarded read (`j >= 0 && xs.get(j) > k`) and a call on the right side
+ *  regardless of the left. and_op and or_op stay in the opcode set but this
+ *  builder no longer emits them. */
+fn buildShortCircuit(builder: IRBuilder, bin: BinaryOpNode) -> int {
+    val lhsReg = buildExpr(builder, bin.lhs)
+    val resultReg = ir_alloc_register(builder.currentFunction, "bool")
+    emitIfResult(builder, resultReg, lhsReg)
+    val endLabel = allocLabel(builder)
+    val jmpFalse = ir_init_instr(IROpcode.jump_if_false)
+    jmpFalse.operand1 = ir_register(lhsReg)
+    if bin.op == "&&" {
+        jmpFalse.operand2 = ir_label(endLabel)
+        ir_emit(builder.currentFunction, jmpFalse)
+    } else {
+        val rhsLabel = allocLabel(builder)
+        jmpFalse.operand2 = ir_label(rhsLabel)
+        ir_emit(builder.currentFunction, jmpFalse)
+        ir_emit(builder.currentFunction, jumpTo(endLabel))
+        val lblRhs = ir_init_instr(IROpcode.label)
+        lblRhs.operand1 = ir_label(rhsLabel)
+        ir_emit(builder.currentFunction, lblRhs)
+    }
+    val rhsReg = buildExpr(builder, bin.rhs)
+    emitIfResult(builder, resultReg, rhsReg)
+    val lblEnd = ir_init_instr(IROpcode.label)
+    lblEnd.operand1 = ir_label(endLabel)
+    ir_emit(builder.currentFunction, lblEnd)
+    return resultReg
+}
+
 fn buildIfBody(builder: IRBuilder, n: IfNode, asExpr: bool) -> int {
     val condReg = buildExpr(builder, n.condition)
     val elseLabel = allocLabel(builder)
@@ -4791,6 +4826,9 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     }
                 }
             }
+            if bin.op == "&&" || bin.op == "||" {
+                return buildShortCircuit(builder, bin)
+            }
             val lhsOperand = buildCallArgValue(builder, bin.lhs)
             val rhsOperand = buildCallArgValue(builder, bin.rhs)
             var opCode = IROpcode.add
@@ -4805,8 +4843,6 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == "<=" { opCode = IROpcode.le }
             if bin.op == ">" { opCode = IROpcode.gt }
             if bin.op == ">=" { opCode = IROpcode.ge }
-            if bin.op == "&&" { opCode = IROpcode.and_op }
-            if bin.op == "||" { opCode = IROpcode.or_op }
             if bin.op == "&" { opCode = IROpcode.bit_and }
             if bin.op == "|" { opCode = IROpcode.bit_or }
             if bin.op == "^" { opCode = IROpcode.bit_xor }
