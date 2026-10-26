@@ -3937,6 +3937,20 @@ fn buildResHeaderCall(builder: IRBuilder, c: CallNode, memberName: string) -> in
     return resReg
 }
 
+// The register type of a call by name. The function table and the builtin
+// table answer first. What neither knows is the builtin `print`, which the
+// checker types void, and the construction of a model, which is a value of
+// that model (the checker's rule for a callee that names a model). A generic
+// model's own name is not a type, so its construction keeps "unknown".
+fn callResultType(builder: IRBuilder, callName: string) -> string {
+    val declared = lookupFunctionReturnType(builder, callName)
+    if declared != "unknown" { return declared }
+    if findFunction(builder.module, callName) >= 0 { return "unknown" }
+    if callName == "print" { return "void" }
+    if modelDeclared(builder, callName) && genericModelByName(builder, callName) == NULL { return callName }
+    return "unknown"
+}
+
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     // Check if it's a method call (member access)
     match c.callee {
@@ -4482,7 +4496,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                         ir_emit(builder.currentFunction, argInstr)
                         ei = ei + 1
                     }
-                    val resReg = ir_alloc_register(builder.currentFunction, lookupFunctionReturnType(builder, callName))
+                    val resReg = ir_alloc_register(builder.currentFunction, callResultType(builder, callName))
                     val callInstr = ir_init_instr(IROpcode.call)
                     callInstr.dest = resReg
                     callInstr.operand1 = ir_string(callName)
