@@ -26,6 +26,19 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Constant folding and its limits | `peephole_folds.orb`, `peephole_no_fold_side_effects.orb`, `peephole_int_bool_only.orb` |
 | Arena lifetime | `arena_sink_scope.orb` |
 | Source encoding | `bom_utf8.orb` |
+| Models passed, returned and nested | `model_param_return.orb`, `model_nested.orb` |
+| Models with list fields and lists of models | `model_list_field.orb`, `model_list_of_models.orb` |
+| Many short-lived models | `model_alloc_loop.orb` |
+| Union payloads and match | `union_payload_return.orb`, `union_model_payload.orb`, `union_nested_match.orb` |
+| Enumerations | `enum_values.orb` |
+| Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb` |
+| Function values chosen at run time | `fn_value_dispatch.orb` |
+| String scanning, building and comparison | `string_scan.orb`, `string_builder_loop.orb`, `string_compare_order.orb` |
+| Generic functions over lists | `generic_multi.orb` |
+| 32-bit integer wrap and float arithmetic | `int_wrap_32.orb`, `float_accumulate.orb` |
+| Recursion | `recursion_mix.orb` |
+| Large lists, stacks, queues, sorting | `list_large_loop.orb`, `list_stack_queue.orb` |
+| Compiler-style programs | `mini_parser.orb`, `parallel_lists_table.orb` |
 
 ## Running
 
