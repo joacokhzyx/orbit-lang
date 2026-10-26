@@ -1,0 +1,35 @@
+// A model passed by value into a function, mutated there, and returned.
+// Models are references to one struct, so the callee's store is visible to
+// the caller, and a model built inside a callee outlives the call.
+model Point {
+    x: int
+    y: int
+}
+
+fn shift(p: Point, dx: int, dy: int) -> Point {
+    p.x = p.x + dx
+    p.y = p.y + dy
+    return p
+}
+
+fn make(x: int, y: int) -> Point {
+    return Point { x: x, y: y }
+}
+
+fn sum_of(p: Point) -> int {
+    return p.x + p.y
+}
+
+fn main() -> int {
+    val a = make(1, 2)
+    if a.x != 1 { return 1 }
+    if a.y != 2 { return 2 }
+    val b = shift(a, 10, 20)
+    if b.x != 11 { return 3 }
+    if b.y != 22 { return 4 }
+    if sum_of(shift(make(0, 0), 3, 4)) != 7 { return 5 }
+    val c = make(5, 6)
+    val d = make(5, 6)
+    if sum_of(c) != sum_of(d) { return 6 }
+    return 0
+}
