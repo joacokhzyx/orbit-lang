@@ -1,0 +1,26 @@
+// A match arm that destructures a two-field variant reads the fields only when
+// the tag matches. The arms for `A` and `B` ran their field reads on every
+// scrutinee, so matching a unit variant (null data) dereferenced a null pointer.
+union Event {
+    A(int, int),
+    B(int, int),
+    Note(string),
+    Noop
+}
+
+fn step(e: Event) -> int {
+    match e {
+        Event.A(a, n) => { return a + n }
+        Event.B(a, n) => { return a - n }
+        Event.Note(s) => { return s.len() }
+        _ => { return -1 }
+    }
+}
+
+fn main() -> int {
+    if step(Event.A(1, 2)) != 3 { return 1 }
+    if step(Event.B(9, 4)) != 5 { return 2 }
+    if step(Event.Note("hello")) != 5 { return 3 }
+    if step(Event.Noop) != -1 { return 4 }
+    return 0
+}

@@ -3509,42 +3509,6 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                                 }
                                 _ => {}
                             }
-                        } else if callPattern.args.len() > 1 {
-                            // Multi-payload: each identifier argument binds one
-                            // packed-struct field (`T_V._0`, `T_V._1`), read off
-                            // the data pointer the tag test just kept. The
-                            // struct type comes from the qualified owner when
-                            // there is one, else the first union declaring the
-                            // variant; the checker already refused a count
-                            // mismatch, so every index below is declared.
-                            var structName = ""
-                            if tagOwner != "" {
-                                structName = tagOwner + "_" + tagName
-                            } else {
-                                structName = variantStructOf(builder, tagName)
-                            }
-                            var ai = 0
-                            while ai < callPattern.args.len() {
-                                match callPattern.args.get(ai) {
-                                    ASTNode.Literal(argLit) => {
-                                        if argLit.valType == "identifier" {
-                                            val argC = defineVariable(builder, argLit.text, variantTagPayloadAt(builder, tagName, ai))
-                                            val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
-                                            val fieldInstr = ir_init_instr(IROpcode.load_field)
-                                            fieldInstr.dest = fieldReg
-                                            fieldInstr.operand1 = ir_register(dataReg)
-                                            fieldInstr.operand2 = ir_symbol(structName + "._" + ai)
-                                            ir_emit(builder.currentFunction, fieldInstr)
-                                            val declVar = ir_init_instr(IROpcode.decl_var)
-                                            declVar.operand1 = ir_symbol(argC)
-                                            declVar.operand2 = ir_register(fieldReg)
-                                            ir_emit(builder.currentFunction, declVar)
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                                ai = ai + 1
-                            }
                         }
 
                         // The tag to compare against must be the bare integer
@@ -3586,6 +3550,46 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                         jmp.operand1 = ir_register(eqReg)
                         jmp.operand2 = ir_label(nextLabel)
                         ir_emit(builder.currentFunction, jmp)
+
+                        if callPattern.args.len() > 1 {
+                            // Multi-payload: each identifier argument binds one
+                            // packed-struct field (`T_V._0`, `T_V._1`), read off
+                            // the data pointer the tag test just kept. The reads
+                            // come after the test: before it they ran on every
+                            // variant, and a unit variant's data is null.
+                            // The struct type comes from the qualified owner
+                            // when there is one, else the first union declaring
+                            // the variant; the checker already refused a count
+                            // mismatch, so every index below is declared.
+                            var structName = ""
+                            if tagOwner != "" {
+                                structName = tagOwner + "_" + tagName
+                            } else {
+                                structName = variantStructOf(builder, tagName)
+                            }
+                            var ai = 0
+                            while ai < callPattern.args.len() {
+                                match callPattern.args.get(ai) {
+                                    ASTNode.Literal(argLit) => {
+                                        if argLit.valType == "identifier" {
+                                            val argC = defineVariable(builder, argLit.text, variantTagPayloadAt(builder, tagName, ai))
+                                            val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
+                                            val fieldInstr = ir_init_instr(IROpcode.load_field)
+                                            fieldInstr.dest = fieldReg
+                                            fieldInstr.operand1 = ir_register(dataReg)
+                                            fieldInstr.operand2 = ir_symbol(structName + "._" + ai)
+                                            ir_emit(builder.currentFunction, fieldInstr)
+                                            val declVar = ir_init_instr(IROpcode.decl_var)
+                                            declVar.operand1 = ir_symbol(argC)
+                                            declVar.operand2 = ir_register(fieldReg)
+                                            ir_emit(builder.currentFunction, declVar)
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                ai = ai + 1
+                            }
+                        }
                     }
                     _ => {
                         val patReg = buildExpr(builder, c.pattern)
