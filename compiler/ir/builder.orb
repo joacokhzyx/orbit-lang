@@ -4668,6 +4668,14 @@ fn topLevelConstantType(builder: IRBuilder, name: string) -> string {
     return ""
 }
 
+// A comparison is a bool whatever its operands are: the language has no
+// operator overload, so the result type needs no operand type. Every other
+// operator keeps "unknown" until the operands are typed.
+fn binaryResultType(op: string) -> string {
+    if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" { return "bool" }
+    return "unknown"
+}
+
 // orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     // A type annotation is not a runtime operation: the value underneath is the
@@ -4849,7 +4857,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == "<<" { opCode = IROpcode.shl }
             if bin.op == ">>" { opCode = IROpcode.shr }
             val binInstr = ir_init_instr(opCode)
-            val binReg = ir_alloc_register(builder.currentFunction, "unknown")
+            val binReg = ir_alloc_register(builder.currentFunction, binaryResultType(bin.op))
             binInstr.dest = binReg
             binInstr.operand1 = lhsOperand
             binInstr.operand2 = rhsOperand
