@@ -1,0 +1,46 @@
+// Generic functions over lists and pairs: a maximum, a reverse, a swap built
+// from a generic model, each used at two element types in one program.
+model Duo[A, B] {
+    first: A
+    second: B
+}
+
+fn biggest[T](xs: list<T>, seed: T) -> T {
+    var best = seed
+    for x in xs {
+        if x > best { best = x }
+    }
+    return best
+}
+
+fn reversed[T](xs: list<T>) -> list<T> {
+    val out: list<T> = []
+    var i = xs.len() - 1
+    while i >= 0 {
+        out.push(xs.get(i))
+        i = i - 1
+    }
+    return out
+}
+
+fn first_of[T](xs: list<T>, fallback: T) -> T {
+    if xs.len() == 0 { return fallback }
+    return xs.get(0)
+}
+
+fn main() -> int {
+    if biggest([3, 9, 4], 0) != 9 { return 1 }
+    if biggest([1.5, 0.5], 0.0) != 1.5 { return 2 }
+    val r = reversed([1, 2, 3])
+    if r.get(0) != 3 { return 3 }
+    if r.get(2) != 1 { return 4 }
+    val rs = reversed(["a", "b"])
+    if rs.get(0) != "b" { return 5 }
+    if first_of(rs, "z") != "b" { return 6 }
+    val empty: list<int> = []
+    if first_of(empty, 77) != 77 { return 7 }
+    val d = Duo { first: 1, second: "one" }
+    if d.first != 1 { return 8 }
+    if d.second != "one" { return 9 }
+    return 0
+}
