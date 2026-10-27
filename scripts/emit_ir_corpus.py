@@ -177,7 +177,7 @@ def ir_findings(doc):
     A consumer cannot guess an opcode name, so an emitted name outside the
     66 of docs/IR_SPEC.md section 1 (the empty string included) is a defect
     of the emitter, never of the consumer. A lexer literal name used as a
-    register type (`string_raw`) and a call to a runtime symbol with no
+    register type (`string_raw`), an object field read left `unknown` and a call to a runtime symbol with no
     extern entry are the same kind of leak.
     """
     findings = []
@@ -189,6 +189,14 @@ def ir_findings(doc):
                     and callee not in declared):
                 findings.append(f"call to undeclared runtime symbol {callee!r}"
                                 f" in {fn['name']}")
+        types = fn["registerTypes"]
+        for ins in fn["instructions"]:
+            if ins["opcode"] != "load_field" or ins["dest"] < 0:
+                continue
+            recv = ins["operand1"].get("value")
+            if (ins["operand1"].get("kind") == "Register" and recv < len(types)
+                    and types[recv] == "object" and types[ins["dest"]] == "unknown"):
+                findings.append(f"untyped object field read in {fn['name']}")
         for index, name in enumerate(fn["registerTypes"]):
             if name in LEXER_TYPE_NAMES:
                 findings.append(
@@ -381,6 +389,13 @@ def self_test():
     call["module"]["functions"].append({
         "name": "system_pid", "registerTypes": [], "instructions": []})
     check("a declared runtime symbol is complete", ir_findings(call) == [])
+    read = doc_with("load_field")
+    read["module"]["functions"][0]["registerTypes"] = ["object", "unknown"]
+    read["module"]["functions"][0]["instructions"][0].update(
+        {"dest": 1, "operand1": {"kind": "Register", "value": 0}})
+    check("an untyped object field read is caught", len(ir_findings(read)) == 1)
+    read["module"]["functions"][0]["registerTypes"][1] = "int"
+    check("a typed object field read is complete", ir_findings(read) == [])
     check("an unknown opcode is caught",
           len(ir_findings(doc_with("shift_left"))) == 1)
 

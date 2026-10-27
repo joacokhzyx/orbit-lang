@@ -436,7 +436,7 @@ def registry(compiler, cc, work):
              "proves the corpus contract and that the comparator catches a "
              "changed hash, size, member and whole-corpus hash",
              lambda: _script("emit_ir_corpus.py", "--self-test"),
-             r"Finished emit-ir-corpus self-test: 27/27", 300),
+             r"Finished emit-ir-corpus self-test: 29/29", 300),
         Tool("ir_unknown_census.py", "measurement",
              "unknown register types in the emitted IR, by defining opcode; "
              "--self-test proves the count on a synthetic document and that "

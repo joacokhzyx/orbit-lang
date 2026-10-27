@@ -170,6 +170,39 @@ integer:
 - **No trap.** Every operand and count has a defined result, and no overflow
   check exists.
 
+### 1.4 `load_field` on an `object` register
+
+A register typed `object` holds an `OrbitObject*` made by
+`orbit_object_create` (§3.3). A `load_field` whose O1 is such a register is a
+keyed lookup, not a struct member read. O2 is the key. A `Sym` O2 is the
+written form `o.name`; a `String` O2 is the written form `o.get("name")`.
+The C backend treats both the same: it takes the text of either. A
+`Register` O2 (`o.get(k)` with a non-literal `k`) has no text, and the
+backend looks up the key `""`. A consumer rejects that form.
+
+The destination type names the getter, and the getter is the runtime call:
+
+| Destination type | Runtime getter | Result |
+|---|---|---|
+| `int` | `orbit_object_get_int` | `orbit_int` |
+| `float` | `orbit_object_get_float` | `orbit_float` |
+| `bool` | `orbit_object_get_bool` | `orbit_bool` |
+| `string` | `orbit_object_get_string` | `const char*` |
+| `object` | `orbit_object_get_object` | `OrbitObject*` |
+| `list` | `orbit_object_get_list` | `const OrbitList*` |
+
+A key the object never stored gives the zero of the getter's kind: `0`,
+`0.0`, `false`, `""`, and `NULL` for `object` and `list`
+(`runtime/json.c:227-270`). A key stored with another kind gives the same
+zero, not a conversion. The destination type comes from the
+`orbit_object_set_*` calls on that key in the same function; when the
+function has none, from the declared type of the binding (`val n: int =
+o.get("n")`); when neither exists the getter is `orbit_object_get_raw`, which
+returns a `const char*`, and the destination keeps the type the builder wrote
+(`unknown` or `object`). The emitter applies this typing before it writes the
+document (`typeObjectFieldReads`), so the document carries the type and no
+consumer repeats the scan. The builder's `fieldKind` is not a document field.
+
 Audit notes:
 
 - The observed `free` no-op and `type_info` comment are NOT semantics:

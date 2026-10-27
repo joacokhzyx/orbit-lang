@@ -1088,32 +1088,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
         // typed and the declaration would not, and the C compiler rejects the
         // pair. The builder allocates the register "unknown" because it cannot
         // know an object's shape, and an unknown register is declared void*.
-        var ofi = 0
-        while ofi < func.instructions.len() {
-            val oInst: IRInstruction = func.instructions.get(ofi)
-            if oInst != NULL {
-                var isLoadField = false
-                match oInst.opcode {
-                    IROpcode.load_field => { isLoadField = true }
-                    _ => {}
-                }
-                if isLoadField && operandDefType(func, oInst.operand1) == "object" {
-                    var oFieldName = ""
-                    match oInst.operand2 {
-                        IRValue.String(fs2) => { oFieldName = fs2.value }
-                        IRValue.Sym(fs2) => { oFieldName = fs2.value }
-                        _ => {}
-                    }
-                    if oFieldName != "" && oInst.dest >= 0 && oInst.dest < func.registerTypes.len() {
-                        val gotType = objectGetterReturnType(objectGetCallForRead(func, oInst, oFieldName))
-                        if gotType != "" {
-                            func.registerTypes = setStrAt(func.registerTypes, oInst.dest, gotType)
-                        }
-                    }
-                }
-            }
-            ofi = ofi + 1
-        }
+        typeObjectFieldReads(func)
         var fpi = 0
         while fpi < func.instructions.len() {
             val fInst: IRInstruction = func.instructions.get(fpi)
@@ -2172,6 +2147,39 @@ fn isTopLevelConstant(backend: CBackend, name: string) -> bool {
         gi = gi + 1
     }
     return false
+}
+
+// Types the destination of every field read off an object by the getter that
+// read lowers to. inferRegisterTypes runs it before the declarations are
+// written, and `--emit-ir` runs it before the document is, so the IR says what
+// the C declares. A read whose getter is the raw one keeps the builder's type.
+fn typeObjectFieldReads(func: IRFunction) {
+    var ofi = 0
+    while ofi < func.instructions.len() {
+        val oInst: IRInstruction = func.instructions.get(ofi)
+        if oInst != NULL {
+            var isLoadField = false
+            match oInst.opcode {
+                IROpcode.load_field => { isLoadField = true }
+                _ => {}
+            }
+            if isLoadField && operandDefType(func, oInst.operand1) == "object" {
+                var oFieldName = ""
+                match oInst.operand2 {
+                    IRValue.String(fs2) => { oFieldName = fs2.value }
+                    IRValue.Sym(fs2) => { oFieldName = fs2.value }
+                    _ => {}
+                }
+                if oFieldName != "" && oInst.dest >= 0 && oInst.dest < func.registerTypes.len() {
+                    val gotType = objectGetterReturnType(objectGetCallForRead(func, oInst, oFieldName))
+                    if gotType != "" {
+                        func.registerTypes = setStrAt(func.registerTypes, oInst.dest, gotType)
+                    }
+                }
+            }
+        }
+        ofi = ofi + 1
+    }
 }
 
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
