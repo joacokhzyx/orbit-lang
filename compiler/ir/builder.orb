@@ -80,12 +80,19 @@ model IRBuilder {
     // Disambiguator for shadowed locals. Minted C names come from here, in
     // AST walk order, so they are deterministic across runs.
     varSeq: int
+    // Every local declared so far in the functions being built, as
+    // `cname -> type`, and where the current function's entries start. Scopes
+    // pop, so two match arms can each declare `t` and the second would reuse
+    // the first's C name with another type. defineVariable consults this list
+    // to give a local one type for the whole function.
+    fnLocals: list < Variable >
+    fnLocalMark: int
 }
 
 fn initIRBuilder() -> IRBuilder {
     val mod = initIRModule()
     val mainFn = initIRFunction("orbit_main")
-    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0)
+    return IRBuilder(mod, mainFn, 0, [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, [], 0)
 }
 
 model Variable {
@@ -182,10 +189,38 @@ fn defineVariable(builder: IRBuilder, name: string, typeVal: string) -> string {
     if len == 0 {
         pushVariableScope(builder)
     }
-    val cname = mintVariableName(builder, name)
+    var cname = mintVariableName(builder, name)
+    val seen = fnLocalType(builder, cname)
+    if seen != "" && seen != typeVal {
+        val n = builder.varSeq
+        builder.varSeq = n + 1
+        cname = name + "__s" + n
+    }
+    builder.fnLocals.push(Variable(name, cname, typeVal))
     val currentScope = builder.variableScopes.get(builder.variableScopes.len() - 1)
     currentScopeAdd(currentScope, name, cname, typeVal)
     return cname
+}
+
+// The type the current function gave the C name `cname` the first time it
+// declared it, or "" when it has not.
+fn fnLocalType(builder: IRBuilder, cname: string) -> string {
+    var i = builder.fnLocals.len()
+    while i > builder.fnLocalMark {
+        i = i - 1
+        val v: Variable = builder.fnLocals.get(i)
+        if v.cname == cname {
+            return v.typeVal
+        }
+    }
+    return ""
+}
+
+fn endFnLocals(builder: IRBuilder, prevMark: int) {
+    while builder.fnLocals.len() > builder.fnLocalMark {
+        builder.fnLocals.pop()
+    }
+    builder.fnLocalMark = prevMark
 }
 
 // True when any live scope declares `name`. Scopes pop, so a declaration in
@@ -2638,6 +2673,8 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     }
     val prevFunc = builder.currentFunction
     builder.currentFunction = func
+    val prevLocalMark = builder.fnLocalMark
+    builder.fnLocalMark = builder.fnLocals.len()
     pushVariableScope(builder)
     var i = 0
     while i < f.params.len() {
@@ -2688,6 +2725,7 @@ fn buildFunction(builder: IRBuilder, f: FunctionDeclNode) {
     ensureTrailingRet(func)
     popVariableScope(builder)
     builder.currentFunction = prevFunc
+    endFnLocals(builder, prevLocalMark)
 }
 
 fn unquoteString(s: string) -> string {
@@ -2728,11 +2766,14 @@ fn buildRoute(builder: IRBuilder, r: RouteDeclNode) {
     }
     val prevFunc = builder.currentFunction
     builder.currentFunction = func
+    val prevLocalMark = builder.fnLocalMark
+    builder.fnLocalMark = builder.fnLocals.len()
     pushVariableScope(builder)
     buildNode(builder, r.body)
     ensureTrailingRet(func)
     popVariableScope(builder)
     builder.currentFunction = prevFunc
+    endFnLocals(builder, prevLocalMark)
 }
 
 fn isTerminatorInstr(instr: IRInstruction) -> bool {
