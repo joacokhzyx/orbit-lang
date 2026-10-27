@@ -240,6 +240,73 @@ INVARIANTS = [
 ]
 
 
+# Which runtime link the C step chooses when ORBIT_LINK_RUNTIME is not set.
+# Each case stages its own `runtime/` (a copy of the repo's .c and .h files) and
+# `.orbit/lib/` beside it, with a stub archive and the stamp mklib_runtime.py
+# would write, and reads the cc line from `build --verbose`. The C compiler is a
+# no-op, so no archive is ever linked.
+#   name, how the stage differs from a fresh archive, ORBIT_LINK_RUNTIME,
+#   needle that must be on stdout, text that must not be.
+LINK_FLAG = "-DORBIT_SEPARATE_COMPILATION"
+LINK_CASES = [
+    ("link-default-fresh-archive", "fresh", None, LINK_FLAG, ""),
+    ("link-default-stale-archive", "stale", None, "does not match", LINK_FLAG),
+    ("link-default-unstamped-archive", "unstamped", None, "", LINK_FLAG),
+    ("link-default-no-archive", "missing", None, "", LINK_FLAG),
+    ("link-zero-forces-unity", "fresh", "0", "", LINK_FLAG),
+    ("link-one-forces-link", "missing", "1", LINK_FLAG, ""),
+]
+
+
+def link_default_cases(compiler, work):
+    """The runtime link the C step picks by default. Returns (ok, total)."""
+    import mklib_runtime
+    noop_cc = "cmd /c exit 0" if os.name == "nt" else "true"
+    ok = 0
+    for name, stage_kind, mode, needle, absent in LINK_CASES:
+        stage = os.path.join(work, "case_" + name)
+        os.makedirs(stage, exist_ok=True)
+        setup_dir(stage)
+        stage_runtime = os.path.join(stage, "runtime")
+        os.makedirs(stage_runtime, exist_ok=True)
+        for item in os.listdir(os.path.join(ROOT, "runtime")):
+            if item.endswith((".c", ".h")) and not item.startswith("test_"):
+                shutil.copy(os.path.join(ROOT, "runtime", item), stage_runtime)
+        if stage_kind != "missing":
+            lib_dir = os.path.join(stage, ".orbit", "lib")
+            os.makedirs(lib_dir, exist_ok=True)
+            archive = os.path.join(lib_dir, "libruntime_net.a")
+            with open(archive, "wb") as f:
+                f.write(b"!<arch>\n")
+            if stage_kind != "unstamped":
+                with open(archive + ".stamp", "wb") as f:
+                    f.write(mklib_runtime.runtime_stamp(stage_runtime).encode("utf-8"))
+            if stage_kind == "stale":
+                with open(os.path.join(stage_runtime, "arena.c"), "ab") as f:
+                    f.write(b"\n")
+        env = dict(os.environ)
+        for var in ("ORBIT_LINK_RUNTIME", "ORBIT_RUNTIME_LIB",
+                    "ORBIT_CCFLAGS_EXTRA"):
+            env.pop(var, None)
+        env.update({"ORBIT_CC": noop_cc, "CC": noop_cc, "TEMP": stage,
+                    "TMP": stage, "ORBIT_SKIP_WINDRES": "1"})
+        if mode is not None:
+            env["ORBIT_LINK_RUNTIME"] = mode
+        p = subprocess.run([compiler, "build", "--verbose", "tiny.orb",
+                            "-o", "t.exe"], cwd=stage, capture_output=True,
+                           text=True, errors="replace", env=env)
+        good = (p.returncode == 0 and needle in p.stdout and
+                (not absent or absent not in p.stdout))
+        if good:
+            out.say(f"Probing {name} ... ok")
+            ok += 1
+        else:
+            out.fail(f"Failed {name}: rc={p.returncode}")
+            print("  out: %r" % p.stdout.strip()[:300], file=sys.stderr)
+            print("  err: %r" % p.stderr.strip()[:200], file=sys.stderr)
+    return (ok, len(LINK_CASES))
+
+
 def setup_dir(work):
     """Write the probe fixtures into one (per-case) stage directory."""
     for rel, content in SETUP.items():
@@ -452,6 +519,9 @@ def main():
     inv_ok, inv_total = invariants(args.compiler, work)
     ok += inv_ok
     total += inv_total
+    link_ok, link_total = link_default_cases(args.compiler, work)
+    ok += link_ok
+    total += link_total
     out.finish("cli-probe", ok, total)
     return 0 if ok == total else 1
 

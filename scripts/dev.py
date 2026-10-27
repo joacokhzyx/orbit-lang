@@ -160,6 +160,9 @@ def child_env() -> dict:
     # checks stay the verdict on the binary the chain converged to.
     # Standalone script runs stay unity unless the caller opts in.
     env["ORBIT_SHARD_BUILD"] = "1"
+    # Gates keep the unity build the compiler used before it linked the
+    # runtime archive by default; the suite lanes below opt in with "1".
+    env.setdefault("ORBIT_LINK_RUNTIME", "0")
     return env
 
 

@@ -225,41 +225,119 @@ fn compilerRuntimeDir() -> string {
 }
 
 // Separate compilation against the net-variant static library
-// (.orbit/lib/libruntime_net.a, built by scripts/mklib_runtime.py).
+// (libruntime_net.a, built by scripts/mklib_runtime.py).
 //
-// When ORBIT_LINK_RUNTIME=1 and the program needs no DB symbols, the C step
-// compiles the small user TU with -DORBIT_SEPARATE_COMPILATION and links the
-// prebuilt archive instead of recompiling the whole runtime unity on every
-// build. runtime.h honours the flag by exposing only runtime/orbit_api.h;
+// The C step compiles the small user TU with -DORBIT_SEPARATE_COMPILATION and
+// links the prebuilt archive instead of recompiling the whole runtime unity on
+// every build. runtime.h honours the flag by exposing only runtime/orbit_api.h;
 // every emitted TU already defines ORBIT_CUSTOM_ROUTER and its own
 // orbit_handle_request, while the archive is built with -DORBIT_LIB_NO_ROUTER
 // so the fallback router never meets at link time (see orbit_api.h).
 //
 // DB programs stay on the unity build by design: the net variant defines no
 // DB symbols and orbit_api.h errors on ORBIT_WITH_DB, so attempting the link
-// there would fail at compile time instead of running. The default (env
-// unset) keeps the exact command it always had: both flag strings are empty
-// and the concatenation below is byte-identical to before.
-fn linkRuntimeRequested() -> bool {
-    return orbit_os_env_selfhost("ORBIT_LINK_RUNTIME") == "1"
+// there would fail at compile time instead of running.
+//
+// ORBIT_LINK_RUNTIME picks the mode:
+//   unset  link the archive when one sits beside the runtime directory and
+//          still matches the runtime sources; otherwise the unity build, with
+//          no message (--verbose names the reason).
+//   1      always link. A missing archive fails the C step; the test suite
+//          lane uses this so a missing archive is loud.
+//   0      always the unity build.
+// ORBIT_RUNTIME_LIB names the archive and replaces the lookup beside the
+// runtime directory. It is the caller's own file, so it gets no freshness check.
+
+fn runtimeLibFileExists(path: string) -> bool {
+    var dir = getDir(path)
+    if dir == "" { dir = "." }
+    return appDirHasFile(dir, appBaseName(path))
 }
 
-fn runtimeLibPath() -> string {
+fn runtimeLibDirBeside(rtDir: string, rel: string) -> string {
+    val base = getDir(rtDir)
+    if base == "" { return rel }
+    return base + "/" + rel
+}
+
+// The installed layout keeps the archive in lib/ next to runtime/. A checkout
+// keeps it in .orbit/lib/, where scripts/mklib_runtime.py writes it.
+fn findRuntimeLib(rtDir: string) -> string {
+    val installed = runtimeLibDirBeside(rtDir, "lib") + "/libruntime_net.a"
+    if runtimeLibFileExists(installed) { return installed }
+    val checkout = runtimeLibDirBeside(rtDir, ".orbit/lib") + "/libruntime_net.a"
+    if runtimeLibFileExists(checkout) { return checkout }
+    return ""
+}
+
+// The runtime sources the archive is built from: the .c and .h files directly
+// in the runtime directory, minus the test programs. scripts/mklib_runtime.py
+// selects the same set.
+fn runtimeSourceCounts(name: string) -> bool {
+    val n = name.len()
+    if n < 3 { return false }
+    if n >= 5 && name.slice(0, 5) == "test_" { return false }
+    val ext = name.slice(n - 2, n)
+    return ext == ".c" || ext == ".h"
+}
+
+fn lineListed(lines: list < string >, want: string) -> bool {
+    var i = 0
+    while i < lines.len() {
+        val line: string = lines.get(i)
+        if line == want { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// mklib_runtime.py writes <archive>.stamp with one "<name> <fnv1a-32 hex>"
+// line per runtime source. The archive is fresh when the runtime directory
+// holds exactly those files with exactly those digests. An archive with no
+// stamp predates the check and counts as stale.
+fn runtimeArchiveFresh(rtDir: string, archive: string) -> bool {
+    val stamp = orbit_file_read_selfhost(archive + ".stamp")
+    if stamp == "" { return false }
+    val recorded = splitBuildLines(stamp)
+    val names = orbit_file_list_dir_selfhost(rtDir)
+    var seen = 0
+    var i = 0
+    while i < names.len() {
+        val name: string = names.get(i)
+        if runtimeSourceCounts(name) {
+            val digest = orbit_string_hash_selfhost(orbit_file_read_selfhost(rtDir + "/" + name))
+            if lineListed(recorded, name + " " + digest) == false { return false }
+            seen = seen + 1
+        }
+        i = i + 1
+    }
+    return seen == recorded.len()
+}
+
+// The archive to link, or "" for the unity build.
+fn runtimeLibToLink(rtDir: string, hasDb: bool, verbose: bool) -> string {
+    val mode = orbit_os_env_selfhost("ORBIT_LINK_RUNTIME")
+    if mode == "0" || hasDb { return "" }
     val override = orbit_os_env_selfhost("ORBIT_RUNTIME_LIB")
+    if mode == "1" {
+        if override != "" { return override }
+        val found = findRuntimeLib(rtDir)
+        if found != "" { return found }
+        return ".orbit/lib/libruntime_net.a"
+    }
     if override != "" {
-        return override
+        if runtimeLibFileExists(override) { return override }
+        return ""
     }
-    return ".orbit/lib/libruntime_net.a"
-}
-
-fn linkRuntimeUsable(hasDb: bool) -> bool {
-    if linkRuntimeRequested() == false {
-        return false
+    val archive = findRuntimeLib(rtDir)
+    if archive == "" { return "" }
+    if runtimeArchiveFresh(rtDir, archive) == false {
+        if verbose {
+            print("link " + archive + " does not match " + rtDir + ", using the unity build")
+        }
+        return ""
     }
-    if hasDb {
-        return false
-    }
-    return true
+    return archive
 }
 
 fn orbitVersion() -> string {
@@ -780,12 +858,12 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
             dbFlags = " -DORBIT_WITH_DB -I\"" + rtDir + "/vendor\" -lsqlite3"
         }
     }
-    val useLink = linkRuntimeUsable(hasDb)
+    val libPath = runtimeLibToLink(rtDir, hasDb, verbose)
     var separateFlags = ""
     var libRef = ""
-    if useLink {
+    if libPath != "" {
         separateFlags = " -DORBIT_SEPARATE_COMPILATION"
-        libRef = " \"" + runtimeLibPath() + "\""
+        libRef = " \"" + libPath + "\""
     }
 
     // Warning policy. -Wall is on by default so a human build surfaces
