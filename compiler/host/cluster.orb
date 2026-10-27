@@ -266,7 +266,7 @@ fn clusterAddDraining(content: string, id: int) -> string {
     return content.slice(0, at) + ", " + orbit_int_to_string_selfhost(id) + content.slice(at, content.len())
 }
 
-fn clusterBuildState(service: string, portBase: int, logDir: string, ports: list, pids: list, draining: list) -> string {
+fn clusterBuildState(service: string, portBase: int, logDir: string, ports: list < int >, pids: list < int >, draining: list < int >) -> string {
     var out = "{\"version\": 1, \"service\": \"" + service + "\", \"port_base\": " + orbit_int_to_string_selfhost(portBase) + ", \"log_dir\": \"" + logDir + "\", \"nodes\": ["
     var i = 0
     while i < ports.len() {
@@ -317,7 +317,7 @@ fn clusterConfirmAlive(pid: int) -> bool {
     return false
 }
 
-fn clusterKillList(pids: list, mode: int) {
+fn clusterKillList(pids: list < int >, mode: int) {
     var i = 0
     while i < pids.len() {
         val pid: int = pids.get(i)

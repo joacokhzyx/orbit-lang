@@ -38,7 +38,7 @@ fn tirBinaryType(op: string, leftType: string, rightType: string) -> string {
     return "unknown"
 }
 
-fn bindingType(bindings: list, name: string) -> string {
+fn bindingType(bindings: list < TirBinding >, name: string) -> string {
     var i = bindings.len()
     while i > 0 {
         i = i - 1
@@ -48,7 +48,7 @@ fn bindingType(bindings: list, name: string) -> string {
     return "unknown"
 }
 
-fn copyBindings(bindings: list) -> list {
+fn copyBindings(bindings: list < TirBinding >) -> list < TirBinding > {
     val copied = []
     var i = 0
     while i < bindings.len() {
@@ -59,7 +59,7 @@ fn copyBindings(bindings: list) -> list {
 }
 
 // orbit-walk: none -- asks what type an expression is
-fn typeOfExpression(bindings: list, node: ASTNode) -> string {
+fn typeOfExpression(bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(literal) => {
             if literal.valType == "identifier" { return bindingType(bindings, literal.text) }
@@ -108,7 +108,7 @@ fn typeOfExpression(bindings: list, node: ASTNode) -> string {
 }
 
 // orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, VarDeclNode, WhileNode
-fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list, node: ASTNode) -> int {
+fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
             if literal.valType == "identifier" {
@@ -182,7 +182,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
 // orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
-fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list, node: ASTNode) -> int {
+fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     if blockId < 0 { return blockId }
     match node {
         ASTNode.VarDecl(declaration) => {

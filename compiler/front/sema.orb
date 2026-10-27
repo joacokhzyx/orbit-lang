@@ -2791,7 +2791,7 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     if isTaggedTypeIndex(sema, typeIdx) == false { return }
     val t: TypeInfo = sema.typeRegistry.get(typeIdx)
 
-    val covered = []
+    val covered: list < string > = []
     var hasWildcard = false
     var i = 0
     while i < m.cases.len() {
@@ -2820,7 +2820,7 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     // One diagnostic per match, not per missing variant: a `match` on a large
     // type can be missing thirty cases, and thirty near-identical lines bury
     // the one fact the reader needs.
-    val missing = []
+    val missing: list < string > = []
     var v = 0
     while v < t.variants.len() {
         val variantNode = t.variants.get(v)
@@ -3107,7 +3107,7 @@ fn trimTypeArgForSema(s: string) -> string {
 // clear.
 fn modelGenericBindings(sema: Sema, modelName: string, node: ASTNode) -> list < string > {
     val params = modelGenericParamsOf(sema, modelName)
-    var bindings = []
+    var bindings: list < string > = []
     var p = 0
     while p < params.len() {
         bindings.push(params.get(p) + " unknown")

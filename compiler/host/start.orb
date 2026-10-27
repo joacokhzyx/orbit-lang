@@ -119,7 +119,7 @@ fn startEnsureDirs() {
     val ignoredC = orbit_os_mkdir_selfhost(".orbit/logs")
 }
 
-fn startListContains(items: list, name: string) -> bool {
+fn startListContains(items: list < string >, name: string) -> bool {
     var i = 0
     while i < items.len() {
         val item: string = items.get(i)
@@ -244,7 +244,7 @@ fn startSourceConfigPort(source: string) -> string {
     return ""
 }
 
-fn startCollectRoutes(source: string) -> list {
+fn startCollectRoutes(source: string) -> list < string > {
     val out = []
     val parser = initParser(source)
     val root = parseProgram(parser)
@@ -411,7 +411,7 @@ fn runStop() {
 
 // Watch state: the entry plus every transitively imported file, hashed.
 // Content hashes (not mtimes) keep dev portable with zero new runtime calls.
-fn devwWatchFiles(entry: string, source: string) -> list {
+fn devwWatchFiles(entry: string, source: string) -> list < string > {
     val files = []
     files.push(entry)
     val parser = initParser(source)
@@ -427,7 +427,7 @@ fn devwWatchFiles(entry: string, source: string) -> list {
     return files
 }
 
-fn devwSnapshot(files: list) -> string {
+fn devwSnapshot(files: list < string >) -> string {
     var snap = ""
     var i = 0
     while i < files.len() {

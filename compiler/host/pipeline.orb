@@ -291,7 +291,7 @@ fn appTrailingDigits(s: string) -> string {
     return out
 }
 
-fn appSplitDots(s: string) -> list {
+fn appSplitDots(s: string) -> list < string > {
     val parts = []
     var rest = s
     while true {

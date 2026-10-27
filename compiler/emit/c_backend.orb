@@ -2287,8 +2287,8 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     // declSlot is the index into markUsedLocals' result, or -1 for a line that
     // is always written bare because a (void) cast on the next line already
     // reads the name and no attribute can be wanted.
-    val declLines = []
-    val declSlot = []
+    val declLines: list < string > = []
+    val declSlot: list < int > = []
     while i < func.registerCount {
         var rTypeName = "void*"
         if i < func.registerTypes.len() {
