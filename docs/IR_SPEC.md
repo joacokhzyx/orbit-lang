@@ -492,8 +492,8 @@ At this pin the corpus is the language test tree itself (no serialized IR
 exists yet). Each source below maps to IR through the builder whose producers
 are pinned in §1.1.
 
-- **Suite: 110 runnable files + 1 support file.** `tests/suite/` holds 111
-  `.orb` files: 110 runnable programs plus `imports.support.orb` (imported by
+- **Suite: 111 runnable files + 1 support file.** `tests/suite/` holds 112
+  `.orb` files: 111 runnable programs plus `imports.support.orb` (imported by
   `imports.orb`, never compiled alone). The `.skip` file (`fn_call.orb.skip`)
   is not a corpus member.
 - **Standard library: 23 files.** `tests/std/` holds 23 `.orb` programs

@@ -1,0 +1,31 @@
+// A local called `mid` that holds a model must keep its full pointer. The
+// backend chose between integer and pointer assignment by the spelling of the
+// name, and `mid` took the integer path, which cut the pointer to 32 bits.
+model Node {
+    value: int
+    next: Node
+}
+
+fn none() -> Node {
+    return NULL
+}
+
+fn sum(n: Node) -> int {
+    var total = 0
+    var cur = n
+    while cur != NULL {
+        total = total + cur.value
+        cur = cur.next
+    }
+    return total
+}
+
+fn main() -> int {
+    val tail = Node { value: 3, next: none() }
+    val mid = Node { value: 2, next: tail }
+    val head = Node { value: 1, next: mid }
+    if sum(head) != 6 { return 1 }
+    if head.next.value != 2 { return 2 }
+    if head.next.next.value != 3 { return 3 }
+    return 0
+}

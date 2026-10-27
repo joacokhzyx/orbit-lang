@@ -4276,17 +4276,10 @@ fn storeCastFor(backend: CBackend, vn: string) -> string {
     if vType == "string" || vType == "list" || vType == "map" || vType == "response" || vType == "tagged_union" || vType == "pointer" || vType == "mut_pointer" {
         return pointerStoreCast(backend, vn)
     }
-    // Name heuristic last: vars ending in Id/id read as integers ONLY when
-    // nothing is known about them. A known string (e.g. `val id =
-    // req.param("id")`) must keep its pointer intact; the old order
-    // truncated it through orbit_int and crashed string use downstream.
+    // The spelling of the name says nothing about the type: `mid` ends in
+    // "id" and holds a model pointer, which a cast through orbit_int cuts to
+    // 32 bits. An unknown type gets the width-preserving cast.
     if vType == "unknown" || vType == "usize" || vType == "" {
-        val vlen = orbit_string_len(vn)
-        if vlen >= 2 {
-            val tail2 = orbit_string_slice(vn, vlen - 2, vlen)
-            if tail2 == "Id" || tail2 == "id" { return "(orbit_int)(uintptr_t)" }
-        }
-        if vn == "scopeId" { return "(orbit_int)(uintptr_t)" }
         return "(uintptr_t)"
     }
     val cType = mapTypeToC(backend, vType)
