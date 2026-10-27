@@ -42,7 +42,21 @@ jobs:
           fi
           echo "[Release] Fixed-point compiler (self-hosted seed chain): dist/${{ matrix.asset }}"
 
-      - name: Build Linux bundle (binary + std/ + runtime/)
+      # The compiler links this archive instead of recompiling the runtime
+      # unity when lib/ sits beside runtime/ and the stamp matches the shipped
+      # sources (hello 3.4 s -> 1.3 s). Built with gcc on both platforms: the
+      # archive is one plain object, so any C compiler that links gcc objects
+      # can use it. A user who wants the unity build sets ORBIT_LINK_RUNTIME=0.
+      - name: Build prebuilt runtime archive (lib/)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY="python3"; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/mklib_runtime.py --cc gcc --out dist/lib/libruntime_net.a
+          test -s dist/lib/libruntime_net.a
+          test -s dist/lib/libruntime_net.a.stamp
+
+      - name: Build Linux bundle (binary + std/ + runtime/ + lib/)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
@@ -55,10 +69,24 @@ jobs:
           cp -r std "$STAGE/std"
           cp -r runtime "$STAGE/runtime"
           rm -f "$STAGE"/runtime/test_*.c
+          cp -r dist/lib "$STAGE/lib"
           cp LICENSE "$STAGE/LICENSE.txt"
           tar -czf "dist/${{ matrix.asset }}.tar.gz" -C dist/bundle orbit
           echo "[Release] Linux bundle: dist/${{ matrix.asset }}.tar.gz"
           tar -tzf "dist/${{ matrix.asset }}.tar.gz" | head -n 8
+
+      - name: Check the bundle links the prebuilt archive
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHECK="$(mktemp -d)"
+          tar -xzf "dist/${{ matrix.asset }}.tar.gz" -C "$CHECK"
+          cp examples/hello.orb "$CHECK/hello.orb"
+          cd "$CHECK"
+          ./orbit/orbit build hello.orb -o hello --verbose | tee build.log
+          grep -q 'libruntime_net.a' build.log
+          ./hello
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4

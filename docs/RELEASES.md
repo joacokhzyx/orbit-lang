@@ -24,9 +24,10 @@ A release contains:
 - on Windows, `Orbit-Setup-<version>.exe`: the Setup Wizard (per-user, no
   admin) that installs `orbit.exe` on PATH, registers the `.orb` icon and
   `orbit check` double-click verb, and ships `std/` + `runtime/` beside the
-  binary so imports and builds work outside a source checkout;
+  binary so imports and builds work outside a source checkout, plus `lib/`
+  with the prebuilt runtime archive;
 - on Linux, `orbit-linux-x86_64.tar.gz`: the same compiler bundled with `std/`
-  + `runtime/` beside the binary (extract and run, nothing to copy);
+  + `runtime/` + `lib/` beside the binary (extract and run, nothing to copy);
 - `SHA256SUMS`: SHA-256 hashes of every other file in the release, generated
   in the publish job before upload - check your download against it;
 - `orbit_bootstrap.c`, the amalgamated C bootstrap source;
@@ -132,6 +133,20 @@ Then pick your path:
   `std/` + `runtime/` sit beside it for the same reason.
 - No hand-copying, no `Import error` workaround. If a `std/` import fails on
   this path, that is a bug - report it.
+
+### The prebuilt runtime archive
+
+The wizard and the bundle ship `lib/libruntime_net.a` and
+`lib/libruntime_net.a.stamp` beside `runtime/`. CI builds both with
+`python scripts/mklib_runtime.py --cc gcc` from the tagged checkout, so the
+stamp digests equal the shipped `runtime/` sources. `orbit build` links the
+archive for a program without a database: `examples/hello.orb` builds in
+about 1.3 s instead of 3.4 s. The archive is one plain object, so a C compiler
+other than gcc can link it. If it fails to link with your compiler, set
+`ORBIT_LINK_RUNTIME=0` for the unity build. Edit anything in `runtime/` and the
+stamp no longer matches; the build then uses the unity build, and
+`--verbose` says so. Deleting `lib/` has the same effect. The Linux release job
+checks that the extracted bundle links the archive.
 
 ### Raw-binary path (trap applies, hand-copy workaround)
 
