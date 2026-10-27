@@ -32,7 +32,7 @@ repo: the carril-T winsock shim (`-I<shim> -include tccenv.h`, local-only,
 see --tcc-shim), a generated force-include with plain-op Interlocked64 /
 __sync_* macros (linker-level gaps the repo __TINYC__ shim does not cover),
 and the system advapi32.dll for RtlGenRandom. The gcc arm builds unity, the
-same as a standalone test_suite.py run (ORBIT_LINK_RUNTIME is unset: the
+same as a standalone test_suite.py run (ORBIT_LINK_RUNTIME is 0: the
 separate-compilation lane is parity_selfhost.py's business, not this judge's).
 
 Usage:
@@ -169,8 +169,8 @@ def base_env(work, cc):
     """Child env shared by both arms: test_suite.py's recipe, one addition.
 
     Same vendor-DLL PATH prepend, same disposable flags; ORBIT_LINK_RUNTIME
-    is unset so both arms judge the unity build even when the ambient
-    environment asks for the link lane elsewhere.
+    is 0, so both arms judge the unity build even when the ambient
+    environment asks for the link lane.
     """
     env = dict(os.environ)
     if os.name == "nt":
@@ -184,7 +184,7 @@ def base_env(work, cc):
     env["TMPDIR"] = str(work)
     env.update({"ORBIT_CC": cc, "CC": cc})
     env = _common.disposable_test_env(env, cc=cc)
-    env.pop("ORBIT_LINK_RUNTIME", None)
+    env["ORBIT_LINK_RUNTIME"] = "0"
     return env
 
 
