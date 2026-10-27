@@ -3014,10 +3014,24 @@ fn emitIfResult(builder: IRBuilder, resultReg: int, valueReg: int) {
         ir_emit(builder.currentFunction, zeroInstr)
         src = zeroReg
     }
+    inheritRegisterType(builder, resultReg, src)
     val copyInstr = ir_init_instr(IROpcode.copy)
     copyInstr.dest = resultReg
     copyInstr.operand1 = ir_register(src)
     ir_emit(builder.currentFunction, copyInstr)
+}
+
+// A branch result register the static reader could not type takes the type of
+// the first branch value whose register has one, as the C backend infers it
+// from the copies.
+fn inheritRegisterType(builder: IRBuilder, dest: int, src: int) {
+    val f = builder.currentFunction
+    if dest < 0 || dest >= f.registerTypes.len() || src < 0 || src >= f.registerTypes.len() { return }
+    if f.registerTypes.get(dest) != "unknown" { return }
+    val st = f.registerTypes.get(src)
+    if st == "int" || st == "float" || st == "bool" || st == "string" {
+        f.registerTypes = setRegisterTypeAt(f.registerTypes, dest, st)
+    }
 }
 
 // One branch, built for its value. A block branch runs its statements in its
@@ -3823,6 +3837,7 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                 }
                 if asExpr {
                     val bodyReg = buildExpr(builder, c.body)
+                    inheritRegisterType(builder, resultReg, bodyReg)
                     val copyInstr = ir_init_instr(IROpcode.copy)
                     copyInstr.dest = resultReg
                     copyInstr.operand1 = ir_register(bodyReg)
