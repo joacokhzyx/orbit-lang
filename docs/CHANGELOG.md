@@ -146,6 +146,12 @@ Language:
 
 Runtime and generated code:
 
+- **`orbit build` drops functions no entry point reaches.** An import put every
+  library function into the C. `compiler/ir/prune.orb` now keeps what `main`, a
+  route or an extern reaches. `examples/std_crypto_demo.orb` emits 108 229 ->
+  55 756 bytes of C with 32 functions dropped. `build --verbose` prints
+  `prune: N unreachable functions dropped`; `--emit-ir` runs before the pass.
+  See [Architecture](ARCHITECTURE.md).
 - **`orbit build` links the prebuilt runtime archive by default.** The C step
   recompiled the whole runtime unity on every build unless
   `ORBIT_LINK_RUNTIME=1` was set. It now links `libruntime_net.a` when the
@@ -153,11 +159,11 @@ Runtime and generated code:
   (`lib/` or `.orbit/lib/`) with a `.stamp` that matches the runtime sources;
   otherwise it builds the unity as before, without a message.
   `examples/hello.orb`: 3.4 s to 1.3 s (best of 3, gcc 16.2.0, `ORBIT_CCACHE=0`).
-  `ORBIT_LINK_RUNTIME=0` forces the unity build, `=1` forces the link and fails
-  on a missing archive, and `ORBIT_RUNTIME_LIB` names the archive.
+  `ORBIT_LINK_RUNTIME=0` forces the unity build, `=1` forces the link for programs
+  without a database and fails on a missing archive, and `ORBIT_RUNTIME_LIB` names the archive.
   `scripts/mklib_runtime.py` writes the stamp, and `scripts/dev.py` and
   `_common.disposable_test_env` default the variable to `0` so no gate changes
-  what it builds. See [Architecture](ARCHITECTURE.md#linking-the-runtime).
+  what it builds; `make all` sets `1` for the `suite` and `suite_std` gates. See [Architecture](ARCHITECTURE.md#linking-the-runtime).
 - **User builds are compiled at `-O1`, and `orbit build --release` selects
   `-O2`.** `orbit build` shipped `cc -s -O0`, so every user program and the
   runtime it links ran unoptimized; the flag was never revisited after codegen

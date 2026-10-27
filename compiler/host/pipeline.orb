@@ -241,7 +241,7 @@ fn compilerRuntimeDir() -> string {
 // ORBIT_LINK_RUNTIME picks the mode:
 //   unset  link the archive when one sits beside the runtime directory and
 //          still matches the runtime sources; otherwise the unity build, with
-//          no message (--verbose names the reason).
+//          no message (--verbose names a stale or unstamped archive).
 //   1      always link. A missing archive fails the C step; the test suite
 //          lane uses this so a missing archive is loud.
 //   0      always the unity build.

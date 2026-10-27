@@ -98,7 +98,7 @@ flowchart TD
 | Build | `compiler/ir/builder.orb` | AST to IR. `IRModule` of `IRInstruction` over the `IROpcode` union: arithmetic, comparison, control flow, calls, `alloc`/`free`, field access, the collection opcodes, the `result_*` opcodes, and the union opcodes. | No failure path of its own. Sema has already rejected bad code; an expression the builder cannot type degrades to `unknown` in the IR rather than aborting, which the IR type-consistency verifier (`verifyModuleTypes`) and the unknown-type census/ratchet now police. |
 | Optimize | `compiler/ir/optimizer.orb` | Pattern rewrites over the IR; reports `patterns_applied` and `span_saved`. | Not fatal. |
 | CTE | `compiler/ir/cteval.orb` | Compile-time evaluation and folding; reports fold count. | Not fatal. |
-| Prune | `compiler/ir/prune.orb` | Drops the functions that no `main`, route or extern reaches, so an imported library costs only what the program uses. A String or Sym operand spelling a function name counts as a reference. Runs after CTE; `--emit-ir` runs before it. `build --verbose` prints the count dropped. | Not fatal. |
+| Prune | `compiler/ir/prune.orb` | Drops the functions that no entry point (`main`, `orbit_main`, `*_main`, a route) or extern reaches; a module with no entry point is left whole, so an imported library costs only what the program uses. A String or Sym operand spelling a function name counts as a reference. Runs after CTE; `--emit-ir` runs before it. `build --verbose` prints the count dropped. | Not fatal. |
 | C backend | `compiler/emit/c_backend.orb` | Emits C. Routes take a separate path: `compiler/emit/route_runtime.orb` supplies the preamble, router, and `main` as generated text, and the route hash is a 64-bit FNV-1a over `METHOD + ':' + PATH`. | No failure path of its own; the driver reports an unwritable output path or a non-zero exit from the C compiler. |
 | Invoke `cc` | `compiler/host/pipeline.orb` | Writes the C to a **constant** filename, then invokes the C compiler. | The child's exit code and output are reported verbatim. |
 
@@ -133,7 +133,7 @@ makes "did the compiler change its mind?" answerable as a hash comparison.
 ### Linking the runtime
 
 The generated C is compiled with `-I runtime`. The runtime's `runtime.h` is an
-aggregation header: it includes the `.c` files directly, so the default build
+aggregation header: it includes the `.c` files directly, so the unity build
 recompiles the whole runtime with the program. The driver adds
 `-DORBIT_WITH_NET` unconditionally, and adds `-DORBIT_WITH_DB` plus the vendor
 SQLite flags only when the IR actually uses the database. On Windows it adds
@@ -142,20 +142,21 @@ of `-lsqlite3`.
 
 A program that needs no database links the prebuilt `libruntime_net.a` instead,
 and the driver compiles only the program with `-DORBIT_SEPARATE_COMPILATION`.
-On the 2026-10-27 box (gcc 16.2.0, no C cache) `examples/hello.orb` builds in
-1.3 s linked against 3.4 s unity. The driver looks for the archive in `lib/`
+On 2026-10-27 (gcc 16.2.0, `ORBIT_CCACHE=0`, best of 3) `examples/hello.orb`
+builds in 1.3 s linked against 3.4 s for the unity build. The driver looks for the archive in `lib/`
 beside the runtime directory, then in `.orbit/lib/` beside it, which is where
 `python scripts/mklib_runtime.py` writes it. It uses the archive only when
-`libruntime_net.a.stamp`, written next to the archive, lists the digest of every
-runtime `.c` and `.h` file as it is now. An archive that is missing, unstamped
+`libruntime_net.a.stamp`, written next to the archive, has one
+`<name> <FNV-1a-32 hex>` line for each `.c` and `.h` file in the runtime
+directory (`test_*` excluded), and every digest equals the file's digest now. An archive that is missing, unstamped
 or older than a runtime edit is skipped without a message, and the build is the
-unity build above (`--verbose` names the stale case).
+unity build above (`--verbose` names a stale or unstamped archive).
 
 | Variable | Effect |
 |---|---|
 | `ORBIT_LINK_RUNTIME` unset | Link the archive when it is found and fresh, else unity. |
-| `ORBIT_LINK_RUNTIME=1` | Always link. A missing archive fails the C step. The test suite lane uses this. |
-| `ORBIT_LINK_RUNTIME=0` | Always unity. `scripts/dev.py` sets it for every gate except the suite lanes. |
+| `ORBIT_LINK_RUNTIME=1` | Link the archive for any program without a database. A missing archive fails the C step. The test suite lane uses this. |
+| `ORBIT_LINK_RUNTIME=0` | Always unity. `scripts/dev.py` defaults it to `0`; `make all` sets `1` for the `suite` and `suite_std` gates only. |
 | `ORBIT_RUNTIME_LIB=<path>` | Use this archive instead of the lookup, with no freshness check. |
 
 `scripts/werror_gate.py` puts `-Werror` on generated C, and that is the strict

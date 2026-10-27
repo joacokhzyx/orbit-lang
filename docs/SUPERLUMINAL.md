@@ -22,7 +22,7 @@ pass reports how many patterns it applied and how much span it saved
 
 ## Current pipeline
 
-Live order at `compiler/host/pipeline.orb:282-287`:
+Live order in `compiler/host/pipeline.orb`:
 
 ```text
 Orbit source
@@ -30,6 +30,7 @@ Orbit source
   → IR builder
   → optimizeIRModule (peephole rewrites, then constant sinking)
   → cteOptimize, both passes gated by cteEnabled() (compiler/host/pipeline.orb:11-13)
+  → pruneUnreachable (drops functions no entry point reaches)
   → generateC
   → generated C / executable
 ```
