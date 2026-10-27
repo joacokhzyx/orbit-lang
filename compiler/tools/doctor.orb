@@ -32,7 +32,7 @@ model DoctorStats {
     jsonMode: bool
     quiet: bool
     color: string
-    findItems: list
+    findItems: list < DoctorFinding >
     // Per-layer duration in milliseconds, so the scan budget in ENGINEERING.md
     // is measured instead of asserted. Four counters because four phases do
     // different amounts of work, and one total would hide which one.
@@ -91,7 +91,7 @@ model DoctorFinding {
     // what makes a report groupable by where the answer came from.
     column: int
     layer: string
-    edits: list
+    edits: list < DoctorEdit >
     // "safe", "suggested" or "none": what kind of fix this finding carries.
     // --fix applies safe ones by default; suggested needs --unsafe.
     fixKind: string
@@ -137,12 +137,12 @@ model DoctorEdit {
 // drop, and the result can be handed to fmtFormatSource afterwards.
 
 /** @brief The edits of one finding, or an empty list when it carries none. */
-fn doctorEditsOf(f: DoctorFinding) -> list {
+fn doctorEditsOf(f: DoctorFinding) -> list < DoctorEdit > {
     return f.edits
 }
 
 /** @brief Whether every edit in the list may be applied without --unsafe. */
-fn doctorEditsAreSafe(edits: list) -> bool {
+fn doctorEditsAreSafe(edits: list < DoctorEdit >) -> bool {
     var i = 0
     while i < edits.len() {
         val e: DoctorEdit = edits.get(i)
@@ -158,7 +158,7 @@ fn doctorEditsAreSafe(edits: list) -> bool {
  *  list. Re-joining is the obvious implementation and it is wrong: it rewrites
  *  the line endings of every line in the file to \n, so a CRLF file silently
  *  becomes an LF file the moment you fix one trailing space on line 900. */
-fn doctorLineStarts(source: string) -> list {
+fn doctorLineStarts(source: string) -> list < int > {
     val starts = []
     starts.push(0)
     val n = orbit_string_len(source)
@@ -176,7 +176,7 @@ fn doctorLineStarts(source: string) -> list {
  *
  *  One past the last line is the append point, and it is a real offset: a file
  *  with no final newline still has an end we can insert in front of. */
-fn doctorStartOffset(starts: list, line: int, total: int) -> int {
+fn doctorStartOffset(starts: list < int >, line: int, total: int) -> int {
     if line < 1 { return 0 }
     if line > starts.len() { return total }
     return starts.get(line - 1)
@@ -187,8 +187,8 @@ fn doctorStartOffset(starts: list, line: int, total: int) -> int {
  *  An insertion at line N is keyed to N, and a replacement of lines N..M to N,
  *  so two edits to the same line are adjacent after the sort and the overlap
  *  check sees both. */
-fn doctorSortEdits(edits: list) -> list {
-    var out = []
+fn doctorSortEdits(edits: list < DoctorEdit >) -> list < DoctorEdit > {
+    var out: list < DoctorEdit > = []
     var i = 0
     while i < edits.len() {
         val e: DoctorEdit = edits.get(i)
@@ -216,7 +216,7 @@ fn doctorSortEdits(edits: list) -> list {
  *  Two fixes that both rewrite one line cannot both be right: whichever ran
  *  second was computed against text the first one replaced. That is a
  *  conflict to report, not a merge to guess at. */
-fn doctorEditsConflict(edits: list) -> string {
+fn doctorEditsConflict(edits: list < DoctorEdit >) -> string {
     val sorted = doctorSortEdits(edits)
     var i = 0
     while i < sorted.len() {
@@ -235,7 +235,7 @@ fn doctorEditsConflict(edits: list) -> string {
 }
 
 /** @brief `source` with every edit applied, or "" when they cannot all be. */
-fn doctorApplyEdits(source: string, edits: list) -> string {
+fn doctorApplyEdits(source: string, edits: list < DoctorEdit >) -> string {
     val reason = doctorEditsConflict(edits)
     if reason != "" { return "" }
     val starts = doctorLineStarts(source)
@@ -355,7 +355,7 @@ fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bo
  *  different parts of one file do not each re-read a version the other has
  *  already changed. A conflict between two findings aborts both and says so,
  *  because "fixed" for one of them would be a lie about the other. */
-fn doctorFixFile(file: string, source: string, edits: list, verifyBuild: bool, dryRun: bool, colorMode: string) -> string {
+fn doctorFixFile(file: string, source: string, edits: list < DoctorEdit >, verifyBuild: bool, dryRun: bool, colorMode: string) -> string {
     if edits.len() == 0 { return "" }
     val edited = doctorApplyEdits(source, edits)
     if edited == "" {
@@ -495,7 +495,7 @@ fn doctorReport(stats: DoctorStats, file: string, line: int, code: string, messa
 // that knows its column, its layer, or how to fix itself says so here rather
 // than being asked about it later: a fix engine that has to re-derive the
 // column from the message is a fix engine that guesses.
-fn doctorReportFull(stats: DoctorStats, file: string, line: int, column: int, code: string, message: string, fix: string, fixKind: string, edits: list) {
+fn doctorReportFull(stats: DoctorStats, file: string, line: int, column: int, code: string, message: string, fix: string, fixKind: string, edits: list < DoctorEdit >) {
     stats.findings = stats.findings + 1
     stats.findItems.push(DoctorFinding(file, line, code, doctorSeverity(code), message, fix, column, doctorLayerOf(code), edits, fixKind, "", ""))
 }
@@ -549,7 +549,7 @@ fn doctorTrimLeft(s: string) -> string {
     return ""
 }
 
-fn doctorListContains(items: list, value: string) -> bool {
+fn doctorListContains(items: list < string >, value: string) -> bool {
     var i = 0
     while i < items.len() {
         if items.get(i) == value { return true }
@@ -567,7 +567,7 @@ fn doctorFirstLine(s: string) -> string {
 // Collect .orb files under root, recursing into subdirectories.
 // Needs only orbit_file_list_dir_selfhost: a path whose listing is
 // non-empty is treated as a directory, otherwise as a file.
-fn doctorCollectOrbFiles(root: string) -> list {
+fn doctorCollectOrbFiles(root: string) -> list < string > {
     var files = []
     if doctorEndsWithOrb(root) {
         files.push(root)
@@ -614,8 +614,8 @@ fn doctorCollectOrbFiles(root: string) -> list {
  *  census counts as an unknown instruction -- one per call site, in a check
  *  whose whole point is that doctor does not add unknown work.
  */
-fn doctorSortStrings(items: list) -> list {
-    var out = []
+fn doctorSortStrings(items: list < string >) -> list < string > {
+    var out: list < string > = []
     var i = 0
     while i < items.len() {
         val v: string = items.get(i)
@@ -797,7 +797,7 @@ fn doctorWildcardCovers(wild: string, specific: string) -> bool {
     return doctorStartsWith(specific, prefix + "/")
 }
 
-fn doctorCollectRoutes(lines: list, file: string, routes: list) {
+fn doctorCollectRoutes(lines: list < string >, file: string, routes: list < DoctorRoute >) {
     var i = 0
     while i < lines.len() {
         val rl = doctorParseRouteLine(lines.get(i))
@@ -826,7 +826,7 @@ fn doctorCollectRoutes(lines: list, file: string, routes: list) {
  *  Absent a snapshot they stay silent. Not "assume the best", but: a check that
  *  reports production problems with no production data is guessing, and a guess
  *  here would be a finding nobody can act on or refute. */
-fn doctorCheckTelemetry(stats: DoctorStats, routes: list, opts: DoctorOptions) {
+fn doctorCheckTelemetry(stats: DoctorStats, routes: list < DoctorRoute >, opts: DoctorOptions) {
     val path = doctorTelemetryPath(opts)
     if path == "" { return }
     val text = orbit_file_read_selfhost(path)
@@ -839,16 +839,16 @@ fn doctorCheckTelemetry(stats: DoctorStats, routes: list, opts: DoctorOptions) {
     while i < routes.len() {
         val r: DoctorRoute = routes.get(i)
         if doctorTelemetryHasRoute(text, r.method, r.normPath) == false {
-            doctorReport(stats, r.file, r.line, "D031", "route " + r.method + " " + r.path + " is registered but the ledger at " + path + " has no record of it.", "if nothing requests it, delete it; if it is only used by tests or by another service, say so here rather than leaving the snapshot to be guessed at.")
+            doctorReport(stats, r.file, r.line, "D031", "route " + r.method + " " + r.rawPath + " is registered but the ledger at " + path + " has no record of it.", "if nothing requests it, delete it; if it is only used by tests or by another service, say so here rather than leaving the snapshot to be guessed at.")
         } else {
             val overflow = doctorTelemetryNumber(text, r.method, r.normPath, "arena_overflow")
             if overflow > 0 {
-                doctorReport(stats, r.file, r.line, "D032", "route " + r.method + " " + r.path + " overflowed its arena segment " + orbit_int_to_string_selfhost(overflow) + " time(s) in the ledger at " + path + ".", "the request needed more arena than its segment reserved and the allocator chained another; give the route a larger arena or allocate less per request.")
+                doctorReport(stats, r.file, r.line, "D032", "route " + r.method + " " + r.rawPath + " overflowed its arena segment " + orbit_int_to_string_selfhost(overflow) + " time(s) in the ledger at " + path + ".", "the request needed more arena than its segment reserved and the allocator chained another; give the route a larger arena or allocate less per request.")
             }
             val p99 = doctorTelemetryNumber(text, r.method, r.normPath, "p99_us")
             val budget = doctorLatencyBudgetUs(opts)
             if budget > 0 && p99 > budget {
-                doctorReport(stats, r.file, r.line, "D033", "route " + r.method + " " + r.path + " has a measured p99 of " + orbit_int_to_string_selfhost(p99) + " us, over the " + orbit_int_to_string_selfhost(budget) + " us budget in ENGINEERING.md.", "the budget is a claim about production and this is production disagreeing with it: fix the route, or change the budget and say why it moved.")
+                doctorReport(stats, r.file, r.line, "D033", "route " + r.method + " " + r.rawPath + " has a measured p99 of " + orbit_int_to_string_selfhost(p99) + " us, over the " + orbit_int_to_string_selfhost(budget) + " us budget in ENGINEERING.md.", "the budget is a claim about production and this is production disagreeing with it: fix the route, or change the budget and say why it moved.")
             }
         }
         i = i + 1
@@ -1058,7 +1058,7 @@ fn doctorTelemetryNumber(text: string, method: string, path: string, key: string
  *  visible to a text scan, so this under-reports by construction: the failure
  *  mode of the opposite would be a finding on every correctly-guarded route,
  *  which is how a check gets switched off. */
-fn doctorScanMutableRoutes(stats: DoctorStats, lines: list, file: string) {
+fn doctorScanMutableRoutes(stats: DoctorStats, lines: list < string >, file: string) {
     var i = 0
     while i < lines.len() {
         val rl = doctorParseRouteLine(lines.get(i))
@@ -1137,7 +1137,7 @@ fn doctorLooksLikeGuard(line: string) -> bool {
  *  incremented: a brace counter that is off by one reports the wrong lines, and
  *  recounting is O(file) only at the few places a finding can appear.
  */
-fn doctorScanLoops(stats: DoctorStats, lines: list, file: string) {
+fn doctorScanLoops(stats: DoctorStats, lines: list < string >, file: string) {
     val stringNames = doctorStringDecls(lines)
     var i = 0
     while i < lines.len() {
@@ -1186,7 +1186,7 @@ fn doctorIsDbCall(code: string) -> bool {
  *  by the file length and stopped at that one brace, so it cannot walk into the
  *  next function.
  */
-fn doctorLoopContainsDb(lines: list, start: int) -> bool {
+fn doctorLoopContainsDb(lines: list < string >, start: int) -> bool {
     val baseIndent = doctorIndentOf(lines.get(start))
     var i = start + 1
     var guard = 0
@@ -1212,7 +1212,7 @@ fn doctorLoopContainsDb(lines: list, start: int) -> bool {
  *  whose size does not grow with the iteration count, which is what a plain
  *  `i = i + 1` counter loop looks like. So the test is whether the accumulated
  *  expression READS from the loop's own source. */
-fn doctorLoopConcatGrowsWithSource(lines: list, start: int, stringNames: list) -> bool {
+fn doctorLoopConcatGrowsWithSource(lines: list < string >, start: int, stringNames: list < string >) -> bool {
     val header = doctorTrimSpace(doctorCodePart(lines.get(start)))
     // The name being iterated: the `for` binding, or the collection in the bound.
     // What growing-with-the-iteration looks like on the concatenated line. For a
@@ -1269,7 +1269,7 @@ fn doctorLoopConcatGrowsWithSource(lines: list, start: int, stringNames: list) -
  *  No declaration, no finding. An accumulator whose type cannot be seen is
  *  assumed NOT to be a string, because the alternative -- report every self-add
  *  in a loop -- is 6 findings in std/ that are all arithmetic. */
-fn doctorIsSelfConcat(code: string, declIndex: list) -> bool {
+fn doctorIsSelfConcat(code: string, declIndex: list < string >) -> bool {
     if orbit_string_indexOf(code, " + ") == -1 { return false }
     val eq = orbit_string_indexOf(code, " = ")
     if eq == -1 { return false }
@@ -1302,7 +1302,7 @@ fn doctorInitialisesString(rest: string) -> bool {
  *
  *  Index built once per file by doctorStringDecls. `list<string>` counts: a list
  *  of strings concatenated element by element is still string building. */
-fn doctorDeclaredAsString(name: string, declIndex: list) -> bool {
+fn doctorDeclaredAsString(name: string, declIndex: list < string >) -> bool {
     var i = 0
     while i < declIndex.len() {
         val e: string = declIndex.get(i)
@@ -1317,7 +1317,7 @@ fn doctorDeclaredAsString(name: string, declIndex: list) -> bool {
  *  Scans `val`/`var` declarations and keeps the ones whose type mentions string.
  *  Text-level because the alternative is a scope-tracking pass over the AST for
  *  one type question. */
-fn doctorStringDecls(lines: list) -> list {
+fn doctorStringDecls(lines: list < string >) -> list < string > {
     val out = []
     var i = 0
     while i < lines.len() {
@@ -1363,7 +1363,7 @@ fn doctorStringDecls(lines: list) -> list {
  *  file. A number that appears once is a number the author chose; a number that
  *  appears twice under the same vague name is a constant pretending to be a
  *  local. */
-fn doctorScanMagicNumbers(stats: DoctorStats, lines: list, file: string) {
+fn doctorScanMagicNumbers(stats: DoctorStats, lines: list < string >, file: string) {
     val seen = []
     var i = 0
     while i < lines.len() {
@@ -1476,7 +1476,7 @@ fn doctorIsVagueName(name: string) -> bool {
 }
 
 /** @brief Record a magic number and report it only on its second sighting. */
-fn doctorRememberMagic(seen: list, num: string, name: string, file: string, line: int, stats: DoctorStats) {
+fn doctorRememberMagic(seen: list < string >, num: string, name: string, file: string, line: int, stats: DoctorStats) {
     // Keyed on the NUMBER, not on number-and-name. The same timeout written
     // under two vague names is one constant hiding in two places, and keying on
     // the pair reported neither. A number that appears once is a number the
@@ -1506,7 +1506,7 @@ fn doctorRememberMagic(seen: list, num: string, name: string, file: string, line
  *  The Block is unwrapped here, once. Nothing outside this file and sema.orb's
  *  checkNode ever measures one.
  */
-fn doctorStmtsOf(node: ASTNode) -> list {
+fn doctorStmtsOf(node: ASTNode) -> list < ASTNode > {
     var stmts = []
     match node {
         ASTNode.FunctionDecl(f) => {
@@ -1554,7 +1554,7 @@ fn doctorStmtsOf(node: ASTNode) -> list {
  *  some model, and it has no way to know which. Handing the result to a function
  *  whose parameter is ASTNode is what makes the cast correct.
  */
-fn doctorNodeAt(nodes: list, i: int) -> ASTNode {
+fn doctorNodeAt(nodes: list < ASTNode >, i: int) -> ASTNode {
     return nodes.get(i)
 }
 
@@ -1567,7 +1567,7 @@ fn doctorNodeAt(nodes: list, i: int) -> ASTNode {
  *  working around, and sema.orb's checkNode is the shape that works.
  */
 // orbit-walk: none -- dispatches top-level declarations; the per-check walks do the descending
-fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: list) {
+fn doctorScanFunctions(stats: DoctorStats, node: ASTNode, file: string, lines: list < string >) {
     match node {
         ASTNode.Program(p) => {
             var i = 0
@@ -1793,7 +1793,7 @@ fn doctorCheckUnusedParams(stats: DoctorStats, f: FunctionDeclNode, file: string
 }
 
 /** @brief Whether a list contains an exact string. */
-fn doctorListHasString(items: list, want: string) -> bool {
+fn doctorListHasString(items: list < string >, want: string) -> bool {
     var found = false
     var i = 0
     while i < items.len() {
@@ -2007,11 +2007,11 @@ fn doctorCheckShadowedUsesInRoute(stats: DoctorStats, r: RouteDeclNode, file: st
 }
 
 /** @brief Open the function frame, declare `params`, and walk `body`. */
-fn doctorShadowEntry(stats: DoctorStats, body: ASTNode, params: list, fnName: string, file: string, declLine: int) {
-    val frames = []
-    val marks = []
-    val shadows = []
-    val pending = []
+fn doctorShadowEntry(stats: DoctorStats, body: ASTNode, params: list < string >, fnName: string, file: string, declLine: int) {
+    val frames: list < list < string >> = []
+    val marks: list < int > = []
+    val shadows: list < string > = []
+    val pending: list < string > = []
     doctorShadowPushFrame(frames, marks, shadows)
     var i = 0
     while i < params.len() {
@@ -2022,13 +2022,14 @@ fn doctorShadowEntry(stats: DoctorStats, body: ASTNode, params: list, fnName: st
 }
 
 /** @brief Open a scope frame, remembering how many shadows exist so far. */
-fn doctorShadowPushFrame(frames: list, marks: list, shadows: list) {
-    frames.push([])
+fn doctorShadowPushFrame(frames: list < list < string >>, marks: list < int >, shadows: list < string >) {
+    val fresh: list < string > = []
+    frames.push(fresh)
     marks.push(shadows.len())
 }
 
 /** @brief Close the innermost frame; the shadows it introduced become pending. */
-fn doctorShadowPopFrame(frames: list, marks: list, shadows: list, pending: list) {
+fn doctorShadowPopFrame(frames: list < list < string >>, marks: list < int >, shadows: list < string >, pending: list < string >) {
     if frames.len() > 0 { frames.pop() }
     if marks.len() == 0 { return }
     val mark: int = marks.pop()
@@ -2048,7 +2049,7 @@ fn doctorShadowPopFrame(frames: list, marks: list, shadows: list, pending: list)
  *  line -- and that confusion is what made the first version of this function
  *  read index 0 of an empty frame and take the whole run down.
  */
-fn doctorShadowDeclare(frames: list, shadows: list, name: string, line: int) {
+fn doctorShadowDeclare(frames: list < list < string >>, shadows: list < string >, name: string, line: int) {
     if name == "" { return }
     val cur = frames.get(frames.len() - 1)
     var outerAt = -1
@@ -2075,7 +2076,7 @@ fn doctorShadowKey(name: string, line: int) -> string {
 }
 
 /** @brief The line recorded for `name` in a frame, or -1 when it is not there. */
-fn doctorShadowLineIn(frame: list, name: string) -> int {
+fn doctorShadowLineIn(frame: list < string >, name: string) -> int {
     var at = -1
     var i = 0
     while i < frame.len() {
@@ -2103,7 +2104,7 @@ fn doctorShadowLineIn(frame: list, name: string) -> int {
  *  instead of the function's. Every pending entry for the name is cleared on the
  *  first read, so the second shadowing contributes nothing.
  */
-fn doctorShadowUse(name: string, stats: DoctorStats, file: string, declLine: int, pending: list) {
+fn doctorShadowUse(name: string, stats: DoctorStats, file: string, declLine: int, pending: list < string >) {
     if name == "" { return }
     var hit = false
     var where = declLine
@@ -2127,7 +2128,7 @@ fn doctorShadowUse(name: string, stats: DoctorStats, file: string, declLine: int
 }
 
 /** @brief Walk a function or route body with scope tracking. */
-fn doctorShadowBody(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
+fn doctorShadowBody(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list < list < string >>, marks: list < int >, shadows: list < string >, pending: list < string >) {
     match node {
         ASTNode.Block(b) => {
             doctorShadowPushFrame(frames, marks, shadows)
@@ -2145,7 +2146,7 @@ fn doctorShadowBody(stats: DoctorStats, node: ASTNode, file: string, declLine: i
 
 /** @brief One statement, with the scope frames a statement introduces. */
 // orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, RangeNode, RouteDeclNode, TypedLiteralNode, UnaryOpNode
-fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
+fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list < list < string >>, marks: list < int >, shadows: list < string >, pending: list < string >) {
     match node {
         ASTNode.VarDecl(v) => {
             doctorShadowDeclare(frames, shadows, v.name, v.line)
@@ -2224,7 +2225,7 @@ fn doctorShadowStmt(stats: DoctorStats, node: ASTNode, file: string, declLine: i
 }
 
 /** @brief A match arm: its own frame, and its binding declared into it. */
-fn doctorShadowArm(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
+fn doctorShadowArm(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list < list < string >>, marks: list < int >, shadows: list < string >, pending: list < string >) {
     match node {
         ASTNode.MatchCase(c) => {
             doctorShadowPushFrame(frames, marks, shadows)
@@ -2238,7 +2239,7 @@ fn doctorShadowArm(stats: DoctorStats, node: ASTNode, file: string, declLine: in
 
 /** @brief One expression, where a bare identifier is a read of a name. */
 // orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
-fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
+fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: int, fnName: string, frames: list < list < string >>, marks: list < int >, shadows: list < string >, pending: list < string >) {
     match node {
         ASTNode.Literal(l) => {
             if l.valType == "identifier" {
@@ -2311,7 +2312,7 @@ fn doctorShadowExpr(stats: DoctorStats, node: ASTNode, file: string, declLine: i
 }
 
 /** @brief A list of expressions, visited in order. */
-fn doctorShadowExprList(stats: DoctorStats, items: list, file: string, declLine: int, fnName: string, frames: list, marks: list, shadows: list, pending: list) {
+fn doctorShadowExprList(stats: DoctorStats, items: list < ASTNode >, file: string, declLine: int, fnName: string, frames: list < list < string >>, marks: list < int >, shadows: list < string >, pending: list < string >) {
     var i = 0
     while i < items.len() {
         doctorShadowExpr(stats, doctorNodeAt(items, i), file, declLine, fnName, frames, marks, shadows, pending)
@@ -2397,7 +2398,7 @@ fn doctorIsTaintSink(name: string) -> bool {
 
 /** @brief Whether an expression reads a source directly, or mentions a tainted name. */
 // orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, VarDeclNode, WhileNode
-fn doctorExprIsTainted(node: ASTNode, tainted: list) -> bool {
+fn doctorExprIsTainted(node: ASTNode, tainted: list < string >) -> bool {
     var found = false
     match node {
         ASTNode.Literal(l) => {
@@ -2433,7 +2434,7 @@ fn doctorExprIsTainted(node: ASTNode, tainted: list) -> bool {
 }
 
 /** @brief Whether any expression in a list is tainted. */
-fn doctorExprListTainted(items: list, tainted: list) -> bool {
+fn doctorExprListTainted(items: list < ASTNode >, tainted: list < string >) -> bool {
     var found = false
     var i = 0
     while i < items.len() {
@@ -2445,7 +2446,7 @@ fn doctorExprListTainted(items: list, tainted: list) -> bool {
 
 /** @brief One node, tracking taint through bindings and reporting at sinks. */
 // orbit-walk-misses: ConfigDeclNode, FieldInitNode, FunctionDeclNode, RouteDeclNode
-fn doctorTaintWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, label: string, tainted: list) {
+fn doctorTaintWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, label: string, tainted: list < string >) {
     match node {
         ASTNode.VarDecl(v) => { doctorTaintBind(stats, v.name, v.value, file, declLine, label, tainted) }
         ASTNode.ConstDecl(c) => { doctorTaintBind(stats, c.name, c.value, file, declLine, label, tainted) }
@@ -2508,7 +2509,7 @@ fn doctorTaintWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: in
 }
 
 /** @brief A list of nodes, in order. */
-fn doctorTaintWalkList(stats: DoctorStats, items: list, file: string, declLine: int, label: string, tainted: list) {
+fn doctorTaintWalkList(stats: DoctorStats, items: list < ASTNode >, file: string, declLine: int, label: string, tainted: list < string >) {
     var i = 0
     while i < items.len() {
         doctorTaintWalk(stats, doctorNodeAt(items, i), file, declLine, label, tainted)
@@ -2517,7 +2518,7 @@ fn doctorTaintWalkList(stats: DoctorStats, items: list, file: string, declLine: 
 }
 
 /** @brief Apply the bind rule to an assignment target. */
-fn doctorTaintRetarget(target: ASTNode, value: ASTNode, tainted: list) {
+fn doctorTaintRetarget(target: ASTNode, value: ASTNode, tainted: list < string >) {
     match target {
         ASTNode.Literal(l) => {
             if l.valType != "identifier" { return }
@@ -2532,7 +2533,7 @@ fn doctorTaintRetarget(target: ASTNode, value: ASTNode, tainted: list) {
 }
 
 /** @brief Bind or rebind a name: tainted if what it is given is, clean if not. */
-fn doctorTaintBind(stats: DoctorStats, name: string, value: ASTNode, file: string, declLine: int, label: string, tainted: list) {
+fn doctorTaintBind(stats: DoctorStats, name: string, value: ASTNode, file: string, declLine: int, label: string, tainted: list < string >) {
     if name == "" { return }
     val was = doctorListContains(tainted, name)
     if doctorExprIsTainted(value, tainted) {
@@ -2544,7 +2545,7 @@ fn doctorTaintBind(stats: DoctorStats, name: string, value: ASTNode, file: strin
 }
 
 /** @brief A call: the sink test, then into the arguments. */
-fn doctorTaintCall(stats: DoctorStats, c: CallNode, file: string, declLine: int, label: string, tainted: list) {
+fn doctorTaintCall(stats: DoctorStats, c: CallNode, file: string, declLine: int, label: string, tainted: list < string >) {
     val callee = doctorCalleeText(c.callee)
     if doctorIsTaintSink(callee) {
         val args = c.args
@@ -2567,7 +2568,7 @@ fn doctorTaintCall(stats: DoctorStats, c: CallNode, file: string, declLine: int,
  *  The entry is blanked rather than removed because a list has no removal, and
  *  an empty string is never an identifier.
  */
-fn doctorClearTaint(items: list, want: string) {
+fn doctorClearTaint(items: list < string >, want: string) {
     var i = 0
     while i < items.len() {
         val it: string = items.get(i)
@@ -2600,7 +2601,7 @@ fn doctorClearTaint(items: list, want: string) {
  *
  *  The finding lands on the call, which carries line and col (ast.orb:259).
  */
-fn doctorCheckIgnoredResults(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+fn doctorCheckIgnoredResults(stats: DoctorStats, node: ASTNode, file: string, decls: list < DoctorDecl >) {
     doctorIgnoredWalk(stats, node, file, decls)
 }
 
@@ -2611,7 +2612,7 @@ fn doctorCheckIgnoredResults(stats: DoctorStats, node: ASTNode, file: string, de
 // not the walk descends into the receiver -- verified, both stay silent. The
 // finding lives at the Call node, which is armed.
 // orbit-walk-misses: ConfigDeclNode, ExpressionStmtNode, FieldInitNode, IndexAccessNode, MemberAccessNode, UnaryOpNode
-fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: list < DoctorDecl >) {
     match node {
         ASTNode.Program(p) => {
             val ds = p.decls
@@ -2698,7 +2699,7 @@ fn doctorIgnoredWalk(stats: DoctorStats, node: ASTNode, file: string, decls: lis
  *  When nothing reads the branch, sema rejects the outer statement; D027 must
  *  stay silent on the accepted shape or the doctor contradicts the compiler.
  */
-fn doctorIgnoredBranch(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+fn doctorIgnoredBranch(stats: DoctorStats, node: ASTNode, file: string, decls: list < DoctorDecl >) {
     match node {
         ASTNode.Block(b) => {
             val stmts = b.statements
@@ -2722,7 +2723,7 @@ fn doctorIgnoredBranch(stats: DoctorStats, node: ASTNode, file: string, decls: l
  *  bare `save()` is the Call node sitting in the statement list. That is the
  *  shape with nowhere to put the value.
  */
-fn doctorIgnoredStatement(stats: DoctorStats, node: ASTNode, file: string, decls: list) {
+fn doctorIgnoredStatement(stats: DoctorStats, node: ASTNode, file: string, decls: list < DoctorDecl >) {
     match node {
         ASTNode.Call(c) => {
             val callee = doctorCalleeText(c.callee)
@@ -2737,7 +2738,7 @@ fn doctorIgnoredStatement(stats: DoctorStats, node: ASTNode, file: string, decls
     doctorIgnoredWalk(stats, node, file, decls)
 }
 
-fn doctorIgnoredWalkList(stats: DoctorStats, items: list, file: string, decls: list) {
+fn doctorIgnoredWalkList(stats: DoctorStats, items: list < ASTNode >, file: string, decls: list < DoctorDecl >) {
     var i = 0
     while i < items.len() {
         doctorIgnoredWalk(stats, doctorNodeAt(items, i), file, decls)
@@ -2746,7 +2747,7 @@ fn doctorIgnoredWalkList(stats: DoctorStats, items: list, file: string, decls: l
 }
 
 /** @brief The declared return type of `name`, or "" when nothing declares it. */
-fn doctorReturnTypeOf(decls: list, name: string) -> string {
+fn doctorReturnTypeOf(decls: list < DoctorDecl >, name: string) -> string {
     var out = ""
     var i = 0
     while i < decls.len() {
@@ -2804,7 +2805,7 @@ fn doctorCheckDeadStoresIn(stats: DoctorStats, body: ASTNode, file: string, decl
 
 /** @brief One node; returns the index the next node should use. */
 // orbit-walk-misses: ConfigDeclNode, FunctionDeclNode, RouteDeclNode
-fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, stores: list, at: int, loopDepth: int) -> int {
+fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int, stores: list < string >, at: int, loopDepth: int) -> int {
     var next = at
     match node {
         ASTNode.Program(p) => { next = doctorDeadList(stats, p.decls, file, declLine, stores, next, loopDepth) }
@@ -2924,7 +2925,7 @@ fn doctorDeadWalk(stats: DoctorStats, node: ASTNode, file: string, declLine: int
 }
 
 /** @brief A list of nodes, in order; returns the next index. */
-fn doctorDeadList(stats: DoctorStats, items: list, file: string, declLine: int, stores: list, at: int, loopDepth: int) -> int {
+fn doctorDeadList(stats: DoctorStats, items: list < ASTNode >, file: string, declLine: int, stores: list < string >, at: int, loopDepth: int) -> int {
     var next = at
     var i = 0
     while i < items.len() {
@@ -2940,7 +2941,7 @@ fn doctorDeadKey(name: string, declLine: int, lastWrite: int, maxRead: int, last
 }
 
 /** @brief The index of `name`'s entry, or -1. */
-fn doctorDeadIndexOf(stores: list, name: string) -> int {
+fn doctorDeadIndexOf(stores: list < string >, name: string) -> int {
     var at = -1
     var i = 0
     while i < stores.len() {
@@ -2980,7 +2981,7 @@ fn doctorDeadField(entry: string, which: int) -> int {
 }
 
 /** @brief Note a write at `at`. */
-fn doctorDeadNoteWrite(stores: list, name: string, at: int, loopDepth: int) {
+fn doctorDeadNoteWrite(stores: list < string >, name: string, at: int, loopDepth: int) {
     val i = doctorDeadIndexOf(stores, name)
     if i < 0 { return }
     val entry: string = stores.get(i)
@@ -2988,7 +2989,7 @@ fn doctorDeadNoteWrite(stores: list, name: string, at: int, loopDepth: int) {
 }
 
 /** @brief Note a read at `at`, keeping the latest. */
-fn doctorDeadNoteRead(stores: list, name: string, at: int) {
+fn doctorDeadNoteRead(stores: list < string >, name: string, at: int) {
     val i = doctorDeadIndexOf(stores, name)
     if i < 0 { return }
     val entry: string = stores.get(i)
@@ -2999,7 +3000,7 @@ fn doctorDeadNoteRead(stores: list, name: string, at: int) {
 }
 
 /** @brief Every tracked local whose last write nothing read afterwards. */
-fn doctorDeadReport(stats: DoctorStats, stores: list, file: string) {
+fn doctorDeadReport(stats: DoctorStats, stores: list < string >, file: string) {
     var i = 0
     while i < stores.len() {
         val entry: string = stores.get(i)
@@ -3030,7 +3031,7 @@ fn doctorDeadReport(stats: DoctorStats, stores: list, file: string) {
 }
 
 /** @brief Visit each node of a statement list. */
-fn doctorChildrenFrom(stmts: list, stats: DoctorStats, file: string) {
+fn doctorChildrenFrom(stmts: list < ASTNode >, stats: DoctorStats, file: string) {
     var i = 0
     while i < stmts.len() {
         doctorCheckDuplicateMatchArms(stats, doctorNodeAt(stmts, i), file)
@@ -3039,7 +3040,7 @@ fn doctorChildrenFrom(stmts: list, stats: DoctorStats, file: string) {
 }
 
 /** @brief The statements of a block node. */
-fn stmtsOfBlock(b: BlockNode) -> list {
+fn stmtsOfBlock(b: BlockNode) -> list < ASTNode > {
     return b.statements
 }
 
@@ -3084,7 +3085,7 @@ fn doctorOwnerText(owner: ASTNode) -> string {
 }
 
 /** @brief Whether any statement in a body calls `name`. */
-fn doctorCallsName(body: list, name: string) -> bool {
+fn doctorCallsName(body: list < ASTNode >, name: string) -> bool {
     var i = 0
     while i < body.len() {
         if doctorNodeCalls(doctorNodeAt(body, i), name) { return true }
@@ -3165,7 +3166,7 @@ fn doctorCalleeText(callee: ASTNode) -> string {
 }
 
 /** @brief Whether some statement is exactly `return <name>(...)`. */
-fn doctorHasTailSelfCall(body: list, name: string) -> bool {
+fn doctorHasTailSelfCall(body: list < ASTNode >, name: string) -> bool {
     var i = 0
     while i < body.len() {
         if doctorIsTailSelfReturn(doctorNodeAt(body, i), name) { return true }
@@ -3325,7 +3326,7 @@ fn doctorScanLoopAllocs(stats: DoctorStats, node: ASTNode, fnName: string, file:
 }
 
 /** @brief Visit each statement in a list, reporting the allocating ones, then descend. */
-fn doctorScanLoopStmts(stats: DoctorStats, stmts: list, fnName: string, file: string, line: int, inLoop: bool, kind: string) {
+fn doctorScanLoopStmts(stats: DoctorStats, stmts: list < ASTNode >, fnName: string, file: string, line: int, inLoop: bool, kind: string) {
     var i = 0
     while i < stmts.len() {
         val stmt = doctorNodeAt(stmts, i)
@@ -3418,7 +3419,7 @@ fn doctorEndsWith(s: string, suffix: string) -> bool {
     return orbit_string_slice(s, sn - xn, sn) == suffix
 }
 
-fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
+fn doctorCheckRoutes(stats: DoctorStats, routes: list < DoctorRoute >) {
     var a = 0
     while a < routes.len() {
         var b = a + 1
@@ -3451,7 +3452,7 @@ fn doctorCheckRoutes(stats: DoctorStats, routes: list) {
     }
 }
 
-fn doctorFindDeclLine(lines: list, keyword: string, name: string) -> int {
+fn doctorFindDeclLine(lines: list < string >, keyword: string, name: string) -> int {
     var i = 0
     while i < lines.len() {
         // Cheap gate before the expensive path. Trimming a line and stripping
@@ -3491,7 +3492,7 @@ fn doctorFindDeclLine(lines: list, keyword: string, name: string) -> int {
 }
 
 // orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, VarDeclNode, WhileNode
-fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
+fn doctorCollectDecls(node: ASTNode, lines: list < string >, file: string, decls: list < DoctorDecl >) {
     match node {
         ASTNode.Program(p) => {
             var i = 0
@@ -3513,7 +3514,7 @@ fn doctorCollectDecls(node: ASTNode, lines: list, file: string, decls: list) {
 // AST walk collecting every referenced name: identifier uses plus the
 // type names in annotations, so models used as types count as used.
 // orbit-walk-misses: RangeNode
-fn doctorWalkRefs(node: ASTNode, refs: list) {
+fn doctorWalkRefs(node: ASTNode, refs: list < string >) {
     match node {
         ASTNode.Program(p) => {
             var i = 0
@@ -3694,7 +3695,7 @@ fn doctorContainsWord(hay: string, word: string) -> bool {
 
 // Text safety net for positions the AST walk does not model: a name is
 // only reported when no whole-word use exists outside its own decl line.
-fn doctorUsedInText(files: list, sources: list, fileLines: list, declFile: string, declLine: int, word: string) -> bool {
+fn doctorUsedInText(files: list < string >, sources: list < string >, fileLines: list < list < string >>, declFile: string, declLine: int, word: string) -> bool {
     var i = 0
     while i < files.len() {
         val fp: string = files.get(i)
@@ -3720,7 +3721,7 @@ fn doctorUsedInText(files: list, sources: list, fileLines: list, declFile: strin
     return false
 }
 
-fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, sources: list, fileLines: list) {
+fn doctorCheckUnused(stats: DoctorStats, decls: list < DoctorDecl >, refs: list < string >, files: list < string >, sources: list < string >, fileLines: list < list < string >>) {
     var i = 0
     while i < decls.len() {
         val d: DoctorDecl = decls.get(i)
@@ -3756,7 +3757,7 @@ fn doctorCheckUnused(stats: DoctorStats, decls: list, refs: list, files: list, s
  *  A line comment ends the literals: text after "//" is not code, and a secret
  *  in a comment is a secret in a file, but reporting it against the wrong line
  *  is worse than not reporting it. */
-fn doctorStringLiterals(line: string) -> list {
+fn doctorStringLiterals(line: string) -> list < string > {
     var out = []
     val cpos = orbit_string_indexOf(line, "//")
     var n = orbit_string_len(line)
@@ -3932,7 +3933,7 @@ fn doctorScanSystemLine(line: string) -> string {
     return ""
 }
 
-fn doctorScanSystem(stats: DoctorStats, lines: list, file: string) {
+fn doctorScanSystem(stats: DoctorStats, lines: list < string >, file: string) {
     var i = 0
     while i < lines.len() {
         val bad = doctorScanSystemLine(doctorCodePart(lines.get(i)))
@@ -3986,7 +3987,7 @@ fn doctorBuildFixedSource(source: string) -> string {
 // same engine every future fix will: apply the edits, verify the result, write
 // it. A fix engine first exercised on a hand-rolled path somewhere else is a
 // fix engine nobody has run.
-fn doctorScanStyle(stats: DoctorStats, lines: list, file: string, eol: string, endsWithNewline: bool) {
+fn doctorScanStyle(stats: DoctorStats, lines: list < string >, file: string, eol: string, endsWithNewline: bool) {
     var i = 0
     while i < lines.len() {
         val raw = lines.get(i)
@@ -4014,7 +4015,7 @@ fn doctorScanStyle(stats: DoctorStats, lines: list, file: string, eol: string, e
  *  avoid. Neither check reports the literal's contents: for a secret that is the
  *  whole point, and for a SQL string the line number and the keyword are enough
  *  to act on. */
-fn doctorScanLiterals(stats: DoctorStats, lines: list, file: string) {
+fn doctorScanLiterals(stats: DoctorStats, lines: list < string >, file: string) {
     var i = 0
     while i < lines.len() {
         val literals = doctorStringLiterals(lines.get(i))
@@ -4063,7 +4064,7 @@ fn doctorSqlKeyword(text: string) -> string {
  *  continued on the next line would be missed, and a false D010 on a query
  *  built without interpolation is the failure mode that makes people turn a
  *  check off. */
-fn doctorHasInterpolationOn(lines: list, i: int, lit: string) -> bool {
+fn doctorHasInterpolationOn(lines: list < string >, i: int, lit: string) -> bool {
     val line = lines.get(i)
     // Three pieces: a quote, the literal, then a quote-space-plus. Writing this
     // as one string is how it went wrong first time: `"\"" + lit + "\" + " +"`
@@ -4100,9 +4101,9 @@ fn doctorHasInterpolationOn(lines: list, i: int, lit: string) -> bool {
  *  never counted as a write; making it one would be a semantic change to D013
  *  dressed up as a performance fix.
  */
-fn doctorScanMutableDecls(stats: DoctorStats, lines: list, file: string) {
-    val writeNames = []
-    val writeCounts = []
+fn doctorScanMutableDecls(stats: DoctorStats, lines: list < string >, file: string) {
+    val writeNames: list < string > = []
+    val writeCounts: list < int > = []
     var i = 0
     while i < lines.len() {
         val assigned = doctorAssignedNamesOnLine(lines.get(i))
@@ -4172,7 +4173,7 @@ fn doctorScanMutableDecls(stats: DoctorStats, lines: list, file: string) {
 }
 
 /** @brief The names one line assigns to, each at most once. */
-fn doctorAssignedNamesOnLine(line: string) -> list {
+fn doctorAssignedNamesOnLine(line: string) -> list < string > {
     val out = []
     val code = doctorCodePart(line)
     val n = orbit_string_len(code)
@@ -4231,7 +4232,7 @@ fn doctorWriteFollows(code: string, after: int) -> bool {
 }
 
 /** @brief The index of `want` in a list of strings, or -1. */
-fn doctorIndexOfString(items: list, want: string) -> int {
+fn doctorIndexOfString(items: list < string >, want: string) -> int {
     var at = -1
     var i = 0
     while i < items.len() {
@@ -4401,7 +4402,7 @@ fn doctorCacheDir() -> string {
  *  pays for one closure walk in total instead of one per file -- which is the
  *  5.8x amplification the resolver's per-file traversal costs today.
  */
-fn doctorClosureFingerprintReuse(path: string, source: string, imports: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
+fn doctorClosureFingerprintReuse(path: string, source: string, imports: list < string >, knownFiles: list < string >, knownImports: list < list < string >>, knownSources: list < string >, memo: list < string >) -> string {
     val seen = [path]
     val acc = doctorClosureWalkReuse(path, imports, seen, knownFiles, knownImports, knownSources, memo)
     return acc + ":" + orbit_string_hash_selfhost(source)
@@ -4414,7 +4415,7 @@ fn doctorClosureFingerprintReuse(path: string, source: string, imports: list, kn
  *  tree was parsed in the pass above, so asking again costs a second parse of
  *  the whole tree to rediscover a graph we already walked. A module outside it
  *  is read and parsed, which is the same as the resolver will do. */
-fn doctorClosureWalkReuse(path: string, imports: list, seen: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
+fn doctorClosureWalkReuse(path: string, imports: list < string >, seen: list < string >, knownFiles: list < string >, knownImports: list < list < string >>, knownSources: list < string >, memo: list < string >) -> string {
     val baseDir = getDir(path)
     var acc = ""
     var i = 0
@@ -4430,7 +4431,7 @@ fn doctorClosureWalkReuse(path: string, imports: list, seen: list, knownFiles: l
             seen.push(full)
             val at = doctorIndexOfFile(knownFiles, full)
             if at >= 0 {
-                val sub: string = knownImports.get(at)
+                val sub: list < string > = knownImports.get(at)
                 val subSource: string = knownSources.get(at)
                 acc = acc + "|" + doctorModuleFingerprintReuse(full, subSource, sub, seen, knownFiles, knownImports, knownSources, memo)
             } else {
@@ -4456,7 +4457,7 @@ fn doctorClosureWalkReuse(path: string, imports: list, seen: list, knownFiles: l
 }
 
 /** @brief One module's contribution, memoized across the whole run. */
-fn doctorModuleFingerprintReuse(path: string, source: string, imports: list, seen: list, knownFiles: list, knownImports: list, knownSources: list, memo: list) -> string {
+fn doctorModuleFingerprintReuse(path: string, source: string, imports: list < string >, seen: list < string >, knownFiles: list < string >, knownImports: list < list < string >>, knownSources: list < string >, memo: list < string >) -> string {
     val hit = doctorMemoLookup(memo, path)
     if hit != "" { return hit }
     val sub = doctorClosureWalkReuse(path, imports, seen, knownFiles, knownImports, knownSources, memo)
@@ -4466,7 +4467,7 @@ fn doctorModuleFingerprintReuse(path: string, source: string, imports: list, see
 }
 
 /** @brief Where `path` sits in the parallel lists of the parse pass, or -1. */
-fn doctorIndexOfFile(knownFiles: list, path: string) -> int {
+fn doctorIndexOfFile(knownFiles: list < string >, path: string) -> int {
     var i = 0
     while i < knownFiles.len() {
         val p: string = knownFiles.get(i)
@@ -4477,7 +4478,7 @@ fn doctorIndexOfFile(knownFiles: list, path: string) -> int {
 }
 
 /** @brief The memoized digest for `path`, or "" when it is not there yet. */
-fn doctorMemoLookup(memo: list, path: string) -> string {
+fn doctorMemoLookup(memo: list < string >, path: string) -> string {
     val prefix = path + "="
     var i = 0
     while i < memo.len() {
@@ -4519,7 +4520,7 @@ fn doctorCollectImports(node: ASTNode, out: list) {
  *  side effect (a std module that registers something at load, say). The check
  *  cannot see a side effect, so it only fires when the file provably names
  *  nothing, which is a claim the text supports. */
-fn doctorCheckUnusedImports(stats: DoctorStats, file: string, refs: list, imports: list, baseDir: string) {
+fn doctorCheckUnusedImports(stats: DoctorStats, file: string, refs: list < string >, imports: list < string >, baseDir: string) {
     var i = 0
     while i < imports.len() {
         val rel: string = imports.get(i)
@@ -4550,7 +4551,7 @@ fn doctorCheckUnusedImports(stats: DoctorStats, file: string, refs: list, import
  *
  *  One level of imports, which covers the re-export and extern-availability
  *  cases without parsing the whole module graph once per importing file. */
-fn doctorClosureRefs(modulePath: string, moduleSource: string) -> list {
+fn doctorClosureRefs(modulePath: string, moduleSource: string) -> list < string > {
     val refs = []
     val parser = initParser(moduleSource)
     val ast = parseProgram(parser)
@@ -4578,7 +4579,7 @@ fn doctorClosureRefs(modulePath: string, moduleSource: string) -> list {
 }
 
 /** @brief The public names a module source declares: fns, models, routes, types. */
-fn doctorModuleExports(source: string) -> list {
+fn doctorModuleExports(source: string) -> list < string > {
     val out = []
     val lines = splitBuildLines(source)
     var i = 0
@@ -4632,14 +4633,14 @@ fn doctorDeclaredName(trimmedLine: string) -> string {
  *  D012 asks a per-file question -- does THIS file name anything from what it
  *  imports -- so it cannot use the run-wide refs list, which is every name in
  *  every file and would make the check answer "yes" for any shared symbol. */
-fn doctorRefsInSubtree(node: ASTNode) -> list {
+fn doctorRefsInSubtree(node: ASTNode) -> list < string > {
     val refs = []
     doctorWalkRefs(node, refs)
     return refs
 }
 
 /** @brief Whether any name in `refs` appears in `names`. */
-fn doctorRefsHitAny(refs: list, names: list) -> bool {
+fn doctorRefsHitAny(refs: list < string >, names: list < string >) -> bool {
     var i = 0
     while i < refs.len() {
         if doctorListContains(names, refs.get(i)) { return true }
@@ -4648,7 +4649,7 @@ fn doctorRefsHitAny(refs: list, names: list) -> bool {
     return false
 }
 
-fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string, fingerprint: string, cacheState: list) -> bool {
+fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string, fingerprint: string, cacheState: list < string >) -> bool {
     val dir = doctorCacheDir()
     val digest = orbit_string_hash_selfhost(fingerprint)
     var path = ""
@@ -4681,7 +4682,7 @@ fn doctorTypecheckByFingerprint(stats: DoctorStats, file: string, source: string
  *  "does this path exist" but "will the writes that follow survive", and a
  *  directory that exists but is read-only answers differently. The probe is
  *  remembered so a large tree does not rewrite it once per file. */
-fn doctorCacheReady(dir: string, cacheState: list) -> bool {
+fn doctorCacheReady(dir: string, cacheState: list < string >) -> bool {
     if doctorListContains(cacheState, dir) { return true }
     val probe = doctorJoinPath(dir, ".writable")
     val existing = orbit_file_read_selfhost(probe)
@@ -5091,7 +5092,7 @@ fn doctorFingerprint(f: DoctorFinding) -> string {
     return f.code + " " + f.file + ":" + orbit_int_to_string_selfhost(f.line)
 }
 
-fn doctorLoadBaseline(path: string) -> list {
+fn doctorLoadBaseline(path: string) -> list < string > {
     var out = []
     if path == "" { return out }
     val text = orbit_file_read_selfhost(path)
@@ -5118,7 +5119,7 @@ fn doctorLoadBaseline(path: string) -> list {
  *  live with, and a finding this run applied is one that is now gone. Counting
  *  either would mean `--fix` could never return success, and a gate nobody can
  *  turn green is a gate everybody turns off. */
-fn doctorPrintFindings(stats: DoctorStats, opts: DoctorOptions, baseline: list) -> int {
+fn doctorPrintFindings(stats: DoctorStats, opts: DoctorOptions, baseline: list < string >) -> int {
     if opts.jsonMode {
         print("[")
     }
@@ -5166,12 +5167,13 @@ fn doctorPrintFindings(stats: DoctorStats, opts: DoctorOptions, baseline: list) 
  *  One pass over the findings, edits gathered per file, then one apply per file:
  *  two fixes to different parts of one file must not each read a version the
  *  other already changed. */
-fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list, sources: list) {
+fn doctorApplyFixes(stats: DoctorStats, opts: DoctorOptions, files: list < string >, sources: list < string >) {
     if opts.fixMode == false { return }
-    val perFile = []
+    val perFile: list < list < DoctorEdit >> = []
     var i = 0
     while i < files.len() {
-        perFile.push([])
+        val none: list < DoctorEdit > = []
+        perFile.push(none)
         i = i + 1
     }
     var any = false
