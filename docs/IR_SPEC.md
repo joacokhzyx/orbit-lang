@@ -208,9 +208,9 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   `int`; `neg` the operand's type when it is `int` or `float`; `bit_not` `int`
   when the operand is `int`. `load_field` of a model field whose receiver type
   is resolved and whose declared type is `int`, `float`, `bool` or `string`
-  has that type, and so does a field declared `list`, as a declared
-  enumeration or as a declared non-generic model; a `list<T>` spelling, a
-  generic instance or a type-parameter field stays `unknown`. A `call` by name
+  has that type, and so does a field declared `list` or `list<T>` (`list`), as
+  a declared enumeration, as a declared non-generic model or as a declared
+  union; a generic instance or a type-parameter field stays `unknown`. A `call` by name
   to a model that is not generic has that model's name, and a call to the
   builtin `print` has `void`. A `load_var` of `Enum_TAG_Variant` written as
   `Enum.Variant`, where `Enum` is an enumeration, has the enumeration's name.

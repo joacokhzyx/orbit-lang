@@ -4840,16 +4840,16 @@ fn unaryResultType(builder: IRBuilder, op: string, operandReg: int) -> string {
 
 // The register type of a model field read. The owner is the receiver's model,
 // resolved by the declared type of the receiver, and the field's type is the
-// one the model declares. The scalar spellings, `list`, a declared enumeration
-// and a declared non-generic model are written; a `list<T>` spelling, a generic
-// instance and a type parameter keep "unknown".
+// one the model declares. The scalar spellings, `list` and `list<T>`, a
+// declared enumeration, a declared non-generic model and a declared union are
+// written; a generic instance and a type parameter keep "unknown".
 fn fieldRegisterType(builder: IRBuilder, ownerName: string, fieldName: string) -> string {
     if ownerName == "" { return "unknown" }
     val ft = fieldTypeOfModel(builder, ownerName, fieldName)
     if ft == "int" || ft == "float" || ft == "bool" || ft == "string" || ft == "list" { return ft }
+    if annotationBaseType(ft) == "list" { return "list" }
     if isEnumerationTypeName(builder, ft) { return ft }
-    if modelDeclared(builder, ft) && genericModelByName(builder, ft) == NULL { return ft }
-    return "unknown"
+    return declaredReferenceRegisterType(builder, ft)
 }
 
 // orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
