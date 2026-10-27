@@ -2702,6 +2702,25 @@ fn isTerminatorInstr(instr: IRInstruction) -> bool {
     }
 }
 
+// Whether the instruction that wrote a register is a list_get or a list_pop.
+// The scan runs back from the end: the definition is almost always the last
+// instruction or one before it.
+fn definedByListRead(func: IRFunction, reg: int) -> bool {
+    var i = func.instructions.len() - 1
+    while i >= 0 {
+        val ins: IRInstruction = func.instructions.get(i)
+        if ins.dest == reg {
+            match ins.opcode {
+                IROpcode.list_get => { return true }
+                IROpcode.list_pop => { return true }
+                _ => { return false }
+            }
+        }
+        i = i - 1
+    }
+    return false
+}
+
 // A `val`/`var` declaration, returning the register its value is in (or -1
 // when the value is a constant the caller passed straight through). The
 // register is the value of the declaration, so this is also how a block whose
@@ -2757,6 +2776,30 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
             }
         }
         _ => {}
+    }
+    // A list read with no recorded element type is a word. The annotation
+    // says what the word is, as it does for a try value, and sema checked it
+    // against the list. The emitter casts the word to the register's type.
+    if v.typeAnnotation != "" {
+        match varVal {
+            IRValue.Register(r) => {
+                val readFn = builder.currentFunction
+                if r.value >= 0 && r.value < readFn.registerTypes.len() && readFn.registerTypes.get(r.value) == "unknown" && definedByListRead(readFn, r.value) {
+                    var readType = ""
+                    if vType == "int" || vType == "bool" || vType == "string" {
+                        readType = vType
+                    } else if annotationBaseType(vType) == "list" {
+                        readType = "list"
+                    } else {
+                        readType = declaredReferenceRegisterType(builder, vType)
+                    }
+                    if readType != "unknown" {
+                        readFn.registerTypes = setRegisterTypeAt(readFn.registerTypes, r.value, readType)
+                    }
+                }
+            }
+            _ => {}
+        }
     }
     // A model literal bound to a name records its instance bindings: a later
     // generic call taking this variable infers from history, not from the
@@ -4346,7 +4389,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val popInstr = ir_init_instr(IROpcode.list_pop)
                 popInstr.operand1 = ir_register(objReg)
                 popInstr.elemKind = elemKindCode(listKindNameOf(builder, ma.object))
-                val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(popInstr.elemKind))
+                val resReg = ir_alloc_register(builder.currentFunction, listReadRegisterType(builder, ma.object, popInstr.elemKind))
                 popInstr.dest = resReg
                 ir_emit(builder.currentFunction, popInstr)
                 return resReg

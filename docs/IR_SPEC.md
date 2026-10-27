@@ -217,7 +217,10 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   A `result_unwrap` bound by `val x: T = try ...` has the register type of the
   annotation when it is `int`, `float`, `bool`, `string` or `list`, and the
   emitter casts the word to it. An unwrap without such an annotation stays
-  `unknown`. A `list_get` of a reference element has `list` when the list's
+  `unknown`. A `list_get` or `list_pop` bound by `val x: T = ...` with an element type the
+  list did not record has the annotation's register type when it is `int`,
+  `bool`, `string`, `list`, a declared non-generic model or a declared union
+  (float stays `unknown`). A `list_get` of a reference element has `list` when the list's
   element is a list and the declared name when it is a non-generic model or
   a union; an enumeration, a type parameter or an unrecorded element stays
   `unknown`, and the local it is bound to takes the same type. A `load_field`
