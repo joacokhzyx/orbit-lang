@@ -2646,20 +2646,25 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
             }
         }
     }
-    // A float received through try has no static type until the annotation
+    // A value received through try has no static type until the annotation
     // says so: a result carries no payload tag, so the unwrap register is
-    // unknown and the backend would convert the word instead of decoding
-    // its bits. The annotation is the promise -- sema already checked it
-    // against the value -- and only a try value is retyped, so a plain
-    // unknown keeps the lenient form everywhere else.
+    // unknown. For a float the backend would convert the word instead of
+    // decoding its bits. The annotation is the promise -- sema already
+    // checked it against the value -- and only a try value is retyped, so a
+    // plain unknown keeps the lenient form everywhere else. The emitter casts
+    // the word to the register's type for int, bool, string and list.
     match v.value {
         ASTNode.Try(t) => {
-            if vType == "float" || vType == "orbit_float" {
+            var unwrapType = ""
+            if vType == "float" || vType == "orbit_float" { unwrapType = "float" }
+            if vType == "int" || vType == "bool" || vType == "string" { unwrapType = vType }
+            if annotationBaseType(vType) == "list" { unwrapType = "list" }
+            if unwrapType != "" {
                 match varVal {
                     IRValue.Register(r) => {
                         val func = builder.currentFunction
                         if r.value >= 0 && r.value < func.registerTypes.len() {
-                            func.registerTypes = setRegisterTypeAt(func.registerTypes, r.value, "float")
+                            func.registerTypes = setRegisterTypeAt(func.registerTypes, r.value, unwrapType)
                         }
                     }
                     _ => {}

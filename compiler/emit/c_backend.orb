@@ -3739,6 +3739,10 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_result_get_float(" + generateValue(instr.operand1) + ")"))
                 return
             }
+            if uwT == "int" || uwT == "bool" || uwT == "string" || uwT == "list" {
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, generateValue(instr.operand1) + ".value"))
+                return
+            }
             orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = " + generateValue(instr.operand1) + ".value;\n")
             return
         }
