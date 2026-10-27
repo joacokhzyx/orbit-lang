@@ -125,7 +125,7 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `map_keys` | `D = orbit_map_keys(O1)` (`3448-3451`) | O1 map |
 | `result_ok` | Float → `orbit_result_ok_float`; rest → `orbit_result_ok((void*)(uintptr_t)(O1))` (`3452-3463`) | type of O1 |
 | `result_err` | O2 `None` → `orbit_result_err(code(O1))`; else → `orbit_result_err(code(O2), message(O1))` (`3464-3477`) | O1 message, O2 code |
-| `result_unwrap` | Float destination → `orbit_result_get_float(O1)`; else → `O1.value` (`3478-3498`) | `registerTypes[D]` |
+| `result_unwrap` | Float destination → `orbit_result_get_float(O1)`; int, bool, string or list destination → `O1.value` cast to the destination; else → `O1.value` (`3478-3498`) | `registerTypes[D]` |
 | `result_unwrap_err` | `O1.error_msg ? O1.error_msg : ""` (`3499-3502`) | O1 |
 | `result_is_ok` | `D = O1.ok` (`3503-3506`) | O1 |
 | `union_create` | Allocates `orbit_alloc(arena, 16)`, stores tag (int) + data (pointer) (`3507-3510`) | O1 tag, O2 data |
@@ -214,9 +214,17 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   to a model that is not generic has that model's name, and a call to the
   builtin `print` has `void`. A `load_var` of `Enum_TAG_Variant` written as
   `Enum.Variant`, where `Enum` is an enumeration, has the enumeration's name.
-  `result_unwrap` and `union_get_data` stay `unknown`: the emitter assigns
-  their value from a `void*` without a cast, so a scalar type on the register
-  stops the C compile. No new spelling enters the vocabulary above; a
+  A `result_unwrap` bound by `val x: T = try ...` has the register type of the
+  annotation when it is `int`, `float`, `bool`, `string` or `list`, and the
+  emitter casts the word to it. An unwrap without such an annotation stays
+  `unknown`. A `list_get` of a reference element has `list` when the list's
+  element is a list and the model's name when it is a declared non-generic
+  model; an enumeration, a type parameter or an unrecorded element stays
+  `unknown`, and the local it is bound to takes the same type. A `load_field`
+  of `length` or `len` on a `string` receiver has `int`. A `union_get_data` for a variant with one `int`, `bool` or
+  `string` payload has that type, and the emitter casts the word to it; a float
+  payload and the packed-struct pointer of a multi-payload variant stay
+  `unknown`. No new spelling enters the vocabulary above; a
   consumer that reads `"unknown"` must still infer.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume
