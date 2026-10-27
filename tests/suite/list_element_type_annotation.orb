@@ -133,6 +133,8 @@ fn rebindingForgetsTheAdoptedType() -> int {
     slot = []
     slot.push("now a string")
     if slot.len() != 1 { return 2 }
+    val back: string = slot.get(0)
+    if back != "now a string" { return 3 }
     return 0
 }
 

@@ -1686,6 +1686,48 @@ fn recordListKind(builder: IRBuilder, name: string, kindName: string) {
     builder.listKinds.push(Variable(name, name, kind))
 }
 
+/** @brief recordListKind, tagged as adopted from a push rather than declared. */
+fn recordAdoptedListKind(builder: IRBuilder, name: string, kindName: string) {
+    if name == "" || kindName == "" { return }
+    val kind = resolveFnType(builder, kindName)
+    if lookupListKind(builder, name) != "" { return }
+    builder.listKinds.push(Variable(name, "adopted", kind))
+}
+
+/** @brief `slot = []` after pushes: the kind the pushes adopted described the old list.
+ *
+ *  Without this the next push into the new list carried the old kind, so
+ *  `slot.push("s")` after `slot.push(1)` was written as an int push. A kind
+ *  the program declared (`list<int>`) is kept. */
+fn forgetAdoptedListKind(builder: IRBuilder, target: ASTNode, value: ASTNode) {
+    var emptyLiteral = false
+    match value {
+        ASTNode.ListLiteral(ll) => {
+            if ll.elements.len() == 0 { emptyLiteral = true }
+        }
+        _ => {}
+    }
+    if emptyLiteral == false { return }
+    match target {
+        ASTNode.Literal(tl) => {
+            if tl.valType != "identifier" { return }
+            val sym = variableSymbol(builder, tl.text)
+            var i = builder.listKinds.len()
+            while i > 0 {
+                i = i - 1
+                val v: Variable = builder.listKinds.get(i)
+                if v.name == sym {
+                    if v.cname == "adopted" && v.typeVal != "" {
+                        builder.listKinds.push(Variable(sym, sym, ""))
+                    }
+                    return
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /** @brief Remember the element type a write into a named list implies.
  *
  *  `var xs = []` followed by `xs.push(10)` is the ordinary way to build a
@@ -1705,7 +1747,7 @@ fn recordPushListKind(builder: IRBuilder, node: ASTNode, kindCode: int, valueTyp
                     if kindCode == 5 && referenceElementRegisterType(builder, valueType) != "unknown" {
                         pushedKind = valueType
                     }
-                    recordListKind(builder, variableSymbol(builder, lit.text), pushedKind)
+                    recordAdoptedListKind(builder, variableSymbol(builder, lit.text), pushedKind)
                 }
             }
         }
@@ -5084,6 +5126,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if bin.op == "=" {
                 // Assignment
                 val rhsReg = buildExpr(builder, bin.rhs)
+                forgetAdoptedListKind(builder, bin.lhs, bin.rhs)
                 match bin.lhs {
                     ASTNode.Literal(lit) => {
                         val storeInstr = ir_init_instr(IROpcode.store_var)
@@ -5340,6 +5383,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         }
         ASTNode.Assignment(a) => {
             val rhsReg = buildExpr(builder, a.value)
+            forgetAdoptedListKind(builder, a.target, a.value)
             match a.target {
                 ASTNode.Literal(lit) => {
                     val storeInstr = ir_init_instr(IROpcode.store_var)
