@@ -1,0 +1,152 @@
+// Orbit Self-Hosted Compiler - Unreachable function pruning
+// compiler/ir/prune.orb
+//
+// An imported library puts every one of its functions into the IR, and the C
+// backend emits whatever the module holds. The C step then parses and compiles
+// functions nothing calls. This pass keeps the functions reachable from the
+// program's entry points and drops the rest.
+//
+// A reference is any String or Sym operand spelling a function's name, not only
+// the target of a call. That also keeps a function used as a value, and the
+// worst a coincidence of spelling can do is keep a function that could have
+// been dropped.
+
+import "./ir.orb"
+
+fn pruneIsProgramEntry(f: IRFunction) -> bool {
+    if f.routeMethod != "" { return true }
+    if f.name == "main" || f.name == "orbit_main" { return true }
+    val n = f.name.len()
+    if n > 5 {
+        return f.name.slice(n - 5, n) == "_main"
+    }
+    return false
+}
+
+// Open-addressing table from a function name to the function's index: linear
+// probing, at most half full, so a lookup is a few comparisons instead of a
+// walk over every function.
+fn pruneHash(name: string) -> int {
+    var h = 5381
+    var i = 0
+    while i < name.len() {
+        h = (h * 33 + name.at(i)) % 1000003
+        i = i + 1
+    }
+    return h
+}
+
+fn pruneBuildSlots(module: IRModule, size: int) -> list < int > {
+    val slots: list < int > = []
+    var s = 0
+    while s < size {
+        slots.push(-1)
+        s = s + 1
+    }
+    var i = 0
+    while i < module.functions.len() {
+        val f: IRFunction = module.functions.get(i)
+        var pos = pruneHash(f.name) % size
+        var taken: int = slots.get(pos)
+        while taken >= 0 {
+            pos = (pos + 1) % size
+            taken = slots.get(pos)
+        }
+        slots.set(pos, i)
+        i = i + 1
+    }
+    return slots
+}
+
+// Marks every function spelled `name` and queues the ones not reached before.
+// Two functions can share a name, so the probe runs to the end of the chain.
+fn pruneReachName(module: IRModule, slots: list < int >, reached: list < int >, queue: list < int >, name: string) {
+    val size = slots.len()
+    var pos = pruneHash(name) % size
+    while true {
+        val idx: int = slots.get(pos)
+        if idx < 0 { return }
+        val f: IRFunction = module.functions.get(idx)
+        if f.name == name {
+            val seen: int = reached.get(idx)
+            if seen == 0 {
+                reached.set(idx, 1)
+                queue.push(idx)
+            }
+        }
+        pos = (pos + 1) % size
+    }
+}
+
+fn pruneOperandName(op: IRValue) -> string {
+    match op {
+        IRValue.String(s) => { return s.value }
+        IRValue.Sym(s) => { return s.value }
+        _ => { return "" }
+    }
+}
+
+fn pruneReachOperand(module: IRModule, slots: list < int >, reached: list < int >, queue: list < int >, op: IRValue) {
+    val name = pruneOperandName(op)
+    if name != "" {
+        pruneReachName(module, slots, reached, queue, name)
+    }
+}
+
+// Removes the functions no entry point reaches and returns how many it
+// removed. Extern functions stay: they have no body to emit. A module with no
+// program entry point is left whole, since nothing says what it is for.
+fn pruneUnreachable(module: IRModule) -> int {
+    val count = module.functions.len()
+    var hasEntry = false
+    var i = 0
+    while i < count {
+        val f: IRFunction = module.functions.get(i)
+        if pruneIsProgramEntry(f) { hasEntry = true }
+        i = i + 1
+    }
+    if hasEntry == false { return 0 }
+
+    val slots = pruneBuildSlots(module, count * 2 + 1)
+    val reached: list < int > = []
+    val queue: list < int > = []
+    var j = 0
+    while j < count {
+        val f: IRFunction = module.functions.get(j)
+        if pruneIsProgramEntry(f) || f.isExtern {
+            reached.push(1)
+            queue.push(j)
+        } else {
+            reached.push(0)
+        }
+        j = j + 1
+    }
+
+    var head = 0
+    while head < queue.len() {
+        val fi: int = queue.get(head)
+        head = head + 1
+        val f: IRFunction = module.functions.get(fi)
+        var k = 0
+        while k < f.instructions.len() {
+            val inst: IRInstruction = f.instructions.get(k)
+            pruneReachOperand(module, slots, reached, queue, inst.operand1)
+            pruneReachOperand(module, slots, reached, queue, inst.operand2)
+            pruneReachOperand(module, slots, reached, queue, inst.operand3)
+            k = k + 1
+        }
+    }
+
+    val kept: list < IRFunction > = []
+    var m = 0
+    while m < count {
+        val seen: int = reached.get(m)
+        if seen == 1 {
+            val f: IRFunction = module.functions.get(m)
+            kept.push(f)
+        }
+        m = m + 1
+    }
+    module.functions = kept
+    return count - kept.len()
+}
