@@ -1,0 +1,21 @@
+// A model constructor whose argument is a call to a function returning a
+// model, bound to a value nobody reads. The constant folder evaluated the
+// call, `ret NULL`, as the integer 0 and the argument vanished from the
+// generated constructor call, which then passed two of three arguments.
+model Node {
+    value: int
+    next: Node
+}
+
+fn none() -> Node {
+    return NULL
+}
+
+fn build() {
+    val tail = Node { value: 3, next: none() }
+}
+
+fn main() -> int {
+    build()
+    return 0
+}
