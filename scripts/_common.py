@@ -230,6 +230,11 @@ def disposable_test_env(env, cc=None):
         env["ORBIT_WARNINGS"] = "0"
     if "ORBIT_SKIP_WINDRES" not in env:
         env["ORBIT_SKIP_WINDRES"] = "1"
+    # The compiler links the prebuilt runtime archive by default when one is
+    # fresh. A gate that does not ask for the link lane keeps the unity build
+    # it always had, whether or not an archive happens to sit in .orbit/lib.
+    if "ORBIT_LINK_RUNTIME" not in env:
+        env["ORBIT_LINK_RUNTIME"] = "0"
     if cc and named and _ccache_wanted(env):
         _wrap_cc(env, cc)
     return env
@@ -344,6 +349,16 @@ def self_test() -> int:
         if fast.get("ORBIT_SKIP_WINDRES") != "1":
             print("self-test FAILED: disposable_test_env did not default "
                   "ORBIT_SKIP_WINDRES to 1, so test builds pay windres")
+            return 1
+        if fast.get("ORBIT_LINK_RUNTIME") != "0":
+            print("self-test FAILED: disposable_test_env did not default "
+                  "ORBIT_LINK_RUNTIME to 0, so a stray archive changes "
+                  "what a gate builds")
+            return 1
+        if disposable_test_env({"ORBIT_LINK_RUNTIME": "1"},
+                               cc="gcc").get("ORBIT_LINK_RUNTIME") != "1":
+            print("self-test FAILED: disposable_test_env overrode the link "
+                  "lane's ORBIT_LINK_RUNTIME=1")
             return 1
         slow = disposable_test_env({"ORBIT_WARNINGS": "1",
                                     "ORBIT_SKIP_WINDRES": "0"},

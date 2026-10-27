@@ -133,11 +133,30 @@ makes "did the compiler change its mind?" answerable as a hash comparison.
 ### Linking the runtime
 
 The generated C is compiled with `-I runtime`. The runtime's `runtime.h` is an
-aggregation header: it includes the `.c` files directly, so there is no separate
-library to build or ship. The driver adds `-DORBIT_WITH_NET` unconditionally, and
-adds `-DORBIT_WITH_DB` plus the vendor SQLite flags only when the IR actually
-uses the database. On Windows it adds `-lws2_32`. On the DB path it links
-`runtime/vendor/win-x64/sqlite3.lib` instead of `-lsqlite3`.
+aggregation header: it includes the `.c` files directly, so the default build
+recompiles the whole runtime with the program. The driver adds
+`-DORBIT_WITH_NET` unconditionally, and adds `-DORBIT_WITH_DB` plus the vendor
+SQLite flags only when the IR actually uses the database. On Windows it adds
+`-lws2_32`. On the DB path it links `runtime/vendor/win-x64/sqlite3.lib` instead
+of `-lsqlite3`.
+
+A program that needs no database links the prebuilt `libruntime_net.a` instead,
+and the driver compiles only the program with `-DORBIT_SEPARATE_COMPILATION`.
+On the 2026-10-27 box (gcc 16.2.0, no C cache) `examples/hello.orb` builds in
+1.3 s linked against 3.4 s unity. The driver looks for the archive in `lib/`
+beside the runtime directory, then in `.orbit/lib/` beside it, which is where
+`python scripts/mklib_runtime.py` writes it. It uses the archive only when
+`libruntime_net.a.stamp`, written next to the archive, lists the digest of every
+runtime `.c` and `.h` file as it is now. An archive that is missing, unstamped
+or older than a runtime edit is skipped without a message, and the build is the
+unity build above (`--verbose` names the stale case).
+
+| Variable | Effect |
+|---|---|
+| `ORBIT_LINK_RUNTIME` unset | Link the archive when it is found and fresh, else unity. |
+| `ORBIT_LINK_RUNTIME=1` | Always link. A missing archive fails the C step. The test suite lane uses this. |
+| `ORBIT_LINK_RUNTIME=0` | Always unity. `scripts/dev.py` sets it for every gate except the suite lanes. |
+| `ORBIT_RUNTIME_LIB=<path>` | Use this archive instead of the lookup, with no freshness check. |
 
 `scripts/werror_gate.py` puts `-Werror` on generated C, and that is the strict
 contract. The driver itself only passes `-Wall`.

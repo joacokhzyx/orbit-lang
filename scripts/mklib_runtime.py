@@ -66,6 +66,34 @@ def default_out():
     return ROOT / ".orbit" / "lib" / "libruntime_net.a"
 
 
+def fnv1a_hex(data):
+    """FNV-1a, 32 bits, 8 lowercase hex digits: orbit_string_hash_selfhost."""
+    h = 2166136261
+    for byte in data:
+        h = ((h ^ byte) * 16777619) & 0xFFFFFFFF
+    return "%08x" % h
+
+
+def runtime_stamp(runtime_dir):
+    """One "<name> <digest>" line per runtime source the archive is built from.
+
+    The compiler links the archive by default (compiler/host/pipeline.orb,
+    runtimeArchiveFresh) only when it finds these lines for the runtime
+    directory it resolves, so an archive built from older sources is skipped
+    instead of linked. The file set is the .c and .h files directly in the
+    directory, minus test_*, and must match runtimeSourceCounts there.
+    """
+    lines = []
+    for path in sorted(pathlib.Path(runtime_dir).iterdir()):
+        name = path.name
+        if not path.is_file() or not name.endswith((".c", ".h")):
+            continue
+        if name.startswith("test_"):
+            continue
+        lines.append("%s %s\n" % (name, fnv1a_hex(path.read_bytes())))
+    return "".join(lines)
+
+
 def build_lib(cc, out_path, work, defines=()):
     """Compile the library TU into the archive.
 
@@ -150,6 +178,10 @@ def self_test(cc):
         if rc == 0:
             print("self-test FAILED: a file that does not compile was accepted")
             return 1
+        if fnv1a_hex(b"") != "811c9dc5" or fnv1a_hex(b"a") != "e40c292c":
+            print("self-test FAILED: fnv1a_hex disagrees with the published "
+                  "FNV-1a vectors, so every archive would look stale")
+            return 1
         missing = work / "no-runtime-here"
         proc = subprocess.run(
             [sys.executable, __file__, "--out", str(work / "lib.a")],
@@ -186,7 +218,12 @@ def main() -> int:
         RUNTIME = pathlib.Path(override)
     out_path = pathlib.Path(args.out) if args.out else default_out()
     with tempfile.TemporaryDirectory(prefix="mklib_") as td:
-        return build_lib(cc, out_path, pathlib.Path(td))
+        rc = build_lib(cc, out_path, pathlib.Path(td))
+    if rc == 0:
+        # Bytes, not text: the compiler compares lines split on LF alone.
+        stamp = out_path.with_name(out_path.name + ".stamp")
+        stamp.write_bytes(runtime_stamp(RUNTIME).encode("utf-8"))
+    return rc
 
 
 if __name__ == "__main__":
