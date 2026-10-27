@@ -3,7 +3,8 @@
 // Serializes the in-memory IRModule exactly as buildAST left it: the pipeline
 // calls this before the optimizer and before the C backend, so registerTypes
 // is the builder's list, not the inferred one (docs/IR_SPEC_ALIGNMENT.md §6,
-// P1).  The text form is docs/IR_SPEC.md §5: one root object
+// P1), plus one extern entry per runtime symbol the module calls without
+// declaring it (irRuntimeExterns).  The text form is docs/IR_SPEC.md §5: one root object
 // {"irVersion":"1","module":{...}}, keys in model declaration order, compact
 // JSON, one trailing LF.  Nothing here invents semantics: every opcode name is
 // an IROpcode variant and every operand comes from the IRValue union.
@@ -281,6 +282,104 @@ fn irNonFiniteFloat(module: IRModule) -> string {
 // bytes -- quadratic in the output size, which is 550 MB of arena for the
 // 550 KB document of compiler/front/lexer.orb.  The buffer is the same one
 // std/string join/toUpper use (runtime/collections.c orbit_cbuf_append).
+// A runtime symbol the module calls with no `extern fn` of its own gets one
+// here, in the document only: the module the C backend reads is untouched, so
+// the C is the same bytes. The parameters are the arguments the IR `call`
+// carries. The leading `OrbitArena*` of a symbol in `functionNeedsArena` is
+// added by the C backend at the call site and is not a parameter here. Types
+// follow runtime/orbit_api.h; the `orbit_db_*` rows follow runtime/database.c,
+// which the net header does not declare.
+fn irExternDecl(name: string, params: list < string >, types: list < string >, ret: string) -> IRFunction {
+    val f = initIRFunction(name)
+    f.params = params
+    f.paramTypes = types
+    f.returnType = ret
+    f.isExtern = true
+    return f
+}
+
+fn irRuntimeExtern(name: string) -> IRFunction {
+    if name == "orbit_string_len" { return irExternDecl(name, ["s"], ["string"], "int") }
+    if name == "orbit_string_at" { return irExternDecl(name, ["s", "index"], ["string", "int"], "int") }
+    if name == "orbit_string_slice" { return irExternDecl(name, ["s", "start", "end"], ["string", "int", "int"], "string") }
+    if name == "orbit_string_slice_known_len" { return irExternDecl(name, ["s", "start", "end", "totalLen"], ["string", "int", "int", "int"], "string") }
+    if name == "orbit_string_indexOf" || name == "orbit_string_find" { return irExternDecl(name, ["s", "substr"], ["string", "string"], "int") }
+    if name == "orbit_object_create" { return irExternDecl(name, [], [], "object") }
+    if name == "orbit_object_set_int" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "int"], "void") }
+    if name == "orbit_object_set_float" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "float"], "void") }
+    if name == "orbit_object_set_bool" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "bool"], "void") }
+    if name == "orbit_object_set_string" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "string"], "void") }
+    if name == "orbit_object_set_object" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "object"], "void") }
+    if name == "orbit_object_set_list" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "list"], "void") }
+    if name == "orbit_db_query_all" || name == "orbit_db_query_first" { return irExternDecl(name, ["table"], ["string"], "string") }
+    if name == "orbit_db_query_where" { return irExternDecl(name, ["table", "condition"], ["string", "string"], "string") }
+    if name == "orbit_db_query_where_p" { return irExternDecl(name, ["table", "condition", "param"], ["string", "string", "string"], "string") }
+    if name == "orbit_db_query_get" { return irExternDecl(name, ["table", "id"], ["string", "string"], "string") }
+    if name == "orbit_db_query_order" || name == "orbit_db_query_order_desc" { return irExternDecl(name, ["table", "column"], ["string", "string"], "string") }
+    if name == "orbit_db_count_all" { return irExternDecl(name, ["table"], ["string"], "int") }
+    if name == "orbit_db_insert" { return irExternDecl(name, ["table", "json"], ["string", "string"], "bool") }
+    if name == "orbit_db_update" { return irExternDecl(name, ["table", "id", "json"], ["string", "string", "string"], "bool") }
+    if name == "orbit_db_delete" { return irExternDecl(name, ["table", "id"], ["string", "string"], "bool") }
+    if name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" { return irExternDecl(name, [], [], "int") }
+    if name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return irExternDecl(name, [], [], "int") }
+    return initIRFunction("")
+}
+
+fn irHasFunctionNamed(module: IRModule, name: string) -> bool {
+    var i = 0
+    while i < module.functions.len() {
+        val f: IRFunction = module.functions.get(i)
+        if f.name == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The extern entries the document adds, in order of first call.
+fn irRuntimeExterns(module: IRModule) -> list < IRFunction > {
+    val out: list < IRFunction > = []
+    val seen: list < string > = []
+    var fi = 0
+    while fi < module.functions.len() {
+        val f: IRFunction = module.functions.get(fi)
+        var ii = 0
+        while ii < f.instructions.len() {
+            val instr: IRInstruction = f.instructions.get(ii)
+            var isCall = false
+            match instr.opcode {
+                IROpcode.call => { isCall = true }
+                _ => {}
+            }
+            if isCall {
+                var callee = ""
+                match instr.operand1 {
+                    IRValue.String(s) => { callee = s.value }
+                    IRValue.Sym(s) => { callee = s.value }
+                    _ => {}
+                }
+                if callee != "" {
+                    val ext = irRuntimeExtern(callee)
+                    if ext.name != "" && irHasFunctionNamed(module, callee) == false {
+                        var known = false
+                        var si = 0
+                        while si < seen.len() {
+                            if seen.get(si) == callee { known = true }
+                            si = si + 1
+                        }
+                        if known == false {
+                            seen.push(callee)
+                            out.push(ext)
+                        }
+                    }
+                }
+            }
+            ii = ii + 1
+        }
+        fi = fi + 1
+    }
+    return out
+}
+
 fn emitIRv1(module: IRModule) -> string {
     val buf = orbit_cbuf_create_selfhost()
     orbit_cbuf_append_selfhost(buf, "{\"irVersion\":\"1\",\"module\":{\"functions\":[")
@@ -290,6 +389,14 @@ fn emitIRv1(module: IRModule) -> string {
         val f: IRFunction = module.functions.get(fi)
         irAppendFunctionText(buf, f)
         fi = fi + 1
+    }
+    val externs = irRuntimeExterns(module)
+    var ei = 0
+    while ei < externs.len() {
+        if fi > 0 || ei > 0 { orbit_cbuf_append_selfhost(buf, ",") }
+        val ext: IRFunction = externs.get(ei)
+        irAppendFunctionText(buf, ext)
+        ei = ei + 1
     }
     orbit_cbuf_append_selfhost(buf, "],\"globals\":[")
     var gi = 0

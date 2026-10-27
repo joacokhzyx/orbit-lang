@@ -357,6 +357,54 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 - `orbit_print` is declared `void orbit_print(const char* str)`
   (`runtime/orbit_api.h:611`).
 
+### 3.3 Runtime symbols the builder calls
+
+The builder lowers some source forms to a `call` of a runtime symbol the
+program never declared: string methods (`len`, `at`, `slice`, `find`), object literals,
+`Model.all()` and `Model.where(...)`, and `system.uptime()`. `emitIRv1` adds
+one `isExtern: true` function entry for each such symbol the module calls
+(`ir_emit.orb`, `irRuntimeExterns`), after the module's own functions and in
+order of first call. The entry has `instructions: []`, `registerCount: 0` and
+no route fields. The module the C backend reads is not changed, so the C
+bytes are the same.
+
+`params` and `paramTypes` list the arguments of the IR `call`. The leading
+`OrbitArena* arena` of a symbol in `functionNeedsArena` (§3.1 item 9) is not a
+parameter: the C backend prepends it at the call site.
+
+| Symbol | Parameters | Returns | Header |
+|---|---|---|---|
+| `orbit_string_len` | `s: string` | `int` | `orbit_api.h:427` |
+| `orbit_string_at` | `s: string, index: int` | `int` | `orbit_api.h:401` |
+| `orbit_string_slice` | `s: string, start: int, end: int` | `string` | `orbit_api.h:402` |
+| `orbit_string_slice_known_len` | `s: string, start: int, end: int, totalLen: int` | `string` | `orbit_api.h:403` |
+| `orbit_string_indexOf`, `orbit_string_find` | `s: string, substr: string` | `int` | `orbit_api.h:413` |
+| `orbit_object_create` | none | `object` | `orbit_api.h:578` |
+| `orbit_object_set_int` / `_float` / `_bool` / `_string` / `_object` / `_list` | `o: object, key: string, v: T` | `void` | `orbit_api.h:580-585` |
+| `orbit_db_query_all`, `orbit_db_query_first` | `table: string` | `string` | `database.c` |
+| `orbit_db_query_where` | `table: string, condition: string` | `string` | `database.c` |
+| `orbit_db_query_where_p` | `table: string, condition: string, param: string` | `string` | `database.c` |
+| `orbit_db_query_get` | `table: string, id: string` | `string` | `database.c` |
+| `orbit_db_query_order`, `orbit_db_query_order_desc` | `table: string, column: string` | `string` | `database.c` |
+| `orbit_db_count_all` | `table: string` | `int` | `database.c` |
+| `orbit_db_insert` | `table: string, json: string` | `bool` | `database.c` |
+| `orbit_db_update` | `table: string, id: string, json: string` | `bool` | `database.c` |
+| `orbit_db_delete` | `table: string, id: string` | `bool` | `database.c` |
+| `system_uptime`, `system_pid`, `system_active_workers`, `system_http_requests_total`, `system_latency_avg_us`, `system_latency_p50_us`, `system_latency_p95_us`, `system_latency_p99_us` | none | `int` | `orbit_api.h:646-653` |
+
+`T` in `orbit_object_set_*` is `int`, `float`, `bool`, `string`, `object` or
+`list`. `orbit_string_find` is the source-level alias of `orbit_string_indexOf`
+(§3.1 item 4): the entry keeps the name the `call` uses. The `orbit_db_*` rows
+follow `runtime/database.c`, because the net header declares none of them (§4).
+The variadic `orbit_db_query_where_v` and `orbit_db_count_v` have no entry:
+their argument count rides in the call, and an extern cannot state it.
+
+Three kinds of call target stay undeclared on purpose. `print` is a language
+builtin with the lowering of §3.1 item 6, unless the program writes its own
+`extern fn print`. A model constructor (`Point(...)`) is declared by the
+`models` list. A union variant constructor (`Circle(...)`) is declared by the
+`types` list.
+
 ## 4. Runtime and DB drift (contractual)
 
 - `runtime/orbit_api.h` is the separate-compilation header against

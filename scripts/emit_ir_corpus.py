@@ -152,6 +152,21 @@ def compiler_fingerprint(compiler):
     }
 
 
+# Runtime symbols the builder lowers a call to without an `extern fn` in the
+# source. The emitter declares each one the module calls (IR_SPEC.md 3.3).
+RUNTIME_CALLS = frozenset("""
+orbit_string_len orbit_string_at orbit_string_slice orbit_string_slice_known_len
+orbit_string_indexOf orbit_string_find orbit_object_create orbit_object_set_int
+orbit_object_set_float orbit_object_set_bool orbit_object_set_string
+orbit_object_set_object orbit_object_set_list orbit_db_query_all
+orbit_db_query_first orbit_db_query_where orbit_db_query_where_p
+orbit_db_query_get orbit_db_query_order orbit_db_query_order_desc
+orbit_db_count_all orbit_db_insert orbit_db_update orbit_db_delete
+system_uptime system_pid system_active_workers system_http_requests_total
+system_latency_avg_us system_latency_p50_us system_latency_p95_us
+system_latency_p99_us
+""".split())
+
 # Names the lexer uses for literal kinds. They are not register types.
 LEXER_TYPE_NAMES = frozenset(["string_raw", "string_chunk"])
 
@@ -162,10 +177,18 @@ def ir_findings(doc):
     A consumer cannot guess an opcode name, so an emitted name outside the
     66 of docs/IR_SPEC.md section 1 (the empty string included) is a defect
     of the emitter, never of the consumer. A lexer literal name used as a
-    register type (`string_raw`) is the same kind of leak.
+    register type (`string_raw`) and a call to a runtime symbol with no
+    extern entry are the same kind of leak.
     """
     findings = []
+    declared = {fn["name"] for fn in doc["module"]["functions"]}
     for fn in doc["module"]["functions"]:
+        for ins in fn["instructions"]:
+            callee = ins.get("operand1", {}).get("value")
+            if (ins["opcode"] == "call" and callee in RUNTIME_CALLS
+                    and callee not in declared):
+                findings.append(f"call to undeclared runtime symbol {callee!r}"
+                                f" in {fn['name']}")
         for index, name in enumerate(fn["registerTypes"]):
             if name in LEXER_TYPE_NAMES:
                 findings.append(
@@ -350,6 +373,14 @@ def self_test():
     leaked["module"]["functions"][0]["registerTypes"] = ["string_raw"]
     check("a lexer literal name as a register type is caught",
           len(ir_findings(leaked)) == 1)
+    call = doc_with("call")
+    call["module"]["functions"][0]["instructions"][0]["operand1"] = {
+        "kind": "String", "value": "system_pid"}
+    check("a call to an undeclared runtime symbol is caught",
+          len(ir_findings(call)) == 1)
+    call["module"]["functions"].append({
+        "name": "system_pid", "registerTypes": [], "instructions": []})
+    check("a declared runtime symbol is complete", ir_findings(call) == [])
     check("an unknown opcode is caught",
           len(ir_findings(doc_with("shift_left"))) == 1)
 
