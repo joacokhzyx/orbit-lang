@@ -2922,7 +2922,7 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
         }
     }
     match varVal {
-        IRValue.Register(r) => { return r }
+        IRValue.Register(r) => { return r.value }
         _ => { return -1 }
     }
 }
