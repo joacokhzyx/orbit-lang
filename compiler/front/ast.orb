@@ -265,7 +265,7 @@ model MatchNode {
 model MatchCaseNode {
     // Same correction as MatchNode.expr, for the same reason: parseExpression
     // puts an ASTNode here (parser.orb:652, :762) and buildExpr(c.pattern),
-    // patternVariantName(..., c.pattern) and patternBinding(c.pattern) all read
+    // patternVariantName(..., c.pattern) and patternBindings(c.pattern) all read
     // it as one.
     pattern: ASTNode
     body: ASTNode

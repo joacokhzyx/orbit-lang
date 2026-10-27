@@ -136,11 +136,6 @@ model DoctorEdit {
 // A moved range carries its own comments with it, which a re-printed AST would
 // drop, and the result can be handed to fmtFormatSource afterwards.
 
-/** @brief The edits of one finding, or an empty list when it carries none. */
-fn doctorEditsOf(f: DoctorFinding) -> list < DoctorEdit > {
-    return f.edits
-}
-
 /** @brief Whether every edit in the list may be applied without --unsafe. */
 fn doctorEditsAreSafe(edits: list < DoctorEdit >) -> bool {
     var i = 0
@@ -383,10 +378,6 @@ fn doctorSeverity(code: string) -> string {
 
 fn doctorUseColor(stats: DoctorStats) -> bool {
     return paletteUseColorStdout(stats.color)
-}
-
-fn doctorUseColorStderr(stats: DoctorStats) -> bool {
-    return paletteUseColorStderr(stats.color)
 }
 
 fn doctorDisplayPath(dir: string, file: string) -> string {
@@ -3969,20 +3960,6 @@ fn doctorStripTrailingWs(line: string) -> string {
     return orbit_string_slice(line, 0, end)
 }
 
-fn doctorBuildFixedSource(source: string) -> string {
-    val lines = splitBuildLines(source)
-    // Re-joining line by line with `out = out + line` was quadratic in the
-    // file size; the chunk buffer appends instead.
-    val buf = orbit_cbuf_create_selfhost()
-    var i = 0
-    while i < lines.len() {
-        orbit_cbuf_append_selfhost(buf, doctorStripTrailingWs(lines.get(i)))
-        orbit_cbuf_append_selfhost(buf, "\n")
-        i = i + 1
-    }
-    return orbit_cbuf_build_selfhost(buf)
-}
-
 // The two whitespace checks carry their own edits, so --fix goes through the
 // same engine every future fix will: apply the edits, verify the result, write
 // it. A fix engine first exercised on a hand-rolled path somewhere else is a
@@ -4096,8 +4073,8 @@ fn doctorHasInterpolationOn(lines: list < string >, i: int, lit: string) -> bool
  *  function-wide. They are now collected in one pass: each line yields the
  *  names it assigns to, and the var pass only looks the counts up.
  *
- *  The operator rules are deliberately identical to doctorAssignsTo, including
- *  its requirement of whitespace between the name and the operator. `x=1` was
+ *  The operator rules are those of doctorWriteFollows, including its
+ *  requirement of whitespace between the name and the operator. `x=1` was
  *  never counted as a write; making it one would be a semantic change to D013
  *  dressed up as a performance fix.
  */
@@ -4187,8 +4164,8 @@ fn doctorAssignedNamesOnLine(line: string) -> list < string > {
                 else { break }
             }
             val nm = orbit_string_slice(code, i, j)
-            // Same rule doctorAssignsTo applies: at least one space or tab
-            // between the name and the operator, and `==` is a comparison.
+            // At least one space or tab between the name and the operator,
+            // and `==` is a comparison.
             if doctorWriteFollows(code, j) {
                 if doctorIndexOfString(out, nm) < 0 { out.push(nm) }
             }
@@ -4258,66 +4235,6 @@ fn doctorLeadingName(rest: string) -> string {
         }
     }
     return name
-}
-
-/** @brief Whether this line ASSIGNS to `name`: `name = ...` or `name += ...`.
- *
- *  It has to require the `=`. Checking only that the next character is not a
- *  word character counted every plain USE of the name as a write, so a `var`
- *  that was read and printed looked reassigned and D013 never fired. `==`, `<`
- *  and `!=` are comparisons and a following `+` is arithmetic, not a compound
- *  assignment, so those are excluded by looking at what follows the operator. */
-fn doctorAssignsTo(line: string, name: string) -> bool {
-    val code = doctorCodePart(line)
-    val n = orbit_string_len(code)
-    val nn = orbit_string_len(name)
-    var i = 0
-    while i + nn <= n {
-        if orbit_string_slice(code, i, i + nn) == name {
-            var beforeOk = true
-            if i > 0 {
-                if doctorIsWordChar(orbit_string_char_at_selfhost(code, i - 1)) { beforeOk = false }
-            }
-            if beforeOk {
-                var after = i + nn
-                // `name` at end of line cannot be an assignment.
-                if after < n {
-                    val c = orbit_string_char_at_selfhost(code, after)
-                    if c == 32 || c == 9 {
-                        var k = after
-                        while k < n {
-                            val sp = orbit_string_char_at_selfhost(code, k)
-                            if sp != 32 && sp != 9 { break }
-                            k = k + 1
-                        }
-                        if k < n {
-                            val op = orbit_string_char_at_selfhost(code, k)
-                            if op == 61 {
-                                if k + 1 >= n { return true }
-                                // `==` is a comparison.
-                                if orbit_string_char_at_selfhost(code, k + 1) != 61 { return true }
-                            }
-                            if op == 43 || op == 45 || op == 42 || op == 47 {
-                                var m = k + 1
-                                while m < n {
-                                    val sp2 = orbit_string_char_at_selfhost(code, m)
-                                    if sp2 != 32 && sp2 != 9 { break }
-                                    m = m + 1
-                                }
-                                if m < n {
-                                    if orbit_string_char_at_selfhost(code, m) == 61 { return true }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            i = i + nn
-            continue
-        }
-        i = i + 1
-    }
-    return false
 }
 
 fn doctorPrintGates() {

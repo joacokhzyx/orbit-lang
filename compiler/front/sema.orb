@@ -2904,16 +2904,6 @@ fn checkPatternArity(sema: Sema, pattern: ASTNode) {
     }
 }
 
-// The first name a match case binds, or "" when the pattern binds nothing.
-// Kept because two sites read one binding; it answers what the list form's
-// head would.
-fn patternBinding(pattern: ASTNode) -> string {
-    val bound = patternBindings(pattern)
-    if bound.len() == 0 { return "" }
-    val first: string = bound.get(0)
-    return first
-}
-
 // Check a case body with the case's binding in scope.
 //
 // A binding is a name like any other and no scope contained it, so every

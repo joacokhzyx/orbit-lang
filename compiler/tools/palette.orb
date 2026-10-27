@@ -142,7 +142,3 @@ fn paletteUseColorStdout(mode: string) -> bool {
 fn paletteUseColorStderr(mode: string) -> bool {
     return paletteUseColorOnStream(mode, true)
 }
-
-fn paletteUseColor(mode: string) -> bool {
-    return paletteUseColorStdout(mode)
-}
