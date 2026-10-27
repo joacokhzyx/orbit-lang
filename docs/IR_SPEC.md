@@ -384,6 +384,14 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
     to the parameter type; a `"void"` return suppresses the destination.
     Argument evaluation order is `UNSPECIFIED` (U-05).
 
+11. Argument conversion. The IR has no conversion opcode. A named call to a
+    function of the module converts each argument to the callee's `paramTypes`
+    entry at the call site, as a C value conversion and not a reinterpretation
+    of bits. An `int` passed to a `float` parameter is converted: the
+    backend writes `takesFloat(arena, (orbit_float)(2))`
+    (`tests/suite/call_arg_types.orb`). A float literal is a `Sym` operand
+    holding its source text (`2.5`), typed `float` by its register.
+
 ### 3.2 Functions, registers, return
 
 - Every non-extern function is declared (prototype) and defined. Non-`main`/
