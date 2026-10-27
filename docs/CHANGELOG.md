@@ -164,6 +164,18 @@ Runtime and generated code:
   `scripts/mklib_runtime.py` writes the stamp, and `scripts/dev.py` and
   `_common.disposable_test_env` default the variable to `0` so no gate changes
   what it builds; `make all` sets `1` for the `suite` and `suite_std` gates. See [Architecture](ARCHITECTURE.md#linking-the-runtime).
+- **The Windows wizard and the Linux bundle ship the runtime archive.** The
+  release workflow builds `lib/libruntime_net.a` and its `.stamp` with
+  `scripts/mklib_runtime.py --cc gcc` from the tagged checkout and places `lib/`
+  beside `runtime/` in `Orbit-Setup-<version>.exe` and in
+  `orbit-linux-x86_64.tar.gz`, so an installed compiler takes the archive link
+  above. The stamp holds the digests of the shipped `runtime/` sources. An
+  install without `lib/` builds the unity as before. The Linux job builds
+  `examples/hello.orb` from the extracted bundle and requires
+  `libruntime_net.a` in the `--verbose` output. On a layout with the wizard's
+  files, `orbit build` of `hello.orb` from an unrelated directory took 1.2 s
+  linked and 3.0 s after `lib/` was deleted (gcc 16.2.0). The bare binary and
+  `scripts/install.*` place no `runtime/`, so they stay on the unity build.
 - **User builds are compiled at `-O1`, and `orbit build --release` selects
   `-O2`.** `orbit build` shipped `cc -s -O0`, so every user program and the
   runtime it links ran unoptimized; the flag was never revisited after codegen

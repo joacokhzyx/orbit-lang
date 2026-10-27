@@ -58,6 +58,11 @@ Source: "{#SourcePath}\..\std\*"; DestDir: "{app}\std"; Flags: ignoreversion rec
 ; `orbit build` works outside the repo. Test programs ship nothing and are
 ; never #included by generated C, so they stay out of the installer.
 Source: "{#SourcePath}\..\runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "test_*.c"
+; lib/ beside runtime/: the compiler links libruntime_net.a from here instead of
+; recompiling the runtime on every build, but only while libruntime_net.a.stamp
+; matches the runtime\ sources above. CI builds it from the same checkout
+; (release.yml); without lib\ the build still works, only slower.
+Source: "{#OrbitDist}\lib\*"; DestDir: "{app}\lib"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Uninstall Orbit"; Filename: "{uninstallexe}"
