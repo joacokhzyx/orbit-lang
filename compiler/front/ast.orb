@@ -125,7 +125,7 @@ model ScheduleDeclNode {
     amount: string
     unit: string
     atTime: string
-    handler: list
+    handler: ASTNode
 }
 
 model ConfigDeclNode {

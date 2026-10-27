@@ -18,7 +18,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Result propagation | `result_try.orb` |
 | Result handling | `result_catch.orb` |
 | Result bound to a val or passed as an argument | `result_bind.orb`, `result_binding.orb` |
-| Models and mutation | `model_fields.orb`, `model_two_fields.orb`, `model_mutation.orb` |
+| Models and mutation | `model_fields.orb`, `model_local_named_mid.orb`, `model_ctor_call_arg_unused.orb`, `model_two_fields.orb`, `model_mutation.orb` |
 | Field and element stores | `member_and_index_store.orb` |
 | Integer literals (hex, separators) | `integer_literals.orb` |
 | Raw strings, triple-quoted | `raw_string_literals.orb` |
@@ -29,7 +29,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Models passed, returned and nested | `model_param_return.orb`, `model_nested.orb` |
 | Models with list fields and lists of models | `model_list_field.orb`, `model_list_of_models.orb` |
 | Many short-lived models | `model_alloc_loop.orb` |
-| Union payloads and match | `union_payload_return.orb`, `union_model_payload.orb`, `union_nested_match.orb`, `union_multi_payload_unit_variant.orb` |
+| Union payloads and match | `union_payload_return.orb`, `union_model_payload.orb`, `union_nested_match.orb`, `union_multi_payload_unit_variant.orb`, `union_variant_named_tag.orb` |
 | Enumerations | `enum_values.orb` |
 | Result chains, messages and loops | `result_chain.orb`, `result_message.orb`, `result_in_loop.orb`, `result_string_value.orb`, `result_catch_binding_scope.orb` |
 | Function values chosen at run time | `fn_value_dispatch.orb` |

@@ -797,6 +797,10 @@ fn tryFoldCall(module: IRModule, func: IRFunction, callIdx: int, st: CTEState) -
     if callee == NULL { return false }
     if !isPure(callee) { return false }
     if !isFoldableBody(callee) { return false }
+    // The folded value is an integer constant. A function that returns a model
+    // or a string returns a pointer, and `ret NULL` evaluated to 0 and then
+    // replaced the call's register with an int literal in a constructor call.
+    if callee.returnType != "int" && callee.returnType != "bool" { return false }
     val destReg = callInstr.dest
     if destReg < 0 { return false }
 
