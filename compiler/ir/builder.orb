@@ -3170,7 +3170,7 @@ fn buildForList(builder: IRBuilder, stmt: ForNode) {
     // from a `->` function -- has no name-keyed entry, and the loop
     // variable then typed as the raw word.
     val iterKind = elemKindCode(listReadElemKindName(builder, stmt.iterable))
-    val iterElemType = registerTypeForElemKind(iterKind)
+    val iterElemType = listReadRegisterType(builder, stmt.iterable, iterKind)
     val lenReg = ir_alloc_register(builder.currentFunction, "int")
     val lenInstr = ir_init_instr(IROpcode.list_len)
     lenInstr.dest = lenReg
