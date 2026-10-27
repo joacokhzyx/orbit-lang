@@ -4773,7 +4773,7 @@ fn doctorBoxEdge(left: string, right: string, width: int) -> string {
 
 fn doctorDistinctFiles(stats: DoctorStats, opts: DoctorOptions) -> int {
     var count = 0
-    val seen = []
+    val seen: list < string > = []
     var i = 0
     while i < stats.findItems.len() {
         val f: DoctorFinding = stats.findItems.get(i)

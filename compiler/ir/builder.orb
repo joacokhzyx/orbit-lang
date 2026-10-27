@@ -1420,6 +1420,36 @@ fn listReadRegisterType(builder: IRBuilder, node: ASTNode, code: int) -> string 
     return referenceElementRegisterType(builder, name)
 }
 
+/** @brief The enumeration or union a `Type.Variant` reference names, or "".
+ *
+ *  `var tag = TokType.EOF` and `var out = ASTNode.Empty` bound `tag` and `out`
+ *  to unknown, although the name in front of the dot is the type. A variable
+ *  of that name wins, as it does in buildExpr, and the member has to be a
+ *  variant the declaration lists, so `Shape.area(x)` on a trait function keeps
+ *  its old answer. */
+fn variantReferenceType(builder: IRBuilder, object: ASTNode, member: string) -> string {
+    match object {
+        ASTNode.Literal(lit) => {
+            if lit.valType != "identifier" { return "" }
+            if lookupVariable(builder, lit.text) != "unknown" { return "" }
+            var ti = 0
+            while ti < builder.module.types.len() {
+                val td: IRTypeDecl = builder.module.types.get(ti)
+                if td.name == lit.text && (td.kind == "enumeration" || td.kind == "union_type") {
+                    var vi = 0
+                    while vi < td.variants.len() {
+                        if td.variants.get(vi) == member { return td.name }
+                        vi = vi + 1
+                    }
+                }
+                ti = ti + 1
+            }
+            return ""
+        }
+        _ => { return "" }
+    }
+}
+
 /** @brief The static type of an expression, for the purpose of a list's element type.
  *
  *  Deliberately narrow. It answers for literals, list and object literals,
@@ -1490,9 +1520,16 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
             if lt == "int" && rt == "int" { return "int" }
             return "unknown"
         }
+        ASTNode.MemberAccess(vma) => {
+            val variantOwner = variantReferenceType(builder, vma.object, vma.field)
+            if variantOwner != "" { return variantOwner }
+            return resolveExprType(builder, node)
+        }
         ASTNode.Call(c) => {
             match c.callee {
                 ASTNode.MemberAccess(ma) => {
+                    val ctorOwner = variantReferenceType(builder, ma.object, ma.field)
+                    if ctorOwner != "" { return ctorOwner }
                     // A read of a list has the list's element type, which is
                     // how `val x = xs.get(0)` learns what x is.
                     if ma.field == "get" || ma.field == "at" {
@@ -1901,6 +1938,8 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
         ASTNode.Call(c) => {
             match c.callee {
                 ASTNode.MemberAccess(ma) => {
+                    val ctorOwner = variantReferenceType(builder, ma.object, ma.field)
+                    if ctorOwner != "" { return ctorOwner }
                     if ma.field == "get" {
                         val objType = resolveExprType(builder, ma.object)
                         if annotationBaseType(objType) == "list" {
