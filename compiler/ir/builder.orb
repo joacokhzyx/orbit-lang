@@ -2760,6 +2760,23 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
     // the call's type here, not an opaque word, or the declaration below
     // emits a `void*` where an `orbit_int` belongs.
     vType = resolveFnType(builder, vType)
+    // The static reader gave up, but the register the value lives in has a
+    // type: the local is that type, as the C backend already infers from the
+    // definition.
+    if vType == "" || vType == "unknown" {
+        match varVal {
+            IRValue.Register(vr) => {
+                val vf = builder.currentFunction
+                if vr.value >= 0 && vr.value < vf.registerTypes.len() {
+                    val rt = vf.registerTypes.get(vr.value)
+                    if rt == "int" || rt == "float" || rt == "bool" || rt == "string" {
+                        vType = rt
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     // A read of an object field is lowered from the writes to that key in the
     // same function, which is blind to an object built elsewhere and to a key
     // the literal never wrote. The declaration is the read's expected type,
