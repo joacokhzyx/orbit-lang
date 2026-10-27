@@ -217,8 +217,10 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   A `result_unwrap` bound by `val x: T = try ...` has the register type of the
   annotation when it is `int`, `float`, `bool`, `string` or `list`, and the
   emitter casts the word to it. An unwrap without such an annotation stays
-  `unknown`, and so does `union_get_data`: the emitter assigns its value from a
-  `void*` without a cast. No new spelling enters the vocabulary above; a
+  `unknown`. A `union_get_data` for a variant with one `int`, `bool` or
+  `string` payload has that type, and the emitter casts the word to it; a float
+  payload and the packed-struct pointer of a multi-payload variant stay
+  `unknown`. No new spelling enters the vocabulary above; a
   consumer that reads `"unknown"` must still infer.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume
