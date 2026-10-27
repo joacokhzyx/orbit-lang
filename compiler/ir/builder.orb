@@ -1388,11 +1388,21 @@ fn registerTypeForElemKind(code: int) -> string {
 /** @brief The register type of a reference element read from a list.
  *
  *  A list element is a pointer, and the register can say which pointer only
- *  when the element's type is a list or a declared non-generic model. An
- *  enumeration, a type parameter and a generic instance keep "unknown". */
+ *  when the element's type is a list, a declared non-generic model or a
+ *  declared union. An enumeration, a type parameter and a generic instance
+ *  keep "unknown". */
 fn referenceElementRegisterType(builder: IRBuilder, name: string) -> string {
     if name == "" || name == "ref" { return "unknown" }
     if annotationBaseType(name) == "list" { return "list" }
+    return declaredReferenceRegisterType(builder, name)
+}
+
+/** @brief A declared non-generic model or a declared union as a register type.
+ *
+ *  Both are pointers in C, and the name is the pointee the emitter declares. */
+fn declaredReferenceRegisterType(builder: IRBuilder, name: string) -> string {
+    if name == "" { return "unknown" }
+    if isUnionTypeName(builder, name) { return name }
     if modelDeclared(builder, name) && genericModelByName(builder, name) == NULL { return name }
     return "unknown"
 }
@@ -2020,9 +2030,9 @@ fn variantStructOf(builder: IRBuilder, tagName: string) -> string {
 }
 
 // The register type of a variant's payload word, for `union_get_data`. Only a
-// single int, bool or string payload is written: a float is not stored as a
-// number in the word, and several payloads make the word a pointer to a packed
-// struct that has no declared name. The owner is the union the tag test uses,
+// single int, bool, string, declared model or declared union payload is
+// written: a float is not stored as a number in the word, and several payloads
+// make the word a pointer to a packed struct that has no declared name. The owner is the union the tag test uses,
 // so two unions sharing a variant name do not answer for each other.
 fn unionDataRegisterType(builder: IRBuilder, tagOwner: string, tagName: string) -> string {
     var owner = tagOwner
@@ -2037,6 +2047,7 @@ fn unionDataRegisterType(builder: IRBuilder, tagOwner: string, tagName: string) 
                 if t.variants.get(vi) == tagName && vi < t.richVariants.len() {
                     val p: string = t.richVariants.get(vi)
                     if p == "int" || p == "bool" || p == "string" { return p }
+                    return declaredReferenceRegisterType(builder, p)
                 }
                 vi = vi + 1
             }

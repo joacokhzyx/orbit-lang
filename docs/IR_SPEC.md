@@ -218,11 +218,13 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   annotation when it is `int`, `float`, `bool`, `string` or `list`, and the
   emitter casts the word to it. An unwrap without such an annotation stays
   `unknown`. A `list_get` of a reference element has `list` when the list's
-  element is a list and the model's name when it is a declared non-generic
-  model; an enumeration, a type parameter or an unrecorded element stays
+  element is a list and the declared name when it is a non-generic model or
+  a union; an enumeration, a type parameter or an unrecorded element stays
   `unknown`, and the local it is bound to takes the same type. A `load_field`
   of `length` or `len` on a `string` receiver has `int`. A `union_get_data` for a variant with one `int`, `bool` or
-  `string` payload has that type, and the emitter casts the word to it; a float
+  `string` payload has that type, and the emitter casts the word to it. A
+  variant with one payload that is a declared non-generic model or a union has
+  that name, and the word is the pointer; a float
   payload and the packed-struct pointer of a multi-payload variant stay
   `unknown`. No new spelling enters the vocabulary above; a
   consumer that reads `"unknown"` must still infer.
