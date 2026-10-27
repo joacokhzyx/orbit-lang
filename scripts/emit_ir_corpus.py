@@ -60,6 +60,18 @@ SUPPORT_MODULES = 1
 PROGRAMS = SUITE_PROGRAMS + STD_PROGRAMS
 MEMBERS = PROGRAMS + SUPPORT_MODULES
 
+# The 66 opcode names of docs/IR_SPEC.md section 1, in IROpcode order.
+OPCODES = frozenset("""
+nop load_const load_var store_var decl_var add sub mul div mod eq ne lt le gt
+ge and_op or_op not_op neg begin_block end_block call ret jump jump_if_false
+alloc free db_get db_set db_all db_where http_response label copy arg
+load_field store_field switch_op type_info list_create list_push list_get
+list_set list_len list_pop map_create map_set map_get map_has map_delete
+map_keys result_ok result_err result_unwrap result_is_ok result_unwrap_err
+union_create union_get_tag union_get_data bit_and bit_or bit_xor shl shr
+bit_not
+""".split())
+
 
 def discover():
     """The corpus members as (repo-relative path, kind), in pinned order."""
@@ -140,6 +152,22 @@ def compiler_fingerprint(compiler):
     }
 
 
+def ir_findings(doc):
+    """Completeness findings of one IR document. Pure.
+
+    A consumer cannot guess an opcode name, so an emitted name outside the
+    66 of docs/IR_SPEC.md section 1 (the empty string included) is a defect
+    of the emitter, never of the consumer.
+    """
+    findings = []
+    for fn in doc["module"]["functions"]:
+        for index, ins in enumerate(fn["instructions"]):
+            if ins["opcode"] not in OPCODES:
+                findings.append(
+                    f"opcode {ins['opcode']!r} in {fn['name']} at {index}")
+    return findings
+
+
 def emit_corpus(compiler, out_dir):
     """Emit every member; returns (files, failures)."""
     files = []
@@ -149,6 +177,10 @@ def emit_corpus(compiler, out_dir):
         if ir is None:
             failures.append(rel)
             continue
+        with open(ir, "r", encoding="utf-8") as handle:
+            for finding in ir_findings(json.load(handle)):
+                print(f"  INCOMPLETE {rel}: {finding}")
+                failures.append(rel)
         files.append({
             "path": rel,
             "kind": kind,
@@ -215,7 +247,7 @@ def check_against(compiler, pinned_path):
     print(f"emitting into {work}")
     files, failures = emit_corpus(compiler, work)
     for rel in failures:
-        print(f"  FAIL    emit {rel}")
+        print(f"  FAIL    emit/complete {rel}")
     findings = compare(pinned, files)
     for finding in findings:
         print(f"  {finding}")
@@ -297,6 +329,16 @@ def self_test():
     check("the whole-corpus hash ignores key order",
           files_hash([dict(e) for e in sample]) == files_hash(sample))
 
+    def doc_with(opcode):
+        return {"module": {"functions": [{
+            "name": "f", "instructions": [{"opcode": opcode}]}]}}
+
+    check("the 66 opcode names are distinct", len(OPCODES) == 66)
+    check("a named opcode is complete", ir_findings(doc_with("shl")) == [])
+    check("an empty opcode is caught", len(ir_findings(doc_with(""))) == 1)
+    check("an unknown opcode is caught",
+          len(ir_findings(doc_with("shift_left"))) == 1)
+
     passed = sum(1 for _, ok, _ in checks if ok)
     for name, ok, detail in checks:
         if not ok:
@@ -328,7 +370,7 @@ def main():
     manifest = args.manifest or os.path.join(args.out, "manifest.json")
     files, failures = emit_corpus(compiler, args.out)
     if failures:
-        print(f"FAIL: {len(failures)} member(s) did not emit")
+        print(f"FAIL: {len(failures)} member(s) did not emit or are incomplete")
         return 1
     doc = manifest_for(files, compiler_fingerprint(compiler))
     write_manifest(manifest, doc)

@@ -14,9 +14,9 @@
   a diagnostic identifying the opcode/field. No approximating, no shims,
   no invented semantics.
 
-## 1. Opcode inventory (60)
+## 1. Opcode inventory (66)
 
-Defined in `compiler/ir/ir.orb:3-70`, in this order (index 0–59):
+Defined in `compiler/ir/ir.orb:3-79`, in this order (index 0–65):
 
 | # | Opcode | # | Opcode | # | Opcode | # | Opcode |
 |---|--------|---|--------|---|--------|---|--------|
@@ -35,8 +35,10 @@ Defined in `compiler/ir/ir.orb:3-70`, in this order (index 0–59):
 | 12 | `lt` | 27 | `free` | 42 | `list_get` | 57 | `union_create` |
 | 13 | `le` | 28 | `db_get` | 43 | `list_set` | 58 | `union_get_tag` |
 | 14 | `gt` | 29 | `db_set` | 44 | `list_len` | 59 | `union_get_data` |
+| 60 | `bit_and` | 61 | `bit_or` | 62 | `bit_xor` | 63 | `shl` |
+| 64 | `shr` | 65 | `bit_not` | | | | |
 
-The C backend dispatches all 60 in `compiler/emit/c_backend.orb:2422-3599`. Its default
+The C backend dispatches all 66 in `compiler/emit/c_backend.orb:2422-3599`. Its default
 arm (`c_backend.orb:3596-3599`) emits the comment `/* Unknown opcode */` and
 carries on: an IRv1 loader must turn that case into a fatal error, never into
 a comment.
@@ -99,6 +101,10 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `lt` / `le` / `gt` / `ge` | Float comparison, or **signed** comparison over `(intptr_t)` (`2582-2612`) | `operandDefType` |
 | `and_op` / `or_op` / `not_op` | `&&`, `\|\|`, `!` in C (`2614-2625`). The builder emits only `not_op`; source `&&` / `\|\|` is control flow (see §1.1) | — |
 | `neg` | Negation (`2626-2633`) | float or integer type |
+| `bit_and` / `bit_or` / `bit_xor` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) OP ((uintptr_t)O2))` with `OP` = `&`, `\|`, `^`; §1.3 | operands and `D` are `int` |
+| `shl` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) << (((uintptr_t)O2) & 31))`; §1.3 | operands and `D` are `int` |
+| `shr` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) >> (((uintptr_t)O2) & 31))`; arithmetic for an `int` O1, §1.3 | operands and `D` are `int` |
+| `bit_not` | `D ← (orbit_int)(uintptr_t)(~((uintptr_t)O1))`; §1.3 | operand and `D` are `int` |
 | `begin_block` / `end_block` | Open/close `{` / `}` (`2634-2641`) | — |
 | `label` | `label_N:;` only if the label is referenced (`2642-2647`) | `refLabels` |
 | `jump` | `goto label_N` with O1 (`2648-2651`) | — |
@@ -138,6 +144,32 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `db_where` | `D = orbit_db_where(O1[, O2])` (`3577-3591`) | O1, O2 |
 | `http_response` | `ORBIT_API_RESPONSE(O1, O2, O3)` (`3592-3595`) | O1, O2, O3 |
 
+### 1.3 Bitwise and shift opcodes
+
+Source operators: `&` `bit_and`, `|` `bit_or`, `^` `bit_xor`, `<<` `shl`,
+`>>` `shr`, unary `~` `bit_not`. They follow `union_get_data` in the
+`IROpcode` union, so no earlier index moved. The builder emits a binary one
+as `D, O1, O2` and `bit_not` as `D, O1`. `D` is `int`. The verifier
+(`verifybitwiseBinop`) rejects an operand or destination whose type is known
+and is not `int`. The C backend lowers them at `c_backend.orb:2746-2778`,
+and `generateRegAssign` narrows the result to `orbit_int`, a 32-bit signed
+integer:
+
+- **Width.** Each operand is cast to `uintptr_t` (64 bits on both x86-64
+  targets) from its 32-bit `int` register, so a negative operand is
+  sign-extended. The 64-bit result is cast to `orbit_int`: the low 32 bits,
+  two's complement.
+- **`bit_and`, `bit_or`, `bit_xor`, `bit_not`.** Bitwise on the 32-bit
+  pattern. `~0` is `-1`; `~x` is `-x - 1`.
+- **`shl`.** The count is `O2 & 31`, so a count of 32 or more wraps and a
+  negative count takes its low 5 bits. `1 << 33` is `2`, `1 << 31` is
+  `-2147483648`. Bits shifted past bit 31 disappear in the narrowing.
+- **`shr`.** The shift runs on the 64-bit sign-extended pattern, so it is
+  arithmetic: `-8 >> 1` is `-4` and `-1 >> 31` is `-1`. No logical right
+  shift exists. The count is `O2 & 31`.
+- **No trap.** Every operand and count has a defined result, and no overflow
+  check exists.
+
 Audit notes:
 
 - The observed `free` no-op and `type_info` comment are NOT semantics:
@@ -170,7 +202,7 @@ with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 
 ### 2.2 `IRInstruction` (`ir.orb:91-105`)
 
-- `opcode`: one of the 60 (§1).
+- `opcode`: one of the 66 (§1).
 - `dest`: `int`. `-1` means no destination. Default factory value `-1`
   (`ir_init_instr`, `ir.orb:142-144`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
@@ -394,7 +426,7 @@ function    = "{", name, params, paramTypes, instructions, registerCount,
               routeLimitBurst, "}";
 instructions = "[", { instruction }, "]";
 instruction = "{", opcode, dest, operand1, operand2, operand3, elemKind, "}";
-opcode      = '"', opname, '"';      (* one of the 60 names in §1 *)
+opcode      = '"', opname, '"';      (* one of the 66 names in §1 *)
 dest        = "-1" | uint;
 operand1    = value;                 (* operand2, operand3: same *)
 value       = none | intVal | floatVal | strVal | symVal | boolVal | regVal
@@ -468,7 +500,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 |---|---|
 | V-01 | The document is UTF-8 JSON (RFC 8259), a single root object, no BOM, trailing LF; it contains no elision marker. |
 | V-02 | The root object has exactly `irVersion` (`"1"`) and `module`; unknown keys are rejected. |
-| V-03 | `opcode` is one of the 60 names in §1, spelled exactly (no aliases, no case folding). |
+| V-03 | `opcode` is one of the 66 names in §1, spelled exactly (no aliases, no case folding). |
 | V-04 | `elemKind` is an integer in `0..5`; non-collection opcodes must carry `0`. |
 | V-05 | Every operand is a `{"kind":…}` object with one of the 8 kinds in §2.1 and a correctly typed `value` (absent only for `None`). |
 | V-06 | Integer values have no fraction/exponent and fit in signed 32 bits. |

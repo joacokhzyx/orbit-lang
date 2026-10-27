@@ -76,7 +76,7 @@ fn irAppendStringList(buf: string, items: list < string >) {
 }
 
 // One name per IROpcode variant, in §1 order (the union's declaration order).
-// The trailing arm is unreachable while the union has exactly these 60
+// The trailing arm is unreachable while the union has exactly these 66
 // variants; it returns no name rather than inventing one.
 fn irOpcodeName(op: IROpcode) -> string {
     match op {
@@ -140,6 +140,12 @@ fn irOpcodeName(op: IROpcode) -> string {
         IROpcode.union_create => { return "union_create" }
         IROpcode.union_get_tag => { return "union_get_tag" }
         IROpcode.union_get_data => { return "union_get_data" }
+        IROpcode.bit_and => { return "bit_and" }
+        IROpcode.bit_or => { return "bit_or" }
+        IROpcode.bit_xor => { return "bit_xor" }
+        IROpcode.shl => { return "shl" }
+        IROpcode.shr => { return "shr" }
+        IROpcode.bit_not => { return "bit_not" }
         _ => { return "" }
     }
 }
