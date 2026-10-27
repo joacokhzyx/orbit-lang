@@ -323,7 +323,7 @@ fn irRuntimeExtern(name: string) -> IRFunction {
     if name == "orbit_string_at" { return irExternDecl(name, ["s", "index"], ["string", "int"], "int") }
     if name == "orbit_string_slice" { return irExternDecl(name, ["s", "start", "end"], ["string", "int", "int"], "string") }
     if name == "orbit_string_slice_known_len" { return irExternDecl(name, ["s", "start", "end", "totalLen"], ["string", "int", "int", "int"], "string") }
-    if name == "orbit_string_indexOf" || name == "orbit_string_find" { return irExternDecl(name, ["s", "substr"], ["string", "string"], "int") }
+    if name == "orbit_string_indexOf" { return irExternDecl(name, ["s", "substr"], ["string", "string"], "int") }
     if name == "orbit_object_create" { return irExternDecl(name, [], [], "object") }
     if name == "orbit_object_set_int" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "int"], "void") }
     if name == "orbit_object_set_float" { return irExternDecl(name, ["o", "key", "v"], ["object", "string", "float"], "void") }
