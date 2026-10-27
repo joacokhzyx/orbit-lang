@@ -2576,15 +2576,20 @@ fn generateOperand(backend: CBackend, value: IRValue) -> string {
 }
 
 fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string {
-    if orbit_string_indexOf(valStr, "orbit_string_concat") != -1 || orbit_string_indexOf(valStr, "orbit_string_slice") != -1 || orbit_string_indexOf(valStr, "orbit_list_get") != -1 || orbit_string_indexOf(valStr, "_lr.value") != -1 || orbit_string_indexOf(valStr, "orbit_alloc") != -1 {
-        return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
-    }
     var regT = ""
     if backend != NULL && backend.currentFunction != NULL {
         val f: IRFunction = backend.currentFunction
         if destReg >= 0 && destReg < f.registerTypes.len() {
             regT = f.registerTypes.get(destReg)
         }
+    }
+    // An int destination is never a pointer, whatever the text names: a call to
+    // one of the helpers matched below can return the integer itself.
+    if orbit_string_indexOf(valStr, "orbit_string_concat") != -1 || orbit_string_indexOf(valStr, "orbit_string_slice") != -1 || orbit_string_indexOf(valStr, "orbit_list_get") != -1 || orbit_string_indexOf(valStr, "_lr.value") != -1 || orbit_string_indexOf(valStr, "orbit_alloc") != -1 {
+        if regT == "int" || regT == "bool" || regT == "orbit_int" || regT == "orbit_bool" {
+            return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n"
+        }
+        return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
     }
     if orbit_string_indexOf(valStr, "TAG_") != -1 {
         if regT != "" && regT != "unknown" && regT != "void*" && regT != "orbit_int" && isEnumType(backend, regT) {

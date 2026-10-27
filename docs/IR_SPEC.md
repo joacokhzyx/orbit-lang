@@ -221,7 +221,8 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   element is a list and the declared name when it is a non-generic model or
   a union; an enumeration, a type parameter or an unrecorded element stays
   `unknown`, and the local it is bound to takes the same type. A `load_field`
-  of `length` or `len` on a `string` receiver has `int`. A `union_get_data` for a variant with one `int`, `bool` or
+  of `length` or `len` on a `string` receiver has `int`, and so does a `call`
+  to `orbit_string_len` or `orbit_string_indexOf`. A `union_get_data` for a variant with one `int`, `bool` or
   `string` payload has that type, and the emitter casts the word to it. A
   variant with one payload that is a declared non-generic model or a union has
   that name, and the word is the pointer; a float

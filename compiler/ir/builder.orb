@@ -305,6 +305,8 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_insert" { return "bool" }
     if name == "orbit_db_update" { return "bool" }
     if name == "orbit_db_delete" { return "bool" }
+    if name == "orbit_string_len" { return "int" }
+    if name == "orbit_string_indexOf" { return "int" }
     if name == "orbit_string_slice" { return "string" }
     if name == "orbit_string_slice_known_len" { return "string" }
     if name == "orbit_os_isatty_selfhost" { return "bool" }
