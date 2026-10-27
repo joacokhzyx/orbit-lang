@@ -3750,10 +3750,6 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // Nothing declares this name. That is not the same as not
                     // knowing the type of a name that IS declared, and the two
                     // used to be the same string.
-                    if l.text.len() > 0 {
-                        val first = l.text.slice(0, 1)
-                        if first >= "A" && first <= "Z" { return l.text }
-                    }
                     // `ok` and `err` are statements, not values, and they are
                     // the pair `isProvidedName` must not silence: a bare one
                     // resolves to nothing, so the backend hoisted an
