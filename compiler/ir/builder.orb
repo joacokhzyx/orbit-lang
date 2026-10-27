@@ -2774,6 +2774,11 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
                     }
                 }
             }
+            IRValue.String(vs) => {
+                if vs.value.indexOf("TAG_") == -1 { vType = "string" }
+            }
+            IRValue.Int(vi) => { vType = "int" }
+            IRValue.Bool(vb) => { vType = "bool" }
             _ => {}
         }
     }
