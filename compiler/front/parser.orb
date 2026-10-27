@@ -15,10 +15,10 @@ model Parser {
     lexer: Lexer
     currentToken: Token
     previousToken: Token
-    diagnostics: list
+    diagnostics: list < ParserDiagnostic >
     depth: int
     source: string
-    modelNames: list
+    modelNames: list < string >
 }
 
 fn initParser(source: string) -> Parser {
@@ -950,7 +950,7 @@ fn parseBlockBody(parser: Parser) -> ASTNode {
     return ASTNode.Block(BlockNode(statements))
 }
 
-fn parseGenericParams(parser: Parser) -> list {
+fn parseGenericParams(parser: Parser) -> list < ASTNode > {
     if matchToken(parser, TokType.OpenBracket) == false {
         return []
     }
@@ -1255,7 +1255,7 @@ fn isHttpMethodToken(tag: TokType) -> bool {
     return false
 }
 
-fn parseRouteDecl(parser: Parser, decorators: list) -> ASTNode {
+fn parseRouteDecl(parser: Parser, decorators: list < ASTNode >) -> ASTNode {
     var method = ""
     if isHttpMethodToken(parser.currentToken.tag) {
         advanceParser(parser)

@@ -5,8 +5,8 @@ import "./ast.orb"
 import "./parser.orb"
 
 model ModuleResolver {
-    visited: list
-    errors: list
+    visited: list < string >
+    errors: list < string >
 }
 
 fn initModuleResolver() -> ModuleResolver {
