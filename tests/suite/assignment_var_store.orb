@@ -16,6 +16,9 @@ fn main() -> int {
     if ratio > 2.0 {
         total = total + 1
     }
+    if ratio < 3.25 {
+        return 2
+    }
     var growing = []
     growing = [1, 2]
     total = total + growing.len()
