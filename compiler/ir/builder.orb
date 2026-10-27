@@ -5019,6 +5019,11 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             if litAllocType == "char" {
                 litAllocType = "int"
             }
+            // A raw string differs from a string only in how the lowering
+            // reads its text; the register holds the same `orbit_string`.
+            if litAllocType == "string_raw" {
+                litAllocType = "string"
+            }
             val litReg = ir_alloc_register(builder.currentFunction, litAllocType)
             val litInstr = ir_init_instr(IROpcode.load_const)
             litInstr.dest = litReg

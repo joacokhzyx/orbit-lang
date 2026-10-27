@@ -152,15 +152,24 @@ def compiler_fingerprint(compiler):
     }
 
 
+# Names the lexer uses for literal kinds. They are not register types.
+LEXER_TYPE_NAMES = frozenset(["string_raw", "string_chunk"])
+
+
 def ir_findings(doc):
     """Completeness findings of one IR document. Pure.
 
     A consumer cannot guess an opcode name, so an emitted name outside the
     66 of docs/IR_SPEC.md section 1 (the empty string included) is a defect
-    of the emitter, never of the consumer.
+    of the emitter, never of the consumer. A lexer literal name used as a
+    register type (`string_raw`) is the same kind of leak.
     """
     findings = []
     for fn in doc["module"]["functions"]:
+        for index, name in enumerate(fn["registerTypes"]):
+            if name in LEXER_TYPE_NAMES:
+                findings.append(
+                    f"register type {name!r} in {fn['name']} at r{index}")
         for index, ins in enumerate(fn["instructions"]):
             if ins["opcode"] not in OPCODES:
                 findings.append(
@@ -331,11 +340,16 @@ def self_test():
 
     def doc_with(opcode):
         return {"module": {"functions": [{
-            "name": "f", "instructions": [{"opcode": opcode}]}]}}
+            "name": "f", "registerTypes": [],
+            "instructions": [{"opcode": opcode}]}]}}
 
     check("the 66 opcode names are distinct", len(OPCODES) == 66)
     check("a named opcode is complete", ir_findings(doc_with("shl")) == [])
     check("an empty opcode is caught", len(ir_findings(doc_with(""))) == 1)
+    leaked = doc_with("load_const")
+    leaked["module"]["functions"][0]["registerTypes"] = ["string_raw"]
+    check("a lexer literal name as a register type is caught",
+          len(ir_findings(leaked)) == 1)
     check("an unknown opcode is caught",
           len(ir_findings(doc_with("shift_left"))) == 1)
 
