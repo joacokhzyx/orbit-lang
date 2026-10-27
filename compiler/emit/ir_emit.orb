@@ -63,7 +63,7 @@ fn irJsonBool(v: bool) -> string {
 // per call -- three per function, and a buffer reserves 64 KB up front -- so a
 // 1012-function module charged ~190 MB for lists that are a few hundred bytes
 // each.  Writing into the document buffer costs no extra allocation.
-fn irAppendStringList(buf: string, items: list) {
+fn irAppendStringList(buf: string, items: list < string >) {
     orbit_cbuf_append_selfhost(buf, "[")
     var i = 0
     while i < items.len() {

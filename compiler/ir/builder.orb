@@ -9,26 +9,26 @@ model IRBuilder {
     module: IRModule
     currentFunction: IRFunction
     labelCounter: int
-    variableScopes: list
-    loopStartLabels: list
-    loopEndLabels: list
+    variableScopes: list < VarScope >
+    loopStartLabels: list < int >
+    loopEndLabels: list < int >
     // Names of the loops on the two stacks above, in lockstep: "" for an
     // unlabeled loop (while always pushes ""), the label otherwise. Only
     // recordInstanceModel-style push discipline applies: every push to the
     // label stacks pushes here, closeLoop pops all four, or a later break
     // jumps to the wrong loop.
-    loopLabelNames: list
+    loopLabelNames: list < string >
     // Where a `continue` (plain or named) jumps for each loop on the stacks,
     // in lockstep with them. A `while` continues at its start label, but a
     // `for` must continue at its increment: jumping a `for` to its start
     // reloads the same index forever, which is how a plain `continue` in a
     // `for` used to hang. Fourth stack, same push/pop discipline.
-    loopContinueLabels: list
+    loopContinueLabels: list < int >
     // Generic function templates by name, as parallel lists (the name and
     // the FunctionDecl node). Templates emit no C themselves: each call site
     // monomorphises its own instance through ensureFnInstance below.
-    genericFnNames: list
-    genericFnDecls: list
+    genericFnNames: list < string >
+    genericFnDecls: list < ASTNode >
     // Type-variable bindings for the instance under construction, as a stack
     // of frames: parameter names comma-joined beside arguments tab-joined
     // (type spellings never contain tabs, and parameter names never contain
@@ -37,32 +37,32 @@ model IRBuilder {
     // marks are needed. Lookups run innermost-first, so an inner `T`
     // shadows an outer one, and chaining falls out: substituting frame by
     // frame turns `list<U>` with U->T into `list<T>` for the outer frame.
-    fnGenericParams: list
-    fnGenericArgs: list
+    fnGenericParams: list < string >
+    fnGenericArgs: list < string >
     // Model instance bindings per variable, as parallel lists (the name, the
     // model's own name, the arguments tab-joined), with frame marks like
     // listKindMarks: a `Box { v: 1 }` bound to `b` answers "T int" for `b`
     // while its scope lives, so a generic call taking `b` infers from
     // history, not from the lossy instance-name spelling.
-    genInstNames: list
-    genInstModels: list
-    genInstArgs: list
-    genInstMarks: list
+    genInstNames: list < string >
+    genInstModels: list < string >
+    genInstArgs: list < string >
+    genInstMarks: list < int >
     // Queued generic instances: the substituted declaration, the parameter
     // names joined, the bindings joined. ensureFnInstance only registers the
     // prototype; drainFnInstances builds the bodies after pass 3, so no
     // instance ever builds with a caller's scope open.
-    fnWorkDecls: list
-    fnWorkParams: list
-    fnWorkArgs: list
-    modelNames: list
-    returnTypes: list
+    fnWorkDecls: list < ASTNode >
+    fnWorkParams: list < string >
+    fnWorkArgs: list < string >
+    modelNames: list < string >
+    returnTypes: list < Variable >
     // Element type per named list, as `name -> Orbit type name` (Variable).
     // A list literal knows its own kind; a `var xs = []` that is filled by
     // push() learns it from the first push it can type. Separate from the
     // ordinary variable table because a list's element type is not the
     // variable's type: `var xs: list` says nothing about what is in it.
-    listKinds: list
+    listKinds: list < Variable >
     // listKinds length at each open block scope. The array is flat, and a
     // variable declared in one function is an *unrelated* variable in the
     // next: `l: list<string>` in getOr and `l: list<int>` in containsInt are
@@ -71,12 +71,12 @@ model IRBuilder {
     // built with the *last writer's* kind, `list<int>` and `list<string>`
     // both taking `l`. The whole std got one elemKind for `l`. Restored on
     // popVariableScope exactly as variableScopes is.
-    listKindMarks: list
+    listKindMarks: list < int >
     // The generic model DECLARATIONS, as IRModelDecl with typeParams filled.
     // Separate from module.models because that list is what the emitter walks,
     // and a declaration's field types are not C types until a use fixes them.
     // An instantiation is pushed back into module.models under its own name.
-    genericModels: list
+    genericModels: list < IRModelDecl >
     // Disambiguator for shadowed locals. Minted C names come from here, in
     // AST walk order, so they are deterministic across runs.
     varSeq: int
@@ -98,7 +98,7 @@ model Variable {
 }
 
 model VarScope {
-    variables: list
+    variables: list < Variable >
 }
 
 fn initScope() -> VarScope {

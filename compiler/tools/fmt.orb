@@ -453,6 +453,14 @@ fn fmtHonorNewline(ptag: TokType, ntag: TokType, parenDepth: int, brackDepth: in
         }
         return false
     }
+    // The `>` that closes `list<T>` ends a model field's line. Without it the
+    // next field joined onto the annotation and the file stopped parsing.
+    if ptag == TokType.Greater || ptag == TokType.ShiftRight {
+        if parenDepth == 0 && brackDepth == 0 {
+            return true
+        }
+        return false
+    }
     return false
 }
 

@@ -9,19 +9,19 @@ model CBackend {
     module: IRModule
     output: string
     currentFunction: IRFunction
-    callArgs: list
-    strRegs: list
-    strVars: list
-    fieldNames: list
-    fieldOwners: list
-    declVars: list
+    callArgs: list < string >
+    strRegs: list < int >
+    strVars: list < string >
+    fieldNames: list < string >
+    fieldOwners: list < string >
+    declVars: list < string >
     usedRegs: list
-    refLabels: list
+    refLabels: list < string >
     defIdxFunc: IRFunction
-    defIdxNames: list
-    defIdxInsts: list
-    defIdxRegInst: list
-    defIdxRegVerdict: list
+    defIdxNames: list < string >
+    defIdxInsts: list < IRInstruction >
+    defIdxRegInst: list < IRInstruction >
+    defIdxRegVerdict: list < string >
 }
 
 fn initCBackend(module: IRModule) -> CBackend {
@@ -31,7 +31,7 @@ fn initCBackend(module: IRModule) -> CBackend {
 // A tab-joined variant payload list split back into spellings. The parser
 // joins with tabs because commas need depth tracking; the split is the same
 // one sema.orb and builder.orb carry in their own module closures.
-fn splitPayloadDecl(joined: string) -> list {
+fn splitPayloadDecl(joined: string) -> list < string > {
     val parts = []
     if joined == "" { return parts }
     var start = 0
@@ -57,7 +57,7 @@ fn splitPayloadDecl(joined: string) -> list {
 // the loops called .len() on NULL and the helper answers false. That is a fix,
 // not a refactor -- but it is a change, so it is written down here rather than
 // left for someone to find in a diff.
-fn listContainsStr(items: list, value: string) -> bool {
+fn listContainsStr(items: list < string >, value: string) -> bool {
     if items == NULL { return false }
     var i = 0
     while i < items.len() {
@@ -545,7 +545,7 @@ fn backendFnTypeReturn(t: string) -> string {
     return t.slice(arrow + 3, t.len())
 }
 
-fn backendFnTypeParams(t: string) -> list {
+fn backendFnTypeParams(t: string) -> list < string > {
     val out = []
     if backendIsFnType(t) == false { return out }
     val arrow = t.indexOf(")->")
@@ -580,7 +580,7 @@ fn backendFnTypeParamAt(t: string, idx: int) -> string {
     return params.get(idx)
 }
 
-fn setStrAt(items: list, idx: int, value: string) -> list {
+fn setStrAt(items: list < string >, idx: int, value: string) -> list < string > {
     if items == NULL || idx < 0 { return items }
     while items.len() <= idx {
         items.push("unknown")
@@ -1204,7 +1204,7 @@ fn irVerifierOperandType(func: IRFunction, v: IRValue) -> string {
 // string-concat destination typed as an integer. `unknown` is allowed to
 // pass -- its silence is the census's subject, not a contradiction -- but a
 // known type meeting a different known type is a bug and fails the build.
-fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list, warns: list) {
+fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list < string >, warns: list < string >) {
     var i = 0
     while i < func.instructions.len() {
         val inst: IRInstruction = func.instructions.get(i)
@@ -1320,7 +1320,7 @@ fn verifierSimpleKind(t: string) -> string {
     return ""
 }
 
-fn verifyarithBinop(func: IRFunction, inst: IRInstruction, dt: string, op: string, errs: list) {
+fn verifyarithBinop(func: IRFunction, inst: IRInstruction, dt: string, op: string, errs: list < string >) {
     val t1 = irVerifierOperandType(func, inst.operand1)
     val t2 = irVerifierOperandType(func, inst.operand2)
     if irVerifierKnown(t1) && irVerifierKnown(t2) {
@@ -1339,7 +1339,7 @@ fn verifyarithBinop(func: IRFunction, inst: IRInstruction, dt: string, op: strin
 // arithmetic has one, and no numeric-family fallback either. The checker
 // refuses a known non-int operand first; this is the IR-level net under it,
 // for a type that only became known after the check.
-fn verifybitwiseBinop(func: IRFunction, inst: IRInstruction, dt: string, op: string, errs: list) {
+fn verifybitwiseBinop(func: IRFunction, inst: IRInstruction, dt: string, op: string, errs: list < string >) {
     val t1 = irVerifierOperandType(func, inst.operand1)
     val t2 = irVerifierOperandType(func, inst.operand2)
     if irVerifierKnown(t1) && verifierSimpleKind(t1) != "int" {
@@ -1353,7 +1353,7 @@ fn verifybitwiseBinop(func: IRFunction, inst: IRInstruction, dt: string, op: str
     }
 }
 
-fn verifycmpBinop(backend: CBackend, func: IRFunction, inst: IRInstruction, dt: string, warns: list) {
+fn verifycmpBinop(backend: CBackend, func: IRFunction, inst: IRInstruction, dt: string, warns: list < string >) {
     val t1 = irVerifierOperandType(func, inst.operand1)
     val t2 = irVerifierOperandType(func, inst.operand2)
     if irVerifierKnown(t1) && irVerifierKnown(t2) {
@@ -1373,7 +1373,7 @@ fn verifycmpBinop(backend: CBackend, func: IRFunction, inst: IRInstruction, dt: 
     }
 }
 
-fn verifyBoolBinop(func: IRFunction, inst: IRInstruction, dt: string, errs: list) {
+fn verifyBoolBinop(func: IRFunction, inst: IRInstruction, dt: string, errs: list < string >) {
     val t1 = irVerifierOperandType(func, inst.operand1)
     val t2 = irVerifierOperandType(func, inst.operand2)
     if irVerifierKnown(t1) && t1 != "bool" {
@@ -1387,9 +1387,9 @@ fn verifyBoolBinop(func: IRFunction, inst: IRInstruction, dt: string, errs: list
     }
 }
 
-fn verifyModuleTypes(backend: CBackend) -> list {
-    val errs: list = []
-    val warns: list = []
+fn verifyModuleTypes(backend: CBackend) -> list < string > {
+    val errs: list < string > = []
+    val warns: list < string > = []
     var i = 0
     while i < backend.module.functions.len() {
         val f: IRFunction = backend.module.functions.get(i)
@@ -1640,7 +1640,7 @@ fn modelCtorFieldType(backend: CBackend, name: string, argIdx: int) -> string {
 // cannot drift apart: a constant the program declares is a define the program
 // gets, and a constant it does not declare is not. Kept in this file because
 // rendering IRValue is a backend job; route_runtime only concatenates.
-fn generateRoutePreamble(hasRoutes: bool, globals: list) -> string {
+fn generateRoutePreamble(hasRoutes: bool, globals: list < IRGlobal >) -> string {
     var defs = ""
     var gi = 0
     while gi < globals.len() {
@@ -2049,7 +2049,7 @@ fn isIdentCode(c: int) -> bool {
     return false
 }
 
-fn markAt(marks: list, slot: int) -> int {
+fn markAt(marks: list < int >, slot: int) -> int {
     return marks.get(slot)
 }
 
@@ -2070,7 +2070,7 @@ fn markAt(marks: list, slot: int) -> int {
 // Over-approximating is deliberate. A false positive keeps an attribute that
 // was not needed and costs 24 bytes; a false negative drops one from a live
 // object, and the canonical unit has to compile with no warnings at all.
-fn markUsedLocals(body: string, names: list, registerCount: int) -> list {
+fn markUsedLocals(body: string, names: list < string >, registerCount: int) -> list < int > {
     val marks = []
     var m = 0
     while m < registerCount {
@@ -3105,7 +3105,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 if backend.callArgs.len() >= startIdx + 1 {
                     val receiverStr = backend.callArgs.get(startIdx)
                     while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
-                    if isStringArg(backend, receiverStr) || isStringVar(backend, receiverStr) || isStringReg(backend, receiverStr) {
+                    if isStringArg(backend, receiverStr) || isStringVar(backend, receiverStr) {
                         val safeLen = "orbit_string_len((orbit_string)(" + receiverStr + "))"
                         if destNeeded {
                             orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, safeLen))

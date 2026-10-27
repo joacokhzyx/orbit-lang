@@ -166,11 +166,11 @@ fn ir_init_instr(opcode: IROpcode) -> IRInstruction {
 
 model IRFunction {
     name: string
-    params: list
-    paramTypes: list
-    instructions: list
+    params: list < string >
+    paramTypes: list < string >
+    instructions: list < IRInstruction >
     registerCount: int
-    registerTypes: list
+    registerTypes: list < string >
     returnType: string
     isExtern: bool
     routeMethod: string
@@ -207,7 +207,7 @@ model IRModelField {
 
 model IRModelDecl {
     name: string
-    fields: list
+    fields: list < IRModelField >
     // The type parameter names, in declaration order. A model with any is a
     // GENERIC DECLARATION and never reaches the emitter: it lives in
     // IRBuilder.genericModels, not in IRModule.models, because a field typed
@@ -215,7 +215,7 @@ model IRModelDecl {
     // the builder synthesises -- `Box` with `T` fixed at `int` is `Box_int`,
     // fields already substituted -- are IRModelDecls in module.models, so
     // every existing consumer of that list sees exactly what it saw before.
-    typeParams: list
+    typeParams: list < string >
 }
 
 model IRVariantField {
@@ -227,23 +227,23 @@ model IRVariantDecl {
     name: string
     hasPayload: bool
     payloadType: string
-    fields: list
+    fields: list < IRVariantField >
 }
 
 model IRTypeDecl {
     name: string
     kind: string // "enumeration", "union_type", "alias", "trait"
-    variants: list
-    richVariants: list
-    methods: list
+    variants: list < string >
+    richVariants: list < string >
+    methods: list < string >
 }
 
 model IRModule {
-    functions: list
-    globals: list // list of IRGlobal
-    models: list
-    types: list
-    migrations: list
+    functions: list < IRFunction >
+    globals: list < IRGlobal > // list of IRGlobal
+    models: list < IRModelDecl >
+    types: list < IRTypeDecl >
+    migrations: list < string >
     // The `port N` service declaration, or 0 when the program declares none.
     // The emitted server main binds this; argv[1] still overrides at run time.
     configPort: int
