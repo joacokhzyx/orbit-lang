@@ -190,6 +190,11 @@ def ir_findings(doc):
                 findings.append(f"call to undeclared runtime symbol {callee!r}"
                                 f" in {fn['name']}")
         types = fn["registerTypes"]
+        for where, name in ([("register r%d" % i, t) for i, t in enumerate(types)]
+                            + [("param", t) for t in fn.get("paramTypes", [])]
+                            + [("return", fn.get("returnType", ""))]):
+            if name == "unknown":
+                findings.append(f"type 'unknown' ({where}) in {fn['name']}")
         for ins in fn["instructions"]:
             if ins["opcode"] != "load_field" or ins["dest"] < 0:
                 continue
@@ -393,9 +398,15 @@ def self_test():
     read["module"]["functions"][0]["registerTypes"] = ["object", "unknown"]
     read["module"]["functions"][0]["instructions"][0].update(
         {"dest": 1, "operand1": {"kind": "Register", "value": 0}})
-    check("an untyped object field read is caught", len(ir_findings(read)) == 1)
+    check("an untyped object field read is caught",
+          any("object field read" in f for f in ir_findings(read)))
     read["module"]["functions"][0]["registerTypes"][1] = "int"
     check("a typed object field read is complete", ir_findings(read) == [])
+    typed = doc_with("nop")
+    typed["module"]["functions"][0]["registerTypes"] = ["void*"]
+    check("void* is a complete register type", ir_findings(typed) == [])
+    typed["module"]["functions"][0]["registerTypes"] = ["unknown"]
+    check("an unknown register type is caught", len(ir_findings(typed)) == 1)
     check("an unknown opcode is caught",
           len(ir_findings(doc_with("shift_left"))) == 1)
 

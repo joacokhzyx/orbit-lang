@@ -741,6 +741,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         var tofi = 0
         while tofi < irModule.functions.len() {
             typeObjectFieldReads(irModule.functions.get(tofi))
+            typeRegistersByComparison(irModule.functions.get(tofi))
             tofi = tofi + 1
         }
         if orbit_file_write_selfhost(emitIrPath, emitIRv1(irModule)) == false {

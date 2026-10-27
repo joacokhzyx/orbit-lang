@@ -3,7 +3,7 @@
 // Serializes the in-memory IRModule exactly as buildAST left it: the pipeline
 // calls this before the optimizer and before the C backend, so registerTypes
 // is the builder's list, not the inferred one (docs/IR_SPEC_ALIGNMENT.md §6,
-// P1), plus one extern entry per runtime symbol the module calls without
+// P1) except that "unknown" is written as "void*" (irTypeName), plus one extern entry per runtime symbol the module calls without
 // declaring it (irRuntimeExterns).  The text form is docs/IR_SPEC.md §5: one root object
 // {"irVersion":"1","module":{...}}, keys in model declaration order, compact
 // JSON, one trailing LF.  Nothing here invents semantics: every opcode name is
@@ -71,6 +71,26 @@ fn irAppendStringList(buf: string, items: list < string >) {
         if i > 0 { orbit_cbuf_append_selfhost(buf, ",") }
         val s: string = items.get(i)
         orbit_cbuf_append_selfhost(buf, "\"" + irJsonEscape(s) + "\"")
+        i = i + 1
+    }
+    orbit_cbuf_append_selfhost(buf, "]")
+}
+
+// The builder writes "unknown" for a value it could not type. The C backend
+// declares such a register, parameter or return as `void*` (mapTypeToC), so the
+// document says `void*`: one pointer word, nothing for a consumer to infer.
+fn irTypeName(t: string) -> string {
+    if t == "unknown" { return "void*" }
+    return t
+}
+
+fn irAppendTypeList(buf: string, items: list < string >) {
+    orbit_cbuf_append_selfhost(buf, "[")
+    var i = 0
+    while i < items.len() {
+        if i > 0 { orbit_cbuf_append_selfhost(buf, ",") }
+        val s: string = items.get(i)
+        orbit_cbuf_append_selfhost(buf, "\"" + irJsonEscape(irTypeName(s)) + "\"")
         i = i + 1
     }
     orbit_cbuf_append_selfhost(buf, "]")
@@ -185,7 +205,7 @@ fn irAppendFunctionText(buf: string, f: IRFunction) {
     orbit_cbuf_append_selfhost(buf, "\"params\":")
     irAppendStringList(buf, f.params)
     orbit_cbuf_append_selfhost(buf, ",\"paramTypes\":")
-    irAppendStringList(buf, f.paramTypes)
+    irAppendTypeList(buf, f.paramTypes)
     orbit_cbuf_append_selfhost(buf, ",\"instructions\":[")
     var i = 0
     while i < f.instructions.len() {
@@ -197,8 +217,8 @@ fn irAppendFunctionText(buf: string, f: IRFunction) {
     orbit_cbuf_append_selfhost(buf, "],")
     orbit_cbuf_append_selfhost(buf, "\"registerCount\":" + orbit_int_to_string_selfhost(f.registerCount) + ",")
     orbit_cbuf_append_selfhost(buf, "\"registerTypes\":")
-    irAppendStringList(buf, f.registerTypes)
-    orbit_cbuf_append_selfhost(buf, ",\"returnType\":\"" + irJsonEscape(f.returnType) + "\",")
+    irAppendTypeList(buf, f.registerTypes)
+    orbit_cbuf_append_selfhost(buf, ",\"returnType\":\"" + irJsonEscape(irTypeName(f.returnType)) + "\",")
     orbit_cbuf_append_selfhost(buf, "\"isExtern\":" + irJsonBool(f.isExtern) + ",")
     orbit_cbuf_append_selfhost(buf, "\"routeMethod\":\"" + irJsonEscape(f.routeMethod) + "\",")
     orbit_cbuf_append_selfhost(buf, "\"routePath\":\"" + irJsonEscape(f.routePath) + "\",")

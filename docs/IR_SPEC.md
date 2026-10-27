@@ -295,8 +295,19 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   variant with one payload that is a declared non-generic model or a union has
   that name, and the word is the pointer; a float
   payload and the packed-struct pointer of a multi-payload variant stay
-  `unknown`. No new spelling enters the vocabulary above; a
-  consumer that reads `"unknown"` must still infer.
+  `unknown`. No new spelling enters the vocabulary above.
+- The document never contains `"unknown"`. The builder's `unknown` is written
+  as `"void*"` in `registerTypes`, `paramTypes` and `returnType`
+  (`irTypeName`), because that is what `mapTypeToC` declares for it: one
+  pointer word. Before the write, `--emit-ir` retypes an object field read by
+  its getter (§1.4) and a register compared with a constant by the constant's
+  type, the two steps the C backend takes when it declares registers. On the
+  corpus, every `void*` register is declared `void*` in the C of the same
+  program (compiled with `ORBIT_NO_CTE=1`, which keeps the register numbers).
+  A register typed `void*` is a value the compiler cannot type: an unwrapped
+  result without an annotation, a union payload word, a list element of a
+  generic or reference kind the builder did not name, a call to a generic
+  function instantiated with no type.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume
   the final C (or the native binary) derives from them alone.
@@ -561,7 +572,7 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 |---|---|---|---|
 | E-01 | `dest: -1` on `load_const` | Reject (V-10); value-producing opcodes require a destination | `ir_init_instr` default `-1`, §2.2 |
 | E-02 | `Register(-1)` operand value | Reject (V-09); negative register ids are not encodable | `generateValue` maps `n<0` to `"0"` |
-| E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "unknown"` | Accept; ref elements keep `"unknown"`/`void*` | `builder.orb:1368-1378` |
+| E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "void*"` | Accept; ref elements the builder cannot name stay `"void*"` | `builder.orb:1368-1378` |
 | E-04 | `elemKind: 0` on `list_create` | Accept; untyped accessor + `void*` destination | `ir.orb:97-104` |
 | E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `c_backend.orb:2824-2828` |
 | E-06 | `print` call with 2 pending args | Accept the IR; lowering emits `/* print */` and drops them | `c_backend.orb:2795-2800` |
