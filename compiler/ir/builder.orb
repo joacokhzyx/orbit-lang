@@ -4855,13 +4855,16 @@ fn operandTypeName(builder: IRBuilder, v: IRValue) -> string {
 // A comparison is a bool whatever its operands are: the language has no
 // operator overload, so the result type needs no operand type. An arithmetic
 // or bitwise operator is typed only when both operands carry the same proven
-// type it is defined on; mixed or unknown operands keep "unknown".
+// type it is defined on; mixed or unknown operands keep "unknown", except a
+// `+` with a string operand.
 fn binaryResultType(builder: IRBuilder, op: string, lhs: IRValue, rhs: IRValue) -> string {
     if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" { return "bool" }
     val lt = operandTypeName(builder, lhs)
     val rt = operandTypeName(builder, rhs)
+    // `+` with a string on either side is a concatenation, and the emitter
+    // lowers it to orbit_string_concat whatever the other operand is.
+    if op == "+" && (lt == "string" || rt == "string") { return "string" }
     if lt != rt { return "unknown" }
-    if op == "+" && lt == "string" { return "string" }
     if op == "+" || op == "-" || op == "*" || op == "/" {
         if lt == "int" || lt == "float" { return lt }
         return "unknown"

@@ -204,7 +204,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   literal, an operator expression or an interpolation has that expression's
   static type (`int`, `float`, `bool` or `string`). `add`, `sub`, `mul` and
   `div` have the operands' type when both are `int` or both `float` (`add`
-  also when both are `string`); `mod` and the bitwise operators when both are
+  also when either is `string`); `mod` and the bitwise operators when both are
   `int`; `neg` the operand's type when it is `int` or `float`; `bit_not` `int`
   when the operand is `int`. `load_field` of a model field whose receiver type
   is resolved and whose declared type is `int`, `float`, `bool` or `string`
