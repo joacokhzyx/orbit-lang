@@ -14,9 +14,9 @@
   a diagnostic identifying the opcode/field. No approximating, no shims,
   no invented semantics.
 
-## 1. Opcode inventory (60)
+## 1. Opcode inventory (66)
 
-Defined in `compiler/ir/ir.orb:3-70`, in this order (index 0–59):
+Defined in `compiler/ir/ir.orb:3-79`, in this order (index 0–65):
 
 | # | Opcode | # | Opcode | # | Opcode | # | Opcode |
 |---|--------|---|--------|---|--------|---|--------|
@@ -35,8 +35,10 @@ Defined in `compiler/ir/ir.orb:3-70`, in this order (index 0–59):
 | 12 | `lt` | 27 | `free` | 42 | `list_get` | 57 | `union_create` |
 | 13 | `le` | 28 | `db_get` | 43 | `list_set` | 58 | `union_get_tag` |
 | 14 | `gt` | 29 | `db_set` | 44 | `list_len` | 59 | `union_get_data` |
+| 60 | `bit_and` | 61 | `bit_or` | 62 | `bit_xor` | 63 | `shl` |
+| 64 | `shr` | 65 | `bit_not` | | | | |
 
-The C backend dispatches all 60 in `compiler/emit/c_backend.orb:2422-3599`. Its default
+The C backend dispatches all 66 in `compiler/emit/c_backend.orb:2422-3599`. Its default
 arm (`c_backend.orb:3596-3599`) emits the comment `/* Unknown opcode */` and
 carries on: an IRv1 loader must turn that case into a fatal error, never into
 a comment.
@@ -99,6 +101,10 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `lt` / `le` / `gt` / `ge` | Float comparison, or **signed** comparison over `(intptr_t)` (`2582-2612`) | `operandDefType` |
 | `and_op` / `or_op` / `not_op` | `&&`, `\|\|`, `!` in C (`2614-2625`). The builder emits only `not_op`; source `&&` / `\|\|` is control flow (see §1.1) | — |
 | `neg` | Negation (`2626-2633`) | float or integer type |
+| `bit_and` / `bit_or` / `bit_xor` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) OP ((uintptr_t)O2))` with `OP` = `&`, `\|`, `^`; §1.3 | operands and `D` are `int` |
+| `shl` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) << (((uintptr_t)O2) & 31))`; §1.3 | operands and `D` are `int` |
+| `shr` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) >> (((uintptr_t)O2) & 31))`; arithmetic for an `int` O1, §1.3 | operands and `D` are `int` |
+| `bit_not` | `D ← (orbit_int)(uintptr_t)(~((uintptr_t)O1))`; §1.3 | operand and `D` are `int` |
 | `begin_block` / `end_block` | Open/close `{` / `}` (`2634-2641`) | — |
 | `label` | `label_N:;` only if the label is referenced (`2642-2647`) | `refLabels` |
 | `jump` | `goto label_N` with O1 (`2648-2651`) | — |
@@ -138,6 +144,65 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `db_where` | `D = orbit_db_where(O1[, O2])` (`3577-3591`) | O1, O2 |
 | `http_response` | `ORBIT_API_RESPONSE(O1, O2, O3)` (`3592-3595`) | O1, O2, O3 |
 
+### 1.3 Bitwise and shift opcodes
+
+Source operators: `&` `bit_and`, `|` `bit_or`, `^` `bit_xor`, `<<` `shl`,
+`>>` `shr`, unary `~` `bit_not`. They follow `union_get_data` in the
+`IROpcode` union, so no earlier index moved. The builder emits a binary one
+as `D, O1, O2` and `bit_not` as `D, O1`. `D` is `int`. The verifier
+(`verifybitwiseBinop`) rejects an operand or destination whose type is known
+and is not `int`. The C backend lowers them at `c_backend.orb:2746-2778`,
+and `generateRegAssign` narrows the result to `orbit_int`, a 32-bit signed
+integer:
+
+- **Width.** Each operand is cast to `uintptr_t` (64 bits on both x86-64
+  targets) from its 32-bit `int` register, so a negative operand is
+  sign-extended. The 64-bit result is cast to `orbit_int`: the low 32 bits,
+  two's complement.
+- **`bit_and`, `bit_or`, `bit_xor`, `bit_not`.** Bitwise on the 32-bit
+  pattern. `~0` is `-1`; `~x` is `-x - 1`.
+- **`shl`.** The count is `O2 & 31`, so a count of 32 or more wraps and a
+  negative count takes its low 5 bits. `1 << 33` is `2`, `1 << 31` is
+  `-2147483648`. Bits shifted past bit 31 disappear in the narrowing.
+- **`shr`.** The shift runs on the 64-bit sign-extended pattern, so it is
+  arithmetic: `-8 >> 1` is `-4` and `-1 >> 31` is `-1`. No logical right
+  shift exists. The count is `O2 & 31`.
+- **No trap.** Every operand and count has a defined result, and no overflow
+  check exists.
+
+### 1.4 `load_field` on an `object` register
+
+A register typed `object` holds an `OrbitObject*` made by
+`orbit_object_create` (§3.3). A `load_field` whose O1 is such a register is a
+keyed lookup, not a struct member read. O2 is the key. A `Sym` O2 is the
+written form `o.name`; a `String` O2 is the written form `o.get("name")`.
+The C backend treats both the same: it takes the text of either. A
+`Register` O2 (`o.get(k)` with a non-literal `k`) has no text, and the
+backend looks up the key `""`. A consumer rejects that form.
+
+The destination type names the getter, and the getter is the runtime call:
+
+| Destination type | Runtime getter | Result |
+|---|---|---|
+| `int` | `orbit_object_get_int` | `orbit_int` |
+| `float` | `orbit_object_get_float` | `orbit_float` |
+| `bool` | `orbit_object_get_bool` | `orbit_bool` |
+| `string` | `orbit_object_get_string` | `const char*` |
+| `object` | `orbit_object_get_object` | `OrbitObject*` |
+| `list` | `orbit_object_get_list` | `const OrbitList*` |
+
+A key the object never stored gives the zero of the getter's kind: `0`,
+`0.0`, `false`, `""`, and `NULL` for `object` and `list`
+(`runtime/json.c:227-270`). A key stored with another kind gives the same
+zero, not a conversion. The destination type comes from the
+`orbit_object_set_*` calls on that key in the same function; when the
+function has none, from the declared type of the binding (`val n: int =
+o.get("n")`); when neither exists the getter is `orbit_object_get_raw`, which
+returns a `const char*`, and the destination keeps the type the builder wrote
+(`unknown` or `object`). The emitter applies this typing before it writes the
+document (`typeObjectFieldReads`), so the document carries the type and no
+consumer repeats the scan. The builder's `fieldKind` is not a document field.
+
 Audit notes:
 
 - The observed `free` no-op and `type_info` comment are NOT semantics:
@@ -170,7 +235,7 @@ with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 
 ### 2.2 `IRInstruction` (`ir.orb:91-105`)
 
-- `opcode`: one of the 60 (§1).
+- `opcode`: one of the 66 (§1).
 - `dest`: `int`. `-1` means no destination. Default factory value `-1`
   (`ir_init_instr`, `ir.orb:142-144`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
@@ -230,8 +295,19 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   variant with one payload that is a declared non-generic model or a union has
   that name, and the word is the pointer; a float
   payload and the packed-struct pointer of a multi-payload variant stay
-  `unknown`. No new spelling enters the vocabulary above; a
-  consumer that reads `"unknown"` must still infer.
+  `unknown`. No new spelling enters the vocabulary above.
+- The document never contains `"unknown"`. The builder's `unknown` is written
+  as `"void*"` in `registerTypes`, `paramTypes` and `returnType`
+  (`irTypeName`), because that is what `mapTypeToC` declares for it: one
+  pointer word. Before the write, `--emit-ir` retypes an object field read by
+  its getter (§1.4) and a register compared with a constant by the constant's
+  type, the two steps the C backend takes when it declares registers. On the
+  corpus, every `void*` register is declared `void*` in the C of the same
+  program (compiled with `ORBIT_NO_CTE=1`, which keeps the register numbers).
+  A register typed `void*` is a value the compiler cannot type: an unwrapped
+  result without an annotation, a union payload word, a list element of a
+  generic or reference kind the builder did not name, a call to a generic
+  function instantiated with no type.
 - `registerTypes` is advisory and is rewritten during emission
   (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume
   the final C (or the native binary) derives from them alone.
@@ -308,6 +384,14 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
     to the parameter type; a `"void"` return suppresses the destination.
     Argument evaluation order is `UNSPECIFIED` (U-05).
 
+11. Argument conversion. The IR has no conversion opcode. A named call to a
+    function of the module converts each argument to the callee's `paramTypes`
+    entry at the call site, as a C value conversion and not a reinterpretation
+    of bits. An `int` passed to a `float` parameter is converted: the
+    backend writes `takesFloat(arena, (orbit_float)(2))`
+    (`tests/suite/call_arg_types.orb`). A float literal is a `Sym` operand
+    holding its source text (`2.5`), typed `float` by its register.
+
 ### 3.2 Functions, registers, return
 
 - Every non-extern function is declared (prototype) and defined. Non-`main`/
@@ -324,6 +408,54 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   `registerTypes[N]. `ret` emits by `returnType` (§1.2, `3192-3273`).
 - `orbit_print` is declared `void orbit_print(const char* str)`
   (`runtime/orbit_api.h:611`).
+
+### 3.3 Runtime symbols the builder calls
+
+The builder lowers some source forms to a `call` of a runtime symbol the
+program never declared: string methods (`len`, `at`, `slice`, `find`), object literals,
+`Model.all()` and `Model.where(...)`, and `system.uptime()`. `emitIRv1` adds
+one `isExtern: true` function entry for each such symbol the module calls
+(`ir_emit.orb`, `irRuntimeExterns`), after the module's own functions and in
+order of first call. The entry has `instructions: []`, `registerCount: 0` and
+no route fields. The module the C backend reads is not changed, so the C
+bytes are the same.
+
+`params` and `paramTypes` list the arguments of the IR `call`. The leading
+`OrbitArena* arena` of a symbol in `functionNeedsArena` (§3.1 item 9) is not a
+parameter: the C backend prepends it at the call site.
+
+| Symbol | Parameters | Returns | Header |
+|---|---|---|---|
+| `orbit_string_len` | `s: string` | `int` | `orbit_api.h:427` |
+| `orbit_string_at` | `s: string, index: int` | `int` | `orbit_api.h:401` |
+| `orbit_string_slice` | `s: string, start: int, end: int` | `string` | `orbit_api.h:402` |
+| `orbit_string_slice_known_len` | `s: string, start: int, end: int, totalLen: int` | `string` | `orbit_api.h:403` |
+| `orbit_string_indexOf`, `orbit_string_find` | `s: string, substr: string` | `int` | `orbit_api.h:413` |
+| `orbit_object_create` | none | `object` | `orbit_api.h:578` |
+| `orbit_object_set_int` / `_float` / `_bool` / `_string` / `_object` / `_list` | `o: object, key: string, v: T` | `void` | `orbit_api.h:580-585` |
+| `orbit_db_query_all`, `orbit_db_query_first` | `table: string` | `string` | `database.c` |
+| `orbit_db_query_where` | `table: string, condition: string` | `string` | `database.c` |
+| `orbit_db_query_where_p` | `table: string, condition: string, param: string` | `string` | `database.c` |
+| `orbit_db_query_get` | `table: string, id: string` | `string` | `database.c` |
+| `orbit_db_query_order`, `orbit_db_query_order_desc` | `table: string, column: string` | `string` | `database.c` |
+| `orbit_db_count_all` | `table: string` | `int` | `database.c` |
+| `orbit_db_insert` | `table: string, json: string` | `bool` | `database.c` |
+| `orbit_db_update` | `table: string, id: string, json: string` | `bool` | `database.c` |
+| `orbit_db_delete` | `table: string, id: string` | `bool` | `database.c` |
+| `system_uptime`, `system_pid`, `system_active_workers`, `system_http_requests_total`, `system_latency_avg_us`, `system_latency_p50_us`, `system_latency_p95_us`, `system_latency_p99_us` | none | `int` | `orbit_api.h:646-653` |
+
+`T` in `orbit_object_set_*` is `int`, `float`, `bool`, `string`, `object` or
+`list`. `orbit_string_find` is the source-level alias of `orbit_string_indexOf`
+(§3.1 item 4): the entry keeps the name the `call` uses. The `orbit_db_*` rows
+follow `runtime/database.c`, because the net header declares none of them (§4).
+The variadic `orbit_db_query_where_v` and `orbit_db_count_v` have no entry:
+their argument count rides in the call, and an extern cannot state it.
+
+Three kinds of call target stay undeclared on purpose. `print` is a language
+builtin with the lowering of §3.1 item 6, unless the program writes its own
+`extern fn print`. A model constructor (`Point(...)`) is declared by the
+`models` list. A union variant constructor (`Circle(...)`) is declared by the
+`types` list.
 
 ## 4. Runtime and DB drift (contractual)
 
@@ -394,7 +526,7 @@ function    = "{", name, params, paramTypes, instructions, registerCount,
               routeLimitBurst, "}";
 instructions = "[", { instruction }, "]";
 instruction = "{", opcode, dest, operand1, operand2, operand3, elemKind, "}";
-opcode      = '"', opname, '"';      (* one of the 60 names in §1 *)
+opcode      = '"', opname, '"';      (* one of the 66 names in §1 *)
 dest        = "-1" | uint;
 operand1    = value;                 (* operand2, operand3: same *)
 value       = none | intVal | floatVal | strVal | symVal | boolVal | regVal
@@ -448,7 +580,7 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 |---|---|---|---|
 | E-01 | `dest: -1` on `load_const` | Reject (V-10); value-producing opcodes require a destination | `ir_init_instr` default `-1`, §2.2 |
 | E-02 | `Register(-1)` operand value | Reject (V-09); negative register ids are not encodable | `generateValue` maps `n<0` to `"0"` |
-| E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "unknown"` | Accept; ref elements keep `"unknown"`/`void*` | `builder.orb:1368-1378` |
+| E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "void*"` | Accept; ref elements the builder cannot name stay `"void*"` | `builder.orb:1368-1378` |
 | E-04 | `elemKind: 0` on `list_create` | Accept; untyped accessor + `void*` destination | `ir.orb:97-104` |
 | E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `c_backend.orb:2824-2828` |
 | E-06 | `print` call with 2 pending args | Accept the IR; lowering emits `/* print */` and drops them | `c_backend.orb:2795-2800` |
@@ -468,7 +600,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 |---|---|
 | V-01 | The document is UTF-8 JSON (RFC 8259), a single root object, no BOM, trailing LF; it contains no elision marker. |
 | V-02 | The root object has exactly `irVersion` (`"1"`) and `module`; unknown keys are rejected. |
-| V-03 | `opcode` is one of the 60 names in §1, spelled exactly (no aliases, no case folding). |
+| V-03 | `opcode` is one of the 66 names in §1, spelled exactly (no aliases, no case folding). |
 | V-04 | `elemKind` is an integer in `0..5`; non-collection opcodes must carry `0`. |
 | V-05 | Every operand is a `{"kind":…}` object with one of the 8 kinds in §2.1 and a correctly typed `value` (absent only for `None`). |
 | V-06 | Integer values have no fraction/exponent and fit in signed 32 bits. |

@@ -60,6 +60,18 @@ SUPPORT_MODULES = 1
 PROGRAMS = SUITE_PROGRAMS + STD_PROGRAMS
 MEMBERS = PROGRAMS + SUPPORT_MODULES
 
+# The 66 opcode names of docs/IR_SPEC.md section 1, in IROpcode order.
+OPCODES = frozenset("""
+nop load_const load_var store_var decl_var add sub mul div mod eq ne lt le gt
+ge and_op or_op not_op neg begin_block end_block call ret jump jump_if_false
+alloc free db_get db_set db_all db_where http_response label copy arg
+load_field store_field switch_op type_info list_create list_push list_get
+list_set list_len list_pop map_create map_set map_get map_has map_delete
+map_keys result_ok result_err result_unwrap result_is_ok result_unwrap_err
+union_create union_get_tag union_get_data bit_and bit_or bit_xor shl shr
+bit_not
+""".split())
+
 
 def discover():
     """The corpus members as (repo-relative path, kind), in pinned order."""
@@ -140,6 +152,67 @@ def compiler_fingerprint(compiler):
     }
 
 
+# Runtime symbols the builder lowers a call to without an `extern fn` in the
+# source. The emitter declares each one the module calls (IR_SPEC.md 3.3).
+RUNTIME_CALLS = frozenset("""
+orbit_string_len orbit_string_at orbit_string_slice orbit_string_slice_known_len
+orbit_string_indexOf orbit_string_find orbit_object_create orbit_object_set_int
+orbit_object_set_float orbit_object_set_bool orbit_object_set_string
+orbit_object_set_object orbit_object_set_list orbit_db_query_all
+orbit_db_query_first orbit_db_query_where orbit_db_query_where_p
+orbit_db_query_get orbit_db_query_order orbit_db_query_order_desc
+orbit_db_count_all orbit_db_insert orbit_db_update orbit_db_delete
+system_uptime system_pid system_active_workers system_http_requests_total
+system_latency_avg_us system_latency_p50_us system_latency_p95_us
+system_latency_p99_us
+""".split())
+
+# Names the lexer uses for literal kinds. They are not register types.
+LEXER_TYPE_NAMES = frozenset(["string_raw", "string_chunk"])
+
+
+def ir_findings(doc):
+    """Completeness findings of one IR document. Pure.
+
+    A consumer cannot guess an opcode name, so an emitted name outside the
+    66 of docs/IR_SPEC.md section 1 (the empty string included) is a defect
+    of the emitter, never of the consumer. A lexer literal name used as a
+    register type (`string_raw`), an object field read left `unknown` and a call to a runtime symbol with no
+    extern entry are the same kind of leak.
+    """
+    findings = []
+    declared = {fn["name"] for fn in doc["module"]["functions"]}
+    for fn in doc["module"]["functions"]:
+        for ins in fn["instructions"]:
+            callee = ins.get("operand1", {}).get("value")
+            if (ins["opcode"] == "call" and callee in RUNTIME_CALLS
+                    and callee not in declared):
+                findings.append(f"call to undeclared runtime symbol {callee!r}"
+                                f" in {fn['name']}")
+        types = fn["registerTypes"]
+        for where, name in ([("register r%d" % i, t) for i, t in enumerate(types)]
+                            + [("param", t) for t in fn.get("paramTypes", [])]
+                            + [("return", fn.get("returnType", ""))]):
+            if name == "unknown":
+                findings.append(f"type 'unknown' ({where}) in {fn['name']}")
+        for ins in fn["instructions"]:
+            if ins["opcode"] != "load_field" or ins["dest"] < 0:
+                continue
+            recv = ins["operand1"].get("value")
+            if (ins["operand1"].get("kind") == "Register" and recv < len(types)
+                    and types[recv] == "object" and types[ins["dest"]] == "unknown"):
+                findings.append(f"untyped object field read in {fn['name']}")
+        for index, name in enumerate(fn["registerTypes"]):
+            if name in LEXER_TYPE_NAMES:
+                findings.append(
+                    f"register type {name!r} in {fn['name']} at r{index}")
+        for index, ins in enumerate(fn["instructions"]):
+            if ins["opcode"] not in OPCODES:
+                findings.append(
+                    f"opcode {ins['opcode']!r} in {fn['name']} at {index}")
+    return findings
+
+
 def emit_corpus(compiler, out_dir):
     """Emit every member; returns (files, failures)."""
     files = []
@@ -149,6 +222,10 @@ def emit_corpus(compiler, out_dir):
         if ir is None:
             failures.append(rel)
             continue
+        with open(ir, "r", encoding="utf-8") as handle:
+            for finding in ir_findings(json.load(handle)):
+                print(f"  INCOMPLETE {rel}: {finding}")
+                failures.append(rel)
         files.append({
             "path": rel,
             "kind": kind,
@@ -215,7 +292,7 @@ def check_against(compiler, pinned_path):
     print(f"emitting into {work}")
     files, failures = emit_corpus(compiler, work)
     for rel in failures:
-        print(f"  FAIL    emit {rel}")
+        print(f"  FAIL    emit/complete {rel}")
     findings = compare(pinned, files)
     for finding in findings:
         print(f"  {finding}")
@@ -297,6 +374,42 @@ def self_test():
     check("the whole-corpus hash ignores key order",
           files_hash([dict(e) for e in sample]) == files_hash(sample))
 
+    def doc_with(opcode):
+        return {"module": {"functions": [{
+            "name": "f", "registerTypes": [],
+            "instructions": [{"opcode": opcode}]}]}}
+
+    check("the 66 opcode names are distinct", len(OPCODES) == 66)
+    check("a named opcode is complete", ir_findings(doc_with("shl")) == [])
+    check("an empty opcode is caught", len(ir_findings(doc_with(""))) == 1)
+    leaked = doc_with("load_const")
+    leaked["module"]["functions"][0]["registerTypes"] = ["string_raw"]
+    check("a lexer literal name as a register type is caught",
+          len(ir_findings(leaked)) == 1)
+    call = doc_with("call")
+    call["module"]["functions"][0]["instructions"][0]["operand1"] = {
+        "kind": "String", "value": "system_pid"}
+    check("a call to an undeclared runtime symbol is caught",
+          len(ir_findings(call)) == 1)
+    call["module"]["functions"].append({
+        "name": "system_pid", "registerTypes": [], "instructions": []})
+    check("a declared runtime symbol is complete", ir_findings(call) == [])
+    read = doc_with("load_field")
+    read["module"]["functions"][0]["registerTypes"] = ["object", "unknown"]
+    read["module"]["functions"][0]["instructions"][0].update(
+        {"dest": 1, "operand1": {"kind": "Register", "value": 0}})
+    check("an untyped object field read is caught",
+          any("object field read" in f for f in ir_findings(read)))
+    read["module"]["functions"][0]["registerTypes"][1] = "int"
+    check("a typed object field read is complete", ir_findings(read) == [])
+    typed = doc_with("nop")
+    typed["module"]["functions"][0]["registerTypes"] = ["void*"]
+    check("void* is a complete register type", ir_findings(typed) == [])
+    typed["module"]["functions"][0]["registerTypes"] = ["unknown"]
+    check("an unknown register type is caught", len(ir_findings(typed)) == 1)
+    check("an unknown opcode is caught",
+          len(ir_findings(doc_with("shift_left"))) == 1)
+
     passed = sum(1 for _, ok, _ in checks if ok)
     for name, ok, detail in checks:
         if not ok:
@@ -328,7 +441,7 @@ def main():
     manifest = args.manifest or os.path.join(args.out, "manifest.json")
     files, failures = emit_corpus(compiler, args.out)
     if failures:
-        print(f"FAIL: {len(failures)} member(s) did not emit")
+        print(f"FAIL: {len(failures)} member(s) did not emit or are incomplete")
         return 1
     doc = manifest_for(files, compiler_fingerprint(compiler))
     write_manifest(manifest, doc)

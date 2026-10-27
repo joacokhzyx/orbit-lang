@@ -1088,32 +1088,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
         // typed and the declaration would not, and the C compiler rejects the
         // pair. The builder allocates the register "unknown" because it cannot
         // know an object's shape, and an unknown register is declared void*.
-        var ofi = 0
-        while ofi < func.instructions.len() {
-            val oInst: IRInstruction = func.instructions.get(ofi)
-            if oInst != NULL {
-                var isLoadField = false
-                match oInst.opcode {
-                    IROpcode.load_field => { isLoadField = true }
-                    _ => {}
-                }
-                if isLoadField && operandDefType(func, oInst.operand1) == "object" {
-                    var oFieldName = ""
-                    match oInst.operand2 {
-                        IRValue.String(fs2) => { oFieldName = fs2.value }
-                        IRValue.Sym(fs2) => { oFieldName = fs2.value }
-                        _ => {}
-                    }
-                    if oFieldName != "" && oInst.dest >= 0 && oInst.dest < func.registerTypes.len() {
-                        val gotType = objectGetterReturnType(objectGetCallForRead(func, oInst, oFieldName))
-                        if gotType != "" {
-                            func.registerTypes = setStrAt(func.registerTypes, oInst.dest, gotType)
-                        }
-                    }
-                }
-            }
-            ofi = ofi + 1
-        }
+        typeObjectFieldReads(func)
         var fpi = 0
         while fpi < func.instructions.len() {
             val fInst: IRInstruction = func.instructions.get(fpi)
@@ -2172,6 +2147,86 @@ fn isTopLevelConstant(backend: CBackend, name: string) -> bool {
         gi = gi + 1
     }
     return false
+}
+
+// Types the destination of every field read off an object by the getter that
+// read lowers to. inferRegisterTypes runs it before the declarations are
+// written, and `--emit-ir` runs it before the document is, so the IR says what
+// the C declares. A read whose getter is the raw one keeps the builder's type.
+fn typeObjectFieldReads(func: IRFunction) {
+    var ofi = 0
+    while ofi < func.instructions.len() {
+        val oInst: IRInstruction = func.instructions.get(ofi)
+        if oInst != NULL {
+            var isLoadField = false
+            match oInst.opcode {
+                IROpcode.load_field => { isLoadField = true }
+                _ => {}
+            }
+            if isLoadField && operandDefType(func, oInst.operand1) == "object" {
+                var oFieldName = ""
+                match oInst.operand2 {
+                    IRValue.String(fs2) => { oFieldName = fs2.value }
+                    IRValue.Sym(fs2) => { oFieldName = fs2.value }
+                    _ => {}
+                }
+                if oFieldName != "" && oInst.dest >= 0 && oInst.dest < func.registerTypes.len() {
+                    val gotType = objectGetterReturnType(objectGetCallForRead(func, oInst, oFieldName))
+                    if gotType != "" {
+                        func.registerTypes = setStrAt(func.registerTypes, oInst.dest, gotType)
+                    }
+                }
+            }
+        }
+        ofi = ofi + 1
+    }
+}
+
+// A register nothing typed, compared with a constant, has the constant's type:
+// the C backend takes the same step when it declares the register. `--emit-ir`
+// runs it before the document is written.
+fn typeRegistersByComparison(func: IRFunction) {
+    var ci = 0
+    while ci < func.instructions.len() {
+        val cInst: IRInstruction = func.instructions.get(ci)
+        var isCmp = false
+        match cInst.opcode {
+            IROpcode.eq => { isCmp = true }
+            IROpcode.ne => { isCmp = true }
+            IROpcode.lt => { isCmp = true }
+            IROpcode.le => { isCmp = true }
+            IROpcode.gt => { isCmp = true }
+            IROpcode.ge => { isCmp = true }
+            _ => {}
+        }
+        if isCmp {
+            typeRegisterByPeer(func, cInst.operand1, cInst.operand2)
+            typeRegisterByPeer(func, cInst.operand2, cInst.operand1)
+        }
+        ci = ci + 1
+    }
+}
+
+fn typeRegisterByPeer(func: IRFunction, target: IRValue, peer: IRValue) {
+    var isConst = false
+    match peer {
+        IRValue.Int(pv) => { isConst = true }
+        IRValue.String(pv) => { isConst = true }
+        IRValue.Bool(pv) => { isConst = true }
+        _ => {}
+    }
+    if isConst == false { return }
+    match target {
+        IRValue.Register(tr) => {
+            if tr.value >= 0 && tr.value < func.registerTypes.len() && func.registerTypes.get(tr.value) == "unknown" {
+                val pt = operandDefType(func, peer)
+                if pt == "int" || pt == "string" || pt == "bool" {
+                    func.registerTypes = setStrAt(func.registerTypes, tr.value, pt)
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn generateFunction(backend: CBackend, func: IRFunction) -> string {
