@@ -1930,7 +1930,7 @@ fn resolveExprType(builder: IRBuilder, node: ASTNode) -> string {
 // is its own value. This is the same rule sema's checkBlock types a block by
 // ("the type of the last statement"), so the type layer and the builder agree
 // on what `if c { 1 } else { 2 }` is worth.
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, WhileNode
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode, WhileNode
 fn branchValueNode(node: ASTNode) -> ASTNode {
     match node {
         ASTNode.Block(b) => {
@@ -3401,7 +3401,7 @@ fn buildForRange(builder: IRBuilder, stmt: ForNode, r: RangeNode) {
     closeLoop(builder, endLabel)
 }
 
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, TryNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MemberAccessNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn buildNode(builder: IRBuilder, node: ASTNode) {
     match node {
         ASTNode.Block(b) => {
@@ -4983,7 +4983,7 @@ fn fieldRegisterType(builder: IRBuilder, ownerName: string, fieldName: string) -
     return declaredReferenceRegisterType(builder, ft)
 }
 
-// orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
+// orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
 fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
     // A type annotation is not a runtime operation: the value underneath is the
     // expression, and the annotation only says which declared type it has. A

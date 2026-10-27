@@ -774,10 +774,10 @@ typedef struct ScheduleDeclNode {
     orbit_string amount;
     orbit_string unit;
     orbit_string atTime;
-    OrbitList* handler;
+    ASTNode* handler;
 } ScheduleDeclNode;
 #define ScheduleDeclNode(...) (ScheduleDeclNode*)orbit_model_ScheduleDeclNode_create(arena, __VA_ARGS__)
-static inline ScheduleDeclNode* orbit_model_ScheduleDeclNode_create(OrbitArena* arena_, orbit_string amount, orbit_string unit, orbit_string atTime, OrbitList* handler) {
+static inline ScheduleDeclNode* orbit_model_ScheduleDeclNode_create(OrbitArena* arena_, orbit_string amount, orbit_string unit, orbit_string atTime, ASTNode* handler) {
     ScheduleDeclNode* m = (ScheduleDeclNode*)orbit_alloc(arena_, sizeof(ScheduleDeclNode));
     m->amount = amount;
     m->unit = unit;
@@ -16675,7 +16675,7 @@ label_1343:;
     r_35 = (void*)(unit);
     r_36 = (void*)(atTime);
     r_37 = (void*)(handler);
-    r_38 = (void*)(uintptr_t)(ScheduleDeclNode((orbit_string)(r_34), (orbit_string)(r_35), (orbit_string)(r_36), (OrbitList*)(r_37)));
+    r_38 = (void*)(uintptr_t)(ScheduleDeclNode((orbit_string)(r_34), (orbit_string)(r_35), (orbit_string)(r_36), (ASTNode*)(r_37)));
     r_39 = (void*)(uintptr_t)(ScheduleDecl((void*)(uintptr_t)(r_38)));
     return (void*)(r_39);
     return NULL;
@@ -38919,7 +38919,7 @@ orbit_string checkNode(OrbitArena* arena, Sema* sema, ASTNode* node) {
     orbit_bool r_1357 = 0;
     Sema* r_1358 = 0;
     ScheduleDeclNode* r_1359 = 0;
-    OrbitList* r_1360 = 0;
+    ASTNode* r_1360 = 0;
     __attribute__((unused)) orbit_string r_1361 = 0;
     orbit_string r_1362 = 0;
     orbit_int r_1363 = 0;
@@ -152616,7 +152616,7 @@ void doctorWalkRefs(OrbitArena* arena, ASTNode* node, OrbitList* refs) {
     orbit_int r_426 = 0;
     orbit_bool r_427 = 0;
     ScheduleDeclNode* r_428 = 0;
-    OrbitList* r_429 = 0;
+    ASTNode* r_429 = 0;
     OrbitList* r_430 = 0;
     orbit_int r_432 = 0;
     ConfigDeclNode* r_433 = 0;
