@@ -1730,7 +1730,7 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                 }
                 vi = vi + 1
             }
-            out = out + "} " + tDecl.name + "_Tag;\n\n"
+            out = out + "} " + tDecl.name + "__Tag;\n\n"
             // Packed payload structs, one per multi-payload variant, ahead of
             // the union that holds them: `V(A, B)` stores a `T_V*` in data,
             // and match bindings read `T_V._0` off it. Single-payload and
@@ -1757,7 +1757,7 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                 vi = vi + 1
             }
             out = out + "typedef struct " + tDecl.name + " {\n"
-            out = out + "    " + tDecl.name + "_Tag tag;\n"
+            out = out + "    " + tDecl.name + "__Tag tag;\n"
             out = out + "    union {\n"
             out = out + "        void* data;\n"
             vi = 0

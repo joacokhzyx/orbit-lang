@@ -1,0 +1,20 @@
+// A variant may be called `Tag`. The C union keeps a tag enumeration beside
+// its payload structs, and the enumeration used to be named `Move_Tag`, the
+// same name as the payload struct of the variant `Tag`.
+union Move {
+    Step(int, int),
+    Tag(int, string)
+}
+
+fn weigh(m: Move) -> int {
+    match m {
+        Move.Step(a, b) => { return a + b }
+        Move.Tag(n, s) => { return n + s.len() }
+    }
+}
+
+fn main() -> int {
+    if weigh(Move.Step(1, 2)) != 3 { return 1 }
+    if weigh(Move.Tag(5, "abc")) != 8 { return 2 }
+    return 0
+}

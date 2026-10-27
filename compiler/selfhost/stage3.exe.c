@@ -283,10 +283,10 @@ typedef enum {
     ASTNode_TAG_TypedLiteral = 42,
     ASTNode_TAG_Empty = 43,
     ASTNode_TAG_Range = 44
-} ASTNode_Tag;
+} ASTNode__Tag;
 
 typedef struct ASTNode {
-    ASTNode_Tag tag;
+    ASTNode__Tag tag;
     union {
         void* data;
         ProgramNode* Program;
@@ -405,10 +405,10 @@ typedef enum {
     IROpcode_TAG_shl = 63,
     IROpcode_TAG_shr = 64,
     IROpcode_TAG_bit_not = 65
-} IROpcode_Tag;
+} IROpcode__Tag;
 
 typedef struct IROpcode {
-    IROpcode_Tag tag;
+    IROpcode__Tag tag;
     union {
         void* data;
         int nop; /* unit variant */
@@ -490,10 +490,10 @@ typedef enum {
     IRValue_TAG_Register = 5,
     IRValue_TAG_Label = 6,
     IRValue_TAG_None = 7
-} IRValue_Tag;
+} IRValue__Tag;
 
 typedef struct IRValue {
-    IRValue_Tag tag;
+    IRValue__Tag tag;
     union {
         void* data;
         IRValueInt* Int;
@@ -98357,7 +98357,7 @@ label_8504:;
     r_160 = (void*)(tDecl);
     r_161 = (orbit_string)(((IRTypeDecl*)r_160)->name);
     r_162 = orbit_string_concat(arena, r_159, r_161);
-    r_163 = orbit_string_concat(arena, r_162, "_Tag;\n\n");
+    r_163 = orbit_string_concat(arena, r_162, "__Tag;\n\n");
     out = (void*)(r_163);
     r_164 = (orbit_int)(uintptr_t)(0);
     vi = (orbit_int)(uintptr_t)(r_164);
@@ -98457,7 +98457,7 @@ label_8508:;
     r_229 = (void*)(tDecl);
     r_230 = (orbit_string)(((IRTypeDecl*)r_229)->name);
     r_231 = orbit_string_concat(arena, r_228, r_230);
-    r_232 = orbit_string_concat(arena, r_231, "_Tag tag;\n");
+    r_232 = orbit_string_concat(arena, r_231, "__Tag tag;\n");
     out = (void*)(r_232);
     r_233 = (void*)(out);
     r_234 = orbit_string_concat(arena, r_233, "    union {\n");
