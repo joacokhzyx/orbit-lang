@@ -121,11 +121,11 @@ fn cteFindFunction(module: IRModule, name: string) -> IRFunction {
     return NULL
 }
 
-fn getInt(l: list, i: int) -> int {
+fn getInt(l: list < int >, i: int) -> int {
     return l.get(i)
 }
 
-fn indexOfReg(regs: list, r: int) -> int {
+fn indexOfReg(regs: list < int >, r: int) -> int {
     var i = 0
     while i < regs.len() {
         if getInt(regs, i) == r {
@@ -136,11 +136,11 @@ fn indexOfReg(regs: list, r: int) -> int {
     return -1
 }
 
-fn isUsed(used: list, r: int) -> bool {
+fn isUsed(used: list < int >, r: int) -> bool {
     return indexOfReg(used, r) >= 0
 }
 
-fn markRegUsed(used: list, v: IRValue) {
+fn markRegUsed(used: list < int >, v: IRValue) {
     match v {
         IRValue.Register(r) => {
             if !isUsed(used, r.value) {
@@ -151,7 +151,7 @@ fn markRegUsed(used: list, v: IRValue) {
     }
 }
 
-fn regSet(regs: list, known: list, idx: int, value: int) {
+fn regSet(regs: list < int >, known: list < int >, idx: int, value: int) {
     while regs.len() <= idx {
         regs.push(0)
     }
@@ -162,20 +162,20 @@ fn regSet(regs: list, known: list, idx: int, value: int) {
     known[idx] = 1
 }
 
-fn regIsKnown(known: list, idx: int) -> bool {
+fn regIsKnown(known: list < int >, idx: int) -> bool {
     if idx < 0 { return false }
     if idx >= known.len() { return false }
     if getInt(known, idx) == 1 { return true }
     return false
 }
 
-fn regGet(regs: list, idx: int) -> int {
+fn regGet(regs: list < int >, idx: int) -> int {
     if idx < 0 { return 0 }
     if idx >= regs.len() { return 0 }
     return getInt(regs, idx)
 }
 
-fn resolveValue(regs: list, known: list, v: IRValue, st: CTEState) -> int {
+fn resolveValue(regs: list < int >, known: list < int >, v: IRValue, st: CTEState) -> int {
     match v {
         IRValue.Int(m) => { return m.value }
         IRValue.Bool(b) => {
@@ -196,7 +196,7 @@ fn resolveValue(regs: list, known: list, v: IRValue, st: CTEState) -> int {
     }
 }
 
-fn findLabelIndex(instrs: list, target: int) -> int {
+fn findLabelIndex(instrs: list < IRInstruction >, target: int) -> int {
     var i = 0
     while i < instrs.len() {
         val ins: IRInstruction = instrs.get(i)
@@ -377,7 +377,7 @@ fn opIs(op: IROpcode, which: int) -> bool {
     return false
 }
 
-fn evalFunction(module: IRModule, func: IRFunction, args: list, st: CTEState) -> bool {
+fn evalFunction(module: IRModule, func: IRFunction, args: list < int >, st: CTEState) -> bool {
     if st.depth > 4096 { st.success = false
         return false }
     if st.steps > 10000000 { st.success = false

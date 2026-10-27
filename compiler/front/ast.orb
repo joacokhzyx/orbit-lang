@@ -47,39 +47,39 @@ model DecoratorNode {
 model FieldDeclNode {
     name: string
     fieldType: string
-    decorators: list
+    decorators: list < ASTNode >
 }
 
 model ModelDeclNode {
     name: string
-    fields: list
-    genericParams: list
+    fields: list < ASTNode >
+    genericParams: list < ASTNode >
 }
 
 model TypeDeclNode {
     name: string
     kind: string
-    variants: list
+    variants: list < ASTNode >
     baseType: string
-    variantPayloads: list
+    variantPayloads: list < string >
 }
 
 model FunctionDeclNode {
     name: string
-    params: list
-    paramTypes: list
+    params: list < string >
+    paramTypes: list < string >
     returnType: string
     body: ASTNode
     isAsync: bool
     isPrivate: bool
     isExtern: bool
-    genericParams: list
+    genericParams: list < ASTNode >
 }
 
 model RouteDeclNode {
     http_method: string
     path: string
-    decorators: list
+    decorators: list < ASTNode >
     body: ASTNode
     has_limit: bool
     limit_rate: int
@@ -89,15 +89,15 @@ model RouteDeclNode {
 
 model TraitDeclNode {
     name: string
-    genericParams: list
-    methods: list
+    genericParams: list < ASTNode >
+    methods: list < ASTNode >
     isPrivate: bool
 }
 
 model ImplDeclNode {
     traitName: string
     typeName: string
-    methods: list
+    methods: list < ASTNode >
 }
 
 model VarDeclNode {
@@ -157,7 +157,7 @@ model ExpressionStmtNode {
 }
 
 model ProgramNode {
-    decls: list
+    decls: list < ASTNode >
 }
 
 model LiteralNode {
@@ -170,7 +170,7 @@ model LiteralNode {
 // isRaw records that the source was triple-quoted, so literal chunks keep
 // their backslashes and quotes instead of being unescaped.
 model InterpNode {
-    parts: list
+    parts: list < ASTNode >
     isRaw: bool
 }
 
@@ -179,11 +179,11 @@ model InterpNode {
 // literal is that it is a real value -- readable, nestable, passable -- and
 // not just text assembled for a response.
 model ObjectLiteralNode {
-    fields: list
+    fields: list < ASTNode >
 }
 
 model BlockNode {
-    statements: list
+    statements: list < ASTNode >
 }
 
 // An `if`, as a statement and as a value: one node, because it is one
@@ -253,7 +253,7 @@ model MatchNode {
     // the same defect as FunctionDeclNode.body was: it typechecks, and it is
     // one call away from reading a list length off a node pointer.
     expr: ASTNode
-    cases: list
+    cases: list < ASTNode >
     // The `match` keyword's own line and column. Sema reports a non-exhaustive
     // match against this position and no other node carries one, because no
     // other node is reported on. Plain ints, the shape every other position in
@@ -300,7 +300,7 @@ model UnaryOpNode {
 
 model CallNode {
     callee: ASTNode
-    args: list
+    args: list < ASTNode >
     // Where the `(` was. Sema reports a constant index that is past the end of
     // a list or a string against this, and it is the only way that check can
     // point at a line: the IR carries no position, so a runtime diagnostic can
@@ -330,7 +330,7 @@ model IndexAccessNode {
 }
 
 model ListLiteralNode {
-    elements: list
+    elements: list < ASTNode >
 }
 
 // The bounds of `for x in lo..hi`: half-open [lo, hi), ints only, ascending.

@@ -21,18 +21,18 @@ model Symbol {
     // different pass, and nothing joined them. Arity and argument type are
     // both decided by the two together, and both used to be inferred and
     // thrown away.
-    paramTypes: list
+    paramTypes: list < string >
 }
 
 model Scope {
-    symbols: list
+    symbols: list < Symbol >
     parentId: int
 }
 
 model TypeInfo {
     name: string
     kind: string
-    variants: list
+    variants: list < ASTNode >
 }
 
 // One variant name and the enum or union that declares it. A variant is
@@ -90,9 +90,9 @@ model SemaError {
 }
 
 model Sema {
-    scopes: list
+    scopes: list < Scope >
     currentScope: int
-    errors: list
+    errors: list < SemaError >
     // Bare `list`: the element type is not declared, so the C backend cannot
     // infer it and picks a model to cast each element to when the list is READ.
     // That pick happened to be DoctorDecl, whose `kind` sits at the same offset
@@ -100,18 +100,18 @@ model Sema {
     // moment either model changed shape. Every read of these two is annotated
     // (`val t: TypeInfo = ...`) to pin the cast. Do not drop those annotations:
     // they are what makes the emitted C correct, and nothing else is.
-    typeRegistry: list
-    variantRegistry: list
+    typeRegistry: list < TypeInfo >
+    variantRegistry: list < VariantInfo >
     currentReturnType: string
     currentFunction: string
-    seenRoutes: list
-    misses: list
+    seenRoutes: list < string >
+    misses: list < NameMiss >
     // Lengths the checker can prove for a `val` bound to a literal, as
     // "name\tstring\tlen" or "name\tlist\tlen". Only literal bindings, only
     // immutable ones, and only a string literal with no escapes in it -- a
     // bound that can be reassigned, or whose length this cannot count, is not
     // a bound. See checkConstantIndex.
-    constBounds: list
+    constBounds: list < ConstBound >
     // The fields of every model seen, as three parallel lists: the owning
     // model, the field name, the declared type. Parallel rather than joined
     // because a joined row would have to be split apart again, and splitting
@@ -124,9 +124,9 @@ model Sema {
     // `Point(1)` with one argument, `Point("a", true)` with two strings, and
     // `p.nonexistent` were all accepted, and the first two compiled to C
     // reading arguments that were never passed.
-    modelFieldOwner: list
-    modelFieldName: list
-    modelFieldTypeName: list
+    modelFieldOwner: list < string >
+    modelFieldName: list < string >
+    modelFieldTypeName: list < string >
     // The type parameter names of every generic model seen, as two parallel
     // lists: the model, and its parameters as one comma-separated string in
     // declaration order. Parallel, for the reason the three above are: a joined
@@ -138,20 +138,20 @@ model Sema {
     // answers `Box { ... }` has field `v`. What these two add is the knowledge
     // that `v`'s type is a parameter, which is what lets the literal fix it and
     // the checker then hold the value against it.
-    modelGenericOwner: list
-    modelGenericParams: list
+    modelGenericOwner: list < string >
+    modelGenericParams: list < string >
     // Positions checkConstantIndex has already reported, as "line:col".
     // inferType reaches a node from more than one direction -- a call infers
     // its receiver, an expression statement infers its expression -- so
     // without this one bad index would be printed twice.
-    indexChecks: list
+    indexChecks: list < string >
     // Element types the checker adopted from a push, and the length of that
     // table at each open scope. Scoped per scope for the same reason the
     // builder's own list-kind registry is: two functions with a parameter
     // named `l` would otherwise collide, and a name declared in an inner block
     // is a different list from the outer one of the same name.
-    listElems: list
-    listElemMarks: list
+    listElems: list < ListElem >
+    listElemMarks: list < int >
     // Where the value under check was written, as a fallback position for
     // literals the parser records no position for. ObjectLiteralNode,
     // FieldInitNode, TypedLiteralNode and ReturnNode carry no line/col, so a
@@ -172,23 +172,23 @@ model Sema {
     // type instead of unknown. Lookups only match entries whose scope is on
     // the current chain, so a shadowing inner binding never reads the outer
     // variable's model.
-    instanceNames: list
-    instanceModels: list
-    instanceScopes: list
-    instanceBindings: list
+    instanceNames: list < string >
+    instanceModels: list < string >
+    instanceScopes: list < string >
+    instanceBindings: list < string >
     // Names of the loops enclosing the node under check, innermost last.
     // `break outer` is only meaningful when `outer` is on this stack; a
     // named break to anything else is a typo pointing at the wrong loop, so
     // it is refused where a plain stray `break` stays silent (existing
     // behavior, separate work). Push/pop in checkForLoop only: `fn` cannot
     // nest in a block, so no boundary needs saving.
-    loopLabels: list
+    loopLabels: list < string >
     // Generic function declarations by name, as parallel lists (the name and
     // the FunctionDecl node). A call resolves its callee here before the
     // ordinary function table, because a generic has no one C function to
     // point at: each call site monomorphises its own instance.
-    genericFnNames: list
-    genericFnDecls: list
+    genericFnNames: list < string >
+    genericFnDecls: list < ASTNode >
     // Names of the `extern fn` declarations the program makes. A `fn` value is
     // called through a C cast whose first argument is the request arena, which
     // is true of every function this compiler emits and false of an extern:
@@ -198,7 +198,7 @@ model Sema {
     // read the arena pointer as its path and the real argument was never read.
     // The symbol table carries no extern flag, so the name is recorded here
     // where the declaration is in hand.
-    externFnNames: list
+    externFnNames: list < string >
 }
 
 fn initSema() -> Sema {
@@ -229,7 +229,7 @@ fn instanceModelOf(sema: Sema, name: string) -> string {
     return ""
 }
 
-fn recordInstanceModel(sema: Sema, name: string, modelName: string, bindings: list) {
+fn recordInstanceModel(sema: Sema, name: string, modelName: string, bindings: list < string >) {
     sema.instanceNames.push(name)
     sema.instanceModels.push(modelName)
     sema.instanceScopes.push(orbit_int_to_string_selfhost(sema.currentScope))
@@ -238,7 +238,7 @@ fn recordInstanceModel(sema: Sema, name: string, modelName: string, bindings: li
 
 // Bindings ride as one tab-joined string because a nested list would need
 // its elements re-typed at every read; type spellings never contain tabs.
-fn joinBindingRows(rows: list) -> string {
+fn joinBindingRows(rows: list < string >) -> string {
     var out = ""
     var i = 0
     while i < rows.len() {
@@ -253,7 +253,7 @@ fn joinBindingRows(rows: list) -> string {
 // "param arg" rows, or an empty list when it was not built from a generic
 // model literal. Same scope-pinned walk as instanceModelOf; the two stay in
 // lockstep because only recordInstanceModel pushes to either.
-fn instanceBindingsOf(sema: Sema, name: string) -> list {
+fn instanceBindingsOf(sema: Sema, name: string) -> list < string > {
     var scopeId = sema.currentScope
     while scopeId >= 0 {
         val scope = sema.scopes.get(scopeId)
@@ -291,7 +291,7 @@ fn splitBindingRows(joined: string) -> list < string > {
     return rows
 }
 
-fn listContainsValue(items: list, value: string) -> bool {
+fn listContainsValue(items: list < string >, value: string) -> bool {
     if items == NULL { return false }
     var i = 0
     while i < items.len() {
@@ -459,7 +459,7 @@ fn hasErrors(sema: Sema) -> bool {
     return sema.errors.len() > 0
 }
 
-fn registerType(sema: Sema, name: string, kind: string, variants: list, payloads: list) {
+fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode >, payloads: list < string >) {
     var i = 0
     while i < sema.typeRegistry.len() {
         val t: TypeInfo = sema.typeRegistry.get(i)
@@ -535,7 +535,7 @@ fn variantPayloadAt(sema: Sema, variantName: string, idx: int) -> string {
 // E1005 (like call arguments, int widening included). Types ride in
 // precomputed, because checking an argument twice prints its diagnostics
 // twice.
-fn checkVariantCall(sema: Sema, variantName: string, args: list, argTypes: list, line: int, col: int) {
+fn checkVariantCall(sema: Sema, variantName: string, args: list < ASTNode >, argTypes: list < string >, line: int, col: int) {
     val want = variantArityOf(sema, variantName)
     if args.len() != want {
         reportErrorAt(sema, "E1003", "Construct the variant with one argument per payload, in order.", line, col, "Variant '" + variantName + "' declares " + orbit_int_to_string_selfhost(want) + " payloads, but the construction passes " + orbit_int_to_string_selfhost(args.len()) + ".")
@@ -585,7 +585,7 @@ fn genericFnDecl(sema: Sema, name: string) -> ASTNode {
 }
 
 // The names a generic declaration binds, in order.
-fn genericParamNames(decl: FunctionDeclNode) -> list {
+fn genericParamNames(decl: FunctionDeclNode) -> list < string > {
     val out = []
     var i = 0
     while i < decl.genericParams.len() {
@@ -601,7 +601,7 @@ fn genericParamNames(decl: FunctionDeclNode) -> list {
 // Comma-split of a `Name<...>` argument list starting after the `<` at
 // openIdx, depth-aware so `map<string, list<int>>` splits in two, not three.
 // Builder.orb carries splitTypeArgs for the same job in its own closure.
-fn splitTypeArgsOf(declared: string, openIdx: int) -> list {
+fn splitTypeArgsOf(declared: string, openIdx: int) -> list < string > {
     val out = []
     var cur = ""
     var depth = 0
@@ -680,7 +680,7 @@ fn inferParamBinding(declared: string, actual: string, param: string) -> string 
 // bindings for a literal in hand, nothing otherwise. A model-typed position
 // cannot peel -- `Box_int` is an instance name, not an application -- so
 // this history is what binds it.
-fn instanceBindingRows(sema: Sema, modelName: string, node: ASTNode) -> list {
+fn instanceBindingRows(sema: Sema, modelName: string, node: ASTNode) -> list < string > {
     match node {
         ASTNode.Literal(l) => {
             if l.valType == "identifier" { return instanceBindingsOf(sema, l.text) }
@@ -699,7 +699,7 @@ fn instanceBindingRows(sema: Sema, modelName: string, node: ASTNode) -> list {
 // a parameter itself (another variable, typically from a nested generic
 // body) also binds nothing: it fixes nothing, and treating it as concrete
 // refuses programs whose only sin is passing a variable through.
-fn cohereBinding(sema: Sema, name: string, params: list, bindings: list, boundAt: list, pname: string, value: string, argPos: int, line: int, col: int) {
+fn cohereBinding(sema: Sema, name: string, params: list < string >, bindings: list < string >, boundAt: list < string >, pname: string, value: string, argPos: int, line: int, col: int) {
     if value == "" || value == "unknown" || value == "void" { return }
     var selfRef = false
     var q = 0
@@ -733,7 +733,7 @@ fn cohereBinding(sema: Sema, name: string, params: list, bindings: list, boundAt
 // "unknown" argument binds nothing and stays lenient downstream, the way an
 // undetermined model parameter becomes Box_unknown. Returns the substituted
 // return type.
-fn checkGenericCall(sema: Sema, name: string, decl: FunctionDeclNode, args: list, argTypes: list, line: int, col: int) -> string {
+fn checkGenericCall(sema: Sema, name: string, decl: FunctionDeclNode, args: list < ASTNode >, argTypes: list < string >, line: int, col: int) -> string {
     val params = genericParamNames(decl)
     val bindings = []
     val boundAt = []
@@ -919,7 +919,7 @@ fn argTypeFits(got: string, want: string) -> bool {
 // pointer where the C struct member is an int. The C compiler cannot catch
 // either: the struct is a typedef, and `p.x` is a member read whose type is
 // simply wrong. Both are decisions the model declaration already made.
-fn checkModelCtor(sema: Sema, args: list, line: int, col: int, modelName: string) {
+fn checkModelCtor(sema: Sema, args: list < ASTNode >, line: int, col: int, modelName: string) {
     if lookupSymbol(sema, modelName) != "model" { return }
     val declared = modelFieldCount(sema, modelName)
     if declared == 0 { return }
@@ -1057,7 +1057,7 @@ fn declareSymbol(sema: Sema, name: string, typeName: string, isMutable: bool, is
     declareSymbolWithParams(sema, name, typeName, isMutable, isFunction, [])
 }
 
-fn declareSymbolWithParams(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool, paramTypes: list) {
+fn declareSymbolWithParams(sema: Sema, name: string, typeName: string, isMutable: bool, isFunction: bool, paramTypes: list < string >) {
     // The C backend opens every function it emits with an `OrbitArena* arena`
     // parameter, so this name is already taken in the generated C: `fn f(arena:
     // int)` emitted `orbit_int f(OrbitArena* arena, orbit_int arena)` and the C
@@ -1339,7 +1339,7 @@ fn checkCallArity(sema: Sema, name: string, argCount: int) {
 //
 // checkCompatibility decides what counts as a mismatch, so this stays
 // one-sided: an argument the checker could not type is not a mismatch.
-fn checkCallArgTypes(sema: Sema, name: string, args: list, line: int, col: int) {
+fn checkCallArgTypes(sema: Sema, name: string, args: list < ASTNode >, line: int, col: int) {
     val sym = resolveFunctionSymbol(sema, name)
     if sym == NULL { return }
     val params = sym.paramTypes
@@ -1361,7 +1361,7 @@ fn checkCallArgTypes(sema: Sema, name: string, args: list, line: int, col: int) 
 // so they silently pass everything; the signature rides the value's spelling
 // instead. Same diagnostics shape: a wrong count is the plain arity message,
 // a wrong type is E1005 against the parameter the value's declaration gave.
-fn checkFnVarCall(sema: Sema, name: string, fnType: string, args: list, argTypes: list, line: int, col: int) {
+fn checkFnVarCall(sema: Sema, name: string, fnType: string, args: list < ASTNode >, argTypes: list < string >, line: int, col: int) {
     val want = fnTypeArity(fnType)
     if want != args.len() {
         if want == 1 {
@@ -1444,7 +1444,7 @@ fn isFnType(t: string) -> bool {
     return t.slice(0, 3) == "fn("
 }
 
-fn fnTypeSpelling(ret: string, params: list) -> string {
+fn fnTypeSpelling(ret: string, params: list < string >) -> string {
     var out = "fn("
     var i = 0
     while i < params.len() {
@@ -1464,7 +1464,7 @@ fn fnTypeReturn(t: string) -> string {
 }
 
 // The parameter list between `fn(` and `)->`, split on the ";" above.
-fn fnTypeParams(t: string) -> list {
+fn fnTypeParams(t: string) -> list < string > {
     val out = []
     if isFnType(t) == false { return out }
     val arrow = t.indexOf(")->")
@@ -1616,7 +1616,7 @@ fn listElementFits(got: string, want: string) -> bool {
  *  unexamined and was read back as whatever the reader assumed. A push is also
  *  the one place an unannotated list learns what it holds, so this is where an
  *  empty `[]` acquires the element type its later reads are checked against. */
-fn checkListPush(sema: Sema, objType: string, recvName: string, argTypes: list, line: int, col: int) {
+fn checkListPush(sema: Sema, objType: string, recvName: string, argTypes: list < string >, line: int, col: int) {
     if argTypes.len() != 1 { return }
     val got: string = argTypes.get(0)
     val want = listElementOf(sema, objType, recvName)
@@ -1888,7 +1888,7 @@ fn isGenericModelTypeName(sema: Sema, name: string) -> bool {
 
 // Whether the annotation carries its arguments. `Box<int>` does; `Box` and
 // `Box<>` do not.
-fn genericArgsOf(sema: Sema, name: string) -> list {
+fn genericArgsOf(sema: Sema, name: string) -> list < string > {
     var bare = name
     val lt = orbit_string_indexOf(name, "<")
     if lt <= 0 { return [] }
@@ -1931,7 +1931,7 @@ fn checkGenericModelTypeName(sema: Sema, declared: string, line: int, col: int) 
     return true
 }
 
-fn checkableParamTypes(sema: Sema, declared: list) -> list {
+fn checkableParamTypes(sema: Sema, declared: list < string >) -> list < string > {
     var out = []
     var i = 0
     while i < declared.len() {
@@ -2087,7 +2087,7 @@ model ConstBound {
     len: int
 }
 
-fn recordConstBound(sema: Sema, name: string, value: list) {
+fn recordConstBound(sema: Sema, name: string, value: ASTNode) {
     if name == "" { return }
     match value {
         ASTNode.Literal(lit) => {
@@ -2148,7 +2148,7 @@ fn constBoundLen(sema: Sema, name: string, wantKind: string) -> int {
  *  take. Anything else -- a computed index, a negative one, a hex literal --
  *  answers -1 and is left to the runtime, which stops the process. */
 // orbit-walk: none -- asks the value behind an index literal
-fn literalIndexValue(node: list) -> int {
+fn literalIndexValue(node: ASTNode) -> int {
     match node {
         // A negative literal is a unary minus over a positive one -- the lexer
         // makes `-1` two tokens -- so it reads as -1 here rather than as "not
@@ -2178,7 +2178,7 @@ fn literalIndexValue(node: list) -> int {
     }
 }
 
-fn identifierName(node: list) -> string {
+fn identifierName(node: ASTNode) -> string {
     match node {
         ASTNode.Literal(lit) => {
             if lit.valType == "identifier" { return lit.text }
@@ -2197,7 +2197,7 @@ fn identifierName(node: list) -> string {
 // `-2147483648`, spelled as a negation of the literal 2147483648. The only
 // spelling of the integer minimum there is: the value itself does not fit an
 // orbit_int, and the range check says so if it is written directly.
-fn isIntMinSpelling(node: list) -> bool {
+fn isIntMinSpelling(node: ASTNode) -> bool {
     match node {
         ASTNode.UnaryOp(u) => {
             if u.op != "-" { return false }
@@ -2224,7 +2224,7 @@ fn isIntMinSpelling(node: list) -> bool {
 // the whole set that can reach INT_MIN in a program, since the value itself
 // cannot be written down.
 // orbit-walk: none -- asks whether a literal folds to an int
-fn canFoldInt(node: list) -> bool {
+fn canFoldInt(node: ASTNode) -> bool {
     // `-2147483648` is INT_MIN: a negation of a literal one past INT_MAX. The
     // Literal arm in checkNode returns "int" for exactly that spelling, so the
     // two places have to agree on it or the range check and this disagree about
@@ -2248,7 +2248,7 @@ fn canFoldInt(node: list) -> bool {
 
 // The value of an operand already known to satisfy canFoldInt.
 // orbit-walk: none -- asks the folded value of a literal
-fn foldedIntValue(node: list) -> int {
+fn foldedIntValue(node: ASTNode) -> int {
     if isIntMinSpelling(node) { return 0 - 2147483647 - 1 }
     val lit = literalIndexValue(node)
     if lit >= 0 { return lit }
@@ -2289,7 +2289,7 @@ fn foldedIntValue(node: list) -> int {
 // struct field cannot survive the trip through a union payload that way, so
 // the values come in as plain arguments, the way checkConstantIndex already
 // takes its line and col.
-fn checkDivision(sema: Sema, op: string, rhs: list, lhs: list, line: int, col: int) {
+fn checkDivision(sema: Sema, op: string, rhs: ASTNode, lhs: ASTNode, line: int, col: int) {
     if op != "/" && op != "%" { return }
     val divisor = literalIndexValue(rhs)
     if divisor == 0 {
@@ -2311,7 +2311,7 @@ fn checkDivision(sema: Sema, op: string, rhs: list, lhs: list, line: int, col: i
     }
 }
 
-fn checkConstantIndex(sema: Sema, recv: list, indexNode: list, line: int, col: int) {
+fn checkConstantIndex(sema: Sema, recv: ASTNode, indexNode: ASTNode, line: int, col: int) {
     val idx = literalIndexValue(indexNode)
     if idx < 0 { return }
     val name = identifierName(recv)
@@ -2791,7 +2791,7 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     if isTaggedTypeIndex(sema, typeIdx) == false { return }
     val t: TypeInfo = sema.typeRegistry.get(typeIdx)
 
-    val covered = []
+    val covered: list < string > = []
     var hasWildcard = false
     var i = 0
     while i < m.cases.len() {
@@ -2820,7 +2820,7 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
     // One diagnostic per match, not per missing variant: a `match` on a large
     // type can be missing thirty cases, and thirty near-identical lines bury
     // the one fact the reader needs.
-    val missing = []
+    val missing: list < string > = []
     var v = 0
     while v < t.variants.len() {
         val variantNode = t.variants.get(v)
@@ -2857,7 +2857,7 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
 // The names a match case binds, in order: every identifier argument of a
 // `V(a, b)` or `T.V(a, b)` pattern. Non-identifier arguments bind nothing,
 // the way a single one does today.
-fn patternBindings(pattern: ASTNode) -> list {
+fn patternBindings(pattern: ASTNode) -> list < string > {
     val out = []
     match pattern {
         ASTNode.Call(c) => {
@@ -3037,7 +3037,7 @@ fn checkObjectLiteralModel(sema: Sema, modelName: string, node: ASTNode) {
 // [] when it declares none. The registry stores one comma-separated string
 // because a model with two parameters is one row, and a row has to be a
 // string; splitting it back out is this function's whole job.
-fn modelGenericParamsOf(sema: Sema, modelName: string) -> list {
+fn modelGenericParamsOf(sema: Sema, modelName: string) -> list < string > {
     var i = 0
     while i < sema.modelGenericOwner.len() {
         if sema.modelGenericOwner.get(i) == modelName {
@@ -3105,9 +3105,9 @@ fn trimTypeArgForSema(s: string) -> string {
 // so a value the checker types and the builder cannot is still checked here
 // and still emits `Box_unknown` -- never a `Box_string` the checker did not
 // clear.
-fn modelGenericBindings(sema: Sema, modelName: string, node: ASTNode) -> list {
+fn modelGenericBindings(sema: Sema, modelName: string, node: ASTNode) -> list < string > {
     val params = modelGenericParamsOf(sema, modelName)
-    var bindings = []
+    var bindings: list < string > = []
     var p = 0
     while p < params.len() {
         bindings.push(params.get(p) + " unknown")
@@ -3173,7 +3173,7 @@ fn modelGenericBindings(sema: Sema, modelName: string, node: ASTNode) -> list {
     return bindings
 }
 
-fn indexInList(items: list, want: string) -> int {
+fn indexInList(items: list < string >, want: string) -> int {
     var i = 0
     while i < items.len() {
         if items.get(i) == want { return i }
@@ -3201,7 +3201,7 @@ fn bindingHead(row: string) -> string {
 // is what made `model Nested[T] { grid: list<list<T>> }` refuse a value it could
 // see the type of, and an inference that only works one level deep is an
 // inference whose depth is a rule nobody wrote down.
-fn listElementParamIndexOf(params: list, declared: string) -> int {
+fn listElementParamIndexOf(params: list < string >, declared: string) -> int {
     return indexInList(params, listPeeledInner(declared))
 }
 
@@ -3235,7 +3235,7 @@ fn listPeelDepthOf(declared: string) -> int {
 // The type `declared` becomes once every parameter is bound: the parameter's
 // own name where it stands alone, and every other character kept. Word at a
 // time on purpose -- the `T` in `string` is not the parameter `T`.
-fn modelSubstitutedType(declared: string, bindings: list) -> string {
+fn modelSubstitutedType(declared: string, bindings: list < string >) -> string {
     var out = ""
     var i = 0
     while i < orbit_string_len(declared) {
@@ -3263,7 +3263,7 @@ fn isTypeWordChar(c: int) -> bool {
     return false
 }
 
-fn substitutedWord(word: string, bindings: list) -> string {
+fn substitutedWord(word: string, bindings: list < string >) -> string {
     var i = 0
     while i < bindings.len() {
         if bindingHead(bindings.get(i)) == word {
@@ -3929,7 +3929,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             // second time. A check that wanted them from a fresh checkNode would
             // print every diagnostic inside an argument twice, which is the same
             // reason checkIf checks each branch exactly once.
-            val argTypes: list = []
+            val argTypes: list < string > = []
             var i = 0
             while i < c.args.len() {
                 argTypes.push(checkNode(sema, c.args.get(i)))

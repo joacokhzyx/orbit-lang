@@ -9,26 +9,26 @@ model IRBuilder {
     module: IRModule
     currentFunction: IRFunction
     labelCounter: int
-    variableScopes: list
-    loopStartLabels: list
-    loopEndLabels: list
+    variableScopes: list < VarScope >
+    loopStartLabels: list < int >
+    loopEndLabels: list < int >
     // Names of the loops on the two stacks above, in lockstep: "" for an
     // unlabeled loop (while always pushes ""), the label otherwise. Only
     // recordInstanceModel-style push discipline applies: every push to the
     // label stacks pushes here, closeLoop pops all four, or a later break
     // jumps to the wrong loop.
-    loopLabelNames: list
+    loopLabelNames: list < string >
     // Where a `continue` (plain or named) jumps for each loop on the stacks,
     // in lockstep with them. A `while` continues at its start label, but a
     // `for` must continue at its increment: jumping a `for` to its start
     // reloads the same index forever, which is how a plain `continue` in a
     // `for` used to hang. Fourth stack, same push/pop discipline.
-    loopContinueLabels: list
+    loopContinueLabels: list < int >
     // Generic function templates by name, as parallel lists (the name and
     // the FunctionDecl node). Templates emit no C themselves: each call site
     // monomorphises its own instance through ensureFnInstance below.
-    genericFnNames: list
-    genericFnDecls: list
+    genericFnNames: list < string >
+    genericFnDecls: list < ASTNode >
     // Type-variable bindings for the instance under construction, as a stack
     // of frames: parameter names comma-joined beside arguments tab-joined
     // (type spellings never contain tabs, and parameter names never contain
@@ -37,32 +37,32 @@ model IRBuilder {
     // marks are needed. Lookups run innermost-first, so an inner `T`
     // shadows an outer one, and chaining falls out: substituting frame by
     // frame turns `list<U>` with U->T into `list<T>` for the outer frame.
-    fnGenericParams: list
-    fnGenericArgs: list
+    fnGenericParams: list < string >
+    fnGenericArgs: list < string >
     // Model instance bindings per variable, as parallel lists (the name, the
     // model's own name, the arguments tab-joined), with frame marks like
     // listKindMarks: a `Box { v: 1 }` bound to `b` answers "T int" for `b`
     // while its scope lives, so a generic call taking `b` infers from
     // history, not from the lossy instance-name spelling.
-    genInstNames: list
-    genInstModels: list
-    genInstArgs: list
-    genInstMarks: list
+    genInstNames: list < string >
+    genInstModels: list < string >
+    genInstArgs: list < string >
+    genInstMarks: list < int >
     // Queued generic instances: the substituted declaration, the parameter
     // names joined, the bindings joined. ensureFnInstance only registers the
     // prototype; drainFnInstances builds the bodies after pass 3, so no
     // instance ever builds with a caller's scope open.
-    fnWorkDecls: list
-    fnWorkParams: list
-    fnWorkArgs: list
-    modelNames: list
-    returnTypes: list
+    fnWorkDecls: list < ASTNode >
+    fnWorkParams: list < string >
+    fnWorkArgs: list < string >
+    modelNames: list < string >
+    returnTypes: list < Variable >
     // Element type per named list, as `name -> Orbit type name` (Variable).
     // A list literal knows its own kind; a `var xs = []` that is filled by
     // push() learns it from the first push it can type. Separate from the
     // ordinary variable table because a list's element type is not the
     // variable's type: `var xs: list` says nothing about what is in it.
-    listKinds: list
+    listKinds: list < Variable >
     // listKinds length at each open block scope. The array is flat, and a
     // variable declared in one function is an *unrelated* variable in the
     // next: `l: list<string>` in getOr and `l: list<int>` in containsInt are
@@ -71,12 +71,12 @@ model IRBuilder {
     // built with the *last writer's* kind, `list<int>` and `list<string>`
     // both taking `l`. The whole std got one elemKind for `l`. Restored on
     // popVariableScope exactly as variableScopes is.
-    listKindMarks: list
+    listKindMarks: list < int >
     // The generic model DECLARATIONS, as IRModelDecl with typeParams filled.
     // Separate from module.models because that list is what the emitter walks,
     // and a declaration's field types are not C types until a use fixes them.
     // An instantiation is pushed back into module.models under its own name.
-    genericModels: list
+    genericModels: list < IRModelDecl >
     // Disambiguator for shadowed locals. Minted C names come from here, in
     // AST walk order, so they are deterministic across runs.
     varSeq: int
@@ -98,7 +98,7 @@ model Variable {
 }
 
 model VarScope {
-    variables: list
+    variables: list < Variable >
 }
 
 fn initScope() -> VarScope {
@@ -145,7 +145,7 @@ fn currentScopeAdd(scope: VarScope, name: string, cname: string, typeVal: string
 // callers answer differently on absence: a return type that cannot be found is
 // "unknown" and has to stay that, while an undeclared list kind is "" because
 // "" is what tells listKindNameOf that nothing has pushed a kind yet.
-fn lookupLastVariableType(vars: list, name: string, absent: string) -> string {
+fn lookupLastVariableType(vars: list < Variable >, name: string, absent: string) -> string {
     var i = vars.len()
     while i > 0 {
         i = i - 1
@@ -466,7 +466,7 @@ fn isModelDeclName(builder: IRBuilder, name: string) -> bool {
 // declared anything that merely MENTIONS a parameter binds nothing, which is
 // what turns a parameter nothing determines into a diagnostic instead of a
 // guess: there is no `unknown` to substitute and no second question to ask.
-fn typeParamIndex(params: list, declared: string) -> int {
+fn typeParamIndex(params: list < string >, declared: string) -> int {
     var i = 0
     while i < params.len() {
         if params.get(i) == declared { return i }
@@ -484,7 +484,7 @@ fn typeParamIndex(params: list, declared: string) -> int {
 // copies of this rule disagreed: the checker reached the parameter in a
 // `list<list<T>>` field and the builder did not, so the same literal checked as
 // `list<list<float>>` and built as `Nested_unknown`.
-fn listElementParamIndex(params: list, declared: string) -> int {
+fn listElementParamIndex(params: list < string >, declared: string) -> int {
     return typeParamIndex(params, listPeeledInner(declared))
 }
 
@@ -492,7 +492,7 @@ fn listElementParamIndex(params: list, declared: string) -> int {
 // word-at-a-time is the difference between substituting a type parameter and
 // corrupting a type name: the `T` in `T` is the parameter, and the `T` in
 // `string` is not.
-fn argumentForTypeName(word: string, params: list, args: list) -> string {
+fn argumentForTypeName(word: string, params: list < string >, args: list < string >) -> string {
     val idx = typeParamIndex(params, word)
     if idx < 0 || idx >= args.len() { return word }
     val a = args.get(idx)
@@ -504,7 +504,7 @@ fn argumentForTypeName(word: string, params: list, args: list) -> string {
 // becomes `int` before anything is lowered, and `list<T>` becomes `list<int>`
 // by the same walk -- which is exactly the string a model written out longhand
 // would have had, so every downstream rule reads it the way it always has.
-fn substituteTypeParams(declared: string, params: list, args: list) -> string {
+fn substituteTypeParams(declared: string, params: list < string >, args: list < string >) -> string {
     var out = ""
     var i = 0
     while i < orbit_string_len(declared) {
@@ -552,8 +552,8 @@ fn listLiteralValueAtDepth(node: ASTNode, depth: int) -> ASTNode {
     return current
 }
 
-fn modelLiteralArgTypes(builder: IRBuilder, gm: IRModelDecl, literal: ASTNode) -> list {
-    var args = []
+fn modelLiteralArgTypes(builder: IRBuilder, gm: IRModelDecl, literal: ASTNode) -> list < string > {
+    var args: list < string > = []
     var p = 0
     while p < gm.typeParams.len() {
         args.push("unknown")
@@ -652,7 +652,7 @@ fn ensureModelInstance(builder: IRBuilder, modelName: string, literal: ASTNode) 
 
 // Register the instantiation for WRITTEN arguments -- `Box<int>` in a
 // signature or an annotation -- and return its name.
-fn ensureModelInstanceFromArgs(builder: IRBuilder, modelName: string, args: list) -> string {
+fn ensureModelInstanceFromArgs(builder: IRBuilder, modelName: string, args: list < string >) -> string {
     val gm = genericModelByName(builder, modelName)
     if gm == NULL { return "" }
     if args.len() != gm.typeParams.len() { return "" }
@@ -749,7 +749,7 @@ fn recordGenericFn(builder: IRBuilder, f: FunctionDeclNode) {
 // model `modelName` with the given argument spellings, in the model's
 // parameter order. The scope marks truncate it on pop, so history never
 // outlives the binding.
-fn recordGenericInstance(builder: IRBuilder, varName: string, modelName: string, args: list) {
+fn recordGenericInstance(builder: IRBuilder, varName: string, modelName: string, args: list < string >) {
     var joined = ""
     var i = 0
     while i < args.len() {
@@ -768,7 +768,7 @@ fn recordGenericInstance(builder: IRBuilder, varName: string, modelName: string,
 // otherwise. An instance name (`Box_int`) is not an application, so the
 // model's own parameters are read off the declaration site instead of peeled
 // from the spelling.
-fn genericInstanceRows(builder: IRBuilder, modelName: string, node: ASTNode) -> list {
+fn genericInstanceRows(builder: IRBuilder, modelName: string, node: ASTNode) -> list < string > {
     val gm = genericModelByName(builder, modelName)
     if gm == NULL { return [] }
     match node {
@@ -814,7 +814,7 @@ fn genericInstanceRows(builder: IRBuilder, modelName: string, node: ASTNode) -> 
 }
 
 // The template's parameter names, in order.
-fn genericFnParamNames(f: FunctionDeclNode) -> list {
+fn genericFnParamNames(f: FunctionDeclNode) -> list < string > {
     val out = []
     var i = 0
     while i < f.genericParams.len() {
@@ -905,7 +905,7 @@ fn paramMentionedBuilder(spelling: string, param: string) -> bool {
 
 // Whether a spelling names one of the parameters itself (another variable,
 // not a fix). Twin of the checker's skip inside cohereBinding.
-fn isSelfParam(params: list, value: string) -> bool {
+fn isSelfParam(params: list < string >, value: string) -> bool {
     var i = 0
     while i < params.len() {
         val pname: string = params.get(i)
@@ -919,7 +919,7 @@ fn isSelfParam(params: list, value: string) -> bool {
 // position order, unknowns skipped, exactly the checker's rule, because the
 // instance name has to be the checker's instance. Values naming a parameter
 // are skipped like unknowns, for the same reason as there.
-fn inferFnBindings(builder: IRBuilder, f: FunctionDeclNode, c: CallNode) -> list {
+fn inferFnBindings(builder: IRBuilder, f: FunctionDeclNode, c: CallNode) -> list < string > {
     val params = genericFnParamNames(f)
     val bindings = []
     var p = 0
@@ -981,7 +981,7 @@ fn pushFnGenericFrameJoined(builder: IRBuilder, names: string, args: string) {
     builder.fnGenericArgs.push(args)
 }
 
-fn pushFnGenericFrame(builder: IRBuilder, params: list, bindings: list) {
+fn pushFnGenericFrame(builder: IRBuilder, params: list < string >, bindings: list < string >) {
     var names = ""
     var i = 0
     while i < params.len() {
@@ -1024,7 +1024,7 @@ fn resolveFnType(builder: IRBuilder, spelling: string) -> string {
 // The instance a call's bindings name: `f` unchanged without parameters,
 // `f_int` / `f_list_string` with them. Same mangling the models use, so the
 // name reads the same everywhere.
-fn fnInstanceName(name: string, bindings: list) -> string {
+fn fnInstanceName(name: string, bindings: list < string >) -> string {
     var out = name
     var i = 0
     while i < bindings.len() {
@@ -1047,7 +1047,7 @@ fn fnInstanceName(name: string, bindings: list) -> string {
 // still open minted its parameters against the caller's locals (`b` became
 // an unassigned `b__s0` and the first field read segfaulted), so instances
 // build in the drain with clean scopes, exactly like top-level functions.
-fn ensureFnInstance(builder: IRBuilder, name: string, bindings: list) -> string {
+fn ensureFnInstance(builder: IRBuilder, name: string, bindings: list < string >) -> string {
     val inst = fnInstanceName(name, bindings)
     if findFunction(builder.module, inst) >= 0 { return inst }
     match genericFnByName(builder, name) {
@@ -1088,7 +1088,7 @@ fn ensureFnInstance(builder: IRBuilder, name: string, bindings: list) -> string 
 
 // Comma-join parameter names, tab-join argument spellings: the queued form
 // of a frame, split back by pushFnGenericFrameJoined's readers.
-fn joinTypeNames(items: list) -> string {
+fn joinTypeNames(items: list < string >) -> string {
     var out = ""
     var i = 0
     while i < items.len() {
@@ -1102,7 +1102,7 @@ fn joinTypeNames(items: list) -> string {
     return out
 }
 
-fn joinTypeArgs(items: list) -> string {
+fn joinTypeArgs(items: list < string >) -> string {
     var out = ""
     var i = 0
     while i < items.len() {
@@ -1420,6 +1420,36 @@ fn listReadRegisterType(builder: IRBuilder, node: ASTNode, code: int) -> string 
     return referenceElementRegisterType(builder, name)
 }
 
+/** @brief The enumeration or union a `Type.Variant` reference names, or "".
+ *
+ *  `var tag = TokType.EOF` and `var out = ASTNode.Empty` bound `tag` and `out`
+ *  to unknown, although the name in front of the dot is the type. A variable
+ *  of that name wins, as it does in buildExpr, and the member has to be a
+ *  variant the declaration lists, so `Shape.area(x)` on a trait function keeps
+ *  its old answer. */
+fn variantReferenceType(builder: IRBuilder, object: ASTNode, member: string) -> string {
+    match object {
+        ASTNode.Literal(lit) => {
+            if lit.valType != "identifier" { return "" }
+            if lookupVariable(builder, lit.text) != "unknown" { return "" }
+            var ti = 0
+            while ti < builder.module.types.len() {
+                val td: IRTypeDecl = builder.module.types.get(ti)
+                if td.name == lit.text && (td.kind == "enumeration" || td.kind == "union_type") {
+                    var vi = 0
+                    while vi < td.variants.len() {
+                        if td.variants.get(vi) == member { return td.name }
+                        vi = vi + 1
+                    }
+                }
+                ti = ti + 1
+            }
+            return ""
+        }
+        _ => { return "" }
+    }
+}
+
 /** @brief The static type of an expression, for the purpose of a list's element type.
  *
  *  Deliberately narrow. It answers for literals, list and object literals,
@@ -1490,9 +1520,16 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
             if lt == "int" && rt == "int" { return "int" }
             return "unknown"
         }
+        ASTNode.MemberAccess(vma) => {
+            val variantOwner = variantReferenceType(builder, vma.object, vma.field)
+            if variantOwner != "" { return variantOwner }
+            return resolveExprType(builder, node)
+        }
         ASTNode.Call(c) => {
             match c.callee {
                 ASTNode.MemberAccess(ma) => {
+                    val ctorOwner = variantReferenceType(builder, ma.object, ma.field)
+                    if ctorOwner != "" { return ctorOwner }
                     // A read of a list has the list's element type, which is
                     // how `val x = xs.get(0)` learns what x is.
                     if ma.field == "get" || ma.field == "at" {
@@ -1561,7 +1598,7 @@ fn isListExpression(builder: IRBuilder, node: ASTNode) -> bool {
             return false
         }
         ASTNode.MemberAccess(ma) => {
-            if fieldTypeOfModel(builder, resolveExprType(builder, ma.object), ma.field) == "list" { return true }
+            if annotationBaseType(fieldTypeOfModel(builder, resolveExprType(builder, ma.object), ma.field)) == "list" { return true }
             return false
         }
         _ => { return false }
@@ -1610,8 +1647,11 @@ fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
         }
         ASTNode.MemberAccess(ma) => {
             val src = resolveListSource(builder, node)
-            if src != "" { return listElementType(src) }
-            return ""
+            if src == "" { return "" }
+            val tabled = listElementType(src)
+            if tabled != "unknown" { return tabled }
+            // A field declared `list<T>` says its element type itself.
+            return annotationListElement(resolveExprType(builder, node))
         }
         _ => { return "" }
     }
@@ -1884,7 +1924,7 @@ fn resolveListSource(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.MemberAccess(ma) => {
             val objType = resolveExprType(builder, ma.object)
-            if objType != "unknown" && fieldTypeOfModel(builder, objType, ma.field) == "list" {
+            if objType != "unknown" && annotationBaseType(fieldTypeOfModel(builder, objType, ma.field)) == "list" {
                 return objType + "." + ma.field
             }
             return ""
@@ -1898,9 +1938,11 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
         ASTNode.Call(c) => {
             match c.callee {
                 ASTNode.MemberAccess(ma) => {
+                    val ctorOwner = variantReferenceType(builder, ma.object, ma.field)
+                    if ctorOwner != "" { return ctorOwner }
                     if ma.field == "get" {
                         val objType = resolveExprType(builder, ma.object)
-                        if objType == "list" {
+                        if annotationBaseType(objType) == "list" {
                             val elemType = listElementType(resolveListSource(builder, ma.object))
                             if elemType != "unknown" {
                                 return elemType
@@ -1950,7 +1992,7 @@ fn modelHasField(builder: IRBuilder, typeName: string, fieldName: string) -> boo
 // parser, which joins with them because commas need depth tracking;
 // sema.orb's splitBindingRows is the same split for the same reason, in its
 // own module closure.
-fn splitPayloadTypes(joined: string) -> list {
+fn splitPayloadTypes(joined: string) -> list < string > {
     val parts = []
     if joined == "" { return parts }
     var start = 0
@@ -2311,7 +2353,7 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
 // One entry of a register-type list replaced, the list rebuilt. The other
 // module closure has setStrAt for this, and cross-file names are closed,
 // so this is the local spelling: same shape, distinct global name.
-fn setRegisterTypeAt(regTypes: list, idx: int, value: string) -> list {
+fn setRegisterTypeAt(regTypes: list < string >, idx: int, value: string) -> list < string > {
     val out = []
     var i = 0
     while i < regTypes.len() {
@@ -2346,7 +2388,7 @@ fn builderIsFnType(t: string) -> bool {
     return t.slice(0, 3) == "fn("
 }
 
-fn builderFnTypeParams(t: string) -> list {
+fn builderFnTypeParams(t: string) -> list < string > {
     val out = []
     if builderIsFnType(t) == false { return out }
     val arrow = t.indexOf(")->")
@@ -3055,7 +3097,7 @@ fn buildLastStatementValue(builder: IRBuilder, node: ASTNode) -> int {
 // used to say so twice. Neither stack is checked for emptiness here beyond the
 // length test: a break outside a loop has no label to jump to and emits
 // nothing, which is what both arms always did.
-fn emitLoopJump(builder: IRBuilder, labels: list) -> int {
+fn emitLoopJump(builder: IRBuilder, labels: list < int >) -> int {
     if labels.len() > 0 {
         val label = labels.get(labels.len() - 1)
         val jmp = ir_init_instr(IROpcode.jump)
@@ -3069,7 +3111,7 @@ fn emitLoopJump(builder: IRBuilder, labels: list) -> int {
 // so it resolves exactly the way the checker's loopLabels stack does. An
 // empty name keeps the old top-of-stack behavior; an unresolvable name
 // emits nothing, which is safe because the checker already refused it.
-fn emitNamedLoopJump(builder: IRBuilder, labels: list, name: string) -> int {
+fn emitNamedLoopJump(builder: IRBuilder, labels: list < int >, name: string) -> int {
     if name == "" { return emitLoopJump(builder, labels) }
     var i = builder.loopLabelNames.len()
     while i > 0 {
@@ -3562,7 +3604,7 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
     val resultReg = ir_alloc_register(builder.currentFunction, "unknown")
     val endLabel = allocLabel(builder)
     val numCases = m.cases.len()
-    val caseLabels = []
+    val caseLabels: list < int > = []
     var i = 0
     while i < numCases {
         caseLabels.push(allocLabel(builder))
@@ -3888,7 +3930,7 @@ fn buildInterpPart(builder: IRBuilder, node: ASTNode, isRaw: bool) -> int {
     return chunkReg
 }
 
-fn buildInterpString(builder: IRBuilder, parts: list, isRaw: bool) -> int {
+fn buildInterpString(builder: IRBuilder, parts: list < ASTNode >, isRaw: bool) -> int {
     var acc = -1
     var pi = 0
     while pi < parts.len() {
@@ -3930,7 +3972,7 @@ fn buildInterpString(builder: IRBuilder, parts: list, isRaw: bool) -> int {
 // Model.where(cond, p1..pn) / Model.count(cond, p1..pn): the param count
 // travels explicitly so the C side validates placeholders before touching
 // varargs (a bare ... call cannot detect a short argument list).
-fn emitModelCountedCall(builder: IRBuilder, nativeName: string, modelName: string, args: list) -> int {
+fn emitModelCountedCall(builder: IRBuilder, nativeName: string, modelName: string, args: list < ASTNode >) -> int {
     val tableArg = ir_init_instr(IROpcode.arg)
     tableArg.operand1 = ir_string(modelTableName(modelName))
     ir_emit(builder.currentFunction, tableArg)
@@ -3956,15 +3998,15 @@ fn emitModelCountedCall(builder: IRBuilder, nativeName: string, modelName: strin
     return resReg
 }
 
-fn emitModelWhereV(builder: IRBuilder, modelName: string, args: list) -> int {
+fn emitModelWhereV(builder: IRBuilder, modelName: string, args: list < ASTNode >) -> int {
     return emitModelCountedCall(builder, "orbit_db_query_where_v", modelName, args)
 }
 
-fn emitModelCountV(builder: IRBuilder, modelName: string, args: list) -> int {
+fn emitModelCountV(builder: IRBuilder, modelName: string, args: list < ASTNode >) -> int {
     return emitModelCountedCall(builder, "orbit_db_count_v", modelName, args)
 }
 
-fn emitNativeCall(builder: IRBuilder, nativeName: string, fixedArgs: list, userArgs: list) -> int {
+fn emitNativeCall(builder: IRBuilder, nativeName: string, fixedArgs: list < IRValue >, userArgs: list < ASTNode >) -> int {
     var fai = 0
     while fai < fixedArgs.len() {
         val fa = ir_init_instr(IROpcode.arg)
@@ -4544,7 +4586,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 return resReg
             }
             // Default method call: emit obj as first arg, then call memberName as function
-            val argVals = []
+            val argVals: list < IRValue > = []
             var ai0 = 0
             while ai0 < c.args.len() {
                 argVals.push(buildCallArgValue(builder, c.args.get(ai0)))
@@ -4630,7 +4672,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                             return buildFnVarCall(builder, c, vsig)
                         }
                     }
-                    val argVals = []
+                    val argVals: list < IRValue > = []
                     var ai = 0
                     while ai < c.args.len() {
                         argVals.push(buildCallArgValue(builder, c.args.get(ai)))
@@ -4652,7 +4694,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     return resReg
                 }
                 _ => {
-                    val argRegs2 = []
+                    val argRegs2: list < int > = []
                     var ai2 = 0
                     while ai2 < c.args.len() {
                         argRegs2.push(buildExpr(builder, c.args.get(ai2)))

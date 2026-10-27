@@ -28,7 +28,7 @@ fn isMovableConst(op: IRValue) -> bool {
 
 // list.get yields an untyped slot, so integer tables are read through
 // this typed accessor (the same shape cteval.orb uses for its tables).
-fn sinkGetInt(l: list, i: int) -> int {
+fn sinkGetInt(l: list < int >, i: int) -> int {
     return l.get(i)
 }
 
@@ -69,7 +69,7 @@ fn sinkSlotCount(func: IRFunction) -> int {
 // instructions, so none of those three facts can change while rounds
 // run; only the POSITION of the definition moves, and sinkOne
 // re-derives that per round.
-fn sinkBuildQual(func: IRFunction, slots: int) -> list {
+fn sinkBuildQual(func: IRFunction, slots: int) -> list < int > {
     val defCount = []
     val useCount = []
     val movable = []
@@ -133,7 +133,7 @@ fn sinkBuildQual(func: IRFunction, slots: int) -> list {
 // lastBar is the newest barrier at an index below useIdx, so
 // lastBar < defIdx is exactly regionClear(defIdx, useIdx) with no
 // rescan of the region.
-fn sinkTryOperand(useIdx: int, op: IRValue, qual: list, lastDef: list, lastBar: int) -> int {
+fn sinkTryOperand(useIdx: int, op: IRValue, qual: list < int >, lastDef: list < int >, lastBar: int) -> int {
     val reg = sinkRegSlot(op)
     if reg < 0 { return -1 }
     if reg >= qual.len() { return -1 }
@@ -153,7 +153,7 @@ fn sinkTryOperand(useIdx: int, op: IRValue, qual: list, lastDef: list, lastBar: 
 // counts against a use in the same instruction, and the barrier at
 // this index only arms the NEXT instruction, which is what
 // regionClear(defIdx, useIdx) asks for.
-fn sinkOne(func: IRFunction, qual: list, lastDef: list) -> int {
+fn sinkOne(func: IRFunction, qual: list < int >, lastDef: list < int >) -> int {
     val slots = qual.len()
     var k = 0
     while k < slots {

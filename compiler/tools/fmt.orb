@@ -48,9 +48,9 @@ model FmtState {
     // its text tells the two apart.
     prevText: string
     pprevText: string
-    toks: list
-    comments: list
-    braces: list
+    toks: list < Token >
+    comments: list < FmtComment >
+    braces: list < Token >
     ci: int
     ti: int
 }
@@ -453,6 +453,14 @@ fn fmtHonorNewline(ptag: TokType, ntag: TokType, parenDepth: int, brackDepth: in
         }
         return false
     }
+    // The `>` that closes `list<T>` ends a model field's line. Without it the
+    // next field joined onto the annotation and the file stopped parsing.
+    if ptag == TokType.Greater || ptag == TokType.ShiftRight {
+        if parenDepth == 0 && brackDepth == 0 {
+            return true
+        }
+        return false
+    }
     return false
 }
 
@@ -504,7 +512,7 @@ fn fmtStripCR(text: string) -> string {
     return orbit_cbuf_build_selfhost(buf)
 }
 
-fn fmtCollectTokens(source: string) -> list {
+fn fmtCollectTokens(source: string) -> list < Token > {
     var toks = []
     val lexer = initLexer(source)
     val cap = source.len() + 8
@@ -523,7 +531,7 @@ fn fmtCollectTokens(source: string) -> list {
     return toks
 }
 
-fn fmtCollectComments(source: string) -> list {
+fn fmtCollectComments(source: string) -> list < FmtComment > {
     var comments = []
     var i = 0
     if source.len() >= 3 {
@@ -930,7 +938,7 @@ fn fmtEmitToken(st: FmtState, tok: Token) {
     }
 }
 
-fn fmtEmitTokens(toks: list, comments: list) -> string {
+fn fmtEmitTokens(toks: list < Token >, comments: list < FmtComment >) -> string {
     // st.out carries a chunk-buffer handle, not text: the emitter only ever
     // appends to it, and the real string is materialized once at the end.
     val cbOut = orbit_cbuf_create_selfhost()
@@ -997,7 +1005,7 @@ fn fmtIsOrbSuffix(path: string) -> bool {
     return false
 }
 
-fn fmtSplitLines(text: string) -> list {
+fn fmtSplitLines(text: string) -> list < string > {
     var lines = []
     var start = 0
     var i = 0
@@ -1048,7 +1056,7 @@ fn fmtStripTrailingSlashes(dir: string) -> string {
     return clean
 }
 
-fn fmtListOrbFiles(dir: string) -> list {
+fn fmtListOrbFiles(dir: string) -> list < string > {
     val found = []
     val clean = fmtStripTrailingSlashes(dir)
     if clean == "" {

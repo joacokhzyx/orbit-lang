@@ -28,16 +28,16 @@ model TirFunction {
     id: int
     name: string
     returnType: string
-    parameters: list
-    instructions: list
+    parameters: list < TirParameter >
+    instructions: list < TirInstruction >
     nextValueId: int
     nextBlockId: int
 }
 
 model TirModule {
     name: string
-    functions: list
-    diagnostics: list
+    functions: list < TirFunction >
+    diagnostics: list < TirDiagnostic >
 }
 
 fn initTirModule(name: string) -> TirModule {
