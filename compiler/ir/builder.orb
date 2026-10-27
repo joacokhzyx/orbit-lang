@@ -1385,6 +1385,29 @@ fn registerTypeForElemKind(code: int) -> string {
     return "unknown"
 }
 
+/** @brief The register type of a reference element read from a list.
+ *
+ *  A list element is a pointer, and the register can say which pointer only
+ *  when the element's type is a list or a declared non-generic model. An
+ *  enumeration, a type parameter and a generic instance keep "unknown". */
+fn referenceElementRegisterType(builder: IRBuilder, name: string) -> string {
+    if name == "" || name == "ref" { return "unknown" }
+    if annotationBaseType(name) == "list" { return "list" }
+    if modelDeclared(builder, name) && genericModelByName(builder, name) == NULL { return name }
+    return "unknown"
+}
+
+/** @brief The register type of a list read: the scalar the kind names, else the element's own type. */
+fn listReadRegisterType(builder: IRBuilder, node: ASTNode, code: int) -> string {
+    val scalar = registerTypeForElemKind(code)
+    if scalar != "unknown" { return scalar }
+    var name = listKindNameOf(builder, node)
+    if name == "" || name == "ref" {
+        name = annotationListElement(resolveExprType(builder, node))
+    }
+    return referenceElementRegisterType(builder, name)
+}
+
 /** @brief The static type of an expression, for the purpose of a list's element type.
  *
  *  Deliberately narrow. It answers for literals, list and object literals,
@@ -1462,7 +1485,11 @@ fn staticExprTypeName(builder: IRBuilder, node: ASTNode) -> string {
                     // how `val x = xs.get(0)` learns what x is.
                     if ma.field == "get" || ma.field == "at" {
                         val recvKind = listKindNameOf(builder, ma.object)
-                        if recvKind != "" { return registerTypeForKind(recvKind) }
+                        if recvKind != "" {
+                            val readType = registerTypeForKind(recvKind)
+                            if readType != "unknown" { return readType }
+                            return referenceElementRegisterType(builder, recvKind)
+                        }
                     }
                     return resolveExprType(builder, node)
                 }
@@ -1614,14 +1641,18 @@ fn recordListKind(builder: IRBuilder, name: string, kindName: string) {
  *  read after it be typed. Only a plain name is recorded: a list reached
  *  through a field is described by its declaration, and a list built by a
  *  function is described by nothing the builder can see. */
-fn recordPushListKind(builder: IRBuilder, node: ASTNode, kindCode: int) {
+fn recordPushListKind(builder: IRBuilder, node: ASTNode, kindCode: int, valueType: string) {
     if kindCode == 0 { return }
     match node {
         ASTNode.Literal(lit) => {
             if lit.valType == "identifier" {
                 val vt = lookupVariable(builder, lit.text)
                 if vt == "list" || vt == "List" {
-                    recordListKind(builder, variableSymbol(builder, lit.text), elemKindTypeName(kindCode))
+                    var pushedKind = elemKindTypeName(kindCode)
+                    if kindCode == 5 && referenceElementRegisterType(builder, valueType) != "unknown" {
+                        pushedKind = valueType
+                    }
+                    recordListKind(builder, variableSymbol(builder, lit.text), pushedKind)
                 }
             }
         }
@@ -1647,10 +1678,11 @@ fn recordPushListKind(builder: IRBuilder, node: ASTNode, kindCode: int) {
 fn listWriteKind(builder: IRBuilder, receiver: ASTNode, value: ASTNode) -> int {
     val slotKind = listKindNameOf(builder, receiver)
     if slotKind != "" { return elemKindCode(slotKind) }
-    val kind = elemKindCode(staticExprTypeName(builder, value))
+    val valueType = staticExprTypeName(builder, value)
+    val kind = elemKindCode(valueType)
     // A list with no kind yet takes this one, which is the `var xs = []` then
     // `xs.push(10)` shape the registry exists for.
-    recordPushListKind(builder, receiver, kind)
+    recordPushListKind(builder, receiver, kind, valueType)
     return kind
 }
 
@@ -1866,7 +1898,20 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
                 }
                 _ => {}
             }
-            return resolveExprType(builder, node)
+            val callType = resolveExprType(builder, node)
+            if callType != "unknown" { return callType }
+            // A reference element read of a list declared `list<Item>` or
+            // `list<list<T>>` is the element's own type.
+            match c.callee {
+                ASTNode.MemberAccess(rma) => {
+                    if (rma.field == "get" || rma.field == "at") && isListExpression(builder, rma.object) {
+                        val readCode = elemKindCode(listReadElemKindName(builder, rma.object))
+                        return listReadRegisterType(builder, rma.object, readCode)
+                    }
+                }
+                _ => {}
+            }
+            return callType
         }
         // A literal, an operator and an interpolation are typed by
         // staticExprTypeName; resolveExprType answers unknown for all of them,
@@ -4219,7 +4264,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 getInstr.operand1 = ir_register(objReg)
                 getInstr.operand2 = ir_register(idxReg)
                 getInstr.elemKind = elemKindCode(listReadElemKindName(builder, ma.object))
-                val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(getInstr.elemKind))
+                val resReg = ir_alloc_register(builder.currentFunction, listReadRegisterType(builder, ma.object, getInstr.elemKind))
                 getInstr.dest = resReg
                 ir_emit(builder.currentFunction, getInstr)
                 return resReg
@@ -4374,7 +4419,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                     getInstr.operand1 = ir_register(objReg)
                     getInstr.operand2 = ir_register(idxReg)
                     getInstr.elemKind = elemKindCode(listReadElemKindName(builder, ma.object))
-                    val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(getInstr.elemKind))
+                    val resReg = ir_alloc_register(builder.currentFunction, listReadRegisterType(builder, ma.object, getInstr.elemKind))
                     getInstr.dest = resReg
                     ir_emit(builder.currentFunction, getInstr)
                     return resReg
@@ -5092,7 +5137,11 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             // Regular field access
             val objReg = buildExpr(builder, ma.object)
             val ownerName = fieldOwnerForObject(builder, ma.object, memberText)
-            val fieldReg = ir_alloc_register(builder.currentFunction, fieldRegisterType(builder, ownerName, memberText))
+            var fieldType = fieldRegisterType(builder, ownerName, memberText)
+            if (memberText == "length" || memberText == "len") && resolveExprType(builder, ma.object) == "string" {
+                fieldType = "int"
+            }
+            val fieldReg = ir_alloc_register(builder.currentFunction, fieldType)
             val fieldInstr = ir_init_instr(IROpcode.load_field)
             fieldInstr.dest = fieldReg
             fieldInstr.operand1 = ir_register(objReg)
@@ -5147,7 +5196,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             val idxReg = buildExpr(builder, ia.index)
             val getInstr = ir_init_instr(IROpcode.list_get)
             val elemKind = elemKindCode(listReadElemKindName(builder, ia.object))
-            val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(elemKind))
+            val resReg = ir_alloc_register(builder.currentFunction, listReadRegisterType(builder, ia.object, elemKind))
             getInstr.dest = resReg
             getInstr.operand1 = ir_register(objReg)
             getInstr.operand2 = ir_register(idxReg)
