@@ -1561,7 +1561,7 @@ fn isListExpression(builder: IRBuilder, node: ASTNode) -> bool {
             return false
         }
         ASTNode.MemberAccess(ma) => {
-            if fieldTypeOfModel(builder, resolveExprType(builder, ma.object), ma.field) == "list" { return true }
+            if annotationBaseType(fieldTypeOfModel(builder, resolveExprType(builder, ma.object), ma.field)) == "list" { return true }
             return false
         }
         _ => { return false }
@@ -1610,8 +1610,11 @@ fn listKindNameOf(builder: IRBuilder, node: ASTNode) -> string {
         }
         ASTNode.MemberAccess(ma) => {
             val src = resolveListSource(builder, node)
-            if src != "" { return listElementType(src) }
-            return ""
+            if src == "" { return "" }
+            val tabled = listElementType(src)
+            if tabled != "unknown" { return tabled }
+            // A field declared `list<T>` says its element type itself.
+            return annotationListElement(resolveExprType(builder, node))
         }
         _ => { return "" }
     }
@@ -1884,7 +1887,7 @@ fn resolveListSource(builder: IRBuilder, node: ASTNode) -> string {
     match node {
         ASTNode.MemberAccess(ma) => {
             val objType = resolveExprType(builder, ma.object)
-            if objType != "unknown" && fieldTypeOfModel(builder, objType, ma.field) == "list" {
+            if objType != "unknown" && annotationBaseType(fieldTypeOfModel(builder, objType, ma.field)) == "list" {
                 return objType + "." + ma.field
             }
             return ""
@@ -1900,7 +1903,7 @@ fn inferValueType(builder: IRBuilder, node: ASTNode) -> string {
                 ASTNode.MemberAccess(ma) => {
                     if ma.field == "get" {
                         val objType = resolveExprType(builder, ma.object)
-                        if objType == "list" {
+                        if annotationBaseType(objType) == "list" {
                             val elemType = listElementType(resolveListSource(builder, ma.object))
                             if elemType != "unknown" {
                                 return elemType
