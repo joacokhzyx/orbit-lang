@@ -204,25 +204,31 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   literal, an operator expression or an interpolation has that expression's
   static type (`int`, `float`, `bool` or `string`). `add`, `sub`, `mul` and
   `div` have the operands' type when both are `int` or both `float` (`add`
-  also when both are `string`); `mod` and the bitwise operators when both are
+  also when either is `string`); `mod` and the bitwise operators when both are
   `int`; `neg` the operand's type when it is `int` or `float`; `bit_not` `int`
   when the operand is `int`. `load_field` of a model field whose receiver type
   is resolved and whose declared type is `int`, `float`, `bool` or `string`
-  has that type, and so does a field declared `list`, as a declared
-  enumeration or as a declared non-generic model; a `list<T>` spelling, a
-  generic instance or a type-parameter field stays `unknown`. A `call` by name
+  has that type, and so does a field declared `list` or `list<T>` (`list`), as
+  a declared enumeration, as a declared non-generic model or as a declared
+  union; a generic instance or a type-parameter field stays `unknown`. A `call` by name
   to a model that is not generic has that model's name, and a call to the
   builtin `print` has `void`. A `load_var` of `Enum_TAG_Variant` written as
   `Enum.Variant`, where `Enum` is an enumeration, has the enumeration's name.
   A `result_unwrap` bound by `val x: T = try ...` has the register type of the
   annotation when it is `int`, `float`, `bool`, `string` or `list`, and the
   emitter casts the word to it. An unwrap without such an annotation stays
-  `unknown`. A `list_get` of a reference element has `list` when the list's
-  element is a list and the model's name when it is a declared non-generic
-  model; an enumeration, a type parameter or an unrecorded element stays
+  `unknown`. A `list_get` or `list_pop` bound by `val x: T = ...` with an element type the
+  list did not record has the annotation's register type when it is `int`,
+  `bool`, `string`, `list`, a declared non-generic model or a declared union
+  (float stays `unknown`). A `list_get` of a reference element has `list` when the list's
+  element is a list and the declared name when it is a non-generic model or
+  a union; an enumeration, a type parameter or an unrecorded element stays
   `unknown`, and the local it is bound to takes the same type. A `load_field`
-  of `length` or `len` on a `string` receiver has `int`. A `union_get_data` for a variant with one `int`, `bool` or
-  `string` payload has that type, and the emitter casts the word to it; a float
+  of `length` or `len` on a `string` receiver has `int`, and so does a `call`
+  to `orbit_string_len` or `orbit_string_indexOf`. A `union_get_data` for a variant with one `int`, `bool` or
+  `string` payload has that type, and the emitter casts the word to it. A
+  variant with one payload that is a declared non-generic model or a union has
+  that name, and the word is the pointer; a float
   payload and the packed-struct pointer of a multi-payload variant stay
   `unknown`. No new spelling enters the vocabulary above; a
   consumer that reads `"unknown"` must still infer.

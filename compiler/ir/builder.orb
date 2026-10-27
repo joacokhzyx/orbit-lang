@@ -305,6 +305,8 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_insert" { return "bool" }
     if name == "orbit_db_update" { return "bool" }
     if name == "orbit_db_delete" { return "bool" }
+    if name == "orbit_string_len" { return "int" }
+    if name == "orbit_string_indexOf" { return "int" }
     if name == "orbit_string_slice" { return "string" }
     if name == "orbit_string_slice_known_len" { return "string" }
     if name == "orbit_os_isatty_selfhost" { return "bool" }
@@ -1388,11 +1390,21 @@ fn registerTypeForElemKind(code: int) -> string {
 /** @brief The register type of a reference element read from a list.
  *
  *  A list element is a pointer, and the register can say which pointer only
- *  when the element's type is a list or a declared non-generic model. An
- *  enumeration, a type parameter and a generic instance keep "unknown". */
+ *  when the element's type is a list, a declared non-generic model or a
+ *  declared union. An enumeration, a type parameter and a generic instance
+ *  keep "unknown". */
 fn referenceElementRegisterType(builder: IRBuilder, name: string) -> string {
     if name == "" || name == "ref" { return "unknown" }
     if annotationBaseType(name) == "list" { return "list" }
+    return declaredReferenceRegisterType(builder, name)
+}
+
+/** @brief A declared non-generic model or a declared union as a register type.
+ *
+ *  Both are pointers in C, and the name is the pointee the emitter declares. */
+fn declaredReferenceRegisterType(builder: IRBuilder, name: string) -> string {
+    if name == "" { return "unknown" }
+    if isUnionTypeName(builder, name) { return name }
     if modelDeclared(builder, name) && genericModelByName(builder, name) == NULL { return name }
     return "unknown"
 }
@@ -2020,9 +2032,9 @@ fn variantStructOf(builder: IRBuilder, tagName: string) -> string {
 }
 
 // The register type of a variant's payload word, for `union_get_data`. Only a
-// single int, bool or string payload is written: a float is not stored as a
-// number in the word, and several payloads make the word a pointer to a packed
-// struct that has no declared name. The owner is the union the tag test uses,
+// single int, bool, string, declared model or declared union payload is
+// written: a float is not stored as a number in the word, and several payloads
+// make the word a pointer to a packed struct that has no declared name. The owner is the union the tag test uses,
 // so two unions sharing a variant name do not answer for each other.
 fn unionDataRegisterType(builder: IRBuilder, tagOwner: string, tagName: string) -> string {
     var owner = tagOwner
@@ -2037,6 +2049,7 @@ fn unionDataRegisterType(builder: IRBuilder, tagOwner: string, tagName: string) 
                 if t.variants.get(vi) == tagName && vi < t.richVariants.len() {
                     val p: string = t.richVariants.get(vi)
                     if p == "int" || p == "bool" || p == "string" { return p }
+                    return declaredReferenceRegisterType(builder, p)
                 }
                 vi = vi + 1
             }
@@ -2689,6 +2702,25 @@ fn isTerminatorInstr(instr: IRInstruction) -> bool {
     }
 }
 
+// Whether the instruction that wrote a register is a list_get or a list_pop.
+// The scan runs back from the end: the definition is almost always the last
+// instruction or one before it.
+fn definedByListRead(func: IRFunction, reg: int) -> bool {
+    var i = func.instructions.len() - 1
+    while i >= 0 {
+        val ins: IRInstruction = func.instructions.get(i)
+        if ins.dest == reg {
+            match ins.opcode {
+                IROpcode.list_get => { return true }
+                IROpcode.list_pop => { return true }
+                _ => { return false }
+            }
+        }
+        i = i - 1
+    }
+    return false
+}
+
 // A `val`/`var` declaration, returning the register its value is in (or -1
 // when the value is a constant the caller passed straight through). The
 // register is the value of the declaration, so this is also how a block whose
@@ -2744,6 +2776,30 @@ fn buildVarDecl(builder: IRBuilder, v: VarDeclNode) -> int {
             }
         }
         _ => {}
+    }
+    // A list read with no recorded element type is a word. The annotation
+    // says what the word is, as it does for a try value, and sema checked it
+    // against the list. The emitter casts the word to the register's type.
+    if v.typeAnnotation != "" {
+        match varVal {
+            IRValue.Register(r) => {
+                val readFn = builder.currentFunction
+                if r.value >= 0 && r.value < readFn.registerTypes.len() && readFn.registerTypes.get(r.value) == "unknown" && definedByListRead(readFn, r.value) {
+                    var readType = ""
+                    if vType == "int" || vType == "bool" || vType == "string" {
+                        readType = vType
+                    } else if annotationBaseType(vType) == "list" {
+                        readType = "list"
+                    } else {
+                        readType = declaredReferenceRegisterType(builder, vType)
+                    }
+                    if readType != "unknown" {
+                        readFn.registerTypes = setRegisterTypeAt(readFn.registerTypes, r.value, readType)
+                    }
+                }
+            }
+            _ => {}
+        }
     }
     // A model literal bound to a name records its instance bindings: a later
     // generic call taking this variable infers from history, not from the
@@ -4333,7 +4389,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val popInstr = ir_init_instr(IROpcode.list_pop)
                 popInstr.operand1 = ir_register(objReg)
                 popInstr.elemKind = elemKindCode(listKindNameOf(builder, ma.object))
-                val resReg = ir_alloc_register(builder.currentFunction, registerTypeForElemKind(popInstr.elemKind))
+                val resReg = ir_alloc_register(builder.currentFunction, listReadRegisterType(builder, ma.object, popInstr.elemKind))
                 popInstr.dest = resReg
                 ir_emit(builder.currentFunction, popInstr)
                 return resReg
@@ -4799,13 +4855,16 @@ fn operandTypeName(builder: IRBuilder, v: IRValue) -> string {
 // A comparison is a bool whatever its operands are: the language has no
 // operator overload, so the result type needs no operand type. An arithmetic
 // or bitwise operator is typed only when both operands carry the same proven
-// type it is defined on; mixed or unknown operands keep "unknown".
+// type it is defined on; mixed or unknown operands keep "unknown", except a
+// `+` with a string operand.
 fn binaryResultType(builder: IRBuilder, op: string, lhs: IRValue, rhs: IRValue) -> string {
     if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" { return "bool" }
     val lt = operandTypeName(builder, lhs)
     val rt = operandTypeName(builder, rhs)
+    // `+` with a string on either side is a concatenation, and the emitter
+    // lowers it to orbit_string_concat whatever the other operand is.
+    if op == "+" && (lt == "string" || rt == "string") { return "string" }
     if lt != rt { return "unknown" }
-    if op == "+" && lt == "string" { return "string" }
     if op == "+" || op == "-" || op == "*" || op == "/" {
         if lt == "int" || lt == "float" { return lt }
         return "unknown"
@@ -4829,16 +4888,16 @@ fn unaryResultType(builder: IRBuilder, op: string, operandReg: int) -> string {
 
 // The register type of a model field read. The owner is the receiver's model,
 // resolved by the declared type of the receiver, and the field's type is the
-// one the model declares. The scalar spellings, `list`, a declared enumeration
-// and a declared non-generic model are written; a `list<T>` spelling, a generic
-// instance and a type parameter keep "unknown".
+// one the model declares. The scalar spellings, `list` and `list<T>`, a
+// declared enumeration, a declared non-generic model and a declared union are
+// written; a generic instance and a type parameter keep "unknown".
 fn fieldRegisterType(builder: IRBuilder, ownerName: string, fieldName: string) -> string {
     if ownerName == "" { return "unknown" }
     val ft = fieldTypeOfModel(builder, ownerName, fieldName)
     if ft == "int" || ft == "float" || ft == "bool" || ft == "string" || ft == "list" { return ft }
+    if annotationBaseType(ft) == "list" { return "list" }
     if isEnumerationTypeName(builder, ft) { return ft }
-    if modelDeclared(builder, ft) && genericModelByName(builder, ft) == NULL { return ft }
-    return "unknown"
+    return declaredReferenceRegisterType(builder, ft)
 }
 
 // orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, MatchCaseNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, VarDeclNode, WhileNode
