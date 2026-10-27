@@ -42,6 +42,7 @@ flowchart TD
         IR["IR Builder\ncompiler/ir/builder.orb\n(compiler/ir/ir.orb defines IROpcode)"]
         OPT["IR Optimizer\ncompiler/ir/optimizer.orb"]
         CTE["Compile-time eval\ncompiler/ir/cteval.orb"]
+        PRN["Unreachable function pruning\ncompiler/ir/prune.orb"]
     end
 
     subgraph Codegen
@@ -76,7 +77,7 @@ flowchart TD
     PAR --> LEX
     LEX --> PAR
     PAR --> RES --> SEM --> IR
-    IR --> OPT --> CTE --> CBK
+    IR --> OPT --> CTE --> PRN --> CBK
     CBK --> RTM
     CBK --> CC["System C Compiler\nORBIT_CC, else CC, else cc"]
     CC --> BIN["Native binary"]
@@ -97,6 +98,7 @@ flowchart TD
 | Build | `compiler/ir/builder.orb` | AST to IR. `IRModule` of `IRInstruction` over the `IROpcode` union: arithmetic, comparison, control flow, calls, `alloc`/`free`, field access, the collection opcodes, the `result_*` opcodes, and the union opcodes. | No failure path of its own. Sema has already rejected bad code; an expression the builder cannot type degrades to `unknown` in the IR rather than aborting, which the IR type-consistency verifier (`verifyModuleTypes`) and the unknown-type census/ratchet now police. |
 | Optimize | `compiler/ir/optimizer.orb` | Pattern rewrites over the IR; reports `patterns_applied` and `span_saved`. | Not fatal. |
 | CTE | `compiler/ir/cteval.orb` | Compile-time evaluation and folding; reports fold count. | Not fatal. |
+| Prune | `compiler/ir/prune.orb` | Drops the functions that no `main`, route or extern reaches, so an imported library costs only what the program uses. A String or Sym operand spelling a function name counts as a reference. Runs after CTE; `--emit-ir` runs before it. `build --verbose` prints the count dropped. | Not fatal. |
 | C backend | `compiler/emit/c_backend.orb` | Emits C. Routes take a separate path: `compiler/emit/route_runtime.orb` supplies the preamble, router, and `main` as generated text, and the route hash is a 64-bit FNV-1a over `METHOD + ':' + PATH`. | No failure path of its own; the driver reports an unwritable output path or a non-zero exit from the C compiler. |
 | Invoke `cc` | `compiler/host/pipeline.orb` | Writes the C to a **constant** filename, then invokes the C compiler. | The child's exit code and output are reported verbatim. |
 
@@ -363,7 +365,7 @@ is not part of the compiler.
 ```text
 Main thread
   └── compiler/host/main.orb
-        ├── lex → parse → resolve → sema → build → optimize → cteval → C  (single-threaded)
+        ├── lex → parse → resolve → sema → build → optimize → cteval → prune → C  (single-threaded)
         ├── write the generated C
         └── spawn the C compiler subprocess
 
@@ -421,6 +423,7 @@ followed by `orbit_handle_request` is emitted by
 | `compiler/ir/builder.orb` | AST to IR, plus expression and argument type inference |
 | `compiler/ir/optimizer.orb` | IR pattern rewrites |
 | `compiler/ir/cteval.orb` | Compile-time evaluation and folding |
+| `compiler/ir/prune.orb` | Removal of unreachable functions |
 | `compiler/emit/c_backend.orb` | IR to C, including the non-route path |
 | `compiler/emit/route_runtime.orb` | Generated preamble, router, and server `main` text |
 | `compiler/host/cluster.orb` | `orbit cluster` subcommands |

@@ -11,6 +11,7 @@ import "../ir/ir.orb"
 import "../emit/ir_emit.orb"
 import "../ir/optimizer.orb"
 import "../ir/cteval.orb"
+import "../ir/prune.orb"
 import "../emit/c_backend.orb"
 import "../tools/palette.orb"
 
@@ -682,6 +683,12 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     }
     if verbose {
         print("opt: " + orbit_int_to_string_selfhost(optPatterns) + " patterns, " + orbit_int_to_string_selfhost(cteFolds) + " folds, span " + orbit_int_to_string_selfhost(optSpan))
+    }
+
+    // After the folder, which can leave a callee without a caller.
+    val prunedFunctions = pruneUnreachable(irModule)
+    if verbose {
+        print("prune: " + orbit_int_to_string_selfhost(prunedFunctions) + " unreachable functions dropped")
     }
 
     val backend = initCBackend(irModule)

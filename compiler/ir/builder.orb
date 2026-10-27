@@ -1016,26 +1016,6 @@ fn pushFnGenericFrameJoined(builder: IRBuilder, names: string, args: string) {
     builder.fnGenericArgs.push(args)
 }
 
-fn pushFnGenericFrame(builder: IRBuilder, params: list < string >, bindings: list < string >) {
-    var names = ""
-    var i = 0
-    while i < params.len() {
-        if i > 0 { names = names + "," }
-        val pname: string = params.get(i)
-        names = names + pname
-        i = i + 1
-    }
-    var args = ""
-    var j = 0
-    while j < bindings.len() {
-        if j > 0 { args = args + "\t" }
-        val bval: string = bindings.get(j)
-        args = args + bval
-        j = j + 1
-    }
-    pushFnGenericFrameJoined(builder, names, args)
-}
-
 fn popFnGenericFrame(builder: IRBuilder) {
     builder.fnGenericParams.pop()
     builder.fnGenericArgs.pop()
@@ -1129,20 +1109,6 @@ fn joinTypeNames(items: list < string >) -> string {
     while i < items.len() {
         if i > 0 {
             out = out + ","
-        }
-        val item: string = items.get(i)
-        out = out + item
-        i = i + 1
-    }
-    return out
-}
-
-fn joinTypeArgs(items: list < string >) -> string {
-    var out = ""
-    var i = 0
-    while i < items.len() {
-        if i > 0 {
-            out = out + "\t"
         }
         val item: string = items.get(i)
         out = out + item
@@ -2421,31 +2387,6 @@ fn findFunction(module: IRModule, name: string) -> int { var i = 0
 fn builderIsFnType(t: string) -> bool {
     if t.len() < 5 { return false }
     return t.slice(0, 3) == "fn("
-}
-
-fn builderFnTypeParams(t: string) -> list < string > {
-    val out = []
-    if builderIsFnType(t) == false { return out }
-    val arrow = t.indexOf(")->")
-    if arrow < 0 { return out }
-    val inner = t.slice(3, arrow)
-    if inner == "" { return out }
-    var start = 0
-    var i = 0
-    while i <= inner.len() {
-        var end = false
-        if i == inner.len() { end = true }
-        var isSep = false
-        if end == false {
-            if inner.at(i) == 59 { isSep = true }
-        }
-        if end || isSep {
-            out.push(inner.slice(start, i))
-            start = i + 1
-        }
-        i = i + 1
-    }
-    return out
 }
 
 fn builderFnTypeReturn(t: string) -> string {

@@ -71,6 +71,11 @@ SETUP = {
     "files/ws.orb": "fn main() -> int {\n    return 0   \n}\n",
     "cleandir/clean.orb": "fn main() -> int {\n    return 0\n}\n",
     "tiny.orb": "fn main() -> int {\n    return 0\n}\n",
+    # Two functions nothing reaches: `orphan` is never called and `orphan_helper`
+    # is called only by it. `build --verbose` counts them as dropped.
+    "prune/orphans.orb": "fn leaf() -> int {\n    return 1\n}\n\nfn used() -> int {\n    return leaf()\n}\n\nfn orphan() -> int {\n    return 2\n}\n\nfn orphan_helper() -> int {\n    return orphan()\n}\n\nfn main() -> int {\n    return used()\n}\n",
+    # `inc` is reached only through a function value, which is not a call.
+    "prune/fn_value.orb": "fn inc(x: int) -> int {\n    return x + 1\n}\n\nfn main() -> int {\n    val f = inc\n    return f(1)\n}\n",
     # Unparseable on purpose: `orbit fmt` must refuse it and leave it alone.
     "fmt/broken.orb": "fn main() -> int {\n    val =\n}\n",
     # Parseable but badly formatted: `orbit fmt` must rewrite it.
@@ -110,6 +115,9 @@ CASES = [
     ("build-missing-plain", ["nope.orb"], 1, "err", "orbit build:", ""),
     ("build-quiet", ["build", "--quiet", "tiny.orb", "-o", "tq.exe"], 0, "out", "", "wrote "),
     ("build-verbose", ["build", "--verbose", "tiny.orb", "-o", "tv.exe"], 0, "out", "wrote ", ""),
+    ("build-prune-drops-orphans", ["build", "--verbose", "prune/orphans.orb", "-o", "po.exe"], 0, "out", "prune: 2 unreachable functions dropped", ""),
+    ("build-prune-keeps-called", ["build", "--verbose", "tiny.orb", "-o", "pt.exe"], 0, "out", "prune: 0 unreachable functions dropped", ""),
+    ("build-prune-keeps-fn-value", ["build", "--verbose", "prune/fn_value.orb", "-o", "pv.exe"], 0, "out", "prune: 0 unreachable functions dropped", ""),
     ("check-noarg", ["check"], 2, "err", "Usage:", ""),
     ("check-missing", ["check", "nope.orb"], 1, "err", "orbit check:", ""),
     ("check-quiet", ["check", "--quiet", "tiny.orb"], 0, "out", "", "Checked"),
