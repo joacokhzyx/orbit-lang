@@ -9,6 +9,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | Command | Purpose | Example |
 |---|---|---|
 | `orbit build <file>` | Compile an Orbit source file to an executable | `orbit build main.orb -o main` |
+| `orbit build --backend=native <file>` | The same, through R6 and without a C compiler (Windows x86-64) | `orbit build --backend=native main.orb -o main` |
 | `orbit run <file>` | Build and run it with inherited stdio (servers keep the terminal) | `orbit run main.orb` |
 | `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
 | `orbit dev [file]` | Watch sources, rebuild and restart on change (drain on POSIX, [kill on Windows](KNOWN_LIMITATIONS.md#windows-drain-is-kill)) | `orbit dev svc.orb` |
@@ -119,6 +120,63 @@ When Orbit was built locally and is not installed on `PATH`, call it by its path
 ```
 
 The exact options supported by a command are defined by the compiler returned by `orbit --help`.
+
+## Backends: C and native
+
+`orbit build` and `orbit run` take `--backend=c|native`. `ORBIT_BACKEND` sets
+the same choice for every command that builds, and the flag wins over it.
+The default is `c`. An unknown name is a usage error (exit 2) for the flag and
+a build error (exit 1) for the variable.
+
+- `c` emits C and runs the system C compiler (`ORBIT_CC`, else `CC`, else `cc`).
+- `native` writes the IR document that `--emit-ir` writes (see
+  [the IR specification](IR_SPEC.md)) into the temp directory and runs R6, a
+  separate x86-64 code generator, on it. No C compiler is involved. It is
+  Windows-only: on another platform the build fails and says so.
+
+A refusal by R6 is a compile error. R6's own line
+(`r6: <file>:<line>:<col>: error[CODE]: <msg>`) is printed as R6 wrote it,
+followed by one `orbit build:` line with R6's exit code and the command that
+builds the program with the C backend. There is no fallback to C. The programs
+R6 refuses today include every program that declares a route
+(`error[E_UNSUPPORTED]: Kynx routes are outside the M1 native subset`), so
+`orbit start`, `orbit dev` and `orbit cluster` need `--backend=c`
+(`cluster` always uses it).
+
+`ORBIT_SKIP_CC` means "emit the intermediate C and stop". It forces the C
+backend whatever was requested, because the bootstrap reads that C. `--emit-ir
+<path>` keeps its meaning: with `native` the IR is written to that path and R6
+reads it from there.
+
+R6 is found in this order:
+
+| Order | Where | Layout |
+|---|---|---|
+| 1 | `ORBIT_R6` | The path of `r6.exe`. A path that does not exist is an error, not a fall-through. |
+| 2 | `r6.exe` in the directory of `orbit.exe` | A portable directory. |
+| 3 | `bin\r6.exe` under the directory of `orbit.exe` | The installed layout. |
+| 4 | none found | `orbit build: the native backend needs r6.exe and couldn't find it`. |
+
+The installed layout is one root:
+
+```text
+<root>\orbit.exe        the compiler, on PATH
+<root>\bin\r6.exe       the native backend
+<root>\lib\             libruntime_net.a, libruntime_net_db.a, sqlite3.lib
+<root>\runtime\  std\  as before
+```
+
+The runtime archives that R6 links come from the directory in the environment
+variable `R6_RUNTIME_DIR`, which `orbit` sets for the R6 process to
+`ORBIT_R6_RUNTIME` when that is set, else to `<root>\lib` when it holds
+`libruntime_net.a`. When neither exists the variable is left as the caller has
+it. `orbit` also sets `R6_TMPDIR` to the build temp directory.
+
+| Variable | Effect |
+|---|---|
+| `ORBIT_BACKEND=c\|native` | Backend for every build; the flag wins. |
+| `ORBIT_R6` | Path of `r6.exe`. |
+| `ORBIT_R6_RUNTIME` | Directory of the runtime archives; becomes `R6_RUNTIME_DIR`. |
 
 ## Errors and exit codes
 

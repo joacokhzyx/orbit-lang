@@ -81,6 +81,8 @@ flowchart TD
     CBK --> RTM
     CBK --> CC["System C Compiler\nORBIT_CC, else CC, else cc"]
     CC --> BIN["Native binary"]
+    IR --> R6["R6 native backend\n--backend=native, ORBIT_R6"]
+    R6 --> BIN
     CC --> Runtime
     MAIN --> FMT
     MAIN --> DOC
@@ -549,16 +551,23 @@ run-to-run flakiness. The full gate sequence, in order, is in
 
 ## Native Backend
 
-**Not implemented.** There is no `--backend=native`, no `compiler/native/`
-directory, and no `orbit bootstrap` subcommand. The only backend is C, and the
-only build entry points are `orbit build`, `run`, and `check`.
+`orbit build --backend=native` (or `ORBIT_BACKEND=native`) builds without a C
+compiler. `compiler/host/pipeline.orb` runs the same front end, writes the IR
+document that `--emit-ir` writes into the temp directory, and runs R6 on it.
+R6 is a separate project (`github.com/joacokhzyx/orbit-r6`, MIT): it encodes
+x86-64 itself, writes AMD64 COFF and links with GNU `ld`. It targets Windows
+only.
 
-It remains the largest open architecture item, tracked as native-backend in
-[ENGINEERING.md](../ENGINEERING.md) and as Phase S2 in that document's
-self-hosting roadmap. The design it would have to satisfy, including the
-component breakdown and the parity requirement, is recorded there. The current
-state of the requirement is this: the intended goal is to lower the existing
-`IRModule` to machine code and write relocatable PE/COFF and ELF64 objects
-directly. A user program could then be built without a system C compiler for its
-own code. The native and C paths must be shown to produce identical output for
-the same input before it is real.
+There is no fallback. A program R6 refuses is a compile error that carries
+R6's own diagnostic, and `--backend=c` builds it. The pipeline passes the
+runtime archive directory in `R6_RUNTIME_DIR` and a temp directory in
+`R6_TMPDIR`. How R6 is found and how a release lays it out is in
+[Commands](COMMANDS.md#backends-c-and-native).
+
+The gates that measure it are `suite_native` and `suite_std_native` in
+`scripts/dev.py`. They build `tests/suite` and `tests/std` with
+`--backend=native` and compare the same exit codes as the C lane. Without
+`ORBIT_R6` they are skipped and the summary says so.
+
+An in-tree backend written in Orbit (`compiler/native/`) is still open: see
+native-backend in [ENGINEERING.md](../ENGINEERING.md).
