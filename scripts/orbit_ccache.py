@@ -666,9 +666,13 @@ def self_test() -> int:
         # The probe, in the shape it is called in. A caller that cannot see its
         # own cache does not fail; it compiles directly, so a race here costs
         # speed and says nothing.
+        # ORBIT_CCACHE=0 turns the cache off for a build; the self-test checks
+        # the cache itself, so it runs with the switch on whatever the caller set.
         saved = os.environ.get("ORBIT_CCACHE_DIR")
+        saved_switch = os.environ.get("ORBIT_CCACHE")
         probe_dir = os.path.join(td, "cache")
         os.environ["ORBIT_CCACHE_DIR"] = probe_dir
+        os.environ["ORBIT_CCACHE"] = "1"
         try:
             usable, calls = _probe_race()
         finally:
@@ -676,6 +680,10 @@ def self_test() -> int:
                 os.environ.pop("ORBIT_CCACHE_DIR", None)
             else:
                 os.environ["ORBIT_CCACHE_DIR"] = saved
+            if saved_switch is None:
+                os.environ.pop("ORBIT_CCACHE", None)
+            else:
+                os.environ["ORBIT_CCACHE"] = saved_switch
         check("a usable cache survives %d concurrent probes" % calls,
               usable == calls)
         check("concurrent probes never share a name",

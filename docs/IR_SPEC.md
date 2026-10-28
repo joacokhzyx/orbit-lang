@@ -109,7 +109,7 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `label` | `label_N:;` only if the label is referenced (`2642-2647`) | `refLabels` |
 | `jump` | `goto label_N` with O1 (`2648-2651`) | — |
 | `jump_if_false` | `if (!(O1)) goto label_O2` (`2652-2655`) | — |
-| `copy` | `D ← O1` (`2656-2660`) | — |
+| `copy` | `D ← O1` (`2656-2660`); an `int` O1 into a `float` D converts the value, as C assignment does | — |
 | `arg` | Without D: appends O1 to the pending `call` args. With D: Int O1 is a parameter index, `D ←` parameter name (`2661-2679`) | `dest == -1`, `params` |
 | `call` | §3 (full protocol: arity in O2, aliases, `print`, indirect calls) (`2680-3190`) | O1 (name or register), O2 arity |
 | `ret` | Return by `returnType`: `None` → per-type default (`0`, `0.0`, `return;`, `NULL`); register/value → cast by type (`3192-3273`); `main` → `int`, route → `OrbitResponse*` | `returnType`, name |
@@ -624,8 +624,8 @@ At this pin the corpus is the language test tree itself (no serialized IR
 exists yet). Each source below maps to IR through the builder whose producers
 are pinned in §1.1.
 
-- **Suite: 112 runnable files + 1 support file.** `tests/suite/` holds 113
-  `.orb` files: 112 runnable programs plus `imports.support.orb` (imported by
+- **Suite: 114 runnable files + 1 support file.** `tests/suite/` holds 115
+  `.orb` files: 114 runnable programs plus `imports.support.orb` (imported by
   `imports.orb`, never compiled alone). The `.skip` file (`fn_call.orb.skip`)
   is not a corpus member.
 - **Standard library: 23 files.** `tests/std/` holds 23 `.orb` programs

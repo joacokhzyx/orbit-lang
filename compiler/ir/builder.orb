@@ -2814,6 +2814,35 @@ fn widenToFloatRegister(builder: IRBuilder, value: IRValue) -> IRValue {
     }
 }
 
+// The declared type of what an assignment stores into: a local, or a field of
+// a model the receiver's type names. "unknown" when the target is anything
+// else, which leaves the stored value as it is.
+fn assignTargetType(builder: IRBuilder, target: ASTNode) -> string {
+    match target {
+        ASTNode.Literal(lit) => { return lookupVariable(builder, lit.text) }
+        ASTNode.MemberAccess(ma) => {
+            val owner = fieldOwnerForObject(builder, ma.object, ma.field)
+            if owner != "" { return fieldTypeOfModel(builder, owner, ma.field) }
+            return "unknown"
+        }
+        _ => { return "unknown" }
+    }
+}
+
+// `ratio = 2` into a float local stores 2.0. The C backend types a local by
+// its first definition, so a store of an int register is a store of an int:
+// the value is converted into a float register before the store, as
+// buildVarDecl does for the declaration.
+fn widenAssignedValue(builder: IRBuilder, target: ASTNode, rhsReg: int) -> int {
+    if rhsReg < 0 { return rhsReg }
+    if assignTargetType(builder, target) != "float" { return rhsReg }
+    val widened = widenToFloatRegister(builder, ir_register(rhsReg))
+    match widened {
+        IRValue.Register(wr) => { return wr.value }
+        _ => { return rhsReg }
+    }
+}
+
 // A `val`/`var` declaration, returning the register its value is in (or -1
 // when the value is a constant the caller passed straight through). The
 // register is the value of the declaration, so this is also how a block whose
@@ -4949,6 +4978,30 @@ fn recordFieldKindOnDef(func: IRFunction, reg: int, kindCode: int) {
                 _ => {}
             }
             if isLoad { inst.fieldKind = kindCode }
+            // `val s: float = o.a + o.b`: the declaration types the sum, and a
+            // numeric operator only combines operands of that kind, so each
+            // operand read takes the same kind. A string `+` is excluded: its
+            // operands are converted, not required to be strings.
+            var isArith = false
+            match inst.opcode {
+                IROpcode.add => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.sub => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.mul => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.div => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.mod => { isArith = kindCode == 2 }
+                IROpcode.neg => { isArith = kindCode == 2 || kindCode == 3 }
+                _ => {}
+            }
+            if isArith {
+                match inst.operand1 {
+                    IRValue.Register(a) => { recordFieldKindOnDef(func, a.value, kindCode) }
+                    _ => {}
+                }
+                match inst.operand2 {
+                    IRValue.Register(b) => { recordFieldKindOnDef(func, b.value, kindCode) }
+                    _ => {}
+                }
+            }
             return
         }
         i = i + 1
@@ -5159,7 +5212,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
         ASTNode.BinaryOp(bin) => {
             if bin.op == "=" {
                 // Assignment
-                val rhsReg = buildExpr(builder, bin.rhs)
+                val rhsRaw = buildExpr(builder, bin.rhs)
+                val rhsReg = widenAssignedValue(builder, bin.lhs, rhsRaw)
                 forgetAdoptedListKind(builder, bin.lhs, bin.rhs)
                 match bin.lhs {
                     ASTNode.Literal(lit) => {
@@ -5416,7 +5470,8 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             return buildTryExpr(builder, t)
         }
         ASTNode.Assignment(a) => {
-            val rhsReg = buildExpr(builder, a.value)
+            val rhsRaw = buildExpr(builder, a.value)
+            val rhsReg = widenAssignedValue(builder, a.target, rhsRaw)
             forgetAdoptedListKind(builder, a.target, a.value)
             match a.target {
                 ASTNode.Literal(lit) => {

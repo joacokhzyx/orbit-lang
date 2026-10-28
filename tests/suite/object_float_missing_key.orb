@@ -1,0 +1,31 @@
+// expect-exit 0
+// A float key that was never written reads as 0.0 into a typed local, through
+// every spelling of the read: `.get`, a member access, an object built in
+// another function, and a key the same function wrote as another kind.
+fn make() -> object {
+    return { count: 42, ratio: 0.5 }
+}
+
+fn read_missing(o: object) -> float {
+    val f: float = o.get("absent")
+    return f
+}
+
+fn main() -> int {
+    val o = { a: 1 }
+    val viaGet: float = o.get("absent_get")
+    if viaGet != 0.0 { return 1 }
+    val viaMember: float = o.absent_member
+    if viaMember != 0.0 { return 2 }
+
+    val made = make()
+    val crossFn: float = made.absent_cross
+    if crossFn != 0.0 { return 3 }
+    if read_missing(made) != 0.0 { return 4 }
+
+    val sum: float = made.ratio + made.absent_sum
+    if sum != 0.5 { return 5 }
+    print(viaGet)
+    print(sum)
+    return 0
+}

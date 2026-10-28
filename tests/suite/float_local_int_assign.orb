@@ -1,0 +1,26 @@
+// expect-exit 0
+// An int stored into a float local or a float field is a float: halving it
+// keeps the fraction, which an int store would truncate.
+model Gauge {
+    level: float
+}
+
+fn main() -> int {
+    var ratio: float = 1.5
+    ratio = 3
+    if ratio / 2.0 != 1.5 {
+        return 1
+    }
+    val g = Gauge { level: 0.5 }
+    g.level = 5
+    if g.level / 2.0 != 2.5 {
+        return 2
+    }
+    val count = 2
+    ratio = count
+    if ratio / 4.0 != 0.5 {
+        return 3
+    }
+    print(ratio)
+    return 0
+}

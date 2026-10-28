@@ -1253,7 +1253,11 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list < string >, war
                     if irVerifierKnown(t1) && irVerifierKnown(dt) {
                         val simple1 = verifierSimpleKind(t1)
                         val simple2 = verifierSimpleKind(dt)
-                        if simple1 != "" && simple2 != "" && simple1 != simple2 {
+                        // int into float is the one widening copy: the builder
+                        // converts an int stored into a float local or field
+                        // this way, and C assignment converts the value.
+                        val widening = simple1 == "int" && simple2 == "float"
+                        if simple1 != "" && simple2 != "" && simple1 != simple2 && widening == false {
                             errs.push("copy of '" + t1 + "' into '" + dt + "' in fn '" + func.name + "'")
                         }
                     }
@@ -1277,6 +1281,24 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list < string >, war
                         }
                         if irVerifierKnown(rt) && irVerifierKnown(dt) && rt != dt && rt != "void" && dt != "result" {
                             errs.push("call '" + cn + "' returns '" + rt + "' but destination typed '" + dt + "' in fn '" + func.name + "'")
+                        }
+                    }
+                }
+                // orbit_object_get_raw hands back the stored word with no kind
+                // check, so an int or float field reached arithmetic as a
+                // pointer and the sum was garbage. A read is lowered only when
+                // a write in the function or the binding's declared type names
+                // the getter; otherwise the program has to state it.
+                IROpcode.load_field => {
+                    if operandDefType(func, inst.operand1) == "object" {
+                        var rawField = ""
+                        match inst.operand2 {
+                            IRValue.String(rf) => { rawField = rf.value }
+                            IRValue.Sym(rf) => { rawField = rf.value }
+                            _ => {}
+                        }
+                        if rawField != "" && objectGetCallForRead(func, inst, rawField) == "orbit_object_get_raw" {
+                            errs.push("object field '" + rawField + "' has no known type in fn '" + func.name + "'; declare it: val " + rawField + ": <type> = <object>." + rawField)
                         }
                     }
                 }
