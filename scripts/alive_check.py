@@ -291,6 +291,13 @@ def registry(compiler, cc, work):
                              *comp("--dir", "tests/std", "--backend", "native")),
              marker=r"Skipped suite_native: ORBIT_R6 is not set|Finished suite_native: \d+/\d+",
              timeout=900, allow_rc=(0, 1, 77), needs=("compiler",)),
+        Tool("runtime_module_gate.py", "gate",
+             "orbit build --runtime-module: an object linked into a program, "
+             "and a file with main refused",
+             lambda: _script("runtime_module_gate.py", *comp()),
+             witness=r"Finished runtime_module: \d+/\d+ pass",
+             marker=r"Finished runtime_module: \d+/\d+", timeout=900,
+             allow_rc=(0, 1), needs=("compiler",)),
         Tool("parity_selfhost.py", "gate",
              "32 stability goldens, CLI path vs in-process path",
              lambda: _script("parity_selfhost.py", *comp()),

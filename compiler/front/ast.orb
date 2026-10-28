@@ -74,6 +74,7 @@ model FunctionDeclNode {
     isPrivate: bool
     isExtern: bool
     genericParams: list < ASTNode >
+    isExport: bool
 }
 
 model RouteDeclNode {

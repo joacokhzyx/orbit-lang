@@ -76,7 +76,14 @@ union IROpcode {
     bit_xor,
     shl,
     shr,
-    bit_not
+    bit_not,
+
+    // Runtime-module opcodes. Valid only in a module with runtimeModule set
+    // (docs/IR_SPEC.md), appended so existing tag numbers never shift.
+    str_len,
+    byte_load,
+    bytes_alloc,
+    byte_store
 }
 
 model IRValueInt { value: int }
@@ -183,14 +190,17 @@ model IRFunction {
     routeLimitRate: int
     routeLimitWindowMs: int
     routeLimitBurst: int
+    // An `export fn` of a runtime module: emitted under its own name, without
+    // the leading arena parameter.
+    isExport: bool
 }
 
 fn initIRFunction(name: string) -> IRFunction {
-    return IRFunction(name, [], [], [], 0, [], "void", false, "", "", false, 0, 0, 0)
+    return IRFunction(name, [], [], [], 0, [], "void", false, "", "", false, 0, 0, 0, false)
 }
 
 fn initRouteFunction(name: string, method: string, path: string) -> IRFunction {
-    return IRFunction(name, [], [], [], 0, [], "OrbitResponse*", false, method, path, false, 0, 0, 0)
+    return IRFunction(name, [], [], [], 0, [], "OrbitResponse*", false, method, path, false, 0, 0, 0, false)
 }
 
 fn ir_alloc_register(func: IRFunction, typeName: string) -> int {
@@ -255,6 +265,9 @@ model IRModule {
     // names a line (division by zero) prints beside it. Not a path: the IR is
     // byte-reproducible across checkouts, and a path is not.
     sourceName: string
+    // Set by `--runtime-module`: the module has no entry point and its
+    // `export fn` functions are the runtime library's symbols.
+    runtimeModule: bool
 }
 
 model IRGlobal {
@@ -264,5 +277,5 @@ model IRGlobal {
 }
 
 fn initIRModule() -> IRModule {
-    return IRModule([], [], [], [], [], 0, "")
+    return IRModule([], [], [], [], [], 0, "", false)
 }

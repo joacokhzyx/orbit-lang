@@ -175,14 +175,20 @@ fn reportMemStage(stage: string) {
 // Parse + resolve + typecheck only. fmt and doctor call this once per
 // edit, so it stops before the IR.
 fn checkSourceWithFile(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, false)
+    return checkSourceStages(source, inputPath, colorMode, false, false)
 }
 
 // `orbit check` also builds the IR and runs the verifier that guards both
 // backends, on the IR before optimization: the IR the native backend
 // compiles. No C is emitted and no C compiler runs.
 fn checkSourceVerified(source: string, inputPath: string, colorMode: string) -> bool {
-    return checkSourceStages(source, inputPath, colorMode, true)
+    return checkSourceStages(source, inputPath, colorMode, true, false)
+}
+
+// `orbit check --runtime-module`: the same stages, with `export fn` and the
+// rt_* builtins admitted and `main` refused.
+fn checkRuntimeModuleVerified(source: string, inputPath: string, colorMode: string) -> bool {
+    return checkSourceStages(source, inputPath, colorMode, true, true)
 }
 
 // One line per verifier error, under the command that ran it.
@@ -196,7 +202,7 @@ fn reportIRVerification(irModule: IRModule, command: string, useColor: bool) -> 
     return irErrs.len() == 0
 }
 
-fn checkSourceStages(source: string, inputPath: string, colorMode: string, verifyIr: bool) -> bool {
+fn checkSourceStages(source: string, inputPath: string, colorMode: string, verifyIr: bool, runtimeModule: bool) -> bool {
     val useColor = paletteUseColorStderr(colorMode)
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
@@ -228,6 +234,7 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
     }
 
     val sema = initSema()
+    sema.runtimeModule = runtimeModule
     analyze(sema, ast)
     reportResolutionGaps(sema)
     if hasErrors(sema) {
@@ -235,7 +242,9 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
         return false
     }
     if verifyIr {
-        val irModule = buildAST(initIRBuilder(), ast)
+        val checkBuilder = initIRBuilder()
+        checkBuilder.module.runtimeModule = runtimeModule
+        val irModule = buildAST(checkBuilder, ast)
         irModule.sourceName = sourceBaseName(inputPath)
         return reportIRVerification(irModule, "orbit check", useColor)
     }
@@ -825,7 +834,7 @@ fn nativeIrTempPath(outputPath: string) -> string {
 // "r6 <semver> ir-protocol <N>"; an r6 that prints another N (or nothing)
 // reads a different IR, so it is refused before it is given a program.
 fn r6IrProtocol() -> string {
-    return "2"
+    return "3"
 }
 
 // How long the version probe may take. A current r6 answers in milliseconds;
@@ -886,7 +895,7 @@ fn r6RefusalReason(r6: string) -> string {
 // untouched; a refusal is a compile error and never falls back to the C
 // backend. The command is wrapped in one more pair of quotes because the
 // Windows shell strips the outermost pair of a command that begins with one.
-fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: string, verbose: bool, colorMode: string) -> bool {
+fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: string, verbose: bool, colorMode: string, runtimeModule: bool) -> bool {
     val useColorErr = paletteUseColorStderr(colorMode)
     val head = palettePaint(paletteError(), "orbit build:", useColorErr)
     val named = orbit_os_env_selfhost("ORBIT_R6")
@@ -920,7 +929,11 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     if tmpDir != "" {
         cmd = cmd + "set \"R6_TMPDIR=" + shellPath(tmpDir) + "\" && "
     }
-    cmd = cmd + "\"" + shellPath(r6) + "\" build \"" + shellPath(irPath) + "\" -o \"" + shellPath(outputPath) + "\""
+    var objectFlag = ""
+    if runtimeModule {
+        objectFlag = "--object "
+    }
+    cmd = cmd + "\"" + shellPath(r6) + "\" build " + objectFlag + "\"" + shellPath(irPath) + "\" -o \"" + shellPath(outputPath) + "\""
     if verbose {
         print("r6 " + cmd)
     }
@@ -941,6 +954,13 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
 }
 
 fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string) -> bool {
+    return compileSourceMode(source, inputPath, outputPath, verbose, quiet, colorMode, release, emitIrPath, backendArg, false)
+}
+
+// `runtimeModule` is `orbit build --runtime-module`: the output is an object
+// file holding the `export fn` functions of a file that has no `main`, to be
+// archived into the runtime library (docs/IR_SPEC.md).
+fn compileSourceMode(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, runtimeModule: bool) -> bool {
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
@@ -979,6 +999,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     reportMemStage("resolve")
 
     val sema = initSema()
+    sema.runtimeModule = runtimeModule
     analyze(sema, ast)
     reportResolutionGaps(sema)
     if hasErrors(sema) {
@@ -994,6 +1015,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     reportMemStage("sema")
 
     val builder = initIRBuilder()
+    builder.module.runtimeModule = runtimeModule
     val irModule = buildAST(builder, ast)
     irModule.sourceName = sourceBaseName(inputPath)
     reportMemStage("build")
@@ -1033,7 +1055,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         if reportIRVerification(irModule, "orbit build", useColorErr) == false {
             return false
         }
-        if nativeBuild(irPath, emitIrPath == "", inputPath, outputPath, verbose, colorMode) == false {
+        if nativeBuild(irPath, emitIrPath == "", inputPath, outputPath, verbose, colorMode, runtimeModule) == false {
             return false
         }
         if quiet == false {
@@ -1193,11 +1215,18 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if release {
         optFlag = " -O2"
     }
-    var compCmd = cCompiler + " -s" + optFlag + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\"" + netFlag + separateFlags + dbFlags + libRef + linkFlags
+    var compCmd = ""
+    if runtimeModule {
+        // An object for the runtime archive: no link, no resource, and the
+        // header-only API (orbit_api.h) because the archive supplies the rest.
+        compCmd = cCompiler + " -c" + optFlag + warnFlags + " -DORBIT_SEPARATE_COMPILATION " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\""
+    } else {
+        compCmd = cCompiler + " -s" + optFlag + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\"" + netFlag + separateFlags + dbFlags + libRef + linkFlags
+    }
     // Orbit branding: every binary linked on Windows carries the version
     // resource + mark. Fixed metadata, never user input (there is no syntax
     // for it), so services and plain programs alike are recognisably Orbit's.
-    if isWindowsHost && tmpDir != "" {
+    if isWindowsHost && tmpDir != "" && runtimeModule == false {
         var appDesc = "Orbit program"
         if moduleHasRoute(backend) {
             appDesc = "Orbit service"

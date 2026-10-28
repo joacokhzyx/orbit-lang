@@ -167,6 +167,10 @@ fn irOpcodeName(op: IROpcode) -> string {
         IROpcode.shl => { return "shl" }
         IROpcode.shr => { return "shr" }
         IROpcode.bit_not => { return "bit_not" }
+        IROpcode.str_len => { return "str_len" }
+        IROpcode.byte_load => { return "byte_load" }
+        IROpcode.bytes_alloc => { return "bytes_alloc" }
+        IROpcode.byte_store => { return "byte_store" }
         _ => { return "" }
     }
 }
@@ -223,6 +227,9 @@ fn irAppendFunctionText(buf: string, f: IRFunction) {
     irAppendTypeList(buf, f.registerTypes)
     orbit_cbuf_append_selfhost(buf, ",\"returnType\":\"" + irJsonEscape(irTypeName(f.returnType)) + "\",")
     orbit_cbuf_append_selfhost(buf, "\"isExtern\":" + irJsonBool(f.isExtern) + ",")
+    if f.isExport {
+        orbit_cbuf_append_selfhost(buf, "\"export\":true,")
+    }
     orbit_cbuf_append_selfhost(buf, "\"routeMethod\":\"" + irJsonEscape(f.routeMethod) + "\",")
     orbit_cbuf_append_selfhost(buf, "\"routePath\":\"" + irJsonEscape(f.routePath) + "\",")
     orbit_cbuf_append_selfhost(buf, "\"routeHasLimit\":" + irJsonBool(f.routeHasLimit) + ",")
@@ -405,7 +412,11 @@ fn irRuntimeExterns(module: IRModule) -> list < IRFunction > {
 
 fn emitIRv1(module: IRModule) -> string {
     val buf = orbit_cbuf_create_selfhost()
-    orbit_cbuf_append_selfhost(buf, "{\"irVersion\":\"1\",\"module\":{\"functions\":[")
+    orbit_cbuf_append_selfhost(buf, "{\"irVersion\":\"1\",\"module\":{")
+    if module.runtimeModule {
+        orbit_cbuf_append_selfhost(buf, "\"runtimeModule\":true,")
+    }
+    orbit_cbuf_append_selfhost(buf, "\"functions\":[")
     var fi = 0
     while fi < module.functions.len() {
         if fi > 0 { orbit_cbuf_append_selfhost(buf, ",") }

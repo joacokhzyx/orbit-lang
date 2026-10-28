@@ -1,0 +1,12 @@
+// case: export-fn-outside-a-runtime-module
+// what: `export fn` names a symbol of the runtime library, so it is allowed
+//      only in a file compiled with `orbit build --runtime-module`. Anywhere
+//      else the modifier has nothing to export into and is refused.
+// expect-error: is allowed only in a runtime module
+export fn probe_export(n: int) -> int {
+    return n
+}
+
+fn main() -> int {
+    return 0
+}

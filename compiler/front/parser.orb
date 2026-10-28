@@ -970,7 +970,7 @@ fn parseGenericParams(parser: Parser) -> list < ASTNode > {
     return params
 }
 
-fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode {
+fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool, isExport: bool) -> ASTNode {
     matchToken(parser, TokType.KeywordFn)
     val isAsync = matchToken(parser, TokType.KeywordAsync)
     if isAsync {
@@ -1060,7 +1060,7 @@ fn parseFunctionDecl(parser: Parser, isPrivate: bool, isExtern: bool) -> ASTNode
         }
     }
 
-    return ASTNode.FunctionDecl(FunctionDeclNode(name, params, paramTypes, returnType, body, isAsync, isPrivate, isExtern, genericParams))
+    return ASTNode.FunctionDecl(FunctionDeclNode(name, params, paramTypes, returnType, body, isAsync, isPrivate, isExtern, genericParams, isExport))
 }
 
 fn parseModelDecl(parser: Parser, isPrivate: bool) -> ASTNode {
@@ -1329,7 +1329,7 @@ fn parseTraitDecl(parser: Parser, isPrivate: bool) -> ASTNode {
             }
             matchToken(parser, TokType.SemiColon)
             val emptyBody = ASTNode.Block(BlockNode([]))
-            methods.push(ASTNode.FunctionDecl(FunctionDeclNode(methodName.text, [], [], returnType, emptyBody, false, false, false, [])))
+            methods.push(ASTNode.FunctionDecl(FunctionDeclNode(methodName.text, [], [], returnType, emptyBody, false, false, false, [], false)))
         } else {
             advanceParser(parser)
         }
@@ -1508,6 +1508,17 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
     val isPrivate = matchToken(parser, TokType.KeywordPrivate)
     val isExtern = matchToken(parser, TokType.KeywordExtern)
 
+    // `export` is a modifier only here, in front of `fn`; everywhere else it is
+    // an ordinary identifier, so no existing name stops being usable.
+    var isExport = false
+    if check(parser, TokType.Identifier) && parser.currentToken.text == "export" {
+        advanceParser(parser)
+        isExport = true
+        if check(parser, TokType.KeywordFn) == false {
+            parserError(parser, "Expected 'fn' after 'export'.")
+        }
+    }
+
     if check(parser, TokType.Identifier) {
         val text = parser.currentToken.text
         if text == "port" || text == "cors" || text == "db" || text == "env" {
@@ -1545,7 +1556,7 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
     }
 
     if check(parser, TokType.KeywordFn) || check(parser, TokType.KeywordAsync) {
-        return parseFunctionDecl(parser, isPrivate, isExtern)
+        return parseFunctionDecl(parser, isPrivate, isExtern, isExport)
     }
 
     if matchToken(parser, TokType.KeywordVal) {

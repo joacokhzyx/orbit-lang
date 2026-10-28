@@ -821,6 +821,12 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
                               "--backend", "native"]),
             ("suite_std_native", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
                                   "--dir", "tests/std", "--backend", "native"]),
+            # `orbit build --runtime-module` to an object, linked into a program.
+            # The native lane needs ORBIT_R6 (ir-protocol 3), else it skips.
+            ("runtime_module", [py, f"{s}/runtime_module_gate.py", "--cc", cc,
+                                "--compiler", fp]),
+            ("runtime_module_native", [py, f"{s}/runtime_module_gate.py", "--cc", cc,
+                                       "--compiler", fp, "--backend", "native"]),
             ("negative", [py, f"{s}/negative_gate.py", "--cc", cc, "--compiler", fp]),
             ("frontend", [py, f"{s}/frontend_gate.py", "--cc", cc, "--compiler", fp]),
             ("dispatch", [py, f"{s}/dispatch_coverage.py"]),
