@@ -91,9 +91,11 @@ fn variantBlockText(backend: CBackend) -> string {
     while mvi < backend.module.types.len() {
         val mvType: IRTypeDecl = backend.module.types.get(mvi)
         if mvType.kind == "union_type" {
+            val mvTn = cUserName(mvType.name)
             var mvv = 0
             while mvv < mvType.variants.len() {
                 val mvName: string = mvType.variants.get(mvv)
+                val mvMacro = cUserName(mvName)
                 var mrich = ""
                 if mvv < mvType.richVariants.len() {
                     val mr: string = mvType.richVariants.get(mvv)
@@ -123,14 +125,14 @@ fn variantBlockText(backend: CBackend) -> string {
                         fill = fill + "    p->_" + mi + " = a" + mi + ";\n"
                         mi = mi + 1
                     }
-                    orbit_cbuf_append_selfhost(cbV, "static inline OrbitASTVariantNode* " + mvType.name + "_" + mvName + "_pack(OrbitArena* a, " + sig + ") {\n")
-                    orbit_cbuf_append_selfhost(cbV, "    " + mvType.name + "_" + mvName + "* p = (" + mvType.name + "_" + mvName + "*)orbit_alloc(a, sizeof(" + mvType.name + "_" + mvName + "));\n")
+                    orbit_cbuf_append_selfhost(cbV, "static inline OrbitASTVariantNode* " + mvTn + "_" + mvName + "_pack(OrbitArena* a, " + sig + ") {\n")
+                    orbit_cbuf_append_selfhost(cbV, "    " + mvTn + "_" + mvName + "* p = (" + mvTn + "_" + mvName + "*)orbit_alloc(a, sizeof(" + mvTn + "_" + mvName + "));\n")
                     orbit_cbuf_append_selfhost(cbV, fill)
-                    orbit_cbuf_append_selfhost(cbV, "    return orbit_create_variant(a, " + mvType.name + "_TAG_" + mvName + ", (void*)p);\n")
+                    orbit_cbuf_append_selfhost(cbV, "    return orbit_create_variant(a, " + mvTn + "_TAG_" + mvName + ", (void*)p);\n")
                     orbit_cbuf_append_selfhost(cbV, "}\n")
-                    orbit_cbuf_append_selfhost(cbV, "#define " + mvName + "(" + call + ") " + mvType.name + "_" + mvName + "_pack(arena, " + call + ")\n")
+                    orbit_cbuf_append_selfhost(cbV, "#define " + mvMacro + "(" + call + ") " + mvTn + "_" + mvName + "_pack(arena, " + call + ")\n")
                 } else {
-                    orbit_cbuf_append_selfhost(cbV, "#define " + mvName + "(...) orbit_create_variant(arena, " + mvType.name + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
+                    orbit_cbuf_append_selfhost(cbV, "#define " + mvMacro + "(...) orbit_create_variant(arena, " + mvTn + "_TAG_" + mvName + ", (void*)(uintptr_t)(__VA_ARGS__ + 0))\n")
                 }
                 mvv = mvv + 1
             }
@@ -181,7 +183,7 @@ fn functionProto(backend: CBackend, func: IRFunction) -> string {
     if isRoute2 {
         retType2 = "OrbitResponse*"
     }
-    fName2 = sanitizeIdentifier(fName2)
+    fName2 = cFunctionName(func)
     var proto = ""
     var protoAttr = ""
     if isDualPathFunction(func) {
@@ -397,7 +399,7 @@ fn generateCHeader(backend: CBackend) -> string {
     var gi = 0
     while gi < backend.module.globals.len() {
         val g: IRGlobal = backend.module.globals.get(gi)
-        orbit_cbuf_append_selfhost(cbH, "#define " + g.name + " " + cDefineLiteral(g.value) + "\n")
+        orbit_cbuf_append_selfhost(cbH, "#define " + cUserName(g.name) + " " + cDefineLiteral(g.value) + "\n")
         gi = gi + 1
     }
     orbit_cbuf_append_selfhost(cbH, "#ifndef genericParams\n")
@@ -501,10 +503,10 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     if orbitType == "object" || orbitType == "OrbitObject*" { return "OrbitObject*" }
     if orbitType == "result" || orbitType == "Result" || orbitType == "OrbitResult" { return "OrbitResult" }
     if orbitType == "response" || orbitType == "Response" || orbitType == "OrbitResponse*" { return "OrbitResponse*" }
-    if isEnumType(backend, orbitType) { return orbitType }
+    if isEnumType(backend, orbitType) { return cTypeName(backend, orbitType) }
     if orbitType.indexOf("_TAG_") != -1 || orbitType.indexOf("TAG_") != -1 {
         val en = getEnumNameFromTag(orbitType)
-        if en != "orbit_int" { return en }
+        if en != "orbit_int" { return cTypeName(backend, en) }
         return "orbit_int"
     }
     val otLen = orbit_string_len(orbitType)
@@ -514,7 +516,7 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
         if blen > 0 {
             val bfc = base.at(0)
             if bfc >= 65 && bfc <= 90 {
-                return sanitizeIdentifier(base) + "*"
+                return cTypeName(backend, base) + "*"
             }
         }
         return orbitType
@@ -522,7 +524,7 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     if otLen > 0 {
         val fc = orbitType.at(0)
         if fc >= 65 && fc <= 90 {
-            return sanitizeIdentifier(orbitType) + "*"
+            return cTypeName(backend, orbitType) + "*"
         }
     }
     return "void*"
@@ -1454,7 +1456,7 @@ fn isCKeyword(name: string) -> bool {
     return false
 }
 
-fn sanitizeIdentifier(name: string) -> string {
+fn sanitizeChars(name: string) -> string {
     var out = ""
     var i = 0
     val len = orbit_string_len(name)
@@ -1473,10 +1475,121 @@ fn sanitizeIdentifier(name: string) -> string {
             out = "_" + out
         }
     }
+    return out
+}
+
+fn sanitizeIdentifier(name: string) -> string {
+    val out = sanitizeChars(name)
     if isCKeyword(out) {
         return out + "_"
     }
     return out
+}
+
+// Every symbol the program defines (function, model, union, enum, constant,
+// route handler) is emitted under `o_` + its name, so no user name can meet a
+// name from libc, the platform headers or the runtime. The runtime's names all
+// start with `orbit_`, which `o_` cannot spell: the second character differs.
+// `extern fn` keeps its own name, because the name is the point of declaring it.
+// Locals and parameters are emitted as written, and so are model fields.
+fn cUserName(name: string) -> string {
+    return "o_" + sanitizeChars(name)
+}
+
+fn userTypeDeclared(backend: CBackend, name: string) -> bool {
+    if backend == NULL { return false }
+    if backend.module == NULL { return false }
+    var mi = 0
+    while mi < backend.module.models.len() {
+        val m: IRModelDecl = backend.module.models.get(mi)
+        if m.name == name { return true }
+        mi = mi + 1
+    }
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val t: IRTypeDecl = backend.module.types.get(ti)
+        if t.name == name && (t.kind == "enumeration" || t.kind == "union_type" || t.kind == "alias") { return true }
+        ti = ti + 1
+    }
+    return false
+}
+
+// The C spelling of a type name written in the program or in the IR.
+fn cTypeName(backend: CBackend, name: string) -> string {
+    if userTypeDeclared(backend, name) { return cUserName(name) }
+    if unionPayloadStructName(backend, name) { return cUserName(name) }
+    return sanitizeIdentifier(name)
+}
+
+// `<Union>_<Variant>`: the struct that packs a multi-payload variant.
+fn unionPayloadStructName(backend: CBackend, name: string) -> bool {
+    if backend == NULL { return false }
+    if backend.module == NULL { return false }
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val t: IRTypeDecl = backend.module.types.get(ti)
+        if t.kind == "union_type" {
+            var vi = 0
+            while vi < t.variants.len() {
+                val v: string = t.variants.get(vi)
+                if name == t.name + "_" + v { return true }
+                vi = vi + 1
+            }
+        }
+        ti = ti + 1
+    }
+    return false
+}
+
+// A function the program defines, as opposed to one it declares with `extern fn`.
+fn userFunctionDefined(backend: CBackend, name: string) -> bool {
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == name && f.isExtern == false { return true }
+        fi = fi + 1
+    }
+    return false
+}
+
+fn cFunctionName(func: IRFunction) -> string {
+    if isMainFuncName(func.name) && func.isExtern == false { return "orbit_main" }
+    if func.isExtern { return sanitizeIdentifier(func.name) }
+    return cUserName(func.name)
+}
+
+// The C name of a callee, from the name the IR call carries. A name that is a
+// model or a variant is the constructor macro the type declarations define.
+fn cCalleeName(backend: CBackend, name: string) -> string {
+    if userFunctionDefined(backend, name) {
+        if isMainFuncName(name) { return "orbit_main" }
+        return cUserName(name)
+    }
+    if isModelCtorName(backend, name) || isUnionVariantName(backend, name) { return cUserName(name) }
+    if isCKeyword(name) { return name + "_" }
+    return name
+}
+
+// A symbol operand that is C text: a top-level constant, a function used as a
+// value, or `<Type>_TAG_<Variant>`. A local of the same name wins, as it did
+// when the names were emitted as written.
+fn cSymbolText(backend: CBackend, text: string) -> string {
+    val tag = orbit_string_indexOf(text, "_TAG_")
+    if tag > 0 {
+        if userTypeDeclared(backend, orbit_string_slice(text, 0, tag)) { return cUserName(text) }
+        return text
+    }
+    if isTopLevelConstant(backend, text) { return cUserName(text) }
+    if backend.currentFunction != NULL {
+        val cf: IRFunction = backend.currentFunction
+        if listContainsStr(cf.params, text) || listContainsStr(backend.declVars, text) { return text }
+    }
+    if userFunctionDefined(backend, text) {
+        if isMainFuncName(text) { return "orbit_main" }
+        return cUserName(text)
+    }
+    if isCKeyword(text) && moduleHasFunction(backend, text) { return text + "_" }
+    return text
 }
 
 fn isMainFuncName(name: string) -> bool {
@@ -1642,7 +1755,7 @@ fn generateRoutePreamble(hasRoutes: bool, globals: list < IRGlobal >) -> string 
     var gi = 0
     while gi < globals.len() {
         val g: IRGlobal = globals.get(gi)
-        defs = defs + "#define " + g.name + " " + cDefineLiteral(g.value) + "\n"
+        defs = defs + "#define " + cUserName(g.name) + " " + cDefineLiteral(g.value) + "\n"
         gi = gi + 1
     }
     return routePreambleText(hasRoutes, defs)
@@ -1664,7 +1777,7 @@ fn cDefineLiteral(value: IRValue) -> string {
 }
 
 fn modelCreateSignature(backend: CBackend, modelDecl: IRModelDecl) -> string {
-    val mName = sanitizeIdentifier(modelDecl.name)
+    val mName = cUserName(modelDecl.name)
     var sig = mName + "* orbit_model_" + mName + "_create(OrbitArena* arena_"
     var fi = 0
     while fi < modelDecl.fields.len() {
@@ -1681,7 +1794,7 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
     var mi = 0
     while mi < backend.module.models.len() {
         val modelDecl: IRModelDecl = backend.module.models.get(mi)
-        val mFwd = sanitizeIdentifier(modelDecl.name)
+        val mFwd = cUserName(modelDecl.name)
         out = out + "typedef struct " + mFwd + " " + mFwd + ";\n"
         mi = mi + 1
     }
@@ -1689,8 +1802,9 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
     var ui = 0
     while ui < backend.module.types.len() {
         val tDecl: IRTypeDecl = backend.module.types.get(ui)
+        val tdName = cUserName(tDecl.name)
         if tDecl.kind == "union_type" {
-            out = out + "typedef struct " + tDecl.name + " " + tDecl.name + ";\n"
+            out = out + "typedef struct " + tdName + " " + tdName + ";\n"
         }
         ui = ui + 1
     }
@@ -1699,12 +1813,13 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
     var ti = 0
     while ti < backend.module.types.len() {
         val tDecl: IRTypeDecl = backend.module.types.get(ti)
+        val tdName = cUserName(tDecl.name)
         if tDecl.kind == "enumeration" {
             out = out + "typedef enum {\n"
             var vi = 0
             while vi < tDecl.variants.len() {
                 val vName: string = tDecl.variants.get(vi)
-                out = out + "    " + tDecl.name + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
+                out = out + "    " + tdName + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
                 if vi + 1 < tDecl.variants.len() {
                     out = out + ",\n"
                 } else {
@@ -1712,14 +1827,14 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                 }
                 vi = vi + 1
             }
-            out = out + "} " + tDecl.name + ";\n"
-            out = out + "#define " + tDecl.name + "_COUNT " + orbit_int_to_string_selfhost(tDecl.variants.len()) + "\n\n"
+            out = out + "} " + tdName + ";\n"
+            out = out + "#define " + tdName + "_COUNT " + orbit_int_to_string_selfhost(tDecl.variants.len()) + "\n\n"
         } else if tDecl.kind == "union_type" {
             out = out + "typedef enum {\n"
             var vi = 0
             while vi < tDecl.variants.len() {
                 val vName: string = tDecl.variants.get(vi)
-                out = out + "    " + tDecl.name + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
+                out = out + "    " + tdName + "_TAG_" + vName + " = " + orbit_int_to_string_selfhost(vi)
                 if vi + 1 < tDecl.variants.len() {
                     out = out + ",\n"
                 } else {
@@ -1727,7 +1842,7 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                 }
                 vi = vi + 1
             }
-            out = out + "} " + tDecl.name + "__Tag;\n\n"
+            out = out + "} " + tdName + "__Tag;\n\n"
             // Packed payload structs, one per multi-payload variant, ahead of
             // the union that holds them: `V(A, B)` stores a `T_V*` in data,
             // and match bindings read `T_V._0` off it. Single-payload and
@@ -1749,12 +1864,12 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                         out = out + "    " + mapTypeToC(backend, pt) + " _" + pi + ";\n"
                         pi = pi + 1
                     }
-                    out = out + "} " + tDecl.name + "_" + vName + ";\n"
+                    out = out + "} " + tdName + "_" + vName + ";\n"
                 }
                 vi = vi + 1
             }
-            out = out + "typedef struct " + tDecl.name + " {\n"
-            out = out + "    " + tDecl.name + "__Tag tag;\n"
+            out = out + "typedef struct " + tdName + " {\n"
+            out = out + "    " + tdName + "__Tag tag;\n"
             out = out + "    union {\n"
             out = out + "        void* data;\n"
             vi = 0
@@ -1767,7 +1882,7 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                 }
                 val parts = splitPayloadDecl(rich)
                 if parts.len() > 1 {
-                    out = out + "        " + tDecl.name + "_" + vName + " " + vName + ";\n"
+                    out = out + "        " + tdName + "_" + vName + " " + vName + ";\n"
                 } else if rich != "" {
                     out = out + "        " + mapTypeToC(backend, rich) + " " + vName + ";\n"
                 } else {
@@ -1776,10 +1891,10 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
                 vi = vi + 1
             }
             out = out + "    } data;\n"
-            out = out + "} " + tDecl.name + ";\n"
-            out = out + "#define " + tDecl.name + "_COUNT " + orbit_int_to_string_selfhost(tDecl.variants.len()) + "\n\n"
+            out = out + "} " + tdName + ";\n"
+            out = out + "#define " + tdName + "_COUNT " + orbit_int_to_string_selfhost(tDecl.variants.len()) + "\n\n"
         } else if tDecl.kind == "alias" {
-            out = out + "typedef void* " + tDecl.name + ";\n\n"
+            out = out + "typedef void* " + tdName + ";\n\n"
         }
         ti = ti + 1
     }
@@ -1787,7 +1902,7 @@ fn generateRouteTypeDecls(backend: CBackend) -> string {
     mi = 0
     while mi < backend.module.models.len() {
         val modelDecl: IRModelDecl = backend.module.models.get(mi)
-        val mName = sanitizeIdentifier(modelDecl.name)
+        val mName = cUserName(modelDecl.name)
         out = out + "typedef struct " + mName + " {\n"
         var fi = 0
         while fi < modelDecl.fields.len() {
@@ -1869,7 +1984,7 @@ fn generateRouteHandlerBody(func: IRFunction) -> string {
     // token per request on annotated routes.
     body = body + "            uint64_t _orbit_ls = orbit_rdtsc();\n"
     body = body + "            int _orbit_lslot = orbit_ledger_enter(req->method, req->path);\n"
-    body = body + "            OrbitResponse* res = " + sanitizeIdentifier(func.name) + "(arena, req);\n"
+    body = body + "            OrbitResponse* res = " + cFunctionName(func) + "(arena, req);\n"
     body = body + "            orbit_ledger_exit(_orbit_lslot, orbit_rdtsc() - _orbit_ls, arena);\n"
     // A handler that returns no response is one that failed to build it: a
     // route body cannot have answered already, because the router is the only
@@ -2300,7 +2415,7 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     if isRoute {
         retType = "OrbitResponse*"
     }
-    fName = sanitizeIdentifier(fName)
+    fName = cFunctionName(func)
     val cbFn = orbit_cbuf_create_selfhost()
     // NOTE: tiny functions used to carry __attribute__((always_inline)),
     // but without an `inline` keyword that warns under -Wall, so it was
@@ -2651,8 +2766,7 @@ fn generateValue(value: IRValue) -> string {
 fn generateOperand(backend: CBackend, value: IRValue) -> string {
     match value {
         IRValue.Sym(v) => {
-            if isCKeyword(v.value) && moduleHasFunction(backend, v.value) { return v.value + "_" }
-            return v.value
+            return cSymbolText(backend, v.value)
         }
         _ => { return generateValue(value) }
     }
@@ -2676,7 +2790,7 @@ fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string 
     }
     if orbit_string_indexOf(valStr, "TAG_") != -1 {
         if regT != "" && regT != "unknown" && regT != "void*" && regT != "orbit_int" && isEnumType(backend, regT) {
-            return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (" + regT + ")" + valStr + ";\n"
+            return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (" + mapTypeToC(backend, regT) + ")" + valStr + ";\n"
         }
         if regT == "int" || regT == "bool" || regT == "orbit_int" || regT == "orbit_bool" {
             return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (orbit_int)(uintptr_t)(" + valStr + ");\n"
@@ -2717,6 +2831,56 @@ fn checkedDivision(backend: CBackend, helper: string, op: string, instr: IRInstr
     return helper + "(" + lhs + ", " + rhs + ", \"" + escapeString(file) + "\", " + orbit_int_to_string_selfhost(instr.line) + ")"
 }
 
+// A call to a function the program defines under a name the runtime also uses
+// (`orbit_list_len`). The call arms below recognise runtime functions by name
+// and lower them in place, so a user function of the same name would be read as
+// the runtime's. This path casts each argument to the declared parameter type
+// and calls `o_<name>`, and nothing else.
+fn emitUserRuntimeNamedCall(backend: CBackend, instr: IRInstruction, calleeName: string, cb: string) {
+    var numArgs = 0
+    match instr.operand2 {
+        IRValue.Int(iv) => { numArgs = iv.value }
+        _ => {}
+    }
+    var startIdx = backend.callArgs.len() - numArgs
+    if startIdx < 0 { startIdx = 0 }
+    var returnsVoid = false
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == calleeName && f.isExtern == false {
+            returnsVoid = f.returnType == "void"
+            fi = backend.module.functions.len()
+        }
+        fi = fi + 1
+    }
+    var callExpr = cUserName(calleeName) + "(arena"
+    var argIdx = 0
+    var ai = startIdx
+    while ai < backend.callArgs.len() {
+        val aStr = backend.callArgs.get(ai)
+        var cast = declaredParamCast(backend, calleeName, argIdx, aStr)
+        if cast == "" {
+            val enumParam = calleeEnumParamName(backend, calleeName, argIdx)
+            if enumParam != "" {
+                cast = "(" + enumParam + ")(uintptr_t)(" + aStr + ")"
+            } else {
+                cast = "(void*)(uintptr_t)(" + aStr + ")"
+            }
+        }
+        callExpr = callExpr + ", " + cast
+        argIdx = argIdx + 1
+        ai = ai + 1
+    }
+    callExpr = callExpr + ")"
+    while backend.callArgs.len() > startIdx { backend.callArgs.pop() }
+    if instr.dest != -1 && returnsVoid == false {
+        orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, callExpr))
+        return
+    }
+    orbit_cbuf_append_selfhost(cb, "    " + callExpr + ";\n")
+}
+
 // Emits one instruction's C text straight into the caller's chunk buffer.
 // Named emit* (not generate*) to mark the void, buffer-appending contract.
 fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
@@ -2734,7 +2898,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             var valStr = ""
             var vn = ""
             match instr.operand1 {
-                IRValue.String(s) => { valStr = s.value
+                IRValue.String(s) => { valStr = cSymbolText(backend, s.value)
                     vn = s.value }
                 IRValue.Sym(s) => { valStr = generateOperand(backend, instr.operand1)
                     vn = s.value }
@@ -3097,6 +3261,10 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // taking a list was rewritten to orbit_string_indexOf and read the
             // list as a string.
             val calleeIsUserFn = userFunctionDeclared(backend, calleeName)
+            if userFunctionDefined(backend, calleeName) && calleeName.len() > 6 && calleeName.slice(0, 6) == "orbit_" {
+                emitUserRuntimeNamedCall(backend, instr, calleeName, cb)
+                return
+            }
             if calleeName == "slice" && calleeIsUserFn == false {
                 calleeName = "orbit_string_slice"
             }
@@ -3144,7 +3312,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
             }
             if calleeName == "ir_none" {
-                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "ir_none(arena)"))
+                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, cCalleeName(backend, "ir_none") + "(arena)"))
                 return
             }
             var numArgs = 0
@@ -3231,8 +3399,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // and the definition is reported unused. Only the keyword case needs
             // handling here: every other name is already a valid C identifier
             // and sanitizeIdentifier would be a no-op.
-            var callName = calleeName
-            if isCKeyword(callName) { callName = callName + "_" }
+            val callName = cCalleeName(backend, calleeName)
             var callExpr = callName + "("
             val arenaFirst = calleeTakesArena(backend, calleeName)
             var i = startIdx
@@ -3358,7 +3525,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     callExpr = callExpr + "(orbit_int)(uintptr_t)(" + aStr + ")"
                 } else if calleeName == "parseTypeDecl" {
                     if argIdx == 1 {
-                        callExpr = callExpr + "(TokType)(uintptr_t)(" + aStr + ")"
+                        callExpr = callExpr + "(" + cTypeName(backend, "TokType") + ")(uintptr_t)(" + aStr + ")"
                     } else if argIdx == 2 {
                         callExpr = callExpr + "(orbit_int)(uintptr_t)(" + aStr + ")"
                     } else {
@@ -3694,6 +3861,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 owner = findFieldOwner(backend, fname)
             }
             if owner != "" {
+                owner = cTypeName(backend, owner)
                 orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((" + owner + "*)" + generateValue(instr.operand1) + ")->" + fname))
                 return
             }
@@ -3723,6 +3891,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
             }
             if owner2 != "" {
+                owner2 = cTypeName(backend, owner2)
                 orbit_cbuf_append_selfhost(cb, "    ((" + owner2 + "*)" + generateValue(instr.operand1) + ")->" + fname2 + " = " + valCast + ";\n")
                 return
             }
@@ -5013,7 +5182,7 @@ fn calleeEnumParamName(backend: CBackend, calleeName: string, argIdx: int) -> st
     var ti = 0
     while ti < backend.module.types.len() {
         val t: IRTypeDecl = backend.module.types.get(ti)
-        if t.name == pT && t.kind == "enumeration" { return pT }
+        if t.name == pT && t.kind == "enumeration" { return cUserName(pT) }
         ti = ti + 1
     }
     return ""

@@ -13,6 +13,14 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **A program may name its symbols after any C or runtime name.** The C backend
+  emits every function, route handler, model, union, enum, constant and variant
+  constructor as `o_<name>`, so `fn remainder`, `fn printf` or `model FILE` no
+  longer meet `<math.h>`, `<stdio.h>` or the runtime. The libc list, the C type
+  list, the `orbit_` prefix refusal and the generated runtime-name table are
+  gone. Only a function named like a runtime function the compiler calls itself
+  (`orbit_string_slice` for `text.slice(a, b)`) is still refused. Pinned by
+  `tests/suite/c_names_user_defined.orb` and `tests/negative/n89_compiler_called_runtime_name.orb`.
 - **`int` is 64 bits.** `orbit_int` is `int64_t`, so an `int` runs from
   -9223372036854775808 to 9223372036854775807 and wraps modulo 2^64. Literals
   up to 9223372036854775807 are accepted, and `-9223372036854775808` is the

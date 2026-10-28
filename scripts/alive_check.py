@@ -195,16 +195,6 @@ def registry(compiler, cc, work):
              "that owns it, or carries a declared reason why not",
              lambda: _script("flag_coverage.py"),
              r"Finished flag-coverage", 120, allow_rc=(0, 1)),
-        # The runtime half of the C namespace is generated from runtime/*.h and
-        # the two DB sources, so an export added there is reserved without a
-        # second edit here. The row runs the self-test, which asserts the
-        # extractor skips a name in a comment or a string and that a stale table
-        # is reported; the stale check itself runs in T0 (dev.py).
-        Tool("gen_c_namespace.py", "gate",
-             "compiler/front/c_namespace.orb is the runtime's C names; "
-             "--self-test proves the extractor and the staleness check can fail",
-             lambda: _script("gen_c_namespace.py", "--self-test"),
-             r"Finished c-namespace self-test: \d+/\d+", 60),
         # This one exists to be read, not to fail. It diffs the canonical with
         # the generated register numbering flattened, so a reviewer can see what
         # a promote did without reading 20 000 lines of renumbering. Its

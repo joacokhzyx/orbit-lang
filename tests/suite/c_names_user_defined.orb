@@ -1,0 +1,68 @@
+// expect-exit 0
+// A program may name its own symbols after anything C or the runtime declares.
+// The C backend emits every user symbol as `o_<name>`, so `sin`, `printf`,
+// `remainder` and `exit` do not meet <math.h>, <stdio.h> or <stdlib.h>, and
+// `orbit_list_len` does not meet the runtime function the generated code calls
+// for `xs.len()`. The model `FILE` does not meet the <stdio.h> typedef, and
+// `strcat`, `size_t` and `system_uptime` are names the checker used to refuse.
+// `print` and `len` below are the generated code calling libc and the runtime
+// while the user's `printf` and `orbit_list_len` exist in the same unit.
+model FILE {
+    path: string
+    size: int
+}
+
+enum Mode { Read, Write }
+
+const stdout_limit = 40
+
+fn sin(x: int) -> int {
+    return x + 100
+}
+
+fn printf(text: string) -> string {
+    return "[" + text + "]"
+}
+
+fn remainder(a: int, b: int) -> int {
+    return a - (a / b) * b
+}
+
+fn exit(code: int) -> int {
+    return code * 2
+}
+
+fn orbit_list_len(xs: list < int >) -> int {
+    return xs.len() + 997
+}
+
+fn strcat(a: string, b: string) -> string {
+    return a + b
+}
+
+fn size_t(value: int) -> int {
+    return value + 1
+}
+
+fn system_uptime() -> int {
+    return 7
+}
+
+fn main() -> int {
+    val f = FILE { path: printf("a.txt"), size: remainder(17, 5) }
+    if f.path != "[a.txt]" { return 1 }
+    if f.size != 2 { return 2 }
+    if sin(1) != 101 { return 3 }
+    if exit(21) != 42 { return 4 }
+    val xs = [10, 20, 30]
+    if xs.len() != 3 { return 5 }
+    if orbit_list_len(xs) != 1000 { return 6 }
+    val m = Mode.Write
+    if m == Mode.Read { return 7 }
+    if stdout_limit != 40 { return 8 }
+    if strcat("a", "b") != "ab" { return 9 }
+    if size_t(1) != 2 { return 10 }
+    if system_uptime() != 7 { return 11 }
+    print(f.path)
+    return 0
+}
