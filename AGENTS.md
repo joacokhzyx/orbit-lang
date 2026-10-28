@@ -157,6 +157,7 @@ Defined once, used freely: **contract** (ENGINEERING.md §7, which a change must
 
 Commits are how a change is found again, reviewed and undone. One defect, one commit.
 
+- Branches, merges and releases follow `docs/BRANCHES.md`: work happens on `feature/<topic>`, it merges into `develop` after the full gate, and `main` receives only tagged releases.
 - Commit when the change is small, verified and complete. A correction that changes behaviour or a document's claim gets its own commit, even if it is one line.
 - Do not wait for the rest of the work. A verified fix left in the working tree is a fix nobody can find in the history.
 - Do not mix. A code change and a documentation change are two commits, unless the document is the reason the code changed.
