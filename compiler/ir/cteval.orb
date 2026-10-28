@@ -498,7 +498,7 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list < int >, st: CTES
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
                 return false }
-            if b == 0 {
+            if b == 0 || (b == -1 && a != 0 && 0 - a == a) {
                 st.success = false
                 st.depth = st.depth - 1
                 return false
@@ -512,7 +512,7 @@ fn evalFunction(module: IRModule, func: IRFunction, args: list < int >, st: CTES
             val b = resolveValue(regs, known, instr.operand2, st)
             if !st.success { st.depth = st.depth - 1
                 return false }
-            if b == 0 {
+            if b == 0 || (b == -1 && a != 0 && 0 - a == a) {
                 st.success = false
                 st.depth = st.depth - 1
                 return false

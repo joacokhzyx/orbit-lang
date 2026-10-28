@@ -84,7 +84,7 @@ SUPPRESS_FLAGS = ["-DORBIT_WITH_EXEC"] + (
 LOWMEM_C_FLAGS = ["-g0", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables"]
 LOWMEM_AUTO_MB = 4096
 MAX_ITERATIONS = 4
-PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
+PLATFORM_LINK_FLAGS = ["-lws2_32", "-Wl,--stack,16777216"] if os.name == "nt" else []
 
 
 def avail_commit_mb():

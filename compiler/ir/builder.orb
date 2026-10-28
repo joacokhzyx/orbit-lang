@@ -2532,10 +2532,12 @@ fn topLevelConstantValue(node: ASTNode) -> string {
         }
         ASTNode.UnaryOp(u) => {
             // A negative literal is a unary minus over a literal, and that is
-            // still a constant: `val MIN = -2147483648`.
+            // still a constant: `val MIN = -9223372036854775808`. The C literal
+            // for the minimum does not exist, so it is spelled as a difference.
             if u.op != "-" { return "" }
             val inner = topLevelConstantValue(u.operand)
             if inner == "" { return "" }
+            if inner == "9223372036854775808" { return "(-9223372036854775807-1)" }
             return "-" + inner
         }
         _ => { return "" }
@@ -5282,6 +5284,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
             binInstr.dest = binReg
             binInstr.operand1 = lhsOperand
             binInstr.operand2 = rhsOperand
+            if bin.op == "/" || bin.op == "%" { binInstr.line = bin.line }
             ir_emit(builder.currentFunction, binInstr)
             return binReg
         }

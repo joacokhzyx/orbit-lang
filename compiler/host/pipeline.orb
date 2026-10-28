@@ -50,6 +50,12 @@ fn getSourceLine(source: string, lineNum: int) -> string {
     return ""
 }
 
+fn sourceBaseName(path: string) -> string {
+    val slash = lastIndexOfSlash(path)
+    if slash == -1 { return path }
+    return path.slice(slash + 1, path.len())
+}
+
 fn renderErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, colorMode: string) -> string {
     val useColor = paletteUseColorStderr(colorMode)
     val loc = file + ":" + orbit_int_to_string_selfhost(line) + ":" + orbit_int_to_string_selfhost(col)
@@ -725,6 +731,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 
     val builder = initIRBuilder()
     val irModule = buildAST(builder, ast)
+    irModule.sourceName = sourceBaseName(inputPath)
     reportMemStage("build")
 
     // --emit-ir dumps IRv1 straight after the builder, before the optimizer
@@ -830,7 +837,11 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val osName = orbit_os_env_selfhost("OS")
     val winDir = orbit_os_env_selfhost("WINDIR")
     if osName == "Windows_NT" || winDir != "" {
-        linkFlags = " -lws2_32"
+        // The stack reserve is explicit: a recursive-descent compiler needs
+        // more than the 2 MB default once `int` is 64 bits and an unoptimized
+        // frame holds eight-byte registers. The reserve is address space, not
+        // committed memory.
+        linkFlags = " -lws2_32 -Wl,--stack,16777216"
     }
 
     // Sovereignty: the compiler never assumes a specific toolchain vendor.
