@@ -26,18 +26,6 @@ static inline void orbit_string_pool_local_init(OrbitArena* arena) {
     arena->local_string_pool = pool;
 }
 
-ORBIT_XLINK void orbit_string_pool_local_destroy(OrbitStringPoolLocal* pool) {
-    if (!pool) return;
-    free(pool->strings);
-    free(pool->lengths);
-    free(pool);
-}
-
-ORBIT_XLINK void orbit_string_pool_local_reset(OrbitStringPoolLocal* pool) {
-    if (!pool) return;
-    pool->count = 0;
-}
-
 static inline void orbit_string_pool_local_grow(OrbitStringPoolLocal* pool) {
     int new_cap = pool->capacity * 2;
     const char** new_strings = (const char**)malloc((size_t)new_cap * sizeof(const char*));
@@ -56,14 +44,6 @@ static inline void orbit_string_pool_local_grow(OrbitStringPoolLocal* pool) {
     pool->strings = new_strings;
     pool->lengths = new_lengths;
     pool->capacity = new_cap;
-}
-
-/* Stubs for backwards compatibility in existing compiled assets */
-void orbit_string_pool_init(int capacity) {
-    (void)capacity;
-}
-
-void orbit_string_pool_cleanup(void) {
 }
 
 ORBIT_INLINE const char* orbit_string_intern(OrbitArena* arena, const char* str) {

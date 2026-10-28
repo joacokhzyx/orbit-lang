@@ -101,7 +101,7 @@ A lookup compares lengths first and then `memcmp`s, so it is $O(n)$ in the numbe
 
 FNV-1a hashing and open-addressed buckets do exist in this runtime, but for `Map<K,V>`, not for string interning: `runtime/collections.c` (`OrbitMapEntry`, 75 % load factor, buckets abandoned in the arena and reclaimed on reset). Do not read that machinery into this table.
 
-`orbit_string_pool_init(capacity)` and `orbit_string_pool_cleanup()` are compatibility stubs that ignore their argument. The generated server calls both (`compiler/emit/route_runtime.orb:567`, `:732`) and they do nothing.
+`orbit_string_pool_init` and `orbit_string_pool_cleanup` were empty compatibility stubs. No generated program called them and they are removed; `docs/STARTUP.md` lists the arena members.
 
 ---
 
