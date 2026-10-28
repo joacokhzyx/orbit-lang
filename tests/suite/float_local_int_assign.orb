@@ -16,7 +16,7 @@ fn main() -> int {
     if g.level / 2.0 != 2.5 {
         return 2
     }
-    var count = 2
+    val count = 2
     ratio = count
     if ratio / 4.0 != 0.5 {
         return 3

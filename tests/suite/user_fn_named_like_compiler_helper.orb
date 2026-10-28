@@ -24,7 +24,10 @@ fn getDir(n: int) -> int {
 }
 
 fn label(n: int) -> string {
-    return "n=" + "x"
+    if n == 1 {
+        return "n=" + "x"
+    }
+    return "n=?"
 }
 
 fn main() -> int {

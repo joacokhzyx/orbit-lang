@@ -29,7 +29,7 @@ fn main() -> int {
     if g(1) != 101 { return 6 }
     g = bool
     if g(2) != 1002 { return 7 }
-    var h = typeof
+    val h = typeof
     if h(3) != 10003 { return 8 }
     return 0
 }
