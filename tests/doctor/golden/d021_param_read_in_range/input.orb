@@ -1,0 +1,8 @@
+extern fn sink(v: int)
+
+fn upTo(n: int) -> int {
+    for i in 0..n {
+        sink(i)
+    }
+    return 0
+}

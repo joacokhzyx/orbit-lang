@@ -3504,7 +3504,6 @@ fn doctorCollectDecls(node: ASTNode, lines: list < string >, file: string, decls
 
 // AST walk collecting every referenced name: identifier uses plus the
 // type names in annotations, so models used as types count as used.
-// orbit-walk-misses: RangeNode
 fn doctorWalkRefs(node: ASTNode, refs: list < string >) {
     match node {
         ASTNode.Program(p) => {
@@ -3631,6 +3630,12 @@ fn doctorWalkRefs(node: ASTNode, refs: list < string >) {
             }
         }
         ASTNode.TypedLiteral(t) => { doctorWalkRefs(t.value, refs) }
+        // `for i in 0..n` reads n; without this arm a parameter used only as a
+        // range bound looked unused (D021).
+        ASTNode.Range(r) => {
+            doctorWalkRefs(r.lo, refs)
+            doctorWalkRefs(r.hi, refs)
+        }
         ASTNode.ImplDecl(n) => {
             refs.push(n.traitName)
             refs.push(n.typeName)
