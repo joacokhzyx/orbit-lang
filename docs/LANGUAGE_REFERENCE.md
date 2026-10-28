@@ -718,6 +718,34 @@ gate only (see `docs/KYNX.md`). The runtime keeps at most 32 annotated
 routes. A further annotation is dropped at startup, while a repeated identical
 annotation is idempotent.
 
+### Request limits
+
+The parser checks the raw bytes before it allocates anything from the request
+arena, so a hostile request costs the server only the bytes it already read.
+A request over a limit is answered and the connection closes.
+
+| Limit | Default | Environment variable | Answer |
+|---|---|---|---|
+| Request line | 8192 bytes | `ORBIT_HTTP_MAX_REQUEST_LINE` | `414 URI Too Long` |
+| All header lines | 65536 bytes | `ORBIT_HTTP_MAX_HEADER_BYTES` | `431 Request Header Fields Too Large` |
+| Header lines | 100 | `ORBIT_HTTP_MAX_HEADERS` | `431 Request Header Fields Too Large` |
+| Body (`Content-Length`) | 1048576 bytes | `ORBIT_HTTP_MAX_BODY` | `413 Content Too Large` |
+
+A variable is a decimal integer in `1..2147483648`. Any other value is ignored
+with one line on stderr and the default stays. The variables are read once, at
+`orbit_http_init`.
+
+The body check uses the `Content-Length` header alone: an over-limit body is
+refused before any of it is read. A `Content-Length` that has no digits, is
+negative, or appears twice with different values answers `400 Malformed
+Content-Length`, because the body boundary is then ambiguous. `Transfer-Encoding:
+chunked` answers `501`.
+
+The server reads each connection into a 16 KiB buffer. Until that buffer grows,
+a request larger than 16383 bytes in total never arrives whole whatever the
+limits say, and the answer is `431` when the header block is still open and
+`413` when only the body is.
+
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
 Their API is under active development. Check the runtime and examples
 before depending on a new helper in a public service.

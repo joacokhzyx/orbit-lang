@@ -122,11 +122,14 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_hmac_sha256" { return true }
     if name == "orbit_hmac_sha256_base64url" { return true }
     if name == "orbit_http_body_get" { return true }
+    if name == "orbit_http_buffer_full_response" { return true }
     if name == "orbit_http_cleanup" { return true }
     if name == "orbit_http_client_fetch" { return true }
     if name == "orbit_http_header_get" { return true }
     if name == "orbit_http_init" { return true }
+    if name == "orbit_http_limits_reload" { return true }
     if name == "orbit_http_param_get" { return true }
+    if name == "orbit_http_parse_error_response" { return true }
     if name == "orbit_http_parse_request" { return true }
     if name == "orbit_http_parse_request_ex" { return true }
     if name == "orbit_http_query_get" { return true }

@@ -712,6 +712,9 @@ void orbit_ledger_enable_file_dump(void);
 /* ── External functions: HTTP (canonical: runtime/http.c) ────────────── */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
 size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error);
+void orbit_http_limits_reload(void);
+OrbitResponse* orbit_http_parse_error_response(OrbitArena* arena, int code);
+OrbitResponse* orbit_http_buffer_full_response(OrbitArena* arena, const char* buf, size_t len);
 bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern);
 OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* content_type, const char* body);
 void orbit_response_add_header(OrbitArena* arena, OrbitResponse* resp, const char* name, const char* value);
