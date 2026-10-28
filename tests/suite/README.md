@@ -35,7 +35,7 @@ This directory holds small programs that verify what the fixed-point compiler do
 | Function values chosen at run time | `fn_value_dispatch.orb` |
 | String scanning, building and comparison | `string_scan.orb`, `string_builder_loop.orb`, `string_compare_order.orb` |
 | Generic functions over lists | `generic_multi.orb` |
-| 32-bit integer wrap and float arithmetic | `int_wrap_32.orb`, `float_accumulate.orb` |
+| 64-bit integer wrap and float arithmetic | `int_wrap_64.orb`, `float_accumulate.orb` |
 | Recursion | `recursion_mix.orb` |
 | Large lists, stacks, queues, sorting | `list_large_loop.orb`, `list_stack_queue.orb` |
 | Compiler-style programs | `mini_parser.orb`, `parallel_lists_table.orb` |

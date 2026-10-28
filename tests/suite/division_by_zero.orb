@@ -1,0 +1,29 @@
+// expect-exit 2
+//
+// Dividing by a zero that only exists at run time stops the program.
+//
+// The front end rejects a literal `/ 0` (E1004). A divisor held in a variable
+// or computed from a list is invisible to it, and C leaves that division
+// undefined: the process died on SIGFPE with nothing on either stream. An int
+// division now checks its divisor, prints
+//
+//     orbit: division by zero at division_by_zero.orb:NN
+//
+// to stderr and exits 2, the way an out-of-range list index does. A sentinel
+// result would be the same defect as `xs.get(99)` answering 0: a caller
+// cannot tell it from a real quotient.
+//
+// The exit code is the whole assertion. Everything after the division is
+// unreachable, so a run that gets there prints a second line and exits 0.
+fn quotient(a: int, b: int) -> int {
+    return a / b
+}
+
+fn main() -> int {
+    val xs = [1, 2]
+    val zero = xs.len() - 2
+    print(quotient(10, 5))
+    print(quotient(10, zero))
+    print("unreachable")
+    return 0
+}

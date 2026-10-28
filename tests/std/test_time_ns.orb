@@ -9,14 +9,14 @@
 // loop yields a strictly larger delta. A constant or zero clock cannot
 // pass, and neither can a whole-second one.
 //
-// The cap and the wrap guard are pinned too, because both are
-// arithmetic on a 32-bit int and neither is visible at the call site.
+// The backwards-reading guard is pinned too: it is arithmetic on an int
+// and not visible at the call site.
 import "std/time/time.orb"
 import "std/test/assert.orb"
 import "std/convert/convert.orb"
 
 // Exact, and pinned below at sizes where the sum still fits in an
-// int32. This is the "the loop really ran" witness: the assertion holds
+// an int. This is the "the loop really ran" witness: the assertion holds
 // whether the loop runs or the compiler folds it to its closed form.
 fn spin(iters: int) -> int {
     var acc = 0
@@ -102,26 +102,21 @@ fn main() -> int {
     if assertTrueMsg(ab >= 0, "two back-to-back readings wrapped") == false { return 11 }
     if assertTrueMsg(ab <= large, "a back-to-back delta exceeded the whole span") == false { return 12 }
 
-    // --- the wrap guard ----------------------------------------------
+    // --- the backwards guard -----------------------------------------
     // sinceNsBetween is pure arithmetic, so its contract is pinned
     // exactly here rather than waited for on a real clock: the test
-    // must not depend on how long the machine has been up, which
-    // decides the sign of a raw tickNs() reading.
+    // must not depend on how long the machine has been up.
     if assertEqIntMsg(sinceNsBetween(100, 250), 150, "delta") == false { return 13 }
     if assertEqIntMsg(sinceNsBetween(100, 100), 0, "a zero span is a real zero") == false { return 14 }
-    // 2147483648 does not fit an orbit_int and is now a compile error, so the
-    // value one past the cap is written as the sum it is. The test is about the
-    // clamp, not about the literal.
-    val pastCap = 2147483647 + 1
-    if assertEqIntMsg(sinceNsBetween(0, 2147483647), 2147483647, "just under the cap") == false { return 15 }
-    if assertEqIntMsg(sinceNsBetween(0, pastCap), -1, "exactly at the cap reports a wrap") == false { return 16 }
-    if assertEqIntMsg(sinceNsBetween(pastCap, 0), -1, "a backwards reading reports a wrap") == false { return 17 }
+    // The 2^31 ns cap of the 32-bit int is gone: a span past it is a span.
+    val pastOld = 2147483648
+    if assertEqIntMsg(sinceNsBetween(0, 2147483647), 2147483647, "just under the old cap") == false { return 15 }
+    if assertEqIntMsg(sinceNsBetween(0, pastOld), pastOld, "a span past 2^31 ns is measured") == false { return 16 }
+    if assertEqIntMsg(sinceNsBetween(pastOld, 0), -1, "a backwards reading reports -1") == false { return 17 }
 
     // --- a long span, accumulated in chunks --------------------------
-    // The honest way to measure more than the cap: keep each chunk's end
-    // reading as the next chunk's start. This is the loop a benchmark
-    // over a large corpus has to run, written down here so the pattern
-    // is not rediscovered as a silent 71-minute wrap.
+    // Keep each chunk's end reading as the next chunk's start. This is
+    // the loop a benchmark over a large corpus runs.
     var total = 0
     var chunks = 0
     var skipped = 0
@@ -135,23 +130,20 @@ fn main() -> int {
             total = total + d
             chunks = chunks + 1
         } else {
-            // Too long: drop the chunk rather than adding a wrapped
-            // number, and take a fresh reading.
+            // A backwards reading: drop the chunk and take a fresh one.
             chunkStart = tickNs()
             skipped = skipped + 1
         }
         chunkStart = chunkEnd
         round = round + 1
     }
-    if assertTrueMsg(skipped == 0, "a 1M-iteration chunk exceeded the 2.15 s cap") == false { return 18 }
+    if assertTrueMsg(skipped == 0, "a chunk read backwards") == false { return 18 }
     if assertEqIntMsg(chunks, 6, "every chunk was measured") == false { return 19 }
     // Six 1M chunks are 6M iterations against the 2M of `large` above, so
     // three times the work. Measured total/large is ~3.5 at every level
     // (0.13 s / 0.041 s at -O0, 0.021 / 0.006 at -O1, 0.010 / 0.004 at
     // -O2): the margin is the ratio itself, and it does not depend on the
-    // machine being fast -- only on it not being so slow that 1M
-    // iterations reaches the 2.15 s cap, which is far more headroom than
-    // that.
+    // machine being fast.
     if assertTrueMsg(total > large, "six chunks of 1M did not outlast one span of 2M") == false { return 20 }
 
     // The observable sink: the value `burn` last wrote through `sink`.

@@ -6,8 +6,8 @@
 //
 //        print((7) / 0)              -> SIGFPE
 //        print((7) % 0)              -> SIGFPE
-//        print((-2147483648) / -1)   -> SIGFPE   (the one division that
-//                                                  overflows, at any width)
+//        print((-9223372036854775808) / -1)   -> SIGFPE   (the one division
+//                                                  that overflows, at any width)
 //
 //      Two of the three are statically decidable: a literal zero divisor is a
 //      constant expression and `INT_MIN / -1` overflows for every int width,
@@ -25,10 +25,10 @@
 //      folds constants, so there is nothing left to decide at run time -- the
 //      emitted C used to perform a division the hardware then refused.
 //
-//      The third shape, a zero held in a variable, still reaches the hardware
-//      and still faults. That half needs a guard in the emitted C and is not
-//      done; see tests/suite/division.orb, which pins that a divisor through a
-//      variable keeps working, because the guard cannot be "refuse to divide".
+//      The third shape, a zero held in a variable, is a checked trap in the
+//      emitted C: tests/suite/division_by_zero.orb pins the diagnostic and exit
+//      2, and tests/suite/division.orb pins that a divisor through a variable
+//      keeps working, because the guard cannot be "refuse to divide".
 //
 //      This was pinned `no-diagnostic:` because a `wrong-value:` cannot hold a
 //      signal. A diagnostic arrived, so the ratchet fired, which is exactly

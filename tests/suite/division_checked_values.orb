@@ -1,0 +1,33 @@
+// The control for the four division traps: every division that has an answer
+// still gives it. The divisors come through parameters, so each one goes
+// through the checked helper rather than the bare operator, and one constant
+// divisor shows the unchecked path agrees with it.
+fn quotient(a: int, b: int) -> int { return a / b }
+fn remainder(a: int, b: int) -> int { return a % b }
+fn ratio(a: float, b: float) -> float { return a / b }
+
+fn main() -> int {
+    val maximum = 9223372036854775807
+    val minimum = -maximum - 1
+    if quotient(-7, 2) != -3 { return 1 }
+    if remainder(-7, 2) != -1 { return 2 }
+    if quotient(7, -1) != -7 { return 3 }
+    if remainder(7, -1) != 0 { return 4 }
+    if quotient(minimum, 1) != minimum { return 5 }
+    if remainder(minimum, 2) != 0 { return 6 }
+    if quotient(minimum, 2) != -4611686018427387904 { return 7 }
+    if quotient(maximum, -1) != -maximum { return 8 }
+    if quotient(maximum, maximum) != 1 { return 9 }
+    if remainder(maximum, -1) != 0 { return 10 }
+    if quotient(0, -1) != 0 { return 11 }
+    if quotient(-9, 4) != -2 { return 12 }
+    if remainder(-9, 4) != -1 { return 13 }
+    // A constant divisor other than 0 and -1 takes the bare operator.
+    val n = quotient(100, 7)
+    if n / 7 != 2 { return 14 }
+    if n % 7 != 0 { return 15 }
+    // Float division keeps IEEE semantics and never traps.
+    if ratio(1.0, 0.0) <= 1000000.0 { return 16 }
+    if ratio(0.0, 0.0) == ratio(0.0, 0.0) { return 17 }
+    return 0
+}

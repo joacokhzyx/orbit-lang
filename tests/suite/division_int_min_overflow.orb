@@ -1,0 +1,24 @@
+// expect-exit 2
+//
+// The most negative int divided by -1 has no int answer: the quotient is
+// 2^63, one past the maximum. C leaves it undefined and x86-64 raises the
+// same fault as a zero divisor. The division stops the program instead:
+//
+//     orbit: integer overflow in division at division_int_min_overflow.orb:NN
+//
+// The operands come through parameters so no constant folding sees them. A
+// compile-time spelling of the same division is E1004
+// (tests/negative/n41_division_by_zero_is_not_a_diagnostic.orb).
+fn quotient(a: int, b: int) -> int {
+    return a / b
+}
+
+fn main() -> int {
+    val minimum = -9223372036854775807 - 1
+    val xs = [1, 2]
+    val minusOne = xs.len() - 3
+    print(quotient(minimum, 1))
+    print(quotient(minimum, minusOne))
+    print("unreachable")
+    return 0
+}

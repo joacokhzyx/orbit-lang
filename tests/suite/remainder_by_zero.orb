@@ -1,0 +1,21 @@
+// expect-exit 2
+//
+// `%` by a run-time zero stops the program, as `/` does
+// (division_by_zero.orb). C leaves `x % 0` undefined for the same reason it
+// leaves `x / 0` undefined, and the diagnostic is the same one:
+//
+//     orbit: division by zero at remainder_by_zero.orb:NN
+//
+// Exit 2, nothing printed after the remainder.
+fn remainder(a: int, b: int) -> int {
+    return a % b
+}
+
+fn main() -> int {
+    val xs = [1, 2]
+    val zero = xs.len() - 2
+    print(remainder(10, 3))
+    print(remainder(10, zero))
+    print("unreachable")
+    return 0
+}
