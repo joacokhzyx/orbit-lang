@@ -3504,6 +3504,7 @@ fn doctorCollectDecls(node: ASTNode, lines: list < string >, file: string, decls
 
 // AST walk collecting every referenced name: identifier uses plus the
 // type names in annotations, so models used as types count as used.
+// orbit-walk-misses: none
 fn doctorWalkRefs(node: ASTNode, refs: list < string >) {
     match node {
         ASTNode.Program(p) => {
