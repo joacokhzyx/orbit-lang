@@ -10,5 +10,12 @@ fn main() -> int {
     print(rtmod_probe_tail("hello, Orbit", 7))
     print(rtmod_probe_tail("abc", 3))
     print(rtmod_probe_copy_nothing("zzz"))
+    val none: string = NULL
+    if none == NULL {
+        print("null string")
+    }
+    if "x" != NULL {
+        print("string")
+    }
     return 0
 }
