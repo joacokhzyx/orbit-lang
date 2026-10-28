@@ -11,7 +11,7 @@ the interface) and a source (`<m>.c`, the implementation).
 
 | Group | Modules |
 |---|---|
-| Core | `perf`, `types`, `console`, `crash`, `arena`, `string_pool`, `arena_pool`, `collections`, `json`, `file`, `os`, `builtins`, `crypto`, `selfhost`, `energy`, `ledger` |
+| Core | `perf`, `types`, `console`, `crash`, `arena`, `arena_alloc`, `arena_oom`, `arena_reset`, `arena_checkpoint`, `arena_child`, `arena_stats`, `arena_global`, `arena_pool`, `collections`, `json`, `file`, `os`, `builtins`, `crypto`, `selfhost`, `energy`, `ledger` |
 | Network | `http`, `kynx`, `pulse` |
 | Database | `database`, `auth` |
 
@@ -115,9 +115,36 @@ resource, `gcc 16.2.0 -O1 -s`, section sizes from `objdump -h`:
 | | `.text` | `.rdata` | `.bss` | DLLs besides the CRT |
 |---|---|---|---|---|
 | One-object archive (`bf38b38`) | 116 352 | 21 592 | 4 892 672 | ADVAPI32, WS2_32 |
-| Per-module archive | 13 072 | 3 064 | 8 736 | none |
+| Per-module archive (`cc6b167`) | 13 072 | 3 064 | 8 736 | none |
+| Arena split in members | 7 904 | 2 776 | 8 704 | none |
 | `int main(void){return 0;}` | 6 400 | 2 488 | 384 | none |
 
-The members linked for `hello` are `arena`, `string_pool`, `perf`, `console`
-and `crash`. `arena.o` is 6 016 bytes of the `.text`; the rest is the MinGW
-start-up code that every program carries.
+The members linked for `hello` are `arena`, `perf`, `console` and `crash`.
+`hello` is 1 504 bytes of `.text` above the 6 400 of the MinGW start-up code.
+At `cc6b167` `arena.o` alone was 6 016 bytes of it.
+
+## Arena members
+
+`arena.c` was one member, so a program that created and destroyed one arena
+linked checkpoints, child arenas, telemetry, the out-of-memory handler and the
+overflow path. `size` on the `.o` files, `.text` bytes:
+
+| Member | `.text` | Defines |
+|---|---|---|
+| `arena` | 1 144 | `orbit_arena_create`, `orbit_arena_destroy` |
+| `arena_alloc` | 3 016 | `orbit_alloc`, `orbit_alloc_try`, `orbit_arena_strdup`, the aborting default |
+| `arena_oom` | 856 | `orbit_set_oom_handler`, `orbit_get_oom_handler`, `orbit_request_oom_*` |
+| `arena_reset` | 588 | `orbit_arena_reset` |
+| `arena_checkpoint` | 224 | `orbit_arena_checkpoint`, `orbit_arena_rewind` |
+| `arena_child` | 232 | `orbit_arena_create_child`, `orbit_arena_promote` |
+| `arena_stats` | 288 | `orbit_arena_used` and the other telemetry accessors |
+| `arena_global` | 180 | `orbit_arena_get_global` |
+
+`arena_internal.h` and `arena_vm.h` are not members. The aborting default
+reports through one `WriteFile` (`write` outside Windows) instead of
+`fputs`/`fflush(stderr)`, and ends the line in CR LF on Windows as the text-mode
+stream did. The per-arena string pool is torn down by inline functions in
+`string_pool.h`, so `string_pool.o` is no longer linked. `string_pool.c` is built only in the
+unity build, where the tests call `orbit_string_intern`. The object held only
+those two functions and the two empty `orbit_string_pool_init`/`_cleanup` stubs, which no
+generated program calls and are removed.

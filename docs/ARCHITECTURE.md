@@ -464,7 +464,7 @@ followed by `orbit_handle_request` is emitted by
 | Path | Role |
 |---|---|
 | `runtime/runtime.h` | Aggregation header; includes the `.c` files |
-| `runtime/arena.c` | Epoch virtual-memory allocator |
+| `runtime/arena.c` | Epoch virtual-memory allocator: create and destroy. Allocation, reset, checkpoint, child, stats, OOM configuration and the global arena are `arena_alloc.c`, `arena_reset.c`, `arena_checkpoint.c`, `arena_child.c`, `arena_stats.c`, `arena_oom.c` and `arena_global.c` |
 | `runtime/arena_pool.c` | Pool of arenas for startup and hand-written scratch work (not the request path) |
 | `runtime/string_pool.c` | String interning |
 | `runtime/collections.c` | Arrays, hash maps, bytes |
