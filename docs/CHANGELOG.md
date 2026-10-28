@@ -170,6 +170,17 @@ Language:
 
 Runtime and generated code:
 
+- **Runtime security.** `Model.where` and `Model.count` bind every parameter
+  with `sqlite3_bind_text` and refuse a condition that holds a quote, `;`, a
+  comment, a named placeholder, a second statement or a read outside the
+  model's table (`docs/LANGUAGE_REFERENCE.md`, "Filter conditions").
+  `orbit_ct_equal` replaces `orbit_streq` and compares JWT signatures and roles
+  in constant time. The HTTP parser caps the request line (8192, 414), header
+  bytes (65536) and count (100) (431) and `Content-Length` (1 MiB, 413) before it
+  allocates, and answers a malformed or conflicting `Content-Length` with 400;
+  `ORBIT_HTTP_MAX_*` move the caps. `orbit_alloc_try` no longer hands back a
+  block for a size that wraps the cursor, a list capacity whose bytes wrap is an
+  error, and a trusted-proxy entry with a non-numeric prefix trusts nothing.
 - **`orbit build` drops functions no entry point reaches.** An import put every
   library function into the C. `compiler/ir/prune.orb` now keeps what `main`, a
   route or an extern reaches. `examples/std_crypto_demo.orb` emits 108 229 ->

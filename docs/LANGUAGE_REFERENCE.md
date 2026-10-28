@@ -873,7 +873,9 @@ and need no import. There is no `std/core/result.orb` to import.
 - `std/sys/crypto/jwt.orb`: HS256 signing and verification only (no
   `alg:none`). Time travels explicitly as `nowUnix` because Orbit has no wall
   clock. `exp` is required. `nbf`, when present, must not be future. `iat` is
-  carried, not enforced. Its SHA-256/HMAC bindings are shared with
+  carried, not enforced. The signature is compared with `orbit_ct_equal`, which
+  reads every byte whatever the content, so a forger learns nothing from timing.
+  Its SHA-256/HMAC bindings are shared with
   `std/hash/hash.orb`. Redeclaring them in an importer collides on merge.
 - `std/bytes/bytes.orb`: byte buffers with decimal length framing. Bytes are
   1-255 (C strings cannot hold NUL). Out-of-range reads answer -1. Shared C
