@@ -4116,6 +4116,28 @@ fn isResultRegisterType(func: IRFunction, regId: int) -> bool {
     return t == "result" || t == "Result" || t == "OrbitResult"
 }
 
+// Does this call go to a function the module declares `-> float`, with the
+// result register already typed float by the builder? The table above only
+// knows runtime symbols, so a user function's result was "unknown" and the
+// val it was bound to hoisted as `uintptr_t`: the store cast the double to an
+// integer and `val r = half(5.0)` printed 2.0, silently. An int, a bool and a
+// pointer survive that round trip; a float does not. The declaration is the
+// answer, and it is found for a recursive call and for a function defined
+// later in the file because the module holds every function before any is
+// emitted.
+fn callReturnsFloat(backend: CBackend, func: IRFunction, callee: string, regId: int) -> bool {
+    if backend == NULL || backend.module == NULL { return false }
+    if regId < 0 || regId >= func.registerTypes.len() { return false }
+    if func.registerTypes.get(regId) != "float" { return false }
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val cf: IRFunction = backend.module.functions.get(fi)
+        if cf.name == callee { return cf.returnType == "float" }
+        fi = fi + 1
+    }
+    return false
+}
+
 // Per-function instruction index behind variableDefType,
 // operandFeFirstPrescanType and registerVarDefType.
 //
@@ -4204,7 +4226,7 @@ fn ensureDefIndex(backend: CBackend, func: IRFunction) {
                                 // aggregate-to-integer C error. The register
                                 // type the builder already assigned answers it
                                 // properly, so let that stand.
-                                if (bt == "unknown" || bt == "void") && isResultRegisterType(func, rd) == false {
+                                if (bt == "unknown" || bt == "void") && isResultRegisterType(func, rd) == false && callReturnsFloat(backend, func, cn, rd) == false {
                                     verdict = "unknown"
                                 }
                             }

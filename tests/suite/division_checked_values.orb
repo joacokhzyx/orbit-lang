@@ -27,7 +27,9 @@ fn main() -> int {
     if n / 7 != 2 { return 14 }
     if n % 7 != 0 { return 15 }
     // Float division keeps IEEE semantics and never traps.
-    if ratio(1.0, 0.0) <= 1000000.0 { return 16 }
-    if ratio(0.0, 0.0) == ratio(0.0, 0.0) { return 17 }
+    val inf: float = ratio(1.0, 0.0)
+    if inf <= 1000000.0 { return 16 }
+    val nan: float = ratio(0.0, 0.0)
+    if nan == nan { return 17 }
     return 0
 }
