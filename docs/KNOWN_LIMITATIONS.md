@@ -32,7 +32,7 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 89/89 pass (0 known defects still accepted)
+Finished negative: 90/90 pass (0 known defects still accepted)
 ```
 
 Ninety-three programs: every one must be rejected and is. The last one to be

@@ -1,0 +1,17 @@
+// case: object-field-untyped-read
+// what: an object field read whose kind nothing states. The read lowers
+//      through orbit_object_get_raw, which returns the stored word with no
+//      kind check, so `orbit build` refuses it in the IR verifier. `orbit
+//      check` stopped at sema and printed "no errors" for the same file, so
+//      the two commands disagreed. check now runs the same verifier.
+// expect-error: object field 'ratio' has no known type in fn 'main'
+fn make() -> object {
+    return { count: 42, ratio: 0.5 }
+}
+
+fn main() -> int {
+    val made = make()
+    val sum = made.ratio + made.count
+    print(sum)
+    return 0
+}
