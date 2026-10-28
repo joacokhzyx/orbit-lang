@@ -1,16 +1,13 @@
-/**
- * @file  os.c
- * @brief Cross-platform OS utilities for Orbit (process info, env, paths).
- *
- * Wraps OS-specific calls behind a uniform C API used by the Orbit runtime
- * on Windows (Win32), Linux, and macOS.  Includes directory creation,
- * environment variable access, and executable-path resolution.
- */
-#ifndef ORBIT_OS_C
-#define ORBIT_OS_C
+#ifndef ORBIT_RT_OS_C
+#define ORBIT_RT_OS_C
 
-#include "types.c"
-#include "arena.c"
+#include "module_prelude.h"
+#include "os.h"
+#include "types.h"
+#include "arena.h"
+#include "collections.h"
+#include "types.h"
+#include "arena.h"
 #include "crt_compat.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -19,8 +16,6 @@
 #include <direct.h>
 #include <windows.h>
 #include <io.h>
-/* errno/EEXIST are used below: gcc and MSVC receive <errno.h> transitively
- * through the headers above, tcc does not, so it rides here explicitly. */
 #include <errno.h>
 #else
 #include <sys/wait.h>
@@ -228,6 +223,119 @@ orbit_int orbit_os_spawn(orbit_string command) {
 #endif
 }
 
+// Run `command` through the shell and wait at most timeout_ms (<= 0 waits
+// forever). stdout and stderr go to capture_path when it is non-empty and are
+// inherited otherwise. Returns the exit code; -2 when the deadline passed (the
+// whole process tree is killed); -1 when the command could not be started.
+// The caller that must not hang on a stale tool (the native backend probing
+// r6.exe) is the reason this exists next to orbit_os_spawn, which waits for ever.
+orbit_int orbit_os_run_timeout(orbit_string command, orbit_int timeout_ms, orbit_string capture_path) {
+    if (!command || !*command) return -1;
+    int capture = capture_path && *capture_path;
+#ifdef _WIN32
+    SECURITY_ATTRIBUTES sa;
+    ZeroMemory(&sa, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE hOut = INVALID_HANDLE_VALUE;
+    HANDLE hIn = INVALID_HANDLE_VALUE;
+    if (capture) {
+        hOut = CreateFileA(capture_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hOut == INVALID_HANDLE_VALUE) return -1;
+        hIn = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          &sa, OPEN_EXISTING, 0, NULL);
+    }
+    STARTUPINFOA si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    if (capture) {
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = hIn;
+        si.hStdOutput = hOut;
+        si.hStdError = hOut;
+    }
+    static const char prefix[] = "cmd.exe /d /s /c \"";
+    size_t clen = strlen(command);
+    char* line = (char*)malloc(sizeof(prefix) + clen + 2);
+    if (!line) {
+        if (hOut != INVALID_HANDLE_VALUE) CloseHandle(hOut);
+        if (hIn != INVALID_HANDLE_VALUE) CloseHandle(hIn);
+        return -1;
+    }
+    memcpy(line, prefix, sizeof(prefix) - 1);
+    memcpy(line + sizeof(prefix) - 1, command, clen);
+    line[sizeof(prefix) - 1 + clen] = '"';
+    line[sizeof(prefix) + clen] = '\0';
+    HANDLE job = CreateJobObjectA(NULL, NULL);
+    if (job) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION lim;
+        ZeroMemory(&lim, sizeof(lim));
+        lim.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &lim, sizeof(lim));
+    }
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof(pi));
+    BOOL ok = CreateProcessA(NULL, line, NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+    free(line);
+    if (hOut != INVALID_HANDLE_VALUE) CloseHandle(hOut);
+    if (hIn != INVALID_HANDLE_VALUE) CloseHandle(hIn);
+    if (!ok) {
+        if (job) CloseHandle(job);
+        return -1;
+    }
+    if (job) AssignProcessToJobObject(job, pi.hProcess);
+    ResumeThread(pi.hThread);
+    DWORD wait = WaitForSingleObject(pi.hProcess, timeout_ms > 0 ? (DWORD)timeout_ms : INFINITE);
+    orbit_int rc;
+    if (wait == WAIT_TIMEOUT) {
+        if (job) TerminateJobObject(job, 1); else TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, 2000);
+        rc = -2;
+    } else {
+        DWORD code = 0;
+        rc = GetExitCodeProcess(pi.hProcess, &code) ? (orbit_int)code : -1;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    if (job) CloseHandle(job);
+    return rc;
+#else
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        setpgid(0, 0);
+        if (capture) {
+            int fd = open(capture_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd >= 0) {
+                dup2(fd, STDOUT_FILENO);
+                dup2(fd, STDERR_FILENO);
+                if (fd > STDERR_FILENO) close(fd);
+            }
+        }
+        execl("/bin/sh", "sh", "-c", command, (char*)NULL);
+        _exit(127);
+    }
+    long waited_ms = 0;
+    for (;;) {
+        int status = 0;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) {
+            if (WIFEXITED(status)) return WEXITSTATUS(status);
+            return 1;
+        }
+        if (r < 0) return -1;
+        if (timeout_ms > 0 && waited_ms >= timeout_ms) {
+            kill(-pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            return -2;
+        }
+        usleep(10000);
+        waited_ms += 10;
+    }
+#endif
+}
+
 // ---- Single-host cluster orchestration (orbit cluster v1) ----------------
 // Detached background spawn + signal/probe. Used by the compiler binary
 // itself for `orbit cluster` (trusted infrastructure, like orbit_os_spawn).
@@ -350,7 +458,6 @@ orbit_int orbit_os_kill(orbit_int pid, orbit_int mode) {
     return (kill((pid_t)pid, sig) == 0) ? 1 : 0;
 #endif
 }
-
 #ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
@@ -384,14 +491,7 @@ orbit_string orbit_os_argv(OrbitArena* arena, orbit_int index) {
     buf[len] = '\0';
     return buf;
 }
-
 #ifdef _WIN32
-/* RtlGenRandom, the OS pool without a new link library: neither rand_s
- * nor the SystemFunction036 prototype exists in the headers this tree
- * builds with, and advapi32 (where it lives) is already linked into
- * every program, so the declaration rides here instead of in a header
- * that would promise it everywhere. */
-BOOLEAN NTAPI SystemFunction036(PVOID RandomBuffer, ULONG RandomBufferLength);
 #endif
 
 /** @brief n bytes of OS entropy as a list of byte values, or err.

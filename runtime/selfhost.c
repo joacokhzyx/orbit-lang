@@ -1,19 +1,19 @@
-/**
- * @file  selfhost.c
- * @brief Wrappers for Orbit self-hosted compiler built-in functions
- *
- * The self-hosted compiler (compiler orb files) declares extern functions without
- * explicit arena parameters. These wrappers automatically use the global arena.
- */
-#ifndef ORBIT_SELFHOST_C
-#define ORBIT_SELFHOST_C
+#ifndef ORBIT_RT_SELFHOST_C
+#define ORBIT_RT_SELFHOST_C
 
-#include "types.c"
-#include "arena.c"
-#include "os.c"
-#include "file.c"
+#include "module_prelude.h"
+#include "selfhost.h"
+#include "types.h"
+#include "arena.h"
+#include "collections.h"
+#include "file.h"
+#include "os.h"
+#include "types.h"
+#include "arena.h"
+#include "os.h"
+#include "file.h"
 #include "crt_compat.h"
-#include "collections.c"
+#include "collections.h"
 #include <stdlib.h>
 
 // Create wrapper functions with original names (no arena parameter)
@@ -38,6 +38,10 @@ orbit_string orbit_os_exec_selfhost(orbit_string command) {
 
 orbit_int orbit_os_spawn_selfhost(orbit_string command) {
     return (orbit_os_spawn)(command);
+}
+
+orbit_int orbit_os_run_timeout_selfhost(orbit_string command, orbit_int timeout_ms, orbit_string capture_path) {
+    return (orbit_os_run_timeout)(command, timeout_ms, capture_path);
 }
 
 orbit_int orbit_os_spawn_bg_selfhost(orbit_string command, orbit_string logfile) {
@@ -117,9 +121,6 @@ bool orbit_file_write_selfhost(orbit_string path, orbit_string content) {
 OrbitList* orbit_file_list_dir_selfhost(orbit_string path) {
     return (orbit_file_list_dir)(orbit_arena_get_global(), path);
 }
-
-/* Used by orbit_string_hash_selfhost below. */
-orbit_int orbit_string_char_at_selfhost(orbit_string s, orbit_int index);
 
 bool orbit_os_mkdir_selfhost(orbit_string path) {
     return (orbit_os_mkdir_p)(path);
@@ -218,21 +219,7 @@ orbit_string orbit_mem_report_selfhost(void) {
              (unsigned)allocs);
     return out;
 }
-
-// Define macros to redirect the simple names to the selfhost versions
-// when compiling selfhost code
 #ifdef ORBIT_SELFHOST_BUILD
-#define orbit_os_argc()           orbit_os_argc_selfhost()
-#define orbit_os_argv(idx)        orbit_os_argv_selfhost(idx)
-#define orbit_os_exec(cmd)        orbit_os_exec_selfhost(cmd)
-#define orbit_os_spawn(cmd)       orbit_os_spawn_selfhost(cmd)
-#define orbit_os_spawn_bg(c, l)   orbit_os_spawn_bg_selfhost(c, l)
-#define orbit_os_kill(pid, mode)  orbit_os_kill_selfhost(pid, mode)
-#define orbit_os_env(var)         orbit_os_env_selfhost(var)
-#define orbit_os_exit(code)       orbit_os_exit_selfhost(code)
-#define orbit_file_read(path)     orbit_file_read_selfhost(path)
-#define orbit_file_write(p, c)    orbit_file_write_selfhost(p, c)
-#define orbit_int_to_string(val)  orbit_int_to_string_selfhost(val)
 #endif
 
 #endif

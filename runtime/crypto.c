@@ -1,17 +1,17 @@
-/**
- * @file  crypto.c
- * @brief Sovereign Cryptographic Primitives (SHA-256, HMAC-SHA256, Base64URL) for Orbit Runtime.
- */
-#ifndef ORBIT_CRYPTO_C
-#define ORBIT_CRYPTO_C
+#ifndef ORBIT_RT_CRYPTO_C
+#define ORBIT_RT_CRYPTO_C
 
+#include "module_prelude.h"
+#include "crypto.h"
+#include "types.h"
+#include "arena.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "types.c"
-#include "arena.c"
+#include "types.h"
+#include "arena.h"
 #include "crt_compat.h"
 
 /* ── Base64URL Encoding & Decoding ────────────────────────────────────────── */
@@ -50,16 +50,6 @@ orbit_string orbit_base64url_encode_str(OrbitArena* arena, const char* str) {
     OrbitArena* a = (arena && arena->base) ? arena : orbit_arena_get_global();
     return orbit_base64url_encode(a, (const uint8_t*)str, strlen(str));
 }
-
-/* ── SHA-256 Implementation ────────────────────────────────────────────────── */
-
-#define ROTR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
-#define CH(x, y, z) (((x) & (y)) ^ (~(x) & (z)))
-#define MAJ(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
-#define SIG0(x) (ROTR(x, 2) ^ ROTR(x, 13) ^ ROTR(x, 22))
-#define SIG1(x) (ROTR(x, 6) ^ ROTR(x, 11) ^ ROTR(x, 25))
-#define sig0(x) (ROTR(x, 7) ^ ROTR(x, 18) ^ ((x) >> 3))
-#define sig1(x) (ROTR(x, 17) ^ ROTR(x, 19) ^ ((x) >> 10))
 
 static const uint32_t K256[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,

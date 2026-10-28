@@ -794,6 +794,67 @@ fn nativeIrTempPath(outputPath: string) -> string {
     return tmpDir + "/" + name
 }
 
+// The IR protocol this compiler emits. `r6 --version` prints
+// "r6 <semver> ir-protocol <N>"; an r6 that prints another N (or nothing)
+// reads a different IR, so it is refused before it is given a program.
+fn r6IrProtocol() -> string {
+    return "2"
+}
+
+// How long the version probe may take. A current r6 answers in milliseconds;
+// a stale one that ignores the flag and waits for input is the case this bounds.
+fn r6ProbeTimeoutMs() -> int {
+    return 5000
+}
+
+// How long one native build may run. ORBIT_R6_TIMEOUT_MS overrides it.
+fn r6BuildTimeoutMs() -> int {
+    val named = orbit_os_env_selfhost("ORBIT_R6_TIMEOUT_MS")
+    if named != "" {
+        val n = orbit_string_to_int(named)
+        if n > 0 { return n }
+    }
+    return 300000
+}
+
+fn trimLineEnd(line: string) -> string {
+    var end = orbit_string_len(line)
+    while end > 0 && (orbit_string_char_at_selfhost(line, end - 1) == 13 || orbit_string_char_at_selfhost(line, end - 1) == 32) {
+        end = end - 1
+    }
+    return orbit_string_slice(line, 0, end)
+}
+
+// "" when the r6 at `r6` answers `--version` with a known protocol, otherwise
+// the reason, ready to print after the path.
+fn r6RefusalReason(r6: string) -> string {
+    val tmpDir = buildTempDir()
+    var probe = "orbit_r6_version.txt"
+    if tmpDir != "" {
+        probe = tmpDir + "/" + probe
+    }
+    val code = orbit_os_run_timeout_selfhost("\"" + shellPath(r6) + "\" --version", r6ProbeTimeoutMs(), shellPath(probe))
+    if code == -2 {
+        return "did not answer `--version` within " + orbit_int_to_string_selfhost(r6ProbeTimeoutMs() / 1000) + " s; it is probably an older r6 that waits for input"
+    }
+    if code != 0 {
+        return "could not run `--version` (exit " + orbit_int_to_string_selfhost(code) + ")"
+    }
+    val lines = splitBuildLines(orbit_file_read_selfhost(probe))
+    if lines.len() == 0 {
+        return "printed nothing for `--version`"
+    }
+    val first: string = lines.get(0)
+    val line = trimLineEnd(first)
+    val suffix = " ir-protocol " + r6IrProtocol()
+    val wanted = orbit_string_len(line) > 3 && orbit_string_slice(line, 0, 3) == "r6 "
+    val known = orbit_string_len(line) >= orbit_string_len(suffix) && orbit_string_slice(line, orbit_string_len(line) - orbit_string_len(suffix), orbit_string_len(line)) == suffix
+    if wanted == false || known == false {
+        return "printed '" + line + "' for `--version`, and this compiler needs 'r6 <version>" + suffix + "'"
+    }
+    return ""
+}
+
 // Runs R6 on the emitted IR. Its stderr is the diagnostic and passes through
 // untouched; a refusal is a compile error and never falls back to the C
 // backend. The command is wrapped in one more pair of quotes because the
@@ -817,6 +878,12 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
         orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to its path, or put it in bin\\r6.exe under the Orbit install. `orbit build --backend=c` needs neither.\n")
         return false
     }
+    val refusal = r6RefusalReason(r6)
+    if refusal != "" {
+        orbit_os_write_stderr_selfhost(head + " the native backend found '" + r6 + "' and it " + refusal + ".\n")
+        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to a current r6.exe, or build with --backend=c.\n")
+        return false
+    }
     var cmd = ""
     val rtDir = r6RuntimeDir()
     if rtDir != "" {
@@ -827,13 +894,16 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
         cmd = cmd + "set \"R6_TMPDIR=" + shellPath(tmpDir) + "\" && "
     }
     cmd = cmd + "\"" + shellPath(r6) + "\" build \"" + shellPath(irPath) + "\" -o \"" + shellPath(outputPath) + "\""
-    cmd = "\"" + cmd + "\""
     if verbose {
         print("r6 " + cmd)
     }
-    val code = orbit_os_spawn_selfhost(cmd)
+    val code = orbit_os_run_timeout_selfhost(cmd, r6BuildTimeoutMs(), "")
     if irIsTemp && verbose == false {
         val ignoredDel = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(irPath) + "\" 2>NUL")
+    }
+    if code == -2 {
+        orbit_os_write_stderr_selfhost(head + " the native backend (R6 at '" + r6 + "') did not finish " + inputPath + " within " + orbit_int_to_string_selfhost(r6BuildTimeoutMs() / 1000) + " s and was stopped. ORBIT_R6_TIMEOUT_MS changes the limit.\n")
+        return false
     }
     if code != 0 {
         orbit_os_write_stderr_selfhost(head + " the native backend (R6) refused " + inputPath + " (exit " + orbit_int_to_string_selfhost(code) + "); its diagnostic is above.\n")
@@ -1012,7 +1082,12 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         // more than the 2 MB default once `int` is 64 bits and an unoptimized
         // frame holds eight-byte registers. The reserve is address space, not
         // committed memory.
-        linkFlags = " -lws2_32 -Wl,--stack,16777216"
+        // ws2_32 is imported only by a program that uses the network
+        // (routes, the HTTP client, a database): docs/STARTUP.md.
+        linkFlags = " -Wl,--stack,16777216"
+        if moduleUsesNetwork(backend) {
+            linkFlags = " -lws2_32" + linkFlags
+        }
     }
 
     // Sovereignty: the compiler never assumes a specific toolchain vendor.
@@ -1045,6 +1120,10 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         } else {
             dbFlags = " -DORBIT_WITH_DB -I\"" + rtDir + "/vendor\" -lsqlite3"
         }
+    }
+    var netFlag = ""
+    if moduleUsesNetwork(backend) {
+        netFlag = " -DORBIT_WITH_NET"
     }
     val libPath = runtimeLibToLink(rtDir, hasDb, verbose)
     var separateFlags = ""
@@ -1088,7 +1167,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     if release {
         optFlag = " -O2"
     }
-    var compCmd = cCompiler + " -s" + optFlag + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\" -DORBIT_WITH_NET" + separateFlags + dbFlags + libRef + linkFlags
+    var compCmd = cCompiler + " -s" + optFlag + warnFlags + " " + cPath + " -o " + outputPath + " -I\"" + rtDir + "\"" + netFlag + separateFlags + dbFlags + libRef + linkFlags
     // Orbit branding: every binary linked on Windows carries the version
     // resource + mark. Fixed metadata, never user input (there is no syntax
     // for it), so services and plain programs alike are recognisably Orbit's.

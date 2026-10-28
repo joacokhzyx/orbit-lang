@@ -1,52 +1,17 @@
-/**
- * @file  energy.c
- * @brief Package-energy sampler (Linux RAPL/powercap) plus labeled CPU proxy.
- *
- * What this file does:
- * - On Linux with a readable powercap sensor, a background thread samples
- *   /sys/class/powercap energy_uj at 1 Hz, accumulates package joules, and
- *   calibrates an idle baseline from the first quiet seconds after start.
- * - On Windows, macOS, or Linux without a sensor, there is no thread and no
- *   joule value: orbit_energy_has_sensor() reads 0 and every joule accessor
- *   reads 0. Callers must label that path "cpu-proxy" and must never present
- *   cycle counters as joules.
- *
- * Attribution model (ESTIMATE, not a meter reading): the ledger assigns each
- * route a share of the attributable package energy proportional to its share
- * of handler cycles. Energy is not proportional to cycles under turbo, idle,
- * or IO wait, so per-route joules are an engineering estimate. See
- * docs/ENERGY.md. What is not measured is not shown: without a sensor the
- * ledger reports 0 joules and says proxy.
- *
- * Lifecycle: orbit_energy_start() is called from orbit_http_init() and
- * orbit_energy_stop() from orbit_http_cleanup(), so the sampler lives exactly
- * as long as the server. Both are idempotent. The sampler blocks in
- * nanosleep between reads (no busy loop) and stop() joins the thread, so
- * there is no leak and at most a 1 s join delay.
- *
- * RAPL note: energy_uj counters wrap at max_energy_range_uj. The sampler
- * reads that range once at start and applies it on wrap; when the range file
- * is absent it falls back to unsigned wrap arithmetic.
- */
-#ifndef ORBIT_ENERGY_C
-#define ORBIT_ENERGY_C
+#ifndef ORBIT_RT_ENERGY_C
+#define ORBIT_RT_ENERGY_C
 
+#include "module_prelude.h"
+#include "energy.h"
 #include "performance.h"
 #include "crt_compat.h"
 #include <stdio.h>
 #include <string.h>
-
 #if defined(__linux__) && !defined(_WIN32)
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
 #endif
-
-/* Sensor candidates, most common layout first. */
-#define ORBIT_ENERGY_CANDIDATE_0 "/sys/class/powercap/intel-rapl:0/energy_uj"
-#define ORBIT_ENERGY_CANDIDATE_1 "/sys/class/powercap/intel-rapl:0:0/energy_uj"
-#define ORBIT_ENERGY_CANDIDATE_2 "/sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj"
-#define ORBIT_ENERGY_IDLE_SAMPLES 5
 
 static volatile int orbit_energy_running = 0;
 static int orbit_energy_started = 0;
@@ -56,9 +21,9 @@ static uint64_t orbit_energy_total_uj = 0;
 static uint64_t orbit_energy_max_range_uj = 0;
 static uint64_t orbit_energy_start_ns = 0;
 static double orbit_energy_idle_w = 0.0;
-static int orbit_energy_cal_state = 0; /* 0 pending, 1 idle-calibrated, 2 loaded (gross) */
+static int orbit_energy_cal_state = 0;
+ /* 0 pending, 1 idle-calibrated, 2 loaded (gross) */
 static uint64_t orbit_energy_idle_req0 = 0;
-
 #if defined(__linux__) && !defined(_WIN32)
 static pthread_t orbit_energy_thread;
 static int orbit_energy_thread_live = 0;
@@ -141,7 +106,6 @@ static int orbit_energy_probe(void) {
     }
     return 0;
 }
-
 #if defined(__linux__) && !defined(_WIN32)
 /* 1 Hz sampler. Blocks in nanosleep; exits promptly after stop (<=1 s). */
 static void* orbit_energy_sampler(void* arg) {

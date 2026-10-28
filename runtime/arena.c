@@ -1,17 +1,10 @@
-/**
- * @file  arena.c
- * @brief Epoch-based virtual-memory arena for Orbit's runtime allocator.
- *
- * Implements a region-based, deterministic memory allocator backed by OS
- * virtual memory (VirtualAlloc on Windows, mmap on POSIX).  Each arena
- * reserves a large VA range up-front and commits physical pages on demand.
- * Overflow segments are chained in a singly-linked list; a full O(1) reset
- * decommits excess pages and bumps the generation counter so stale
- * checkpoints are detected and rejected.
- */
-#ifndef ORBIT_ARENA_H
-#define ORBIT_ARENA_H
+#ifndef ORBIT_RT_ARENA_C
+#define ORBIT_RT_ARENA_C
 
+#include "module_prelude.h"
+#include "arena.h"
+#include "string_pool.h"
+#include "file.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -19,101 +12,28 @@
 #include <stdio.h>
 #include <setjmp.h>
 #include "crt_compat.h"
-
 #ifdef _WIN32
-  #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
-  #endif
-  #include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #else
-  #include <sys/mman.h>
-  #include <unistd.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #endif
-
-/* ──────────────────────────────────────────────────────────────────────
- * Orbit Arena — Region-based deterministic memory (Epochal VM Version).
- * ────────────────────────────────────────────────────────────────────── */
-
 #ifndef ORBIT_ARENA_ALIGN
-#define ORBIT_ARENA_ALIGN 16
 #endif
-
 #ifndef ORBIT_ARENA_DEFAULT_RESERVE
-#define ORBIT_ARENA_DEFAULT_RESERVE (64 * 1024 * 1024) // 64 MB virtual reservation
 #endif
-
 #ifndef ORBIT_ARENA_DEFAULT_COMMIT
-#define ORBIT_ARENA_DEFAULT_COMMIT (64 * 1024) // 64 KB initial physical commit
 #endif
-
-/* Fallback ceiling on committed bytes when the platform will not report its
- * physical memory. Normally ORBIT_ARENA_MAX_MB names the ceiling, and when it
- * does not the default is three quarters of physical memory. */
 #ifndef ORBIT_ARENA_DEFAULT_MAX
-#define ORBIT_ARENA_DEFAULT_MAX ((size_t)2048 * 1024 * 1024)
 #endif
-
 #ifndef ORBIT_ARENA_GROWTH_GRANULARITY
-#define ORBIT_ARENA_GROWTH_GRANULARITY (64 * 1024) // 64 KB increments
 #endif
-
 #ifndef ORBIT_ARENA_HOT_RETENTION_LIMIT
-#define ORBIT_ARENA_HOT_RETENTION_LIMIT (256 * 1024) // Retain at least 256 KB hot committed memory on reset
 #endif
-
 #ifndef ORBIT_ARENA_HOT_RETENTION_CEILING
-#define ORBIT_ARENA_HOT_RETENTION_CEILING (4 * 1024 * 1024) // Bound one arena's reset retention: worst case workers * ceiling stays resident
 #endif
-
-typedef struct OrbitArenaOverflow {
-    struct OrbitArenaOverflow* next;
-    void*                      ptr;
-    size_t                     size;
-} OrbitArenaOverflow;
-
-/* Forward declaration of the per-arena string interning pool. */
-struct OrbitStringPoolLocal;
-
-typedef struct OrbitArena {
-    unsigned char* base;
-    unsigned char* cursor;
-    unsigned char* committed_end;
-    unsigned char* reserved_end;
-
-    size_t page_size;
-    size_t requested_bytes;
-    size_t aligned_bytes;
-    size_t peak_used;
-    size_t committed_bytes;
-    size_t reserved_bytes;
-    /* The ceiling on committed bytes for this arena, from ORBIT_ARENA_MAX_MB,
-     * and whether the last refusal was that ceiling rather than the OS. A
-     * process that would keep growing until the machine swaps stops here with
-     * one line that names the limit. */
-    size_t max_rule;
-    bool ceiling_hit;
-
-    uint64_t generation;
-    uint64_t alloc_count;
-
-    struct OrbitArena* parent;      /* NULL for root/global arenas */
-
-    /* Per-arena interning table; invalidated on reset. */
-    struct OrbitStringPoolLocal* local_string_pool;
-
-    /* Singly-linked list of retired VA segments (overflow path). */
-    OrbitArenaOverflow* overflow_list;
-
-    /* compatibility fields */
-    char*             buffer;       /* points to base */
-    size_t            capacity;     /* total reserved capacity */
-    size_t            used;         /* current used bytes */
-} OrbitArena;
-
-typedef struct {
-    size_t offset;
-    uint64_t generation;
-} OrbitArenaCheckpoint;
 
 /* ── Virtual Memory Abstraction ──────────────────────────────────────── */
 
@@ -175,10 +95,6 @@ static inline size_t orbit_align_up(size_t size, size_t alignment) {
     }
     return (size + (alignment - 1)) & ~(alignment - 1);
 }
-
-/* Forward declarations for string pool integration */
-static void orbit_string_pool_local_destroy(struct OrbitStringPoolLocal* pool);
-static void orbit_string_pool_local_reset(struct OrbitStringPoolLocal* pool);
 
 /* A decimal megabyte count from `name`, or `fallback` when the variable is
  * unset, empty, zero, negative, non-numeric or overflows. A malformed value is
@@ -342,53 +258,74 @@ void orbit_arena_destroy(OrbitArena* arena) {
     free(arena);
 }
 
-/* ── Allocation ─────────────────────────────────────────────────────── */
+/* Message building without printf: the OOM texts need only strings, unsigned
+ * decimals and one pointer, and the format engine they would pull in costs
+ * more .text than the rest of the allocator. Output is cut at cap. */
+static size_t orbit_oom_put(char* buf, size_t cap, size_t n, const char* s) {
+    while (*s && n + 1 < cap) buf[n++] = *s++;
+    buf[n] = '\0';
+    return n;
+}
 
-/*
- * Allocation failure policy (oom-policy).
- *
- * orbit_alloc historically returned NULL when the arena was exhausted, and
- * almost nothing looked: of 107 orbit_alloc call sites in the runtime, 5
- * checked the result. The other 102 turned an allocation failure into a write
- * through a null pointer -- undefined behaviour that usually faults far from
- * the cause and can silently corrupt memory when it does not. orbit_string is
- * a NUL-terminated const char*, so a NULL result is also indistinguishable
- * from a legitimately empty string at most boundaries; that conflation is
- * what let `orbit fmt` report success after reducing a source file to zero
- * bytes (fmt-no-clobber).
- *
- * Failure is therefore loud by default. The default handler reports what was
- * requested and what the arena held, then aborts, so the 102 unchecked sites
- * become correct without being rewritten and the diagnostic names the arena
- * instead of a fault address.
- *
- * A program that genuinely wants to recover installs its own handler with
- * orbit_set_oom_handler, after which orbit_alloc returns NULL again and the
- * caller is responsible. orbit_alloc_try is the per-call opt-out for code that
- * must never abort, and is also what the handler-facing internals use.
- *
- * Only exhaustion reaches the handler. A NULL arena or a zero-byte request is
- * an argument error, not an out-of-memory condition, and stays a quiet NULL so
- * that argument validation (including orbit_file_write's, which fmt-no-clobber pinned)
- * keeps reporting false rather than aborting the process.
- */
-typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);
+static size_t orbit_oom_put_u(char* buf, size_t cap, size_t n, unsigned long long v) {
+    char digits[24];
+    int d = 0;
+    do { digits[d++] = (char)('0' + (int)(v % 10)); v /= 10; } while (v);
+    while (d && n + 1 < cap) buf[n++] = digits[--d];
+    buf[n] = '\0';
+    return n;
+}
+
+static size_t orbit_oom_put_p(char* buf, size_t cap, size_t n, const void* p) {
+    char digits[24];
+    int d = 0;
+    uintptr_t v = (uintptr_t)p;
+    do { digits[d++] = "0123456789abcdef"[v & 15]; v >>= 4; } while (v);
+    n = orbit_oom_put(buf, cap, n, "0x");
+    while (d && n + 1 < cap) buf[n++] = digits[--d];
+    buf[n] = '\0';
+    return n;
+}
+
+/* "arena <p> holds <used> of <cap> bytes in <count> allocations" */
+static size_t orbit_oom_put_holds(char* buf, size_t cap, size_t n, OrbitArena* arena) {
+    n = orbit_oom_put(buf, cap, n, "arena ");
+    n = orbit_oom_put_p(buf, cap, n, arena);
+    n = orbit_oom_put(buf, cap, n, " holds ");
+    n = orbit_oom_put_u(buf, cap, n, arena ? arena->used : 0);
+    n = orbit_oom_put(buf, cap, n, " of ");
+    n = orbit_oom_put_u(buf, cap, n, arena ? arena->capacity : 0);
+    n = orbit_oom_put(buf, cap, n, " bytes in ");
+    n = orbit_oom_put_u(buf, cap, n, arena ? arena->alloc_count : 0);
+    return orbit_oom_put(buf, cap, n, " allocations");
+}
 
 static void orbit_oom_abort_default(OrbitArena* arena, size_t bytes) {
+    char line[512];
+    size_t n = 0;
     fflush(stdout);
-    if (arena) {
-        if (arena->ceiling_hit) {
-            fprintf(stderr,
-                    "orbit: arena ceiling reached allocating %zu bytes; %zu of %zu bytes committed, the limit is %zu MB from ORBIT_ARENA_MAX_MB\n",
-                    bytes, arena->committed_bytes, arena->max_rule, arena->max_rule / (1024 * 1024));
-        } else {
-            fprintf(stderr,
-                    "orbit: out of memory allocating %zu bytes; arena %p holds %zu of %zu bytes in %zu allocations\n",
-                    bytes, (void*)arena, arena->used, arena->capacity, arena->alloc_count);
-        }
+    n = orbit_oom_put(line, sizeof line, n, "orbit: ");
+    if (arena && arena->ceiling_hit) {
+        n = orbit_oom_put(line, sizeof line, n, "arena ceiling reached allocating ");
+        n = orbit_oom_put_u(line, sizeof line, n, bytes);
+        n = orbit_oom_put(line, sizeof line, n, " bytes; ");
+        n = orbit_oom_put_u(line, sizeof line, n, arena->committed_bytes);
+        n = orbit_oom_put(line, sizeof line, n, " of ");
+        n = orbit_oom_put_u(line, sizeof line, n, arena->max_rule);
+        n = orbit_oom_put(line, sizeof line, n, " bytes committed, the limit is ");
+        n = orbit_oom_put_u(line, sizeof line, n, arena->max_rule / (1024 * 1024));
+        n = orbit_oom_put(line, sizeof line, n, " MB from ORBIT_ARENA_MAX_MB");
     } else {
-        fprintf(stderr, "orbit: out of memory allocating %zu bytes\n", bytes);
+        n = orbit_oom_put(line, sizeof line, n, "out of memory allocating ");
+        n = orbit_oom_put_u(line, sizeof line, n, bytes);
+        n = orbit_oom_put(line, sizeof line, n, " bytes");
+        if (arena) {
+            n = orbit_oom_put(line, sizeof line, n, "; ");
+            n = orbit_oom_put_holds(line, sizeof line, n, arena);
+        }
     }
+    orbit_oom_put(line, sizeof line, n, "\n");
+    fputs(line, stderr);
     fflush(stderr);
     abort();
 }
@@ -442,22 +379,19 @@ static void orbit_request_oom_handler(OrbitArena* arena, size_t bytes) {
         /* The facts the aborting default prints, minus the exit. The lease
          * clause is a measurement, not a claim about the cause: which arena
          * refused and what the lease held are both facts. */
-        int n = snprintf(orbit_request_oom_text, sizeof(orbit_request_oom_text),
-                         "503 request refused: %zu bytes refused; arena %p holds "
-                         "%zu of %zu bytes in %zu allocations",
-                         bytes, (void*)arena,
-                         arena ? arena->used : 0, arena ? arena->capacity : 0,
-                         arena ? arena->alloc_count : 0);
-        #ifdef ORBIT_WITH_NET
-        if (n > 0 && (size_t)n < sizeof(orbit_request_oom_text) && current_lease) {
-            snprintf(orbit_request_oom_text + n,
-                     sizeof(orbit_request_oom_text) - (size_t)n,
-                     "; lease holds %zu of %zu bytes",
-                     current_lease->arena_bytes, current_lease->arena_limit);
+        char* t = orbit_request_oom_text;
+        const size_t cap = sizeof orbit_request_oom_text;
+        size_t n = orbit_oom_put(t, cap, 0, "503 request refused: ");
+        n = orbit_oom_put_u(t, cap, n, bytes);
+        n = orbit_oom_put(t, cap, n, " bytes refused; ");
+        n = orbit_oom_put_holds(t, cap, n, arena);
+        if (current_lease) {
+            n = orbit_oom_put(t, cap, n, "; lease holds ");
+            n = orbit_oom_put_u(t, cap, n, current_lease->arena_bytes);
+            n = orbit_oom_put(t, cap, n, " of ");
+            n = orbit_oom_put_u(t, cap, n, current_lease->arena_limit);
+            orbit_oom_put(t, cap, n, " bytes");
         }
-        #else
-        (void)n;
-        #endif
         longjmp(*orbit_request_oom_target, 1);
     }
     orbit_oom_abort_default(arena, bytes);
@@ -518,7 +452,6 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
         return NULL; /* Overflow protection */
     }
 
-    #ifdef ORBIT_WITH_NET
     if (current_lease) {
         /* Compare against the room left, not the sum: aligned can be near
          * SIZE_MAX, and arena_bytes + aligned would wrap below the limit. */
@@ -530,7 +463,6 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
         }
         current_lease->arena_bytes += aligned;
     }
-    #endif
 
     /* Compare sizes, never the advanced pointer: cursor + aligned wraps when
      * aligned is huge (a length computed from an unchecked n + 1 or
@@ -870,13 +802,6 @@ int orbit_arena_overflowed(const OrbitArena* arena) {
 }
 
 static OrbitArena* volatile g_orbit_global_fallback_arena = NULL;
-
-/* The first call is a race: several threads can read the pointer above as NULL
- * before any of them has published an arena. The shape without this lock
- * (check, create, assign) then created one arena per racing caller and leaked
- * every one but the last -- they became unreachable when the loser's pointer
- * was overwritten in the global. Only the create is guarded, so a call site
- * that finds the arena already there never takes the lock. */
 #ifdef _WIN32
 static volatile LONG g_orbit_global_fallback_lock = 0;
 

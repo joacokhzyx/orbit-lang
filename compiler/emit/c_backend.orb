@@ -301,30 +301,32 @@ fn generateC(backend: CBackend) -> string {
     if hasRoutes {
         orbit_cbuf_append_selfhost(cbTop, generateServerMain(backend))
     } else {
-        orbit_cbuf_append_selfhost(cbTop, "extern char** _orbit_argv;\n")
-        orbit_cbuf_append_selfhost(cbTop, "extern int _orbit_argc;\n\n")
+        // Start-up is per program (docs/STARTUP.md): each piece below is emitted
+        // only when the module uses what needs it, so a program that never
+        // names a piece never links the runtime module that defines it.
+        val usesArgs = moduleCallsStartup(backend.module, "args")
+        val usesConsole = moduleCallsStartup(backend.module, "console")
+        if usesArgs {
+            orbit_cbuf_append_selfhost(cbTop, "extern char** _orbit_argv;\n")
+            orbit_cbuf_append_selfhost(cbTop, "extern int _orbit_argc;\n\n")
+        }
         orbit_cbuf_append_selfhost(cbTop, "int main(int argc, char* argv[]) {\n")
-        orbit_cbuf_append_selfhost(cbTop, "    _orbit_argv = argv;\n")
-        orbit_cbuf_append_selfhost(cbTop, "    _orbit_argc = argc;\n")
-        orbit_cbuf_append_selfhost(cbTop, "    \n")
+        if usesArgs {
+            orbit_cbuf_append_selfhost(cbTop, "    _orbit_argv = argv;\n")
+            orbit_cbuf_append_selfhost(cbTop, "    _orbit_argc = argc;\n")
+        } else {
+            orbit_cbuf_append_selfhost(cbTop, "    (void)argc;\n")
+            orbit_cbuf_append_selfhost(cbTop, "    (void)argv;\n")
+        }
+        orbit_cbuf_append_selfhost(cbTop, "    orbit_crash_handler_install();\n")
         // Windows consoles default to a legacy codepage, which mojibakes the
-        // UTF-8 the compiler emits (doctor's score box, ✓/✗ marks), and to a
-        // mode without ANSI processing. Same setup the generated servers
-        // already do (route_runtime.orb); every other program needs it too,
-        // including the compiler itself. Best-effort and TTY-only by
-        // construction: GetConsoleMode fails on pipes, and SetConsoleOutputCP
-        // is harmless there.
-        orbit_cbuf_append_selfhost(cbTop, "#ifdef _WIN32\n")
-        orbit_cbuf_append_selfhost(cbTop, "    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);\n")
-        orbit_cbuf_append_selfhost(cbTop, "    if (hOut != INVALID_HANDLE_VALUE) {\n")
-        orbit_cbuf_append_selfhost(cbTop, "        DWORD dwMode = 0;\n")
-        orbit_cbuf_append_selfhost(cbTop, "        if (GetConsoleMode(hOut, &dwMode)) {\n")
-        orbit_cbuf_append_selfhost(cbTop, "            SetConsoleMode(hOut, dwMode | 0x0001 | 0x0004);\n")
-        orbit_cbuf_append_selfhost(cbTop, "        }\n")
-        orbit_cbuf_append_selfhost(cbTop, "        SetConsoleOutputCP(65001);\n")
-        orbit_cbuf_append_selfhost(cbTop, "    }\n")
-        orbit_cbuf_append_selfhost(cbTop, "#endif\n")
-        orbit_cbuf_append_selfhost(cbTop, "    \n")
+        // UTF-8 the compiler emits (doctor's score box, marks), and to a mode
+        // without ANSI processing. Needed only by a program that writes to the
+        // console. Best-effort and TTY-only by construction: GetConsoleMode
+        // fails on pipes, and SetConsoleOutputCP is harmless there.
+        if usesConsole {
+            orbit_cbuf_append_selfhost(cbTop, "    orbit_console_init();\n")
+        }
         if backend.module.migrations.len() > 0 || moduleUsesDatabase(backend.module) {
             // Default database location. `orbit start`/`orbit dev` ensure
             // .orbit/data exists and migrate a legacy ./orbit.db once; a
@@ -333,14 +335,14 @@ fn generateC(backend: CBackend) -> string {
             orbit_cbuf_append_selfhost(cbTop, "    orbit_db_init(\".orbit/data/app.db\");\n")
             orbit_cbuf_append_selfhost(cbTop, generateModelDDL(backend))
         }
-        orbit_cbuf_append_selfhost(cbTop, "    orbit_ledger_enable_file_dump();\n")
-        orbit_cbuf_append_selfhost(cbTop, "    orbit_string_pool_init(2048);\n")
+        // No ledger dump and no string-pool init here: the ledger records
+        // routes, which this main has none of, and orbit_string_pool_init is
+        // an empty function (per-arena pools need no process setup).
         orbit_cbuf_append_selfhost(cbTop, "    OrbitArena* arena = orbit_arena_create(131072);\n")
         orbit_cbuf_append_selfhost(cbTop, "\n")
         orbit_cbuf_append_selfhost(cbTop, "    int _orbit_exit_code = orbit_main(arena);\n")
         orbit_cbuf_append_selfhost(cbTop, "\n")
         orbit_cbuf_append_selfhost(cbTop, "    orbit_arena_destroy(arena);\n")
-        orbit_cbuf_append_selfhost(cbTop, "    orbit_string_pool_cleanup();\n")
         orbit_cbuf_append_selfhost(cbTop, "    \n")
         orbit_cbuf_append_selfhost(cbTop, "    return _orbit_exit_code;\n")
         orbit_cbuf_append_selfhost(cbTop, "}\n")
@@ -3286,7 +3288,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                     val argStr = backend.callArgs.get(0)
                     backend.callArgs.pop()
                     if isStringArg(backend, argStr) {
-                        orbit_cbuf_append_selfhost(cb, "    print(\"%s\", " + argStr + ");\n")
+                        orbit_cbuf_append_selfhost(cb, "    orbit_print_string(" + argStr + ");\n")
                         return
                     }
                     // A float goes through the runtime's own formatter rather
@@ -4249,7 +4251,7 @@ fn feBuildTimeCallType(name: string) -> string {
     if name == "orbit_object_set" || name == "orbit_object_set_int" || name == "orbit_object_set_float" || name == "orbit_object_set_bool" || name == "orbit_object_set_string" || name == "orbit_object_set_object" || name == "orbit_object_set_list" { return "void" }
     if name == "ok" || name == "err" { return "result" }
     if name == "orbit_object_to_json" || name == "orbit_os_argv" || name == "orbit_os_exec_selfhost" || name == "orbit_int_to_string" || name == "orbit_http_query_get" || name == "orbit_db_query_where" || name == "orbit_db_query_where_p" || name == "orbit_db_query_where_v" || name == "orbit_db_query_all" || name == "orbit_http_param_get" || name == "orbit_http_body_get" || name == "orbit_http_header_get" || name == "orbit_file_upload_save" || name == "orbit_auth_bearer_token" || name == "orbit_auth_current_role" || name == "orbit_db_query_get" || name == "orbit_db_query_first" || name == "orbit_db_query_order" || name == "orbit_db_query_order_desc" || name == "orbit_file_read" || name == "orbit_os_cwd" || name == "orbit_os_exec" || name == "orbit_os_env" || name == "orbit_os_strdup" || name == "orbit_string_slice" || name == "orbit_cache_get" || name == "orbit_cbuf_create_selfhost" || name == "orbit_cbuf_build_selfhost" || name == "orbit_mem_report_selfhost" || name == "orbit_os_cwd_selfhost" || name == "orbit_string_from_char_selfhost" { return "string" }
-    if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_clock_ms" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "orbit_db_count_all" || name == "orbit_db_count_v" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return "int" }
+    if name == "bit_op" || name == "orbit_os_spawn_selfhost" || name == "orbit_os_run_timeout_selfhost" || name == "orbit_os_spawn_bg_selfhost" || name == "orbit_os_kill_selfhost" || name == "orbit_string_to_int" || name == "orbit_clock_ns" || name == "orbit_clock_ms" || name == "orbit_string_at" || name == "orbit_list_len" || name == "orbit_os_checkpoint" || name == "orbit_db_count_all" || name == "orbit_db_count_v" || name == "system_uptime" || name == "system_pid" || name == "system_active_workers" || name == "system_http_requests_total" || name == "system_latency_avg_us" || name == "system_latency_p50_us" || name == "system_latency_p95_us" || name == "system_latency_p99_us" { return "int" }
     if name == "orbit_os_mkdir_selfhost" || name == "orbit_os_isatty_selfhost" { return "bool" }
     if name == "orbit_string_hash_selfhost" { return "string" }
     if name == "orbit_auth_has_role" || name == "orbit_db_insert" || name == "orbit_db_update" || name == "orbit_db_delete" || name == "orbit_file_write" || name == "orbit_file_exists" || name == "orbit_file_delete" || name == "orbit_os_chdir" || name == "orbit_os_rewind" || name == "orbit_cache_set" { return "bool" }
@@ -5062,6 +5064,67 @@ fn isAuthBuiltin(name: string) -> bool {
 // undefined reference at link time rather than a compile error.
 fn moduleUsesAuth(module: IRModule) -> bool {
     return moduleCallsBuiltin(module, "auth")
+}
+
+// Which start-up pieces a module needs, from the callees in its IR. `what`:
+//   "args"    reads argv/argc (orbit_os_argc*, orbit_os_argv*);
+//   "console" writes to the console (print, orbit_os_write_std*);
+//   "net"     calls a function the network modules define (http.h, kynx.h,
+//             pulse.h: orbit_http_*, orbit_response_*, orbit_route_*,
+//             orbit_send_*, orbit_kynx_*, orbit_pulse_*, orbit_ledger_*) or
+//             saves an upload. Routes themselves are moduleHasRoute.
+fn startupHasPrefix(name: string, prefix: string) -> bool {
+    return name.len() >= prefix.len() && name.slice(0, prefix.len()) == prefix
+}
+
+fn startupCalleeMatches(name: string, what: string) -> bool {
+    if what == "args" {
+        return name.len() >= 13 && (name.slice(0, 13) == "orbit_os_argc" || name.slice(0, 13) == "orbit_os_argv")
+    }
+    if what == "console" {
+        if name == "print" { return true }
+        return name.len() >= 18 && name.slice(0, 18) == "orbit_os_write_std"
+    }
+    if what == "net" {
+        if name == "orbit_file_upload_save" { return true }
+        return startupHasPrefix(name, "orbit_http_") || startupHasPrefix(name, "orbit_response_") || startupHasPrefix(name, "orbit_route_") || startupHasPrefix(name, "orbit_send_") || startupHasPrefix(name, "orbit_kynx_") || startupHasPrefix(name, "orbit_pulse_") || startupHasPrefix(name, "orbit_ledger_")
+    }
+    return false
+}
+
+fn moduleCallsStartup(module: IRModule, what: string) -> bool {
+    var fi = 0
+    while fi < module.functions.len() {
+        val f: IRFunction = module.functions.get(fi)
+        var ii = 0
+        while ii < f.instructions.len() {
+            val inst: IRInstruction = f.instructions.get(ii)
+            match inst.opcode {
+                IROpcode.call => {
+                    var cn = ""
+                    match inst.operand1 {
+                        IRValue.String(sv) => { cn = sv.value }
+                        IRValue.Sym(sv) => { cn = sv.value }
+                        _ => {}
+                    }
+                    if startupCalleeMatches(cn, what) { return true }
+                }
+                _ => {}
+            }
+            ii = ii + 1
+        }
+        fi = fi + 1
+    }
+    return false
+}
+
+// A program links the network runtime (and imports ws2_32) when it has routes
+// or calls the HTTP client; a database program does too, because the SQLite
+// progress handler lives in the Kynx module.
+fn moduleUsesNetwork(backend: CBackend) -> bool {
+    if moduleHasRoute(backend) { return true }
+    if moduleUsesDatabase(backend.module) { return true }
+    return moduleCallsStartup(backend.module, "net")
 }
 
 fn moduleUsesDatabase(module: IRModule) -> bool {

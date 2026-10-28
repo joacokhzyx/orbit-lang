@@ -1,15 +1,14 @@
-/**
- * @file  http.c
- * @brief Arena-backed HTTP request parsing and response construction for Orbit.
- *
- * Parses raw HTTP/1.1 byte streams into OrbitRequest structs allocated entirely
- * within the request arena (no fixed-size stack buffers).  Response builders
- * create OrbitResponse objects in the same arena; orbit_send_response() writes
- * header + body to the client socket in a single call where possible.
- */
-#ifndef ORBIT_HTTP_H
-#define ORBIT_HTTP_H
+#ifndef ORBIT_RT_HTTP_C
+#define ORBIT_RT_HTTP_C
 
+#include "module_prelude.h"
+#include "http.h"
+#include "types.h"
+#include "arena.h"
+#include "collections.h"
+#include "energy.h"
+#include "kynx.h"
+#include "pulse.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,67 +18,14 @@
 #include <sys/time.h>
 #include <sys/select.h>
 #endif
-#include "arena.c"
-#include "types.c"
-
+#include "arena.h"
+#include "types.h"
 #if defined(_WIN32)
-#define ORBIT_STRNCASECMP _strnicmp
 #else
-#define ORBIT_STRNCASECMP strncasecmp
 #endif
-
 #if defined(_WIN32) && defined(_MSC_VER)
-#pragma comment(lib, "ws2_32.lib")
 #endif
-
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
- * Orbit HTTP â€” Arena-backed request/response handling.
- *
- * All buffers are allocated from the request Arena, not stack-fixed.
- * This means request size is limited only by Arena capacity, not
- * by hardcoded buffer constants.
- * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
-#ifndef ORBIT_HTTP_H
-#define ORBIT_HTTP_H
-/* Path-parameter slots filled by orbit_route_match (route_runtime patterns
- * such as "/notes/:id"). The same fields exist on the fallback declaration
- * in builtins.c; keep both in sync. */
-#define ORBIT_MAX_PATH_PARAMS 32
-typedef struct {
-    char* method;
-    char* path;
-    char* query;
-    char* body;
-    char* headers;
-    size_t body_len;
-    size_t headers_len;
-    char* param_names[ORBIT_MAX_PATH_PARAMS];
-    char* param_values[ORBIT_MAX_PATH_PARAMS];
-    int param_count;
-} OrbitRequest;
-#endif
-
-/** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
-size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
-size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error);
-/** @brief Match req path against a route pattern (":name", "{name}", ":name..." and "*" segments). Fills path params; false leaves none. */
-bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern);
-
-
-typedef struct {
-    int    status;
-    char*  body;
-    size_t body_len;
-    char*  content_type;
-    char*  extra_headers;      /* optional raw "Name: value\r\n" block (Retry-After…) */
-    size_t extra_headers_len;
-} OrbitResponse;
-
-// Forward declaration for Pulsar support
-#include "pulse.c"
-
-void orbit_http_limits_reload(void);
+#include "pulse.h"
 
 /** @brief Initialise the HTTP layer (starts Winsock on Windows; no-op on POSIX). */
 void orbit_http_init(void) {
@@ -105,36 +51,6 @@ void orbit_http_cleanup(void) {
     WSACleanup();
 #endif
 }
-
-/* ── Request limits ───────────────────────────────────────────────────
- *
- * Every limit is checked on the raw bytes, before the parser allocates
- * anything from the arena, so a hostile request costs the server no more
- * than the bytes it already read. Defaults follow nginx and Go:
- *
- *   ORBIT_HTTP_MAX_REQUEST_LINE   8192     request line, in bytes  -> 414
- *   ORBIT_HTTP_MAX_HEADER_BYTES   65536    all header lines        -> 431
- *   ORBIT_HTTP_MAX_HEADERS        100      header lines            -> 431
- *   ORBIT_HTTP_MAX_BODY           1048576  Content-Length          -> 413
- *
- * Each variable is a decimal integer in 1..2147483648. Anything else is
- * ignored with one line on stderr and the default stays. The limits are read
- * once, by orbit_http_init (or by the first parse). The server's per-connection
- * receive buffer is 16 KiB, so on a live socket it bounds a request before any
- * of these larger values can. */
-typedef struct {
-    size_t max_request_line;
-    size_t max_header_bytes;
-    size_t max_headers;
-    size_t max_body;
-    int    loaded;
-} OrbitHttpLimits;
-
-#define ORBIT_HTTP_PERR_CHUNKED 1 /* 501 */
-#define ORBIT_HTTP_PERR_LINE    2 /* 414 */
-#define ORBIT_HTTP_PERR_HEADERS 3 /* 431 */
-#define ORBIT_HTTP_PERR_BODY    4 /* 413 */
-#define ORBIT_HTTP_PERR_LENGTH  5 /* 400: malformed or conflicting Content-Length */
 
 static OrbitHttpLimits orbit_http_limits_state;
 
@@ -188,8 +104,6 @@ static const char* orbit_http_find_head_end(const char* raw, size_t raw_len) {
     }
     return NULL;
 }
-
-OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* content_type, const char* body);
 
 /** @brief The response for a parse error code from orbit_http_parse_request_ex. */
 OrbitResponse* orbit_http_parse_error_response(OrbitArena* arena, int code) {
@@ -964,7 +878,6 @@ orbit_string orbit_http_header_get(OrbitArena* arena, OrbitRequest* req, orbit_s
     }
     return "";
 }
-
 #if !defined(ORBIT_CUSTOM_ROUTER) && !defined(ORBIT_LIB_NO_ROUTER)
 /** @brief Default request dispatcher: handles /_pulse routes internally and returns 404 for everything else.  Returns 1 to keep the connection alive, 0 to close. */
 int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, size_t raw_len, OrbitArena* arena, size_t* out_consumed) {
@@ -1015,28 +928,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
     orbit_perf_end_request(start);
     return keep_alive;
 }
-
 #endif
-
-/* ── Minimal blocking HTTP/1.1 client ─────────────────────────────────
- *
- * GET http://host[:port][/path] and answer ok(body). What it is not, on
- * purpose: no TLS (https is err, stated, never attempted -- there is no
- * TLS stack in this tree to attempt it with), no redirect following (a
- * 3xx is a response like any other), no auth, no proxy, no HEAD/POST.
- * Any well-formed reply is ok(body); only transport and framing
- * failures are err, and the reply status itself is not surfaced.
- *
- * Timeouts: 10 s to connect (select, both platforms -- a blocking
- * connect would hang for OS minutes on a blackhole), 10 s per recv
- * (SO_RCVTIMEO). Bodies arrive by Content-Length, by chunked framing,
- * or by close-delimited read, in that precedence; a short
- * Content-Length body is err, never partial. Bounded by the arena like
- * every other answer here: a body bigger than the arena is OOM err.
- * Bodies are text -- an embedded NUL truncates at the first byte, the
- * orbit_string contract everywhere else too. */
-
-#define ORBIT_HTTP_CLIENT_TIMEOUT_MS 10000
 
 static int http_client_send_all(orbit_socket_t s, const char* buf, size_t len) {
     size_t sent = 0;
@@ -1106,16 +998,6 @@ static int http_client_connect(orbit_socket_t s, struct sockaddr* addr, socklen_
 #endif
     return 1;
 }
-
-/* Growable arena buffer: the arena has no realloc, so growth copies
- * forward and abandons the old block (runtime/file.c does the same). */
-typedef struct {
-    char* data;
-    size_t len;
-    size_t cap;
-    OrbitArena* arena;
-    int failed;
-} HttpBuf;
 
 static void http_buf_reserve(HttpBuf* b, size_t extra) {
     size_t need;
@@ -1491,5 +1373,21 @@ ORBIT_UNUSED OrbitResult orbit_http_client_fetch(OrbitArena* arena, orbit_string
     }
 }
 
+int orbit_ledger_is_loopback(orbit_socket_t s) {
+    struct sockaddr_storage ss;
+    socklen_t len = (socklen_t)sizeof(ss);
+    if (getpeername(s, (struct sockaddr*)&ss, &len) != 0) return 0;
+    if (ss.ss_family == AF_INET) {
+        struct sockaddr_in* in4 = (struct sockaddr_in*)&ss;
+        return in4->sin_addr.s_addr == htonl(INADDR_LOOPBACK);
+    }
+#ifdef AF_INET6
+    if (ss.ss_family == AF_INET6) {
+        struct sockaddr_in6* in6 = (struct sockaddr_in6*)&ss;
+        return IN6_IS_ADDR_LOOPBACK(&in6->sin6_addr);
+    }
+#endif
+    return 0;
+}
 
 #endif

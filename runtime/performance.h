@@ -128,7 +128,7 @@ typedef struct {
  * unchanged in every mode. */
 #ifdef ORBIT_PERF_IMPL
 OrbitPerfStats orbit_perf_stats = {0};
-#elif defined(ORBIT_SEPARATE_COMPILATION)
+#elif defined(ORBIT_SEPARATE_COMPILATION) || defined(ORBIT_RUNTIME_MODULE)
 extern OrbitPerfStats orbit_perf_stats;
 #else
 static OrbitPerfStats orbit_perf_stats = {0};
@@ -158,7 +158,7 @@ ORBIT_INLINE void orbit_perf_start_request(void) {
 
 #ifdef ORBIT_PERF_IMPL
 uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
-#elif defined(ORBIT_SEPARATE_COMPILATION)
+#elif defined(ORBIT_SEPARATE_COMPILATION) || defined(ORBIT_RUNTIME_MODULE)
 extern uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
 #else
 static uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
@@ -297,6 +297,14 @@ typedef struct {
     double   joules;              /* attributed ESTIMATE, set at destroy (0 = proxy) */
 } OrbitKynxLease;
 
+/* The lease the current request runs under (NULL outside a Kynx request). Owned
+ * by the counters' owner like orbit_perf_stats; arena.c reads it, kynx.c sets it. */
+#ifdef ORBIT_PERF_IMPL
+ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease = NULL;
+#elif defined(ORBIT_SEPARATE_COMPILATION) || defined(ORBIT_RUNTIME_MODULE)
 extern ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease;
+#else
+static ORBIT_THREAD_LOCAL OrbitKynxLease* current_lease = NULL;
+#endif
 
 #endif

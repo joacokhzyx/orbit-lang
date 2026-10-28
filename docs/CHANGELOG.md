@@ -11,6 +11,19 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 ## Unreleased (toward 0.1.0)
 
+Runtime:
+
+- **The runtime archive has one member per module, and a program starts only
+  what it uses.** `hello.orb` built with the C backend has 13 072 bytes of
+  `.text` (was 116 352), imports only KERNEL32 and msvcrt (was also ADVAPI32 and
+  WS2_32) and has 8 736 bytes of `.bss` (was 4 892 672). The driver passes
+  `-DORBIT_WITH_NET` and `-lws2_32` only for a program that uses the network;
+  the generated `main` drops the ledger and string-pool calls and sets
+  `argv`, the console mode and the crash handler only when needed. The native
+  backend refuses an `r6.exe` that does not answer `--version` with a known IR
+  protocol within 5 s, and stops an `r6.exe` build after 300 s
+  (`ORBIT_R6_TIMEOUT_MS`). See [Program start-up](STARTUP.md).
+
 Native backend:
 
 - **`orbit build --backend=native` builds through R6, with no C compiler.**

@@ -1,23 +1,19 @@
-/**
- * @file  file.c
- * @brief File I/O helpers for reading and writing files in Orbit programs.
- *
- * Thin wrappers around POSIX/Win32 file APIs.  All returned buffers are
- * arena-allocated so no explicit free is required.
- */
-#ifndef ORBIT_FILE_H
-#define ORBIT_FILE_H
+#ifndef ORBIT_RT_FILE_C
+#define ORBIT_RT_FILE_C
 
+#include "module_prelude.h"
+#include "file.h"
+#include "types.h"
+#include "arena.h"
+#include "collections.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "arena.c"
-#include "types.c"
+#include "arena.h"
+#include "types.h"
 #include "crt_compat.h"
-#include "collections.c"
-
+#include "collections.h"
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
 #  include <sys/stat.h>
