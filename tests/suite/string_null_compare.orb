@@ -1,0 +1,27 @@
+// expect-exit 0
+// A string compared with NULL is a pointer comparison. It used to reach
+// strcmp, which dereferences both operands, so `s == NULL` on a NULL string
+// crashed with 0xC0000005 instead of answering true.
+fn kind(s: string) -> int {
+    if s == NULL {
+        return 1
+    }
+    if s != NULL {
+        return 2
+    }
+    return 3
+}
+
+fn main() -> int {
+    val none: string = NULL
+    if kind(none) != 1 {
+        return 1
+    }
+    if kind("") != 2 {
+        return 2
+    }
+    if kind("text") != 2 {
+        return 3
+    }
+    return 0
+}

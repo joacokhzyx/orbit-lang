@@ -4400,7 +4400,12 @@ fn markStringComparedWith(backend: CBackend, func: IRFunction, inst: IRInstructi
     match other {
         IRValue.Register(reg) => {
             if regKnownScalar(func, reg.value) == false && reg.value >= 0 && reg.value < func.registerTypes.len() {
-                func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                // A NULL compared with a string stays a pointer: typed string it
+                // would reach strcmp, which dereferences it.
+                val declared: string = func.registerTypes.get(reg.value)
+                if declared != "NULL" {
+                    func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                }
             }
         }
         _ => {}
