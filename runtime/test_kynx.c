@@ -233,6 +233,23 @@ static void test_effective_ip_and_header(void) {
     /* Untrusted peer with XFF: spoof attempt ignored. */
     orbit_kynx_effective_ip("198.51.100.1", "203.0.113.7", out, sizeof(out));
     assert(strcmp(out, "198.51.100.1") == 0);
+    /* A malformed prefix trusts nothing (atoi used to read it as /0, which
+     * trusts every address). Each entry below is refused; the address
+     * that follows is untrusted, and 10.0.0.0/8 above still stands. */
+    {
+        const char* bad[] = { "192.0.2.0/abc", "192.0.2.0/", "192.0.2.0/-1", "192.0.2.0/1x",
+                              "192.0.2.0/0008", "192.0.2.0/33", "2001:db8::/129", "0.0.0.0/0x" };
+        for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+            orbit_kynx_add_trusted_proxy(bad[i]);
+        }
+        assert(!orbit_kynx_is_trusted_proxy("203.0.113.50"));
+        assert(!orbit_kynx_is_trusted_proxy("192.0.2.7"));
+        assert(orbit_kynx_is_trusted_proxy("10.1.2.3"));
+        /* Controls: /0 written as a number is still the operator's choice. */
+        orbit_kynx_add_trusted_proxy("192.0.2.0/24");
+        assert(orbit_kynx_is_trusted_proxy("192.0.2.7"));
+        assert(!orbit_kynx_is_trusted_proxy("192.0.3.7"));
+    }
     /* IPv6 trusted network. */
     orbit_kynx_add_trusted_proxy("2001:db8::/32");
     assert(orbit_kynx_is_trusted_proxy("2001:db8:aaaa::1"));
