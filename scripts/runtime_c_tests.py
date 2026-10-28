@@ -112,6 +112,7 @@ PROGRAMS = [
     # only publisher: four threads' arenas against the aggregate delta, plus
     # the per-route memory columns orbit_ledger_exit fills.
     prog("arena_telemetry", warnings=True),
+    prog("strings", warnings=True),
 ]
 
 
