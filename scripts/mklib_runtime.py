@@ -11,7 +11,8 @@ program with no network never imports ws2_32. Unity builds (runtime.h without
 the flag) include the same .c files and are unchanged.
 
 The Orbit modules (runtime/orb/*.orb, C committed in runtime/gen/*.c) are
-archive members too, always, compiled from the generated C.
+archive members too, always. Given an R6 (--r6 or ORBIT_R6) each one is built
+natively instead, with `orbit build --runtime-module --backend=native`.
 
 Single variant on purpose: no test in tests/suite or tests/std uses the DB,
 so the net-without-DB library links everything those suites emit. The DB
@@ -21,6 +22,7 @@ with -DORBIT_WITH_DB.
 
 Usage:
     python scripts/mklib_runtime.py [--cc CC] [--out PATH] [--db] [--self-test]
+                                    [--r6 EXE [--compiler ORBIT]]
 
 --self-test asserts the tool can fail: a TU that does not compile and a
 missing runtime directory must both be reported (D8: a gate that is not able
@@ -115,10 +117,11 @@ def orb_modules():
     return tuple(sorted(p.stem for p in (RUNTIME / "orb").glob("*.orb")))
 
 
-def build_lib(cc, out_path, work, defines=(), modules=None):
+def build_lib(cc, out_path, work, defines=(), modules=None, r6=None, compiler=None):
     """Compile every module into its own object and archive them.
 
-    The Orbit modules come after `modules`: runtime/gen/<name>.c is compiled.
+    The Orbit modules come after `modules`. With `r6` and `compiler` each is
+    built natively; otherwise the generated runtime/gen/<name>.c is compiled.
 
     `defines` ride on each cc line. shard_selfhost passes ORBIT_WITH_EXEC for
     the bootstrap archive that links the fixed-point compiler: that compiler
@@ -139,9 +142,23 @@ def build_lib(cc, out_path, work, defines=(), modules=None):
             return 1
     orbs = orb_modules()
     for m in orbs:
-        if not (runtime_dir / "gen" / (m + ".c")).exists():
+        if not r6 and not (runtime_dir / "gen" / (m + ".c")).exists():
             out.fail(f"Failed mklib: runtime/gen/{m}.c is gone")
             return 1
+    if r6 and not compiler:
+        out.fail("Failed mklib: --r6 needs the orbit compiler (--compiler)")
+        return 1
+
+    def compile_orb(m):
+        obj = work / (m + ".o")
+        env = dict(os.environ, ORBIT_BACKEND="native", ORBIT_R6=str(r6),
+                   ORBIT_CCACHE="0")
+        proc = subprocess.run(
+            [str(compiler), "build", "--runtime-module", "--backend=native",
+             str(runtime_dir / "orb" / (m + ".orb")), "-o", str(obj), "--quiet"],
+            cwd=str(ROOT), env=env, capture_output=True, text=True,
+            errors="replace")
+        return m, obj, proc
 
     def compile_gen(m):
         obj = work / (m + ".o")
@@ -154,7 +171,7 @@ def build_lib(cc, out_path, work, defines=(), modules=None):
 
     def compile_one(m):
         if m in orbs:
-            return compile_gen(m)
+            return compile_orb(m) if r6 else compile_gen(m)
         obj = work / (m + ".o")
         argv = [cc, "-O2", "-Wall", "-DORBIT_RUNTIME_MODULE"]
         for d in tuple(defines) + MODULE_DEFINES.get(m, ()):
@@ -171,7 +188,7 @@ def build_lib(cc, out_path, work, defines=(), modules=None):
     objs = []
     for m, obj, proc in results:
         if proc.returncode != 0:
-            src = f"runtime/gen/{m}.c" if m in orbs else f"runtime/{m}.c"
+            src = f"runtime/orb/{m}.orb (R6)" if (r6 and m in orbs) else f"runtime/{m}.c"
             out.fail(f"Failed mklib: {src} did not compile (rc={proc.returncode})")
             sys.stdout.write(proc.stdout or "")
             sys.stderr.write(proc.stderr or "")
@@ -253,6 +270,11 @@ def main() -> int:
     ap.add_argument("--cc", default=None)
     ap.add_argument("--out", default=None,
                     help="archive path (default: .orbit/lib/libruntime_net.a)")
+    ap.add_argument("--r6", default=os.environ.get("ORBIT_R6") or None,
+                    help="r6.exe (ir-protocol 3): build the Orbit modules natively "
+                         "(default: ORBIT_R6)")
+    ap.add_argument("--compiler", default=None,
+                    help="the orbit binary --r6 builds through (default: the fixed point)")
     ap.add_argument("--db", action="store_true",
                     help="build the database variant (libruntime_net_db.a): "
                          "the modules above plus database and auth")
@@ -271,8 +293,14 @@ def main() -> int:
         RUNTIME = pathlib.Path(override)
     out_path = pathlib.Path(args.out) if args.out else default_out(args.db)
     modules = CORE_MODULES + NET_MODULES + (DB_MODULES if args.db else ())
+    r6 = os.path.abspath(args.r6) if args.r6 else None
+    compiler = args.compiler
+    if r6 and not compiler:
+        import _common
+        compiler = _common.fixed_point(cc)
     with tempfile.TemporaryDirectory(prefix="mklib_") as td:
-        rc = build_lib(cc, out_path, pathlib.Path(td), modules=modules)
+        rc = build_lib(cc, out_path, pathlib.Path(td), modules=modules,
+                       r6=r6, compiler=compiler)
     if rc == 0:
         # Bytes, not text: the compiler compares lines split on LF alone.
         stamp = out_path.with_name(out_path.name + ".stamp")
