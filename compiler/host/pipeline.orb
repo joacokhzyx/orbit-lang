@@ -179,8 +179,8 @@ fn checkSourceWithFile(source: string, inputPath: string, colorMode: string) -> 
 }
 
 // `orbit check` also builds the IR and runs the verifier that guards both
-// backends, so a program it passes is one `orbit build` does not refuse for
-// IR types. No C is emitted and no C compiler runs.
+// backends, on the IR before optimization: the IR the native backend
+// compiles. No C is emitted and no C compiler runs.
 fn checkSourceVerified(source: string, inputPath: string, colorMode: string) -> bool {
     return checkSourceStages(source, inputPath, colorMode, true)
 }

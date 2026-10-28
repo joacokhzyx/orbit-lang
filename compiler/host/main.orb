@@ -3,7 +3,7 @@
 // Subcommands supported:
 //   - `build <input.orb> [-o output.exe]`: Standard build driver.
 //   - `run <input.orb>`: Build, then run it with inherited stdio.
-//   - `check <input.orb>`: Parse and typecheck only, no code emitted.
+//   - `check <input.orb>`: Parse, typecheck and verify the IR, no code emitted.
 //   - `doctor [dir] [--fix]`: Read-only project checks, whitespace fixes with --fix.
 //   - `fmt [file.orb]`: Token-based source formatter, whitespace only.
 //   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
@@ -100,7 +100,7 @@ fn helpText(useColor: bool) -> string {
     h = h + "  " + palettePaint(paletteBold(), "stop", useColor) + "\n"
     h = h + "                             Stop the service running from this directory\n"
     h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
-    h = h + "                             Parse and typecheck, no code emitted\n"
+    h = h + "                             Parse, typecheck and verify the IR, no code emitted\n"
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " <file.orb>             Format a file (writes only on success)\n"
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " --check <file|dir>     List files that need formatting\n"
     h = h + "  " + palettePaint(paletteBold(), "doctor", useColor) + " [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)\n"
