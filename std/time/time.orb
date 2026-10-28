@@ -1,4 +1,4 @@
-// Clocks and durations: uptimeSeconds for whole seconds since process start, tickNs/sinceNs/sinceMs/sinceNsBetween for sub-second spans (differences only, -1 past the wrap cap); wallSeconds is unix epoch seconds for timestamps (int32, good until 2038 -- differences of two readings are not durations, the wall steps with NTP); sleepMs blocks the calling thread.
+// Clocks and durations: uptimeSeconds for whole seconds since process start, tickNs/sinceNs/sinceMs/sinceNsBetween for sub-second spans (differences only, -1 for a reading that went backwards); wallSeconds is unix epoch seconds for timestamps (differences of two readings are not durations, the wall steps with NTP); sleepMs blocks the calling thread.
 extern fn system_uptime() -> int
 extern fn orbit_monotonic_ns() -> int
 extern fn orbit_wall_seconds() -> int
@@ -25,17 +25,15 @@ fn tickNs() -> int {
     return orbit_monotonic_ns()
 }
 
-// Nanoseconds elapsed since a tickNs(). -1 means the span reached the
-// 2^31 ns cap and the subtraction wrapped; take a new reading and
-// accumulate with sinceNsBetween instead of believing this number.
+// Nanoseconds elapsed since a tickNs(). -1 means the reading went
+// backwards; take a new one instead of believing this number.
 fn sinceNs(startNs: int) -> int {
     return sinceNsBetween(startNs, tickNs())
 }
 
 // Whole milliseconds elapsed since a tickNs(), truncated down. -1 has
 // the same meaning as in sinceNs. A span shorter than 1 ms answers 0,
-// which is a real zero: the sub-millisecond part is not measurable
-// through a 32-bit counter read at millisecond scale.
+// which is a real zero.
 fn sinceMs(startNs: int) -> int {
     val ns = sinceNs(startNs)
     if ns < 0 { return -1 }
@@ -43,8 +41,8 @@ fn sinceMs(startNs: int) -> int {
 }
 
 // The delta between two readings, for accumulating a long span in
-// chunks. Both arguments come from tickNs(). -1 if they wrapped, which
-// for a span over the cap means the chunk was too long: shorten it.
+// chunks. Both arguments come from tickNs(). -1 if the second is
+// earlier than the first.
 fn sinceNsBetween(startNs: int, endNs: int) -> int {
     val delta = endNs - startNs
     if delta < 0 { return -1 }
@@ -52,8 +50,8 @@ fn sinceNsBetween(startNs: int, endNs: int) -> int {
 }
 
 // Unix epoch seconds: the timestamp for exp/nbf, logs, and anything
-// that must agree with another machine. int32, so this stops in 2038;
-// until then it always fits, which is why no checked spelling exists.
+// that must agree with another machine. An int is 64 bits, so the value
+// always fits and no checked spelling exists.
 fn wallSeconds() -> int {
     return orbit_wall_seconds()
 }

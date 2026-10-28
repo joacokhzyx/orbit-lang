@@ -171,10 +171,10 @@ val big = 1_000_000      // one million; _ is only a separator
 ### Bitwise and shift operators
 
 `&`, `|`, `^`, `<<` and `>>` take two ints. `~` takes one. Everything is a
-32-bit `int`, two's-complement like the rest of the arithmetic: `~x` is
+64-bit `int`, two's-complement like the rest of the arithmetic: `~x` is
 `-x - 1`, `>>` is arithmetic (`-8 >> 1` is `-4`), and `<<` drops the bits
-that leave the top. A shift count is masked to five bits, so `x << 33` is
-`x << 1` and `x >> 32` is `x`, never the undefined behaviour C has.
+that leave the top. A shift count is masked to six bits, so `x << 65` is
+`x << 1` and `x >> 64` is `x`, never the undefined behaviour C has.
 
 ```orbit
 val a = 12 & 10   // 8
@@ -345,20 +345,40 @@ around. The mechanism underneath is
 The full list of programs that compile and compute the wrong answer is in
 [known limitations](KNOWN_LIMITATIONS.md).
 
-### An `int` is 32 bits and it wraps silently
+### An `int` is 64 bits and it wraps silently
 
-`int` is 32 bits. Overflow is not an error, is not diagnosed, and gives you a
-different number:
+`int` is a 64-bit two's-complement integer, from -9223372036854775808 to
+9223372036854775807. Overflow in `+`, `-`, `*` and unary `-` is not an error,
+is not diagnosed, and wraps modulo 2^64:
 
 ```orbit
-print(2147483647 + 1)   // -2147483648
-print(46341 * 46341)    // -2147479015
-print(65536 * 65536)    // 0
+val maximum = 9223372036854775807
+print(maximum + 1)                  // -9223372036854775808
+print(3037000500 * 3037000500)      // -9223372036709301616
+print(4294967296 * 4294967296)      // 0
 ```
 
-An integer **literal** outside the 32-bit range is rejected at check time, as
-are a literal `0` divisor and `INT_MIN / -1` (E1004). If you need a wider
-integer, there is none today.
+An integer **literal** outside that range is rejected at check time, as are a
+literal `0` divisor and `INT_MIN / -1` (E1004). The minimum is written
+`-9223372036854775808`. There is no integer wider than 64 bits.
+
+### Division and remainder by zero stop the program
+
+`/` and `%` on ints check the divisor. A divisor of `0`, and the one quotient
+an int cannot hold (`-9223372036854775808 / -1`, and `% -1` with the same
+dividend), do not produce a value. The program prints one line to stderr and
+exits with status 2, the way an out-of-range list index does:
+
+```
+orbit: division by zero at app.orb:12
+orbit: integer overflow in division at app.orb:12
+```
+
+The file is the root source file's name and the line is the line of the
+operator. In code imported from another file the line is the line in that file
+and the name is still the root file's. A divisor that is a constant other than
+`0` and `-1` is not checked, so it costs nothing. `/` on floats keeps IEEE
+semantics: `1.0 / 0.0` is infinity and never stops the program.
 
 ### A list element type is what you declare, or what the first push decides
 
@@ -398,10 +418,11 @@ fire.
 
 | you write | what you can rely on |
 |---|---|
-| `int` arithmetic that fits in 32 bits | correct |
+| `int` arithmetic that fits in 64 bits | correct |
 | `int` arithmetic that overflows | wraps, no warning |
-| an integer literal outside the 32-bit range | rejected at check time |
+| an integer literal outside the 64-bit range | rejected at check time |
 | a literal `0` divisor, or `INT_MIN / -1` | rejected at check time (E1004) |
+| a `/` or `%` whose divisor is `0` at run time, or `INT_MIN / -1` | `orbit: division by zero at <file>:<line>`, exit 2 |
 | a list's element type | declared, or decided by the first push, and checked |
 | `.get(i)` / `.at(i)` / `xs[i]` / `.pop()` on a list | see the bounds rule under [Arrays](#arrays-elements-and-accessors) |
 | an unannotated `val` | `unknown` downstream; annotate it |

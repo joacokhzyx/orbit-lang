@@ -343,6 +343,6 @@ full write-up.
 | F-0016 — `.at()` past the end answered 0 (the NUL byte) with no diagnostic | `n32_at_out_of_range.orb` | fixed (E1002), pinned |
 | F-0018 — frontend member/call expressions with no type rule reached codegen silently | no negative case (frontend-only; E2004/E2005) | fixed in lowering |
 | F-0021 — numbers in documents go stale | counts in `tests/negative/README.md` and siblings; recompute with `python scripts/negative_gate.py --compiler <orbit> --list` | process note, not a defect |
-| F-0023 — literal-zero division is SIGFPE, not a diagnostic | `n41_division_by_zero_is_not_a_diagnostic.orb` | fixed for literal divisors (E1004); variable divisors still fault |
+| F-0023 — literal-zero division is SIGFPE, not a diagnostic | `n41_division_by_zero_is_not_a_diagnostic.orb` | fixed for literal divisors (E1004); a variable divisor is a checked trap (exit 2) |
 | F-0024 — `for` over a never-set dynamic field miscompiles (read answers `""`, loop walks it as a list: garbage `.len()`, segfault iteration) | `n59_for_over_unknown_field.orb` | fixed (model-field reads answer declared types, and unprovable iterables are check errors) |
 | F-0025 - assignment target is never checked: a `val` store, a type mismatch, and an undeclared name all pass `check` | `n90_val_reassignment.orb`, `n91_assignment_type_mismatch.orb`, `n92_assignment_target_undeclared.orb` | fixed (E1009), pinned |

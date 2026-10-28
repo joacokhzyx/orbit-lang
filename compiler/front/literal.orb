@@ -50,45 +50,67 @@ fn parseIntSelfhost(s: string) -> int {
     return result
 }
 
+// The value of one digit character in any base up to 16, or -1 for a character
+// that is not a digit (a '_' separator, a base marker).
+fn literalDigitValue(c: int) -> int {
+    if c >= 48 && c <= 57 { return c - 48 }
+    if c >= 97 && c <= 102 { return c - 87 }
+    if c >= 65 && c <= 70 { return c - 55 }
+    return -1
+}
+
 // Does this integer literal denote a value orbit_int can hold?
 //
 // parseIntSelfhost cannot answer that question, because asking it is the
 // defect: it accumulates `result * base + digit` into an int and wraps, so
-// 2147483648 comes back as -2147483648 and the caller cannot tell a value that
-// fit from one that did not. A literal is the one thing in a program that
-// cannot be checked later -- by the time there is a register, the wrong number
-// is already the program -- so the check happens on the text.
+// 9223372036854775808 comes back as the minimum and the caller cannot tell a
+// value that fit from one that did not. A literal is the one thing in a program
+// that cannot be checked later -- by the time there is a register, the wrong
+// number is already the program -- so the check happens on the text.
 //
-// The digits are tested against the limit as they arrive and the walk stops
-// the moment the partial value passes it, so no intermediate ever has to hold
-// a value that does not fit. The bound is 2147483647: orbit_int is a C int
-// (runtime/types.c), and INT_MIN is spelled separately, as a negation.
+// The text is compared as digits, never as a number: the limit is
+// 9223372036854775807, and a limit spelled as a literal would have to be
+// accepted by the compiler that compiles this file. The leading zeros and the
+// separators do not count. orbit_int is 64 bits (runtime/types.c) and INT_MIN
+// is spelled separately, as a negation.
 fn intLiteralFitsSelfhost(s: string) -> bool {
     var i = 0
     var base = 10
     if s.len() > 2 {
-        if s.at(0) == 48 && (s.at(1) == 120 || s.at(1) == 88) { // '0' 'x' 'X'
-            base = 16
-            i = 2
+        if s.at(0) == 48 {
+            val marker = s.at(1)
+            if marker == 120 || marker == 88 { base = 16 } // 'x' 'X'
+            if marker == 98 || marker == 66 { base = 2 } // 'b' 'B'
+            if marker == 111 || marker == 79 { base = 8 } // 'o' 'O'
+            if base != 10 { i = 2 }
         }
     }
-    var value = 0
-    val limit = 2147483647
+    var digits = ""
     while i < orbit_string_len(s) {
-        val c = s.at(i)
-        if c >= 48 && c <= 57 {
-            if value > (limit - (c - 48)) / base { return false }
-            value = value * base + (c - 48)
-        } else if base == 16 {
-            if c >= 97 && c <= 102 {
-                if value > (limit - (c - 87)) / 16 { return false }
-                value = value * 16 + (c - 87)
-            } else if c >= 65 && c <= 70 {
-                if value > (limit - (c - 55)) / 16 { return false }
-                value = value * 16 + (c - 55)
-            }
+        val d = literalDigitValue(s.at(i))
+        if d >= 0 && d < base {
+            if digits != "" || d != 0 { digits = digits + s.slice(i, i + 1) }
         }
         i = i + 1
+    }
+    val n = orbit_string_len(digits)
+    if base == 2 { return n <= 63 }
+    if base == 8 { return n <= 21 }
+    if base == 16 {
+        if n < 16 { return true }
+        if n > 16 { return false }
+        return literalDigitValue(digits.at(0)) <= 7
+    }
+    if n < 19 { return true }
+    if n > 19 { return false }
+    val limit = "9223372036854775807"
+    var k = 0
+    while k < 19 {
+        val have = digits.at(k)
+        val want = limit.at(k)
+        if have < want { return true }
+        if have > want { return false }
+        k = k + 1
     }
     return true
 }

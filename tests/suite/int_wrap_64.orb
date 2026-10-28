@@ -1,0 +1,26 @@
+// An int is 64 bits and wraps silently (docs/LANGUAGE_REFERENCE.md). The
+// operands come through parameters so no constant folding hides the wrap.
+fn add(a: int, b: int) -> int { return a + b }
+fn sub(a: int, b: int) -> int { return a - b }
+fn mul(a: int, b: int) -> int { return a * b }
+fn neg(a: int) -> int { return -a }
+
+fn main() -> int {
+    val maximum = 9223372036854775807
+    val minimum = -maximum - 1
+    if add(maximum, 1) != minimum { return 1 }
+    if sub(minimum, 1) != maximum { return 2 }
+    if mul(4294967296, 4294967296) != 0 { return 3 }
+    if mul(3037000500, 3037000500) != -9223372036709301616 { return 4 }
+    if add(maximum, maximum) != -2 { return 5 }
+    if neg(minimum) != minimum { return 6 }
+    // 2147483647 + 1 is an ordinary number now.
+    if add(2147483647, 1) != 2147483648 { return 7 }
+    if mul(65536, 65536) != 4294967296 { return 8 }
+    var h = 17
+    for i in 0..40 {
+        h = h * 31 + i
+    }
+    if h != 69697651992548133 { return 9 }
+    return 0
+}

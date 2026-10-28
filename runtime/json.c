@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <errno.h>
 
 typedef enum {
     ORBIT_VAL_NULL = 0,
@@ -498,7 +499,7 @@ static const char* json_parse_string(JsonParse* j, const char** p) {
 
 /* 0 not-a-number, 1 int (oi), 2 float (of). Leading zeros, a bare dot or
  * exponent, and a missing integer part are all refused; an integer past
- * int32 and a float past finite are refused too, with the range stated. */
+ * int64 and a float past finite are refused too, with the range stated. */
 static int json_parse_number(JsonParse* j, const char** p, orbit_int* oi, orbit_float* of) {
     const char* start = *p;
     const char* s = start;
@@ -545,9 +546,10 @@ static int json_parse_number(JsonParse* j, const char** p, orbit_int* oi, orbit_
         memcpy(copy, start, span);
         copy[span] = '\0';
         if (!isFloat) {
+            errno = 0;
             long long v = strtoll(copy, NULL, 10);
-            if (v < -2147483648LL || v > 2147483647LL) {
-                json_fail(j, "json: integer out of int32 range");
+            if (errno == ERANGE) {
+                json_fail(j, "json: integer out of int64 range");
                 return 0;
             }
             *oi = (orbit_int)v;
@@ -776,7 +778,7 @@ static int json_parse_value(JsonParse* j, const char** p, int depth, JsonVal* ou
  * The top level must be an object: configs, bodies and payloads are, and
  * a bare list or scalar has no field to traverse to. Strict throughout:
  * trailing garbage, unterminated strings, bad escapes, lone surrogates,
- * leading zeros, overflow past int32 or finite double, mixed or
+ * leading zeros, overflow past int64 or finite double, mixed or
  * null-bearing or nested arrays, and nesting past 64 levels are all err
  * with the reason, never a partial object. */
 ORBIT_UNUSED OrbitResult orbit_json_parse(OrbitArena* arena, const char* text) {

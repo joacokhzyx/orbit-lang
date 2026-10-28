@@ -112,7 +112,7 @@
 
 /* ── Primitive type aliases (canonical: runtime/types.c) ─────────────── */
 typedef const char* orbit_string;
-typedef int         orbit_int;
+typedef int64_t     orbit_int;
 typedef double      orbit_float;
 typedef double      orbit_decimal;
 typedef bool        orbit_bool;

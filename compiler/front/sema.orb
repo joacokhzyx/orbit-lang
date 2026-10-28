@@ -2194,15 +2194,16 @@ fn identifierName(node: ASTNode) -> string {
  *  say so: `s.at(99)` over "hello" is a bad character index and `xs.get(99)` is
  *  a bad element index, and both used to answer 0 -- the same 0 a slot holding
  *  0 answers, which is why neither was a bug anybody could see. */
-// `-2147483648`, spelled as a negation of the literal 2147483648. The only
-// spelling of the integer minimum there is: the value itself does not fit an
-// orbit_int, and the range check says so if it is written directly.
+// `-9223372036854775808`, spelled as a negation of the literal
+// 9223372036854775808. The only spelling of the integer minimum there is: the
+// value itself does not fit an orbit_int, and the range check says so if it is
+// written directly.
 fn isIntMinSpelling(node: ASTNode) -> bool {
     match node {
         ASTNode.UnaryOp(u) => {
             if u.op != "-" { return false }
             match u.operand {
-                ASTNode.Literal(l) => { return l.valType == "int" && l.text == "2147483648" }
+                ASTNode.Literal(l) => { return l.valType == "int" && l.text == "9223372036854775808" }
                 _ => { return false }
             }
         }
@@ -2225,7 +2226,7 @@ fn isIntMinSpelling(node: ASTNode) -> bool {
 // cannot be written down.
 // orbit-walk: none -- asks whether a literal folds to an int
 fn canFoldInt(node: ASTNode) -> bool {
-    // `-2147483648` is INT_MIN: a negation of a literal one past INT_MAX. The
+    // `-9223372036854775808` is INT_MIN: a negation of a literal one past INT_MAX. The
     // Literal arm in checkNode returns "int" for exactly that spelling, so the
     // two places have to agree on it or the range check and this disagree about
     // whether the same tree is an integer. literalIndexValue cannot say -- the
@@ -2246,10 +2247,17 @@ fn canFoldInt(node: ASTNode) -> bool {
     }
 }
 
+// The most negative orbit_int. It is built from 32-bit literals because the
+// literal for it does not exist: 9223372036854775808 does not fit, and the
+// compiler that builds this file may not accept 64-bit literals yet.
+fn intMinValue() -> int {
+    return (0 - 2147483647 - 1) * 65536 * 65536
+}
+
 // The value of an operand already known to satisfy canFoldInt.
 // orbit-walk: none -- asks the folded value of a literal
 fn foldedIntValue(node: ASTNode) -> int {
-    if isIntMinSpelling(node) { return 0 - 2147483647 - 1 }
+    if isIntMinSpelling(node) { return intMinValue() }
     val lit = literalIndexValue(node)
     if lit >= 0 { return lit }
     match node {
@@ -2278,9 +2286,10 @@ fn foldedIntValue(node: ASTNode) -> int {
 // caught as "the divisor is zero"; it has to be named.
 //
 // The rest of the space -- a zero held in a variable, a zero computed at run
-// time -- needs a guard in the emitted C, and the emitter has both operand
-// types in hand. That is the remaining half of this defect and it is not
-// here.
+// time -- is a checked trap in the emitted code: the program prints
+// `orbit: division by zero at <file>:<line>` (or `integer overflow in
+// division`) and exits 2. This check only moves the constant cases to compile
+// time.
 // The operand is passed field by field, not as the node.
 //
 // A model-typed parameter is emitted as a bare OrbitList* in the C backend, so
@@ -2297,15 +2306,15 @@ fn checkDivision(sema: Sema, op: string, rhs: ASTNode, lhs: ASTNode, line: int, 
         return
     }
     if divisor == -1 {
-        // The dividend that overflows is -2147483648, and that value does not
-        // fit an orbit_int, so it cannot be spelled directly: written in a
-        // program it is already an error, and the range check says so in
+        // The dividend that overflows is -9223372036854775808, and that value
+        // does not fit an orbit_int, so it cannot be spelled directly: written
+        // in a program it is already an error, and the range check says so in
         // clearer words than this would. Every spelling that can reach here is
-        // therefore arithmetic -- `0 - 2147483647 - 1`, or a negation -- and
-        // those arrive as a folded constant rather than as literal text. So
-        // this asks what the operand came to, which is the only place the real
-        // value exists by the time sema sees it.
-        if canFoldInt(lhs) && foldedIntValue(lhs) == 0 - 2147483647 - 1 {
+        // therefore arithmetic or a negation, and those arrive as a folded
+        // constant rather than as literal text. So this asks what the operand
+        // came to, which is the only place the real value exists by the time
+        // sema sees it.
+        if canFoldInt(lhs) && foldedIntValue(lhs) == intMinValue() {
             reportErrorAt(sema, "E1004", "This quotient is not representable as an int; divide as floats, or guard the case.", line, col, "Dividing the most negative int by -1 overflows, and an overflowing division faults the same way a zero divisor does.")
         }
     }
@@ -3662,7 +3671,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             return "unknown"
         }
         ASTNode.UnaryOp(u) => {
-            // `-2147483648` is INT_MIN spelled as a negation of a literal that
+            // `-9223372036854775808` is INT_MIN spelled as a negation of a literal that
             // is itself one past INT_MAX. The literal does not fit on its own,
             // but the expression it appears in denotes a representable value
             // and is the only spelling of the integer minimum there is, so the
@@ -3670,7 +3679,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             if u.op == "-" {
                 match u.operand {
                     ASTNode.Literal(l) => {
-                        if l.valType == "int" && l.text == "2147483648" { return "int" }
+                        if l.valType == "int" && l.text == "9223372036854775808" { return "int" }
                     }
                     _ => {}
                 }
@@ -3812,7 +3821,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // Counting it as a miss also meant every program with a
                     // large integer printed `UNRESOLVED int-literal 1` to
                     // stderr -- a quiet program is supposed to say nothing.
-                    reportError(sema, "integer literal " + l.text + " does not fit an orbit_int, which is 32 bits; write the value as a sum if you mean it")
+                    reportError(sema, "integer literal " + l.text + " does not fit an orbit_int, which is 64 bits; write the value as a sum if you mean it")
                 }
             }
             return l.valType

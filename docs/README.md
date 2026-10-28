@@ -17,7 +17,7 @@ Start with the question you're trying to answer. If you're new, read [Getting St
 | What is planned next? | [Project Roadmap](ROADMAP.md) |
 | How does the compiler pipeline work? | [Architecture Overview](ARCHITECTURE.md) |
 | How do I write Orbit programs? | [Language Reference](LANGUAGE_REFERENCE.md) and [Syntax Guide](SYNTAX_GUIDE.md) |
-| Where will the language lie to me? | [What Orbit does not promise about values](LANGUAGE_REFERENCE.md#what-orbit-does-not-promise-about-values) - 32-bit wrapping, `/` and `%` on a negative operand, untyped list slots, and guessed int/pointer casts |
+| Where will the language lie to me? | [What Orbit does not promise about values](LANGUAGE_REFERENCE.md#what-orbit-does-not-promise-about-values) - 64-bit wrapping, `/` and `%` on a negative operand, untyped list slots, and guessed int/pointer casts |
 | How do I write a library others can import? | [Writing a library](LIBRARIES.md) - the flat namespace, the `private` truth, and the `std/` install trap |
 | What does the standard library provide, and what do error codes mean? | [Standard library](../std/README.md): [test/strings/hashing](LANGUAGE_REFERENCE.md#standard-library-test-strings-and-hashing), [collections/files/IO/time/logging](LANGUAGE_REFERENCE.md#standard-library-collections-files-io-time-and-logging), [crypto/bytes](LANGUAGE_REFERENCE.md#standard-library-cryptography-and-bytes); compiler codes in [Command Reference](COMMANDS.md#errors-and-exit-codes), project checks in the [doctor catalog](DOCTOR.md) |
 | What can I build in 30 minutes? | [Language Tour](TOUR.md) - runnable snippets with expected outputs |

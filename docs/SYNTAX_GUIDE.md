@@ -41,7 +41,7 @@ Integer literals are decimal, `0x` hexadecimal, and `_` is a digit separator
 
 ## Types
 
-The builtin types are `int` (32-bit), `float`, `string`, `bool`, `list`,
+The builtin types are `int` (64-bit), `float`, `string`, `bool`, `list`,
 `result`, and `void`. Annotate when the type is not inferable:
 
 ```orbit

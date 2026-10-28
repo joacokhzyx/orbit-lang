@@ -1,0 +1,39 @@
+// A float returned by a user function keeps its fraction when it is bound.
+//
+// `val r = half(5.0)` hoisted `r` as `uintptr_t`: the backend had a return type
+// for runtime symbols only, so a user call's result was "unknown" and the store
+// converted the double to an integer. 2.5 became 2, and an infinity or a
+// fraction under an annotation (`val r: float = half(5.0)`) was lost the same
+// way. No diagnostic anywhere. The three shapes below all went through it: a
+// plain call, a recursive call, and a call to a function defined further down
+// the file.
+//
+// Each result is compared with a value an integer cannot hold, and the
+// assertion is the exit code.
+fn half(a: float) -> float {
+    return a / 2.0
+}
+
+fn deep(n: int) -> float {
+    if n == 0 { return 1.5 }
+    val r = deep(n - 1)
+    return r + 1.0
+}
+
+fn main() -> int {
+    val annotated: float = half(5.0)
+    if annotated != 2.5 { return 1 }
+    val inferred = half(5.0)
+    if inferred != 2.5 { return 2 }
+    val recursive = deep(3)
+    if recursive != 4.5 { return 3 }
+    val forward = later(7.0)
+    if forward != 3.5 { return 4 }
+    val infinite: float = half(1.0 / 0.0)
+    if infinite <= 1000000.0 { return 5 }
+    return 0
+}
+
+fn later(x: float) -> float {
+    return x / 2.0
+}

@@ -38,7 +38,7 @@ fn jsonQuote(s: string) -> string {
 // Ints stay ints, nesting stays nested, arrays stay homogeneous -- the
 // three things the substring reader cannot do. Malformed input is err,
 // never partial: bad escapes, lone surrogates, leading zeros, overflow
-// past int32 or finite double, trailing data, mixed or null-bearing or
+// past int64 or finite double, trailing data, mixed or null-bearing or
 // nested arrays, and nesting past 64 levels. A missing key reads as its
 // type's quiet default (0, 0.0, "", null object), the way the runtime
 // getters have always answered absence; a present field read through

@@ -615,7 +615,7 @@ fn listReadCall(kind: int, listStr: string, idxStr: string) -> string {
 /** @brief A typed list write. @p idxStr is "" for push and the index for set.
  *
  *  The typed forms take the value by value, which is what removes the
- *  `uintptr_t _tmp` staging word the untyped form needs: a 32-bit register's
+ *  `uintptr_t _tmp` staging word the untyped form needs: an int register's
  *  address is not a slot's worth of bytes, and copying `elem_size` from it
  *  read past the variable.
  *
@@ -2622,7 +2622,13 @@ fn escapeString(s: string) -> string {
 fn generateValue(value: IRValue) -> string {
     if value == NULL { return "" }
     match value {
-        IRValue.Int(v) => { return orbit_int_to_string_selfhost(v.value) }
+        IRValue.Int(v) => {
+            // The minimum cannot be spelled as a C literal: -9223372036854775808
+            // is the negation of 9223372036854775808, which fits no signed type.
+            // It is the one nonzero int that is its own negation.
+            if v.value != 0 && 0 - v.value == v.value { return "(-9223372036854775807LL-1)" }
+            return orbit_int_to_string_selfhost(v.value)
+        }
         IRValue.Float(v) => { return orbit_float_to_string_selfhost(v.value) }
         IRValue.String(v) => { return "\"" + escapeString(v.value) + "\"" }
         IRValue.Sym(v) => { return v.value }
@@ -2690,6 +2696,25 @@ fn generateRegAssign(backend: CBackend, destReg: int, valStr: string) -> string 
         return "    r_" + orbit_int_to_string_selfhost(destReg) + " = " + valStr + ";\n"
     }
     return "    r_" + orbit_int_to_string_selfhost(destReg) + " = (void*)(uintptr_t)(" + valStr + ");\n"
+}
+
+// Integer division and remainder trap on a zero divisor and on INT64_MIN
+// divided by -1. A divisor that is an int constant other than 0 and -1 cannot
+// fail, so it is emitted as the bare operator and costs nothing; every other
+// divisor goes through the checked helper in runtime/inline.h with the source
+// name and line the diagnostic prints.
+fn checkedDivision(backend: CBackend, helper: string, op: string, instr: IRInstruction) -> string {
+    val lhs = "(orbit_int)(uintptr_t)(" + generateValue(instr.operand1) + ")"
+    val rhs = "(orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"
+    match instr.operand2 {
+        IRValue.Int(d) => {
+            if d.value != 0 && d.value != -1 { return lhs + " " + op + " " + rhs }
+        }
+        _ => {}
+    }
+    var file = ""
+    if backend != NULL && backend.module != NULL { file = backend.module.sourceName }
+    return helper + "(" + lhs + ", " + rhs + ", \"" + escapeString(file) + "\", " + orbit_int_to_string_selfhost(instr.line) + ")"
 }
 
 // Emits one instruction's C text straight into the caller's chunk buffer.
@@ -2806,18 +2831,17 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             }
             // Signed, unlike the uintptr_t the sibling opcodes use, because
             // division and remainder are the two operations whose result is not
-            // the same modulo 2^32. (uintptr_t)(-7) is 2^64-7, so -7/2 is
-            // answered 9223372036854775804 and lands in an orbit_int as -4.
-            // Casting each operand down to orbit_int first keeps the pointer
-            // conversion the rest of the emitter relies on and restores the
-            // arithmetic C gives for the source. FINDINGS F-0014.
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_int)(uintptr_t)(" + generateValue(instr.operand1) + ") / (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            // the same modulo 2^64. (uintptr_t)(-7) is 2^64-7, so -7/2 would be
+            // answered 9223372036854775804. Casting each operand to orbit_int
+            // first keeps the pointer conversion the rest of the emitter relies
+            // on and gives the arithmetic C gives for the source. FINDINGS F-0014.
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, checkedDivision(backend, "orbit_int_div", "/", instr)))
             return
         }
         IROpcode.mod => {
             // Signed for the reason given on IROpcode.div above: (0-7) % 2 is
             // -1, and 2^64-7 % 2 is 1.
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(orbit_int)(uintptr_t)(" + generateValue(instr.operand1) + ") % (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, checkedDivision(backend, "orbit_int_mod", "%", instr)))
             return
         }
         IROpcode.bit_and => {
@@ -2833,19 +2857,18 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.shl => {
-            // The count is masked modulo 32: `int` is 32 bits here, so every
-            // count has a defined answer (`1 << 33` is 2) and the emitted C
-            // does not rely on the undefined `x << s` for s at or past the
-            // width.
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") << ((uintptr_t)(" + generateValue(instr.operand2) + ") & 31)"))
+            // The count is masked modulo 64: `int` is 64 bits, so every count
+            // has a defined answer (`1 << 65` is 2) and the emitted C does not
+            // rely on the undefined `x << s` for s at or past the width.
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") << ((uintptr_t)(" + generateValue(instr.operand2) + ") & 63)"))
             return
         }
         IROpcode.shr => {
-            // Read as unsigned, narrowed back to 32 signed bits by the cast in
-            // generateRegAssign: the high half of the 64-bit word disappears
-            // there, which is what makes `-8 >> 1` -4 -- an arithmetic shift --
-            // without any signed-shift undefined behavior in the C.
-            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(uintptr_t)(" + generateValue(instr.operand1) + ") >> ((uintptr_t)(" + generateValue(instr.operand2) + ") & 31)"))
+            // An arithmetic shift: `-8 >> 1` is -4. The operand is read as a
+            // signed 64-bit value, and the count is masked so that no count is
+            // undefined. gcc, clang and MSVC define `>>` on a negative signed
+            // value as an arithmetic shift.
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(int64_t)(uintptr_t)(" + generateValue(instr.operand1) + ") >> ((uintptr_t)(" + generateValue(instr.operand2) + ") & 63)"))
             return
         }
         IROpcode.bit_not => {
@@ -3715,8 +3738,8 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
         }
         IROpcode.list_push => {
             // Orbit lists use pointer-sized slots. Never pass the address of a
-            // 32-bit register directly: the push copies one full slot, which
-            // otherwise reads past the stack variable for int/bool values.
+            // bool register directly: the push copies one full slot, which
+            // otherwise reads past the stack variable.
             //
             // With a known element type the typed push is not a convenience:
             // a float cannot go into a slot as a number, because the slot is a
@@ -4093,6 +4116,28 @@ fn isResultRegisterType(func: IRFunction, regId: int) -> bool {
     return t == "result" || t == "Result" || t == "OrbitResult"
 }
 
+// Does this call go to a function the module declares `-> float`, with the
+// result register already typed float by the builder? The table above only
+// knows runtime symbols, so a user function's result was "unknown" and the
+// val it was bound to hoisted as `uintptr_t`: the store cast the double to an
+// integer and `val r = half(5.0)` printed 2.0, silently. An int, a bool and a
+// pointer survive that round trip; a float does not. The declaration is the
+// answer, and it is found for a recursive call and for a function defined
+// later in the file because the module holds every function before any is
+// emitted.
+fn callReturnsFloat(backend: CBackend, func: IRFunction, callee: string, regId: int) -> bool {
+    if backend == NULL || backend.module == NULL { return false }
+    if regId < 0 || regId >= func.registerTypes.len() { return false }
+    if func.registerTypes.get(regId) != "float" { return false }
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val cf: IRFunction = backend.module.functions.get(fi)
+        if cf.name == callee { return cf.returnType == "float" }
+        fi = fi + 1
+    }
+    return false
+}
+
 // Per-function instruction index behind variableDefType,
 // operandFeFirstPrescanType and registerVarDefType.
 //
@@ -4181,7 +4226,7 @@ fn ensureDefIndex(backend: CBackend, func: IRFunction) {
                                 // aggregate-to-integer C error. The register
                                 // type the builder already assigned answers it
                                 // properly, so let that stand.
-                                if (bt == "unknown" || bt == "void") && isResultRegisterType(func, rd) == false {
+                                if (bt == "unknown" || bt == "void") && isResultRegisterType(func, rd) == false && callReturnsFloat(backend, func, cn, rd) == false {
                                     verdict = "unknown"
                                 }
                             }
@@ -4354,8 +4399,8 @@ fn storeCastFor(backend: CBackend, vn: string) -> string {
         return pointerStoreCast(backend, vn)
     }
     // The spelling of the name says nothing about the type: `mid` ends in
-    // "id" and holds a model pointer, which a cast through orbit_int cuts to
-    // 32 bits. An unknown type gets the width-preserving cast.
+    // "id" and holds a model pointer, which a cast through a narrower int would cut.
+    // An unknown type gets the width-preserving cast.
     if vType == "unknown" || vType == "usize" || vType == "" {
         return "(uintptr_t)"
     }

@@ -275,7 +275,7 @@ static void test_parse_arrays(void) {
 /* Malformed input is err, never partial and never abort. Each case is one
  * rule: truncation, trailing comma, single quotes, bare keys, non-object
  * tops, trailing data, leading zeros, dangling fraction/exponent, mixed
- * or null-bearing or nested arrays, overflow past int32 or finite
+ * or null-bearing or nested arrays, overflow past int64 or finite
  * double, lone surrogates. */
 static void test_parse_rejects(void) {
     static const char* bad[] = {
@@ -295,7 +295,7 @@ static void test_parse_rejects(void) {
         "{\"a\":[1,\"x\"]}",
         "{\"a\":[null]}",
         "{\"a\":[[1]]}",
-        "{\"a\":9999999999}",
+        "{\"a\":9223372036854775808}",
         "{\"a\":1e999}",
         "{\"a\":\"\\ud800\"}",
         "{\"a\":\"\\ud800\\u\"}",

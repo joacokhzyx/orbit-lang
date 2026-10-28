@@ -636,7 +636,7 @@ def shard_build(cc, tu_path, header_path, out_exe, work, tag="tu",
     t1 = time.monotonic()
     link_argv = [cc.split()[0], "-s", "-o", os.path.abspath(out_exe)] \
         + [obj for _src, obj, _dt, _p in sorted(results)] \
-        + [lib] + (["-lws2_32"] if os.name == "nt" else [])
+        + [lib] + (["-lws2_32", "-Wl,--stack,16777216"] if os.name == "nt" else [])
     proc = subprocess.run(link_argv, cwd=ROOT, capture_output=True,
                           text=True, errors="replace")
     t_link = time.monotonic() - t1
@@ -960,7 +960,7 @@ def main():
     t1 = time.monotonic()
     link_argv = [cc.split()[0], "-s", "-o", out_bin] \
         + [obj for _src, obj, _dt, _p in sorted(results)] \
-        + [lib] + (["-lws2_32"] if os.name == "nt" else [])
+        + [lib] + (["-lws2_32", "-Wl,--stack,16777216"] if os.name == "nt" else [])
     proc = subprocess.run(link_argv, cwd=ROOT, capture_output=True,
                           text=True, errors="replace")
     t_link = time.monotonic() - t1

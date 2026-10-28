@@ -133,13 +133,13 @@ MAIN_ORB = os.path.join("compiler", "host", "main.orb")
 # ORBIT_BOOTSTRAP_WARNINGS=1 to restore it locally.
 SUPPRESS_FLAGS = ["-DORBIT_WITH_EXEC"] + (
     ["-Wall"] if os.environ.get("ORBIT_BOOTSTRAP_WARNINGS", "").strip() not in ("", "0") else [])
-PLATFORM_LINK_FLAGS = ["-lws2_32"] if os.name == "nt" else []
+PLATFORM_LINK_FLAGS = ["-lws2_32", "-Wl,--stack,16777216"] if os.name == "nt" else []
 # Published fixed-point contract for the current compiler source. The C hash is
 # the cross-platform reproducibility contract (enforced with --release); the
 # binary hash is platform/toolchain specific and stays informational.
 # PUBLISHED_C is rewritten automatically by scripts/build_selfhost.py --promote,
 # so it always matches the committed canonical. --release enforces it.
-PUBLISHED_C = "C1176CF45FD3B1D72A24956AD873D882CFB97EF6A9E4B0196C7074105E63E7CD"
+PUBLISHED_C = "DD649139F154395D74F2E0B59CE475C99FBD1FBD094D408CFCC4B6CD6C3A7A1B"
 # PUBLISHED_BIN is a fingerprint of one toolchain's output only. It is reported
 # for information and never asserted: PE timestamps, PDB paths, section order
 # and relocation layout all differ between linkers, so a mismatch here says

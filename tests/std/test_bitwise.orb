@@ -1,6 +1,6 @@
 // The vectors the quarantine header published, plus the two edges that
 // are easy to get wrong by reading rather than by running: a shift
-// count is masked to five bits (so 32 is a no-op, not a zero) and `~`
+// count is masked to six bits (so 64 is a no-op, not a zero) and `~`
 // of zero is -1, not 1. Exit code is the first assertion that failed.
 import "std/sys/bytes/bitwise.orb"
 import "std/test/assert.orb"
@@ -11,8 +11,10 @@ fn main() -> int {
     if assertEqInt(bitXor(12, 10), 6) == false { return 3 }
     if assertEqInt(shiftLeft(1, 10), 1024) == false { return 4 }
     if assertEqInt(shiftRight(1024, 10), 1) == false { return 5 }
-    if assertEqInt(shiftLeft(1, 32), 1) == false { return 6 }
+    if assertEqInt(shiftLeft(1, 64), 1) == false { return 6 }
     if assertEqInt(bitNot(0), 0 - 1) == false { return 7 }
     if assertEqInt(bitAnd(255, 15), 15) == false { return 8 }
+    if assertEqInt(shiftLeft(1, 32), 4294967296) == false { return 9 }
+    if assertEqInt(shiftRight(0 - 1, 63), 0 - 1) == false { return 10 }
     return 0
 }

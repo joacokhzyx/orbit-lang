@@ -196,8 +196,11 @@ fn irInstructionText(instr: IRInstruction) -> string {
     out = out + "\"operand1\":" + irValueText(instr.operand1) + ","
     out = out + "\"operand2\":" + irValueText(instr.operand2) + ","
     out = out + "\"operand3\":" + irValueText(instr.operand3) + ","
-    out = out + "\"elemKind\":" + orbit_int_to_string_selfhost(instr.elemKind) + "}"
-    return out
+    out = out + "\"elemKind\":" + orbit_int_to_string_selfhost(instr.elemKind)
+    if instr.line > 0 {
+        out = out + ",\"line\":" + orbit_int_to_string_selfhost(instr.line)
+    }
+    return out + "}"
 }
 
 fn irAppendFunctionText(buf: string, f: IRFunction) {
@@ -444,6 +447,6 @@ fn emitIRv1(module: IRModule) -> string {
     }
     orbit_cbuf_append_selfhost(buf, "],\"migrations\":")
     irAppendStringList(buf, module.migrations)
-    orbit_cbuf_append_selfhost(buf, "}}\n")
+    orbit_cbuf_append_selfhost(buf, ",\"sourceName\":\"" + irJsonEscape(module.sourceName) + "\"}}\n")
     return orbit_cbuf_build_selfhost(buf)
 }

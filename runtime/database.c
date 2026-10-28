@@ -862,7 +862,7 @@ orbit_int orbit_db_count_all(OrbitArena* arena, const char* table_name) {
     if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) == SQLITE_OK) {
         orbit_perf_stats.db_queries++;
         if (sqlite3_step(stmt) == SQLITE_ROW) {
-            result = (orbit_int)sqlite3_column_int(stmt, 0);
+            result = (orbit_int)sqlite3_column_int64(stmt, 0);
         }
         sqlite3_finalize(stmt);
     }
@@ -909,7 +909,7 @@ orbit_int orbit_db_count_v(OrbitArena* arena, const char* table_name, const char
     if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) == SQLITE_OK) {
         orbit_perf_stats.db_queries++;
         if (sqlite3_step(stmt) == SQLITE_ROW) {
-            result = (orbit_int)sqlite3_column_int(stmt, 0);
+            result = (orbit_int)sqlite3_column_int64(stmt, 0);
         }
         sqlite3_finalize(stmt);
     }

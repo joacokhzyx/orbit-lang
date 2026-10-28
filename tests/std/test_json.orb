@@ -77,7 +77,7 @@ fn main() -> int {
     try parseJson("{\"a\":[[1]]}") catch { bad = true }
     if bad == false { return 46 }
     bad = false
-    try parseJson("{\"a\":9999999999}") catch { bad = true }
+    try parseJson("{\"a\":9223372036854775808}") catch { bad = true }
     if bad == false { return 47 }
     var deep = ""
     var d = 0

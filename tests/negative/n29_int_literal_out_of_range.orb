@@ -1,8 +1,9 @@
 // case: int-literal-out-of-range
 // what: an integer literal that does not fit an orbit_int.
 //
-// `orbit_int` is a 32-bit `int` (runtime/types.c), so 2147483648 does not fit.
-// It used to be accepted, wrapped silently to -2147483648, and printed that.
+// `orbit_int` is a 64-bit `int` (runtime/types.c), so 9223372036854775808 does
+// not fit. It used to be accepted, wrapped silently to -9223372036854775808,
+// and printed that.
 // No diagnostic anywhere: `orbit check` said the program was clean.
 //
 // It is now an error. The literal did not stop being out of range; it stopped
@@ -13,12 +14,12 @@
 // `UNRESOLVED int-literal 1` to stderr. A clean program is supposed to say
 // nothing, and a census line is for the gate, not the reader.
 //
-// tests/std/test_time_ns.orb spelled one-past-the-cap as this literal to
-// exercise a clamp. It is now written as the sum it is, so the test is about
-// the clamp and not about the literal.
+// The minimum is the one value spelled through the next one up: as the
+// negation `-9223372036854775808`, which tests/suite/int_wrap_64.orb avoids and
+// tests/std/test_convert.orb prints.
 
 fn main() -> int {
-    print(2147483648)
+    print(9223372036854775808)
     return 0
 }
 // expect-error: does not fit an orbit_int

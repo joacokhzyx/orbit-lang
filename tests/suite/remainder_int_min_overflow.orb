@@ -1,0 +1,21 @@
+// expect-exit 2
+//
+// `INT_MIN % -1` is 0 in mathematics and a trap in C, because the hardware
+// computes it with the division that overflows. The program stops with
+//
+//     orbit: integer overflow in division at remainder_int_min_overflow.orb:NN
+//
+// rather than answer 0 on one platform and fault on another.
+fn remainder(a: int, b: int) -> int {
+    return a % b
+}
+
+fn main() -> int {
+    val minimum = -9223372036854775807 - 1
+    val xs = [1, 2]
+    val minusOne = xs.len() - 3
+    print(remainder(minimum, 2))
+    print(remainder(minimum, minusOne))
+    print("unreachable")
+    return 0
+}

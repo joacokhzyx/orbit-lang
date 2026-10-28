@@ -13,6 +13,30 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 Language:
 
+- **`int` is 64 bits.** `orbit_int` is `int64_t`, so an `int` runs from
+  -9223372036854775808 to 9223372036854775807 and wraps modulo 2^64. Literals
+  up to 9223372036854775807 are accepted, and `-9223372036854775808` is the
+  spelling of the minimum. The runtime follows: `orbit_int_to_string`,
+  `orbit_string_to_int` (now `strtoll`, which saturates instead of being
+  undefined), JSON integers (`json: integer out of int64 range`), SQLite
+  counts (`sqlite3_column_int64`) and the clocks (`orbit_clock_ns` and
+  `orbit_wall_seconds` no longer wrap at 2^31 or 2038). Shifts take a count
+  masked to six bits, and `>>` stays arithmetic. Pinned by
+  `tests/suite/int_wrap_64.orb` (which replaces `int_wrap_32.orb`) and
+  `tests/suite/bitwise_operators.orb`.
+- **Division and remainder by zero are a checked trap.** `x / 0` and `x % 0`
+  with a divisor that is only known at run time, and `INT_MIN / -1` and
+  `INT_MIN % -1`, used to be undefined C (SIGFPE, exit 136, nothing on either
+  stream). They now print `orbit: division by zero at <file>:<line>` or
+  `orbit: integer overflow in division at <file>:<line>` to stderr and exit 2,
+  the status of an out-of-range list index. A constant divisor other than `0`
+  and `-1` is emitted as the bare operator and costs nothing. Float division
+  keeps IEEE semantics. The IR carries the line as `line` on `div` and `mod`
+  and the file as the module's `sourceName`
+  ([IR spec 1.5](IR_SPEC.md#15-checked-div-and-mod)). Pinned by
+  `tests/suite/division_by_zero.orb`, `remainder_by_zero.orb`,
+  `division_int_min_overflow.orb`, `remainder_int_min_overflow.orb` and the
+  control `division_checked_values.orb`.
 - **An object field read is lowered from the read's declared type.** The getter
   for `o.field` was chosen by scanning the setters in the function the read is
   in (`objectFieldGetter`), so an object built in *another* function
@@ -42,9 +66,9 @@ Language:
   last gap in the arithmetic. Int-only, like the checker says: a non-int
   operand is the uncoded `Semantic error:` `bitwise '&' takes two ints, not
   'string' and 'string'` (pinned by `tests/negative/n79` and `n80`). Values
-  are 32-bit two's-complement (`~0` is `-1`, `-8 >> 1` is `-4`), shift
-  counts are masked to five bits (`1 << 33` is `2`, never C's undefined
-  shift), and the precedence is C's grouping (`&` binds looser than `==`,
+  were 32-bit two's-complement when written and are 64-bit since `int` is
+  (`~0` is `-1`, `-8 >> 1` is `-4`), shift counts are masked to six bits
+  (`1 << 65` is `2`, never C's undefined shift), and the precedence is C's grouping (`&` binds looser than `==`,
   so the suite test writes `(12 & 10) != 8` with the parens it needs). `&`
   stays the pointer sigil in type position and `>>` still closes
   `list<list<int>>`; `orbit fmt` tells the two spellings of `&` apart the

@@ -27,7 +27,7 @@ extern fn orbit_os_exit_selfhost(code: int)
 extern fn orbit_os_write_stderr_selfhost(content: string)
 extern fn orbit_os_isatty_selfhost(fd: int) -> bool
 // Chunk buffer for codegen: the handle rides in a string-typed local
-// (never inspected as text) because self-host int is 32 bits.
+// (never inspected as text): a handle is a pointer, not a number.
 extern fn orbit_cbuf_create_selfhost() -> string
 extern fn orbit_cbuf_append_selfhost(buf: string, s: string)
 extern fn orbit_cbuf_build_selfhost(buf: string) -> string

@@ -123,6 +123,10 @@ model IRInstruction {
     // disagree -- but it is a fallback: the setter scan still wins wherever
     // it has an answer, so no read that was lowered correctly before moves.
     fieldKind: int
+    // The Orbit source line of a `div` or `mod`, which can fail at run time
+    // and then names the line it failed on. 0 means unknown: only those two
+    // opcodes set it, and an instruction the compiler synthesizes has none.
+    line: int
 }
 
 // Factory functions for IRValue
@@ -161,7 +165,7 @@ fn ir_none() -> IRValue {
 }
 
 fn ir_init_instr(opcode: IROpcode) -> IRInstruction {
-    return IRInstruction(opcode, -1, ir_none(), ir_none(), ir_none(), 0, 0)
+    return IRInstruction(opcode, -1, ir_none(), ir_none(), ir_none(), 0, 0, 0)
 }
 
 model IRFunction {
@@ -247,6 +251,10 @@ model IRModule {
     // The `port N` service declaration, or 0 when the program declares none.
     // The emitted server main binds this; argv[1] still overrides at run time.
     configPort: int
+    // The base name of the root source file, which a run-time diagnostic that
+    // names a line (division by zero) prints beside it. Not a path: the IR is
+    // byte-reproducible across checkouts, and a path is not.
+    sourceName: string
 }
 
 model IRGlobal {
@@ -256,5 +264,5 @@ model IRGlobal {
 }
 
 fn initIRModule() -> IRModule {
-    return IRModule([], [], [], [], [], 0)
+    return IRModule([], [], [], [], [], 0, "")
 }

@@ -101,10 +101,10 @@ fn main() -> int {
 
     // sys/bytes/bitwise.orb, the module that came back from quarantine.
     // Both edges the module's header warns about are asserted, because a
-    // shift count is masked to five bits and reading the header is not
+    // shift count is masked to six bits and reading the header is not
     // evidence that a call through the import does the same.
     if assertEqInt(bitAnd(12, 10), 8) == false { return 27 }
-    if assertEqInt(shiftLeft(1, 32), 1) == false { return 28 }
+    if assertEqInt(shiftLeft(1, 64), 1) == false { return 28 }
 
     // fs/file.orb -- a path that cannot exist, so no side effects
     if assertTrue(exists("no_such_file_for_test_imports.orb")) { return 7 }
