@@ -9,6 +9,8 @@
 #ifndef ORBIT_INLINE_H
 #define ORBIT_INLINE_H
 
+#include <stdint.h>
+
 #ifdef _MSC_VER
     /* `static` is not optional here, and must lead: ORBIT_INLINE is used on
      * definitions in .c files and in headers, and every branch has to agree on
@@ -45,5 +47,37 @@
 #define ORBIT_PREFETCH_WRITE(addr) __builtin_prefetch(addr, 1, 3)
 
 #define ORBIT_RESTRICT __restrict
+
+#ifdef _MSC_VER
+    #define ORBIT_NORETURN __declspec(noreturn)
+#else
+    #define ORBIT_NORETURN __attribute__((noreturn))
+#endif
+
+/* Integer division is checked. A divisor of 0 and INT64_MIN / -1 have no
+ * answer an int can hold, and C leaves both undefined (SIGFPE on x86-64). The
+ * program stops instead: kind 0 is a zero divisor, kind 1 is the overflowing
+ * quotient (and remainder, which C also traps). The diagnostic names the Orbit
+ * source file and line the emitter passes in; exit status is 2, as for an
+ * out-of-range list index. Defined in collections.c. */
+ORBIT_NORETURN void orbit_div_error(const char* file, int64_t line, int64_t kind);
+
+/* One unsigned compare catches both divisors that can fail: b + 1 is 0 for -1
+ * and 1 for 0, and larger for every other value. */
+ORBIT_INLINE int64_t orbit_int_div(int64_t a, int64_t b, const char* file, int64_t line) {
+    if (ORBIT_UNLIKELY((uint64_t)b + 1u <= 1u)) {
+        if (b == 0) orbit_div_error(file, line, 0);
+        if (a == INT64_MIN) orbit_div_error(file, line, 1);
+    }
+    return a / b;
+}
+
+ORBIT_INLINE int64_t orbit_int_mod(int64_t a, int64_t b, const char* file, int64_t line) {
+    if (ORBIT_UNLIKELY((uint64_t)b + 1u <= 1u)) {
+        if (b == 0) orbit_div_error(file, line, 0);
+        if (a == INT64_MIN) orbit_div_error(file, line, 1);
+    }
+    return a % b;
+}
 
 #endif

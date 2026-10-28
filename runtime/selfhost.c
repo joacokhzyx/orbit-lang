@@ -128,10 +128,10 @@ bool orbit_os_mkdir_selfhost(orbit_string path) {
 /**
  * FNV-1a over a string, as an 8-digit hex digest.
  *
- * The compiler needs a content fingerprint to key a cache on, and 32 bits is the
- * whole width of orbit_int, so the digest is a STRING: a 32-bit int rendered in
- * decimal is indistinguishable from a much smaller number, and a cache key that
- * loses its leading digits is a cache key that collides.
+ * The compiler needs a content fingerprint to key a cache on. The digest is a
+ * STRING of fixed width: a number rendered in decimal is indistinguishable from
+ * a much smaller one, and a cache key that loses its leading digits is a cache
+ * key that collides.
  *
  * Zero-width is 2166136261u, the documented offset basis. Returns "" for an
  * empty string so a caller can treat "" as "no digest, do not cache this"

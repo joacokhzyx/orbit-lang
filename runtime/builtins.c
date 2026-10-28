@@ -40,7 +40,7 @@ void orbit_print(const char* str) {
  */
 orbit_int orbit_string_to_int(orbit_string s) {
     if (!s || *s == '\0') return 0;
-    return (orbit_int)atoi(s);
+    return (orbit_int)strtoll(s, NULL, 10);
 }
 
 /**
@@ -80,12 +80,11 @@ orbit_int orbit_clock_ns(void) {
 /**
  * Return the monotonic clock in MILLISECONDS.
  *
- * This is the one an Orbit program should use. orbit_int is 32-bit, so
- * orbit_clock_ns() wraps every 4.29 seconds and a subtraction across that
- * boundary returns a NEGATIVE duration -- which reads as a phase that took
- * less time than it started. Milliseconds fit for 24 days of uptime, which is
- * longer than any process, and 1 ms resolution is finer than the budgets we
- * hold doctor to. Named in milliseconds so no caller has to guess the unit.
+ * Spans measured in milliseconds are readable in logs and fit any budget.
+ * orbit_int is 64-bit, so orbit_clock_ns() no longer wraps (it holds 292
+ * years of nanoseconds); this one stays because 1 ms is the unit every
+ * duration in the tree is written in. Named in milliseconds so no caller
+ * has to guess the unit.
  */
 orbit_int orbit_clock_ms(void) {
 #ifdef _WIN32
@@ -108,10 +107,10 @@ orbit_int orbit_clock_ms(void) {
 /**
  * Unix epoch seconds (wall clock). GetSystemTimeAsFileTime on Windows
  * (100 ns ticks since 1601, minus the 11644473600 s epoch delta),
- * CLOCK_REALTIME elsewhere. orbit_int is 32 bits, so this is good until
- * 2038 -- stated in std/time/time.orb rather than discovered. For spans,
- * keep the monotonic clock above: the wall clock steps with NTP and the
- * user, so a difference of two readings is not a duration.
+ * CLOCK_REALTIME elsewhere. orbit_int is 64 bits, so the value does not
+ * stop in 2038. For spans, keep the monotonic clock above: the wall clock
+ * steps with NTP and the user, so a difference of two readings is not a
+ * duration.
  */
 orbit_int orbit_wall_seconds(void) {
 #ifdef _WIN32

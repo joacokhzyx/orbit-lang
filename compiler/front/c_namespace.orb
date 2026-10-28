@@ -86,6 +86,7 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_db_update" { return true }
     if name == "orbit_db_valid_identifier" { return true }
     if name == "orbit_db_where" { return true }
+    if name == "orbit_div_error" { return true }
     if name == "orbit_enable_reuseport" { return true }
     if name == "orbit_energy_attributable_joules" { return true }
     if name == "orbit_energy_has_sensor" { return true }
@@ -126,6 +127,8 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_http_query_get" { return true }
     if name == "orbit_http_query_get_all" { return true }
     if name == "orbit_init_crash_handler" { return true }
+    if name == "orbit_int_div" { return true }
+    if name == "orbit_int_mod" { return true }
     if name == "orbit_int_to_string" { return true }
     if name == "orbit_int_to_string_selfhost" { return true }
     if name == "orbit_json_array_get_bool" { return true }

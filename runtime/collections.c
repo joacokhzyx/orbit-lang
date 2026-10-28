@@ -89,6 +89,19 @@ void orbit_list_index_error(const char* where, unsigned long index,
     exit(2);
 }
 
+void orbit_div_error(const char* file, int64_t line, int64_t kind) {
+    const char* what = kind == 0 ? "division by zero" : "integer overflow in division";
+    if (file && file[0] && line > 0) {
+        fprintf(stderr, "orbit: %s at %s:%lld\n", what, file, (long long)line);
+    } else if (file && file[0]) {
+        fprintf(stderr, "orbit: %s at %s\n", what, file);
+    } else {
+        fprintf(stderr, "orbit: %s\n", what);
+    }
+    fflush(stderr);
+    exit(2);
+}
+
 void orbit_list_kind_error(int have, int want) {
     fprintf(stderr,
             "orbit: list element type mismatch\n"
@@ -717,7 +730,7 @@ orbit_string orbit_int_to_string(OrbitArena* arena, orbit_int value) {
     if (!arena) return "";
 
     char tmp[32];
-    int n = snprintf(tmp, sizeof(tmp), "%d", value);
+    int n = snprintf(tmp, sizeof(tmp), "%lld", (long long)value);
     if (n <= 0) return "";
 
     char* buf = (char*)orbit_alloc(arena, (size_t)n + 1);
