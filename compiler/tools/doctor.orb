@@ -337,7 +337,7 @@ fn doctorVerifyFix(before: string, edited: string, file: string, verifyBuild: bo
     }
     if verifyBuild {
         val tmp = orbit_os_temp_dir_selfhost() + "/orbit_doctor_fix_check"
-        if compileSourceWithFile(edited, file, tmp, false, true, colorMode, false, "") == false {
+        if compileSourceWithFile(edited, file, tmp, false, true, colorMode, false, "", "c") == false {
             return "not applied: the result does not compile (front end passed, C step failed)"
         }
     }

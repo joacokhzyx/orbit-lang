@@ -422,7 +422,7 @@ fn clusterUp() {
     if clusterQuiet() == false {
         print("Compiling " + servicePath + " once...")
     }
-    if compileSourceWithFile(source, servicePath, binary, clusterHasFlag("--verbose", 3), true, "auto", false, "") == false {
+    if compileSourceWithFile(source, servicePath, binary, clusterHasFlag("--verbose", 3), true, "auto", false, "", "c") == false {
         orbit_os_exit_selfhost(1)
         return
     }
