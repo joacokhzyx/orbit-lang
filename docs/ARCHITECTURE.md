@@ -137,13 +137,15 @@ makes "did the compiler change its mind?" answerable as a hash comparison.
 The generated C is compiled with `-I runtime`. The runtime's `runtime.h` is an
 aggregation header: it includes the `.c` files directly, so the unity build
 recompiles the whole runtime with the program. The driver adds
-`-DORBIT_WITH_NET` unconditionally, and adds `-DORBIT_WITH_DB` plus the vendor
-SQLite flags only when the IR actually uses the database. On Windows it adds
-`-lws2_32`. On the DB path it links `runtime/vendor/win-x64/sqlite3.lib` instead
+`-DORBIT_WITH_NET` and, on Windows, `-lws2_32` only when the IR uses the
+network (routes, the HTTP client, a database), and adds `-DORBIT_WITH_DB` plus
+the vendor SQLite flags only when the IR uses the database. See
+[Program start-up](STARTUP.md). On the DB path it links `runtime/vendor/win-x64/sqlite3.lib` instead
 of `-lsqlite3`.
 
-A program that needs no database links the prebuilt `libruntime_net.a` instead,
-and the driver compiles only the program with `-DORBIT_SEPARATE_COMPILATION`.
+A program that needs no database links the prebuilt `libruntime_net.a` instead
+(one member per runtime module, so only the modules the program names are
+linked), and the driver compiles only the program with `-DORBIT_SEPARATE_COMPILATION`.
 On 2026-10-27 (gcc 16.2.0, `ORBIT_CCACHE=0`, best of 3) `examples/hello.orb`
 builds in 1.3 s linked against 3.4 s for the unity build. The driver looks for the archive in `lib/`
 beside the runtime directory, then in `.orbit/lib/` beside it, which is where
