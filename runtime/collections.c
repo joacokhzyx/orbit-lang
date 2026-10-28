@@ -158,6 +158,11 @@ OrbitResult orbit_list_create_typed(OrbitArena* arena, size_t elem_size, size_t 
         return orbit_result_err(ORBIT_ERR_INVALID_ARG, "list: elem_size must be one machine word");
     }
     if (initial_capacity == 0) initial_capacity = 8;
+    /* elem_size * initial_capacity must not wrap: a wrapped product is a small
+     * block that the list then claims is `initial_capacity` slots long. */
+    if (initial_capacity > SIZE_MAX / elem_size) {
+        return orbit_result_err(ORBIT_ERR_INVALID_ARG, "list: capacity too large");
+    }
 
     OrbitList* list = (OrbitList*)orbit_alloc(arena, sizeof(OrbitList));
     if (!list) {
@@ -190,6 +195,9 @@ OrbitResult orbit_list_grow(OrbitList* list) {
         return orbit_result_err(ORBIT_ERR_NULL_PTR, "list_grow: null list");
     }
 
+    if (list->capacity > SIZE_MAX / 2 / list->elem_size) {
+        return orbit_result_err(ORBIT_ERR_OUT_OF_MEMORY, "list_grow: capacity overflow");
+    }
     size_t new_cap = list->capacity * 2;
     void* new_data = orbit_alloc(list->arena, list->elem_size * new_cap);
     if (!new_data) {
