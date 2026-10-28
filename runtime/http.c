@@ -79,8 +79,11 @@ typedef struct {
 // Forward declaration for Pulsar support
 #include "pulse.c"
 
+void orbit_http_limits_reload(void);
+
 /** @brief Initialise the HTTP layer (starts Winsock on Windows; no-op on POSIX). */
 void orbit_http_init(void) {
+    orbit_http_limits_reload();
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -103,6 +106,114 @@ void orbit_http_cleanup(void) {
 #endif
 }
 
+/* ── Request limits ───────────────────────────────────────────────────
+ *
+ * Every limit is checked on the raw bytes, before the parser allocates
+ * anything from the arena, so a hostile request costs the server no more
+ * than the bytes it already read. Defaults follow nginx and Go:
+ *
+ *   ORBIT_HTTP_MAX_REQUEST_LINE   8192     request line, in bytes  -> 414
+ *   ORBIT_HTTP_MAX_HEADER_BYTES   65536    all header lines        -> 431
+ *   ORBIT_HTTP_MAX_HEADERS        100      header lines            -> 431
+ *   ORBIT_HTTP_MAX_BODY           1048576  Content-Length          -> 413
+ *
+ * Each variable is a decimal integer in 1..2147483648. Anything else is
+ * ignored with one line on stderr and the default stays. The limits are read
+ * once, by orbit_http_init (or by the first parse). The server's per-connection
+ * receive buffer is 16 KiB, so on a live socket it bounds a request before any
+ * of these larger values can. */
+typedef struct {
+    size_t max_request_line;
+    size_t max_header_bytes;
+    size_t max_headers;
+    size_t max_body;
+    int    loaded;
+} OrbitHttpLimits;
+
+#define ORBIT_HTTP_PERR_CHUNKED 1 /* 501 */
+#define ORBIT_HTTP_PERR_LINE    2 /* 414 */
+#define ORBIT_HTTP_PERR_HEADERS 3 /* 431 */
+#define ORBIT_HTTP_PERR_BODY    4 /* 413 */
+#define ORBIT_HTTP_PERR_LENGTH  5 /* 400: malformed or conflicting Content-Length */
+
+static OrbitHttpLimits orbit_http_limits_state;
+
+static size_t orbit_http_limit_env(const char* name, size_t dflt) {
+    const char* v = orbit_env_get(name);
+    if (!v || !*v) return dflt;
+    unsigned long long acc = 0;
+    int ok = 1;
+    for (const char* c = v; *c; c++) {
+        if (*c < '0' || *c > '9' || acc > 214748364ULL * 10ULL + 9ULL) { ok = 0; break; }
+        acc = acc * 10ULL + (unsigned long long)(*c - '0');
+    }
+    if (!ok || acc < 1ULL || acc > 2147483648ULL) {
+        fprintf(stderr, "orbit: %s=%s ignored (want an integer in 1..2147483648); using %llu\n",
+                name, v, (unsigned long long)dflt);
+        return dflt;
+    }
+    return (size_t)acc;
+}
+
+/** @brief Re-read the ORBIT_HTTP_MAX_* variables. Tests call it after changing the environment. */
+void orbit_http_limits_reload(void) {
+    OrbitHttpLimits l;
+    l.max_request_line = orbit_http_limit_env("ORBIT_HTTP_MAX_REQUEST_LINE", 8192);
+    l.max_header_bytes = orbit_http_limit_env("ORBIT_HTTP_MAX_HEADER_BYTES", 65536);
+    l.max_headers      = orbit_http_limit_env("ORBIT_HTTP_MAX_HEADERS", 100);
+    l.max_body         = orbit_http_limit_env("ORBIT_HTTP_MAX_BODY", 1048576);
+    l.loaded = 1;
+    orbit_http_limits_state = l;
+}
+
+static const OrbitHttpLimits* orbit_http_limits_get(void) {
+    if (!orbit_http_limits_state.loaded) orbit_http_limits_reload();
+    return &orbit_http_limits_state;
+}
+
+static size_t orbit_http_reject(size_t raw_len, OrbitRequest** out_req, int* out_parse_error, int code) {
+    if (out_parse_error) *out_parse_error = code;
+    if (out_req) *out_req = NULL;
+    return raw_len; /* consume the buffer; the caller answers and closes */
+}
+
+/** @brief First "\r\n\r\n" inside raw[0..raw_len), or NULL. Never reads past raw_len. */
+static const char* orbit_http_find_head_end(const char* raw, size_t raw_len) {
+    const char* end = raw + raw_len;
+    const char* p = raw;
+    while (raw_len >= 4 && (p = (const char*)memchr(p, '\r', (size_t)(end - p))) != NULL) {
+        if ((size_t)(end - p) < 4) return NULL;
+        if (p[1] == '\n' && p[2] == '\r' && p[3] == '\n') return p;
+        p++;
+    }
+    return NULL;
+}
+
+OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* content_type, const char* body);
+
+/** @brief The response for a parse error code from orbit_http_parse_request_ex. */
+OrbitResponse* orbit_http_parse_error_response(OrbitArena* arena, int code) {
+    switch (code) {
+    case ORBIT_HTTP_PERR_LINE:
+        return orbit_response_create(arena, 414, "text/plain", "414 URI Too Long");
+    case ORBIT_HTTP_PERR_HEADERS:
+        return orbit_response_create(arena, 431, "text/plain", "431 Request Header Fields Too Large");
+    case ORBIT_HTTP_PERR_BODY:
+        return orbit_response_create(arena, 413, "text/plain", "413 Content Too Large");
+    case ORBIT_HTTP_PERR_LENGTH:
+        return orbit_response_create(arena, 400, "text/plain", "400 Malformed Content-Length");
+    default:
+        return orbit_response_create(arena, 501, "text/plain", "501 Transfer-Encoding not supported");
+    }
+}
+
+/** @brief The response for a receive buffer that filled without a complete request:
+ *         headers still open is 431, a body still open is 413. */
+OrbitResponse* orbit_http_buffer_full_response(OrbitArena* arena, const char* buf, size_t len) {
+    return orbit_http_parse_error_response(arena,
+        orbit_http_find_head_end(buf, len) ? ORBIT_HTTP_PERR_BODY : ORBIT_HTTP_PERR_HEADERS);
+}
+
 /* â”€â”€ Parse raw HTTP into Arena-allocated OrbitRequest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req) {
@@ -112,13 +223,48 @@ size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_l
 size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error) {
     if (out_req) *out_req = NULL;
     
+    if (out_parse_error) *out_parse_error = 0;
+    const OrbitHttpLimits* lim = orbit_http_limits_get();
+
+    /* Request line: bounded before the rest of the head is even looked for,
+     * so a peer that never sends a newline is refused at the limit and not
+     * buffered forever. A line of exactly max bytes plus its CR is legal. */
+    const char* line_nl = (const char*)memchr(raw, '\n',
+        raw_len < lim->max_request_line + 2 ? raw_len : lim->max_request_line + 2);
+    if (line_nl) {
+        size_t line_len = (size_t)(line_nl - raw);
+        if (line_len > 0 && raw[line_len - 1] == '\r') line_len--;
+        if (line_len > lim->max_request_line)
+            return orbit_http_reject(raw_len, out_req, out_parse_error, ORBIT_HTTP_PERR_LINE);
+    } else if (raw_len > lim->max_request_line + 1) {
+        return orbit_http_reject(raw_len, out_req, out_parse_error, ORBIT_HTTP_PERR_LINE);
+    }
+
     // Ensure we have a complete HTTP request header
-    const char* headers_end = strstr(raw, "\r\n\r\n");
+    const char* headers_end = orbit_http_find_head_end(raw, raw_len);
+
+    /* Header lines: total bytes and count, again before any allocation. With
+     * no terminator yet, the bytes read so far already count. */
+    {
+        const char* hdr_begin = line_nl ? line_nl + 1 : raw + raw_len;
+        const char* hdr_stop = headers_end ? headers_end : raw + raw_len;
+        size_t hdr_bytes = hdr_stop > hdr_begin ? (size_t)(hdr_stop - hdr_begin) : 0;
+        if (hdr_bytes > lim->max_header_bytes)
+            return orbit_http_reject(raw_len, out_req, out_parse_error, ORBIT_HTTP_PERR_HEADERS);
+        if (headers_end && hdr_bytes > 0) {
+            size_t lines = 1;
+            const char* q = hdr_begin;
+            while ((q = (const char*)memchr(q, '\n', (size_t)(hdr_stop - q))) != NULL) {
+                lines++;
+                q++;
+            }
+            if (lines > lim->max_headers)
+                return orbit_http_reject(raw_len, out_req, out_parse_error, ORBIT_HTTP_PERR_HEADERS);
+        }
+    }
     if (!headers_end) return 0;
 
     const char* body_start = headers_end + 4;
-
-    if (out_parse_error) *out_parse_error = 0;
     /* Single-pass header scan: the Transfer-Encoding: chunked reject (R3.3,
      * request-smuggling vector) and the Content-Length resolution share one
      * line walk. First-byte dispatch selects the only two prefixes of
@@ -128,6 +274,7 @@ size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t ra
         const char* hdr_scan = raw;
         long long cl_value = -1;
         int cl_seen = 0;
+        int cl_bad = 0;
         int te_chunked = 0;
         while (hdr_scan < body_start) {
             const char* line_end = memchr(hdr_scan, '\n', (size_t)(body_start - hdr_scan));
@@ -171,20 +318,30 @@ size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t ra
                     }
                     long long v = (digits == 0) ? 0LL
                         : (neg ? -(long long)acc : (long long)acc);
+                    /* No digits, a sign, or two different lengths: the body
+                     * boundary is ambiguous, which is how a request is
+                     * smuggled behind another. Refused, not read as 0. */
+                    if (digits == 0 || neg) cl_bad = 1;
                     if (!cl_seen) {
                         cl_value = v;
                         cl_seen = 1;
                     } else if (v != cl_value) {
-                        cl_seen = -1; /* conflicting lengths: ambiguous */
+                        cl_bad = 1;
                     }
                 }
             }
             hdr_scan = line_end + 1;
         }
         if (te_chunked) {
-            if (out_parse_error) *out_parse_error = 1;
-            if (out_req) *out_req = NULL;
-            return raw_len; /* consume buffer; caller responds 501 and closes */
+            /* consume buffer; caller responds 501 and closes */
+            return orbit_http_reject(raw_len, out_req, out_parse_error, ORBIT_HTTP_PERR_CHUNKED);
+        }
+        if (cl_bad) {
+            return orbit_http_reject(raw_len, out_req, out_parse_error, ORBIT_HTTP_PERR_LENGTH);
+        }
+        /* Refused on the header alone: the body is neither waited for nor copied. */
+        if (cl_seen == 1 && cl_value > 0 && (unsigned long long)cl_value > (unsigned long long)lim->max_body) {
+            return orbit_http_reject(raw_len, out_req, out_parse_error, ORBIT_HTTP_PERR_BODY);
         }
         if (cl_seen == 1 && cl_value > 0) {
             content_length = (size_t)cl_value;
@@ -815,8 +972,15 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
     orbit_perf_start_request();
 
     OrbitRequest* req = NULL;
-    size_t consumed = orbit_http_parse_request(arena, raw_request, raw_len, &req);
+    int perr = 0;
+    size_t consumed = orbit_http_parse_request_ex(arena, raw_request, raw_len, &req, &perr);
     if (out_consumed) *out_consumed = consumed;
+    if (perr) {
+        OrbitResponse* refused = orbit_response_or_500(arena, orbit_http_parse_error_response(arena, perr));
+        orbit_send_response(client_sock, refused);
+        orbit_perf_end_request(start);
+        return 0;
+    }
     if (!req) return 1;
     
     int keep_alive = 1;

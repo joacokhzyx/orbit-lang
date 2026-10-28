@@ -58,9 +58,11 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_clock_ms" { return true }
     if name == "orbit_clock_ns" { return true }
     if name == "orbit_crash_handler" { return true }
+    if name == "orbit_ct_equal" { return true }
     if name == "orbit_db_add" { return true }
     if name == "orbit_db_all" { return true }
     if name == "orbit_db_append_json_escaped" { return true }
+    if name == "orbit_db_authorizer" { return true }
     if name == "orbit_db_close" { return true }
     if name == "orbit_db_count_all" { return true }
     if name == "orbit_db_count_v" { return true }
@@ -68,10 +70,12 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_db_delete" { return true }
     if name == "orbit_db_exec_ddl" { return true }
     if name == "orbit_db_first" { return true }
+    if name == "orbit_db_fragment_reason" { return true }
     if name == "orbit_db_get" { return true }
     if name == "orbit_db_init" { return true }
     if name == "orbit_db_insert" { return true }
     if name == "orbit_db_order" { return true }
+    if name == "orbit_db_prepare_bound" { return true }
     if name == "orbit_db_query_all" { return true }
     if name == "orbit_db_query_first" { return true }
     if name == "orbit_db_query_get" { return true }
@@ -80,12 +84,13 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_db_query_where" { return true }
     if name == "orbit_db_query_where_p" { return true }
     if name == "orbit_db_query_where_v" { return true }
+    if name == "orbit_db_refuse" { return true }
     if name == "orbit_db_row_to_json" { return true }
     if name == "orbit_db_set" { return true }
-    if name == "orbit_db_subst_params" { return true }
     if name == "orbit_db_update" { return true }
     if name == "orbit_db_valid_identifier" { return true }
     if name == "orbit_db_where" { return true }
+    if name == "orbit_db_where_bound" { return true }
     if name == "orbit_div_error" { return true }
     if name == "orbit_enable_reuseport" { return true }
     if name == "orbit_energy_attributable_joules" { return true }
@@ -117,11 +122,14 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_hmac_sha256" { return true }
     if name == "orbit_hmac_sha256_base64url" { return true }
     if name == "orbit_http_body_get" { return true }
+    if name == "orbit_http_buffer_full_response" { return true }
     if name == "orbit_http_cleanup" { return true }
     if name == "orbit_http_client_fetch" { return true }
     if name == "orbit_http_header_get" { return true }
     if name == "orbit_http_init" { return true }
+    if name == "orbit_http_limits_reload" { return true }
     if name == "orbit_http_param_get" { return true }
+    if name == "orbit_http_parse_error_response" { return true }
     if name == "orbit_http_parse_request" { return true }
     if name == "orbit_http_parse_request_ex" { return true }
     if name == "orbit_http_query_get" { return true }
@@ -279,7 +287,6 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_random_bytes" { return true }
     if name == "orbit_rdtsc" { return true }
     if name == "orbit_reason_phrase" { return true }
-    if name == "orbit_replace_first" { return true }
     if name == "orbit_request_oom_arm" { return true }
     if name == "orbit_request_oom_disarm" { return true }
     if name == "orbit_request_oom_install" { return true }
@@ -309,7 +316,6 @@ fn reservedRuntimeName(name: string) -> bool {
     if name == "orbit_socket_errno" { return true }
     if name == "orbit_sqlite_progress_handler" { return true }
     if name == "orbit_str_append" { return true }
-    if name == "orbit_streq" { return true }
     if name == "orbit_string_at" { return true }
     if name == "orbit_string_char_at_selfhost" { return true }
     if name == "orbit_string_cmp_selfhost" { return true }

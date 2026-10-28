@@ -155,6 +155,24 @@ static void test_size_t_overflow(void) {
     orbit_arena_destroy(arena);
 }
 
+// 11b. A request just under SIZE_MAX used to pass the size_t check and then
+// wrap the cursor pointer below committed_end, answering a pointer for a block
+// larger than the whole address space. Each size must answer NULL, and the
+// arena must still serve a small request afterwards.
+static void test_size_just_under_max(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+    assert(orbit_alloc_try(arena, 16) != NULL);
+    size_t sizes[] = { SIZE_MAX - 1024, SIZE_MAX - 4096, SIZE_MAX - 65536,
+                       SIZE_MAX / 2 + 1, (size_t)1 << 62 };
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        assert(orbit_alloc_try(arena, sizes[i]) == NULL);
+    }
+    void* ok = orbit_alloc_try(arena, 32);
+    assert(ok != NULL);
+    memset(ok, 0xAB, 32);
+    orbit_arena_destroy(arena);
+}
+
 // 12. Reserve exhaustion
 // 13. Exceptionally large allocations (handling overflow blocks)
 static void test_large_allocation_overflow(void) {
@@ -607,6 +625,7 @@ int main(void) {
     RUN_TEST(test_reset_o1_logical);
     RUN_TEST(test_telemetry_bytes);
     RUN_TEST(test_size_t_overflow);
+    RUN_TEST(test_size_just_under_max);
     RUN_TEST(test_large_allocation_overflow);
     RUN_TEST(test_checkpoint_rewind);
     RUN_TEST(test_checkpoint_generation_invalid);

@@ -349,8 +349,18 @@ void orbit_kynx_add_trusted_proxy(const char* cidr) {
     char* slash = strchr(buf, '/');
     if (slash) {
         *slash = '\0';
-        prefix = atoi(slash + 1);
-        if (prefix < 0) return;
+        /* Digits only, one to three of them. atoi read "abc" and "" as 0,
+         * and a /0 entry trusts every address as a proxy, which lets any
+         * client write its own X-Forwarded-For. A malformed prefix trusts
+         * nothing. */
+        const char* digits = slash + 1;
+        size_t nd = strlen(digits);
+        if (nd == 0 || nd > 3) return;
+        prefix = 0;
+        for (size_t i = 0; i < nd; i++) {
+            if (digits[i] < '0' || digits[i] > '9') return;
+            prefix = prefix * 10 + (digits[i] - '0');
+        }
     }
     OrbitKynxIP net;
     if (!kynx_parse_ip(buf, &net)) return;

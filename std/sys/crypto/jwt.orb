@@ -5,7 +5,7 @@ import "std/hash/hash.orb"
 extern fn orbit_base64url_encode_str(str: string) -> string
 extern fn orbit_string_len(s: string) -> int
 extern fn orbit_string_slice(s: string, start: int, end: int) -> string
-extern fn orbit_streq(a: string, b: string) -> bool
+extern fn orbit_ct_equal(a: string, b: string) -> bool
 
 fn signToken(payloadJson: string, secret: string) -> string {
     val headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
@@ -29,7 +29,7 @@ fn verifyToken(tokenStr: string, secret: string) -> bool {
     val signature = orbit_string_slice(tokenStr, actualDot2 + 1, totalLen)
     val expectedSig = orbit_hmac_sha256_base64url(secret, unsignedToken)
 
-    return orbit_streq(signature, expectedSig)
+    return orbit_ct_equal(signature, expectedSig)
 }
 
 fn signHs256(payloadJson: string, secret: string) -> string {
@@ -166,7 +166,7 @@ fn verifyHs256(tokenStr: string, secret: string, nowUnix: int) -> bool {
     val unsignedToken = orbit_string_slice(tokenStr, 0, actualDot2)
     val signature = orbit_string_slice(tokenStr, actualDot2 + 1, totalLen)
     val expectedSig = orbit_hmac_sha256_base64url(secret, unsignedToken)
-    if orbit_streq(signature, expectedSig) == false { return false }
+    if orbit_ct_equal(signature, expectedSig) == false { return false }
     val payload = decodePayload(tokenStr)
     if payload == "" { return false }
     val exp = getExp(payload)

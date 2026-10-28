@@ -57,6 +57,27 @@ int main(void) {
         }
         orbit_arena_destroy(arena);
     }
+    /* A count whose slot bytes wrap size_t is an error, not a short list that
+     * claims the full capacity: 8 * (2^61 + 1) wraps to 8. */
+    {
+        OrbitArena* arena = orbit_arena_create(65536);
+        OrbitResult r = orbit_random_bytes(arena, ((orbit_int)1 << 61) + 1);
+        if (r.ok) {
+            printf("FAILED wrapped count accepted\n");
+            failures++;
+        }
+        r = orbit_list_create(arena, sizeof(uintptr_t), SIZE_MAX / sizeof(uintptr_t) + 2);
+        if (r.ok) {
+            printf("FAILED wrapped list capacity accepted\n");
+            failures++;
+        }
+        r = orbit_list_create(arena, sizeof(uintptr_t), 4);
+        if (!r.ok) {
+            printf("FAILED ordinary list refused\n");
+            failures++;
+        }
+        orbit_arena_destroy(arena);
+    }
     if (failures == 0) {
         printf("test_random: all cases pass\n");
     }

@@ -661,7 +661,7 @@ void orbit_sha256(const uint8_t* data, size_t len, uint8_t hash[32]);
 orbit_string orbit_sha256_hex(OrbitArena* arena, const char* str);
 void orbit_hmac_sha256(const uint8_t* key, size_t key_len, const uint8_t* data, size_t data_len, uint8_t out[32]);
 orbit_string orbit_hmac_sha256_base64url(OrbitArena* arena, const char* key, const char* data);
-bool orbit_streq(const char* a, const char* b);
+bool orbit_ct_equal(const char* a, const char* b);
 
 /* ── External functions: selfhost helpers (canonical: runtime/selfhost.c) */
 orbit_int orbit_os_argc_selfhost(void);
@@ -712,6 +712,9 @@ void orbit_ledger_enable_file_dump(void);
 /* ── External functions: HTTP (canonical: runtime/http.c) ────────────── */
 size_t orbit_http_parse_request(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req);
 size_t orbit_http_parse_request_ex(OrbitArena* arena, const char* raw, size_t raw_len, OrbitRequest** out_req, int* out_parse_error);
+void orbit_http_limits_reload(void);
+OrbitResponse* orbit_http_parse_error_response(OrbitArena* arena, int code);
+OrbitResponse* orbit_http_buffer_full_response(OrbitArena* arena, const char* buf, size_t len);
 bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern);
 OrbitResponse* orbit_response_create(OrbitArena* arena, int status, const char* content_type, const char* body);
 void orbit_response_add_header(OrbitArena* arena, OrbitResponse* resp, const char* name, const char* value);

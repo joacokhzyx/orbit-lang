@@ -718,6 +718,34 @@ gate only (see `docs/KYNX.md`). The runtime keeps at most 32 annotated
 routes. A further annotation is dropped at startup, while a repeated identical
 annotation is idempotent.
 
+### Request limits
+
+The parser checks the raw bytes before it allocates anything from the request
+arena, so a hostile request costs the server only the bytes it already read.
+A request over a limit is answered and the connection closes.
+
+| Limit | Default | Environment variable | Answer |
+|---|---|---|---|
+| Request line | 8192 bytes | `ORBIT_HTTP_MAX_REQUEST_LINE` | `414 URI Too Long` |
+| All header lines | 65536 bytes | `ORBIT_HTTP_MAX_HEADER_BYTES` | `431 Request Header Fields Too Large` |
+| Header lines | 100 | `ORBIT_HTTP_MAX_HEADERS` | `431 Request Header Fields Too Large` |
+| Body (`Content-Length`) | 1048576 bytes | `ORBIT_HTTP_MAX_BODY` | `413 Content Too Large` |
+
+A variable is a decimal integer in `1..2147483648`. Any other value is ignored
+with one line on stderr and the default stays. The variables are read once, at
+`orbit_http_init`.
+
+The body check uses the `Content-Length` header alone: an over-limit body is
+refused before any of it is read. A `Content-Length` that has no digits, is
+negative, or appears twice with different values answers `400 Malformed
+Content-Length`, because the body boundary is then ambiguous. `Transfer-Encoding:
+chunked` answers `501`.
+
+The server reads each connection into a 16 KiB buffer. Until that buffer grows,
+a request larger than 16383 bytes in total never arrives whole whatever the
+limits say, and the answer is `431` when the header block is still open and
+`413` when only the body is.
+
 The runtime includes HTTP, authentication, JWT, crypto, file, and server support.
 Their API is under active development. Check the runtime and examples
 before depending on a new helper in a public service.
@@ -738,14 +766,37 @@ the primary key) and carries these static methods:
 |---|---|---|
 | `M.all()` | JSON array string | full scan |
 | `M.order(col)` / `M.order_desc(col)` | JSON array string | whole-table scan by a validated column; anything else answers `[]` |
-| `M.where(cond)` | JSON array string | raw fragment; keep it constant |
-| `M.where(cond, p1..pn)` | JSON array string | one `?` per param, `%Q`-escaped in order |
+| `M.where(cond)` | JSON array string | `cond` is a condition over the model's columns, see below; `[]` when refused |
+| `M.where(cond, p1..pn)` | JSON array string | one `?` per param, bound in order with `sqlite3_bind_text` |
 | `M.find(id)` | JSON object string | single row by key; `""` when missing (`== ""` is the miss check) |
 | `M.first()` | JSON object string | first row, `LIMIT 1`; `""` on an empty table |
 | `M.count()` / `M.count(cond, p...)` | `int` | `COUNT(*)` without fetching rows |
 | `M.create(json)` | `bool` | false on duplicate id or unusable payload |
 | `M.update(id, json)` | `bool` | partial: only present keys are written, `id` never; false when no row changed |
 | `M.delete(id)` | `bool` | true only when a row was removed |
+
+### Filter conditions
+
+`M.where(cond, p...)` and `M.count(cond, p...)` build `SELECT ... FROM <table> WHERE <cond>`.
+Values reach SQLite only through `sqlite3_bind_text`; none is pasted into the
+statement text, so a value such as `' OR 1=1 --` is compared as bytes.
+
+`cond` is code, so the runtime holds it to a boolean expression over the model's
+own columns. A condition is refused when it:
+
+- contains `'`, `"`, a backtick or `[` (a literal is a value: write `?` and pass it);
+- contains `;`, `--` or `/*`;
+- has a placeholder count different from the number of parameters, or a named
+  placeholder (`?1`, `:x`, `@x`, `$x`);
+- names a column the model does not have (SQLite reports it, and the quote rule
+  stops a misspelt `"column"` from being read as a string);
+- reads another table, `sqlite_master` or a recursive CTE (an authorizer limits
+  the statement to `SELECT` on the model's own table), or is not one read-only statement.
+
+A refused query writes `orbit: db: query on '<table>' refused: <reason>` to stderr
+and answers `[]` (`0` for `count`). The table name is always the model's own and is
+checked to be `[A-Za-z0-9_]+`. `order`/`order_desc` take a column name checked by the
+same rule. Do not build `cond` from request data: `doctor` rule `D025` flags that flow.
 
 Reads answer JSON strings, not typed model values. `count` answers `int`.
 Indexes ride `migrations "CREATE INDEX ..."` lines (see
@@ -822,7 +873,9 @@ and need no import. There is no `std/core/result.orb` to import.
 - `std/sys/crypto/jwt.orb`: HS256 signing and verification only (no
   `alg:none`). Time travels explicitly as `nowUnix` because Orbit has no wall
   clock. `exp` is required. `nbf`, when present, must not be future. `iat` is
-  carried, not enforced. Its SHA-256/HMAC bindings are shared with
+  carried, not enforced. The signature is compared with `orbit_ct_equal`, which
+  reads every byte whatever the content, so a forger learns nothing from timing.
+  Its SHA-256/HMAC bindings are shared with
   `std/hash/hash.orb`. Redeclaring them in an importer collides on merge.
 - `std/bytes/bytes.orb`: byte buffers with decimal length framing. Bytes are
   1-255 (C strings cannot hold NUL). Out-of-range reads answer -1. Shared C
