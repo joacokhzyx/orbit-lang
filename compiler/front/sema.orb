@@ -1191,27 +1191,29 @@ fn isProvidedName(name: string) -> bool {
 // The builtins of a runtime module (docs/IR_SPEC.md): byte-level access to
 // strings, which the language has no other way to express.
 fn isRuntimeModuleBuiltin(name: string) -> bool {
-    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in"
+    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy"
 }
 
 fn runtimeModuleBuiltinArity(name: string) -> int {
     if name == "rt_len" || name == "rt_alloc" { return 1 }
-    if name == "rt_byte" || name == "rt_alloc_in" { return 2 }
+    if name == "rt_byte" || name == "rt_alloc_in" || name == "rt_at" { return 2 }
     return 3
 }
 
 fn runtimeModuleBuiltinReturn(name: string) -> string {
     if name == "rt_len" || name == "rt_byte" { return "int" }
-    if name == "rt_alloc" || name == "rt_alloc_in" { return "string" }
+    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" { return "string" }
     return "void"
 }
 
 // The parameter types, in order: rt_set_byte(buf, i, v) takes a string and two
-// ints, rt_byte(s, i) a string and an int, rt_len(s) a string, rt_alloc(n) an int.
+// ints, rt_byte(s, i) and rt_at(s, i) a string and an int, rt_copy(dst, src, n)
+// two strings and an int, rt_len(s) a string, rt_alloc(n) an int.
 fn runtimeModuleBuiltinParam(name: string, index: int) -> string {
     if name == "rt_alloc" { return "int" }
     if name == "rt_alloc_in" && index == 0 { return "RtArena" }
     if name == "rt_alloc_in" { return "int" }
+    if name == "rt_copy" && index == 1 { return "string" }
     if index == 0 { return "string" }
     return "int"
 }

@@ -836,6 +836,7 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         IROpcode.str_len => { inf = "int" }
                         IROpcode.byte_load => { inf = "int" }
                         IROpcode.bytes_alloc => { inf = "string" }
+                        IROpcode.str_offset => { inf = "string" }
                         IROpcode.eq => { inf = "bool" }
                         IROpcode.ne => { inf = "bool" }
                         IROpcode.lt => { inf = "bool" }
@@ -1306,6 +1307,8 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, fnHeads: list < int >, fnN
                 IROpcode.byte_load => { verifyRuntimeModuleOp(backend, func, inst, dt, "byte_load", "string", "int", "", "int", errs) }
                 IROpcode.bytes_alloc => { verifyRuntimeModuleOp(backend, func, inst, dt, "bytes_alloc", "int", "RtArena", "", "string", errs) }
                 IROpcode.byte_store => { verifyRuntimeModuleOp(backend, func, inst, dt, "byte_store", "string", "int", "int", "", errs) }
+                IROpcode.str_offset => { verifyRuntimeModuleOp(backend, func, inst, dt, "str_offset", "string", "int", "", "string", errs) }
+                IROpcode.bytes_copy => { verifyRuntimeModuleOp(backend, func, inst, dt, "bytes_copy", "string", "string", "int", "", errs) }
                 IROpcode.eq => { verifycmpBinop(backend, func, inst, dt, warns) }
                 IROpcode.ne => { verifycmpBinop(backend, func, inst, dt, warns) }
                 IROpcode.lt => { verifycmpBinop(backend, func, inst, dt, warns) }
@@ -3233,6 +3236,14 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
         }
         IROpcode.byte_store => {
             orbit_cbuf_append_selfhost(cb, "    ((unsigned char*)(" + generateValue(instr.operand1) + "))[(orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")] = (unsigned char)(uintptr_t)(" + generateValue(instr.operand3) + ");\n")
+            return
+        }
+        IROpcode.str_offset => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(" + generateValue(instr.operand1) + ") + (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            return
+        }
+        IROpcode.bytes_copy => {
+            orbit_cbuf_append_selfhost(cb, "    if ((orbit_int)(uintptr_t)(" + generateValue(instr.operand3) + ") > 0) memcpy((void*)(" + generateValue(instr.operand1) + "), (const void*)(" + generateValue(instr.operand2) + "), (size_t)(uintptr_t)(" + generateValue(instr.operand3) + "));\n")
             return
         }
         IROpcode.eq => {

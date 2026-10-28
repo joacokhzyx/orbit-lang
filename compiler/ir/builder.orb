@@ -341,7 +341,7 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_update" { return "bool" }
     if name == "orbit_db_delete" { return "bool" }
     if name == "rt_len" || name == "rt_byte" { return "int" }
-    if name == "rt_alloc" || name == "rt_alloc_in" { return "string" }
+    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" { return "string" }
     if name == "orbit_string_len" { return "int" }
     if name == "orbit_string_indexOf" { return "int" }
     if name == "orbit_string_slice" { return "string" }
@@ -4270,12 +4270,12 @@ fn callResultType(builder: IRBuilder, callName: string) -> string {
 }
 
 fn isRuntimeBuiltinName(name: string) -> bool {
-    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in"
+    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy"
 }
 
 // The rt_* builtins of a runtime module lower to one opcode each, with the
 // arguments as operands, every one a register: R6 refuses an inline literal
-// there, so buildExpr materializes literals first. rt_set_byte has no value: dest stays -1 and the
+// there, so buildExpr materializes literals first. rt_set_byte and rt_copy have no value: dest stays -1 and the
 // returned register is -1, which sema's `void` type keeps from being read.
 fn buildRuntimeBuiltin(builder: IRBuilder, name: string, c: CallNode) -> int {
     val vals: list < IRValue > = []
@@ -4292,6 +4292,11 @@ fn buildRuntimeBuiltin(builder: IRBuilder, name: string, c: CallNode) -> int {
         resType = "string"
     }
     if name == "rt_set_byte" { opCode = IROpcode.byte_store }
+    if name == "rt_at" {
+        opCode = IROpcode.str_offset
+        resType = "string"
+    }
+    if name == "rt_copy" { opCode = IROpcode.bytes_copy }
     val instr = ir_init_instr(opCode)
     if name == "rt_alloc_in" {
         instr.operand1 = vals.get(1)
@@ -4301,7 +4306,7 @@ fn buildRuntimeBuiltin(builder: IRBuilder, name: string, c: CallNode) -> int {
         if vals.len() > 1 { instr.operand2 = vals.get(1) }
         if vals.len() > 2 { instr.operand3 = vals.get(2) }
     }
-    if name == "rt_set_byte" {
+    if name == "rt_set_byte" || name == "rt_copy" {
         ir_emit(builder.currentFunction, instr)
         return -1
     }

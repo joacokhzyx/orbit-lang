@@ -171,6 +171,8 @@ fn irOpcodeName(op: IROpcode) -> string {
         IROpcode.byte_load => { return "byte_load" }
         IROpcode.bytes_alloc => { return "bytes_alloc" }
         IROpcode.byte_store => { return "byte_store" }
+        IROpcode.str_offset => { return "str_offset" }
+        IROpcode.bytes_copy => { return "bytes_copy" }
         _ => { return "" }
     }
 }

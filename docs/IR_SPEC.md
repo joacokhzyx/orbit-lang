@@ -739,10 +739,13 @@ function name (`n89`) does not apply to an export function.
 | `byte_load` | `D <- O1` string, `O2` int | `((unsigned char*)(O1))[O2]`, unchecked, zero-extended |
 | `bytes_alloc` | `D <- O1` int `n`; optional `O2` arena | `n + 1` bytes from `O2` (the global arena when `O2` is absent or NULL), byte `n` is `0` |
 | `byte_store` | `O1` string, `O2` int, `O3` int, `dest == -1` | stores the low byte of `O3` at `O1[O2]` |
+| `str_offset` | `D <- O1` string, `O2` int | `(O1) + (O2)`, no allocation and no check |
+| `bytes_copy` | `O1` string, `O2` string, `O3` int, `dest == -1` | `if (O3 > 0) memcpy(O1, O2, O3)`, nothing when `O3 <= 0` |
 
 Every operand is a `Register`. The builtins that produce them, available only
 in this mode, are `rt_len(s) -> int`, `rt_byte(s, i) -> int`, `rt_alloc(n) ->
-string`, `rt_alloc_in(a: RtArena, n) -> string` and `rt_set_byte(buf, i, v)`.
+string`, `rt_alloc_in(a: RtArena, n) -> string`, `rt_set_byte(buf, i, v)`,
+`rt_at(s, i) -> string` and `rt_copy(dst, src, n)`.
 `RtArena` is an opaque pointer type, spelled `"RtArena"` in `paramTypes` and
 `registerTypes` and emitted as `OrbitArena*`. A runtime function that receives
 the caller's arena first (`orbit_string_to_upper` and its siblings) declares it

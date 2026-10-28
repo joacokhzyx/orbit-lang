@@ -23,3 +23,19 @@ export fn rtmod_probe_upper(s: string) -> string {
 export fn rtmod_probe_twice(s: string) -> string {
     return rtmod_probe_upper(rtmod_probe_upper(s))
 }
+
+export fn rtmod_probe_tail(s: string, from: int) -> string {
+    val n = rt_len(s) - from
+    val out = rt_alloc(n)
+    rt_copy(out, rt_at(s, from), n)
+    return out
+}
+
+export fn rtmod_probe_copy_nothing(s: string) -> string {
+    val out = rt_alloc(1)
+    rt_set_byte(out, 0, 88)
+    rt_set_byte(out, 1, 0)
+    rt_copy(out, s, 0)
+    rt_copy(out, s, 0 - 3)
+    return out
+}

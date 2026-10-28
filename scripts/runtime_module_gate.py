@@ -84,7 +84,7 @@ def main() -> int:
                       "-o", obj, "--quiet"], obj_env)
     check("object builds", code == 0 and os.path.isfile(obj), text.strip())
     if results[-1]:
-        main_env = dict(env, ORBIT_BACKEND="c",
+        main_env = dict(env, ORBIT_BACKEND="c", ORBIT_LINK_RUNTIME="0",
                         ORBIT_CCFLAGS_EXTRA='-include "%s" "%s"' % (header, obj.replace("\\", "/")))
         code, text = run([compiler, "build", rel("main.orb"), "-o", exe,
                           "--quiet"], main_env)

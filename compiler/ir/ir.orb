@@ -83,7 +83,9 @@ union IROpcode {
     str_len,
     byte_load,
     bytes_alloc,
-    byte_store
+    byte_store,
+    str_offset,
+    bytes_copy
 }
 
 model IRValueInt { value: int }

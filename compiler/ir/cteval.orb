@@ -50,6 +50,8 @@ fn isImpureOp(op: IROpcode) -> bool {
         IROpcode.byte_store => { return true }
         IROpcode.bytes_alloc => { return true }
         IROpcode.byte_load => { return true }
+        IROpcode.str_offset => { return true }
+        IROpcode.bytes_copy => { return true }
         _ => { return false }
     }
 }
@@ -112,6 +114,8 @@ fn hasSideEffects(op: IROpcode) -> bool {
         IROpcode.byte_load => { return true }
         IROpcode.bytes_alloc => { return true }
         IROpcode.byte_store => { return true }
+        IROpcode.str_offset => { return true }
+        IROpcode.bytes_copy => { return true }
         _ => { return false }
     }
 }
