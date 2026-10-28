@@ -120,7 +120,7 @@ fn bareHelpText(useColor: bool) -> string {
     h = h + "\n"
     h = h + "Usage: orbit <command> [options]  (orbit --help for full help)\n"
     h = h + "\n"
-    h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " hello.orb          " + palettePaint(paletteDim(), "typecheck only", useColor) + "\n"
+    h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " hello.orb          " + palettePaint(paletteDim(), "typecheck and verify the IR", useColor) + "\n"
     h = h + "  " + palettePaint(paletteBold(), "build", useColor) + " hello.orb -o hello " + palettePaint(paletteDim(), "compile to native", useColor) + "\n"
     h = h + "  " + palettePaint(paletteBold(), "run", useColor) + " hello.orb            " + palettePaint(paletteDim(), "build and run", useColor) + "\n"
     h = h + "  " + palettePaint(paletteBold(), "start", useColor) + " [main.orb]        " + palettePaint(paletteDim(), "build into .orbit/ and run", useColor) + "\n"
@@ -244,7 +244,7 @@ fn runRun() {
 
 fn runCheck() {
     if wantsHelp() {
-        print("Usage: orbit check <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n  Parse and typecheck, no code emitted\n")
+        print("Usage: orbit check <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n  Parse, typecheck and verify the IR, no code emitted\n")
         return
     }
     var checkQuiet = false
@@ -290,7 +290,7 @@ fn runCheck() {
         print("check " + inputPath + " (" + orbit_int_to_string_selfhost(orbit_string_len(source)) + " bytes)")
     }
     val checkStart = orbit_clock_ms()
-    if checkSourceWithFile(source, inputPath, checkColor) == false {
+    if checkSourceVerified(source, inputPath, checkColor) == false {
         orbit_os_exit_selfhost(1)
         return
     }

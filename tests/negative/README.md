@@ -224,9 +224,11 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-89 cases: 89 are `expect-error:` - each program is rejected, with a pinned
+90 cases: 90 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 89/89 pass (0 known defects still accepted)`. The last ratchet to
+negative: 90/90 pass (0 known defects still accepted)`. `n100` is the first
+case that sema accepts and the IR verifier refuses: an object field read with
+no stated kind. The last ratchet to
 close was F-0025, the assignment target no pass visits: `n90` (a `val` store),
 `n91` (a type mismatch), and `n92` (an undeclared name) now pin the E1009
 diagnostics; `n93`-`n96` extend it to member and index stores. Before it,

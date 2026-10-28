@@ -941,7 +941,7 @@ runtime endpoints. Do not define routes there.
 ```sh
 orbit build app.orb                # Compile to a native executable
 orbit run app.orb                  # Build and run it (servers keep the terminal)
-orbit check app.orb                # Parse and typecheck, no code emitted
+orbit check app.orb                # Parse, typecheck, verify the IR; no code
 orbit fmt app.orb                  # Format a file (writes only on success)
 orbit doctor [dir]                 # Project checks (--fix writes; see DOCTOR.md)
 orbit frontend app.orb             # Emit the typed IR

@@ -14,7 +14,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
 | `orbit dev [file]` | Watch sources, rebuild and restart on change (drain on POSIX, [kill on Windows](KNOWN_LIMITATIONS.md#windows-drain-is-kill)) | `orbit dev svc.orb` |
 | `orbit stop` | Stop the service recorded in `.orbit/start.pid` (idempotent) | `orbit stop` |
-| `orbit check <file>` | Parse and typecheck without emitting code | `orbit check main.orb` |
+| `orbit check <file>` | Parse, typecheck and verify the IR without emitting code | `orbit check main.orb` |
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
 | `orbit doctor [dir]` | Project checks; read-only unless `--fix` | `orbit doctor ./examples` |

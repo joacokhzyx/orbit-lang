@@ -172,9 +172,31 @@ fn reportMemStage(stage: string) {
     }
 }
 
-// Parse + resolve + typecheck only. No C is emitted and no C compiler
-// runs, so `orbit check` stays fast even on modest machines.
+// Parse + resolve + typecheck only. fmt and doctor call this once per
+// edit, so it stops before the IR.
 fn checkSourceWithFile(source: string, inputPath: string, colorMode: string) -> bool {
+    return checkSourceStages(source, inputPath, colorMode, false)
+}
+
+// `orbit check` also builds the IR and runs the verifier that guards both
+// backends, so a program it passes is one `orbit build` does not refuse for
+// IR types. No C is emitted and no C compiler runs.
+fn checkSourceVerified(source: string, inputPath: string, colorMode: string) -> bool {
+    return checkSourceStages(source, inputPath, colorMode, true)
+}
+
+// One line per verifier error, under the command that ran it.
+fn reportIRVerification(irModule: IRModule, command: string, useColor: bool) -> bool {
+    val irErrs = verifyModuleTypes(initCBackend(irModule))
+    var ie = 0
+    while ie < irErrs.len() {
+        orbit_os_write_stderr_selfhost(palettePaint(paletteError(), command + ":", useColor) + " type verification: " + irErrs.get(ie) + "\n")
+        ie = ie + 1
+    }
+    return irErrs.len() == 0
+}
+
+fn checkSourceStages(source: string, inputPath: string, colorMode: string, verifyIr: bool) -> bool {
     val useColor = paletteUseColorStderr(colorMode)
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
@@ -211,6 +233,11 @@ fn checkSourceWithFile(source: string, inputPath: string, colorMode: string) -> 
     if hasErrors(sema) {
         printSemaErrors(sema, source, inputPath, colorMode)
         return false
+    }
+    if verifyIr {
+        val irModule = buildAST(initIRBuilder(), ast)
+        irModule.sourceName = sourceBaseName(inputPath)
+        return reportIRVerification(irModule, "orbit check", useColor)
     }
     return true
 }
@@ -1001,6 +1028,11 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         }
     }
     if native {
+        // R6 compiles the builder's IR, so that is the IR verified here; the C
+        // path verifies after its optimizer instead.
+        if reportIRVerification(irModule, "orbit build", useColorErr) == false {
+            return false
+        }
         if nativeBuild(irPath, emitIrPath == "", inputPath, outputPath, verbose, colorMode) == false {
             return false
         }
@@ -1036,13 +1068,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     val cCode = generateC(backend)
     val hCode = generateCHeader(backend)
     reportMemStage("codegen")
-    val irErrs = verifyModuleTypes(backend)
-    if irErrs.len() > 0 {
-        var ie = 0
-        while ie < irErrs.len() {
-            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " type verification: " + irErrs.get(ie) + "\n")
-            ie = ie + 1
-        }
+    if reportIRVerification(irModule, "orbit build", useColorErr) == false {
         return false
     }
     val hasDb = moduleUsesDatabase(irModule)
