@@ -96,14 +96,14 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `store_var` / `decl_var` | `name(O1) = cast(value(O2))` (`2485-2494`); identical emission | `storeCastFor` |
 | `add` | `orbit_string_concat(arena, a, b)` concat if either operand is a string; `orbit_float` addition if either operand is a float; else integer addition over `(uintptr_t)` (`2495-2508`) | `isStringOperand`, `operandDefType` |
 | `sub` / `mul` | Float or integer subtraction/multiplication (`2509-2524`) | `operandDefType` |
-| `div` / `mod` | Float division/remainder, or **signed** division/remainder over `orbit_int` (`2525-2545`, comment F-0014) | `operandDefType` |
+| `div` / `mod` | Float division, or **signed, checked** division/remainder over `orbit_int`: a bare `/` or `%` when O2 is an `Int` other than `0` and `-1`, else `orbit_int_div`/`orbit_int_mod` with the module `sourceName` and the instruction `line` (§1.5; comment F-0014) | `operandDefType`, O2 |
 | `eq` / `ne` | `strcmp()==0` / `!=0` if both are strings; float comparison; else equality over `(uintptr_t)` (`2546-2573`) | `isStringOperand`, `operandDefType` |
 | `lt` / `le` / `gt` / `ge` | Float comparison, or **signed** comparison over `(intptr_t)` (`2582-2612`) | `operandDefType` |
 | `and_op` / `or_op` / `not_op` | `&&`, `\|\|`, `!` in C (`2614-2625`). The builder emits only `not_op`; source `&&` / `\|\|` is control flow (see §1.1) | — |
 | `neg` | Negation (`2626-2633`) | float or integer type |
 | `bit_and` / `bit_or` / `bit_xor` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) OP ((uintptr_t)O2))` with `OP` = `&`, `\|`, `^`; §1.3 | operands and `D` are `int` |
-| `shl` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) << (((uintptr_t)O2) & 31))`; §1.3 | operands and `D` are `int` |
-| `shr` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) >> (((uintptr_t)O2) & 31))`; arithmetic for an `int` O1, §1.3 | operands and `D` are `int` |
+| `shl` | `D ← (orbit_int)(uintptr_t)(((uintptr_t)O1) << (((uintptr_t)O2) & 63))`; §1.3 | operands and `D` are `int` |
+| `shr` | `D ← (orbit_int)(uintptr_t)(((int64_t)(uintptr_t)O1) >> (((uintptr_t)O2) & 63))`; arithmetic, §1.3 | operands and `D` are `int` |
 | `bit_not` | `D ← (orbit_int)(uintptr_t)(~((uintptr_t)O1))`; §1.3 | operand and `D` are `int` |
 | `begin_block` / `end_block` | Open/close `{` / `}` (`2634-2641`) | — |
 | `label` | `label_N:;` only if the label is referenced (`2642-2647`) | `refLabels` |
@@ -152,21 +152,21 @@ Source operators: `&` `bit_and`, `|` `bit_or`, `^` `bit_xor`, `<<` `shl`,
 as `D, O1, O2` and `bit_not` as `D, O1`. `D` is `int`. The verifier
 (`verifybitwiseBinop`) rejects an operand or destination whose type is known
 and is not `int`. The C backend lowers them at `c_backend.orb:2746-2778`,
-and `generateRegAssign` narrows the result to `orbit_int`, a 32-bit signed
-integer:
+and `generateRegAssign` casts the result to `orbit_int`, a 64-bit signed
+integer (`int64_t`):
 
-- **Width.** Each operand is cast to `uintptr_t` (64 bits on both x86-64
-  targets) from its 32-bit `int` register, so a negative operand is
-  sign-extended. The 64-bit result is cast to `orbit_int`: the low 32 bits,
-  two's complement.
-- **`bit_and`, `bit_or`, `bit_xor`, `bit_not`.** Bitwise on the 32-bit
+- **Width.** An `int` is 64 bits, two's complement. Each operand is cast to
+  `uintptr_t` (64 bits on both x86-64 targets) and the result is cast back to
+  `orbit_int`. The IR integer values are JSON numbers in the signed 64-bit
+  range and can exceed 32 bits.
+- **`bit_and`, `bit_or`, `bit_xor`, `bit_not`.** Bitwise on the 64-bit
   pattern. `~0` is `-1`; `~x` is `-x - 1`.
-- **`shl`.** The count is `O2 & 31`, so a count of 32 or more wraps and a
-  negative count takes its low 5 bits. `1 << 33` is `2`, `1 << 31` is
-  `-2147483648`. Bits shifted past bit 31 disappear in the narrowing.
-- **`shr`.** The shift runs on the 64-bit sign-extended pattern, so it is
-  arithmetic: `-8 >> 1` is `-4` and `-1 >> 31` is `-1`. No logical right
-  shift exists. The count is `O2 & 31`.
+- **`shl`.** The count is `O2 & 63`, so a count of 64 or more wraps and a
+  negative count takes its low 6 bits. `1 << 65` is `2`, `1 << 63` is
+  `-9223372036854775808`. Bits shifted past bit 63 disappear.
+- **`shr`.** The shift runs on the signed 64-bit value, so it is arithmetic:
+  `-8 >> 1` is `-4` and `-1 >> 63` is `-1`. No logical right shift exists.
+  The count is `O2 & 63`.
 - **No trap.** Every operand and count has a defined result, and no overflow
   check exists.
 
@@ -213,6 +213,39 @@ Audit notes:
   zero results): its definition point stays `UNSPECIFIED` (U-15).
 - The `orbit_db_*` symbols do not exist in the net variant (§4, DB drift).
 
+### 1.5 Checked `div` and `mod`
+
+Integer `div` and `mod` have no answer for two inputs, and neither is left to
+the hardware. A float `div` keeps IEEE semantics and never stops the program.
+For an `int` `div` or `mod` with dividend `a = O1` and divisor `b = O2`:
+
+| Condition | Runtime call | Diagnostic on stderr |
+|---|---|---|
+| `b == 0` | `orbit_div_error(sourceName, line, 0)` | `orbit: division by zero at <sourceName>:<line>` |
+| `a == -9223372036854775808` and `b == -1` | `orbit_div_error(sourceName, line, 1)` | `orbit: integer overflow in division at <sourceName>:<line>` |
+
+`orbit_div_error(const char* file, int64_t line, int64_t kind)` is a runtime symbol
+(`runtime/collections.c`) that writes the line, flushes stderr and exits with
+status 2, the status of an out-of-range list index. It does not return. When
+`line` is `0` the text is `at <sourceName>`, and when `sourceName` is empty
+the `at` clause is omitted. `mod` traps on the same two conditions: the second
+is `INT_MIN % -1`, which is `0` in mathematics and a trap in C.
+
+The check is skipped when `O2` is an `Int` value other than `0` and `-1`:
+such a divisor cannot fail, and the lowering is the bare operator with no
+branch. Any other `O2` (a register, a `Sym`, `Int 0`, `Int -1`) is checked. A
+native consumer lowers the check as a compare of `O2` against `0` and `-1`
+before the division, branching to a call of `orbit_div_error` on the failing
+path. The C backend does it in `orbit_int_div` / `orbit_int_mod`
+(`runtime/inline.h`): one unsigned compare, `(uint64_t)b + 1 <= 1`, covers
+both divisors, and the dividend is tested only on that path.
+
+`line` is the Orbit source line of the operator. The builder sets it on `div`
+and `mod` only (`BinaryOpNode.line`); `sourceName` is the base name of the
+root source file, not a path, so the document is the same bytes in every
+checkout. A division inside code imported from another file carries the line
+of that file and the name of the root file: the IR has no per-function file.
+
 ## 2. Value and structure model
 
 ### 2.1 `IRValue` (tagged union, `ir.orb:80-89`)
@@ -239,6 +272,8 @@ with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 - `dest`: `int`. `-1` means no destination. Default factory value `-1`
   (`ir_init_instr`, `ir.orb:142-144`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
+- `line`: `int`, the Orbit source line of a `div` or `mod` (§1.5). `0` or
+  absent means unknown. No other opcode carries it.
 - `elemKind`: `int` holding the list element-type code
   (`builder.orb:1356-1363`): `0` undecided, `1` string, `2` int, `3` float,
   `4` bool, `5` ref. Only the collection opcodes set it. Only the builder
@@ -325,7 +360,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 ### 2.4 `IRModule`, models, types, globals, migrations
 
 - `IRModule` (`ir.orb:220-226`): `functions`, `globals`, `models`, `types`,
-  `migrations` (all lists).
+  `migrations` (all lists), and `sourceName` (string, §1.5).
 - `IRGlobal` (`ir.orb:228-232`): `name`, `value` (`IRValue`), `typeName`.
   Observed constructors: `ir_string` value (`builder.orb:2336,2372`) or
   `ir_register` value (`builder.orb:2377`). Top-level `var`/`const` is error
@@ -463,7 +498,7 @@ builtin with the lowering of §3.1 item 6, unless the program writes its own
   `.orbit/lib/libruntime_net.a` (**net variant, no DB**, `orbit_api.h:3-13,106`):
   ```c
   typedef const char* orbit_string;   /* h:113 */
-  typedef int         orbit_int;      /* h:114 — 32 bits on both x86-64 targets */
+  typedef int64_t     orbit_int;      /* h:114 — 64 bits, two's complement */
   typedef double      orbit_float;    /* h:115 */
   ```
   `OrbitResult` (`h:177-184`), `OrbitList` (`h:212-224`), `OrbitMap`
@@ -490,14 +525,16 @@ this section defines the text form from the in-memory model in §2).
 - Root object fields, in order: `irVersion` (must be the string `"1"`),
   `module` (an `IRModule` object, §2.4).
 - Key names mirror the model field names exactly: `functions`, `globals`,
-  `models`, `types`, `migrations`; function keys `name`, `params`,
+  `models`, `types`, `migrations`, `sourceName`; function keys `name`, `params`,
   `paramTypes`, `instructions`, `registerCount`, `registerTypes`,
   `returnType`, `isExtern`, `routeMethod`, `routePath`, `routeHasLimit`,
   `routeLimitRate`, `routeLimitWindowMs`, `routeLimitBurst`; instruction keys
-  `opcode`, `dest`, `operand1`, `operand2`, `operand3`, `elemKind`.
+  `opcode`, `dest`, `operand1`, `operand2`, `operand3`, `elemKind`, and the
+  optional `line` (present only when positive).
 - Integers are JSON numbers without fraction or exponent, within the signed
-  32-bit range except register/label numbers, which are non-negative, and
-  `dest`, which is `-1` or non-negative (§5.4, rules V-06/V-07).
+  64-bit range (a value can need 19 digits and a `-`) except register/label
+  numbers, which are non-negative, and `dest`, which is `-1` or non-negative
+  (§5.4, rules V-06/V-07). A consumer reads them into a 64-bit integer.
 - Floats are JSON numbers. Non-finite values are rejected (V-08). The
   rendering of a float back to C is `orbit_float_to_string_selfhost`
   (§2.1), not JSON formatting.
@@ -518,14 +555,18 @@ EBNF over JSON values (`(* … *)` are comments, and terminals are JSON literals
 
 ```ebnf
 document    = object, "irVersion", ":1", "module";
-module      = "{", functions, globals, models, types, migrations, "}";
+module      = "{", functions, globals, models, types, migrations,
+              sourceName, "}";
 functions   = "[", { function }, "]";
 function    = "{", name, params, paramTypes, instructions, registerCount,
               registerTypes, returnType, isExtern, routeMethod, routePath,
               routeHasLimit, routeLimitRate, routeLimitWindowMs,
               routeLimitBurst, "}";
 instructions = "[", { instruction }, "]";
-instruction = "{", opcode, dest, operand1, operand2, operand3, elemKind, "}";
+instruction = "{", opcode, dest, operand1, operand2, operand3, elemKind,
+              [ line ], "}";
+line        = '"line":', uint;      (* positive; only on div and mod *)
+sourceName  = '"sourceName":', jsonString;
 opcode      = '"', opname, '"';      (* one of the 66 names in §1 *)
 dest        = "-1" | uint;
 operand1    = value;                 (* operand2, operand3: same *)
@@ -568,7 +609,7 @@ Minimal runnable example — `fn main() -> int { return 0 }`, i.e. one
     "isExtern":false,"routeMethod":"","routePath":"",
     "routeHasLimit":false,"routeLimitRate":0,
     "routeLimitWindowMs":0,"routeLimitBurst":0}],
-  "globals":[],"models":[],"types":[],"migrations":[]}}
+  "globals":[],"models":[],"types":[],"migrations":[],"sourceName":"main.orb"}}
 ```
 
 Expected lowering: `orbit_main` returning `int` (`§3.2`), body
@@ -591,7 +632,7 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 | E-11 | `IRTypeDecl.methods` non-empty | Reject (V-17); the builder always writes `[]` | `builder.orb:2070` |
 | E-12 | `db_get`/`db_set`/`db_all`/`db_where` opcode present | Reject (V-19, DB exclusion); no shim, no silent skip | §4, M1 differential |
 
-### 5.4 Validation rules (19, numbered V-01–V-19)
+### 5.4 Validation rules (20, numbered V-01–V-20)
 
 A loader must apply these in order. The first failure wins, and its diagnostic
 names the opcode/field (gap rule, header). "Reject" = fatal loader error.
@@ -603,7 +644,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 | V-03 | `opcode` is one of the 66 names in §1, spelled exactly (no aliases, no case folding). |
 | V-04 | `elemKind` is an integer in `0..5`; non-collection opcodes must carry `0`. |
 | V-05 | Every operand is a `{"kind":…}` object with one of the 8 kinds in §2.1 and a correctly typed `value` (absent only for `None`). |
-| V-06 | Integer values have no fraction/exponent and fit in signed 32 bits. |
+| V-06 | Integer values have no fraction/exponent and fit in signed 64 bits. |
 | V-07 | `dest` is `-1` or a non-negative integer; `Register`/`Label` values are non-negative integers. |
 | V-08 | Float values are finite JSON numbers (no NaN/Infinity). |
 | V-09 | No negative register id is encodable (E-02). |
@@ -617,6 +658,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 | V-17 | `IRTypeDecl.methods` is `[]` (E-11). |
 | V-18 | `isExtern == true` functions resolve their symbol outside; their body, if present, is ignored, never emitted (E-09, U-16). |
 | V-19 | `db_get`/`db_set`/`db_all`/`db_where` are rejected under the DB exclusion (E-12, §4). |
+| V-20 | `line`, when present, is a positive integer on a `div` or `mod`; on any other opcode it is rejected. `sourceName` is a string. |
 
 ### 5.5 Designated corpus
 
@@ -624,8 +666,8 @@ At this pin the corpus is the language test tree itself (no serialized IR
 exists yet). Each source below maps to IR through the builder whose producers
 are pinned in §1.1.
 
-- **Suite: 114 runnable files + 1 support file.** `tests/suite/` holds 115
-  `.orb` files: 114 runnable programs plus `imports.support.orb` (imported by
+- **Suite: 119 runnable files + 1 support file.** `tests/suite/` holds 120
+  `.orb` files: 119 runnable programs plus `imports.support.orb` (imported by
   `imports.orb`, never compiled alone). The `.skip` file (`fn_call.orb.skip`)
   is not a corpus member.
 - **Standard library: 23 files.** `tests/std/` holds 23 `.orb` programs

@@ -28,7 +28,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Path parameters | `:id`/`{id}`/`*` match with capture, static routes win | `examples/params_service.orb` |
 | Bearer auth and roles | Token extraction, role lookup, expiry; `has_role` enforced | `examples/sqlite_notes.orb`, `tests/auth/` |
 | CLI consistency | Errors to stderr, per-command help, `--quiet`/`--verbose`, doctor JSON | `scripts/cli_probe.py` |
-| Behavior suite | **114 runnable programs (115 files; `imports.support.orb` is a support module), one behavior each** | `tests/suite/`, `tests/suite/README.md` |
+| Behavior suite | **119 runnable programs (120 files; `imports.support.orb` is a support module), one behavior each** | `tests/suite/`, `tests/suite/README.md` |
 | Parity and stability probes | Documented gate against committed goldens | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension: highlighting, and `orbit check` diagnostics on save. No language server - `orbit` has no `lsp` subcommand. | `editors/vscode/` |
 | Native machine-code backend | Not available in the current tree | `native-backend` in `ENGINEERING.md` |

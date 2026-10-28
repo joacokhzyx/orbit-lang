@@ -121,7 +121,7 @@ What replaced the list, in the order the work was done:
 | a model constructor accepted the wrong argument types | [`E1003`](ERROR_CODES.md#e1003--bad-member-read-bad-construction-bad-print-arity), naming the field and both types |
 | `1e2` was the integer `1`, `0b101` was the integer `0` | both are literal values; an exponent is always a float |
 | `(0-7)/2` was `-4` and `(0-7)/3` was `1431655763` | `-3` and `-2`, C semantics, pinned by `div_mod_signed.orb` |
-| `2147483648` silently became `-2147483648` | *integer literal does not fit an orbit_int* |
+| `9223372036854775808` silently became `-9223372036854775808` | *integer literal does not fit an orbit_int* |
 | `s.at(99)` answered 0, which is the NUL byte | [`E1002`](ERROR_CODES.md#e1002--literal-index-out-of-range), naming the index and the length |
 | `val v: widget = 3` was ignored | [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch), and a capitalised unknown type is refused too |
 | `val n: Int = 1` reached gcc as `Int*` | [`E1006`](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch), with the note that types are lower case or declared |
