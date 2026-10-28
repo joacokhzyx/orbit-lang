@@ -827,6 +827,9 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
                                 "--compiler", fp]),
             ("runtime_module_native", [py, f"{s}/runtime_module_gate.py", "--cc", cc,
                                        "--compiler", fp, "--backend", "native"]),
+            # runtime/gen/*.c is committed C: it must equal what the compiler
+            # emits for runtime/orb/*.orb, byte for byte.
+            ("runtime_gen", [py, f"{s}/runtime_gen.py", "--cc", cc, "--compiler", fp]),
             ("negative", [py, f"{s}/negative_gate.py", "--cc", cc, "--compiler", fp]),
             ("frontend", [py, f"{s}/frontend_gate.py", "--cc", cc, "--compiler", fp]),
             ("dispatch", [py, f"{s}/dispatch_coverage.py"]),
@@ -1025,9 +1028,19 @@ def main() -> int:
         # compiler/**/*.orb the fingerprint hashes, so the binary at fp_path() still
         # describes exactly the sources it was built from. Deleting the stamp
         # here cost a needless 20 s rebuild and was wrong.
-        return subprocess.run(
+        rc = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "build_selfhost.py"),
              "--cc", cc, "--promote"],
+            cwd=str(ROOT), env=child_env(),
+        ).returncode
+        if rc != 0:
+            return rc
+        # The generated C of the runtime modules is a function of the compiler
+        # just promoted, so it is refreshed with the new fixed point.
+        binary = ensure_fp(cc, allow_build=True)
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "runtime_gen.py"),
+             "--cc", cc, "--compiler", str(binary.resolve()), "--write"],
             cwd=str(ROOT), env=child_env(),
         ).returncode
 

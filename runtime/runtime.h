@@ -71,6 +71,7 @@
 
 /* ── Collections (List, Map) ───────────────────────────────────────── */
 #include "collections.c"
+#include "gen/strings.c"
 
 /* ── Objects and JSON ───────────────────────────────────────────────── */
 #include "json.c"

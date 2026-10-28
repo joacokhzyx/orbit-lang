@@ -39,13 +39,23 @@ def amalgamate(entry_path: str, runtime_root: str, out_path: str) -> None:
             return fallback
         raise FileNotFoundError(f"cannot resolve include {name!r} from {from_dir!r}")
 
-    def inline(path: str) -> str:
+    def include(name: str, from_path: str, active: tuple) -> str:
+        # A file that includes the header which includes it (runtime/gen/*.c
+        # includes runtime.h) is already open: the include guard makes the
+        # preprocessor skip it, so the text is left out here too.
+        target = os.path.normpath(resolve(os.path.dirname(from_path), name))
+        if target in active:
+            return ""
+        return inline(target, active)
+
+    def inline(path: str, active: tuple = ()) -> str:
         path = os.path.normpath(path)
+        active = active + (path,)
         with open(path, encoding="utf-8", errors="replace") as f:
             content = f.read()
         rel = os.path.relpath(path, runtime_root)
         content = INCLUDE_RE.sub(
-            lambda m: MARKER.format(name=m.group(2)) + "\n" + inline(resolve(os.path.dirname(path), m.group(2))),
+            lambda m: MARKER.format(name=m.group(2)) + "\n" + include(m.group(2), path, active),
             content,
         )
         guard = guard_for(rel)

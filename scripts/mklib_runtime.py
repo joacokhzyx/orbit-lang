@@ -10,6 +10,9 @@ so a program that never touches Kynx never links the Kynx tables, and a
 program with no network never imports ws2_32. Unity builds (runtime.h without
 the flag) include the same .c files and are unchanged.
 
+The Orbit modules (runtime/orb/*.orb, C committed in runtime/gen/*.c) are
+archive members too, always, compiled from the generated C.
+
 Single variant on purpose: no test in tests/suite or tests/std uses the DB,
 so the net-without-DB library links everything those suites emit. The DB
 modules (DB_MODULES) are compiled by --db, which writes
@@ -107,8 +110,15 @@ def runtime_stamp(runtime_dir):
     return "".join(lines)
 
 
+def orb_modules():
+    """The Orbit runtime modules: one runtime/orb/<name>.orb each."""
+    return tuple(sorted(p.stem for p in (RUNTIME / "orb").glob("*.orb")))
+
+
 def build_lib(cc, out_path, work, defines=(), modules=None):
     """Compile every module into its own object and archive them.
+
+    The Orbit modules come after `modules`: runtime/gen/<name>.c is compiled.
 
     `defines` ride on each cc line. shard_selfhost passes ORBIT_WITH_EXEC for
     the bootstrap archive that links the fixed-point compiler: that compiler
@@ -127,8 +137,24 @@ def build_lib(cc, out_path, work, defines=(), modules=None):
         if not (runtime_dir / (m + ".c")).exists():
             out.fail(f"Failed mklib: runtime/{m}.c is gone")
             return 1
+    orbs = orb_modules()
+    for m in orbs:
+        if not (runtime_dir / "gen" / (m + ".c")).exists():
+            out.fail(f"Failed mklib: runtime/gen/{m}.c is gone")
+            return 1
+
+    def compile_gen(m):
+        obj = work / (m + ".o")
+        argv = [cc, "-O2", "-Wall", "-DORBIT_SEPARATE_COMPILATION",
+                "-I", str(runtime_dir), "-I", str(runtime_dir / "vendor"),
+                str(runtime_dir / "gen" / (m + ".c")), "-c", "-o", str(obj)]
+        proc = subprocess.run(argv, cwd=str(ROOT), capture_output=True,
+                              text=True, errors="replace")
+        return m, obj, proc
 
     def compile_one(m):
+        if m in orbs:
+            return compile_gen(m)
         obj = work / (m + ".o")
         argv = [cc, "-O2", "-Wall", "-DORBIT_RUNTIME_MODULE"]
         for d in tuple(defines) + MODULE_DEFINES.get(m, ()):
@@ -141,11 +167,12 @@ def build_lib(cc, out_path, work, defines=(), modules=None):
 
     jobs = min(8, os.cpu_count() or 2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
-        results = list(pool.map(compile_one, mods))
+        results = list(pool.map(compile_one, mods + orbs))
     objs = []
     for m, obj, proc in results:
         if proc.returncode != 0:
-            out.fail(f"Failed mklib: runtime/{m}.c did not compile (rc={proc.returncode})")
+            src = f"runtime/gen/{m}.c" if m in orbs else f"runtime/{m}.c"
+            out.fail(f"Failed mklib: {src} did not compile (rc={proc.returncode})")
             sys.stdout.write(proc.stdout or "")
             sys.stderr.write(proc.stderr or "")
             return 1

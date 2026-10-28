@@ -12,7 +12,7 @@ tests/runtime_module/expected.txt.
                     ORBIT_R6, else the run is SKIPPED with exit 77.
 
 The program is always built by the C backend: R6 does not link foreign
-objects. arena.orb (an RtArena parameter) is built on the C lane only. A file with a `main` must be refused by `--runtime-module`, which
+objects. arena.orb (an RtArena parameter) is built on both lanes. A file with a `main` must be refused by `--runtime-module`, which
 keeps the gate able to fail on the mode check as well as on the output.
 
 Usage:
@@ -98,14 +98,11 @@ def main() -> int:
             check("program output", p.returncode == 0 and got == want,
                   f"exit {p.returncode}, stdout {got!r}, wanted {want!r}")
 
-    # RtArena parameters are built on the C backend only: R6 refuses the load
-    # of an RtArena parameter (see the report of this gate's commit).
-    if args.backend == "c":
-        arena_obj = os.path.join(work, "arena.o")
-        code, text = run([compiler, "build", "--runtime-module", rel("arena.orb"),
-                          "-o", arena_obj, "--quiet"], obj_env)
-        check("RtArena export builds", code == 0 and os.path.isfile(arena_obj),
-              text.strip())
+    arena_obj = os.path.join(work, "arena.o")
+    code, text = run([compiler, "build", "--runtime-module", rel("arena.orb"),
+                      "-o", arena_obj, "--quiet"], obj_env)
+    check("RtArena export builds", code == 0 and os.path.isfile(arena_obj),
+          text.strip())
 
     code, text = run([compiler, "check", "--runtime-module", rel("main.orb")], env)
     check("a file with main is refused", code != 0 and "no entry point" in text,

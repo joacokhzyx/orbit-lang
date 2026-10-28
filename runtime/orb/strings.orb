@@ -1,0 +1,116 @@
+// The string utilities of the runtime, in Orbit. Built with
+// `orbit build --runtime-module`: every export keeps its C name, so the
+// compiler and the C runtime call them exactly as they called collections.c.
+// rt_len reads the length once and rt_byte reads one byte with no bounds
+// check, so each loop costs what the C loop it replaces cost.
+
+fn rtIsSpace(c: int) -> bool {
+    return c == 32 || c == 9 || c == 10 || c == 13
+}
+
+fn rtMatchesAt(s: string, at: int, sub: string, subLen: int) -> bool {
+    var k = 0
+    while k < subLen {
+        if rt_byte(s, at + k) != rt_byte(sub, k) {
+            return false
+        }
+        k = k + 1
+    }
+    return true
+}
+
+// The haystack length is not read: rt_len is a strlen, and an early match must
+// cost the distance to the match, as strstr does. The scan ends at the NUL, and
+// rtMatchesAt stops at it because the needle holds no NUL.
+fn rtFind(s: string, sub: string) -> int {
+    val subLen = rt_len(sub)
+    if subLen == 0 {
+        return 0
+    }
+    val first = rt_byte(sub, 0)
+    var i = 0
+    while true {
+        val c = rt_byte(s, i)
+        if c == 0 {
+            return -1
+        }
+        if c == first && rtMatchesAt(s, i, sub, subLen) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+export fn orbit_string_starts_with(s: string, prefix: string) -> bool {
+    return rtMatchesAt(s, 0, prefix, rt_len(prefix))
+}
+
+export fn orbit_string_ends_with(s: string, suffix: string) -> bool {
+    val sl = rt_len(s)
+    val sul = rt_len(suffix)
+    if sul > sl {
+        return false
+    }
+    return rtMatchesAt(s, sl - sul, suffix, sul)
+}
+
+export fn orbit_string_contains(s: string, substr: string) -> bool {
+    return rtFind(s, substr) >= 0
+}
+
+export fn orbit_string_indexOf(s: string, substr: string) -> int {
+    return rtFind(s, substr)
+}
+
+export fn orbit_string_to_upper(a: RtArena, s: string) -> string {
+    val n = rt_len(s)
+    val buf = rt_alloc_in(a, n)
+    var i = 0
+    while i < n {
+        val c = rt_byte(s, i)
+        if c >= 97 && c <= 122 {
+            rt_set_byte(buf, i, c - 32)
+        } else {
+            rt_set_byte(buf, i, c)
+        }
+        i = i + 1
+    }
+    return buf
+}
+
+export fn orbit_string_to_lower(a: RtArena, s: string) -> string {
+    val n = rt_len(s)
+    val buf = rt_alloc_in(a, n)
+    var i = 0
+    while i < n {
+        val c = rt_byte(s, i)
+        if c >= 65 && c <= 90 {
+            rt_set_byte(buf, i, c + 32)
+        } else {
+            rt_set_byte(buf, i, c)
+        }
+        i = i + 1
+    }
+    return buf
+}
+
+export fn orbit_string_trim(a: RtArena, s: string) -> string {
+    val n = rt_len(s)
+    var start = 0
+    while start < n && rtIsSpace(rt_byte(s, start)) {
+        start = start + 1
+    }
+    var end = n
+    while end > start && rtIsSpace(rt_byte(s, end - 1)) {
+        end = end - 1
+    }
+    val len = end - start
+    val buf = rt_alloc_in(a, len)
+    var i = 0
+    while i < len {
+        rt_set_byte(buf, i, rt_byte(s, start + i))
+        i = i + 1
+    }
+    return buf
+}

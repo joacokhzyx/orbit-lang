@@ -468,6 +468,8 @@ followed by `orbit_handle_request` is emitted by
 | `runtime/arena_pool.c` | Pool of arenas for startup and hand-written scratch work (not the request path) |
 | `runtime/string_pool.c` | String interning |
 | `runtime/collections.c` | Arrays, hash maps, bytes |
+| `runtime/orb/*.orb` | Runtime modules written in Orbit (`orbit build --runtime-module`). `strings.orb`: starts_with, ends_with, contains, indexOf, to_upper, to_lower, trim |
+| `runtime/gen/*.c` | The C the compiler emits for each `runtime/orb` module, committed so the seed build, the unity build and Linux need no compiler. `python scripts/dev.py promote` refreshes it; the `runtime_gen` gate fails on any byte difference. `scripts/mklib_runtime.py` archives it as one member per module, or builds the `.orb` natively when given `--r6` (or `ORBIT_R6`) |
 | `runtime/types.c` | Runtime type system |
 | `runtime/file.c` | File I/O helpers |
 | `runtime/os.c` | OS abstractions |
