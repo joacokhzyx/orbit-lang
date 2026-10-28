@@ -163,6 +163,10 @@ def child_env() -> dict:
     # Gates keep the unity build the compiler used before it linked the
     # runtime archive by default; the suite lanes below opt in with "1".
     env.setdefault("ORBIT_LINK_RUNTIME", "0")
+    # Every gate except the two native ones measures the C backend, whatever
+    # the compiler's default backend is. The native gates pass
+    # --backend=native, which wins over this.
+    env["ORBIT_BACKEND"] = "c"
     return env
 
 
@@ -810,6 +814,13 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
             ("suite", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp]),
             ("suite_std", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
                            "--dir", "tests/std"]),
+            # The same two suites through R6 instead of the C compiler. They
+            # need ORBIT_R6 (an r6.exe); without it test_suite.py exits
+            # SKIP_RC and run_gate reports the gate as skipped, not passed.
+            ("suite_native", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
+                              "--backend", "native"]),
+            ("suite_std_native", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp,
+                                  "--dir", "tests/std", "--backend", "native"]),
             ("negative", [py, f"{s}/negative_gate.py", "--cc", cc, "--compiler", fp]),
             ("frontend", [py, f"{s}/frontend_gate.py", "--cc", cc, "--compiler", fp]),
             ("dispatch", [py, f"{s}/dispatch_coverage.py"]),
@@ -848,6 +859,12 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
     }
 
 
+# A gate that cannot run on this machine (suite_native without ORBIT_R6) exits
+# with this code. It is reported as skipped and listed in the closing summary.
+SKIP_RC = 77
+SKIPPED: list = []
+
+
 def run_gate(label: str, argv: list, env: dict) -> tuple:
     """Run one gate, streaming live and capturing for the witness log.
 
@@ -873,6 +890,10 @@ def run_gate(label: str, argv: list, env: dict) -> tuple:
     sys.stdout.flush()
     proc.wait()
     elapsed = time.monotonic() - started
+    if proc.returncode == SKIP_RC:
+        SKIPPED.append(label)
+        say(paint(f"  {label} SKIPPED ({elapsed:.0f}s): not run, not passed", YELLOW))
+        return label, 0, elapsed, "".join(collected)
     if proc.returncode == 0:
         say(paint(f"  {label} ok ({elapsed:.0f}s)", GREEN))
     else:
@@ -1263,8 +1284,12 @@ def main() -> int:
         say(paint(f"total {wall:.0f}s wall (gate sum {total:.0f}s)", DIM))
         return 1
 
-    say(paint(f"all {len(results)} gate(s) passed in {wall:.0f}s wall "
-              f"(gate sum {total:.0f}s)", GREEN))
+    say(paint(f"all {len(results) - len(SKIPPED)} gate(s) passed in "
+              f"{wall:.0f}s wall (gate sum {total:.0f}s)", GREEN))
+    if SKIPPED:
+        say(paint(f"  {len(SKIPPED)} gate(s) skipped, not passed: "
+                  + ", ".join(SKIPPED) + ". Set ORBIT_R6 to an r6.exe to run them.",
+                  YELLOW))
     missing = [t for t in (1, 2, 3) if t not in tiers]
     if missing and args.target != "report":
         names = ", ".join(f"T{t}" for t in missing)

@@ -11,7 +11,8 @@
 ; Local validation (no tag needed, per-user install, no admin):
 ;   iscc /DOrbitVersion=0.0.0-dev /DOrbitDist=dist installer\orbit.iss
 ;
-; {#OrbitDist} must hold orbit-windows-x86_64.exe (the release asset name).
+; {#OrbitDist} must hold orbit-windows-x86_64.exe (the release asset name),
+; lib\ (the runtime archives) and bin\ (r6.exe and its licence).
 ; {#OrbitVersion} comes from the tag (v stripped) or defaults to dev.
 
 #define OrbitAppName "Orbit"
@@ -63,6 +64,11 @@ Source: "{#SourcePath}\..\runtime\*"; DestDir: "{app}\runtime"; Flags: ignorever
 ; matches the runtime\ sources above. CI builds it from the same checkout
 ; (release.yml); without lib\ the build still works, only slower.
 Source: "{#OrbitDist}\lib\*"; DestDir: "{app}\lib"; Flags: ignoreversion
+; bin\r6.exe: the native backend (orbit build --backend=native). orbit finds it
+; at <app>\bin\r6.exe and hands it <app>\lib as R6_RUNTIME_DIR, so the
+; archives above (libruntime_net.a, libruntime_net_db.a, sqlite3.lib) serve
+; both backends. R6 is MIT, https://github.com/joacokhzyx/orbit-r6.
+Source: "{#OrbitDist}\bin\*"; DestDir: "{app}\bin"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Uninstall Orbit"; Filename: "{uninstallexe}"

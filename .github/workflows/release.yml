@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # The R6 commit the Windows release ships as bin/r6.exe (orbit-r6 is MIT,
+  # https://github.com/joacokhzyx/orbit-r6). Bump it deliberately: it is the
+  # native backend every Windows user runs, and it has to read the IR of this
+  # tag's compiler (docs/IR_SPEC.md).
+  R6_COMMIT: "05a7d569403d10bfe93f03fd921e9c1804a8036a"
+
 jobs:
   build:
     name: Build ${{ matrix.name }}
@@ -55,6 +62,34 @@ jobs:
           "$PY" scripts/mklib_runtime.py --cc gcc --out dist/lib/libruntime_net.a
           test -s dist/lib/libruntime_net.a
           test -s dist/lib/libruntime_net.a.stamp
+
+      # The native backend (orbit build --backend=native). R6 is built with the
+      # runner's gcc by its own script, and its database archive and
+      # sqlite3.lib are built from THIS checkout's runtime, so they match the compiler in
+      # the same installer. libruntime_net.a is the archive built above.
+      - name: Build R6 (native backend) and its runtime archives
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone https://github.com/joacokhzyx/orbit-r6.git r6-src
+          git -C r6-src checkout $env:R6_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw "R6_COMMIT $env:R6_COMMIT is not in orbit-r6" }
+          $env:R6_CC = 'gcc'
+          & r6-src\scripts\build-r6.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'R6 did not build' }
+          New-Item -ItemType Directory -Force dist\bin | Out-Null
+          Copy-Item r6-src\.r6-build\r6.exe dist\bin\r6.exe
+          Copy-Item r6-src\LICENSE dist\bin\LICENSE-r6.txt
+          python r6-src\scripts\build-runtime-db.py --orbit-root "$PWD" --cc gcc --out-dir dist\lib
+          if ($LASTEXITCODE -ne 0) { throw 'R6 database runtime archive did not build' }
+          foreach ($f in 'dist\bin\r6.exe', 'dist\lib\libruntime_net.a', 'dist\lib\libruntime_net_db.a', 'dist\lib\sqlite3.lib') {
+            if (-not (Test-Path $f)) { throw "missing $f" }
+          }
+          # No arguments is CLI misuse: exit 2 and a usage line, not a crash.
+          & dist\bin\r6.exe 2>$null
+          if ($LASTEXITCODE -ne 2) { throw "r6.exe without arguments exited $LASTEXITCODE, want 2" }
+          Write-Output "[Release] R6 $env:R6_COMMIT -> dist\bin\r6.exe"
 
       - name: Build Linux bundle (binary + std/ + runtime/ + lib/)
         if: matrix.os == 'ubuntu-latest'

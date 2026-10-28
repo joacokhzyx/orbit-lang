@@ -676,7 +676,174 @@ fn compileFailed(inputPath: string, errCount: int, startMs: int, colorMode: stri
     orbit_os_write_stderr_selfhost(palettePaint(paletteDim(), line, useErr) + "\n")
 }
 
-fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string) -> bool {
+// Backend selection. `--backend=c|native` wins over ORBIT_BACKEND, which wins
+// over this default. The default is one function so changing it is a one-line
+// commit that the suite_native and suite_std_native gates decide.
+fn hostIsWindows() -> bool {
+    return orbit_os_env_selfhost("OS") == "Windows_NT" || orbit_os_env_selfhost("WINDIR") != ""
+}
+
+fn defaultBackend() -> string {
+    if hostIsWindows() { return "native" }
+    return "c"
+}
+
+fn backendKnown(name: string) -> bool {
+    return name == "c" || name == "native"
+}
+
+fn requestedBackend(flag: string) -> string {
+    if flag != "" { return flag }
+    return orbit_os_env_selfhost("ORBIT_BACKEND")
+}
+
+// "c", "native", or "" when the requested name is not a backend.
+fn resolveBackend(flag: string) -> string {
+    val wanted = requestedBackend(flag)
+    if wanted == "" { return defaultBackend() }
+    if backendKnown(wanted) { return wanted }
+    return ""
+}
+
+// The directory intermediate files go to. Every platform's temp variable is
+// honoured, not just the Windows one.
+fn buildTempDir() -> string {
+    var tmpDir = orbit_os_env_selfhost("TEMP")
+    if tmpDir == "" {
+        tmpDir = orbit_os_env_selfhost("TMPDIR")
+    }
+    if tmpDir == "" {
+        tmpDir = orbit_os_env_selfhost("TMP")
+    }
+    if tmpDir == "" {
+        tmpDir = orbit_os_temp_dir_selfhost()
+    }
+    return tmpDir
+}
+
+fn reportCompiled(inputPath: string, outputPath: string, startMs: int, colorMode: string) {
+    val useColorOut = paletteUseColorStdout(colorMode)
+    val ms = orbit_clock_ms() - startMs
+    val check = palettePaint(paletteOk(), "✓", useColorOut)
+    val word = palettePaint(paletteOk(), "Compiled", useColorOut)
+    val file = palettePaint(paletteBright(), inputPath, useColorOut)
+    val timing = palettePaint(paletteDim(), "in " + orbit_int_to_string_selfhost(ms) + " ms", useColorOut)
+    print(check + " " + word + " " + file + " " + timing)
+    print("wrote " + outputPath)
+}
+
+fn emitIrDocument(irModule: IRModule, irPath: string, verbose: bool, useColorErr: bool) -> bool {
+    val badFloat = irNonFiniteFloat(irModule)
+    if badFloat != "" {
+        orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " cannot emit IR: non-finite float in " + badFloat + " has no JSON form (V-08)\n")
+        return false
+    }
+    var tofi = 0
+    while tofi < irModule.functions.len() {
+        typeObjectFieldReads(irModule.functions.get(tofi))
+        typeRegistersByComparison(irModule.functions.get(tofi))
+        tofi = tofi + 1
+    }
+    if orbit_file_write_selfhost(irPath, emitIRv1(irModule)) == false {
+        orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " could not write IR file '" + irPath + "'.\n")
+        return false
+    }
+    if verbose {
+        print("ir: wrote " + irPath)
+    }
+    return true
+}
+
+// The native backend is R6, a separate executable. It is found, in order:
+//   1. ORBIT_R6, the path of the executable (an error when it does not exist);
+//   2. r6.exe beside the orbit executable (a portable directory);
+//   3. bin/r6.exe under the directory holding orbit (the installed layout:
+//      orbit.exe, bin/r6.exe, lib/, runtime/, std/ under one root).
+fn findInstalledR6() -> string {
+    val dir = getDir(orbit_os_argv_selfhost(0))
+    if dir == "" { return "" }
+    val beside = dir + "/r6.exe"
+    if runtimeLibFileExists(beside) { return beside }
+    val installed = dir + "/bin/r6.exe"
+    if runtimeLibFileExists(installed) { return installed }
+    return ""
+}
+
+// R6 links the runtime archives (libruntime_net.a, libruntime_net_db.a,
+// sqlite3.lib) from the directory in R6_RUNTIME_DIR. ORBIT_R6_RUNTIME names
+// it; otherwise the installed lib/ beside the orbit executable, when it holds
+// the archive. When neither exists the variable is left as the caller has it.
+fn r6RuntimeDir() -> string {
+    val named = orbit_os_env_selfhost("ORBIT_R6_RUNTIME")
+    if named != "" { return named }
+    val dir = getDir(orbit_os_argv_selfhost(0))
+    if dir == "" { return "" }
+    val lib = dir + "/lib"
+    if runtimeLibFileExists(lib + "/libruntime_net.a") { return lib }
+    return ""
+}
+
+fn shellPath(path: string) -> string {
+    return replaceBuildToken(path, "/", "\\")
+}
+
+fn nativeIrTempPath(outputPath: string) -> string {
+    val name = "orbit_native_" + appBaseName(outputPath) + ".ir"
+    val tmpDir = buildTempDir()
+    if tmpDir == "" { return name }
+    return tmpDir + "/" + name
+}
+
+// Runs R6 on the emitted IR. Its stderr is the diagnostic and passes through
+// untouched; a refusal is a compile error and never falls back to the C
+// backend. The command is wrapped in one more pair of quotes because the
+// Windows shell strips the outermost pair of a command that begins with one.
+fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: string, verbose: bool, colorMode: string) -> bool {
+    val useColorErr = paletteUseColorStderr(colorMode)
+    val head = palettePaint(paletteError(), "orbit build:", useColorErr)
+    val named = orbit_os_env_selfhost("ORBIT_R6")
+    var r6 = ""
+    if named != "" {
+        if runtimeLibFileExists(named) == false {
+            orbit_os_write_stderr_selfhost(head + " ORBIT_R6 is '" + named + "' and that file doesn't exist. Point it at r6.exe, or unset it to use the installed one.\n")
+            return false
+        }
+        r6 = named
+    } else {
+        r6 = findInstalledR6()
+    }
+    if r6 == "" {
+        orbit_os_write_stderr_selfhost(head + " the native backend needs r6.exe and couldn't find it.\n")
+        orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to its path, or put it in bin\\r6.exe under the Orbit install. `orbit build --backend=c` needs neither.\n")
+        return false
+    }
+    var cmd = ""
+    val rtDir = r6RuntimeDir()
+    if rtDir != "" {
+        cmd = cmd + "set \"R6_RUNTIME_DIR=" + shellPath(rtDir) + "\" && "
+    }
+    val tmpDir = buildTempDir()
+    if tmpDir != "" {
+        cmd = cmd + "set \"R6_TMPDIR=" + shellPath(tmpDir) + "\" && "
+    }
+    cmd = cmd + "\"" + shellPath(r6) + "\" build \"" + shellPath(irPath) + "\" -o \"" + shellPath(outputPath) + "\""
+    cmd = "\"" + cmd + "\""
+    if verbose {
+        print("r6 " + cmd)
+    }
+    val code = orbit_os_spawn_selfhost(cmd)
+    if irIsTemp && verbose == false {
+        val ignoredDel = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(irPath) + "\" 2>NUL")
+    }
+    if code != 0 {
+        orbit_os_write_stderr_selfhost(head + " the native backend (R6) refused " + inputPath + " (exit " + orbit_int_to_string_selfhost(code) + "); its diagnostic is above.\n")
+        orbit_os_write_stderr_selfhost("  Tip: `orbit build --backend=c " + inputPath + "` builds it with the C backend.\n")
+        return false
+    }
+    return true
+}
+
+fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string) -> bool {
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
@@ -734,30 +901,43 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     irModule.sourceName = sourceBaseName(inputPath)
     reportMemStage("build")
 
+    // The C backend has to stay the path when ORBIT_SKIP_CC is set: that
+    // switch is defined as "emit the intermediate C and stop", and the
+    // bootstrap reads that C whatever the default backend is.
+    val backendName = resolveBackend(backendArg)
+    if backendName == "" {
+        orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " unknown backend '" + requestedBackend(backendArg) + "'. Use c or native (--backend=c|native, ORBIT_BACKEND).\n")
+        return false
+    }
+    val native = backendName == "native" && orbit_os_env_selfhost("ORBIT_SKIP_CC") == ""
+    if native && hostIsWindows() == false {
+        orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " the native backend targets Windows x86-64 only. Use --backend=c on this platform.\n")
+        return false
+    }
+
     // --emit-ir dumps IRv1 straight after the builder, before the optimizer
     // and the C backend touch the module, so registerTypes is what buildAST
-    // produced (P1, docs/IR_SPEC_ALIGNMENT.md §6).  A non-finite float has no
-    // JSON form, so it aborts the build instead of writing a bad document
-    // (V-08); a failed write is reported the same way.
-    if emitIrPath != "" {
-        val badFloat = irNonFiniteFloat(irModule)
-        if badFloat != "" {
-            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " cannot emit IR: non-finite float in " + badFloat + " has no JSON form (V-08)\n")
+    // produced (P1, docs/IR_SPEC_ALIGNMENT.md section 6).  A non-finite float
+    // has no JSON form, so it aborts the build instead of writing a bad
+    // document (V-08); a failed write is reported the same way.  The native
+    // backend compiles this same document, so it takes the same path.
+    var irPath = emitIrPath
+    if native && irPath == "" {
+        irPath = nativeIrTempPath(outputPath)
+    }
+    if irPath != "" {
+        if emitIrDocument(irModule, irPath, verbose, useColorErr) == false {
             return false
         }
-        var tofi = 0
-        while tofi < irModule.functions.len() {
-            typeObjectFieldReads(irModule.functions.get(tofi))
-            typeRegistersByComparison(irModule.functions.get(tofi))
-            tofi = tofi + 1
-        }
-        if orbit_file_write_selfhost(emitIrPath, emitIRv1(irModule)) == false {
-            orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " could not write IR file '" + emitIrPath + "'.\n")
+    }
+    if native {
+        if nativeBuild(irPath, emitIrPath == "", inputPath, outputPath, verbose, colorMode) == false {
             return false
         }
-        if verbose {
-            print("ir: wrote " + emitIrPath)
+        if quiet == false {
+            reportCompiled(inputPath, outputPath, startMs, colorMode)
         }
+        return true
     }
 
     // Both optimization passes honor the same kill switch
@@ -806,16 +986,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
     // plain `orbit build` never littles a multi-megabyte C file into the
     // user's working directory and two concurrent builds in one directory do
     // not race on the same file.
-    var tmpDir = orbit_os_env_selfhost("TEMP")
-    if tmpDir == "" {
-        tmpDir = orbit_os_env_selfhost("TMPDIR")
-    }
-    if tmpDir == "" {
-        tmpDir = orbit_os_env_selfhost("TMP")
-    }
-    if tmpDir == "" {
-        tmpDir = orbit_os_temp_dir_selfhost()
-    }
+    val tmpDir = buildTempDir()
     if tmpDir != "" {
         cPath = tmpDir + "/" + cPath
     }
@@ -949,13 +1120,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
         }
     }
     if quiet == false {
-        val ms = orbit_clock_ms() - startMs
-        val check = palettePaint(paletteOk(), "✓", useColorOut)
-        val word = palettePaint(paletteOk(), "Compiled", useColorOut)
-        val file = palettePaint(paletteBright(), inputPath, useColorOut)
-        val timing = palettePaint(paletteDim(), "in " + orbit_int_to_string_selfhost(ms) + " ms", useColorOut)
-        print(check + " " + word + " " + file + " " + timing)
-        print("wrote " + outputPath)
+        reportCompiled(inputPath, outputPath, startMs, colorMode)
     }
     return true
 }

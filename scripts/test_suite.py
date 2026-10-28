@@ -8,6 +8,11 @@ process exit code is the assertion. Optional first line:
 Every test is compiled by the fixed-point compiler and executed; the
 runner fails on compile errors, wrong exit codes, or timeouts.
 
+`--backend native` builds every case with `orbit build --backend=native`, which
+runs R6 (ORBIT_R6) instead of the C compiler, and checks the same expectations.
+Without ORBIT_R6 the run is SKIPPED, not passed: it prints why and exits 77, and
+scripts/dev.py reports the gate as skipped.
+
 One further directive, for a test that pins a defect instead of a feature:
 
     // known-failing[: <ref>]     the test is expected NOT to exit 0
@@ -35,6 +40,7 @@ import orbit_output as out
 import _common
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SKIP_RC = 77
 SUITE = os.path.join(ROOT, "tests", "suite")
 
 
@@ -68,11 +74,26 @@ def main() -> int:
     ap.add_argument("--compiler", required=True)
     ap.add_argument("--cc", default=None)
     ap.add_argument("--timeout", type=int, default=60)
+    ap.add_argument("--backend", choices=("c", "native"), default="c",
+                    help="code generator under test (native needs ORBIT_R6)")
     ap.add_argument("--dir", action="append", default=None,
                     help="suite directory to run (repeatable; default: tests/suite)")
     out.add_quiet(ap)
     args = ap.parse_args()
     out.set_quiet(args.quiet)
+
+    native = args.backend == "native"
+    tool = "suite_native" if native else "suite"
+    r6 = os.environ.get("ORBIT_R6", "")
+    if native:
+        if not r6:
+            out.say(f"Skipped {tool}: ORBIT_R6 is not set. Point it at r6.exe "
+                    "(and R6_RUNTIME_DIR at its runtime archives) to run the "
+                    "native backend. This is a skip, not a pass.")
+            return SKIP_RC
+        if not os.path.isfile(r6):
+            out.fail(f"Failed {tool}: ORBIT_R6 names {r6}, which is not a file")
+            return 1
 
     suite_dirs = args.dir or [SUITE]
     tests = []
@@ -104,6 +125,15 @@ def main() -> int:
     # hatches). The strict warning gate is werror_gate.py (-Werror on the
     # emitted C) and never sees these flags.
     env = _common.disposable_test_env(env, cc=args.cc)
+    if native:
+        # An R6 build tree keeps its archives in runtime-win64 beside r6.exe;
+        # an explicit R6_RUNTIME_DIR or ORBIT_R6_RUNTIME always wins.
+        beside = os.path.join(os.path.dirname(os.path.abspath(r6)), "runtime-win64")
+        if (not env.get("R6_RUNTIME_DIR") and not env.get("ORBIT_R6_RUNTIME")
+                and os.path.isdir(beside)):
+            env["R6_RUNTIME_DIR"] = beside
+        # A gate that runs natively must not be rescued by the C compiler.
+        env["ORBIT_CC"] = env["CC"] = "orbit-native-gate-has-no-c-compiler"
 
     # Separate-compilation lane (ORBIT_LINK_RUNTIME=1): the compiler links each
     # TU against .orbit/lib/libruntime_net.a instead of recompiling the unity.
@@ -113,7 +143,7 @@ def main() -> int:
     # own diagnostic instead of one cc failure per test. DB programs ignore
     # the env inside the compiler and stay unity by design (the net lib has
     # no DB symbols).
-    if env.get("ORBIT_LINK_RUNTIME") == "1":
+    if env.get("ORBIT_LINK_RUNTIME") == "1" and not native:
         lib_path = os.path.join(ROOT, ".orbit", "lib", "libruntime_net.a")
         if archive_is_stale(lib_path):
             out.say(f"  link lane: {lib_path} is older than runtime/, "
@@ -181,7 +211,8 @@ def main() -> int:
         out_exe = os.path.join(work, name.replace("/", "_") + exe_suffix)
         try:
             proc = subprocess.run(
-                [args.compiler, "build", path, "-o", out_exe],
+                [args.compiler, "build", path, "-o", out_exe]
+                + (["--backend=native"] if native else []),
                 cwd=ROOT, env=case_env, capture_output=True, text=True,
                 errors="replace", timeout=args.timeout,
             )
@@ -249,7 +280,7 @@ def main() -> int:
     total = len(tests)
     extra = ("(%d known-failing, asserted still red)" % len(ratchets)
              if ratchets else "")
-    out.finish("suite", ok, total, extra=extra)
+    out.finish(tool, ok, total, extra=extra)
     if ratchets:
         out.say("Known-failing, asserted still red: " + ", ".join(ratchets))
         out.say("A ratchet is not a waiver: it asserts the failure is STILL there, so a "

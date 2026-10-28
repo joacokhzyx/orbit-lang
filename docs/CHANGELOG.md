@@ -11,6 +11,20 @@ Current: `0.1.0` pre-release (`orbit --version` prints
 
 ## Unreleased (toward 0.1.0)
 
+Native backend:
+
+- **`orbit build --backend=native` builds through R6, with no C compiler.**
+  `--backend=c|native` and `ORBIT_BACKEND` choose the code generator for
+  `build` and `run`; the flag wins. With `native` the build writes the
+  `--emit-ir` document into the temp directory and runs `r6.exe` on it. R6 is
+  found through `ORBIT_R6`, then `r6.exe` beside `orbit.exe`, then
+  `bin\r6.exe` under the install root. The runtime archives come from
+  `R6_RUNTIME_DIR`, set from `ORBIT_R6_RUNTIME` or the install's `lib\`. An
+  R6 refusal is a compile error with R6's line verbatim and no fallback to C.
+  `ORBIT_SKIP_CC` forces the C backend. The default is `native` on Windows and `c` elsewhere. Gates:
+  `suite_native` and `suite_std_native` (skipped without `ORBIT_R6`).
+  See [Commands](COMMANDS.md#backends-c-and-native).
+
 Language:
 
 - **A program may name its symbols after any C or runtime name.** The C backend
