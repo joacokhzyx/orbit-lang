@@ -520,7 +520,10 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
 
     #ifdef ORBIT_WITH_NET
     if (current_lease) {
-        if (current_lease->arena_bytes + aligned > current_lease->arena_limit) {
+        /* Compare against the room left, not the sum: aligned can be near
+         * SIZE_MAX, and arena_bytes + aligned would wrap below the limit. */
+        if (current_lease->arena_bytes > current_lease->arena_limit ||
+            aligned > current_lease->arena_limit - current_lease->arena_bytes) {
             orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_arena_budget_exhausted);
             orbit_perf_record_oom();
             return NULL;
@@ -529,7 +532,12 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     }
     #endif
 
-    unsigned char* new_cursor = arena->cursor + aligned;
+    /* Compare sizes, never the advanced pointer: cursor + aligned wraps when
+     * aligned is huge (a length computed from an unchecked n + 1 or
+     * elem_size * cap), and a wrapped pointer compares below committed_end,
+     * which would hand back a block far larger than the reservation. */
+    bool fits_reserved = aligned <= (size_t)(arena->reserved_end - arena->cursor);
+    unsigned char* new_cursor = fits_reserved ? arena->cursor + aligned : arena->cursor;
 
     /* Fast path: fits inside currently committed space.
      * Telemetry is private to this arena and is joined into the process
@@ -537,7 +545,7 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
      * here put a store per allocation on a line every worker shares; the join
      * is four RMWs per request instead, and it is exact, where the plain
      * stores here were approximate by design. */
-    if (new_cursor <= arena->committed_end) {
+    if (fits_reserved && new_cursor <= arena->committed_end) {
         void* ptr = arena->cursor;
         arena->cursor = new_cursor;
         arena->alloc_count++;
@@ -555,7 +563,7 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     }
 
     /* Slow path: fits inside reservation, commit more pages */
-    if (new_cursor <= arena->reserved_end) {
+    if (fits_reserved) {
         size_t needed = (size_t)(new_cursor - arena->committed_end);
         size_t page_aligned = orbit_align_up(needed, arena->page_size);
         if (page_aligned == 0) {
