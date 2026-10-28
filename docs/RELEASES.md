@@ -25,7 +25,8 @@ A release contains:
   admin) that installs `orbit.exe` on PATH, registers the `.orb` icon and
   `orbit check` double-click verb, and ships `std/` + `runtime/` beside the
   binary so imports and builds work outside a source checkout, plus `lib/`
-  with the prebuilt runtime archive;
+  with the prebuilt runtime archives, and `bin\r6.exe`, the native backend
+  (`orbit build --backend=native`, see [Commands](COMMANDS.md#backends-c-and-native));
 - on Linux, `orbit-linux-x86_64.tar.gz`: the same compiler bundled with `std/`
   + `runtime/` + `lib/` beside the binary (extract and run, nothing to copy);
 - `SHA256SUMS`: SHA-256 hashes of every other file in the release, generated
@@ -62,7 +63,7 @@ outside the repo, and uninstall removing binary, keys and PATH entry.
 Layout under the install dir (mirrors the repo, which is why resolution works):
 
 ```console
-orbit.exe  orbit.ico  LICENSE.txt  std\  runtime\
+orbit.exe  orbit.ico  LICENSE.txt  std\  runtime\  lib\  bin\r6.exe
 ```
 
 The install trap below applies to the raw `orbit-windows-x86_64.exe`
