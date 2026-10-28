@@ -313,8 +313,8 @@ fn findRuntimeLib(rtDir: string) -> string {
 }
 
 // The runtime sources the archive is built from: the .c and .h files directly
-// in the runtime directory, minus the test programs. scripts/mklib_runtime.py
-// selects the same set.
+// in the runtime directory and in its gen/ subdirectory, minus the test
+// programs. scripts/mklib_runtime.py selects the same set.
 fn runtimeSourceCounts(name: string) -> bool {
     val n = name.len()
     if n < 3 { return false }
@@ -352,6 +352,19 @@ fn runtimeArchiveFresh(rtDir: string, archive: string) -> bool {
             seen = seen + 1
         }
         i = i + 1
+    }
+    // runtime/gen holds the C generated from runtime/orb; its files are stamped
+    // as "gen/<name>".
+    val genNames = orbit_file_list_dir_selfhost(rtDir + "/gen")
+    var j = 0
+    while j < genNames.len() {
+        val name: string = genNames.get(j)
+        if runtimeSourceCounts(name) {
+            val digest = orbit_string_hash_selfhost(orbit_file_read_selfhost(rtDir + "/gen/" + name))
+            if lineListed(recorded, "gen/" + name + " " + digest) == false { return false }
+            seen = seen + 1
+        }
+        j = j + 1
     }
     return seen == recorded.len()
 }

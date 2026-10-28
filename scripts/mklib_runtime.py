@@ -89,16 +89,21 @@ def runtime_stamp(runtime_dir):
     runtimeArchiveFresh) only when it finds these lines for the runtime
     directory it resolves, so an archive built from older sources is skipped
     instead of linked. The file set is the .c and .h files directly in the
-    directory, minus test_*, and must match runtimeSourceCounts there.
+    directory and in its gen/ subdirectory (named "gen/<name>"), minus test_*,
+    and must match runtimeSourceCounts there.
     """
     lines = []
-    for path in sorted(pathlib.Path(runtime_dir).iterdir()):
-        name = path.name
-        if not path.is_file() or not name.endswith((".c", ".h")):
+    root = pathlib.Path(runtime_dir)
+    for prefix, folder in (("", root), ("gen/", root / "gen")):
+        if not folder.is_dir():
             continue
-        if name.startswith("test_"):
-            continue
-        lines.append("%s %s\n" % (name, fnv1a_hex(path.read_bytes())))
+        for path in sorted(folder.iterdir()):
+            name = path.name
+            if not path.is_file() or not name.endswith((".c", ".h")):
+                continue
+            if name.startswith("test_"):
+                continue
+            lines.append("%s%s %s\n" % (prefix, name, fnv1a_hex(path.read_bytes())))
     return "".join(lines)
 
 
