@@ -1183,7 +1183,7 @@ fn irVerifierOperandType(func: IRFunction, v: IRValue) -> string {
 // string-concat destination typed as an integer. `unknown` is allowed to
 // pass -- its silence is the census's subject, not a contradiction -- but a
 // known type meeting a different known type is a bug and fails the build.
-fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list < string >, warns: list < string >) {
+fn verifyIRTypes(backend: CBackend, func: IRFunction, fnHeads: list < int >, fnNext: list < int >, errs: list < string >, warns: list < string >) {
     var i = 0
     while i < func.instructions.len() {
         val inst: IRInstruction = func.instructions.get(i)
@@ -1276,11 +1276,10 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list < string >, war
                     if cn != "" {
                         var rt = feBuildTimeCallType(cn)
                         if irVerifierKnown(rt) == false && rt != "void" {
-                            var fi = 0
-                            while fi < backend.module.functions.len() {
+                            val fi = verifierFindFunction(backend, fnHeads, fnNext, cn)
+                            if fi >= 0 {
                                 val f: IRFunction = backend.module.functions.get(fi)
-                                if f.name == cn { rt = f.returnType }
-                                fi = fi + 1
+                                rt = f.returnType
                             }
                         }
                         if irVerifierKnown(rt) && irVerifierKnown(dt) && rt != dt && rt != "void" && dt != "result" {
@@ -1388,13 +1387,53 @@ fn verifyBoolBinop(func: IRFunction, inst: IRInstruction, dt: string, errs: list
     }
 }
 
+// Function names hashed into chains, so a call's return type costs its
+// own chain rather than a walk of every function: on the compiler's own
+// module the walk was a third of `orbit check`. Chains run from the last
+// function of a name, which is the one the walk it replaced kept.
+fn verifierNameBucket(name: string) -> int {
+    var h = 0
+    var k = 0
+    val n = orbit_string_len(name)
+    while k < n {
+        h = (h * 31 + orbit_string_char_at_selfhost(name, k)) % 4093
+        k = k + 1
+    }
+    return h
+}
+
+fn verifierFindFunction(backend: CBackend, fnHeads: list < int >, fnNext: list < int >, name: string) -> int {
+    var at = fnHeads.get(verifierNameBucket(name))
+    while at >= 0 {
+        val f: IRFunction = backend.module.functions.get(at)
+        if f.name == name { return at }
+        at = fnNext.get(at)
+    }
+    return -1
+}
+
 fn verifyModuleTypes(backend: CBackend) -> list < string > {
     val errs: list < string > = []
     val warns: list < string > = []
+    val fnHeads: list < int > = []
+    var b = 0
+    while b < 4093 {
+        fnHeads.push(-1)
+        b = b + 1
+    }
+    val fnNext: list < int > = []
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val g: IRFunction = backend.module.functions.get(fi)
+        val bucket = verifierNameBucket(g.name)
+        fnNext.push(fnHeads.get(bucket))
+        fnHeads.set(bucket, fi)
+        fi = fi + 1
+    }
     var i = 0
     while i < backend.module.functions.len() {
         val f: IRFunction = backend.module.functions.get(i)
-        verifyIRTypes(backend, f, errs, warns)
+        verifyIRTypes(backend, f, fnHeads, fnNext, errs, warns)
         i = i + 1
     }
     if orbit_os_env_selfhost("ORBIT_IR_VERIFY") != "" {
