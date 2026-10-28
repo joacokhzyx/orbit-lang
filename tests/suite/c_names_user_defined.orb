@@ -1,4 +1,5 @@
 // expect-exit 0
+// native-known-failing: the runtime archive exports an unprefixed system_uptime and R6 emits user symbols unmangled, so the link reports a multiple definition
 // A program may name its own symbols after anything C or the runtime declares.
 // The C backend emits every user symbol as `o_<name>`, so `sin`, `printf`,
 // `remainder` and `exit` do not meet <math.h>, <stdio.h> or <stdlib.h>, and

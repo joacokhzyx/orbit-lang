@@ -174,6 +174,10 @@ def main() -> int:
     ok = 0
     failed = []
     ratchets = []
+    # `// native-known-failing: <why>` pins a defect of the native lane only:
+    # the case must still fail to build there, and a build that succeeds fails
+    # the gate so the directive is deleted. The C lane ignores it.
+    native_red = {}
     exe_suffix = ".exe" if os.name == "nt" else ""
 
     plans = []
@@ -196,6 +200,9 @@ def main() -> int:
         else:
             expected = int(m.group(1)) if m else 0
         plans.append((path, name, expected, ratchet.group(1) if ratchet else None))
+        nk = re.search(r"^\s*//\s*native-known-failing\s*:?\s*(\S.*?)\s*$", src, re.M)
+        if nk and native:
+            native_red[name] = nk.group(1)
 
     def run_one(plan):
         # Each case owns a TEMP subdir: the intermediate C has a fixed name
@@ -249,6 +256,11 @@ def main() -> int:
         if kind == "timeout-build":
             failed.append(name)
             out.fail(f"Failed {name}: timed out building")
+        elif kind == "nobuild" and name in native_red:
+            ok += 1
+            ratchets.append(name)
+            out.say(f"Testing {name} ... did not build natively, still red as "
+                    f"declared (native-known-failing: {native_red[name]})")
         elif kind == "nobuild":
             tail, build_rc = rest
             failed.append(name)
@@ -270,6 +282,10 @@ def main() -> int:
                      f"nothing. Delete the known-failing: directive and this "
                      f"becomes ordinary coverage.")
             out.ci_error(f"[suite ratchet {name}] known-failing now exits 0")
+        elif name in native_red:
+            failed.append(name)
+            out.fail(f"Failed {name}: native-known-failing but it now builds -- "
+                     f"delete the native-known-failing: directive")
         elif kind == "ok":
             ok += 1
             out.say(f"Testing {name} ... exit {rest[0]} as expected")

@@ -209,6 +209,10 @@ NUL bytes are length-delimited on the wire but cannot round-trip as
 `orbit_string`. Treat them as saved bytes. Pinned by
 `runtime/test_upload.c`.
 
+## The native backend does not mangle user symbols
+
+The C backend emits every user symbol as `o_<name>`. R6 emits them as written. The runtime archive exports `system_uptime`, `system_pid`, `system_env`, `system_os_exec`, the `system_*` counters and `current_lease` unprefixed, so a user function of one of those names fails the native link with a multiple definition. `tests/suite/c_names_user_defined.orb` pins it with `native-known-failing`: `suite_native` asserts the build is still red and fails when it succeeds.
+
 ## Cluster is single-host only
 
 `orbit cluster` starts N copies of one service on this machine.
