@@ -6,7 +6,7 @@
 //
 // One caveat belongs with the names rather than in the language
 // reference, because it is what a reader of shiftLeft would guess
-// wrong: a shift count is masked to five bits, so shiftLeft(1, 32) is
+// wrong: a shift count is masked to six bits, so shiftLeft(1, 64) is
 // 1, not 0. The masking is the operator's.
 fn bitAnd(a: int, b: int) -> int {
     return a & b
