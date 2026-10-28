@@ -171309,7 +171309,7 @@ orbit_string o_helpText(OrbitArena* arena, orbit_bool useColor) {
     r_60 = orbit_string_concat(arena, r_59, " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n");
     h = (void*)(r_60);
     r_61 = (void*)(h);
-    r_62 = orbit_string_concat(arena, r_61, "                             Parse and typecheck, no code emitted\n");
+    r_62 = orbit_string_concat(arena, r_61, "                             Parse, typecheck and verify the IR, no code emitted\n");
     h = (void*)(r_62);
     r_63 = (void*)(h);
     r_64 = orbit_string_concat(arena, r_63, "  ");

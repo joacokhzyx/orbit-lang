@@ -1389,7 +1389,8 @@ fn verifyBoolBinop(func: IRFunction, inst: IRInstruction, dt: string, errs: list
 
 // Function names hashed into chains, so a call's return type costs its
 // own chain rather than a walk of every function: on the compiler's own
-// module the walk was a third of `orbit check`. Chains run from the last
+// module the walk was a third of the IR build plus verification. Chains
+// run from the last
 // function of a name, which is the one the walk it replaced kept.
 fn verifierNameBucket(name: string) -> int {
     var h = 0
