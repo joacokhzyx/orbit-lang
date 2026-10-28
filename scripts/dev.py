@@ -723,15 +723,11 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     # flag_coverage is the fourth of the family and the same bargain: a CLI flag
     # is a promise written in --help, and a promise nothing reads is invisible in
     # every run because the run succeeds without doing what was asked.
-    # c_namespace is the same kind of stale text one level down: the runtime's
-    # C names, generated from runtime/*.h and the two DB sources. It compares a
-    # generated table with the source it was generated from, so it costs a read.
     return [
         ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
         ("walk_coverage", [py, f"{s_dir}/walk_coverage.py"]),
         ("doc_counts", [py, f"{s_dir}/doc_counts.py"]),
         ("flag_coverage", [py, f"{s_dir}/flag_coverage.py"]),
-        ("c_namespace", [py, f"{s_dir}/gen_c_namespace.py", "--check"]),
     ]
 
 
@@ -974,7 +970,7 @@ def main() -> int:
             (f" ({fp_stamp_line(binary)})" if binary.exists() else " (not built)"))
         say(f"T0: fmt --check sharded per file ({len(fmt_check_files())} files "
             "across compiler/, tests/suite/, std/, tests/std/ and examples/) "
-            "+ schema + walk + doc_counts + flags + c_namespace")
+            "+ schema + walk + doc_counts + flags")
         for tier in sorted(specs):
             names = ", ".join(n for n, _ in specs[tier])
             line = f"T{tier}: {names}"

@@ -82,17 +82,16 @@ SETUP = {
     "fmt/messy.orb": "fn main( )->int{return 0}\n",
     # Whitespace only: no tokens, so normalising to empty is correct.
     "fmt/blank.orb": "   \n\n  \n",
-    # A function named after a C library symbol. `orbit check` and `orbit build`
-    # both report this on stderr: diagnostics never go to stdout, so a script
-    # reading stdout sees only real output and artifacts (see stderr-diagnostics).
-    "reserved/read.orb": "fn read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return read(\"hi\")\n}\n",
-    # The same program with a safe name, which must still build.
-    "reserved/safe.orb": "fn user_read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return user_read(\"hi\")\n}\n",
-    # `orbit_` is the runtime's prefix. Reusing it passed `orbit check` and
-    # then failed as a C signature conflict against a runtime function.
+    # A program that fails `orbit check`. Diagnostics go to stderr and never to
+    # stdout, so a script reading stdout sees only real output and artifacts
+    # (see stderr-diagnostics).
+    "reserved/read.orb": "fn main() -> int {\n    return missing_name\n}\n",
+    # A function named after a C library symbol. The backend emits every user
+    # symbol under the `o_` prefix, so this builds like any other program.
+    "reserved/safe.orb": "fn read(text: string) -> int {\n    return text.len()\n}\n\nfn main() -> int {\n    return read(\"hi\")\n}\n",
+    # The runtime's `orbit_` prefix and a C type name as a model: both are
+    # ordinary user names now.
     "reserved/prefix.orb": "fn orbit_my_helper(x: int) -> int {\n    return x + 1\n}\n\nfn main() -> int {\n    return orbit_my_helper(1)\n}\n",
-    # A model becomes a C struct under the user's name, so a C type name
-    # collided at C compile time with nothing pointing back at the model.
     "reserved/model_c_type.orb": "model FILE {\n    x: int\n}\n\nfn main() -> int {\n    val f = FILE(1)\n    return f.x\n}\n",
     # `extern fn` is how the compiler itself reaches the runtime, so the
     # prefix reservation must not fire on declarations. Check-only: there is
@@ -142,33 +141,28 @@ CASES = [
     ("build-color-always", ["build", "--color", "always", "tiny.orb", "-o", "tc.exe"], 0, "out", "\x1b[", ""),
     ("build-color-never", ["build", "--color", "never", "tiny.orb", "-o", "tn.exe"], 0, "out", "wrote ", "\x1b["),
     ("check-color-always", ["check", "--color", "always", "reserved/read.orb"], 1, "err", "\x1b[31m", ""),
-    ("check-color-never", ["check", "--color", "never", "reserved/read.orb"], 1, "err", "C library function name", "\x1b["),
+    ("check-color-never", ["check", "--color", "never", "reserved/read.orb"], 1, "err", "missing_name", "\x1b["),
     ("cluster-noarg", ["cluster"], 2, "err", "Usage:", ""),
     ("cluster-help", ["cluster", "--help"], 0, "out", "Usage:", ""),
     ("cluster-bogus", ["cluster", "bogus"], 2, "err", "unknown command", ""),
     ("cluster-status-nostate", ["cluster", "status"], 1, "out", "no state file", ""),
     ("frontend-noarg", ["frontend"], 2, "err", "Usage:", ""),
-    # A function name that collides with a C library symbol must be refused by
-    # the front end, with a diagnostic that names the collision and suggests a
-    # rename. Previously this reached the C toolchain as "conflicting types for
-    # 'read'" or a link error, with nothing in the Orbit output explaining it.
-    ("reserved-name-check", ["check", "reserved/read.orb"], 1, "err",
-     "C library function name", ""),
-    ("reserved-name-build", ["build", "reserved/read.orb", "-o", "r.exe"], 1, "err",
-     "C library function name", ""),
-    ("reserved-name-suggests-rename", ["check", "reserved/read.orb"], 1, "err",
-     "user_read", ""),
+    # A function named after a C library symbol is an ordinary name: the
+    # backend emits it as `o_read`, so neither check nor build refuses it.
+    ("c-name-user-fn-check", ["check", "reserved/safe.orb"], 0, "out",
+     "no errors", "Semantic error"),
+    ("c-name-user-fn-builds", ["build", "--quiet", "reserved/safe.orb", "-o", "s.exe"], 0, "out",
+     "", "Semantic error"),
     # stderr-diagnostics: stdout must stay clean when a check fails, so anything reading only
     # stdout cannot mistake a failed check for a successful one.
     ("check-failure-keeps-stdout-clean", ["check", "reserved/read.orb"], 1, "out",
      "", "out:Semantic error"),
-    ("orbit-prefix-rejected", ["check", "reserved/prefix.orb"], 1, "err",
-     "reserved for the runtime", ""),
-    ("c-type-model-rejected", ["check", "reserved/model_c_type.orb"], 1, "err",
-     "is a C type name", ""),
+    ("orbit-prefix-allowed", ["check", "reserved/prefix.orb"], 0, "out",
+     "no errors", "Semantic error"),
+    ("c-type-model-allowed", ["check", "reserved/model_c_type.orb"], 0, "out",
+     "no errors", "Semantic error"),
     ("extern-prefix-allowed", ["check", "reserved/extern_prefix.orb"], 0, "out",
      "no errors", "Semantic error"),
-    ("reserved-name-safe-still-builds", ["build", "--quiet", "reserved/safe.orb", "-o", "s.exe"], 0, "out", "", "Semantic error"),
     # A C toolchain that is not installed is the one build failure the compiler
     # may diagnose itself, and it has to keep saying so: the wording is what
     # tells the user to set ORBIT_CC instead of filing a bug.

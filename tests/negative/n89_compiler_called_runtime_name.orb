@@ -1,0 +1,16 @@
+// case: user-fn-named-like-a-lowered-runtime-call
+// what: `text.slice(a, b)` lowers to a call to `orbit_string_slice`, and the IR
+//      names a callee by string. A user function of that name received the
+//      lowered call, so `text.slice(1, 3)` ran the user's body and printed its
+//      result with no diagnostic. The name is refused at the definition. Every
+//      other runtime name stays legal (tests/suite/c_names_user_defined.orb).
+// expect-error: is a runtime function the compiler calls itself
+fn orbit_string_slice(s: string, a: int, b: int) -> string {
+    return "user"
+}
+
+fn main() -> int {
+    val t = "abcdef"
+    print(t.slice(1, 3))
+    return 0
+}
