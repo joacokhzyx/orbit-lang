@@ -20,9 +20,20 @@ typedef struct OrbitStringPoolLocal {
     int          count;
     int          capacity;
 } OrbitStringPoolLocal;
-ORBIT_XLINK void orbit_string_pool_local_destroy(OrbitStringPoolLocal* pool);
-ORBIT_XLINK void orbit_string_pool_local_reset(OrbitStringPoolLocal* pool);
-void orbit_string_pool_init(int capacity);
-void orbit_string_pool_cleanup(void);
+
+/* Inline so that arena_destroy and arena_reset do not pull a string_pool
+ * member into every program: the pool is only created by orbit_string_intern,
+ * which no generated program calls. */
+static inline void orbit_string_pool_local_destroy(OrbitStringPoolLocal* pool) {
+    if (!pool) return;
+    free(pool->strings);
+    free(pool->lengths);
+    free(pool);
+}
+
+static inline void orbit_string_pool_local_reset(OrbitStringPoolLocal* pool) {
+    if (!pool) return;
+    pool->count = 0;
+}
 
 #endif

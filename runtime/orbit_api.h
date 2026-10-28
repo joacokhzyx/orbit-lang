@@ -359,10 +359,6 @@ OrbitArena* orbit_arena_pool_acquire(void);
 void orbit_arena_pool_release(OrbitArena* arena);
 void orbit_arena_pool_cleanup(void);
 
-/* ── External functions: string pool (canonical: runtime/string_pool.c)  */
-void orbit_string_pool_init(int capacity);
-void orbit_string_pool_cleanup(void);
-
 /* ── External functions: collections (canonical: runtime/collections.c)  */
 const char* orbit_list_kind_name(int kind);
 void orbit_list_index_error(const char* where, unsigned long index,

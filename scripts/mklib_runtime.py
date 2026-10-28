@@ -41,7 +41,9 @@ RUNTIME = ROOT / "runtime"
 
 # One archive member per module. perf.c owns the performance counters and the
 # Kynx lease pointer; every other module binds to them through extern.
-CORE_MODULES = ("perf", "types", "console", "crash", "arena", "string_pool", "arena_pool",
+CORE_MODULES = ("perf", "types", "console", "crash",
+                "arena", "arena_alloc", "arena_oom", "arena_reset", "arena_checkpoint",
+                "arena_child", "arena_stats", "arena_global", "arena_pool",
                 "collections", "json", "file", "os", "builtins", "crypto",
                 "selfhost", "energy", "ledger")
 NET_MODULES = ("http", "kynx", "pulse")

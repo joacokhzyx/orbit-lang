@@ -59,6 +59,13 @@
 
 /* ── Memory ─────────────────────────────────────────────────────────── */
 #include "arena.c"
+#include "arena_alloc.c"
+#include "arena_oom.c"
+#include "arena_reset.c"
+#include "arena_checkpoint.c"
+#include "arena_child.c"
+#include "arena_stats.c"
+#include "arena_global.c"
 #include "arena_pool.c"
 #include "string_pool.c"
 
