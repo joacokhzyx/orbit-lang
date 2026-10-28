@@ -76,6 +76,9 @@ static bool orbit_db_valid_identifier(const char* name) {
     return true;
 }
 
+static int orbit_db_authorizer(void* user, int action, const char* a1, const char* a2,
+                               const char* a3, const char* a4);
+
 void orbit_db_init(const char* db_path) {
     int open_rc = sqlite3_open(db_path, &orbit_db_conn);
     /* sqlite3_open hands back a non-NULL handle even when it fails: the handle
@@ -102,6 +105,9 @@ void orbit_db_init(const char* db_path) {
     sqlite3_busy_timeout(orbit_db_conn, 5000);
     sqlite3_exec(orbit_db_conn, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
     sqlite3_progress_handler(orbit_db_conn, 10, orbit_sqlite_progress_handler, NULL);
+    /* Installed once: it is a no-op until a filtered read arms it for its own
+     * thread (orbit_db_auth_table), so DDL and writes are unaffected. */
+    sqlite3_set_authorizer(orbit_db_conn, orbit_db_authorizer, NULL);
     const char* init_sql =
         "CREATE TABLE IF NOT EXISTS notes ("
         "  id TEXT PRIMARY KEY, title TEXT, body TEXT, author_id TEXT, created_at TEXT, is_private INTEGER"
@@ -346,21 +352,130 @@ orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col) {
     return buf;
 }
 
-/** @brief Fetch rows from @p col matching @p condition (a raw SQL WHERE clause fragment) and return a JSON array. */
-orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char* condition) {
-    KYNX_DB_QUERY_CHECK("[]");
-    size_t query_len = strlen("SELECT * FROM  WHERE ;") + strlen(col.table_name) + strlen(condition) + 1;
-    char* query = (char*)orbit_alloc(arena, query_len);
-    if (!query) return "[]";
-    snprintf(query, query_len, "SELECT * FROM %s WHERE %s;", col.table_name, condition);
+/* ── Filtered reads: the WHERE fragment contract ───────────────────────
+ *
+ * Model.where(cond, p...) and Model.count(cond, p...) take a SQL fragment
+ * with `?` placeholders. Values reach SQLite only through sqlite3_bind_text;
+ * no value is ever pasted into the statement text. The table name is a
+ * validated identifier. The fragment itself is code, so it is held to a
+ * boolean expression over the model's own columns:
+ *   - no quote characters (' " ` [): a literal is a value and goes in a `?`;
+ *     this also closes SQLite's fallback that reads an unknown "name" as a
+ *     string, so an unknown column is an error and never a constant;
+ *   - no ';' and no comment opener (-- and slash-star);
+ *   - anonymous placeholders only, and exactly as many as there are params;
+ *   - the prepared statement must be one read-only statement, and an
+ *     authorizer limits it to SELECT, the model's own table and functions
+ *     (no other table, no sqlite_master, no recursive CTE).
+ * A fragment that breaks the contract is refused with a line on stderr and
+ * answers "[]", the same value as an empty result. */
+static __thread const char* orbit_db_auth_table = NULL;
 
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) != SQLITE_OK)
-        return "[]";
+static int orbit_db_authorizer(void* user, int action, const char* a1, const char* a2,
+                               const char* a3, const char* a4) {
+    (void)user; (void)a2; (void)a3; (void)a4;
+    const char* table = orbit_db_auth_table;
+    if (!table) return SQLITE_OK;
+    switch (action) {
+    case SQLITE_SELECT:
+    case SQLITE_FUNCTION:
+        return SQLITE_OK;
+    case SQLITE_READ:
+        return (a1 && sqlite3_stricmp(a1, table) == 0) ? SQLITE_OK : SQLITE_DENY;
+    default:
+        return SQLITE_DENY;
+    }
+}
+
+static void orbit_db_refuse(const char* table, const char* why) {
+    fprintf(stderr, "orbit: db: query on '%s' refused: %s\n", table ? table : "(null)", why);
+}
+
+/** @brief NULL when @p cond is an admissible fragment, else the reason. */
+static const char* orbit_db_fragment_reason(const char* cond) {
+    if (!cond || !*cond) return "empty condition";
+    for (const char* c = cond; *c; c++) {
+        switch (*c) {
+        case '\'': case '"': case '`': case '[':
+            return "quote characters are not allowed in a condition; pass the value as a ? parameter";
+        case ';':
+            return "';' is not allowed in a condition";
+        case '-':
+            if (c[1] == '-') return "comments are not allowed in a condition";
+            break;
+        case '/':
+            if (c[1] == '*') return "comments are not allowed in a condition";
+            break;
+        default:
+            break;
+        }
+    }
+    return NULL;
+}
+
+/** @brief Prepare "<select> FROM <table> [WHERE <cond>]" and bind @p params.
+ *         Returns NULL after writing the reason to stderr when anything in
+ *         the contract above fails. The caller finalizes the statement. */
+static sqlite3_stmt* orbit_db_prepare_bound(OrbitArena* arena, const char* select,
+                                            const char* table, const char* cond,
+                                            int nparams, const char* const* params) {
+    if (!orbit_db_valid_identifier(table)) {
+        orbit_db_refuse(table, "table name is not an identifier");
+        return NULL;
+    }
+    if (cond) {
+        const char* why = orbit_db_fragment_reason(cond);
+        if (why) { orbit_db_refuse(table, why); return NULL; }
+    }
+    size_t query_len = strlen(select) + strlen(table) + (cond ? strlen(cond) : 0) + 16;
+    char* query = (char*)orbit_alloc(arena, query_len);
+    if (!query) return NULL;
+    if (cond) snprintf(query, query_len, "%s FROM %s WHERE %s", select, table, cond);
+    else snprintf(query, query_len, "%s FROM %s", select, table);
+
+    sqlite3_stmt* stmt = NULL;
+    const char* tail = NULL;
+    orbit_db_auth_table = table;
+    int rc = sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, &tail);
+    orbit_db_auth_table = NULL;
+    if (rc != SQLITE_OK || !stmt) {
+        orbit_db_refuse(table, rc == SQLITE_AUTH ? "condition reads something other than this table"
+                                                  : sqlite3_errmsg(orbit_db_conn));
+        if (stmt) sqlite3_finalize(stmt);
+        return NULL;
+    }
+    while (tail && (*tail == ' ' || *tail == '\t' || *tail == '\r' || *tail == '\n')) tail++;
+    const char* why = NULL;
+    if (tail && *tail) why = "more than one statement";
+    else if (!sqlite3_stmt_readonly(stmt)) why = "statement is not read-only";
+    else if (sqlite3_bind_parameter_count(stmt) != nparams) why = "placeholder count does not match the parameter count";
+    else {
+        for (int i = 1; i <= nparams; i++) {
+            if (sqlite3_bind_parameter_name(stmt, i)) { why = "only anonymous ? placeholders are allowed"; break; }
+        }
+    }
+    if (why) {
+        orbit_db_refuse(table, why);
+        sqlite3_finalize(stmt);
+        return NULL;
+    }
+    for (int i = 0; i < nparams; i++) {
+        const char* v = params && params[i] ? params[i] : "";
+        sqlite3_bind_text(stmt, i + 1, v, -1, SQLITE_TRANSIENT);
+    }
+    return stmt;
+}
+
+/** @brief Rows of @p table matching @p condition, bound with @p params, as a JSON array ("[]" on refusal). */
+static orbit_string orbit_db_where_bound(OrbitArena* arena, const char* table, const char* condition,
+                                         int nparams, const char* const* params) {
+    KYNX_DB_QUERY_CHECK("[]");
+    sqlite3_stmt* stmt = orbit_db_prepare_bound(arena, "SELECT *", table, condition, nparams, params);
+    if (!stmt) return "[]";
 
     size_t buf_cap = 8192;
     char* buf = (char*)orbit_alloc(arena, buf_cap);
-    if (!buf) return "[]";
+    if (!buf) { sqlite3_finalize(stmt); return "[]"; }
 
     char* p = buf;
     *(p++) = '[';
@@ -389,6 +504,11 @@ orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char*
 
     sqlite3_finalize(stmt);
     return buf;
+}
+
+/** @brief Rows of @p col matching @p condition (a fragment with no placeholders; see the contract above). */
+orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char* condition) {
+    return orbit_db_where_bound(arena, col.table_name, condition, 0, NULL);
 }
 
 /** @brief Fetch the first row from @p col and return it as a JSON object string, or "" if the table is empty. */
@@ -747,82 +867,15 @@ orbit_string orbit_db_query_order_desc(OrbitArena* arena, const char* table_name
 
 orbit_string orbit_db_query_where(OrbitArena* arena, const char* table_name, const char* condition) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
-    /* A NULL condition would die in strlen inside orbit_db_where; the
-     * siblings (where_p/where_v) already answer "[]" here. */
     if (!condition) return "[]";
-    orbit_collection col = { table_name, NULL };
     uint64_t t0 = orbit_ledger_db_begin();
-    orbit_string r = orbit_db_where(arena, col, condition);
+    orbit_string r = orbit_db_where_bound(arena, table_name, condition, 0, NULL);
     orbit_ledger_db_end(t0);
     return r;
 }
 
-/** @brief Replace the first occurrence of @p needle in @p haystack with @p replacement (arena-allocated). */
-static char* orbit_replace_first(OrbitArena* arena, const char* haystack, const char* needle, const char* replacement) {
-    const char* pos = strstr(haystack, needle);
-    if (!pos) {
-        size_t len = strlen(haystack) + 1;
-        char* out = (char*)orbit_alloc(arena, len);
-        if (!out) return NULL;
-        memcpy(out, haystack, len);
-        return out;
-    }
-    size_t pre = (size_t)(pos - haystack);
-    size_t needle_len = strlen(needle);
-    size_t repl_len = strlen(replacement);
-    size_t out_len = strlen(haystack) - needle_len + repl_len + 1;
-    char* out = (char*)orbit_alloc(arena, out_len);
-    if (!out) return NULL;
-    memcpy(out, haystack, pre);
-    memcpy(out + pre, replacement, repl_len);
-    /* The tail fits exactly: out_len - (pre + repl_len) == strlen(pos + needle_len) + 1 */
-    memcpy(out + pre + repl_len, pos + needle_len, strlen(pos + needle_len) + 1);
-    return out;
-}
-
-/** @brief Substitute the N '?' placeholders of @p condition with %Q-escaped
- *         params in a single pass. One pass (not repeated replace-first) so
- *         a '?' inside an already-substituted literal is never re-read as a
- *         placeholder. Returns NULL on placeholder/param count mismatch or
- *         on ';' (statement chaining is never a WHERE fragment). */
-static char* orbit_db_subst_params(OrbitArena* arena, const char* condition, const char** params, int nparams) {
-    int qmarks = 0;
-    for (const char* c = condition; *c; c++) {
-        if (*c == '?') qmarks++;
-    }
-    if (qmarks != nparams) return NULL;
-    if (strstr(condition, ";") != NULL) return NULL;
-    char** escaped = NULL;
-    if (nparams > 0) {
-        escaped = (char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
-        if (!escaped) return NULL;
-        for (int i = 0; i < nparams; i++) {
-            escaped[i] = sqlite3_mprintf("%Q", params[i] ? params[i] : "");
-            if (!escaped[i]) return NULL;
-        }
-    }
-    size_t out_len = strlen(condition) + 1;
-    for (int i = 0; i < nparams; i++) out_len += strlen(escaped[i]);
-    char* out = (char*)orbit_alloc(arena, out_len);
-    if (!out) return NULL;
-    char* p = out;
-    int used = 0;
-    for (const char* c = condition; *c; c++) {
-        if (*c == '?' && used < nparams) {
-            size_t len = strlen(escaped[used]);
-            memcpy(p, escaped[used], len);
-            p += len;
-            used++;
-        } else {
-            *(p++) = *c;
-        }
-    }
-    *p = '\0';
-    return out;
-}
-
-/** @brief Parameterized WHERE with N params: binds each param as an escaped
- *         SQL literal into the '?' placeholders of @p condition, in order. */
+/** @brief Parameterized WHERE with N params: each param is bound, in order,
+ *         to the '?' placeholders of @p condition. */
 orbit_string orbit_db_query_where_v(OrbitArena* arena, const char* table_name, const char* condition, int nparams, ...) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
     if (!condition || !*condition) return "[]";
@@ -839,11 +892,8 @@ orbit_string orbit_db_query_where_v(OrbitArena* arena, const char* table_name, c
         }
         va_end(ap);
     }
-    char* cond = orbit_db_subst_params(arena, condition, params, nparams);
-    if (!cond) return "[]";
-    orbit_collection col = { table_name, NULL };
     uint64_t t0 = orbit_ledger_db_begin();
-    orbit_string r = orbit_db_where(arena, col, cond);
+    orbit_string r = orbit_db_where_bound(arena, table_name, condition, nparams, params);
     orbit_ledger_db_end(t0);
     return r;
 }
@@ -879,34 +929,22 @@ orbit_int orbit_db_count_v(OrbitArena* arena, const char* table_name, const char
     if (!condition) return 0;
     if (nparams < 0) return 0;
     KYNX_DB_QUERY_CHECK(0);
-    char* cond = NULL;
-    if (*condition) {
-        const char** params = NULL;
-        if (nparams > 0) {
-            params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
-            if (!params) return 0;
-            va_list ap;
-            va_start(ap, nparams);
-            for (int i = 0; i < nparams; i++) {
-                params[i] = va_arg(ap, const char*);
-            }
-            va_end(ap);
+    const char** params = NULL;
+    if (*condition && nparams > 0) {
+        params = (const char**)orbit_alloc(arena, (size_t)nparams * sizeof(char*));
+        if (!params) return 0;
+        va_list ap;
+        va_start(ap, nparams);
+        for (int i = 0; i < nparams; i++) {
+            params[i] = va_arg(ap, const char*);
         }
-        cond = orbit_db_subst_params(arena, condition, params, nparams);
-        if (!cond) return 0;
+        va_end(ap);
     }
-    size_t query_len = strlen("SELECT COUNT(*) FROM  ;") + strlen(table_name)
-        + (cond ? strlen(cond) + strlen(" WHERE ") : 0) + 1;
-    char* query = (char*)orbit_alloc(arena, query_len);
-    if (!query) return 0;
-    if (cond) {
-        snprintf(query, query_len, "SELECT COUNT(*) FROM %s WHERE %s;", table_name, cond);
-    } else {
-        snprintf(query, query_len, "SELECT COUNT(*) FROM %s;", table_name);
-    }
-    sqlite3_stmt* stmt = NULL;
+    sqlite3_stmt* stmt = orbit_db_prepare_bound(arena, "SELECT COUNT(*)", table_name,
+                                                *condition ? condition : NULL,
+                                                *condition ? nparams : 0, params);
     orbit_int result = 0;
-    if (sqlite3_prepare_v2(orbit_db_conn, query, -1, &stmt, NULL) == SQLITE_OK) {
+    if (stmt) {
         orbit_perf_stats.db_queries++;
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             result = (orbit_int)sqlite3_column_int64(stmt, 0);
@@ -919,27 +957,10 @@ orbit_int orbit_db_count_v(OrbitArena* arena, const char* table_name, const char
 }
 orbit_string orbit_db_query_where_p(OrbitArena* arena, const char* table_name, const char* condition, const char* param) {
     if (!orbit_db_valid_identifier(table_name)) return "[]";
-    /* Single-parameter contract: exactly one '?' placeholder (extras would
-     * silently bind as NULL) and no ';' — statement chaining is never a
-     * legitimate WHERE fragment. */
     if (!condition || !*condition) return "[]";
-    {
-        int qmarks = 0;
-        for (const char* c = condition; *c; c++) {
-            if (*c == '?') qmarks++;
-        }
-        if (qmarks != 1) return "[]";
-    }
-    if (strstr(condition, ";") != NULL) return "[]";
-    KYNX_DB_QUERY_CHECK("[]");
-    char* escaped = sqlite3_mprintf("%Q", param);
-    if (!escaped) return "[]";
-    char* cond = orbit_replace_first(arena, condition, "?", escaped);
-    sqlite3_free(escaped);
-    if (!cond) return "[]";
-    orbit_collection col = { table_name, NULL };
+    const char* params[1] = { param };
     uint64_t t0 = orbit_ledger_db_begin();
-    orbit_string r = orbit_db_where(arena, col, cond);
+    orbit_string r = orbit_db_where_bound(arena, table_name, condition, 1, params);
     orbit_ledger_db_end(t0);
     return r;
 }

@@ -205,6 +205,74 @@ static void test_find_prepare_failure_is_empty(void) {
     orbit_db_close();
 }
 
+/* Values are data. Each hostile string below is bound to a `?`, so it can
+ * only be compared against the column; none of them changes the statement.
+ * The control row proves the hostile value did not widen the match and the
+ * table survived. */
+static void test_injection_values_are_data(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":3}"));
+    assert(orbit_db_insert("items", "{\"id\":\"b\",\"name\":\"nail\",\"qty\":7}"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    const char* evil[] = {
+        "' OR 1=1 --",
+        "1=1; DROP TABLE items",
+        "x'; DELETE FROM items; --",
+        "\" OR \"\"=\"",
+        "%",
+    };
+    for (size_t i = 0; i < sizeof(evil) / sizeof(evil[0]); i++) {
+        assert(strcmp(orbit_db_query_where_p(arena, "items", "name = ?", evil[i]), "[]") == 0);
+        assert(strcmp(orbit_db_query_where_v(arena, "items", "name = ? AND qty = ?", 2, evil[i], "3"), "[]") == 0);
+        assert(orbit_db_count_v(arena, "items", "name = ?", 1, evil[i]) == 0);
+    }
+    assert(orbit_db_count_all(arena, "items") == 2);
+    /* The same text stored as a value round-trips: it is compared as bytes. */
+    assert(orbit_db_insert("items", "{\"id\":\"c\",\"name\":\"' OR 1=1 --\",\"qty\":1}"));
+    orbit_string hit = orbit_db_query_where_p(arena, "items", "name = ?", "' OR 1=1 --");
+    assert(strstr(hit, "\"id\":\"c\"") != NULL);
+    assert(strstr(hit, "\"id\":\"a\"") == NULL);
+    assert(orbit_db_count_all(arena, "items") == 3);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
+/* The fragment is code, so it is held to a boolean expression over the
+ * model's own columns. Every refusal answers "[]" (and a line on stderr),
+ * and the table is intact afterwards. */
+static void test_injection_fragments_are_refused(void) {
+    fresh_db();
+    assert(orbit_db_insert("items", "{\"id\":\"a\",\"name\":\"hammer\",\"qty\":3}"));
+    OrbitArena* arena = orbit_arena_create(131072);
+    const char* bad[] = {
+        "1=1; DROP TABLE items",
+        "name = 'hammer'",
+        "name = \"hammer\"",
+        "1=1 --",
+        "1=1 /* x */",
+        "qty = 3 UNION SELECT * FROM sqlite_master",
+        "id IN (SELECT name FROM sqlite_master)",
+        "ghost_column = 1",
+        "qty = ?1",
+        "qty = :x",
+        "",
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        assert(strcmp(orbit_db_query_where(arena, "items", bad[i]), "[]") == 0);
+        assert(orbit_db_count_v(arena, "items", bad[i], 0) == 0 || bad[i][0] == '\0');
+    }
+    /* A table name is an identifier, never SQL. */
+    assert(strcmp(orbit_db_query_where(arena, "items; DROP TABLE items", "qty = 3"), "[]") == 0);
+    assert(strcmp(orbit_db_query_where(arena, "items WHERE 1=1 --", "qty = 3"), "[]") == 0);
+    assert(orbit_db_count_all(arena, "items") == 1);
+    /* Controls: admissible fragments still match. */
+    assert(strstr(orbit_db_query_where(arena, "items", "qty >= 3"), "\"id\":\"a\"") != NULL);
+    assert(strstr(orbit_db_query_where_v(arena, "items", "name LIKE ?", 1, "h%"), "\"id\":\"a\"") != NULL);
+    assert(orbit_db_count_v(arena, "items", "qty >= ?", 1, "3") == 1);
+    orbit_arena_destroy(arena);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("db_ops tests\n");
     fflush(stdout);
@@ -213,6 +281,8 @@ int main(void) {
     RUN_TEST(test_update_missing_is_false);
     RUN_TEST(test_where_two_params);
     RUN_TEST(test_where_contract);
+    RUN_TEST(test_injection_values_are_data);
+    RUN_TEST(test_injection_fragments_are_refused);
     RUN_TEST(test_count);
     RUN_TEST(test_order);
     RUN_TEST(test_index_migration);

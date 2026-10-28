@@ -738,14 +738,37 @@ the primary key) and carries these static methods:
 |---|---|---|
 | `M.all()` | JSON array string | full scan |
 | `M.order(col)` / `M.order_desc(col)` | JSON array string | whole-table scan by a validated column; anything else answers `[]` |
-| `M.where(cond)` | JSON array string | raw fragment; keep it constant |
-| `M.where(cond, p1..pn)` | JSON array string | one `?` per param, `%Q`-escaped in order |
+| `M.where(cond)` | JSON array string | `cond` is a condition over the model's columns, see below; `[]` when refused |
+| `M.where(cond, p1..pn)` | JSON array string | one `?` per param, bound in order with `sqlite3_bind_text` |
 | `M.find(id)` | JSON object string | single row by key; `""` when missing (`== ""` is the miss check) |
 | `M.first()` | JSON object string | first row, `LIMIT 1`; `""` on an empty table |
 | `M.count()` / `M.count(cond, p...)` | `int` | `COUNT(*)` without fetching rows |
 | `M.create(json)` | `bool` | false on duplicate id or unusable payload |
 | `M.update(id, json)` | `bool` | partial: only present keys are written, `id` never; false when no row changed |
 | `M.delete(id)` | `bool` | true only when a row was removed |
+
+### Filter conditions
+
+`M.where(cond, p...)` and `M.count(cond, p...)` build `SELECT ... FROM <table> WHERE <cond>`.
+Values reach SQLite only through `sqlite3_bind_text`; none is pasted into the
+statement text, so a value such as `' OR 1=1 --` is compared as bytes.
+
+`cond` is code, so the runtime holds it to a boolean expression over the model's
+own columns. A condition is refused when it:
+
+- contains `'`, `"`, a backtick or `[` (a literal is a value: write `?` and pass it);
+- contains `;`, `--` or `/*`;
+- has a placeholder count different from the number of parameters, or a named
+  placeholder (`?1`, `:x`, `@x`, `$x`);
+- names a column the model does not have (SQLite reports it, and the quote rule
+  stops a misspelt `"column"` from being read as a string);
+- reads another table, `sqlite_master` or a recursive CTE (an authorizer limits
+  the statement to `SELECT` on the model's own table), or is not one read-only statement.
+
+A refused query writes `orbit: db: query on '<table>' refused: <reason>` to stderr
+and answers `[]` (`0` for `count`). The table name is always the model's own and is
+checked to be `[A-Za-z0-9_]+`. `order`/`order_desc` take a column name checked by the
+same rule. Do not build `cond` from request data: `doctor` rule `D025` flags that flow.
 
 Reads answer JSON strings, not typed model values. `count` answers `int`.
 Indexes ride `migrations "CREATE INDEX ..."` lines (see
