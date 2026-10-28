@@ -125,7 +125,7 @@ The exact options supported by a command are defined by the compiler returned by
 
 `orbit build` and `orbit run` take `--backend=c|native`. `ORBIT_BACKEND` sets
 the same choice for every command that builds, and the flag wins over it.
-The default is `c`. An unknown name is a usage error (exit 2) for the flag and
+The default is `native` on Windows and `c` elsewhere. An unknown name is a usage error (exit 2) for the flag and
 a build error (exit 1) for the variable.
 
 - `c` emits C and runs the system C compiler (`ORBIT_CC`, else `CC`, else `cc`).

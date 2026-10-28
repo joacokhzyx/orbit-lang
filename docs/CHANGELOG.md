@@ -21,7 +21,7 @@ Native backend:
   `bin\r6.exe` under the install root. The runtime archives come from
   `R6_RUNTIME_DIR`, set from `ORBIT_R6_RUNTIME` or the install's `lib\`. An
   R6 refusal is a compile error with R6's line verbatim and no fallback to C.
-  `ORBIT_SKIP_CC` forces the C backend. The default is still `c`. Gates:
+  `ORBIT_SKIP_CC` forces the C backend. The default is `native` on Windows and `c` elsewhere. Gates:
   `suite_native` and `suite_std_native` (skipped without `ORBIT_R6`).
   See [Commands](COMMANDS.md#backends-c-and-native).
 

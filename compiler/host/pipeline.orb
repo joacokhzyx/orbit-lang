@@ -677,14 +677,15 @@ fn compileFailed(inputPath: string, errCount: int, startMs: int, colorMode: stri
 }
 
 // Backend selection. `--backend=c|native` wins over ORBIT_BACKEND, which wins
-// over this default. The default is one constant so changing it is a one-line
+// over this default. The default is one function so changing it is a one-line
 // commit that the suite_native and suite_std_native gates decide.
-fn defaultBackend() -> string {
-    return "c"
-}
-
 fn hostIsWindows() -> bool {
     return orbit_os_env_selfhost("OS") == "Windows_NT" || orbit_os_env_selfhost("WINDIR") != ""
+}
+
+fn defaultBackend() -> string {
+    if hostIsWindows() { return "native" }
+    return "c"
 }
 
 fn backendKnown(name: string) -> bool {
