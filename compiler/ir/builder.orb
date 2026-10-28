@@ -4978,6 +4978,30 @@ fn recordFieldKindOnDef(func: IRFunction, reg: int, kindCode: int) {
                 _ => {}
             }
             if isLoad { inst.fieldKind = kindCode }
+            // `val s: float = o.a + o.b`: the declaration types the sum, and a
+            // numeric operator only combines operands of that kind, so each
+            // operand read takes the same kind. A string `+` is excluded: its
+            // operands are converted, not required to be strings.
+            var isArith = false
+            match inst.opcode {
+                IROpcode.add => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.sub => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.mul => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.div => { isArith = kindCode == 2 || kindCode == 3 }
+                IROpcode.mod => { isArith = kindCode == 2 }
+                IROpcode.neg => { isArith = kindCode == 2 || kindCode == 3 }
+                _ => {}
+            }
+            if isArith {
+                match inst.operand1 {
+                    IRValue.Register(a) => { recordFieldKindOnDef(func, a.value, kindCode) }
+                    _ => {}
+                }
+                match inst.operand2 {
+                    IRValue.Register(b) => { recordFieldKindOnDef(func, b.value, kindCode) }
+                    _ => {}
+                }
+            }
             return
         }
         i = i + 1
