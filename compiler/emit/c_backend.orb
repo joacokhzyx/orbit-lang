@@ -1253,7 +1253,11 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, errs: list < string >, war
                     if irVerifierKnown(t1) && irVerifierKnown(dt) {
                         val simple1 = verifierSimpleKind(t1)
                         val simple2 = verifierSimpleKind(dt)
-                        if simple1 != "" && simple2 != "" && simple1 != simple2 {
+                        // int into float is the one widening copy: the builder
+                        // converts an int stored into a float local or field
+                        // this way, and C assignment converts the value.
+                        val widening = simple1 == "int" && simple2 == "float"
+                        if simple1 != "" && simple2 != "" && simple1 != simple2 && widening == false {
                             errs.push("copy of '" + t1 + "' into '" + dt + "' in fn '" + func.name + "'")
                         }
                     }
