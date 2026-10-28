@@ -74,6 +74,8 @@
 
 /* ── Built-in functions (conversions, clock) ───────────────────────── */
 #include "builtins.c"
+#include "console.c"
+#include "crash.c"
 #include "crypto.c"
 #include "selfhost.c"
 
@@ -101,6 +103,7 @@ int orbit_handle_request(orbit_socket_t client_sock, const char* raw_request, si
 #ifdef ORBIT_WITH_NET
 #include "http.c"
 #include "kynx.c"
+#include "pulse.c"
 #endif
 
 /* ── Convenience ────────────────────────────────────────────────────── */
@@ -110,17 +113,12 @@ static inline int bit_op(int i) {
     return ((i * 17) ^ (i >> 2)) & 0xFFFF;
 }
 
+/* The unity build keeps the crash diagnostic armed before main, as it always
+ * did (tests and hand-written C have no generated main). The generated main
+ * also calls orbit_crash_handler_install(); installing twice is harmless. */
 #ifdef _WIN32
-#include <windows.h>
-static LONG WINAPI orbit_crash_handler(EXCEPTION_POINTERS* ep) {
-    fprintf(stderr, "\n[ORBIT RUNTIME CRASH] ExceptionCode 0x%08X at address %p\n",
-            (unsigned int)ep->ExceptionRecord->ExceptionCode,
-            ep->ExceptionRecord->ExceptionAddress);
-    fflush(stderr);
-    return EXCEPTION_CONTINUE_SEARCH;
-}
 static void __attribute__((constructor)) orbit_init_crash_handler(void) {
-    SetUnhandledExceptionFilter(orbit_crash_handler);
+    orbit_crash_handler_install();
 }
 #endif
 

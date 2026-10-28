@@ -1,30 +1,15 @@
-/**
- * @file  pulse.c
- * @brief Real-time telemetry dashboard engine for Orbit.
- *
- * Serves a self-contained HTML dashboard at /_pulse and a JSON data endpoint
- * at /_pulse/data.  All assets are embedded as string literals so the binary
- * has zero external file dependencies.  Telemetry is read atomically from the
- * global OrbitPerfStats structure and rendered via a single snprintf call.
- */
-#ifndef ORBIT_PULSE_C
-#define ORBIT_PULSE_C
+#ifndef ORBIT_RT_PULSE_C
+#define ORBIT_RT_PULSE_C
 
+#include "module_prelude.h"
+#include "pulse.h"
+#include "types.h"
+#include "arena.h"
 #include "performance.h"
-#include "kynx.c"
-#include "arena_pool.c"
+#include "kynx.h"
+#include "arena_pool.h"
 #include <stdio.h>
 #include <inttypes.h>
-
-/* ──────────────────────────────────────────────────────────────────────
- * Orbit Pulse — Real-time telemetry engine.
- *
- * Serves a plain dashboard at /_pulse and a JSON API at /_pulse/data.
- * Zero external dependencies; all assets are embedded.
- * ────────────────────────────────────────────────────────────────────── */
-
-// Forward declaration of the dashboard HTML
-extern const char* ORBIT_PULSE_DASHBOARD_HTML;
 
 /** @brief Build a JSON object containing a snapshot of current system telemetry; all allocations come from @p arena. */
 orbit_string orbit_pulse_get_stats_json(OrbitArena* arena) {

@@ -1,29 +1,14 @@
-/**
- * @file  string_pool.c
- * @brief Arena-backed interned string pool for Orbit's runtime.
- *
- * Deduplicates string literals and identifiers at runtime by storing
- * a single canonical copy in the epoch arena.  Lookups are O(n) over
- * the pool; suitable for the small string sets typical in web handlers.
- */
-#ifndef ORBIT_STRING_POOL_H
-#define ORBIT_STRING_POOL_H
+#ifndef ORBIT_RT_STRING_POOL_C
+#define ORBIT_RT_STRING_POOL_C
 
-#include "arena.c"
+#include "module_prelude.h"
+#include "string_pool.h"
+#include "types.h"
+#include "arena.h"
+#include "arena.h"
 #include "inline.h"
 #include <string.h>
 #include <stdlib.h>
-
-/* ──────────────────────────────────────────────────────────────────────
- * Orbit String Pool — Localized generation-aware interning.
- * ────────────────────────────────────────────────────────────────────── */
-
-typedef struct OrbitStringPoolLocal {
-    const char** strings;
-    size_t*      lengths;
-    int          count;
-    int          capacity;
-} OrbitStringPoolLocal;
 
 static inline void orbit_string_pool_local_init(OrbitArena* arena) {
     OrbitStringPoolLocal* pool = (OrbitStringPoolLocal*)malloc(sizeof(OrbitStringPoolLocal));
@@ -41,14 +26,14 @@ static inline void orbit_string_pool_local_init(OrbitArena* arena) {
     arena->local_string_pool = pool;
 }
 
-static inline void orbit_string_pool_local_destroy(OrbitStringPoolLocal* pool) {
+ORBIT_XLINK void orbit_string_pool_local_destroy(OrbitStringPoolLocal* pool) {
     if (!pool) return;
     free(pool->strings);
     free(pool->lengths);
     free(pool);
 }
 
-static inline void orbit_string_pool_local_reset(OrbitStringPoolLocal* pool) {
+ORBIT_XLINK void orbit_string_pool_local_reset(OrbitStringPoolLocal* pool) {
     if (!pool) return;
     pool->count = 0;
 }
@@ -123,6 +108,5 @@ ORBIT_INLINE const char* orbit_string_intern(OrbitArena* arena, const char* str)
 
     return new_str;
 }
-
 
 #endif

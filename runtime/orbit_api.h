@@ -302,19 +302,11 @@ static inline int bit_op(int i) {
     return ((i * 17) ^ (i >> 2)) & 0xFFFF;
 }
 
-#ifdef _WIN32
-#include <windows.h>
-static LONG WINAPI orbit_crash_handler(EXCEPTION_POINTERS* ep) {
-    fprintf(stderr, "\n[ORBIT RUNTIME CRASH] ExceptionCode 0x%08X at address %p\n",
-            (unsigned int)ep->ExceptionRecord->ExceptionCode,
-            ep->ExceptionRecord->ExceptionAddress);
-    fflush(stderr);
-    return EXCEPTION_CONTINUE_SEARCH;
-}
-static void __attribute__((constructor)) orbit_init_crash_handler(void) {
-    SetUnhandledExceptionFilter(orbit_crash_handler);
-}
-#endif
+/* Process start-up pieces the generated main calls (runtime/crash.c,
+ * runtime/console.c). No constructor: a program links only what it names. */
+void orbit_crash_handler_install(void);
+void orbit_console_init(void);
+void orbit_print_string(const char* s);
 
 /* ── Static inline accessors (canonical: runtime/collections.c) ────────
  * Byte-identical copies; they call the external functions declared below,
@@ -617,6 +609,7 @@ orbit_string orbit_os_env(OrbitArena* arena, orbit_string var_name);
 orbit_string orbit_os_exec(OrbitArena* arena, orbit_string command);
 void orbit_os_exit(orbit_int code);
 orbit_int orbit_os_spawn(orbit_string command);
+orbit_int orbit_os_run_timeout(orbit_string command, orbit_int timeout_ms, orbit_string capture_path);
 orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile);
 orbit_int orbit_os_kill(orbit_int pid, orbit_int mode);
 orbit_int orbit_os_argc(void);
@@ -669,6 +662,7 @@ orbit_string orbit_os_argv_selfhost(orbit_int index);
 orbit_string orbit_float_to_string_selfhost(orbit_float value);
 orbit_string orbit_os_exec_selfhost(orbit_string command);
 orbit_int orbit_os_spawn_selfhost(orbit_string command);
+orbit_int orbit_os_run_timeout_selfhost(orbit_string command, orbit_int timeout_ms, orbit_string capture_path);
 orbit_int orbit_os_spawn_bg_selfhost(orbit_string command, orbit_string logfile);
 orbit_int orbit_os_kill_selfhost(orbit_int pid, orbit_int mode);
 orbit_string orbit_os_env_selfhost(orbit_string var_name);

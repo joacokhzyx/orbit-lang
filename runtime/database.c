@@ -1,22 +1,18 @@
-/**
- * @file  database.c
- * @brief Arena-backed SQLite integration for Orbit's runtime database layer.
- *
- * All result strings are allocated from the request arena — no fixed-size
- * buffers.  Queries are built dynamically in the arena, and rows are
- * serialised to JSON on the fly.  A Kynx budget macro (KYNX_DB_QUERY_CHECK)
- * guards every public function and aborts early when the per-request
- * database-query budget is exhausted.
- */
-#ifndef ORBIT_DATABASE_H
-#define ORBIT_DATABASE_H
+#ifndef ORBIT_RT_DATABASE_C
+#define ORBIT_RT_DATABASE_C
 
+#include "module_prelude.h"
+#include "database.h"
+#include "types.h"
+#include "arena.h"
+#include "ledger.h"
+#include "kynx.h"
 #include <sqlite3.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include "arena.c"
-#include "types.c"
+#include "arena.h"
+#include "types.h"
 #include "inline.h"
 #include "crt_compat.h"
 
@@ -28,35 +24,13 @@
  * Uses parameterized queries where possible for SQL injection safety.
  * ────────────────────────────────────────────────────────────────────── */
 
-static sqlite3* orbit_db_conn = NULL;
-
-typedef struct {
-    const char* table_name;
-    const char* schema;
-} orbit_collection;
-
-/* ── Lifecycle ──────────────────────────────────────────────────────── */
-
-/* The Kynx lease guard lives in kynx.c, which is only compiled with
- * ORBIT_WITH_NET. Without it, provide a no-op progress handler so DB-only
- * programs link without pulling in the network stack. */
+sqlite3* orbit_db_conn = NULL;
 #ifdef ORBIT_WITH_NET
-extern int orbit_sqlite_progress_handler(void*);
 #else
-static int orbit_sqlite_progress_handler(void* param) { (void)param; return 0; }
+ORBIT_XLINK int orbit_sqlite_progress_handler(void* param) { (void)param; return 0; }
 #endif
-
 #ifdef ORBIT_WITH_NET
-#define KYNX_DB_QUERY_CHECK(ret) \
-    if (current_lease) { \
-        current_lease->db_queries++; \
-        if (current_lease->db_queries > current_lease->db_queries_limit) { \
-            orbit_perf_atomic_inc64(&orbit_perf_stats.kynx_db_query_budget_exhausted); \
-            return ret; \
-        } \
-    }
 #else
-#define KYNX_DB_QUERY_CHECK(ret)
 #endif
 
 /** @brief Open (or create) the SQLite database at @p db_path and install the Kynx progress handler. */
@@ -1011,4 +985,3 @@ bool orbit_db_update(const char* table_name, const char* id, const char* json_da
 }
 
 #endif
-

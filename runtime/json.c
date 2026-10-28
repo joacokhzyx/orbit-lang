@@ -1,61 +1,20 @@
-/**
- * @file  json.c
- * @brief OrbitObject: an ordered, dynamically typed record, and its JSON form.
- *
- * A model is a struct the compiler generates, so its shape is fixed at compile
- * time and its fields are read by name at the C level. An object literal is
- * the opposite: the keys come from the source and are not known until runtime.
- * So it gets its own representation rather than a generated struct per
- * literal, which could not be named in a signature and whose field lookups
- * would collide with the model field table.
- *
- * Two properties drove the shape:
- *
- *   - Order is insertion order, not hash order. JSON key order is observable
- *     in a response body and in the parity goldens, so it has to be
- *     deterministic; a hash map would not be.
- *   - The type tag travels with the value. A register cannot say what it
- *     holds, so serializing needs the answer next to the data rather than in a
- *     side table that could drift.
- *
- * Memory is arena-only, like everything else in the runtime: an object lives
- * as long as the request that made it.
- */
-#ifndef ORBIT_JSON_H
-#define ORBIT_JSON_H
+#ifndef ORBIT_RT_JSON_C
+#define ORBIT_RT_JSON_C
 
-#include "arena.c"
-#include "types.c"
-#include "collections.c"
+#include "module_prelude.h"
+#include "json.h"
+#include "types.h"
+#include "arena.h"
+#include "collections.h"
+#include "arena.h"
+#include "types.h"
+#include "collections.h"
 #include "inline.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <errno.h>
-
-typedef enum {
-    ORBIT_VAL_NULL = 0,
-    ORBIT_VAL_INT,
-    ORBIT_VAL_FLOAT,
-    ORBIT_VAL_BOOL,
-    ORBIT_VAL_STRING,
-    ORBIT_VAL_OBJECT,
-    ORBIT_VAL_LIST
-} OrbitValueKind;
-
-typedef struct {
-    OrbitValueKind kind;
-    uintptr_t raw;
-} OrbitValue;
-
-typedef struct {
-    OrbitArena* arena;
-    orbit_string* keys;
-    OrbitValue* values;
-    size_t count;
-    size_t capacity;
-} OrbitObject;
 
 static ORBIT_UNUSED OrbitValue orbit_value_null(void) {
     OrbitValue v;
@@ -280,53 +239,6 @@ ORBIT_UNUSED const char* orbit_object_get_raw(OrbitObject* o, const char* key) {
     if (v.kind == ORBIT_VAL_NULL) return "";
     return (const char*)v.raw;
 }
-
-/* ── JSON parse ───────────────────────────────────────────────────────────
- *
- * Strict recursive descent over the grammar (objects, arrays, strings with
- * escapes, numbers, true/false/null; no comments, no trailing commas, no
- * NaN/Infinity, no leading zeros), producing typed OrbitObjects: ints stay
- * ints and nesting stays nested, which is what the substring reader in
- * runtime/builtins.c cannot do. Malformed input is err, never a partial
- * object and never abort: the loud exits elsewhere in this file are for a
- * program that mistyped its own field, not for text that arrived broken.
- *
- * Three representation limits, all refused loudly and stated in
- * std/json/json.orb rather than discovered:
- *   - arrays must be homogeneous (the list slots carry no per-slot tag,
- *     so a mixed array has nowhere to record its second kind);
- *   - null array elements have nowhere to go for the same reason (null
- *     object fields are fine: object slots are tagged);
- *   - nested arrays have no indexed getter on the other side.
- * Duplicate keys overwrite keeping first position (orbit_object_set);
- * past 64 nesting levels the document is refused, not recursed. */
-
-#define ORBIT_JSON_MAX_DEPTH 64
-
-typedef enum {
-    J_NULL,
-    J_INT,
-    J_FLOAT,
-    J_BOOL,
-    J_STR,
-    J_OBJ,
-    J_ARR
-} JsonKind;
-
-typedef struct {
-    JsonKind kind;
-    orbit_int i;
-    orbit_float f;
-    orbit_bool b;
-    const char* s;
-    OrbitObject* o;
-    OrbitList* l;
-} JsonVal;
-
-typedef struct {
-    OrbitArena* arena;
-    const char* err;
-} JsonParse;
 
 static void json_fail(JsonParse* j, const char* msg) {
     if (!j->err) j->err = msg;
@@ -849,20 +761,6 @@ ORBIT_UNUSED OrbitObject* orbit_json_array_get_object(OrbitObject* o, const char
     return (OrbitObject*)orbit_list_read_ref((const OrbitList*)v.raw, (size_t)idx, __func__, __FILE__, __LINE__);
 }
 
-/* ── JSON ─────────────────────────────────────────────────────────────────
- *
- * A growable buffer, because the length is not knowable up front: it depends
- * on the values, and the values are only known while writing them. The arena
- * is the only allocator, so growth copies forward and abandons the old block.
- */
-
-typedef struct {
-    char* data;
-    size_t len;
-    size_t cap;
-    OrbitArena* arena;
-} OrbitJsonBuf;
-
 static ORBIT_UNUSED void json_buf_reserve(OrbitJsonBuf* b, size_t extra) {
     if (b->len + extra <= b->cap) return;
     size_t next = b->cap ? b->cap : 128;
@@ -1035,4 +933,4 @@ ORBIT_UNUSED const char* orbit_object_to_json(OrbitArena* arena, OrbitObject* o)
     return b.data;
 }
 
-#endif /* ORBIT_JSON_H */
+#endif

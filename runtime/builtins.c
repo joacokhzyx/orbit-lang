@@ -1,22 +1,20 @@
-/**
- * @file  builtins.c
- * @brief Orbit built-in functions exposed to user programs.
- *
- * Provides cross-platform conversions and timing primitives used by
- * general-purpose Orbit programs.
- */
-#ifndef ORBIT_BUILTINS_C
-#define ORBIT_BUILTINS_C
+#ifndef ORBIT_RT_BUILTINS_C
+#define ORBIT_RT_BUILTINS_C
 
-#include "types.c"
-#include "arena.c"
+#include "module_prelude.h"
+#include "builtins.h"
+#include "types.h"
+#include "arena.h"
+#include "collections.h"
+#include "http.h"
+#include "types.h"
+#include "arena.h"
 #include "performance.h"
 #include "crt_compat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-
 #include <time.h>
 #include <ctype.h>
 #ifdef _WIN32
@@ -145,28 +143,7 @@ void orbit_sleep_ms(orbit_int ms) {
     }
 #endif
 }
-
-/* ── HTTP query parameter extraction ──────────────────────────────────────── */
-
-/* Forward-declare OrbitRequest so builtins.c can reference it without
- * pulling in the entire HTTP stack (which has its own include guards). */
-#ifndef ORBIT_HTTP_H
-/* Fallback mirror of the http.c declaration (which also carries path-param
- * slots); keep both in sync. */
-#define ORBIT_MAX_PATH_PARAMS 32
-typedef struct {
-    char* method;
-    char* path;
-    char* query;
-    char* body;
-    char* headers;
-    size_t body_len;
-    size_t headers_len;
-    char* param_names[ORBIT_MAX_PATH_PARAMS];
-    char* param_values[ORBIT_MAX_PATH_PARAMS];
-    int param_count;
-} OrbitRequest;
-#endif
+#include "http.h"
 
 /**
  * Extract the value of a named parameter from an HTTP query string.
@@ -346,15 +323,6 @@ orbit_string orbit_json_field(OrbitArena* arena, orbit_string json, orbit_string
     res[len] = '\0';
     return res;
 }
-
-/* orbit_http_client_fetch lives in runtime/http.c: a real blocking
- * GET there replaced the mock that used to sit here. */
-
-typedef struct {
-    char key[128];
-    char val[512];
-    uint64_t expires_at;
-} OrbitCacheItem;
 
 static OrbitCacheItem g_orbit_cache[64];
 static size_t g_orbit_cache_count = 0;
@@ -613,4 +581,4 @@ orbit_string system_env(orbit_string name) {
     return val ? val : "";
 }
 
-#endif /* ORBIT_BUILTINS_C */
+#endif
