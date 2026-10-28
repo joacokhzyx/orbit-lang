@@ -182,9 +182,26 @@ orbit_string orbit_hmac_sha256_base64url(OrbitArena* arena, const char* key, con
     return orbit_base64url_encode(a, mac, 32);
 }
 
-bool orbit_streq(const char* a, const char* b) {
+/* Constant-time equality for secrets (MACs, signatures, tokens, hashes).
+ * strcmp and memcmp stop at the first differing byte, and that stop is
+ * observable across a network: a forger learns one correct byte of a
+ * signature per probe. This walks max(len) bytes whatever the content and
+ * folds the length difference into the result. Only the lengths can leak,
+ * and every use here compares fixed-length encodings. The volatile
+ * accumulator keeps the compiler from turning the loop back into an early
+ * exit. */
+bool orbit_ct_equal(const char* a, const char* b) {
     if (!a || !b) return false;
-    return strcmp(a, b) == 0;
+    size_t la = strlen(a);
+    size_t lb = strlen(b);
+    size_t n = la > lb ? la : lb;
+    volatile unsigned char diff = (unsigned char)(la != lb);
+    for (size_t i = 0; i < n; i++) {
+        unsigned char ca = i < la ? (unsigned char)a[i] : 0;
+        unsigned char cb = i < lb ? (unsigned char)b[i] : 0;
+        diff = (unsigned char)(diff | (ca ^ cb));
+    }
+    return diff == 0;
 }
 
 #endif

@@ -89,6 +89,7 @@ PROGRAMS = [
     prog("ledger_percentiles", vendor=True),
     prog("kynx", vendor=True, defines=["-DORBIT_KYNX_TEST"]),
     prog("json"),
+    prog("crypto"),
     prog("float_format", warnings=True),
     prog("migrations", vendor=True, db=True, defines=["-DORBIT_WITH_DB"]),
     prog("db_ops", vendor=True, db=True, defines=["-DORBIT_WITH_DB"]),

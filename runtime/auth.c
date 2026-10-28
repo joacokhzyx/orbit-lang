@@ -108,7 +108,7 @@ bool orbit_auth_has_role(OrbitArena* arena, const char* raw, const char* require
     orbit_string role = orbit_auth_role(arena, tok);
     if (!role || !*role) return false;
     if (!required || !*required) return true; 
-    return strcmp(role, required) == 0;
+    return orbit_ct_equal(role, required);
 }
 
 orbit_string orbit_auth_current_role(OrbitArena* arena, const char* raw) {

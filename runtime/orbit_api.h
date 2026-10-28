@@ -661,7 +661,7 @@ void orbit_sha256(const uint8_t* data, size_t len, uint8_t hash[32]);
 orbit_string orbit_sha256_hex(OrbitArena* arena, const char* str);
 void orbit_hmac_sha256(const uint8_t* key, size_t key_len, const uint8_t* data, size_t data_len, uint8_t out[32]);
 orbit_string orbit_hmac_sha256_base64url(OrbitArena* arena, const char* key, const char* data);
-bool orbit_streq(const char* a, const char* b);
+bool orbit_ct_equal(const char* a, const char* b);
 
 /* ── External functions: selfhost helpers (canonical: runtime/selfhost.c) */
 orbit_int orbit_os_argc_selfhost(void);
