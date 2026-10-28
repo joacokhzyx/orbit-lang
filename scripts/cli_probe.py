@@ -66,6 +66,11 @@ orbit build: couldn't finish the C step - this one is on me, not your code.
 """
 
 SETUP = {
+    # Stand-ins for r6.exe. The native backend must refuse both before it hands
+    # either a program: one never answers `--version` (a stale r6 waits for
+    # input), the other answers with an IR protocol this compiler does not emit.
+    "r6_silent.cmd": "@echo off\r\nping -n 40 127.0.0.1 >nul\r\n",
+    "r6_other.cmd": "@echo off\r\necho r6 9.9.9 ir-protocol 99\r\n",
     "files/case.orb": "fn main() -> int {\nreturn 0\n}\n",
     "files/clean.orb": "fn main() -> int {\n    return 0\n}\n",
     "files/ws.orb": "fn main() -> int {\n    return 0   \n}\n",
@@ -105,6 +110,10 @@ CASES = [
     # absent: text that must NOT appear on either stream ("" skips), or scoped
     #   to one stream as "out:<text>" / "err:<text>".
     ("help", ["--help"], 0, "out", "Usage:", ""),
+    ("native-r6-no-answer", ["build", "tiny.orb", "-o", "t.exe", "--backend=native"], 1, "err",
+     "did not answer `--version`", "", {"ORBIT_R6": "./r6_silent.cmd"}),
+    ("native-r6-wrong-protocol", ["build", "tiny.orb", "-o", "t.exe", "--backend=native"], 1, "err",
+     "ir-protocol 99", "", {"ORBIT_R6": "./r6_other.cmd"}),
     ("help-short", ["-h"], 0, "out", "Usage:", ""),
     ("version", ["--version"], 0, "out", "orbit 0.1.0-rc.2", ""),
     ("unknown-cmd", ["frobnicate"], 2, "err", "Usage:", ""),
