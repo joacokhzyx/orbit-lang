@@ -51,7 +51,7 @@ So the compiler's front end, codegen and IR passes are ~0.3% of the build; the
 `cc` child is the rest.
 
 What the `cc` child compiles is not the program. The runtime is source-included
-into every translation unit: `runtime.h` pulls in `types.c`, `arena.c`,
+into every translation unit: `runtime.h` pulls in `types.h`, `arena.c`,
 `collections.c`, `json.c`, `file.c`, `os.c`, `builtins.c`, `crypto.c`,
 `selfhost.c`, `energy.c`, `ledger.c`, `database.c`, `auth.c`, and — under
 `-DORBIT_WITH_NET` — `http.c` and `kynx.c`. `gcc -s -O1`, 5 runs each, on this

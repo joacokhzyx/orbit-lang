@@ -51,7 +51,7 @@
 #else
 
 /* ── Core types & Result<T,E> ──────────────────────────────────────── */
-#include "types.c"
+#include "types.h"
 #include "inline.h"
 
 /* ── Diagnostics ────────────────────────────────────────────────────── */

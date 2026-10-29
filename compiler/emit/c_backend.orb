@@ -4182,10 +4182,10 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // Every other payload is a scalar or a pointer and keeps the
             // word cast, which is what the unwrap side expects for them.
             if operandDefType(backend.currentFunction, instr.operand1) == "float" || operandDefType(backend.currentFunction, instr.operand1) == "orbit_float" {
-                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_result_ok_float((orbit_float)(" + generateValue(instr.operand1) + "))"))
+                orbit_cbuf_append_selfhost(cb, "    { orbit_float _rf = (orbit_float)(" + generateValue(instr.operand1) + "); OrbitResult _rr = { 1, ORBIT_ERR_NONE, NULL, NULL }; memcpy(&_rr.value, &_rf, sizeof(_rf)); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _rr; }\n")
                 return
             }
-            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_ok((void*)(uintptr_t)(" + generateValue(instr.operand1) + "));\n")
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (OrbitResult){ 1, ORBIT_ERR_NONE, NULL, (void*)(uintptr_t)(" + generateValue(instr.operand1) + ") };\n")
             return
         }
         IROpcode.result_err => {
@@ -4193,11 +4193,11 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // enum cast keeps -Wint-conversion quiet without hiding values.
             match instr.operand2 {
                 IRValue.None => {
-                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err((OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand1) + "));\n")
+                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (OrbitResult){ 0, (OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand1) + "), NULL, NULL };\n")
                     return
                 }
                 _ => {
-                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err((OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand2) + "), (orbit_string)(" + generateValue(instr.operand1) + "));\n")
+                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (OrbitResult){ 0, (OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand2) + "), (orbit_string)(" + generateValue(instr.operand1) + "), NULL };\n")
                     return
                 }
             }
@@ -4217,7 +4217,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
             }
             if uwT == "float" || uwT == "orbit_float" {
-                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_result_get_float(" + generateValue(instr.operand1) + ")"))
+                orbit_cbuf_append_selfhost(cb, "    { orbit_float _gf = 0.0; memcpy(&_gf, &(" + generateValue(instr.operand1) + ").value, sizeof(_gf)); " + generateRegAssign(backend, instr.dest, "_gf") + "    }\n")
                 return
             }
             if uwT == "int" || uwT == "bool" || uwT == "string" || uwT == "list" {

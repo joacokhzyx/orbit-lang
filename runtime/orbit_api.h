@@ -110,7 +110,7 @@
 /* Same redirect as runtime.h: the emitted colour preamble calls getenv(). */
 #define getenv orbit_env_get
 
-/* ── Primitive type aliases (canonical: runtime/types.c) ─────────────── */
+/* ── Primitive type aliases (canonical: runtime/types.h) ─────────────── */
 typedef const char* orbit_string;
 typedef int64_t     orbit_int;
 typedef double      orbit_float;
@@ -167,7 +167,7 @@ typedef struct {
 
 typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);
 
-/* ── Result<T,E> (canonical: runtime/types.c) ────────────────────────── */
+/* ── Result<T,E> (canonical: runtime/types.h) ────────────────────────── */
 typedef enum {
     ORBIT_ERR_NONE          = 0,
     ORBIT_ERR_NULL_PTR      = 1,
@@ -202,7 +202,7 @@ typedef struct {
         (out_ptr) = _r.value;                  \
     } while (0)
 
-/* ── List/Map element model (canonical: runtime/types.c) ─────────────── */
+/* ── List/Map element model (canonical: runtime/types.h) ─────────────── */
 typedef enum {
     ORBIT_ELEM_OPAQUE = 0,
     ORBIT_ELEM_STRING = 1,
@@ -321,12 +321,46 @@ orbit_int orbit_ui_anim_stop(orbit_string final_block);
  * FNV-1a helper rides along; both copies are internal linkage and never
  * meet at link time. */
 
-/* ── External functions: Result (canonical: runtime/types.c) ─────────── */
-OrbitResult orbit_result_ok(void* value);
-OrbitResult orbit_result_ok_word(uintptr_t word);
-OrbitResult orbit_result_ok_float(orbit_float value);
-orbit_float orbit_result_get_float(OrbitResult r);
-OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg);
+/* ── Result constructors (canonical: runtime/types.h) ────────────────── */
+static inline OrbitResult orbit_result_ok(void* value) {
+    OrbitResult r;
+    r.ok         = true;
+    r.error_code = ORBIT_ERR_NONE;
+    r.error_msg  = NULL;
+    r.value      = value;
+    return r;
+}
+
+static inline OrbitResult orbit_result_ok_word(uintptr_t word) {
+    OrbitResult r;
+    r.ok         = true;
+    r.error_code = ORBIT_ERR_NONE;
+    r.error_msg  = NULL;
+    r.value      = NULL;
+    memcpy(&r.value, &word, sizeof(uintptr_t));
+    return r;
+}
+
+static inline OrbitResult orbit_result_ok_float(orbit_float value) {
+    uintptr_t word = 0;
+    memcpy(&word, &value, sizeof(uintptr_t));
+    return orbit_result_ok_word(word);
+}
+
+static inline orbit_float orbit_result_get_float(OrbitResult r) {
+    orbit_float value = 0.0;
+    memcpy(&value, &r.value, sizeof(orbit_float));
+    return value;
+}
+
+static inline OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {
+    OrbitResult r;
+    r.ok         = false;
+    r.error_code = code;
+    r.error_msg  = msg;
+    r.value      = NULL;
+    return r;
+}
 
 /* ── External functions: arena (canonical: runtime/arena.c) ──────────── */
 OrbitArena* orbit_arena_create(size_t initial_capacity);

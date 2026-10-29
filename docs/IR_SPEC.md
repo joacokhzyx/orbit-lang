@@ -129,8 +129,8 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `map_has` | `D = orbit_map_has(O1, O2)` (`3440-3443`) | O1 map, O2 key |
 | `map_delete` | `D = orbit_map_delete(O1, O2)` (`3444-3447`) | O1 map, O2 key |
 | `map_keys` | `D = orbit_map_keys(O1)` (`3448-3451`) | O1 map |
-| `result_ok` | Float → `orbit_result_ok_float`; rest → `orbit_result_ok((void*)(uintptr_t)(O1))` (`3452-3463`) | type of O1 |
-| `result_err` | O2 `None` → `orbit_result_err(code(O1))`; else → `orbit_result_err(code(O2), message(O1))` (`3464-3477`) | O1 message, O2 code |
+| `result_ok` | Float → the IEEE-754 bits of O1 in the `value` word; rest → `(void*)(uintptr_t)(O1)`; both built inline as `{ok = 1, error_code = 0, error_msg = NULL, value}` (`3452-3463`) | type of O1 |
+| `result_err` | built inline as `{ok = 0, error_code = code, error_msg = message, value = NULL}`; O2 `None` → code(O1) and a NULL message; else code(O2) and message(O1) (`3464-3477`) | O1 message, O2 code |
 | `result_unwrap` | Float destination → `orbit_result_get_float(O1)`; int, bool, string or list destination → `O1.value` cast to the destination; else → `O1.value` (`3478-3498`) | `registerTypes[D]` |
 | `result_unwrap_err` | `O1.error_msg ? O1.error_msg : ""` (`3499-3502`) | O1 |
 | `result_is_ok` | `D = O1.ok` (`3503-3506`) | O1 |
@@ -504,7 +504,7 @@ builtin with the lowering of §3.1 item 6, unless the program writes its own
   `OrbitResult` (`h:177-184`), `OrbitList` (`h:212-224`), `OrbitMap`
   (`h:231-239`), `OrbitRequest`/`OrbitResponse` (`h:280-290`), helpers
   `orbit_list_*_typed/push_*/read_*` (`h:361-531`), `orbit_map_*` (`h:378-382,
-  534-554`), `orbit_result_ok/float/err` (`h:321-325`), `orbit_alloc`
+  534-554`), the inline `orbit_result_*` helpers, `orbit_alloc`
   (`h:334`), `orbit_response_*` (`h:697-703`).
 - **DB drift:** the backend emits `orbit_db_get/set/all/where`
   (`c_backend.orb:3533-3591`) plus the `orbit_db_init/close` preamble, but the

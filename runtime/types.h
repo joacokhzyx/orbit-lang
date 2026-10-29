@@ -1,11 +1,11 @@
-/* Interface of runtime/types.c (generated split; edit by hand from here). */
+/* Orbit runtime types. Header only: there is no types.c. */
 #ifndef ORBIT_RT_TYPES_H
 #define ORBIT_RT_TYPES_H
 
 #include "module_prelude.h"
 
 /**
- * @file  types.c
+ * @file  types.h
  * @brief Orbit runtime type system: primitives, Result<T,E>, Option<T>, Slice<T>, List<T>, Map<K,V>, and tagged unions.
  *
  * Every user-facing type is arena-allocated and C99-compatible.  Result<T,E>
@@ -110,11 +110,54 @@ typedef struct {
     const char*     error_msg;
     void*           value;
 } OrbitResult;
-OrbitResult orbit_result_ok(void* value);
-ORBIT_UNUSED OrbitResult orbit_result_ok_word(uintptr_t word);
-ORBIT_UNUSED OrbitResult orbit_result_ok_float(orbit_float value);
-ORBIT_UNUSED orbit_float orbit_result_get_float(OrbitResult r);
-OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg);
+
+/* The constructors are inline: generated code builds an OrbitResult in place
+ * and never calls them, and no archive member defines them. */
+static inline OrbitResult orbit_result_ok(void* value) {
+    OrbitResult r;
+    r.ok         = true;
+    r.error_code = ORBIT_ERR_NONE;
+    r.error_msg  = NULL;
+    r.value      = value;
+    return r;
+}
+
+/* A value that is not a pointer travels as a 64-bit word: an int, a bool, or
+ * a double's bit pattern. memcpy, so no int-to-pointer conversion is invented. */
+static inline OrbitResult orbit_result_ok_word(uintptr_t word) {
+    OrbitResult r;
+    r.ok         = true;
+    r.error_code = ORBIT_ERR_NONE;
+    r.error_msg  = NULL;
+    r.value      = NULL;
+    memcpy(&r.value, &word, sizeof(uintptr_t));
+    return r;
+}
+
+/* A double cannot travel through uintptr_t (1.5 becomes 1), so the word holds
+ * its IEEE-754 bit pattern. Read it back with orbit_result_get_float. */
+static inline OrbitResult orbit_result_ok_float(orbit_float value) {
+    uintptr_t word = 0;
+    memcpy(&word, &value, sizeof(uintptr_t));
+    return orbit_result_ok_word(word);
+}
+
+/* Call only on a result known ok: an err result carries NULL, which decodes
+ * as 0.0 without saying so. */
+static inline orbit_float orbit_result_get_float(OrbitResult r) {
+    orbit_float value = 0.0;
+    memcpy(&value, &r.value, sizeof(orbit_float));
+    return value;
+}
+
+static inline OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {
+    OrbitResult r;
+    r.ok         = false;
+    r.error_code = code;
+    r.error_msg  = msg;
+    r.value      = NULL;
+    return r;
+}
 
 /* Convenience macro: unwrap-or-return for Result chaining */
 #define ORBIT_TRY(result_expr)                 \
