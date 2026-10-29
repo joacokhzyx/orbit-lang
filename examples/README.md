@@ -92,7 +92,7 @@ silence.
 - Canonical `std` imports resolving via the std search path
   (compiler binary dir, its parent, then the working directory;
   run builds from the repository root).
-- Imports `std/sys/term/color` and `lib/arena`; no services, no
+- Imports `std/sys/term/color` and `std/sys/arena`; no services, no
   database.
 
 ### `health_service.orb`

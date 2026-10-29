@@ -339,9 +339,9 @@ twice walked straight into it. The read is now typed from the model the
 field reference names, which the builder had been writing down and the
 backend had been discarding.
 
-## `std/` is 19 modules; the six deleted ones are not coming back
+## `std/` is 20 modules; the six deleted ones are not coming back
 
-**19 modules, and all 19 compile and merge into one program.** Verified:
+**20 modules, and all 20 compile and merge into one program.** Verified:
 `tests/std/test_imports.orb` imports all nineteen into a single binary and
 calls into each, and it passes. `tests/std/` is 23 files and runs
 23/23 green.
@@ -515,5 +515,5 @@ cycle, and both missing imports are fixed).
 unspecified socket-wrapper sketch nothing imported (its event loop was
 `while running { ... running = false }`). Deleted, not quarantined:
 `std/quarantine/` is for specified features the language cannot express yet,
-and no document specifies a socket API. `lib/arena.orb` (real, used by
+and no document specifies a socket API. `std/sys/arena.orb` (real, used by
 `examples/` and `tests/std/`) was not touched.

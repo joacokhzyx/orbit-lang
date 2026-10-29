@@ -1,4 +1,4 @@
-// lib/arena.orb
+// std/sys/arena.orb
 // Request-Bound Arena Allocator
 // Zero-GC memory management bound to the lifecycle of a Request.
 //

@@ -5,8 +5,8 @@ inferred from the repository, rule by rule, with evidence. The formatter
 implements exactly what is written here.
 
 Corpus: recursive `*.orb` under `compiler/` (28 files), `tests/suite/` (121),
-`std/` (19) and `tests/std/` (23), plus `examples/*.orb` (13, minus
-`orbit_full_expansion.orb`). 204 files -- the exact list the fmt gate verifies
+`std/` (20) and `tests/std/` (23), plus `examples/*.orb` (13, minus
+`orbit_full_expansion.orb`). 205 files -- the exact list the fmt gate verifies
 (`make all` prints `fmt ... (204 files, ...)`).
 The rules below were inferred from that corpus with strings and comments
 stripped, so stylish string contents (JSON payloads, URLs) do not pollute
