@@ -137,7 +137,7 @@ One arena is process-wide rather than per thread: the fallback `orbit_arena_get_
 
 ---
 
-## What "epoch" means in practice, and what `lib/arena.orb` is not
+## What "epoch" means in practice, and what `std/sys/arena.orb` is not
 
 
 **The C runtime arena is a real allocator.** Everything above is about
@@ -159,7 +159,7 @@ retention watermark, which is the footprint the request just used, clamped to
 the checkpoint API as available to hand-written C, not as the mechanism
 serving requests.
 
-**`lib/arena.orb` is neither.** It is not an allocator and no longer pretends
+**`std/sys/arena.orb` is neither.** It is not an allocator and no longer pretends
 to be one. Orbit has no pointer arithmetic and no `mmap`/`VirtualAlloc`
 binding, so `buffer` is a string that is never read. `alloc` returns an
 **offset into a logical region, not an address**, and nothing it returns is

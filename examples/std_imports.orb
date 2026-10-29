@@ -2,7 +2,7 @@
 // (compiler binary dir, its parent, then the working directory;
 // run builds from the repository root).
 import "std/sys/term/color.orb"
-import "lib/arena.orb"
+import "std/sys/arena.orb"
 
 fn main() -> int {
     val line = wrapBold("orbit std imports work")

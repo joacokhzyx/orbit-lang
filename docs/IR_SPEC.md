@@ -676,7 +676,7 @@ are pinned in §1.1.
   `test_hash`, `test_http_client`, `test_imports`, `test_io`, `test_json`,
   `test_log`, `test_process`, `test_process_exit`, `test_random`,
   `test_regex`, `test_string`, `test_time`, `test_time_ns`, `color_smoke`),
-  covering the 19 shipped `std/**/*.orb` modules (the 1 `std/quarantine/*.orb.quarantined`
+  covering the 20 shipped `std/**/*.orb` modules (the 1 `std/quarantine/*.orb.quarantined`
   file is excluded).
 - **DB exclusions, counted: 4 opcodes + 0 corpus files removed, 1 file flagged.**
   The 4 `db_*` opcodes (`db_get`, `db_set`, `db_all`, `db_where`) are excluded

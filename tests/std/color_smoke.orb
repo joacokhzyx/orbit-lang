@@ -2,7 +2,7 @@
 // resolve, and the kept color helpers compute exact ANSI output
 // (exercises mixed int/string concat through an import boundary).
 import "std/sys/term/color.orb"
-import "lib/arena.orb"
+import "std/sys/arena.orb"
 
 fn main() -> int {
     val b = wrapBold("hi")

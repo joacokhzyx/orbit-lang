@@ -28,7 +28,7 @@ import orbit_output as out
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROBES = os.path.join(ROOT, "tests", "parity", "probes")
-CRASH_DIR = os.path.join(ROOT, "fuzz_crashes")
+CRASH_DIR = os.path.join(ROOT, ".orbit", "fuzz_crashes")
 
 DEEP_TOKENS = ["(", "{", "[", "match x { ", "if a { ", "while b { ", "\"", "$"]
 # Valid-language splices: exercise parser combinations the byte-level

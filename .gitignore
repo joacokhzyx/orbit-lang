@@ -81,8 +81,6 @@ __pycache__/
 research/
 
 # Fuzzer crash corpus (local evidence; README stays tracked)
-fuzz_crashes/*
-!fuzz_crashes/README.md
 
 # Single-host cluster orchestration state (orbit cluster v1)
 .orbit/
