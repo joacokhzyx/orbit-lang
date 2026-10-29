@@ -1,0 +1,276 @@
+// The list functions of the runtime, in Orbit. Built with
+// `orbit build --runtime-module`: every export keeps its C name, so the
+// compiler and the C runtime call them as they called collections.c.
+// An OrbitList is { data +0, len +8, capacity +16, elem_size +24,
+// elem_kind +32 (4 bytes), arena +40 }, 48 bytes. A slot is one word. The
+// element kinds are 0 untyped, 1 string, 2 int, 3 float, 4 bool, 5 reference.
+// The error codes are 1 null pointer, 2 out of memory, 3 out of bounds and
+// 7 invalid argument. orbit_list_get and orbit_list_len stay inline C: the
+// emitted code reads them in place.
+
+extern fn orbit_alloc(a: RtPtr, n: int) -> string
+extern fn orbit_arena_get_global() -> string
+extern fn orbit_list_kind_error(have: int, want: int)
+extern fn orbit_os_write_stderr_selfhost(s: string)
+extern fn orbit_int_to_string_selfhost(v: int) -> string
+
+// The first typed write sets the kind; a later one that disagrees stops the
+// process in the C diagnostic.
+fn rtAdoptKind(list: RtPtr, kind: int) {
+    val have = rt_load32(list, 32)
+    if have == 0 {
+        rt_store32(list, 32, kind)
+        return
+    }
+    if have != kind {
+        orbit_list_kind_error(have, kind)
+    }
+}
+
+// Adopt the kind and make room for one more element.
+fn rtPrepareSlot(list: RtPtr, kind: int) -> result {
+    rtAdoptKind(list, kind)
+    if rt_load64(list, 8) >= rt_load64(list, 16) {
+        val grown: int = try orbit_list_grow(list)
+    }
+    return rt_ok_ptr(list)
+}
+
+// A typed write into an existing slot: null list, bounds, then the kind.
+fn rtPrepareSet(list: RtPtr, index: int, kind: int) -> result {
+    if list == NULL {
+        return rt_err(1, "list_set: null list")
+    }
+    if index < 0 || index >= rt_load64(list, 8) {
+        return rt_err(3, "list_set: index out of range")
+    }
+    rtAdoptKind(list, kind)
+    return rt_ok_ptr(list)
+}
+
+fn rtWriteFailure(text: string) {
+    orbit_os_write_stderr_selfhost(text)
+}
+
+export fn orbit_list_create_typed(region: RtPtr, elemSize: int, initialCapacity: int, elemKind: int) -> result {
+    var a = region
+    if a == NULL {
+        a = rt_ptr(orbit_arena_get_global())
+    }
+    if a == NULL || elemSize == 0 {
+        var shown = "0000000000000000"
+        if a != NULL {
+            shown = "set"
+        }
+        rtWriteFailure("[collections] list_create FAILED: arena=")
+        rtWriteFailure(shown)
+        rtWriteFailure(" elem_size=")
+        rtWriteFailure(orbit_int_to_string_selfhost(elemSize))
+        rtWriteFailure("\n")
+        return rt_err(7, "list: null arena or zero elem_size")
+    }
+    if elemSize != 8 {
+        rtWriteFailure("[collections] list_create FAILED: elem_size=")
+        rtWriteFailure(orbit_int_to_string_selfhost(elemSize))
+        rtWriteFailure(", want 8 (one word per slot)\n")
+        return rt_err(7, "list: elem_size must be one machine word")
+    }
+    var cap = initialCapacity
+    if cap == 0 {
+        cap = 8
+    }
+    if cap < 0 || cap > 2305843009213693951 {
+        return rt_err(7, "list: capacity too large")
+    }
+    val header = orbit_alloc(a, 48)
+    if header == NULL {
+        return rt_err(2, "list: header alloc failed")
+    }
+    val data = orbit_alloc(a, elemSize * cap)
+    if data == NULL {
+        return rt_err(2, "list: data alloc failed")
+    }
+    val list = rt_ptr(header)
+    rt_storep(list, 0, rt_ptr(data))
+    rt_store64(list, 8, 0)
+    rt_store64(list, 16, cap)
+    rt_store64(list, 24, elemSize)
+    rt_store32(list, 32, elemKind)
+    rt_storep(list, 40, a)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_create(region: RtPtr, elemSize: int, initialCapacity: int) -> result {
+    return orbit_list_create_typed(region, elemSize, initialCapacity, 0)
+}
+
+// Grow the backing array and copy the elements forward. The old block is
+// abandoned until the arena resets.
+export fn orbit_list_grow(list: RtPtr) -> result {
+    if list == NULL {
+        return rt_err(1, "list_grow: null list")
+    }
+    val region = rt_loadp(list, 40)
+    if region == NULL {
+        return rt_err(1, "list_grow: null list")
+    }
+    val cap = rt_load64(list, 16)
+    val size = rt_load64(list, 24)
+    if cap < 0 || cap > 9223372036854775807 / size {
+        return rt_err(2, "list_grow: capacity overflow")
+    }
+    val newCap = cap * 2
+    val block = orbit_alloc(region, size * newCap)
+    if block == NULL {
+        return rt_err(2, "list_grow: alloc failed")
+    }
+    rt_copy(block, rt_str(rt_loadp(list, 0)), rt_load64(list, 8) * size)
+    rt_storep(list, 0, rt_ptr(block))
+    rt_store64(list, 16, newCap)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_push(list: RtPtr, elem: RtPtr) -> result {
+    if list == NULL || elem == NULL {
+        return rt_err(1, "list_push: null argument")
+    }
+    val prepared: int = try rtPrepareSlot(list, rt_load32(list, 32))
+    rt_copy(rt_str(rt_ptr_add(rt_loadp(list, 0), rt_load64(list, 8) * rt_load64(list, 24))), rt_str(elem), rt_load64(list, 24))
+    rt_store64(list, 8, rt_load64(list, 8) + 1)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_push_string(list: RtPtr, value: string) -> result {
+    if list == NULL {
+        return rt_err(1, "list_push: null list")
+    }
+    if rt_load32(list, 32) != 1 || rt_load64(list, 8) >= rt_load64(list, 16) {
+        val prepared: int = try rtPrepareSlot(list, 1)
+    }
+    rt_storep(rt_ptr_add(rt_loadp(list, 0), rt_load64(list, 8) * rt_load64(list, 24)), 0, rt_ptr(value))
+    rt_store64(list, 8, rt_load64(list, 8) + 1)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_push_int(list: RtPtr, value: int) -> result {
+    if list == NULL {
+        return rt_err(1, "list_push: null list")
+    }
+    if rt_load32(list, 32) != 2 || rt_load64(list, 8) >= rt_load64(list, 16) {
+        val prepared: int = try rtPrepareSlot(list, 2)
+    }
+    rt_store64(rt_ptr_add(rt_loadp(list, 0), rt_load64(list, 8) * rt_load64(list, 24)), 0, value)
+    rt_store64(list, 8, rt_load64(list, 8) + 1)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_push_bool(list: RtPtr, value: bool) -> result {
+    if list == NULL {
+        return rt_err(1, "list_push: null list")
+    }
+    if rt_load32(list, 32) != 4 || rt_load64(list, 8) >= rt_load64(list, 16) {
+        val prepared: int = try rtPrepareSlot(list, 4)
+    }
+    var word = 0
+    if value {
+        word = 1
+    }
+    rt_store64(rt_ptr_add(rt_loadp(list, 0), rt_load64(list, 8) * rt_load64(list, 24)), 0, word)
+    rt_store64(list, 8, rt_load64(list, 8) + 1)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_push_ref(list: RtPtr, value: RtPtr) -> result {
+    if list == NULL {
+        return rt_err(1, "list_push: null list")
+    }
+    if rt_load32(list, 32) != 5 || rt_load64(list, 8) >= rt_load64(list, 16) {
+        val prepared: int = try rtPrepareSlot(list, 5)
+    }
+    rt_storep(rt_ptr_add(rt_loadp(list, 0), rt_load64(list, 8) * rt_load64(list, 24)), 0, value)
+    rt_store64(list, 8, rt_load64(list, 8) + 1)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_push_float(list: RtPtr, value: float) -> result {
+    if list == NULL {
+        return rt_err(1, "list_push: null list")
+    }
+    if rt_load32(list, 32) != 3 || rt_load64(list, 8) >= rt_load64(list, 16) {
+        val prepared: int = try rtPrepareSlot(list, 3)
+    }
+    rt_store64(rt_ptr_add(rt_loadp(list, 0), rt_load64(list, 8) * rt_load64(list, 24)), 0, rt_float_bits(value))
+    rt_store64(list, 8, rt_load64(list, 8) + 1)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_pop(list: RtPtr) -> result {
+    if list == NULL || rt_load64(list, 8) == 0 {
+        return rt_err(3, "list_pop: empty list")
+    }
+    val len = rt_load64(list, 8) - 1
+    rt_store64(list, 8, len)
+    return rt_ok_ptr(rt_ptr_add(rt_loadp(list, 0), len * rt_load64(list, 24)))
+}
+
+export fn orbit_list_set(list: RtPtr, index: int, elem: RtPtr) -> result {
+    if list == NULL || elem == NULL {
+        return rt_err(1, "list_set: null argument")
+    }
+    if index < 0 || index >= rt_load64(list, 8) {
+        return rt_err(3, "list_set: index out of bounds")
+    }
+    rt_copy(rt_str(rt_ptr_add(rt_loadp(list, 0), index * rt_load64(list, 24))), rt_str(elem), rt_load64(list, 24))
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_set_int(list: RtPtr, index: int, value: int) -> result {
+    if list == NULL || index < 0 || index >= rt_load64(list, 8) || rt_load32(list, 32) != 2 {
+        val prepared: int = try rtPrepareSet(list, index, 2)
+    }
+    rt_store64(rt_ptr_add(rt_loadp(list, 0), index * rt_load64(list, 24)), 0, value)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_set_string(list: RtPtr, index: int, value: string) -> result {
+    if list == NULL || index < 0 || index >= rt_load64(list, 8) || rt_load32(list, 32) != 1 {
+        val prepared: int = try rtPrepareSet(list, index, 1)
+    }
+    rt_storep(rt_ptr_add(rt_loadp(list, 0), index * rt_load64(list, 24)), 0, rt_ptr(value))
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_set_bool(list: RtPtr, index: int, value: bool) -> result {
+    if list == NULL || index < 0 || index >= rt_load64(list, 8) || rt_load32(list, 32) != 4 {
+        val prepared: int = try rtPrepareSet(list, index, 4)
+    }
+    var word = 0
+    if value {
+        word = 1
+    }
+    rt_store64(rt_ptr_add(rt_loadp(list, 0), index * rt_load64(list, 24)), 0, word)
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_set_float(list: RtPtr, index: int, value: float) -> result {
+    if list == NULL || index < 0 || index >= rt_load64(list, 8) || rt_load32(list, 32) != 3 {
+        val prepared: int = try rtPrepareSet(list, index, 3)
+    }
+    rt_store64(rt_ptr_add(rt_loadp(list, 0), index * rt_load64(list, 24)), 0, rt_float_bits(value))
+    return rt_ok_ptr(list)
+}
+
+export fn orbit_list_set_ref(list: RtPtr, index: int, value: RtPtr) -> result {
+    if list == NULL || index < 0 || index >= rt_load64(list, 8) || rt_load32(list, 32) != 5 {
+        val prepared: int = try rtPrepareSet(list, index, 5)
+    }
+    rt_storep(rt_ptr_add(rt_loadp(list, 0), index * rt_load64(list, 24)), 0, value)
+    return rt_ok_ptr(list)
+}
+
+// Clear without deallocation: O(1).
+export fn orbit_list_clear(list: RtPtr) {
+    if list != NULL {
+        rt_store64(list, 8, 0)
+    }
+}

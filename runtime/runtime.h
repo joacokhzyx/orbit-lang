@@ -86,6 +86,7 @@
 #include "crash.c"
 #include "crypto.c"
 #include "selfhost.c"
+#include "gen/lists.c"
 
 /* ── Energy sampler (Linux RAPL at 1 Hz; labeled CPU proxy elsewhere) ── */
 #include "energy.c"
