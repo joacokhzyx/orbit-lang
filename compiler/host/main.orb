@@ -16,6 +16,7 @@ import "./extern.orb"
 import "../tools/fmt.orb"
 import "../tir/entry.orb"
 import "../tools/palette.orb"
+import "../tools/ui.orb"
 import "./pipeline.orb"
 import "../tools/doctor.orb"
 import "./cluster.orb"
@@ -133,10 +134,20 @@ fn bareHelpText(useColor: bool) -> string {
 }
 
 fn printHelp() {
+    val tier = uiTier("auto", false)
+    if tier != 0 {
+        print(uiChomp(uiHelp(tier, orbitVersion())))
+        return
+    }
     print(helpText(paletteUseColorStdout("auto")))
 }
 
 fn printHelpErr() {
+    val tier = uiTier("auto", true)
+    if tier != 0 {
+        orbit_os_write_stderr_selfhost(uiHelp(tier, orbitVersion()))
+        return
+    }
     orbit_os_write_stderr_selfhost(helpText(paletteUseColorStderr("auto")))
 }
 
@@ -235,9 +246,13 @@ fn runRun() {
     if osName == "Windows_NT" || winDir != "" {
         outputPath = outputPath + ".exe"
     }
-    if compileSourceWithFile(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false, "", runBackend) == false {
+    if compileSourceTitled(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false, "", runBackend, "run", false) == false {
         orbit_os_exit_selfhost(1)
         return
+    }
+    val runTier = uiTier(runColor, true)
+    if runTier != 0 && runQuiet == false {
+        orbit_os_write_stderr_selfhost(uiRule(runTier, uiCardWidth(true)))
     }
     val code = orbit_os_spawn_selfhost("\"" + outputPath + "\"")
     orbit_os_exit_selfhost(code)
@@ -306,6 +321,15 @@ fn runCheck() {
     if checkQuiet == false {
         val useOut = paletteUseColorStdout(checkColor)
         val ms = orbit_clock_ms() - checkStart
+        val checkTier = uiTier(checkColor, false)
+        if checkTier != 0 {
+            val counts: list < string > = []
+            counts.push(uiCount(checkTier, 1, "file", paletteBold()))
+            counts.push(uiCount(checkTier, 0, "errors", paletteError()))
+            counts.push(uiCount(checkTier, 0, "warnings", paletteWarning()))
+            print(uiChomp(uiResultCard(checkTier, "check", true, uiPaint(checkTier, paletteBold(), inputPath), counts, ms, uiCardWidth(false))))
+            return
+        }
         val check = palettePaint(paletteOk(), "✓", useOut)
         val timing = palettePaint(paletteDim(), "(" + orbit_int_to_string_selfhost(ms) + " ms)", useOut)
         print(check + " Checked " + inputPath + ": no errors. " + timing)
@@ -315,6 +339,11 @@ fn runCheck() {
 fn main() {
     val cmd = orbit_os_argv_selfhost(1)
     if cmd == "" {
+        val bareTier = uiTier("auto", false)
+        if bareTier != 0 {
+            print(uiChomp(uiBareHelp(bareTier, orbitVersion())))
+            return
+        }
         print(bareHelpText(paletteUseColorStdout("auto")))
         return
     }
@@ -323,6 +352,11 @@ fn main() {
         return
     }
     if cmd == "--version" || cmd == "-v" {
+        val versionTier = uiTier("auto", false)
+        if versionTier != 0 {
+            print(uiVersionLine(versionTier, orbitVersion()))
+            return
+        }
         print("orbit " + orbitVersion())
         return
     }

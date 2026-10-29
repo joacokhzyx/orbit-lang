@@ -809,6 +809,11 @@ def gate_spec(binary: pathlib.Path, cc: str, work: pathlib.Path):
             # bootstrap. It was forty lines of shell inside ci-gate.yml, which
             # is why it was the one gate nobody could run locally.
             ("runtime_c", [py, f"{s}/runtime_c_tests.py", "--cc", cc]),
+            # The rich and color screens, byte for byte with their escapes, and
+            # the interrupt probe. Plain output has no snapshot: the doctor and
+            # CLI gates above hold it.
+            ("ui_snapshots", [py, f"{s}/ui_snapshots.py", "--compiler", fp,
+                              "--cc", cc, "--work", str(work / "ui")]),
         ],
         2: [
             ("suite", [py, f"{s}/test_suite.py", "--cc", cc, "--compiler", fp]),

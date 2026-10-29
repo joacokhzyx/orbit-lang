@@ -1,0 +1,20 @@
+ [38;2;124;92;255m◜[0m[38;2;0;212;255m●[0m [1morbit 0.1.0-rc.2[0m  [90mself-hosted compiler, C to native[0m
+
+ [38;2;79;135;255mBUILD[0m
+  [1mbuild    [0m<file.orb> [-o out]   [90mcompile to a native executable[0m
+  [1mrun      [0m<file.orb>            [90mbuild and run it, sharing your terminal[0m
+  [1mstart    [0m[file.orb]            [90mbuild into .orbit/ and run[0m
+  [1mdev      [0m[file.orb]            [90mwatch, rebuild and restart on change[0m
+  [1mstop     [0m                      [90mstop the service running from this directory[0m
+
+ [38;2;79;135;255mINSPECT[0m
+  [1mcheck    [0m<file.orb>            [90mparse, typecheck and verify the IR[0m
+  [1mfrontend [0m<file.orb>            [90memit the typed IR (TIR)[0m
+
+ [38;2;79;135;255mTOOLS[0m
+  [1mfmt      [0m<file.orb>            [90mformat a file; --check <file|dir> lists the rest[0m
+  [1mdoctor   [0m[dir] [--fix]         [90mproject checks[0m
+  [1mcluster  [0mup|status|down ...    [90msingle-host multiprocess orchestration[0m
+
+ [90mflags  --quiet  --verbose  --color always|never|auto  --backend=c|native  --release[0m
+ [90morbit <command> --help shows one command; ORBIT_UI=plain turns this screen off[0m

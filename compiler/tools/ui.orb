@@ -1,0 +1,751 @@
+import "../host/extern.orb"
+import "./palette.orb"
+
+// Orbital terminal UI: tiers, glyphs, layout helpers and the screens of the
+// build pipeline. docs/CLI_UI.md describes the tiers and the overrides.
+//
+// A tier is 0 (plain), 1 (color) or 2 (rich), chosen per stream. Tier 0 is not
+// a screen of its own: every caller keeps the code path it had before this
+// file existed and only branches into the functions below when the tier is
+// not 0, so the plain output stays byte-identical.
+
+// ORBIT_UI forces a tier (rich, color, plain); -1 when it is unset or unknown.
+fn uiForced() -> int {
+    val v = orbit_os_env_selfhost("ORBIT_UI")
+    if v == "plain" { return 0 }
+    if v == "color" { return 1 }
+    if v == "rich" { return 2 }
+    return -1
+}
+
+fn uiCapTty(caps: int) -> bool {
+    return caps % 2 == 1
+}
+
+fn uiCapVt(caps: int) -> bool {
+    return (caps / 2) % 2 == 1
+}
+
+fn uiCapUtf8(caps: int) -> bool {
+    return (caps / 4) % 2 == 1
+}
+
+// 256 colors or more. A Windows console with escape processing, a terminal
+// that names itself and any TERM carrying 256 or truecolor qualify; a bare
+// xterm, linux or ansi stays at 16.
+fn uiHas256Colors() -> bool {
+    if paletteIsWindows() { return true }
+    if orbit_os_env_selfhost("COLORTERM") != "" { return true }
+    if orbit_os_env_selfhost("WT_SESSION") != "" { return true }
+    if orbit_os_env_selfhost("TERM_PROGRAM") != "" { return true }
+    val term = orbit_os_env_selfhost("TERM")
+    if orbit_string_indexOf(term, "256") != -1 { return true }
+    if orbit_string_indexOf(term, "truecolor") != -1 { return true }
+    return false
+}
+
+fn uiTruecolor() -> bool {
+    val ct = orbit_os_env_selfhost("COLORTERM")
+    if ct == "truecolor" || ct == "24bit" { return true }
+    if orbit_os_env_selfhost("WT_SESSION") != "" { return true }
+    val prog = orbit_os_env_selfhost("TERM_PROGRAM")
+    if prog == "vscode" || prog == "WezTerm" || prog == "iTerm.app" { return true }
+    return false
+}
+
+// The tier of one stream. `never` and a plain override win; an override to
+// color or rich is an order; otherwise the stream must be a console with escape
+// processing enabled on that handle, and the rich tier also needs UTF-8 output
+// and 256 colors. CI, NO_COLOR and TERM=dumb keep `auto` at tier 0, and
+// `always` skips those three checks but still needs a console, so piped output
+// keeps the colors it had.
+fn uiTier(colorMode: string, isStderr: bool) -> int {
+    if colorMode == "never" { return 0 }
+    val forced = uiForced()
+    if forced >= 0 { return forced }
+    var fd = 1
+    if isStderr { fd = 2 }
+    val caps = orbit_ui_caps(fd)
+    if uiCapTty(caps) == false { return 0 }
+    if uiCapVt(caps) == false { return 0 }
+    if colorMode != "always" {
+        if paletteUseColorOnStream(colorMode, isStderr) == false { return 0 }
+        if orbit_os_env_selfhost("CI") != "" { return 0 }
+    }
+    if uiCapUtf8(caps) && uiHas256Colors() { return 2 }
+    return 1
+}
+
+// Rich tier, motion on, and a console to repaint. ORBIT_UI_MOTION=0 is reduced
+// motion (final frames only); `force` animates into a pipe, for the probe that
+// interrupts a build.
+fn uiAnimates(tier: int) -> bool {
+    if tier != 2 { return false }
+    val m = orbit_os_env_selfhost("ORBIT_UI_MOTION")
+    if m == "0" { return false }
+    if m == "force" { return true }
+    val caps = orbit_ui_caps(2)
+    return uiCapTty(caps) && uiCapVt(caps)
+}
+
+fn uiWidth(isStderr: bool) -> int {
+    var fd = 1
+    if isStderr { fd = 2 }
+    var w = orbit_ui_width(fd)
+    if w <= 0 { w = 80 }
+    if w < 40 { w = 40 }
+    if w > 120 { w = 120 }
+    return w
+}
+
+// Cards leave the last column free: a write into it wraps on several terminals.
+fn uiCardWidth(isStderr: bool) -> int {
+    var w = uiWidth(isStderr) - 2
+    if w > 100 { w = 100 }
+    return w
+}
+
+// Glyphs by name. The rich tier draws with Unicode; the color tier is ASCII so
+// that a terminal without UTF-8 prints no mojibake.
+fn uiG(tier: int, name: string) -> string {
+    if tier == 2 {
+        if name == "ok" { return "✓" }
+        if name == "fail" { return "✗" }
+        if name == "dot" { return "●" }
+        if name == "sep" { return "·" }
+        if name == "arrow" { return "→" }
+        if name == "on" { return "▰" }
+        if name == "off" { return "▱" }
+        if name == "tl" { return "╭" }
+        if name == "tr" { return "╮" }
+        if name == "bl" { return "╰" }
+        if name == "br" { return "╯" }
+        if name == "h" { return "─" }
+        if name == "v" { return "│" }
+        if name == "ell" { return "…" }
+        return name
+    }
+    if name == "ok" { return "v" }
+    if name == "fail" { return "x" }
+    if name == "dot" { return "*" }
+    if name == "sep" { return "." }
+    if name == "arrow" { return "->" }
+    if name == "on" { return "#" }
+    if name == "off" { return "-" }
+    if name == "tl" { return "+" }
+    if name == "tr" { return "+" }
+    if name == "bl" { return "+" }
+    if name == "br" { return "+" }
+    if name == "h" { return "-" }
+    if name == "v" { return "|" }
+    if name == "ell" { return "~" }
+    return name
+}
+
+fn uiPaint(tier: int, style: string, text: string) -> string {
+    if tier == 0 { return text }
+    return style + text + paletteReset()
+}
+
+// One step of the accent gradient, violet to cyan, over n steps: truecolor when
+// the terminal says so, a 256-color ramp otherwise, plain cyan in the color tier.
+fn uiAccent(tier: int, i: int, n: int) -> string {
+    if tier != 2 { return "\x1b[36m" }
+    var span = n - 1
+    if span < 1 { span = 1 }
+    if uiTruecolor() {
+        val r = 124 - (124 * i) / span
+        val g = 92 + (120 * i) / span
+        return "\x1b[38;2;" + orbit_int_to_string_selfhost(r) + ";" + orbit_int_to_string_selfhost(g) + ";255m"
+    }
+    val step = (i * 6) / n
+    if step <= 0 { return "\x1b[38;5;99m" }
+    if step == 1 { return "\x1b[38;5;105m" }
+    if step == 2 { return "\x1b[38;5;111m" }
+    if step == 3 { return "\x1b[38;5;117m" }
+    if step == 4 { return "\x1b[38;5;81m" }
+    return "\x1b[38;5;45m"
+}
+
+fn uiRepeat(s: string, n: int) -> string {
+    var out = ""
+    var i = 0
+    while i < n {
+        out = out + s
+        i = i + 1
+    }
+    return out
+}
+
+// Columns a string occupies: one per code point, escape sequences count zero.
+fn uiVisibleLen(s: string) -> int {
+    var n = 0
+    var i = 0
+    val total = orbit_string_len(s)
+    while i < total {
+        var c = orbit_string_char_at_selfhost(s, i)
+        if c < 0 { c = c + 256 }
+        if c == 27 {
+            i = i + 1
+            while i < total {
+                val e = orbit_string_char_at_selfhost(s, i)
+                i = i + 1
+                if e == 109 { break }
+            }
+        } else {
+            if c < 128 || c >= 192 {
+                n = n + 1
+            }
+            i = i + 1
+        }
+    }
+    return n
+}
+
+fn uiPadRight(s: string, width: int) -> string {
+    val n = uiVisibleLen(s)
+    if n >= width { return s }
+    return s + uiRepeat(" ", width - n)
+}
+
+fn uiPadLeft(s: string, width: int) -> string {
+    val n = uiVisibleLen(s)
+    if n >= width { return s }
+    return uiRepeat(" ", width - n) + s
+}
+
+fn uiMs(ms: int) -> string {
+    return orbit_int_to_string_selfhost(ms)
+}
+
+fn uiKb(bytes: int) -> string {
+    val tenths = (bytes * 10) / 1024
+    return orbit_int_to_string_selfhost(tenths / 10) + "." + orbit_int_to_string_selfhost(tenths % 10) + " KB"
+}
+
+// Word wrap of plain text to `width` columns; a word longer than a line is cut.
+fn uiWrap(text: string, width: int) -> list < string > {
+    val lines: list < string > = []
+    var cur = ""
+    var word = ""
+    var i = 0
+    val total = orbit_string_len(text)
+    while i <= total {
+        var c = 32
+        if i < total { c = orbit_string_char_at_selfhost(text, i) }
+        if c == 32 || c == 10 {
+            if orbit_string_len(word) > 0 {
+                if orbit_string_len(cur) == 0 {
+                    cur = word
+                } else if orbit_string_len(cur) + 1 + orbit_string_len(word) <= width {
+                    cur = cur + " " + word
+                } else {
+                    lines.push(cur)
+                    cur = word
+                }
+                while orbit_string_len(cur) > width {
+                    lines.push(orbit_string_slice(cur, 0, width))
+                    cur = orbit_string_slice(cur, width, orbit_string_len(cur))
+                }
+                word = ""
+            }
+        } else {
+            word = word + orbit_string_from_char_selfhost(c)
+        }
+        i = i + 1
+    }
+    if orbit_string_len(cur) > 0 { lines.push(cur) }
+    return lines
+}
+
+// A rounded card: a title in the top edge, rows padded to the inner width and a
+// footer in the bottom edge. `edge` colors the frame; titles and rows arrive
+// already styled.
+fn uiCard(tier: int, edge: string, title: string, rows: list < string >, footer: string, width: int) -> string {
+    val inner = width - 4
+    val h = uiG(tier, "h")
+    val bar = uiPaint(tier, edge, uiG(tier, "v"))
+    var top = uiPaint(tier, edge, uiG(tier, "tl") + h + " ") + title + " "
+    var fill = width - uiVisibleLen(top) - 1
+    if fill < 1 { fill = 1 }
+    top = top + uiPaint(tier, edge, uiRepeat(h, fill - 1) + h) + uiPaint(tier, edge, uiG(tier, "tr"))
+    var out = top + "\n"
+    var i = 0
+    while i < rows.len() {
+        val row: string = rows.get(i)
+        out = out + bar + " " + uiPadRight(row, inner) + " " + bar + "\n"
+        i = i + 1
+    }
+    var bottom = uiPaint(tier, edge, uiG(tier, "bl") + h)
+    if footer != "" {
+        bottom = bottom + " " + footer + " "
+    }
+    var bfill = width - uiVisibleLen(bottom) - 1
+    if bfill < 0 { bfill = 0 }
+    bottom = bottom + uiPaint(tier, edge, uiRepeat(h, bfill) + uiG(tier, "br"))
+    out = out + bottom + "\n"
+    return out
+}
+
+// ---------------------------------------------------------------- build screen
+
+// Per-stage timings of one build and what the screen needs to draw them. The
+// stage indexes are 0 parse, 1 resolve, 2 check, 3 ir, 4 native or c, 5 link;
+// a time of -1 means the stage has not finished.
+model UiBuild {
+    tier: int
+    animate: bool
+    running: bool
+    title: string
+    file: string
+    backend: string
+    hasLink: bool
+    active: int
+    failed: int
+    stageStart: int
+    m0: int
+    m1: int
+    m2: int
+    m3: int
+    m4: int
+    m5: int
+}
+
+fn uiBuildNone() -> UiBuild {
+    return UiBuild(0, false, false, "", "", "", false, -1, -1, 0, -1, -1, -1, -1, -1, -1)
+}
+
+fn uiBuildNew(tier: int, title: string, file: string, backend: string, hasLink: bool) -> UiBuild {
+    val b = UiBuild(tier, false, false, title, file, backend, hasLink, -1, -1, 0, -1, -1, -1, -1, -1, -1)
+    if tier != 0 {
+        b.animate = uiAnimates(tier)
+    }
+    return b
+}
+
+fn uiGetMs(b: UiBuild, i: int) -> int {
+    if i == 0 { return b.m0 }
+    if i == 1 { return b.m1 }
+    if i == 2 { return b.m2 }
+    if i == 3 { return b.m3 }
+    if i == 4 { return b.m4 }
+    return b.m5
+}
+
+fn uiSetMs(b: UiBuild, i: int, ms: int) {
+    if i == 0 { b.m0 = ms }
+    else if i == 1 { b.m1 = ms }
+    else if i == 2 { b.m2 = ms }
+    else if i == 3 { b.m3 = ms }
+    else if i == 4 { b.m4 = ms }
+    else { b.m5 = ms }
+}
+
+fn uiStageName(b: UiBuild, i: int) -> string {
+    if i == 0 { return "parse" }
+    if i == 1 { return "resolve" }
+    if i == 2 { return "check" }
+    if i == 3 { return "ir" }
+    if i == 4 { return b.backend }
+    return "link"
+}
+
+fn uiRowCount(b: UiBuild) -> int {
+    if b.hasLink { return 6 }
+    return 5
+}
+
+fn uiSlowest(b: UiBuild) -> int {
+    var top = 1
+    var i = 0
+    while i < uiRowCount(b) {
+        val ms = uiGetMs(b, i)
+        if ms > top { top = ms }
+        i = i + 1
+    }
+    return top
+}
+
+// Twelve cells, filled in proportion to the slowest stage. Each filled cell
+// takes its own step of the gradient, so the fill reads left to right.
+fn uiBar(tier: int, ms: int, slowest: int) -> string {
+    var filled = 0
+    if ms >= 0 {
+        filled = (ms * 12) / slowest
+        if filled < 1 && ms > 0 { filled = 1 }
+        if filled > 12 { filled = 12 }
+    }
+    var out = ""
+    var i = 0
+    if tier == 1 {
+        out = "["
+    }
+    while i < filled {
+        out = out + uiPaint(tier, uiAccent(tier, i, 12), uiG(tier, "on"))
+        i = i + 1
+    }
+    if filled < 12 {
+        out = out + uiPaint(tier, paletteDim(), uiRepeat(uiG(tier, "off"), 12 - filled))
+    }
+    if tier == 1 {
+        out = out + "]"
+    }
+    return out
+}
+
+// One row. Rows ahead of the active stage are dim; the active row of a live
+// frame carries the orbital marker (0x01) and the running milliseconds (0x02).
+fn uiBuildRow(b: UiBuild, i: int, live: bool, slowest: int) -> string {
+    val tier = b.tier
+    val name = uiStageName(b, i)
+    val ms = uiGetMs(b, i)
+    var slot = "  "
+    var label = uiPaint(tier, paletteDim(), uiPadRight(name, 8))
+    var field = ""
+    var bar = uiBar(tier, -1, slowest)
+    if i == b.failed {
+        slot = " " + uiPaint(tier, paletteError(), uiG(tier, "fail"))
+        label = uiPaint(tier, paletteError(), uiPadRight(name, 8))
+        if ms >= 0 {
+            field = uiPadLeft(uiMs(ms), 6) + " ms"
+        }
+    } else if i == b.active && live {
+        slot = uiPaint(tier, uiAccent(tier, 3, 12), "\x01")
+        label = uiPaint(tier, paletteBold(), uiPadRight(name, 8))
+        field = "\x02 ms"
+    } else if ms >= 0 {
+        slot = " " + uiPaint(tier, paletteOk(), uiG(tier, "ok"))
+        label = uiPadRight(name, 8)
+        bar = uiBar(tier, ms, slowest)
+        field = uiPadLeft(uiMs(ms), 6) + " ms"
+    }
+    return " " + slot + " " + label + " " + bar + "  " + uiPaint(tier, paletteDim(), field)
+}
+
+// The whole block as text. `live` selects the animated header and active row;
+// otherwise it is the settled frame, ok or failed.
+fn uiBuildBlock(b: UiBuild, live: bool) -> string {
+    val tier = b.tier
+    var slot = ""
+    if live {
+        slot = uiPaint(tier, uiAccent(tier, 0, 12), "\x01")
+    } else if b.failed >= 0 {
+        slot = " " + uiPaint(tier, paletteError(), uiG(tier, "fail"))
+    } else {
+        slot = " " + uiPaint(tier, uiAccent(tier, 0, 12), uiG(tier, "dot"))
+    }
+    var out = " " + slot + " " + uiPaint(tier, paletteBold(), b.title) + " " + b.file + "\n"
+    val slowest = uiSlowest(b)
+    var i = 0
+    while i < uiRowCount(b) {
+        out = out + uiBuildRow(b, i, live, slowest) + "\n"
+        i = i + 1
+    }
+    return out
+}
+
+fn uiBuildPaintStart(b: UiBuild) {
+    if b.animate == false { return }
+    if orbit_ui_anim_start(uiBuildBlock(b, true), 0) == 1 {
+        b.running = true
+    }
+}
+
+// Closes the active stage with its time and opens `next` (-1 closes only).
+fn uiBuildEnter(b: UiBuild, next: int) {
+    if b.tier == 0 { return }
+    val now = orbit_clock_ms()
+    if b.active >= 0 {
+        uiSetMs(b, b.active, now - b.stageStart)
+    }
+    b.active = next
+    b.stageStart = now
+    if next < 0 { return }
+    if b.running {
+        orbit_ui_anim_stage(uiBuildBlock(b, true))
+    } else if b.animate && next == 0 {
+        uiBuildPaintStart(b)
+    }
+}
+
+// Draws the settled block: over the animation when one ran, as new lines
+// otherwise. A failed build marks the stage that was active.
+fn uiBuildFinish(b: UiBuild, succeeded: bool) {
+    if b.tier == 0 { return }
+    var failedAt = b.active
+    uiBuildEnter(b, -1)
+    if succeeded == false {
+        if failedAt < 0 {
+            failedAt = 0
+            while failedAt < uiRowCount(b) - 1 && uiGetMs(b, failedAt) >= 0 {
+                failedAt = failedAt + 1
+            }
+        }
+        b.failed = failedAt
+    }
+    val settled = uiBuildBlock(b, false)
+    if b.running {
+        orbit_ui_anim_stop(settled)
+        b.running = false
+    } else {
+        orbit_os_write_stderr_selfhost(settled)
+    }
+    b.tier = 0
+}
+
+// The result line of a build, on stdout: output path, total time, .text size and
+// backend.
+fn uiBuildFooter(tier: int, outputPath: string, totalMs: int, textSize: int, backend: string) -> string {
+    val sep = " " + uiPaint(tier, paletteDim(), uiG(tier, "sep")) + " "
+    var out = " " + uiPaint(tier, uiAccent(tier, 0, 12), uiG(tier, "dot")) + " " + uiPaint(tier, paletteBold(), outputPath)
+    out = out + "  " + uiMs(totalMs) + " ms"
+    if textSize >= 0 {
+        out = out + sep + uiKb(textSize) + " .text"
+    }
+    out = out + sep + backend
+    return out
+}
+
+// The dim rule between the build block and a program's own output.
+fn uiRule(tier: int, width: int) -> string {
+    return uiPaint(tier, paletteDim(), " " + uiRepeat(uiG(tier, "h"), width - 2)) + "\n"
+}
+
+fn uiFailedLine(tier: int, errCount: int, ms: int) -> string {
+    var noun = "errors"
+    if errCount == 1 { noun = "error" }
+    return " " + uiPaint(tier, paletteError(), uiG(tier, "fail")) + " " + uiPaint(tier, paletteBold(), "build failed") + " " + uiPaint(tier, paletteDim(), orbit_int_to_string_selfhost(errCount) + " " + noun + " " + uiG(tier, "sep") + " " + uiMs(ms) + " ms") + "\n"
+}
+
+// ------------------------------------------------------------------ error card
+
+// Length of the token at `col` (1-based) on a source line: the run of
+// identifier characters, or one character for punctuation.
+fn uiSpanLen(sourceLine: string, col: int) -> int {
+    val total = orbit_string_len(sourceLine)
+    var i = col - 1
+    if i < 0 || i >= total { return 1 }
+    var n = 0
+    while i < total {
+        val c = orbit_string_char_at_selfhost(sourceLine, i)
+        val word = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+        if word == false { break }
+        n = n + 1
+        i = i + 1
+    }
+    if n == 0 { return 1 }
+    return n
+}
+
+fn uiGutterLine(tier: int, number: int, gutter: int, text: string, current: bool) -> string {
+    var num = uiPadLeft(orbit_int_to_string_selfhost(number), gutter)
+    if current {
+        num = uiPaint(tier, paletteBold(), num)
+    } else {
+        num = uiPaint(tier, paletteDim(), num)
+    }
+    return num + " " + uiPaint(tier, paletteDim(), uiG(tier, "v")) + " " + text
+}
+
+// How many columns of a long source line are cut from the left so that `col`
+// stays inside `avail`; 0 when the line fits or the column is near the start.
+fn uiSourceShift(sourceLine: string, col: int, avail: int) -> int {
+    if orbit_string_len(sourceLine) <= avail { return 0 }
+    if col <= avail - 6 { return 0 }
+    return col - (avail / 2)
+}
+
+// The line as shown: tabs flattened to one space (the caret counts columns, not
+// tab stops), cut at `shift` on the left and at `avail` on the right.
+fn uiSourceView(tier: int, sourceLine: string, shift: int, avail: int) -> string {
+    var text = sourceLine
+    var i = 0
+    var flat = ""
+    while i < orbit_string_len(text) {
+        val c = orbit_string_char_at_selfhost(text, i)
+        if c == 9 {
+            flat = flat + " "
+        } else {
+            flat = flat + orbit_string_slice(text, i, i + 1)
+        }
+        i = i + 1
+    }
+    text = flat
+    var lead = ""
+    var room = avail
+    if shift > 0 {
+        text = orbit_string_slice(text, shift, orbit_string_len(text))
+        lead = uiG(tier, "ell")
+        room = room - 1
+    }
+    if orbit_string_len(text) > room {
+        text = orbit_string_slice(text, 0, room - 1) + uiG(tier, "ell")
+    }
+    return lead + text
+}
+
+// The rich error card: code and location in the top edge, the message, ±1 line
+// of context with line numbers, a colored underline under the span, the hint
+// and the error kind in the bottom edge.
+fn uiErrorCard(tier: int, code: string, message: string, file: string, line: int, col: int, prevLine: string, sourceLine: string, nextLine: string, hint: string, kind: string, width: int) -> string {
+    val inner = width - 4
+    val edge = paletteError()
+    val loc = file + ":" + orbit_int_to_string_selfhost(line) + ":" + orbit_int_to_string_selfhost(col)
+    val title = uiPaint(tier, paletteBold() + edge, "error[" + code + "]") + " " + uiPaint(tier, paletteDim(), uiRepeat(uiG(tier, "h"), 3)) + " " + uiPaint(tier, paletteBold(), loc)
+    val rows: list < string > = []
+    val wrapped = uiWrap(message, inner)
+    var wi = 0
+    while wi < wrapped.len() {
+        val w: string = wrapped.get(wi)
+        rows.push(w)
+        wi = wi + 1
+    }
+    if sourceLine != "" {
+        rows.push("")
+        var gutter = orbit_string_len(orbit_int_to_string_selfhost(line + 1))
+        if gutter < 2 { gutter = 2 }
+        val avail = inner - gutter - 3
+        val shift = uiSourceShift(sourceLine, col, avail)
+        if line > 1 && prevLine != "" {
+            rows.push(uiGutterLine(tier, line - 1, gutter, uiPaint(tier, paletteDim(), uiSourceView(tier, prevLine, 0, avail)), false))
+        }
+        rows.push(uiGutterLine(tier, line, gutter, uiSourceView(tier, sourceLine, shift, avail), true))
+        var lead = col - 1 - shift
+        if shift > 0 { lead = lead + 1 }
+        if lead < 0 { lead = 0 }
+        var span = uiSpanLen(sourceLine, col)
+        if lead + span > avail { span = avail - lead }
+        if span < 1 { span = 1 }
+        rows.push(uiRepeat(" ", gutter) + " " + uiPaint(tier, paletteDim(), uiG(tier, "v")) + " " + uiRepeat(" ", lead) + uiPaint(tier, paletteBold() + edge, uiRepeat("^", span)))
+        if nextLine != "" {
+            rows.push(uiGutterLine(tier, line + 1, gutter, uiPaint(tier, paletteDim(), uiSourceView(tier, nextLine, 0, avail)), false))
+        }
+    }
+    rows.push("")
+    val hints = uiWrap(hint, inner - 2)
+    var hi = 0
+    while hi < hints.len() {
+        val hl: string = hints.get(hi)
+        if hi == 0 {
+            rows.push(uiPaint(tier, paletteCode(), uiG(tier, "arrow")) + " " + hl)
+        } else {
+            rows.push("  " + hl)
+        }
+        hi = hi + 1
+    }
+    return "\n" + uiCard(tier, edge, title, rows, uiPaint(tier, paletteDim(), kind), width)
+}
+
+// ------------------------------------------------------------ summary and help
+
+// The mark that opens banners: an arc around a dot, violet to cyan.
+fn uiLogo(tier: int) -> string {
+    if tier == 2 {
+        return uiPaint(tier, uiAccent(tier, 0, 12), "◜") + uiPaint(tier, uiAccent(tier, 11, 12), "●")
+    }
+    return uiPaint(tier, uiAccent(tier, 0, 12), "(*")
+}
+
+// "label: value" pairs joined by a dim separator, for the counts line of a card.
+fn uiJoin(tier: int, parts: list < string >) -> string {
+    var out = ""
+    var i = 0
+    while i < parts.len() {
+        val part: string = parts.get(i)
+        if i > 0 {
+            out = out + " " + uiPaint(tier, paletteDim(), uiG(tier, "sep")) + " "
+        }
+        out = out + part
+        i = i + 1
+    }
+    return out
+}
+
+// A count with its noun, which arrives in the plural and loses its s at one.
+// Zero is dim so the eye lands on what is not zero.
+fn uiCount(tier: int, n: int, noun: string, style: string) -> string {
+    var word = noun
+    val len = orbit_string_len(noun)
+    if n == 1 && len > 1 && orbit_string_slice(noun, len - 1, len) == "s" {
+        word = orbit_string_slice(noun, 0, len - 1)
+    }
+    if n == 0 {
+        return uiPaint(tier, paletteDim(), orbit_int_to_string_selfhost(n) + " " + word)
+    }
+    return uiPaint(tier, style, orbit_int_to_string_selfhost(n) + " " + word)
+}
+
+// print adds the newline a screen already ends with.
+fn uiChomp(s: string) -> string {
+    val len = orbit_string_len(s)
+    if len > 0 && orbit_string_slice(s, len - 1, len) == "\n" {
+        return orbit_string_slice(s, 0, len - 1)
+    }
+    return s
+}
+
+// A one-screen result: a head line with a status glyph, a counts line, the time.
+// `passed` picks the glyph.
+fn uiResultCard(tier: int, command: string, passed: bool, headline: string, counts: list < string >, ms: int, width: int) -> string {
+    var style = paletteOk()
+    var glyph = uiG(tier, "ok")
+    if passed == false {
+        style = paletteError()
+        glyph = uiG(tier, "fail")
+    }
+    val rows: list < string > = []
+    rows.push(uiPaint(tier, style, glyph) + " " + headline)
+    counts.push(uiPaint(tier, paletteDim(), uiMs(ms) + " ms"))
+    rows.push("  " + uiJoin(tier, counts))
+    val title = uiLogo(tier) + " " + uiPaint(tier, paletteBold(), "orbit " + command)
+    return uiCard(tier, uiAccent(tier, 2, 12), title, rows, "", width)
+}
+
+fn uiHelpRow(tier: int, name: string, args: string, desc: string) -> string {
+    return "  " + uiPaint(tier, paletteBold(), uiPadRight(name, 9)) + uiPadRight(args, 22) + uiPaint(tier, paletteDim(), desc) + "\n"
+}
+
+fn uiHelpGroup(tier: int, name: string) -> string {
+    return "\n " + uiPaint(tier, uiAccent(tier, 4, 12), name) + "\n"
+}
+
+fn uiBanner(tier: int, version: string) -> string {
+    return " " + uiLogo(tier) + " " + uiPaint(tier, paletteBold(), "orbit " + version) + "  " + uiPaint(tier, paletteDim(), "self-hosted compiler, C to native") + "\n"
+}
+
+fn uiHelp(tier: int, version: string) -> string {
+    var out = uiBanner(tier, version)
+    out = out + uiHelpGroup(tier, "BUILD")
+    out = out + uiHelpRow(tier, "build", "<file.orb> [-o out]", "compile to a native executable")
+    out = out + uiHelpRow(tier, "run", "<file.orb>", "build and run it, sharing your terminal")
+    out = out + uiHelpRow(tier, "start", "[file.orb]", "build into .orbit/ and run")
+    out = out + uiHelpRow(tier, "dev", "[file.orb]", "watch, rebuild and restart on change")
+    out = out + uiHelpRow(tier, "stop", "", "stop the service running from this directory")
+    out = out + uiHelpGroup(tier, "INSPECT")
+    out = out + uiHelpRow(tier, "check", "<file.orb>", "parse, typecheck and verify the IR")
+    out = out + uiHelpRow(tier, "frontend", "<file.orb>", "emit the typed IR (TIR)")
+    out = out + uiHelpGroup(tier, "TOOLS")
+    out = out + uiHelpRow(tier, "fmt", "<file.orb>", "format a file; --check <file|dir> lists the rest")
+    out = out + uiHelpRow(tier, "doctor", "[dir] [--fix]", "project checks")
+    out = out + uiHelpRow(tier, "cluster", "up|status|down ...", "single-host multiprocess orchestration")
+    out = out + "\n " + uiPaint(tier, paletteDim(), "flags  --quiet  --verbose  --color always|never|auto  --backend=c|native  --release") + "\n"
+    out = out + " " + uiPaint(tier, paletteDim(), "orbit <command> --help shows one command; ORBIT_UI=plain turns this screen off") + "\n"
+    return out
+}
+
+fn uiBareHelp(tier: int, version: string) -> string {
+    var out = uiBanner(tier, version) + "\n"
+    out = out + uiHelpRow(tier, "check", "hello.orb", "typecheck and verify the IR")
+    out = out + uiHelpRow(tier, "build", "hello.orb -o hello", "compile to native")
+    out = out + uiHelpRow(tier, "run", "hello.orb", "build and run")
+    out = out + uiHelpRow(tier, "start", "[main.orb]", "build into .orbit/ and run")
+    out = out + uiHelpRow(tier, "stop", "", "stop the service running from this directory")
+    out = out + uiHelpRow(tier, "doctor", "", "project checks")
+    out = out + "\n " + uiPaint(tier, paletteDim(), "No input given. Next step: orbit check hello.orb, then orbit build hello.orb -o hello") + "\n"
+    out = out + " " + uiPaint(tier, paletteDim(), "orbit --help lists every command") + "\n"
+    return out
+}
+
+fn uiVersionLine(tier: int, version: string) -> string {
+    return " " + uiLogo(tier) + " " + uiPaint(tier, paletteBold(), "orbit " + version)
+}

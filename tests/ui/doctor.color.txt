@@ -1,0 +1,10 @@
+toolchain: found <cc>
+[1mmessy.orb:2[0m [33mwarning[0m [36m[D006][0m trailing whitespace on this line. fix: remove the trailing spaces or tabs (doctor --fix does this).
+doctor: 1 finding(s) (0 error(s), 1 warning(s)) in 2 files under "scan".
+[36m+- [0m[36m(*[0m [1morbit doctor[0m [36m----------------------------------------------------------[0m[36m+[0m
+[36m|[0m [1mScore 98[0m [32mGreat[0m                                                             [36m|[0m
+[36m|[0m [36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[36m#[0m[90m-[0m                                             [36m|[0m
+[36m|[0m [1m2 files[0m [90m.[0m [90m0 errors[0m [90m.[0m [33m1 warning[0m                                             [36m|[0m
+[36m|[0m [90m1 issues across 1/2 files in N ms[0m [36m|[0m
+[36m|[0m [36m->[0m orbit doctor --fix applies the whitespace fixes                         [36m|[0m
+[36m+-[0m[36m---------------------------------------------------------------------------+[0m

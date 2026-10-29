@@ -1,0 +1,8 @@
+  [38;2;124;92;255m●[0m [1morbit build[0m hello.orb
+  [32m✓[0m parse    <bar>[0m  [90m N ms[0m
+  [32m✓[0m resolve  <bar>[0m  [90m N ms[0m
+  [32m✓[0m check    <bar>[0m  [90m N ms[0m
+  [32m✓[0m ir       <bar>[0m  [90m N ms[0m
+  [32m✓[0m c        <bar>[0m  [90m N ms[0m
+  [32m✓[0m link     <bar>[0m  [90m N ms[0m
+ [38;2;124;92;255m●[0m [1mhello.exe[0m N ms [90m·[0m N KB .text [90m·[0m c

@@ -14,6 +14,7 @@ import "../ir/cteval.orb"
 import "../ir/prune.orb"
 import "../emit/c_backend.orb"
 import "../tools/palette.orb"
+import "../tools/ui.orb"
 
 fn cteEnabled() -> bool {
     return orbit_os_env_selfhost("ORBIT_NO_CTE") == ""
@@ -82,7 +83,12 @@ fn renderErrorCard(code: string, message: string, file: string, line: int, col: 
     return out
 }
 
-fn reportErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, kind: string, colorMode: string) {
+fn reportErrorCard(code: string, message: string, file: string, line: int, col: int, sourceLine: string, hint: string, kind: string, colorMode: string, source: string) {
+    val tier = uiTier(colorMode, true)
+    if tier != 0 {
+        orbit_os_write_stderr_selfhost(uiErrorCard(tier, code, message, file, line, col, getSourceLine(source, line - 1), sourceLine, getSourceLine(source, line + 1), hint, kind, uiCardWidth(true)))
+        return
+    }
     val card = renderErrorCard(code, message, file, line, col, sourceLine, hint, colorMode)
     orbit_os_write_stderr_selfhost(card)
     orbit_os_write_stderr_selfhost("\n" + palettePaint(paletteError(), "ERROR:", paletteUseColorStderr(colorMode)) + " " + kind + "\n")
@@ -117,7 +123,7 @@ fn printSemaErrors(sema: Sema, source: string, inputPath: string, colorMode: str
     while ei < sema.errors.len() {
         val diag: SemaError = sema.errors.get(ei)
         if diag.code != "" && diag.line > 0 {
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.col, getSourceLine(source, diag.line), diag.hint, "error.SemanticAnalysisFailed", colorMode)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.col, getSourceLine(source, diag.line), diag.hint, "error.SemanticAnalysisFailed", colorMode, source)
         } else {
             orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "Semantic error:", useColor) + " " + diag.message + "\n")
         }
@@ -192,8 +198,11 @@ fn checkRuntimeModuleVerified(source: string, inputPath: string, colorMode: stri
 }
 
 // One line per verifier error, under the command that ran it.
-fn reportIRVerification(irModule: IRModule, command: string, useColor: bool) -> bool {
+fn reportIRVerification(irModule: IRModule, command: string, useColor: bool, ui: UiBuild) -> bool {
     val irErrs = verifyModuleTypes(initCBackend(irModule))
+    if irErrs.len() > 0 {
+        uiBuildFinish(ui, false)
+    }
     var ie = 0
     while ie < irErrs.len() {
         orbit_os_write_stderr_selfhost(palettePaint(paletteError(), command + ":", useColor) + " type verification: " + irErrs.get(ie) + "\n")
@@ -210,7 +219,7 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
         val diag: ParserDiagnostic = parser.diagnostics.get(0)
         if diag.code != "" {
             val srcLine = getSourceLine(source, diag.line)
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind, colorMode)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind, colorMode, source)
         } else {
             var i = 0
             while i < parser.diagnostics.len() {
@@ -246,7 +255,7 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
         checkBuilder.module.runtimeModule = runtimeModule
         val irModule = buildAST(checkBuilder, ast)
         irModule.sourceName = sourceBaseName(inputPath)
-        return reportIRVerification(irModule, "orbit check", useColor)
+        return reportIRVerification(irModule, "orbit check", useColor, uiBuildNone())
     }
     return true
 }
@@ -717,6 +726,11 @@ fn reportCStepFailure(inputPath: string, cPath: string, rtDir: string, tmpDir: s
 fn compileFailed(inputPath: string, errCount: int, startMs: int, colorMode: string) {
     val useErr = paletteUseColorStderr(colorMode)
     val ms = orbit_clock_ms() - startMs
+    val tier = uiTier(colorMode, true)
+    if tier != 0 {
+        orbit_os_write_stderr_selfhost(uiFailedLine(tier, errCount, ms))
+        return
+    }
     var noun = "errors"
     if errCount == 1 {
         noun = "error"
@@ -779,6 +793,17 @@ fn reportCompiled(inputPath: string, outputPath: string, startMs: int, colorMode
     val timing = palettePaint(paletteDim(), "in " + orbit_int_to_string_selfhost(ms) + " ms", useColorOut)
     print(check + " " + word + " " + file + " " + timing)
     print("wrote " + outputPath)
+}
+
+// The result of a build on stdout. The rich footer replaces the two plain
+// lines only when stdout itself is a rich or color stream.
+fn reportBuildDone(inputPath: string, outputPath: string, startMs: int, colorMode: string, backend: string) {
+    val tier = uiTier(colorMode, false)
+    if tier == 0 {
+        reportCompiled(inputPath, outputPath, startMs, colorMode)
+        return
+    }
+    print(uiBuildFooter(tier, outputPath, orbit_clock_ms() - startMs, orbit_ui_text_size(outputPath), backend))
 }
 
 fn emitIrDocument(irModule: IRModule, irPath: string, verbose: bool, useColorErr: bool) -> bool {
@@ -908,13 +933,14 @@ fn r6RefusalReason(r6: string) -> string {
 // untouched; a refusal is a compile error and never falls back to the C
 // backend. The command is wrapped in one more pair of quotes because the
 // Windows shell strips the outermost pair of a command that begins with one.
-fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: string, verbose: bool, colorMode: string, runtimeModule: bool) -> bool {
+fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: string, verbose: bool, colorMode: string, runtimeModule: bool, ui: UiBuild) -> bool {
     val useColorErr = paletteUseColorStderr(colorMode)
     val head = palettePaint(paletteError(), "orbit build:", useColorErr)
     val named = orbit_os_env_selfhost("ORBIT_R6")
     var r6 = ""
     if named != "" {
         if runtimeLibFileExists(named) == false {
+            uiBuildFinish(ui, false)
             orbit_os_write_stderr_selfhost(head + " ORBIT_R6 is '" + named + "' and that file doesn't exist. Point it at r6.exe, or unset it to use the installed one.\n")
             return false
         }
@@ -923,12 +949,14 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
         r6 = findInstalledR6()
     }
     if r6 == "" {
+        uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost(head + " the native backend needs r6.exe and couldn't find it.\n")
         orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to its path, or put it in bin\\r6.exe under the Orbit install. `orbit build --backend=c` needs neither.\n")
         return false
     }
     val refusal = r6RefusalReason(r6)
     if refusal != "" {
+        uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost(head + " the native backend found '" + r6 + "' and it " + refusal + ".\n")
         orbit_os_write_stderr_selfhost("  Tip: set ORBIT_R6 to a current r6.exe, or build with --backend=c.\n")
         return false
@@ -950,9 +978,24 @@ fn nativeBuild(irPath: string, irIsTemp: bool, inputPath: string, outputPath: st
     if verbose {
         print("r6 " + cmd)
     }
-    val code = orbit_os_run_timeout_selfhost(cmd, r6BuildTimeoutMs(), "")
+    // While the animation repaints stderr, R6's own diagnostic is captured and
+    // printed after the block settles instead of through the repaint.
+    var capture = ""
+    if ui.running {
+        capture = irPath + ".log"
+    }
+    val code = orbit_os_run_timeout_selfhost(cmd, r6BuildTimeoutMs(), capture)
+    var captured = ""
+    if capture != "" {
+        captured = orbit_file_read_selfhost(capture)
+        val ignoredLog = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(capture) + "\" 2>NUL")
+    }
     if irIsTemp && verbose == false {
         val ignoredDel = orbit_os_exec_selfhost("del /F /Q \"" + shellPath(irPath) + "\" 2>NUL")
+    }
+    if code != 0 {
+        uiBuildFinish(ui, false)
+        orbit_os_write_stderr_selfhost(captured)
     }
     if code == -2 {
         orbit_os_write_stderr_selfhost(head + " the native backend (R6 at '" + r6 + "') did not finish " + inputPath + " within " + orbit_int_to_string_selfhost(r6BuildTimeoutMs() / 1000) + " s and was stopped. ORBIT_R6_TIMEOUT_MS changes the limit.\n")
@@ -974,16 +1017,40 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 // file holding the `export fn` functions of a file that has no `main`, to be
 // archived into the runtime library (docs/IR_SPEC.md).
 fn compileSourceMode(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, runtimeModule: bool) -> bool {
+    return compileSourceTitled(source, inputPath, outputPath, verbose, quiet, colorMode, release, emitIrPath, backendArg, "build", runtimeModule)
+}
+
+// What the stage rows call the code generator, and whether a link row follows.
+fn uiBackendLabel(backendArg: string) -> string {
+    if resolveBackend(backendArg) == "native" && orbit_os_env_selfhost("ORBIT_SKIP_CC") == "" {
+        return "native"
+    }
+    return "c"
+}
+
+// `title` is the command the screen names: build, or run for `orbit run`.
+fn compileSourceTitled(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, title: string, runtimeModule: bool) -> bool {
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
+    var blockTier = 0
+    if quiet == false {
+        blockTier = uiTier(colorMode, true)
+    }
+    val backendLabel = uiBackendLabel(backendArg)
+    val ui = uiBuildNew(blockTier, "orbit " + title, inputPath, backendLabel, backendLabel == "c" && orbit_os_env_selfhost("ORBIT_SKIP_CC") == "")
+    if verbose {
+        ui.animate = false
+    }
+    uiBuildEnter(ui, 0)
     val parser = initParser(source)
     val rawAST = parseProgram(parser)
     if parser.diagnostics.len() > 0 {
+        uiBuildFinish(ui, false)
         val diag: ParserDiagnostic = parser.diagnostics.get(0)
         if diag.code != "" {
             val srcLine = getSourceLine(source, diag.line)
-            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind, colorMode)
+            reportErrorCard(diag.code, diag.message, inputPath, diag.line, diag.column, srcLine, parserDiagnosticHint(diag), diag.kind, colorMode, source)
         } else {
             var i = 0
             while i < parser.diagnostics.len() {
@@ -998,9 +1065,11 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
 
     reportMemStage("parse")
 
+    uiBuildEnter(ui, 1)
     val resolver = initModuleResolver()
     val ast = resolveModuleAST(resolver, rawAST, inputPath)
     if resolver.errors.len() > 0 {
+        uiBuildFinish(ui, false)
         var ri = 0
         while ri < resolver.errors.len() {
             orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "Import error", useColorErr) + ": " + resolver.errors.get(ri) + "\n")
@@ -1011,14 +1080,16 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     }
     reportMemStage("resolve")
 
+    uiBuildEnter(ui, 2)
     val sema = initSema()
     sema.runtimeModule = runtimeModule
     analyze(sema, ast)
     reportResolutionGaps(sema)
     if hasErrors(sema) {
+        uiBuildFinish(ui, false)
         val firstErr: SemaError = sema.errors.get(0)
         if orbit_string_indexOf(firstErr.message, "Non-void function must return a value") != -1 {
-            reportErrorCard("return/missing-value", "Non-void function must return a value", "<unknown>", 1, 1, "", "Ensure type consistency and scope rules are satisfied.", "error.SemanticAnalysisFailed", colorMode)
+            reportErrorCard("return/missing-value", "Non-void function must return a value", "<unknown>", 1, 1, "", "Ensure type consistency and scope rules are satisfied.", "error.SemanticAnalysisFailed", colorMode, "")
         } else {
             printSemaErrors(sema, source, inputPath, colorMode)
         }
@@ -1027,6 +1098,7 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     }
     reportMemStage("sema")
 
+    uiBuildEnter(ui, 3)
     val builder = initIRBuilder()
     builder.module.runtimeModule = runtimeModule
     val irModule = buildAST(builder, ast)
@@ -1038,11 +1110,13 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     // bootstrap reads that C whatever the default backend is.
     val backendName = resolveBackend(backendArg)
     if backendName == "" {
+        uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " unknown backend '" + requestedBackend(backendArg) + "'. Use c or native (--backend=c|native, ORBIT_BACKEND).\n")
         return false
     }
     val native = backendName == "native" && orbit_os_env_selfhost("ORBIT_SKIP_CC") == ""
     if native && hostIsWindows() == false {
+        uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost(palettePaint(paletteError(), "orbit build:", useColorErr) + " the native backend targets Windows x86-64 only. Use --backend=c on this platform.\n")
         return false
     }
@@ -1059,24 +1133,28 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     }
     if irPath != "" {
         if emitIrDocument(irModule, irPath, verbose, useColorErr) == false {
+            uiBuildFinish(ui, false)
             return false
         }
     }
     if native {
         // R6 compiles the builder's IR, so that is the IR verified here; the C
         // path verifies after its optimizer instead.
-        if reportIRVerification(irModule, "orbit build", useColorErr) == false {
+        uiBuildEnter(ui, 4)
+        if reportIRVerification(irModule, "orbit build", useColorErr, ui) == false {
             return false
         }
-        if nativeBuild(irPath, emitIrPath == "", inputPath, outputPath, verbose, colorMode, runtimeModule) == false {
+        if nativeBuild(irPath, emitIrPath == "", inputPath, outputPath, verbose, colorMode, runtimeModule, ui) == false {
             return false
         }
+        uiBuildFinish(ui, true)
         if quiet == false {
-            reportCompiled(inputPath, outputPath, startMs, colorMode)
+            reportBuildDone(inputPath, outputPath, startMs, colorMode, "native")
         }
         return true
     }
 
+    uiBuildEnter(ui, 4)
     // Both optimization passes honor the same kill switch
     // (ORBIT_NO_CTE=1 skips them and emits pre-pass IR), and their
     // counters are reported instead of dropped.
@@ -1103,7 +1181,7 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     val cCode = generateC(backend)
     val hCode = generateCHeader(backend)
     reportMemStage("codegen")
-    if reportIRVerification(irModule, "orbit build", useColorErr) == false {
+    if reportIRVerification(irModule, "orbit build", useColorErr, ui) == false {
         return false
     }
     val hasDb = moduleUsesDatabase(irModule)
@@ -1123,6 +1201,7 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     }
 
     if orbit_file_write_selfhost(cPath, cCode) == false {
+        uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost("orbit build: couldn't write the intermediate C file '" + cPath + "'.\n")
         return false
     }
@@ -1131,6 +1210,7 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     // ignores it.
     val hPath = orbit_string_slice(cPath, 0, orbit_string_len(cPath) - 1) + "h"
     if orbit_file_write_selfhost(hPath, hCode) == false {
+        uiBuildFinish(ui, false)
         orbit_os_write_stderr_selfhost("orbit build: couldn't write the intermediate shard header '" + hPath + "'.\n")
         return false
     }
@@ -1168,6 +1248,7 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     // scripts/build_selfhost.py and scripts/verify_seed.py set it and tolerate
     // the non-zero exit this returns.
     if orbit_os_env_selfhost("ORBIT_SKIP_CC") != "" {
+        uiBuildFinish(ui, true)
         orbit_os_write_stderr_selfhost("orbit build: ORBIT_SKIP_CC set, wrote '" + cPath + "' without invoking the C compiler\n")
         return true
     }
@@ -1255,9 +1336,11 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
     if verbose {
         print("cc " + compCmd)
     }
+    uiBuildEnter(ui, 5)
     val compOutput = orbit_os_exec_selfhost(compCmd)
     if compOutput != "" {
         if compOutput.indexOf("[ERROR") != -1 || compOutput.indexOf("error:") != -1 || compOutput.indexOf("Error:") != -1 {
+            uiBuildFinish(ui, false)
             if ccToolchainMissing(cCompiler, compOutput) {
                 orbit_os_write_stderr_selfhost("C compiler '" + cCompiler + "' was not found. Set the ORBIT_CC environment variable to your C compiler (e.g. gcc, clang, cc).\n")
                 return false
@@ -1266,8 +1349,9 @@ fn compileSourceMode(source: string, inputPath: string, outputPath: string, verb
             return false
         }
     }
+    uiBuildFinish(ui, true)
     if quiet == false {
-        reportCompiled(inputPath, outputPath, startMs, colorMode)
+        reportBuildDone(inputPath, outputPath, startMs, colorMode, "c")
     }
     return true
 }

@@ -377,6 +377,7 @@ fn doctorSeverity(code: string) -> string {
 }
 
 fn doctorUseColor(stats: DoctorStats) -> bool {
+    if uiTier(stats.color, false) != 0 { return true }
     return paletteUseColorStdout(stats.color)
 }
 
@@ -4719,11 +4720,49 @@ fn doctorDistinctFiles(stats: DoctorStats, opts: DoctorOptions) -> int {
     return count
 }
 
+// The closing card of the rich and color tiers: the score with a bar, the
+// counts and the time. It replaces the plain box and carries the same facts.
+fn doctorPrintCard(tier: int, stats: DoctorStats, opts: DoctorOptions, errCount: int, warnCount: int, shownTotal: int) {
+    val score = doctorScore(errCount, warnCount)
+    val word = doctorScoreWord(score)
+    val style = doctorScoreStyle(word)
+    val totalMs = stats.textMs + stats.astMs + stats.semaMs + stats.ioMs
+    val distinct = doctorDistinctFiles(stats, opts)
+    val rows: list < string > = []
+    rows.push(uiPaint(tier, paletteBold(), "Score " + orbit_int_to_string_selfhost(score)) + " " + uiPaint(tier, style, word))
+    var bar = ""
+    val filled = (score * 30) / 100
+    var bi = 0
+    while bi < 30 {
+        if bi < filled {
+            bar = bar + uiPaint(tier, uiAccent(tier, bi, 30), uiG(tier, "on"))
+        } else {
+            bar = bar + uiPaint(tier, paletteDim(), uiG(tier, "off"))
+        }
+        bi = bi + 1
+    }
+    rows.push(bar)
+    val counts: list < string > = []
+    counts.push(uiCount(tier, stats.files, "files", paletteBold()))
+    counts.push(uiCount(tier, errCount, "errors", paletteError()))
+    counts.push(uiCount(tier, warnCount, "warnings", paletteWarning()))
+    rows.push(uiJoin(tier, counts))
+    rows.push(uiPaint(tier, paletteDim(), orbit_int_to_string_selfhost(shownTotal) + " issues across " + orbit_int_to_string_selfhost(distinct) + "/" + orbit_int_to_string_selfhost(stats.files) + " files in " + orbit_int_to_string_selfhost(totalMs) + " ms"))
+    rows.push(uiPaint(tier, paletteCode(), uiG(tier, "arrow")) + " orbit doctor --fix applies the whitespace fixes")
+    val title = uiLogo(tier) + " " + uiPaint(tier, paletteBold(), "orbit doctor")
+    print(uiChomp(uiCard(tier, uiAccent(tier, 2, 12), title, rows, "", uiCardWidth(false))))
+}
+
 fn doctorPrintBox(stats: DoctorStats, opts: DoctorOptions, errCount: int, warnCount: int, shownTotal: int) {
     if opts.quiet {
         return
     }
     if opts.jsonMode {
+        return
+    }
+    val cardTier = uiTier(opts.color, false)
+    if cardTier != 0 {
+        doctorPrintCard(cardTier, stats, opts, errCount, warnCount, shownTotal)
         return
     }
     val useColor = paletteUseColorStdout(opts.color)

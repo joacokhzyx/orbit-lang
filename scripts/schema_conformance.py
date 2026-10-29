@@ -118,7 +118,7 @@ def compiler_sources(root: pathlib.Path):
     """Every compiler source, read once. Sites span lines, so line-by-line
     would miss an argument list that wraps."""
     for path in sorted((root / "compiler").rglob("*.orb")):
-        yield path, path.read_text()
+        yield path, path.read_text(encoding="utf-8")
 
 
 def collect_constructions(models: dict, root: pathlib.Path) -> tuple:
@@ -126,7 +126,7 @@ def collect_constructions(models: dict, root: pathlib.Path) -> tuple:
     built_models, built_variants, findings = set(), set(), []
     for path, src in compiler_sources(root):
         rel = path.relative_to(root).as_posix()
-        src = path.read_text()
+        src = path.read_text(encoding="utf-8")
         rel = path.relative_to(root).as_posix()
         for m in re.finditer(r"\b([A-Z]\w*Node)\(", src):
             name = m.group(1)
@@ -182,7 +182,7 @@ def collect_node_list_ops(models: dict, root: pathlib.Path) -> list:
 
 def check(root: pathlib.Path) -> list:
     """Every disagreement between the schema and the code that builds nodes."""
-    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text())
+    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text(encoding="utf-8"))
     built_models, built_variants, findings = collect_constructions(models, root)
     findings += collect_node_list_ops(models, root)
 
@@ -313,7 +313,7 @@ def main() -> int:
                     help="assert the rules can fail, and exit")
     args = ap.parse_args()
 
-    models, unions = parse_schema(AST.read_text())
+    models, unions = parse_schema(AST.read_text(encoding="utf-8"))
     if not models:
         print("Failed: the schema parser found no models in ast.orb; the "
               "grammar changed and this script has not caught up.", file=sys.stderr)

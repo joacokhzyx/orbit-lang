@@ -307,6 +307,12 @@ static inline int bit_op(int i) {
 void orbit_crash_handler_install(void);
 void orbit_console_init(void);
 void orbit_print_string(const char* s);
+orbit_int orbit_ui_caps(orbit_int fd);
+orbit_int orbit_ui_width(orbit_int fd);
+orbit_int orbit_ui_text_size(orbit_string path);
+orbit_int orbit_ui_anim_start(orbit_string block, orbit_int flags);
+orbit_int orbit_ui_anim_stage(orbit_string block);
+orbit_int orbit_ui_anim_stop(orbit_string final_block);
 
 /* ── Static inline accessors (canonical: runtime/collections.c) ────────
  * Byte-identical copies; they call the external functions declared below,

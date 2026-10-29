@@ -1,0 +1,11 @@
+
+[31m+- [0m[1m[31merror[E1006][0m [90m---[0m [1msema_error.orb:2:9[0m [31m--------------------------------------[0m[31m+[0m
+[31m|[0m 'x' is declared int but the value is string.                               [31m|[0m
+[31m|[0m                                                                            [31m|[0m
+[31m|[0m [90m 1[0m [90m|[0m [90mfn main() {[0m                                                           [31m|[0m
+[31m|[0m [1m 2[0m [90m|[0m     val x: int = "s"                                                  [31m|[0m
+[31m|[0m    [90m|[0m         [1m[31m^[0m                                                             [31m|[0m
+[31m|[0m [90m 3[0m [90m|[0m [90m    print("hi")[0m                                                       [31m|[0m
+[31m|[0m                                                                            [31m|[0m
+[31m|[0m [36m->[0m Change the annotation, or change the value.                             [31m|[0m
+[31m+-[0m [90merror.SemanticAnalysisFailed[0m [31m---------------------------------------------+[0m
