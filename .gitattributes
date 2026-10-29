@@ -26,3 +26,6 @@ tests/parity/golden/*.txt -text
 # fixture stored as LF tests nothing, and git's own conversion is exactly the
 # bug doctor --fix had, so this one path must stay byte-exact.
 tests/doctor/golden/crlf_preserved/input.orb -text
+
+# Generated from runtime/orb by scripts/runtime_gen.py; the gate compares bytes.
+runtime/gen/*.c text eol=lf

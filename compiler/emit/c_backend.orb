@@ -193,10 +193,12 @@ fn functionProto(backend: CBackend, func: IRFunction) -> string {
         proto = proto + protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena, OrbitRequest* req"
     } else if isMain2 {
         proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena"
+    } else if func.isExport {
+        proto = protoAttr + retType2 + " " + fName2 + "(" + exportParamList(backend, func)
     } else {
         // Same first parameter as the definition below: a function in this
         // module allocates from the caller's arena, so the prototype names it.
-        proto = protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena"
+        proto = runtimeModuleStatic(backend, func) + protoAttr + retType2 + " " + fName2 + "(OrbitArena* arena"
         var pi2 = 0
         while pi2 < func.params.len() {
             proto = proto + ", " + mapTypeToC(backend, func.paramTypes.get(pi2)) + " " + func.params.get(pi2)
@@ -227,7 +229,11 @@ fn generateC(backend: CBackend) -> string {
     }
     var i = 0
     val cbTop = orbit_cbuf_create_selfhost()
-    orbit_cbuf_append_selfhost(cbTop, generateRoutePreamble(hasRoutes, backend.module.globals))
+    if backend.module.runtimeModule {
+        orbit_cbuf_append_selfhost(cbTop, generateRuntimeModulePreamble(backend.module.globals))
+    } else {
+        orbit_cbuf_append_selfhost(cbTop, generateRoutePreamble(hasRoutes, backend.module.globals))
+    }
     orbit_cbuf_append_selfhost(cbTop, generateRouteTypeDecls(backend))
     if hasRoutes == false && moduleConstructsVariants(backend) {
         orbit_cbuf_append_selfhost(cbTop, variantBlockText(backend))
@@ -292,6 +298,9 @@ fn generateC(backend: CBackend) -> string {
     }
     if routeLimits != "" {
         orbit_cbuf_append_selfhost(cbTop, routeLimits)
+    }
+    if backend.module.runtimeModule {
+        return orbit_cbuf_build_selfhost(cbTop)
     }
     if moduleHasFunction(backend, "main") == false {
         orbit_cbuf_append_selfhost(cbTop, "int orbit_main(OrbitArena* arena) {\n")
@@ -479,6 +488,7 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     if orbitType == "string" || orbitType == "orbit_string" { return "orbit_string" }
     if orbitType == "bool" || orbitType == "orbit_bool" { return "orbit_bool" }
     if orbitType == "void" { return "void" }
+    if orbitType == "RtArena" { return "OrbitArena*" }
     if orbitType == "list" || orbitType == "List" || orbitType == "OrbitList*" { return "OrbitList*" }
     // A list described together with its element type is still a list. The
     // suffix names what is IN it, which is a property of the values, not of
@@ -823,6 +833,10 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         IROpcode.shl => { inf = "int" }
                         IROpcode.shr => { inf = "int" }
                         IROpcode.bit_not => { inf = "int" }
+                        IROpcode.str_len => { inf = "int" }
+                        IROpcode.byte_load => { inf = "int" }
+                        IROpcode.bytes_alloc => { inf = "string" }
+                        IROpcode.str_offset => { inf = "string" }
                         IROpcode.eq => { inf = "bool" }
                         IROpcode.ne => { inf = "bool" }
                         IROpcode.lt => { inf = "bool" }
@@ -1183,6 +1197,60 @@ fn irVerifierOperandType(func: IRFunction, v: IRValue) -> string {
 // string-concat destination typed as an integer. `unknown` is allowed to
 // pass -- its silence is the census's subject, not a contradiction -- but a
 // known type meeting a different known type is a bug and fails the build.
+// The four runtime-module opcodes: valid only in a module with runtimeModule
+// set, with operands of the listed kinds ("" = no operand) and a destination of
+// `destKind` ("" = none, dest must be -1).
+fn verifyRuntimeModuleOp(backend: CBackend, func: IRFunction, inst: IRInstruction, dt: string, name: string, k1: string, k2: string, k3: string, destKind: string, errs: list < string >) {
+    if backend.module.runtimeModule == false {
+        errs.push(name + " outside a runtime module in fn '" + func.name + "'")
+        return
+    }
+    val kinds: list < string > = [k1, k2, k3]
+    val ops: list < IRValue > = [inst.operand1, inst.operand2, inst.operand3]
+    var i = 0
+    while i < 3 {
+        val want: string = kinds.get(i)
+        val t = irVerifierOperandType(func, ops.get(i))
+        if want != "" && irVerifierKnown(t) {
+            if want == "string" && t != "string" {
+                errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not string, in fn '" + func.name + "'")
+            }
+            if want == "RtArena" && t != "RtArena" {
+                errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not RtArena, in fn '" + func.name + "'")
+            }
+            if want == "int" && verifierSimpleKind(t) != "int" {
+                errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not int, in fn '" + func.name + "'")
+            }
+        }
+        i = i + 1
+    }
+    if destKind == "" {
+        if inst.dest != -1 {
+            errs.push(name + " has a destination in fn '" + func.name + "'")
+        }
+        return
+    }
+    if irVerifierKnown(dt) {
+        if destKind == "string" && dt != "string" {
+            errs.push(name + " destination typed '" + dt + "' in fn '" + func.name + "'")
+        }
+        if destKind == "int" && verifierSimpleKind(dt) != "int" {
+            errs.push(name + " destination typed '" + dt + "' in fn '" + func.name + "'")
+        }
+    }
+}
+
+// The arena a bytes_alloc draws from: operand2 when the builtin was
+// rt_alloc_in (a NULL arena falls back to the global one), else the global one.
+fn bytesAllocArena(instr: IRInstruction) -> string {
+    match instr.operand2 {
+        IRValue.None => { return "orbit_arena_get_global()" }
+        _ => {}
+    }
+    val a = generateValue(instr.operand2)
+    return "((OrbitArena*)(" + a + ") ? (OrbitArena*)(" + a + ") : orbit_arena_get_global())"
+}
+
 fn verifyIRTypes(backend: CBackend, func: IRFunction, fnHeads: list < int >, fnNext: list < int >, errs: list < string >, warns: list < string >) {
     var i = 0
     while i < func.instructions.len() {
@@ -1235,6 +1303,12 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, fnHeads: list < int >, fnN
                         errs.push("bit_not destination typed '" + dt + "' in fn '" + func.name + "'")
                     }
                 }
+                IROpcode.str_len => { verifyRuntimeModuleOp(backend, func, inst, dt, "str_len", "string", "", "", "int", errs) }
+                IROpcode.byte_load => { verifyRuntimeModuleOp(backend, func, inst, dt, "byte_load", "string", "int", "", "int", errs) }
+                IROpcode.bytes_alloc => { verifyRuntimeModuleOp(backend, func, inst, dt, "bytes_alloc", "int", "RtArena", "", "string", errs) }
+                IROpcode.byte_store => { verifyRuntimeModuleOp(backend, func, inst, dt, "byte_store", "string", "int", "int", "", errs) }
+                IROpcode.str_offset => { verifyRuntimeModuleOp(backend, func, inst, dt, "str_offset", "string", "int", "", "string", errs) }
+                IROpcode.bytes_copy => { verifyRuntimeModuleOp(backend, func, inst, dt, "bytes_copy", "string", "string", "int", "", errs) }
                 IROpcode.eq => { verifycmpBinop(backend, func, inst, dt, warns) }
                 IROpcode.ne => { verifycmpBinop(backend, func, inst, dt, warns) }
                 IROpcode.lt => { verifycmpBinop(backend, func, inst, dt, warns) }
@@ -1597,7 +1671,45 @@ fn userFunctionDefined(backend: CBackend, name: string) -> bool {
 fn cFunctionName(func: IRFunction) -> string {
     if isMainFuncName(func.name) && func.isExtern == false { return "orbit_main" }
     if func.isExtern { return sanitizeIdentifier(func.name) }
+    if func.isExport { return sanitizeIdentifier(func.name) }
     return cUserName(func.name)
+}
+
+// Whether the module defines an `export fn` of this name. An export keeps its
+// C name and has no leading arena parameter, so every call site asks.
+fn userFunctionIsExport(backend: CBackend, name: string) -> bool {
+    var fi = 0
+    while fi < backend.module.functions.len() {
+        val f: IRFunction = backend.module.functions.get(fi)
+        if f.name == name && f.isExport { return true }
+        fi = fi + 1
+    }
+    return false
+}
+
+// The parameters of an export fn, without the arena the other functions open
+// with: the arena an export allocates from is orbit_arena_get_global().
+fn exportParamList(backend: CBackend, func: IRFunction) -> string {
+    if func.params.len() == 0 { return "void" }
+    var out = ""
+    var pi = 0
+    while pi < func.params.len() {
+        var pTypeName = "void*"
+        if pi < func.paramTypes.len() {
+            pTypeName = func.paramTypes.get(pi)
+        }
+        if pi > 0 { out = out + ", " }
+        out = out + mapTypeToC(backend, pTypeName) + " " + func.params.get(pi)
+        pi = pi + 1
+    }
+    return out
+}
+
+// A runtime module exports only its `export fn` functions; the rest are
+// private to the object.
+fn runtimeModuleStatic(backend: CBackend, func: IRFunction) -> string {
+    if backend.module.runtimeModule && func.isExport == false && func.isExtern == false && func.routeMethod == "" { return "static " }
+    return ""
 }
 
 // The C name of a callee, from the name the IR call carries. A name that is a
@@ -1605,6 +1717,7 @@ fn cFunctionName(func: IRFunction) -> string {
 fn cCalleeName(backend: CBackend, name: string) -> string {
     if userFunctionDefined(backend, name) {
         if isMainFuncName(name) { return "orbit_main" }
+        if userFunctionIsExport(backend, name) { return sanitizeIdentifier(name) }
         return cUserName(name)
     }
     if isModelCtorName(backend, name) || isUnionVariantName(backend, name) { return cUserName(name) }
@@ -1628,6 +1741,7 @@ fn cSymbolText(backend: CBackend, text: string) -> string {
     }
     if userFunctionDefined(backend, text) {
         if isMainFuncName(text) { return "orbit_main" }
+        if userFunctionIsExport(backend, text) { return sanitizeIdentifier(text) }
         return cUserName(text)
     }
     if isCKeyword(text) && moduleHasFunction(backend, text) { return text + "_" }
@@ -1792,6 +1906,19 @@ fn modelCtorFieldType(backend: CBackend, name: string, argIdx: int) -> string {
 // cannot drift apart: a constant the program declares is a define the program
 // gets, and a constant it does not declare is not. Kept in this file because
 // rendering IRValue is a backend job; route_runtime only concatenates.
+// A runtime module defines only its own exports: no color probe, no thread
+// pool, no start-up, because the archive it joins already carries those.
+fn generateRuntimeModulePreamble(globals: list < IRGlobal >) -> string {
+    var out = "#include \"runtime.h\"\n#include <string.h>\n\n"
+    var gi = 0
+    while gi < globals.len() {
+        val g: IRGlobal = globals.get(gi)
+        out = out + "#define " + cUserName(g.name) + " " + cDefineLiteral(g.value) + "\n"
+        gi = gi + 1
+    }
+    return out
+}
+
 fn generateRoutePreamble(hasRoutes: bool, globals: list < IRGlobal >) -> string {
     var defs = ""
     var gi = 0
@@ -2472,12 +2599,14 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* arena, OrbitRequest* req")
     } else if isMain {
         orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* arena")
+    } else if func.isExport {
+        orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(" + exportParamList(backend, func))
     } else {
         // Every emitted function opens with the request arena. A helper
         // called from a route then allocates into the arena that request is
         // reset with; before this it read a process-wide NULL and fell back
         // to the global arena, which no request ever resets.
-        orbit_cbuf_append_selfhost(cbFn, funcAttr + retType + " " + fName + "(OrbitArena* arena")
+        orbit_cbuf_append_selfhost(cbFn, runtimeModuleStatic(backend, func) + funcAttr + retType + " " + fName + "(OrbitArena* arena")
         while i < func.params.len() {
             val pName = func.params.get(i)
             var pTypeName = "void*"
@@ -2490,6 +2619,9 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
         }
     }
     orbit_cbuf_append_selfhost(cbFn, ") {\n")
+    if func.isExport {
+        orbit_cbuf_append_selfhost(cbFn, "    OrbitArena* arena = orbit_arena_get_global();\n    (void)arena;\n")
+    }
     backend.refLabels = []
     var si = 0
     while si < func.instructions.len() {
@@ -2897,6 +3029,11 @@ fn emitUserRuntimeNamedCall(backend: CBackend, instr: IRInstruction, calleeName:
         fi = fi + 1
     }
     var callExpr = cUserName(calleeName) + "(arena"
+    var argSep = ", "
+    if userFunctionIsExport(backend, calleeName) {
+        callExpr = sanitizeIdentifier(calleeName) + "("
+        argSep = ""
+    }
     var argIdx = 0
     var ai = startIdx
     while ai < backend.callArgs.len() {
@@ -2910,7 +3047,9 @@ fn emitUserRuntimeNamedCall(backend: CBackend, instr: IRInstruction, calleeName:
                 cast = "(void*)(uintptr_t)(" + aStr + ")"
             }
         }
-        callExpr = callExpr + ", " + cast
+        if argIdx > 0 { callExpr = callExpr + ", " }
+        else { callExpr = callExpr + argSep }
+        callExpr = callExpr + cast
         argIdx = argIdx + 1
         ai = ai + 1
     }
@@ -3079,6 +3218,32 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
         }
         IROpcode.bit_not => {
             orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "~(uintptr_t)(" + generateValue(instr.operand1) + ")"))
+            return
+        }
+        // The runtime-module opcodes lower inline. byte_load and byte_store are
+        // unchecked: the index is the caller's to keep in range.
+        IROpcode.str_len => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(" + generateValue(instr.operand1) + ") ? strlen((const char*)(" + generateValue(instr.operand1) + ")) : 0"))
+            return
+        }
+        IROpcode.byte_load => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "((unsigned char*)(" + generateValue(instr.operand1) + "))[(orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")]"))
+            return
+        }
+        IROpcode.bytes_alloc => {
+            orbit_cbuf_append_selfhost(cb, "    {\n        size_t n_ = (size_t)(uintptr_t)(" + generateValue(instr.operand1) + ");\n        char* b_ = (char*)orbit_alloc(" + bytesAllocArena(instr) + ", n_ + 1);\n        b_[n_] = 0;\n    " + generateRegAssign(backend, instr.dest, "b_") + "    }\n")
+            return
+        }
+        IROpcode.byte_store => {
+            orbit_cbuf_append_selfhost(cb, "    ((unsigned char*)(" + generateValue(instr.operand1) + "))[(orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")] = (unsigned char)(uintptr_t)(" + generateValue(instr.operand3) + ");\n")
+            return
+        }
+        IROpcode.str_offset => {
+            orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(" + generateValue(instr.operand1) + ") + (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            return
+        }
+        IROpcode.bytes_copy => {
+            orbit_cbuf_append_selfhost(cb, "    if ((orbit_int)(uintptr_t)(" + generateValue(instr.operand3) + ") > 0) memcpy((void*)(" + generateValue(instr.operand1) + "), (const void*)(" + generateValue(instr.operand2) + "), (size_t)(uintptr_t)(" + generateValue(instr.operand3) + "));\n")
             return
         }
         IROpcode.eq => {
@@ -4235,7 +4400,12 @@ fn markStringComparedWith(backend: CBackend, func: IRFunction, inst: IRInstructi
     match other {
         IRValue.Register(reg) => {
             if regKnownScalar(func, reg.value) == false && reg.value >= 0 && reg.value < func.registerTypes.len() {
-                func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                // A NULL compared with a string stays a pointer: typed string it
+                // would reach strcmp, which dereferences it.
+                val declared: string = func.registerTypes.get(reg.value)
+                if declared != "NULL" {
+                    func.registerTypes = setStrAt(func.registerTypes, reg.value, "string")
+                }
             }
         }
         _ => {}
@@ -4847,7 +5017,7 @@ fn calleeTakesArena(backend: CBackend, name: string) -> bool {
     while fi < backend.module.functions.len() {
         val f: IRFunction = backend.module.functions.get(fi)
         if f.name == name && f.isExtern == false {
-            return true
+            return f.isExport == false
         }
         fi = fi + 1
     }

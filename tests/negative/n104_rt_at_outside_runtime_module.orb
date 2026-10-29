@@ -1,0 +1,9 @@
+// case: rt-at-outside-a-runtime-module
+// what: rt_at adds an offset to a string pointer with no bounds check. It
+//      exists only in a runtime module.
+// expect-error: is a runtime-module builtin
+fn main() -> int {
+    val s = "abc"
+    val t = rt_at(s, 1)
+    return 0
+}

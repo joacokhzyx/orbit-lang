@@ -268,7 +268,7 @@ with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 
 ### 2.2 `IRInstruction` (`ir.orb:91-105`)
 
-- `opcode`: one of the 66 (§1).
+- `opcode`: one of the 66 (§1), or in a runtime module one of the four of §7.
 - `dest`: `int`. `-1` means no destination. Default factory value `-1`
   (`ir_init_instr`, `ir.orb:142-144`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
@@ -567,7 +567,7 @@ instruction = "{", opcode, dest, operand1, operand2, operand3, elemKind,
               [ line ], "}";
 line        = '"line":', uint;      (* positive; only on div and mod *)
 sourceName  = '"sourceName":', jsonString;
-opcode      = '"', opname, '"';      (* one of the 66 names in §1 *)
+opcode      = '"', opname, '"';      (* one of the 66 names in §1, or a §7 name in a runtime module *)
 dest        = "-1" | uint;
 operand1    = value;                 (* operand2, operand3: same *)
 value       = none | intVal | floatVal | strVal | symVal | boolVal | regVal
@@ -641,7 +641,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 |---|---|
 | V-01 | The document is UTF-8 JSON (RFC 8259), a single root object, no BOM, trailing LF; it contains no elision marker. |
 | V-02 | The root object has exactly `irVersion` (`"1"`) and `module`; unknown keys are rejected. |
-| V-03 | `opcode` is one of the 66 names in §1, spelled exactly (no aliases, no case folding). |
+| V-03 | `opcode` is one of the 66 names in §1, or in a runtime module one of the four names in §7, spelled exactly (no aliases, no case folding). |
 | V-04 | `elemKind` is an integer in `0..5`; non-collection opcodes must carry `0`. |
 | V-05 | Every operand is a `{"kind":…}` object with one of the 8 kinds in §2.1 and a correctly typed `value` (absent only for `None`). |
 | V-06 | Integer values have no fraction/exponent and fit in signed 64 bits. |
@@ -713,3 +713,43 @@ U-08, U-10, U-11, U-13 complete the sequence.
 | U-15 | Definition point of `ORBIT_API_RESPONSE` | Not declared in `runtime/orbit_api.h` (§1.2). |
 | U-16 | Resolution of `isExtern` symbols | Backend emits nothing; resolution is outside (§2.3). |
 | U-17 | `print` formatting contract | Observed behavior only; the multi-arg case is a comment (§3.1). |
+
+## 7. Runtime modules
+
+`orbit build --runtime-module <file.orb> -o <out.o>` (and `orbit check
+--runtime-module`) compiles a file with no `main` to an object. Its `export fn`
+functions keep their C names and are archived into the runtime library. The
+fields and opcodes below are valid **only** in a runtime module; a document
+that carries them elsewhere is invalid.
+
+| Field | Where | Meaning |
+|---|---|---|
+| `"runtimeModule": true` | module object | The module has no entry point. Omitted otherwise. |
+| `"export": true` | function object | The function is a symbol of the library. Omitted otherwise. |
+
+An export function is emitted under its own name, without the leading
+`OrbitArena* arena` parameter, and allocates from `orbit_arena_get_global()`.
+The other functions of the module keep the `o_` prefix and are `static`.
+`main` is an error in this mode, and the rule that refuses to define a runtime
+function name (`n89`) does not apply to an export function.
+
+| Opcode | Operands | Lowering |
+|---|---|---|
+| `str_len` | `D <- O1` string, `D` int | `(O1) ? strlen(O1) : 0` |
+| `byte_load` | `D <- O1` string, `O2` int | `((unsigned char*)(O1))[O2]`, unchecked, zero-extended |
+| `bytes_alloc` | `D <- O1` int `n`; optional `O2` arena | `n + 1` bytes from `O2` (the global arena when `O2` is absent or NULL), byte `n` is `0` |
+| `byte_store` | `O1` string, `O2` int, `O3` int, `dest == -1` | stores the low byte of `O3` at `O1[O2]` |
+| `str_offset` | `D <- O1` string, `O2` int | `(O1) + (O2)`, no allocation and no check |
+| `bytes_copy` | `O1` string, `O2` string, `O3` int, `dest == -1` | `if (O3 > 0) memcpy(O1, O2, O3)`, nothing when `O3 <= 0` |
+
+Every operand is a `Register`. The builtins that produce them, available only
+in this mode, are `rt_len(s) -> int`, `rt_byte(s, i) -> int`, `rt_alloc(n) ->
+string`, `rt_alloc_in(a: RtArena, n) -> string`, `rt_set_byte(buf, i, v)`,
+`rt_at(s, i) -> string` and `rt_copy(dst, src, n)`.
+`RtArena` is an opaque pointer type, spelled `"RtArena"` in `paramTypes` and
+`registerTypes` and emitted as `OrbitArena*`. A runtime function that receives
+the caller's arena first (`orbit_string_to_upper` and its siblings) declares it
+as an `RtArena` parameter; the name `arena` stays reserved (`n85`, `n86`).
+
+The native path runs `r6 build --object <ir> -o <out.o>` and requires
+`ir-protocol 3`.

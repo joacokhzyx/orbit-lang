@@ -1,0 +1,21 @@
+extern fn rtmod_probe_upper(s: string) -> string
+extern fn rtmod_probe_twice(s: string) -> string
+extern fn rtmod_probe_tail(s: string, from: int) -> string
+extern fn rtmod_probe_copy_nothing(s: string) -> string
+
+fn main() -> int {
+    print(rtmod_probe_upper("hello, Orbit 42"))
+    print(rtmod_probe_twice("again"))
+    print(rtmod_probe_upper(""))
+    print(rtmod_probe_tail("hello, Orbit", 7))
+    print(rtmod_probe_tail("abc", 3))
+    print(rtmod_probe_copy_nothing("zzz"))
+    val none: string = NULL
+    if none == NULL {
+        print("null string")
+    }
+    if "x" != NULL {
+        print("string")
+    }
+    return 0
+}
