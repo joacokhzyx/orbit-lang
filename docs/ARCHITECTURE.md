@@ -57,7 +57,7 @@ flowchart TD
         KYN["kynx.c\nComputational leases"]
         PLS["pulse.c\nPerformance counters"]
         COL["collections.c\nDynamic arrays, hash maps"]
-        TYP["types.c\nOrbit type system"]
+        TYP["types.h\nOrbit type system"]
         STR["string_pool.c\nInterned strings"]
         AUTH["auth.c\nJWT + session auth"]
         OS["os.c / file.c\nPlatform abstractions"]
@@ -467,10 +467,10 @@ followed by `orbit_handle_request` is emitted by
 | `runtime/arena.c` | Epoch virtual-memory allocator: create and destroy. Allocation, reset, checkpoint, child, stats, OOM configuration and the global arena are `arena_alloc.c`, `arena_reset.c`, `arena_checkpoint.c`, `arena_child.c`, `arena_stats.c`, `arena_oom.c` and `arena_global.c` |
 | `runtime/arena_pool.c` | Pool of arenas for startup and hand-written scratch work (not the request path) |
 | `runtime/string_pool.c` | String interning |
-| `runtime/collections.c` | Arrays, hash maps, bytes |
-| `runtime/orb/*.orb` | Runtime modules written in Orbit (`orbit build --runtime-module`). `strings.orb`: starts_with, ends_with, contains, indexOf, to_upper, to_lower, trim |
+| `runtime/collections.c` | Hash maps, string helpers, the inline list reads `orbit_list_get` and `orbit_list_len`, the list diagnostics |
+| `runtime/orb/*.orb` | Runtime modules written in Orbit (`orbit build --runtime-module`). `strings.orb`: starts_with, ends_with, contains, indexOf, to_upper, to_lower, trim. `lists.orb`: list create, grow, push, pop, set, clear and their typed forms |
 | `runtime/gen/*.c` | The C the compiler emits for each `runtime/orb` module, committed so the seed build, the unity build and Linux need no compiler. `python scripts/dev.py promote` refreshes it; the `runtime_gen` gate fails on any byte difference. `scripts/mklib_runtime.py` archives it as one member per module, or builds the `.orb` natively when given `--r6` (or `ORBIT_R6`) |
-| `runtime/types.c` | Runtime type system |
+| `runtime/types.h` | Runtime types and the inline `OrbitResult` constructors; no object file |
 | `runtime/file.c` | File I/O helpers |
 | `runtime/os.c` | OS abstractions |
 | `runtime/builtins.c` | Builtin functions exposed to generated code |

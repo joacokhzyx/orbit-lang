@@ -1,0 +1,10 @@
+// case: rtptr-outside-a-runtime-module
+// what: RtPtr is the opaque pointer of a runtime function. It is a type only in a runtime module.
+// expect-error: is a runtime-module type
+fn take(p: RtPtr) -> int {
+    return 0
+}
+
+fn main() -> int {
+    return 0
+}

@@ -1,7 +1,7 @@
 // case: int-literal-out-of-range
 // what: an integer literal that does not fit an orbit_int.
 //
-// `orbit_int` is a 64-bit `int` (runtime/types.c), so 9223372036854775808 does
+// `orbit_int` is a 64-bit `int` (runtime/types.h), so 9223372036854775808 does
 // not fit. It used to be accepted, wrapped silently to -9223372036854775808,
 // and printed that.
 // No diagnostic anywhere: `orbit check` said the program was clean.

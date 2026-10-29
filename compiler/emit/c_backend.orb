@@ -489,6 +489,7 @@ fn mapTypeToC(backend: CBackend, orbitType: string) -> string {
     if orbitType == "bool" || orbitType == "orbit_bool" { return "orbit_bool" }
     if orbitType == "void" { return "void" }
     if orbitType == "RtArena" { return "OrbitArena*" }
+    if orbitType == "RtPtr" { return "void*" }
     if orbitType == "list" || orbitType == "List" || orbitType == "OrbitList*" { return "OrbitList*" }
     // A list described together with its element type is still a list. The
     // suffix names what is IN it, which is a property of the values, not of
@@ -837,6 +838,9 @@ fn inferRegisterTypes(backend: CBackend, func: IRFunction) {
                         IROpcode.byte_load => { inf = "int" }
                         IROpcode.bytes_alloc => { inf = "string" }
                         IROpcode.str_offset => { inf = "string" }
+                        IROpcode.mem_load => { inf = "int" }
+                        IROpcode.float_bits => { inf = "int" }
+                        IROpcode.bits_float => { inf = "float" }
                         IROpcode.eq => { inf = "bool" }
                         IROpcode.ne => { inf = "bool" }
                         IROpcode.lt => { inf = "bool" }
@@ -1218,6 +1222,18 @@ fn verifyRuntimeModuleOp(backend: CBackend, func: IRFunction, inst: IRInstructio
             if want == "RtArena" && t != "RtArena" {
                 errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not RtArena, in fn '" + func.name + "'")
             }
+            if want == "RtPtr" && t != "RtPtr" {
+                errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not RtPtr, in fn '" + func.name + "'")
+            }
+            if want == "float" && verifierSimpleKind(t) != "float" {
+                errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not float, in fn '" + func.name + "'")
+            }
+            if want == "word" && verifierSimpleKind(t) != "int" && t != "RtPtr" {
+                errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not int or RtPtr, in fn '" + func.name + "'")
+            }
+            if want == "strptr" && t != "string" && t != "RtPtr" {
+                errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not string or RtPtr, in fn '" + func.name + "'")
+            }
             if want == "int" && verifierSimpleKind(t) != "int" {
                 errs.push(name + " operand " + orbit_int_to_string_selfhost(i + 1) + " is '" + t + "', not int, in fn '" + func.name + "'")
             }
@@ -1235,6 +1251,15 @@ fn verifyRuntimeModuleOp(backend: CBackend, func: IRFunction, inst: IRInstructio
             errs.push(name + " destination typed '" + dt + "' in fn '" + func.name + "'")
         }
         if destKind == "int" && verifierSimpleKind(dt) != "int" {
+            errs.push(name + " destination typed '" + dt + "' in fn '" + func.name + "'")
+        }
+        if destKind == "float" && verifierSimpleKind(dt) != "float" {
+            errs.push(name + " destination typed '" + dt + "' in fn '" + func.name + "'")
+        }
+        if destKind == "strptr" && dt != "string" && dt != "RtPtr" {
+            errs.push(name + " destination typed '" + dt + "' in fn '" + func.name + "'")
+        }
+        if destKind == "intptr" && verifierSimpleKind(dt) != "int" && dt != "RtPtr" {
             errs.push(name + " destination typed '" + dt + "' in fn '" + func.name + "'")
         }
     }
@@ -1307,7 +1332,12 @@ fn verifyIRTypes(backend: CBackend, func: IRFunction, fnHeads: list < int >, fnN
                 IROpcode.byte_load => { verifyRuntimeModuleOp(backend, func, inst, dt, "byte_load", "string", "int", "", "int", errs) }
                 IROpcode.bytes_alloc => { verifyRuntimeModuleOp(backend, func, inst, dt, "bytes_alloc", "int", "RtArena", "", "string", errs) }
                 IROpcode.byte_store => { verifyRuntimeModuleOp(backend, func, inst, dt, "byte_store", "string", "int", "int", "", errs) }
-                IROpcode.str_offset => { verifyRuntimeModuleOp(backend, func, inst, dt, "str_offset", "string", "int", "", "string", errs) }
+                IROpcode.str_offset => { verifyRuntimeModuleOp(backend, func, inst, dt, "str_offset", "strptr", "int", "", "strptr", errs) }
+                IROpcode.reinterpret => { verifyRuntimeModuleOp(backend, func, inst, dt, "reinterpret", "strptr", "", "", "strptr", errs) }
+                IROpcode.mem_load => { verifyRuntimeModuleOp(backend, func, inst, dt, "mem_load", "RtPtr", "int", "", "intptr", errs) }
+                IROpcode.mem_store => { verifyRuntimeModuleOp(backend, func, inst, dt, "mem_store", "RtPtr", "int", "word", "", errs) }
+                IROpcode.float_bits => { verifyRuntimeModuleOp(backend, func, inst, dt, "float_bits", "float", "", "", "int", errs) }
+                IROpcode.bits_float => { verifyRuntimeModuleOp(backend, func, inst, dt, "bits_float", "int", "", "", "float", errs) }
                 IROpcode.bytes_copy => { verifyRuntimeModuleOp(backend, func, inst, dt, "bytes_copy", "string", "string", "int", "", errs) }
                 IROpcode.eq => { verifycmpBinop(backend, func, inst, dt, warns) }
                 IROpcode.ne => { verifycmpBinop(backend, func, inst, dt, warns) }
@@ -2620,7 +2650,10 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     }
     orbit_cbuf_append_selfhost(cbFn, ") {\n")
     if func.isExport {
-        orbit_cbuf_append_selfhost(cbFn, "    OrbitArena* arena = orbit_arena_get_global();\n    (void)arena;\n")
+        // The implicit arena of an export is never read: R6 refuses a runtime
+        // module that needs one, and a call to the global arena on every entry
+        // cost the list push 20% in the archive build.
+        orbit_cbuf_append_selfhost(cbFn, "    OrbitArena* arena = NULL;\n    (void)arena;\n")
     }
     backend.refLabels = []
     var si = 0
@@ -3239,7 +3272,54 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             return
         }
         IROpcode.str_offset => {
+            if registerTypeOf(backend, instr.dest) == "RtPtr" {
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (void*)((char*)(" + generateValue(instr.operand1) + ") + (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + "));\n")
+                return
+            }
             orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "(" + generateValue(instr.operand1) + ") + (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"))
+            return
+        }
+        // A string and an RtPtr are the same 64-bit word: this only changes
+        // the C type the register is declared with.
+        IROpcode.reinterpret => {
+            if registerTypeOf(backend, instr.dest) == "RtPtr" {
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (void*)(" + generateValue(instr.operand1) + ");\n")
+                return
+            }
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_string)(" + generateValue(instr.operand1) + ");\n")
+            return
+        }
+        // elemKind is the width in bytes. memcpy keeps the access legal for
+        // any alignment and compiles to one mov.
+        IROpcode.mem_load => {
+            val at = "(char*)(" + generateValue(instr.operand1) + ") + (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"
+            val dst = "r_" + orbit_int_to_string_selfhost(instr.dest)
+            if instr.elemKind == 4 {
+                orbit_cbuf_append_selfhost(cb, "    { int32_t w_; memcpy(&w_, " + at + ", 4); " + dst + " = (orbit_int)w_; }\n")
+                return
+            }
+            if registerTypeOf(backend, instr.dest) == "RtPtr" {
+                orbit_cbuf_append_selfhost(cb, "    { void* w_; memcpy(&w_, " + at + ", sizeof(void*)); " + dst + " = w_; }\n")
+                return
+            }
+            orbit_cbuf_append_selfhost(cb, "    { int64_t w_; memcpy(&w_, " + at + ", 8); " + dst + " = (orbit_int)w_; }\n")
+            return
+        }
+        IROpcode.mem_store => {
+            val at = "(char*)(" + generateValue(instr.operand1) + ") + (orbit_int)(uintptr_t)(" + generateValue(instr.operand2) + ")"
+            if instr.elemKind == 4 {
+                orbit_cbuf_append_selfhost(cb, "    { int32_t w_ = (int32_t)(uintptr_t)(" + generateValue(instr.operand3) + "); memcpy(" + at + ", &w_, 4); }\n")
+                return
+            }
+            orbit_cbuf_append_selfhost(cb, "    { int64_t w_ = (int64_t)(uintptr_t)(" + generateValue(instr.operand3) + "); memcpy(" + at + ", &w_, 8); }\n")
+            return
+        }
+        IROpcode.float_bits => {
+            orbit_cbuf_append_selfhost(cb, "    { orbit_float f_ = (orbit_float)(" + generateValue(instr.operand1) + "); int64_t w_; memcpy(&w_, &f_, 8); r_" + orbit_int_to_string_selfhost(instr.dest) + " = (orbit_int)w_; }\n")
+            return
+        }
+        IROpcode.bits_float => {
+            orbit_cbuf_append_selfhost(cb, "    { int64_t w_ = (int64_t)(uintptr_t)(" + generateValue(instr.operand1) + "); orbit_float f_; memcpy(&f_, &w_, 8); r_" + orbit_int_to_string_selfhost(instr.dest) + " = f_; }\n")
             return
         }
         IROpcode.bytes_copy => {
@@ -4182,22 +4262,29 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
             // Every other payload is a scalar or a pointer and keeps the
             // word cast, which is what the unwrap side expects for them.
             if operandDefType(backend.currentFunction, instr.operand1) == "float" || operandDefType(backend.currentFunction, instr.operand1) == "orbit_float" {
-                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_result_ok_float((orbit_float)(" + generateValue(instr.operand1) + "))"))
+                orbit_cbuf_append_selfhost(cb, "    { orbit_float _rf = (orbit_float)(" + generateValue(instr.operand1) + "); OrbitResult _rr = { 1, ORBIT_ERR_NONE, NULL, NULL }; memcpy(&_rr.value, &_rf, sizeof(_rf)); r_" + orbit_int_to_string_selfhost(instr.dest) + " = _rr; }\n")
                 return
             }
-            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_ok((void*)(uintptr_t)(" + generateValue(instr.operand1) + "));\n")
+            orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (OrbitResult){ 1, ORBIT_ERR_NONE, NULL, (void*)(uintptr_t)(" + generateValue(instr.operand1) + ") };\n")
             return
         }
         IROpcode.result_err => {
-            // Builder order is (code, msg) matching the runtime ABI; the
-            // enum cast keeps -Wint-conversion quiet without hiding values.
+            // A runtime module gives the code first and the message second,
+            // both registers: operand1 is an int there and a string in every
+            // other module, which is how the two orders are told apart.
+            if backend.module.runtimeModule && operandDefType(backend.currentFunction, instr.operand1) == "int" {
+                orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (OrbitResult){ 0, (OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand1) + "), (orbit_string)(" + generateValue(instr.operand2) + "), NULL };\n")
+                return
+            }
+            // Builder order is (msg, code); the enum cast keeps
+            // -Wint-conversion quiet without hiding values.
             match instr.operand2 {
                 IRValue.None => {
-                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err((OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand1) + "));\n")
+                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (OrbitResult){ 0, (OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand1) + "), NULL, NULL };\n")
                     return
                 }
                 _ => {
-                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = orbit_result_err((OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand2) + "), (orbit_string)(" + generateValue(instr.operand1) + "));\n")
+                    orbit_cbuf_append_selfhost(cb, "    r_" + orbit_int_to_string_selfhost(instr.dest) + " = (OrbitResult){ 0, (OrbitErrorCode)(uintptr_t)(" + generateValue(instr.operand2) + "), (orbit_string)(" + generateValue(instr.operand1) + "), NULL };\n")
                     return
                 }
             }
@@ -4217,7 +4304,7 @@ fn emitInstruction(backend: CBackend, instr: IRInstruction, cb: string) {
                 }
             }
             if uwT == "float" || uwT == "orbit_float" {
-                orbit_cbuf_append_selfhost(cb, generateRegAssign(backend, instr.dest, "orbit_result_get_float(" + generateValue(instr.operand1) + ")"))
+                orbit_cbuf_append_selfhost(cb, "    { orbit_float _gf = 0.0; memcpy(&_gf, &(" + generateValue(instr.operand1) + ").value, sizeof(_gf)); " + generateRegAssign(backend, instr.dest, "_gf") + "    }\n")
                 return
             }
             if uwT == "int" || uwT == "bool" || uwT == "string" || uwT == "list" {
@@ -4836,6 +4923,16 @@ fn operandIsStringForFunc(func: IRFunction, op2: IRValue) -> bool {
         _ => {}
     }
     return false
+}
+
+fn registerTypeOf(backend: CBackend, reg: int) -> string {
+    if backend != NULL && backend.currentFunction != NULL {
+        val f: IRFunction = backend.currentFunction
+        if reg >= 0 && reg < f.registerTypes.len() {
+            return f.registerTypes.get(reg)
+        }
+    }
+    return ""
 }
 
 fn operandDefType(func: IRFunction, op2: IRValue) -> string {
