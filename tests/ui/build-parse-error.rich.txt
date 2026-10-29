@@ -1,0 +1,19 @@
+  [31m✗[0m [1morbit build[0m parse_error.orb
+  [31m✗[0m [31mparse   [0m <bar>[0m  [90m N ms[0m
+    [90mresolve [0m <bar>[0m  [90m[0m
+    [90mcheck   [0m <bar>[0m  [90m[0m
+    [90mir      [0m <bar>[0m  [90m[0m
+    [90mc       [0m <bar>[0m  [90m[0m
+    [90mlink    [0m <bar>[0m  [90m[0m
+
+[31m╭─ [0m[1m[31merror[E0301][0m [90m───[0m [1mparse_error.orb:2:22[0m [31m────────────────────────────────────[0m[31m╮[0m
+[31m│[0m unexpected token 'Asterisk'                                                [31m│[0m
+[31m│[0m                                                                            [31m│[0m
+[31m│[0m [90m 1[0m [90m│[0m [90mfn main() {[0m                                                           [31m│[0m
+[31m│[0m [1m 2[0m [90m│[0m     val total = 1 + * 2                                               [31m│[0m
+[31m│[0m    [90m│[0m                      [1m[31m^[0m                                                [31m│[0m
+[31m│[0m [90m 3[0m [90m│[0m [90m}[0m                                                                     [31m│[0m
+[31m│[0m                                                                            [31m│[0m
+[31m│[0m [36m→[0m Check for missing brackets, quotes, or keywords before this token.       [31m│[0m
+[31m╰─[0m [90merror.UnexpectedToken[0m [31m────────────────────────────────────────────────────╯[0m
+ [31m✗[0m [1mbuild failed[0m [90m1 error · N ms[0m

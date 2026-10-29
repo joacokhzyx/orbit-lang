@@ -308,6 +308,14 @@ def registry(compiler, cc, work):
              r"Finished cli-probe: \d+/\d+", 600, allow_rc=(0, 1),
              witness=r"Finished cli-probe: \d+/\d+ pass",
              needs=("compiler",)),
+        Tool("ui_snapshots.py", "gate",
+             "the rich and color screens against tests/ui, and the cursor and "
+             "style state after a build is interrupted",
+             lambda: _script("ui_snapshots.py", "--compiler", compiler, "--cc", cc,
+                             "--work", _tmp(work, "ui")),
+             r"Finished ui-snapshots: \d+/\d+", 600, allow_rc=(0, 1),
+             witness=r"Finished ui-snapshots: \d+/\d+ pass",
+             needs=("compiler",)),
         # The scope gate: named directories must be clean. Not the whole repo --
         # tests/negative, tests/doctor and tests/parity are deliberately broken
         # fixtures, and examples/ is independent services whose routes collide
