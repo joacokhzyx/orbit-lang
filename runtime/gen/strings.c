@@ -199,7 +199,7 @@ label_13:;
 }
 
 orbit_bool orbit_string_starts_with(orbit_string s, orbit_string prefix) {
-    OrbitArena* arena = orbit_arena_get_global();
+    OrbitArena* arena = NULL;
     (void)arena;
     __attribute__((unused)) orbit_string r_0 = 0;
     __attribute__((unused)) orbit_string r_1 = 0;
@@ -242,7 +242,7 @@ label_21:;
 }
 
 orbit_bool orbit_string_ends_with(orbit_string s, orbit_string suffix) {
-    OrbitArena* arena = orbit_arena_get_global();
+    OrbitArena* arena = NULL;
     (void)arena;
     __attribute__((unused)) orbit_string r_0 = 0;
     __attribute__((unused)) orbit_string r_1 = 0;
@@ -312,7 +312,7 @@ label_27:;
 }
 
 orbit_bool orbit_string_contains(orbit_string s, orbit_string substr) {
-    OrbitArena* arena = orbit_arena_get_global();
+    OrbitArena* arena = NULL;
     (void)arena;
     __attribute__((unused)) orbit_string r_0 = 0;
     __attribute__((unused)) orbit_string r_1 = 0;
@@ -353,7 +353,7 @@ label_31:;
 }
 
 orbit_int orbit_string_indexOf(orbit_string s, orbit_string substr) {
-    OrbitArena* arena = orbit_arena_get_global();
+    OrbitArena* arena = NULL;
     (void)arena;
     __attribute__((unused)) orbit_string r_0 = 0;
     __attribute__((unused)) orbit_string r_1 = 0;
@@ -393,7 +393,7 @@ label_35:;
 }
 
 orbit_string orbit_string_to_upper(OrbitArena* a, orbit_string s) {
-    OrbitArena* arena = orbit_arena_get_global();
+    OrbitArena* arena = NULL;
     (void)arena;
     __attribute__((unused)) OrbitArena* r_0 = 0;
     __attribute__((unused)) orbit_string r_1 = 0;
@@ -505,7 +505,7 @@ label_42:;
 }
 
 orbit_string orbit_string_to_lower(OrbitArena* a, orbit_string s) {
-    OrbitArena* arena = orbit_arena_get_global();
+    OrbitArena* arena = NULL;
     (void)arena;
     __attribute__((unused)) OrbitArena* r_0 = 0;
     __attribute__((unused)) orbit_string r_1 = 0;
@@ -617,7 +617,7 @@ label_51:;
 }
 
 orbit_string orbit_string_trim(OrbitArena* a, orbit_string s) {
-    OrbitArena* arena = orbit_arena_get_global();
+    OrbitArena* arena = NULL;
     (void)arena;
     __attribute__((unused)) OrbitArena* r_0 = 0;
     __attribute__((unused)) orbit_string r_1 = 0;

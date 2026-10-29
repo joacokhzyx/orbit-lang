@@ -107077,7 +107077,7 @@ label_8867:;
     r_159 = (orbit_int)(uintptr_t)(((o_IRFunction*)r_158)->isExport);
     if (!(r_159)) goto label_8876;
     r_160 = (void*)(cbFn);
-    orbit_cbuf_append_selfhost((orbit_string)(r_160), (orbit_string)("    OrbitArena* arena = orbit_arena_get_global();\n    (void)arena;\n"));
+    orbit_cbuf_append_selfhost((orbit_string)(r_160), (orbit_string)("    OrbitArena* arena = NULL;\n    (void)arena;\n"));
     goto label_8877;
 label_8876:;
 label_8877:;

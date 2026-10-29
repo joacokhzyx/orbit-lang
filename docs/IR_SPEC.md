@@ -729,6 +729,8 @@ that carries them elsewhere is invalid.
 
 An export function is emitted under its own name, without the leading
 `OrbitArena* arena` parameter, and allocates from `orbit_arena_get_global()`.
+The C backend passes `NULL` as the implicit `arena` of the other functions: a
+runtime module uses no operation that reads it, and R6 refuses one that does.
 The other functions of the module keep the `o_` prefix and are `static`.
 `main` is an error in this mode, and the rule that refuses to define a runtime
 function name (`n89`) does not apply to an export function.

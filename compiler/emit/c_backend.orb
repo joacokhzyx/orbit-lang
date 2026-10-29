@@ -2650,7 +2650,10 @@ fn generateFunction(backend: CBackend, func: IRFunction) -> string {
     }
     orbit_cbuf_append_selfhost(cbFn, ") {\n")
     if func.isExport {
-        orbit_cbuf_append_selfhost(cbFn, "    OrbitArena* arena = orbit_arena_get_global();\n    (void)arena;\n")
+        // The implicit arena of an export is never read: R6 refuses a runtime
+        // module that needs one, and a call to the global arena on every entry
+        // cost the list push 20% in the archive build.
+        orbit_cbuf_append_selfhost(cbFn, "    OrbitArena* arena = NULL;\n    (void)arena;\n")
     }
     backend.refLabels = []
     var si = 0
