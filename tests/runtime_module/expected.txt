@@ -4,5 +4,19 @@ AGAIN
 Orbit
 
 X
+42
+-4
+cdef
+slot text
+4607182418800017408
+2.5
+42
+-1
+negative
+none
+carried
+null text
+1
+0
 null string
 string

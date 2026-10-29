@@ -83,9 +83,14 @@ def main() -> int:
     code, text = run([compiler, "build", "--runtime-module", rel("upper.orb"),
                       "-o", obj, "--quiet"], obj_env)
     check("object builds", code == 0 and os.path.isfile(obj), text.strip())
-    if results[-1]:
+    mem_obj = os.path.join(work, "memory.o")
+    code, text = run([compiler, "build", "--runtime-module", rel("memory.orb"),
+                      "-o", mem_obj, "--quiet"], obj_env)
+    check("memory object builds", code == 0 and os.path.isfile(mem_obj), text.strip())
+    if results[-1] and results[-2]:
         main_env = dict(env, ORBIT_BACKEND="c", ORBIT_LINK_RUNTIME="0",
-                        ORBIT_CCFLAGS_EXTRA='-include "%s" "%s"' % (header, obj.replace("\\", "/")))
+                        ORBIT_CCFLAGS_EXTRA='-include "%s" "%s" "%s"' % (
+                            header, obj.replace("\\", "/"), mem_obj.replace("\\", "/")))
         code, text = run([compiler, "build", rel("main.orb"), "-o", exe,
                           "--quiet"], main_env)
         check("program links the object", code == 0, text.strip())

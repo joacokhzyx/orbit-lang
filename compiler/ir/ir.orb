@@ -85,7 +85,15 @@ union IROpcode {
     bytes_alloc,
     byte_store,
     str_offset,
-    bytes_copy
+    bytes_copy,
+    // Pointers and words, for a runtime module only: a 64-bit copy between a
+    // string and an RtPtr, a load or store of 8 or 4 bytes (elemKind), the bit
+    // pattern of a float and back.
+    reinterpret,
+    mem_load,
+    mem_store,
+    float_bits,
+    bits_float
 }
 
 model IRValueInt { value: int }

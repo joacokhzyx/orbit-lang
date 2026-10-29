@@ -173,6 +173,11 @@ fn irOpcodeName(op: IROpcode) -> string {
         IROpcode.byte_store => { return "byte_store" }
         IROpcode.str_offset => { return "str_offset" }
         IROpcode.bytes_copy => { return "bytes_copy" }
+        IROpcode.reinterpret => { return "reinterpret" }
+        IROpcode.mem_load => { return "mem_load" }
+        IROpcode.mem_store => { return "mem_store" }
+        IROpcode.float_bits => { return "float_bits" }
+        IROpcode.bits_float => { return "bits_float" }
         _ => { return "" }
     }
 }

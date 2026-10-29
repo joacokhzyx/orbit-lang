@@ -741,11 +741,33 @@ function name (`n89`) does not apply to an export function.
 | `byte_store` | `O1` string, `O2` int, `O3` int, `dest == -1` | stores the low byte of `O3` at `O1[O2]` |
 | `str_offset` | `D <- O1` string, `O2` int | `(O1) + (O2)`, no allocation and no check |
 | `bytes_copy` | `O1` string, `O2` string, `O3` int, `dest == -1` | `if (O3 > 0) memcpy(O1, O2, O3)`, nothing when `O3 <= 0` |
+| `reinterpret` | `D <- O1`: `D` `RtPtr` and `O1` string, or the reverse | a 64-bit copy |
+| `str_offset` | `D <- O1` `RtPtr`, `O2` int, `D` `RtPtr` | `(char*)(O1) + (O2)`; the string form above is unchanged |
+| `mem_load` | `D <- O1` `RtPtr`, `O2` int byte offset; `elemKind` 8 or 4 | 8: the word at `O1 + O2`, into an int or an `RtPtr`. 4: the 32-bit value, sign-extended, into an int |
+| `mem_store` | `O1` `RtPtr`, `O2` int byte offset, `O3` int or `RtPtr`, `dest == -1`; `elemKind` 8 or 4 | stores the word, or its low 32 bits; an `RtPtr` value needs `elemKind` 8 |
+| `float_bits` | `D <- O1` float, `D` int | the IEEE-754 bit pattern, no numeric conversion |
+| `bits_float` | `D <- O1` int, `D` float | the float with that bit pattern |
 
 Every operand is a `Register`. The builtins that produce them, available only
 in this mode, are `rt_len(s) -> int`, `rt_byte(s, i) -> int`, `rt_alloc(n) ->
 string`, `rt_alloc_in(a: RtArena, n) -> string`, `rt_set_byte(buf, i, v)`,
 `rt_at(s, i) -> string` and `rt_copy(dst, src, n)`.
+The pointer and result builtins are `rt_ptr(s: string) -> RtPtr` and
+`rt_str(p: RtPtr) -> string` (`reinterpret`), `rt_ptr_add(p, off) -> RtPtr`
+(`str_offset`), `rt_load64(p, off)`, `rt_load32(p, off)` and `rt_loadp(p, off)`
+(`mem_load`, `elemKind` 8, 4, 8), `rt_store64(p, off, v)`, `rt_store32(p, off, v)`
+and `rt_storep(p, off, v: RtPtr)` (`mem_store`), `rt_float_bits(f) -> int`,
+`rt_bits_float(b) -> float`, `rt_ok(word: int)`, `rt_ok_ptr(p: RtPtr)` and
+`rt_err(code: int, msg: string)`. The three result builtins lower to
+`result_ok` and `result_err`. In a runtime module `result_err` may give the
+code first and the message second; the two orders are told apart by the type of
+`O1`, which is an int only in the code-first form. An `export fn` may return
+`result`.
+`RtPtr` is an opaque 64-bit pointer, spelled `"RtPtr"` in `paramTypes` and
+`registerTypes` and emitted as `void*`. It compares with `NULL` as a word. It
+is not a return type of an `extern fn` in the native path: an extern returns
+`string` and the caller converts with `rt_ptr`. An `extern fn` of a runtime
+module may take `RtPtr` and `RtArena` parameters.
 `RtArena` is an opaque pointer type, spelled `"RtArena"` in `paramTypes` and
 `registerTypes` and emitted as `OrbitArena*`. A runtime function that receives
 the caller's arena first (`orbit_string_to_upper` and its siblings) declares it

@@ -1,0 +1,7 @@
+// case: rt-ptr-outside-a-runtime-module
+// what: rt_ptr turns a string into a raw pointer. It exists only in a runtime module.
+// expect-error: is a runtime-module builtin
+fn main() -> int {
+    val p = rt_ptr("abc")
+    return 0
+}

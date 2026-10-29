@@ -340,8 +340,11 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_insert" { return "bool" }
     if name == "orbit_db_update" { return "bool" }
     if name == "orbit_db_delete" { return "bool" }
-    if name == "rt_len" || name == "rt_byte" { return "int" }
-    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" { return "string" }
+    if name == "rt_len" || name == "rt_byte" || name == "rt_load64" || name == "rt_load32" || name == "rt_float_bits" { return "int" }
+    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_str" { return "string" }
+    if name == "rt_ptr" || name == "rt_ptr_add" || name == "rt_loadp" { return "RtPtr" }
+    if name == "rt_bits_float" { return "float" }
+    if name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err" { return "result" }
     if name == "orbit_string_len" { return "int" }
     if name == "orbit_string_indexOf" { return "int" }
     if name == "orbit_string_slice" { return "string" }
@@ -4270,7 +4273,7 @@ fn callResultType(builder: IRBuilder, callName: string) -> string {
 }
 
 fn isRuntimeBuiltinName(name: string) -> bool {
-    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy"
+    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy" || name == "rt_ptr" || name == "rt_str" || name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" || name == "rt_float_bits" || name == "rt_bits_float" || name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err"
 }
 
 // The rt_* builtins of a runtime module lower to one opcode each, with the
@@ -4297,7 +4300,45 @@ fn buildRuntimeBuiltin(builder: IRBuilder, name: string, c: CallNode) -> int {
         resType = "string"
     }
     if name == "rt_copy" { opCode = IROpcode.bytes_copy }
+    // The pointer builtins. elemKind carries the width of a memory access in
+    // bytes (8 or 4), the one place the opcode cannot say it.
+    var width = 0
+    if name == "rt_ptr" || name == "rt_str" {
+        opCode = IROpcode.reinterpret
+        resType = "RtPtr"
+        if name == "rt_str" { resType = "string" }
+    }
+    if name == "rt_ptr_add" {
+        opCode = IROpcode.str_offset
+        resType = "RtPtr"
+    }
+    if name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" {
+        opCode = IROpcode.mem_load
+        width = 8
+        if name == "rt_load32" { width = 4 }
+        resType = "int"
+        if name == "rt_loadp" { resType = "RtPtr" }
+    }
+    if name == "rt_store64" || name == "rt_store32" || name == "rt_storep" {
+        opCode = IROpcode.mem_store
+        width = 8
+        if name == "rt_store32" { width = 4 }
+    }
+    if name == "rt_float_bits" { opCode = IROpcode.float_bits }
+    if name == "rt_bits_float" {
+        opCode = IROpcode.bits_float
+        resType = "float"
+    }
+    if name == "rt_ok" || name == "rt_ok_ptr" {
+        opCode = IROpcode.result_ok
+        resType = "result"
+    }
+    if name == "rt_err" {
+        opCode = IROpcode.result_err
+        resType = "result"
+    }
     val instr = ir_init_instr(opCode)
+    instr.elemKind = width
     if name == "rt_alloc_in" {
         instr.operand1 = vals.get(1)
         instr.operand2 = vals.get(0)
@@ -4306,7 +4347,7 @@ fn buildRuntimeBuiltin(builder: IRBuilder, name: string, c: CallNode) -> int {
         if vals.len() > 1 { instr.operand2 = vals.get(1) }
         if vals.len() > 2 { instr.operand3 = vals.get(2) }
     }
-    if name == "rt_set_byte" || name == "rt_copy" {
+    if name == "rt_set_byte" || name == "rt_copy" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" {
         ir_emit(builder.currentFunction, instr)
         return -1
     }

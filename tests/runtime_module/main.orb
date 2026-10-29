@@ -2,6 +2,15 @@ extern fn rtmod_probe_upper(s: string) -> string
 extern fn rtmod_probe_twice(s: string) -> string
 extern fn rtmod_probe_tail(s: string, from: int) -> string
 extern fn rtmod_probe_copy_nothing(s: string) -> string
+extern fn rtmod_mem_sum(a: int, b: int) -> int
+extern fn rtmod_mem_tail(s: string, from: int) -> string
+extern fn rtmod_mem_slot(s: string) -> string
+extern fn rtmod_mem_bits(x: float) -> int
+extern fn rtmod_mem_float(b: int) -> float
+extern fn rtmod_res_word_value(x: int) -> int
+extern fn rtmod_res_word_error(x: int) -> string
+extern fn rtmod_res_text_value(s: string) -> string
+extern fn rtmod_ptr_is_null(s: string) -> bool
 
 fn main() -> int {
     print(rtmod_probe_upper("hello, Orbit 42"))
@@ -10,6 +19,20 @@ fn main() -> int {
     print(rtmod_probe_tail("hello, Orbit", 7))
     print(rtmod_probe_tail("abc", 3))
     print(rtmod_probe_copy_nothing("zzz"))
+    print(rtmod_mem_sum(40, 2))
+    print(rtmod_mem_sum(1, 0 - 5))
+    print(rtmod_mem_tail("abcdef", 2))
+    print(rtmod_mem_slot("slot text"))
+    print(rtmod_mem_bits(1.0))
+    print(rtmod_mem_float(rtmod_mem_bits(2.5)))
+    print(rtmod_res_word_value(21))
+    print(rtmod_res_word_value(0 - 1))
+    print(rtmod_res_word_error(0 - 1))
+    print(rtmod_res_word_error(4))
+    print(rtmod_res_text_value("carried"))
+    print(rtmod_res_text_value(NULL))
+    print(rtmod_ptr_is_null(NULL))
+    print(rtmod_ptr_is_null("x"))
     val none: string = NULL
     if none == NULL {
         print("null string")

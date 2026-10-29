@@ -1,0 +1,7 @@
+// case: rt-load64-outside-a-runtime-module
+// what: rt_load64 reads memory through an RtPtr. It exists only in a runtime module.
+// expect-error: is a runtime-module builtin
+fn main() -> int {
+    val n = rt_load64(0, 0)
+    return 0
+}

@@ -1189,45 +1189,68 @@ fn isProvidedName(name: string) -> bool {
 }
 
 // The builtins of a runtime module (docs/IR_SPEC.md): byte-level access to
-// strings, which the language has no other way to express.
+// strings, raw memory through an RtPtr and the construction of a result, which
+// the language has no other way to express.
 fn isRuntimeModuleBuiltin(name: string) -> bool {
-    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy"
+    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy" || isRuntimeModulePointerBuiltin(name)
+}
+
+fn isRuntimeModulePointerBuiltin(name: string) -> bool {
+    return name == "rt_ptr" || name == "rt_str" || name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" || name == "rt_float_bits" || name == "rt_bits_float" || name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err"
 }
 
 fn runtimeModuleBuiltinArity(name: string) -> int {
-    if name == "rt_len" || name == "rt_alloc" { return 1 }
-    if name == "rt_byte" || name == "rt_alloc_in" || name == "rt_at" { return 2 }
+    if name == "rt_len" || name == "rt_alloc" || name == "rt_ptr" || name == "rt_str" || name == "rt_float_bits" || name == "rt_bits_float" || name == "rt_ok" || name == "rt_ok_ptr" { return 1 }
+    if name == "rt_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_err" { return 2 }
     return 3
 }
 
 fn runtimeModuleBuiltinReturn(name: string) -> string {
-    if name == "rt_len" || name == "rt_byte" { return "int" }
-    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" { return "string" }
+    if name == "rt_len" || name == "rt_byte" || name == "rt_load64" || name == "rt_load32" || name == "rt_float_bits" { return "int" }
+    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_str" { return "string" }
+    if name == "rt_ptr" || name == "rt_ptr_add" || name == "rt_loadp" { return "RtPtr" }
+    if name == "rt_bits_float" { return "float" }
+    if name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err" { return "result" }
     return "void"
 }
 
 // The parameter types, in order: rt_set_byte(buf, i, v) takes a string and two
 // ints, rt_byte(s, i) and rt_at(s, i) a string and an int, rt_copy(dst, src, n)
-// two strings and an int, rt_len(s) a string, rt_alloc(n) an int.
+// two strings and an int, rt_len(s) a string, rt_alloc(n) an int. The pointer
+// builtins take an RtPtr and a byte offset, and the stores a value after them.
 fn runtimeModuleBuiltinParam(name: string, index: int) -> string {
     if name == "rt_alloc" { return "int" }
     if name == "rt_alloc_in" && index == 0 { return "RtArena" }
     if name == "rt_alloc_in" { return "int" }
     if name == "rt_copy" && index == 1 { return "string" }
+    if name == "rt_ptr" { return "string" }
+    if name == "rt_str" || name == "rt_ok_ptr" { return "RtPtr" }
+    if name == "rt_float_bits" { return "float" }
+    if name == "rt_bits_float" || name == "rt_ok" { return "int" }
+    if name == "rt_err" && index == 1 { return "string" }
+    if name == "rt_err" { return "int" }
+    if name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" {
+        if index == 0 { return "RtPtr" }
+        if index == 1 { return "int" }
+        if name == "rt_storep" { return "RtPtr" }
+        return "int"
+    }
     if index == 0 { return "string" }
     return "int"
 }
 
-// `RtArena` is the opaque arena pointer a runtime function receives first; it
-// names a type only in a runtime module.
-fn mentionsRtArena(f: FunctionDeclNode) -> bool {
-    if f.returnType == "RtArena" { return true }
+// `RtArena` is the opaque arena pointer a runtime function receives first and
+// `RtPtr` an opaque pointer to raw memory; both name a type only in a runtime
+// module. The answer is the first such type the declaration mentions, or "".
+fn mentionedRtType(f: FunctionDeclNode) -> string {
+    if f.returnType == "RtArena" || f.returnType == "RtPtr" { return f.returnType }
     var i = 0
     while i < f.paramTypes.len() {
-        if f.paramTypes.get(i) == "RtArena" { return true }
+        val t: string = f.paramTypes.get(i)
+        if t == "RtArena" || t == "RtPtr" { return t }
         i = i + 1
     }
-    return false
+    return ""
 }
 
 // Arity and argument types of an rt_* call, reported against the builtin's
@@ -2352,9 +2375,9 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
                     reportError(sema, "A function cannot be both extern and export: '" + f.name + "'")
                 }
             }
-            if sema.runtimeModule == false && mentionsRtArena(f) {
+            if sema.runtimeModule == false && mentionedRtType(f) != "" {
                 sema.currentFunction = f.name
-                reportError(sema, "'RtArena' is a runtime-module type: it is available only when compiling with --runtime-module")
+                reportError(sema, "'" + mentionedRtType(f) + "' is a runtime-module type: it is available only when compiling with --runtime-module")
                 sema.currentFunction = ""
             }
             if sema.runtimeModule {
