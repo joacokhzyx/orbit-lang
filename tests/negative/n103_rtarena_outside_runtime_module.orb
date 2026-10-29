@@ -1,0 +1,11 @@
+// case: rtarena-outside-a-runtime-module
+// what: RtArena is the opaque arena pointer a runtime function receives first.
+//      It is a type only in a runtime module.
+// expect-error: is a runtime-module type
+fn take(a: RtArena) -> int {
+    return 0
+}
+
+fn main() -> int {
+    return 0
+}

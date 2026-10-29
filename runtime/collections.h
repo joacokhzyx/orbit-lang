@@ -28,15 +28,15 @@ ORBIT_INLINE void orbit_list_expect_kind(const OrbitList* list, int kind) {
         orbit_list_kind_error(list->elem_kind, kind);
     }
 }
-OrbitResult orbit_list_create_typed(OrbitArena* arena, size_t elem_size, size_t initial_capacity, int elem_kind);
-OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity);
-OrbitResult orbit_list_grow(OrbitList* list);
-OrbitResult orbit_list_push(OrbitList* list, const void* elem);
-OrbitResult orbit_list_push_string(OrbitList* list, orbit_string value);
-OrbitResult orbit_list_push_int(OrbitList* list, orbit_int value);
-OrbitResult orbit_list_push_bool(OrbitList* list, orbit_bool value);
-OrbitResult orbit_list_push_ref(OrbitList* list, void* value);
-OrbitResult orbit_list_push_float(OrbitList* list, orbit_float value);
+OrbitResult orbit_list_create_typed(void* arena, orbit_int elem_size, orbit_int initial_capacity, orbit_int elem_kind);
+OrbitResult orbit_list_create(void* arena, orbit_int elem_size, orbit_int initial_capacity);
+OrbitResult orbit_list_grow(void* list);
+OrbitResult orbit_list_push(void* list, void* elem);
+OrbitResult orbit_list_push_string(void* list, orbit_string value);
+OrbitResult orbit_list_push_int(void* list, orbit_int value);
+OrbitResult orbit_list_push_bool(void* list, orbit_bool value);
+OrbitResult orbit_list_push_ref(void* list, void* value);
+OrbitResult orbit_list_push_float(void* list, orbit_float value);
 
 /** @brief The word stored in slot @p index, decoded for the list's own kind.
  *
@@ -139,14 +139,14 @@ ORBIT_INLINE orbit_float orbit_list_read_float(const OrbitList* list, size_t ind
 }
 
 #undef ORBIT_LIST_READ_PROLOGUE
-OrbitResult orbit_list_pop(OrbitList* list);
-OrbitResult orbit_list_set(OrbitList* list, size_t index, const void* elem);
-OrbitResult orbit_list_set_int(OrbitList* list, size_t index, orbit_int value);
-OrbitResult orbit_list_set_string(OrbitList* list, size_t index, orbit_string value);
-OrbitResult orbit_list_set_bool(OrbitList* list, size_t index, orbit_bool value);
-OrbitResult orbit_list_set_float(OrbitList* list, size_t index, orbit_float value);
-OrbitResult orbit_list_set_ref(OrbitList* list, size_t index, void* value);
-void orbit_list_clear(OrbitList* list);
+OrbitResult orbit_list_pop(void* list);
+OrbitResult orbit_list_set(void* list, orbit_int index, void* elem);
+OrbitResult orbit_list_set_int(void* list, orbit_int index, orbit_int value);
+OrbitResult orbit_list_set_string(void* list, orbit_int index, orbit_string value);
+OrbitResult orbit_list_set_bool(void* list, orbit_int index, orbit_bool value);
+OrbitResult orbit_list_set_float(void* list, orbit_int index, orbit_float value);
+OrbitResult orbit_list_set_ref(void* list, orbit_int index, void* value);
+void orbit_list_clear(void* list);
 OrbitResult orbit_map_create(OrbitArena* arena, size_t value_size);
 OrbitResult orbit_map_resize(OrbitMap* map);
 OrbitResult orbit_map_set(OrbitMap* map, const char* key, const void* value);

@@ -52,16 +52,13 @@ fn getDir(filePath: string) -> string {
     return filePath.slice(0, lastSlash)
 }
 
-// Canonical `std/...` and `lib/...` imports resolve against
+// Canonical `std/...` imports resolve against
 // the std roots (compiler binary dir, its parent, then CWD), so std
 // works no matter where the importing file lives. Plain relative
 // imports keep the legacy base-dir-then-CWD order below.
 fn isStdPath(relPath: string) -> bool {
     if relPath.len() >= 4 {
         if relPath.slice(0, 4) == "std/" { return true }
-    }
-    if relPath.len() >= 4 {
-        if relPath.slice(0, 4) == "lib/" { return true }
     }
     return false
 }

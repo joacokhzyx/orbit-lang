@@ -198,12 +198,15 @@ model Sema {
     // The symbol table carries no extern flag, so the name is recorded here
     // where the declaration is in hand.
     externFnNames: list < string >
+    // `orbit build --runtime-module`: `export fn` and the rt_* builtins are
+    // admitted, and `main` is not. Set by the pipeline after initSema.
+    runtimeModule: bool
 }
 
 fn initSema() -> Sema {
     val initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [], [], [], [])
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [], [], [], [], false)
 }
 
 // The model a bound variable was built from, or "" when it was not built
@@ -1185,6 +1188,90 @@ fn isProvidedName(name: string) -> bool {
     return false
 }
 
+// The builtins of a runtime module (docs/IR_SPEC.md): byte-level access to
+// strings, raw memory through an RtPtr and the construction of a result, which
+// the language has no other way to express.
+fn isRuntimeModuleBuiltin(name: string) -> bool {
+    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy" || isRuntimeModulePointerBuiltin(name)
+}
+
+fn isRuntimeModulePointerBuiltin(name: string) -> bool {
+    return name == "rt_ptr" || name == "rt_str" || name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" || name == "rt_float_bits" || name == "rt_bits_float" || name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err"
+}
+
+fn runtimeModuleBuiltinArity(name: string) -> int {
+    if name == "rt_len" || name == "rt_alloc" || name == "rt_ptr" || name == "rt_str" || name == "rt_float_bits" || name == "rt_bits_float" || name == "rt_ok" || name == "rt_ok_ptr" { return 1 }
+    if name == "rt_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_err" { return 2 }
+    return 3
+}
+
+fn runtimeModuleBuiltinReturn(name: string) -> string {
+    if name == "rt_len" || name == "rt_byte" || name == "rt_load64" || name == "rt_load32" || name == "rt_float_bits" { return "int" }
+    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_str" { return "string" }
+    if name == "rt_ptr" || name == "rt_ptr_add" || name == "rt_loadp" { return "RtPtr" }
+    if name == "rt_bits_float" { return "float" }
+    if name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err" { return "result" }
+    return "void"
+}
+
+// The parameter types, in order: rt_set_byte(buf, i, v) takes a string and two
+// ints, rt_byte(s, i) and rt_at(s, i) a string and an int, rt_copy(dst, src, n)
+// two strings and an int, rt_len(s) a string, rt_alloc(n) an int. The pointer
+// builtins take an RtPtr and a byte offset, and the stores a value after them.
+fn runtimeModuleBuiltinParam(name: string, index: int) -> string {
+    if name == "rt_alloc" { return "int" }
+    if name == "rt_alloc_in" && index == 0 { return "RtArena" }
+    if name == "rt_alloc_in" { return "int" }
+    if name == "rt_copy" && index == 1 { return "string" }
+    if name == "rt_ptr" { return "string" }
+    if name == "rt_str" || name == "rt_ok_ptr" { return "RtPtr" }
+    if name == "rt_float_bits" { return "float" }
+    if name == "rt_bits_float" || name == "rt_ok" { return "int" }
+    if name == "rt_err" && index == 1 { return "string" }
+    if name == "rt_err" { return "int" }
+    if name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" {
+        if index == 0 { return "RtPtr" }
+        if index == 1 { return "int" }
+        if name == "rt_storep" { return "RtPtr" }
+        return "int"
+    }
+    if index == 0 { return "string" }
+    return "int"
+}
+
+// `RtArena` is the opaque arena pointer a runtime function receives first and
+// `RtPtr` an opaque pointer to raw memory; both name a type only in a runtime
+// module. The answer is the first such type the declaration mentions, or "".
+fn mentionedRtType(f: FunctionDeclNode) -> string {
+    if f.returnType == "RtArena" || f.returnType == "RtPtr" { return f.returnType }
+    var i = 0
+    while i < f.paramTypes.len() {
+        val t: string = f.paramTypes.get(i)
+        if t == "RtArena" || t == "RtPtr" { return t }
+        i = i + 1
+    }
+    return ""
+}
+
+// Arity and argument types of an rt_* call, reported against the builtin's
+// signature. Only reached in a runtime module; elsewhere the name is refused
+// by resolveCalleeName.
+fn checkRuntimeModuleBuiltinCall(sema: Sema, name: string, argTypes: list < string >, line: int, col: int) {
+    val want = runtimeModuleBuiltinArity(name)
+    if argTypes.len() != want {
+        reportError(sema, "Wrong number of arguments to " + name + ": it takes " + orbit_int_to_string_selfhost(want) + ", got " + orbit_int_to_string_selfhost(argTypes.len()))
+        return
+    }
+    var i = 0
+    while i < want {
+        val param = runtimeModuleBuiltinParam(name, i)
+        if checkCompatibility(param, argTypes.get(i)) == false {
+            reportErrorAt(sema, "E1005", "Change the argument, or change the builtin's use.", line, col, "Parameter " + orbit_int_to_string_selfhost(i + 1) + " of " + name + " is " + param + " but the argument is " + argTypes.get(i) + ".")
+        }
+        i = i + 1
+    }
+}
+
 // Resolve a callee that is a bare name, and say so when nothing declares it.
 //
 // The name is checked against every form a callee can legitimately take before
@@ -1212,6 +1299,11 @@ fn resolveCalleeName(sema: Sema, name: string) -> string {
     }
     if findVariantOwner(sema, name) != "" { return "unknown" }
     if isProvidedName(name) { return "unknown" }
+    if isRuntimeModuleBuiltin(name) {
+        if sema.runtimeModule { return "unknown" }
+        reportError(sema, "'" + name + "' is a runtime-module builtin: it is available only when compiling with --runtime-module")
+        return "unknown"
+    }
     recordMiss(sema, "function", name)
     reportError(sema, "Undeclared function: " + name + "; nothing in scope declares it")
     return "unknown"
@@ -2273,7 +2365,30 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
             // "unknown" then keeps the body from disagreeing with it as well.
             if checkGenericModelTypeName(sema, returnType, 0, 0) { returnType = "unknown" }
 
-            if f.isExtern == false && compilerCalledRuntimeName(f.name) {
+            if f.isExport {
+                if sema.runtimeModule == false {
+                    sema.currentFunction = f.name
+                    reportError(sema, "'export fn " + f.name + "' is allowed only in a runtime module; compile with `orbit build --runtime-module`")
+                    sema.currentFunction = ""
+                }
+                if f.isExtern {
+                    reportError(sema, "A function cannot be both extern and export: '" + f.name + "'")
+                }
+            }
+            if sema.runtimeModule == false && mentionedRtType(f) != "" {
+                sema.currentFunction = f.name
+                reportError(sema, "'" + mentionedRtType(f) + "' is a runtime-module type: it is available only when compiling with --runtime-module")
+                sema.currentFunction = ""
+            }
+            if sema.runtimeModule {
+                if f.name == "main" {
+                    reportError(sema, "A runtime module has no entry point: 'main' is not allowed with --runtime-module")
+                }
+                if isRuntimeModuleBuiltin(f.name) {
+                    reportError(sema, "'" + f.name + "' is a runtime-module builtin; a function of that name would receive its calls. Rename it")
+                }
+            }
+            if f.isExtern == false && f.isExport == false && compilerCalledRuntimeName(f.name) {
                 sema.currentFunction = f.name
                 reportError(sema, "'" + f.name + "' is a runtime function the compiler calls itself when it lowers other syntax; a function of that name would receive those calls. Rename it")
                 sema.currentFunction = ""
@@ -3871,6 +3986,10 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                                 reportErrorAt(sema, "E1003", "Give err a message, and a code only if you mean one: err(message) or err(message, code).", c.line, c.col, "err takes 1 or 2 arguments, got " + orbit_int_to_string_selfhost(c.args.len()) + ".")
                             }
                             return "result"
+                        }
+                        if sema.runtimeModule && isRuntimeModuleBuiltin(l.text) && lookupFunction(sema, l.text) == "unknown" {
+                            checkRuntimeModuleBuiltinCall(sema, l.text, argTypes, c.line, c.col)
+                            return runtimeModuleBuiltinReturn(l.text)
                         }
                         if l.text == "print" {
                             // Multi-argument print emits nothing at all: the

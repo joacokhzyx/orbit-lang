@@ -275,6 +275,8 @@ def link_default_cases(compiler, work):
         for item in os.listdir(os.path.join(ROOT, "runtime")):
             if item.endswith((".c", ".h")) and not item.startswith("test_"):
                 shutil.copy(os.path.join(ROOT, "runtime", item), stage_runtime)
+        shutil.copytree(os.path.join(ROOT, "runtime", "gen"),
+                        os.path.join(stage_runtime, "gen"), dirs_exist_ok=True)
         if stage_kind != "missing":
             lib_dir = os.path.join(stage, ".orbit", "lib")
             os.makedirs(lib_dir, exist_ok=True)

@@ -51,7 +51,7 @@
 #else
 
 /* ── Core types & Result<T,E> ──────────────────────────────────────── */
-#include "types.c"
+#include "types.h"
 #include "inline.h"
 
 /* ── Diagnostics ────────────────────────────────────────────────────── */
@@ -71,6 +71,7 @@
 
 /* ── Collections (List, Map) ───────────────────────────────────────── */
 #include "collections.c"
+#include "gen/strings.c"
 
 /* ── Objects and JSON ───────────────────────────────────────────────── */
 #include "json.c"
@@ -85,6 +86,7 @@
 #include "crash.c"
 #include "crypto.c"
 #include "selfhost.c"
+#include "gen/lists.c"
 
 /* ── Energy sampler (Linux RAPL at 1 Hz; labeled CPU proxy elsewhere) ── */
 #include "energy.c"

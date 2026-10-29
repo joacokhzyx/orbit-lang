@@ -36,9 +36,11 @@ banner uses the same roles.
 Color fires only on a live terminal. Piped and redirected output stays
 plain (byte-identical), as do CI logs. `NO_COLOR` set or `TERM=dumb`
 always win. `--color always` forces styled output anywhere (for docs and
-snapshots) and `--color never` forces plain text. The one gradient lives
-on the word `Kynx` in the generated server banner. Diagnostics, findings,
-help and summaries never use gradients (they must stay greppable).
+snapshots) and `--color never` forces plain text. The generated server banner has one gradient, on the word `Kynx`. Findings and
+the plain tier never use gradients (they must stay greppable). On a console that
+takes UTF-8 and 256 colors the compiler also draws cards, stage bars with a
+gradient and animated progress; [CLI_UI.md](CLI_UI.md) lists the tiers and the
+overrides (`ORBIT_UI`, `ORBIT_UI_MOTION`).
 
 Progress: `orbit build` prints `Building <in> -> <out>` first and
 `wrote <out> in <N> ms` last (both suppressed by `--quiet`). `orbit

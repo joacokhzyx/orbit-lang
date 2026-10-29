@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdbool.h>
 /* Depende (ya incluidos antes por runtime.h) de:
-   types.c    -> orbit_string (== const char*)
+   types.h    -> orbit_string (== const char*)
    arena.c    -> orbit_alloc / orbit_arena_strdup / OrbitArena
    database.c -> orbit_db_conn (sqlite3*, static, misma TU) + sqlite3.h  */
 

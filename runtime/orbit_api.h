@@ -110,7 +110,7 @@
 /* Same redirect as runtime.h: the emitted colour preamble calls getenv(). */
 #define getenv orbit_env_get
 
-/* ── Primitive type aliases (canonical: runtime/types.c) ─────────────── */
+/* ── Primitive type aliases (canonical: runtime/types.h) ─────────────── */
 typedef const char* orbit_string;
 typedef int64_t     orbit_int;
 typedef double      orbit_float;
@@ -167,7 +167,7 @@ typedef struct {
 
 typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);
 
-/* ── Result<T,E> (canonical: runtime/types.c) ────────────────────────── */
+/* ── Result<T,E> (canonical: runtime/types.h) ────────────────────────── */
 typedef enum {
     ORBIT_ERR_NONE          = 0,
     ORBIT_ERR_NULL_PTR      = 1,
@@ -202,7 +202,7 @@ typedef struct {
         (out_ptr) = _r.value;                  \
     } while (0)
 
-/* ── List/Map element model (canonical: runtime/types.c) ─────────────── */
+/* ── List/Map element model (canonical: runtime/types.h) ─────────────── */
 typedef enum {
     ORBIT_ELEM_OPAQUE = 0,
     ORBIT_ELEM_STRING = 1,
@@ -307,6 +307,12 @@ static inline int bit_op(int i) {
 void orbit_crash_handler_install(void);
 void orbit_console_init(void);
 void orbit_print_string(const char* s);
+orbit_int orbit_ui_caps(orbit_int fd);
+orbit_int orbit_ui_width(orbit_int fd);
+orbit_int orbit_ui_text_size(orbit_string path);
+orbit_int orbit_ui_anim_start(orbit_string block, orbit_int flags);
+orbit_int orbit_ui_anim_stage(orbit_string block);
+orbit_int orbit_ui_anim_stop(orbit_string final_block);
 
 /* ── Static inline accessors (canonical: runtime/collections.c) ────────
  * Byte-identical copies; they call the external functions declared below,
@@ -315,12 +321,46 @@ void orbit_print_string(const char* s);
  * FNV-1a helper rides along; both copies are internal linkage and never
  * meet at link time. */
 
-/* ── External functions: Result (canonical: runtime/types.c) ─────────── */
-OrbitResult orbit_result_ok(void* value);
-OrbitResult orbit_result_ok_word(uintptr_t word);
-OrbitResult orbit_result_ok_float(orbit_float value);
-orbit_float orbit_result_get_float(OrbitResult r);
-OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg);
+/* ── Result constructors (canonical: runtime/types.h) ────────────────── */
+static inline OrbitResult orbit_result_ok(void* value) {
+    OrbitResult r;
+    r.ok         = true;
+    r.error_code = ORBIT_ERR_NONE;
+    r.error_msg  = NULL;
+    r.value      = value;
+    return r;
+}
+
+static inline OrbitResult orbit_result_ok_word(uintptr_t word) {
+    OrbitResult r;
+    r.ok         = true;
+    r.error_code = ORBIT_ERR_NONE;
+    r.error_msg  = NULL;
+    r.value      = NULL;
+    memcpy(&r.value, &word, sizeof(uintptr_t));
+    return r;
+}
+
+static inline OrbitResult orbit_result_ok_float(orbit_float value) {
+    uintptr_t word = 0;
+    memcpy(&word, &value, sizeof(uintptr_t));
+    return orbit_result_ok_word(word);
+}
+
+static inline orbit_float orbit_result_get_float(OrbitResult r) {
+    orbit_float value = 0.0;
+    memcpy(&value, &r.value, sizeof(orbit_float));
+    return value;
+}
+
+static inline OrbitResult orbit_result_err(OrbitErrorCode code, const char* msg) {
+    OrbitResult r;
+    r.ok         = false;
+    r.error_code = code;
+    r.error_msg  = msg;
+    r.value      = NULL;
+    return r;
+}
 
 /* ── External functions: arena (canonical: runtime/arena.c) ──────────── */
 OrbitArena* orbit_arena_create(size_t initial_capacity);
@@ -364,23 +404,23 @@ const char* orbit_list_kind_name(int kind);
 void orbit_list_index_error(const char* where, unsigned long index,
                             unsigned long len, int kind, const char* file, int line);
 void orbit_list_kind_error(int have, int want);
-OrbitResult orbit_list_create_typed(OrbitArena* arena, size_t elem_size, size_t initial_capacity, int elem_kind);
-OrbitResult orbit_list_create(OrbitArena* arena, size_t elem_size, size_t initial_capacity);
-OrbitResult orbit_list_grow(OrbitList* list);
-OrbitResult orbit_list_push(OrbitList* list, const void* elem);
-OrbitResult orbit_list_push_string(OrbitList* list, orbit_string value);
-OrbitResult orbit_list_push_int(OrbitList* list, orbit_int value);
-OrbitResult orbit_list_push_bool(OrbitList* list, orbit_bool value);
-OrbitResult orbit_list_push_ref(OrbitList* list, void* value);
-OrbitResult orbit_list_push_float(OrbitList* list, orbit_float value);
-OrbitResult orbit_list_pop(OrbitList* list);
-OrbitResult orbit_list_set(OrbitList* list, size_t index, const void* elem);
-OrbitResult orbit_list_set_int(OrbitList* list, size_t index, orbit_int value);
-OrbitResult orbit_list_set_string(OrbitList* list, size_t index, orbit_string value);
-OrbitResult orbit_list_set_bool(OrbitList* list, size_t index, orbit_bool value);
-OrbitResult orbit_list_set_float(OrbitList* list, size_t index, orbit_float value);
-OrbitResult orbit_list_set_ref(OrbitList* list, size_t index, void* value);
-void orbit_list_clear(OrbitList* list);
+OrbitResult orbit_list_create_typed(void* arena, orbit_int elem_size, orbit_int initial_capacity, orbit_int elem_kind);
+OrbitResult orbit_list_create(void* arena, orbit_int elem_size, orbit_int initial_capacity);
+OrbitResult orbit_list_grow(void* list);
+OrbitResult orbit_list_push(void* list, void* elem);
+OrbitResult orbit_list_push_string(void* list, orbit_string value);
+OrbitResult orbit_list_push_int(void* list, orbit_int value);
+OrbitResult orbit_list_push_bool(void* list, orbit_bool value);
+OrbitResult orbit_list_push_ref(void* list, void* value);
+OrbitResult orbit_list_push_float(void* list, orbit_float value);
+OrbitResult orbit_list_pop(void* list);
+OrbitResult orbit_list_set(void* list, orbit_int index, void* elem);
+OrbitResult orbit_list_set_int(void* list, orbit_int index, orbit_int value);
+OrbitResult orbit_list_set_string(void* list, orbit_int index, orbit_string value);
+OrbitResult orbit_list_set_bool(void* list, orbit_int index, orbit_bool value);
+OrbitResult orbit_list_set_float(void* list, orbit_int index, orbit_float value);
+OrbitResult orbit_list_set_ref(void* list, orbit_int index, void* value);
+void orbit_list_clear(void* list);
 OrbitResult orbit_map_create(OrbitArena* arena, size_t value_size);
 OrbitResult orbit_map_resize(OrbitMap* map);
 OrbitResult orbit_map_set(OrbitMap* map, const char* key, const void* value);

@@ -1,0 +1,67 @@
+// Runtime module probe: raw memory through an RtPtr, a float's bit pattern and
+// results built in place.
+export fn rtmod_mem_sum(a: int, b: int) -> int {
+    val p = rt_ptr(rt_alloc(16))
+    rt_store64(p, 0, a)
+    rt_store32(p, 8, b)
+    return rt_load64(p, 0) + rt_load32(p, 8)
+}
+
+export fn rtmod_mem_tail(s: string, from: int) -> string {
+    return rt_str(rt_ptr_add(rt_ptr(s), from))
+}
+
+export fn rtmod_mem_slot(s: string) -> string {
+    val slot = rt_ptr(rt_alloc(16))
+    rt_storep(slot, 8, rt_ptr(s))
+    return rt_str(rt_loadp(slot, 8))
+}
+
+export fn rtmod_mem_bits(x: float) -> int {
+    return rt_float_bits(x)
+}
+
+export fn rtmod_mem_float(b: int) -> float {
+    return rt_bits_float(b)
+}
+
+export fn rtmod_res_word(x: int) -> result {
+    if x < 0 {
+        return rt_err(7, "negative")
+    }
+    return rt_ok(x * 2)
+}
+
+export fn rtmod_res_text(s: string) -> result {
+    if s == NULL {
+        return rt_err(1, "null text")
+    }
+    return rt_ok_ptr(rt_ptr(s))
+}
+
+// A result built here is read back here: the gate links a C-backend program
+// against the object, and that program cannot name OrbitResult in a prototype.
+export fn rtmod_res_word_value(x: int) -> int {
+    val v: int = try rtmod_res_word(x) catch e {
+        return 0 - 1
+    }
+    return v
+}
+
+export fn rtmod_res_word_error(x: int) -> string {
+    val v: int = try rtmod_res_word(x) catch e {
+        return e
+    }
+    return "none"
+}
+
+export fn rtmod_res_text_value(s: string) -> string {
+    val t: string = try rtmod_res_text(s) catch e {
+        return e
+    }
+    return t
+}
+
+export fn rtmod_ptr_is_null(s: string) -> bool {
+    return rt_ptr(s) == NULL
+}

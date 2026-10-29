@@ -1,0 +1,9 @@
+// case: rt-builtin-outside-a-runtime-module
+// what: rt_len, rt_byte, rt_alloc, rt_alloc_in and rt_set_byte read and write
+//      string bytes without a bounds check. They exist only in a runtime
+//      module, where the library's own string functions need them.
+// expect-error: is a runtime-module builtin
+fn main() -> int {
+    val s = "abc"
+    return rt_len(s)
+}

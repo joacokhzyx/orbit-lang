@@ -37,3 +37,12 @@ extern fn orbit_mem_report_selfhost() -> string
 // Monotonic clock, nanoseconds. Doctor times each of its layers with it so the
 // scan budget in ENGINEERING.md is measured rather than asserted.
 extern fn orbit_clock_ms() -> int
+// Terminal UI (runtime/console.c). Caps: 1 console, 2 escapes enabled on the
+// handle, 4 UTF-8 output. The animation repaints a block on stderr from its own
+// thread; byte 0x01 in the block is the orbital frame, 0x02 the running ms.
+extern fn orbit_ui_caps(fd: int) -> int
+extern fn orbit_ui_width(fd: int) -> int
+extern fn orbit_ui_text_size(path: string) -> int
+extern fn orbit_ui_anim_start(block: string, flags: int) -> int
+extern fn orbit_ui_anim_stage(block: string) -> int
+extern fn orbit_ui_anim_stop(finalBlock: string) -> int

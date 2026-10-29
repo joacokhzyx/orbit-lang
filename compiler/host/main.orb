@@ -16,6 +16,7 @@ import "./extern.orb"
 import "../tools/fmt.orb"
 import "../tir/entry.orb"
 import "../tools/palette.orb"
+import "../tools/ui.orb"
 import "./pipeline.orb"
 import "../tools/doctor.orb"
 import "./cluster.orb"
@@ -91,6 +92,7 @@ fn helpText(useColor: bool) -> string {
     h = h + "                             Compile to a native executable (-O1; --release selects -O2)\n"
     h = h + "                             --backend=c|native picks the code generator (also ORBIT_BACKEND);\n"
     h = h + "                             native runs R6 (ORBIT_R6) and never falls back to C\n"
+    h = h + "                             --runtime-module compiles a file with no main to an object of export fns\n"
     h = h + "  " + palettePaint(paletteBold(), "run", useColor) + " <file.orb> [--backend=c|native] [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Build and run it (shares your terminal)\n"
     h = h + "  " + palettePaint(paletteBold(), "start", useColor) + " [file.orb] [--port N] [--quiet] [--verbose] [--color always|never|auto]\n"
@@ -100,7 +102,7 @@ fn helpText(useColor: bool) -> string {
     h = h + "  " + palettePaint(paletteBold(), "stop", useColor) + "\n"
     h = h + "                             Stop the service running from this directory\n"
     h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
-    h = h + "                             Parse, typecheck and verify the IR, no code emitted\n"
+    h = h + "                             Parse, typecheck and verify the IR, no code emitted (--runtime-module admits export fn)\n"
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " <file.orb>             Format a file (writes only on success)\n"
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " --check <file|dir>     List files that need formatting\n"
     h = h + "  " + palettePaint(paletteBold(), "doctor", useColor) + " [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)\n"
@@ -132,10 +134,20 @@ fn bareHelpText(useColor: bool) -> string {
 }
 
 fn printHelp() {
+    val tier = uiTier("auto", false)
+    if tier != 0 {
+        print(uiChomp(uiHelp(tier, orbitVersion())))
+        return
+    }
     print(helpText(paletteUseColorStdout("auto")))
 }
 
 fn printHelpErr() {
+    val tier = uiTier("auto", true)
+    if tier != 0 {
+        orbit_os_write_stderr_selfhost(uiHelp(tier, orbitVersion()))
+        return
+    }
     orbit_os_write_stderr_selfhost(helpText(paletteUseColorStderr("auto")))
 }
 
@@ -234,9 +246,13 @@ fn runRun() {
     if osName == "Windows_NT" || winDir != "" {
         outputPath = outputPath + ".exe"
     }
-    if compileSourceWithFile(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false, "", runBackend) == false {
+    if compileSourceTitled(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false, "", runBackend, "run", false) == false {
         orbit_os_exit_selfhost(1)
         return
+    }
+    val runTier = uiTier(runColor, true)
+    if runTier != 0 && runQuiet == false {
+        orbit_os_write_stderr_selfhost(uiRule(runTier, uiCardWidth(true)))
     }
     val code = orbit_os_spawn_selfhost("\"" + outputPath + "\"")
     orbit_os_exit_selfhost(code)
@@ -248,6 +264,7 @@ fn runCheck() {
         return
     }
     var checkQuiet = false
+    var checkRuntime = false
     var checkVerbose = false
     var checkColor = "auto"
     var inputPath = ""
@@ -256,6 +273,7 @@ fn runCheck() {
         val ca = orbit_os_argv_selfhost(ci)
         if ca == "" { break }
         if ca == "--quiet" { checkQuiet = true }
+        else if ca == "--runtime-module" { checkRuntime = true }
         else if ca == "--verbose" { checkVerbose = true }
         else if ca == "--color" {
             val cc = orbit_os_argv_selfhost(ci + 1)
@@ -290,13 +308,28 @@ fn runCheck() {
         print("check " + inputPath + " (" + orbit_int_to_string_selfhost(orbit_string_len(source)) + " bytes)")
     }
     val checkStart = orbit_clock_ms()
-    if checkSourceVerified(source, inputPath, checkColor) == false {
+    var checked = false
+    if checkRuntime {
+        checked = checkRuntimeModuleVerified(source, inputPath, checkColor)
+    } else {
+        checked = checkSourceVerified(source, inputPath, checkColor)
+    }
+    if checked == false {
         orbit_os_exit_selfhost(1)
         return
     }
     if checkQuiet == false {
         val useOut = paletteUseColorStdout(checkColor)
         val ms = orbit_clock_ms() - checkStart
+        val checkTier = uiTier(checkColor, false)
+        if checkTier != 0 {
+            val counts: list < string > = []
+            counts.push(uiCount(checkTier, 1, "file", paletteBold()))
+            counts.push(uiCount(checkTier, 0, "errors", paletteError()))
+            counts.push(uiCount(checkTier, 0, "warnings", paletteWarning()))
+            print(uiChomp(uiResultCard(checkTier, "check", true, uiPaint(checkTier, paletteBold(), inputPath), counts, ms, uiCardWidth(false))))
+            return
+        }
         val check = palettePaint(paletteOk(), "✓", useOut)
         val timing = palettePaint(paletteDim(), "(" + orbit_int_to_string_selfhost(ms) + " ms)", useOut)
         print(check + " Checked " + inputPath + ": no errors. " + timing)
@@ -306,6 +339,11 @@ fn runCheck() {
 fn main() {
     val cmd = orbit_os_argv_selfhost(1)
     if cmd == "" {
+        val bareTier = uiTier("auto", false)
+        if bareTier != 0 {
+            print(uiChomp(uiBareHelp(bareTier, orbitVersion())))
+            return
+        }
         print(bareHelpText(paletteUseColorStdout("auto")))
         return
     }
@@ -314,6 +352,11 @@ fn main() {
         return
     }
     if cmd == "--version" || cmd == "-v" {
+        val versionTier = uiTier("auto", false)
+        if versionTier != 0 {
+            print(uiVersionLine(versionTier, orbitVersion()))
+            return
+        }
         print("orbit " + orbitVersion())
         return
     }
@@ -383,6 +426,7 @@ fn main() {
     var buildRelease = false
     var emitIrPath = ""
     var buildBackend = ""
+    var buildRuntime = false
     var i = 1
     while true {
         val arg = orbit_os_argv_selfhost(i)
@@ -408,6 +452,8 @@ fn main() {
             buildQuiet = true
         } else if arg == "--release" {
             buildRelease = true
+        } else if arg == "--runtime-module" {
+            buildRuntime = true
         } else if backendFlagValue(arg) != "" {
             buildBackend = backendFlagValue(arg)
             if backendKnown(buildBackend) == false {
@@ -456,6 +502,9 @@ fn main() {
 
     if outputPath == "" {
         outputPath = inputPath + ".c"
+        if buildRuntime {
+            outputPath = inputPath + ".o"
+        }
     }
 
     val source = orbit_file_read_selfhost(inputPath)
@@ -465,7 +514,7 @@ fn main() {
         return
     }
 
-    if compileSourceWithFile(source, inputPath, outputPath, buildVerbose, buildQuiet, buildColor, buildRelease, emitIrPath, buildBackend) == false {
+    if compileSourceMode(source, inputPath, outputPath, buildVerbose, buildQuiet, buildColor, buildRelease, emitIrPath, buildBackend, buildRuntime) == false {
         orbit_os_exit_selfhost(1)
     }
 }

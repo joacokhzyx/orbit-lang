@@ -1,0 +1,12 @@
+// Runtime module probe: a function that receives the caller's arena first, as
+// orbit_string_to_upper and its siblings do.
+export fn rtmod_probe_copy_in(a: RtArena, s: string) -> string {
+    val n = rt_len(s)
+    val out = rt_alloc_in(a, n)
+    var i = 0
+    while i < n {
+        rt_set_byte(out, i, rt_byte(s, i))
+        i = i + 1
+    }
+    return out
+}

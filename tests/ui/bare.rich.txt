@@ -1,0 +1,11 @@
+ [38;2;124;92;255m◜[0m[38;2;0;212;255m●[0m [1morbit 0.1.0-rc.2[0m  [90mself-hosted compiler, C to native[0m
+
+  [1mcheck    [0mhello.orb             [90mtypecheck and verify the IR[0m
+  [1mbuild    [0mhello.orb -o hello    [90mcompile to native[0m
+  [1mrun      [0mhello.orb             [90mbuild and run[0m
+  [1mstart    [0m[main.orb]            [90mbuild into .orbit/ and run[0m
+  [1mstop     [0m                      [90mstop the service running from this directory[0m
+  [1mdoctor   [0m                      [90mproject checks[0m
+
+ [90mNo input given. Next step: orbit check hello.orb, then orbit build hello.orb -o hello[0m
+ [90morbit --help lists every command[0m

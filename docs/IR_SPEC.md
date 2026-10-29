@@ -129,8 +129,8 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 | `map_has` | `D = orbit_map_has(O1, O2)` (`3440-3443`) | O1 map, O2 key |
 | `map_delete` | `D = orbit_map_delete(O1, O2)` (`3444-3447`) | O1 map, O2 key |
 | `map_keys` | `D = orbit_map_keys(O1)` (`3448-3451`) | O1 map |
-| `result_ok` | Float → `orbit_result_ok_float`; rest → `orbit_result_ok((void*)(uintptr_t)(O1))` (`3452-3463`) | type of O1 |
-| `result_err` | O2 `None` → `orbit_result_err(code(O1))`; else → `orbit_result_err(code(O2), message(O1))` (`3464-3477`) | O1 message, O2 code |
+| `result_ok` | Float → the IEEE-754 bits of O1 in the `value` word; rest → `(void*)(uintptr_t)(O1)`; both built inline as `{ok = 1, error_code = 0, error_msg = NULL, value}` (`3452-3463`) | type of O1 |
+| `result_err` | built inline as `{ok = 0, error_code = code, error_msg = message, value = NULL}`; O2 `None` → code(O1) and a NULL message; else code(O2) and message(O1) (`3464-3477`) | O1 message, O2 code |
 | `result_unwrap` | Float destination → `orbit_result_get_float(O1)`; int, bool, string or list destination → `O1.value` cast to the destination; else → `O1.value` (`3478-3498`) | `registerTypes[D]` |
 | `result_unwrap_err` | `O1.error_msg ? O1.error_msg : ""` (`3499-3502`) | O1 |
 | `result_is_ok` | `D = O1.ok` (`3503-3506`) | O1 |
@@ -268,7 +268,7 @@ with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 
 ### 2.2 `IRInstruction` (`ir.orb:91-105`)
 
-- `opcode`: one of the 66 (§1).
+- `opcode`: one of the 66 (§1), or in a runtime module one of the four of §7.
 - `dest`: `int`. `-1` means no destination. Default factory value `-1`
   (`ir_init_instr`, `ir.orb:142-144`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
@@ -504,7 +504,7 @@ builtin with the lowering of §3.1 item 6, unless the program writes its own
   `OrbitResult` (`h:177-184`), `OrbitList` (`h:212-224`), `OrbitMap`
   (`h:231-239`), `OrbitRequest`/`OrbitResponse` (`h:280-290`), helpers
   `orbit_list_*_typed/push_*/read_*` (`h:361-531`), `orbit_map_*` (`h:378-382,
-  534-554`), `orbit_result_ok/float/err` (`h:321-325`), `orbit_alloc`
+  534-554`), the inline `orbit_result_*` helpers, `orbit_alloc`
   (`h:334`), `orbit_response_*` (`h:697-703`).
 - **DB drift:** the backend emits `orbit_db_get/set/all/where`
   (`c_backend.orb:3533-3591`) plus the `orbit_db_init/close` preamble, but the
@@ -567,7 +567,7 @@ instruction = "{", opcode, dest, operand1, operand2, operand3, elemKind,
               [ line ], "}";
 line        = '"line":', uint;      (* positive; only on div and mod *)
 sourceName  = '"sourceName":', jsonString;
-opcode      = '"', opname, '"';      (* one of the 66 names in §1 *)
+opcode      = '"', opname, '"';      (* one of the 66 names in §1, or a §7 name in a runtime module *)
 dest        = "-1" | uint;
 operand1    = value;                 (* operand2, operand3: same *)
 value       = none | intVal | floatVal | strVal | symVal | boolVal | regVal
@@ -641,7 +641,7 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 |---|---|
 | V-01 | The document is UTF-8 JSON (RFC 8259), a single root object, no BOM, trailing LF; it contains no elision marker. |
 | V-02 | The root object has exactly `irVersion` (`"1"`) and `module`; unknown keys are rejected. |
-| V-03 | `opcode` is one of the 66 names in §1, spelled exactly (no aliases, no case folding). |
+| V-03 | `opcode` is one of the 66 names in §1, or in a runtime module one of the four names in §7, spelled exactly (no aliases, no case folding). |
 | V-04 | `elemKind` is an integer in `0..5`; non-collection opcodes must carry `0`. |
 | V-05 | Every operand is a `{"kind":…}` object with one of the 8 kinds in §2.1 and a correctly typed `value` (absent only for `None`). |
 | V-06 | Integer values have no fraction/exponent and fit in signed 64 bits. |
@@ -676,7 +676,7 @@ are pinned in §1.1.
   `test_hash`, `test_http_client`, `test_imports`, `test_io`, `test_json`,
   `test_log`, `test_process`, `test_process_exit`, `test_random`,
   `test_regex`, `test_string`, `test_time`, `test_time_ns`, `color_smoke`),
-  covering the 19 shipped `std/**/*.orb` modules (the 1 `std/quarantine/*.orb.quarantined`
+  covering the 20 shipped `std/**/*.orb` modules (the 1 `std/quarantine/*.orb.quarantined`
   file is excluded).
 - **DB exclusions, counted: 4 opcodes + 0 corpus files removed, 1 file flagged.**
   The 4 `db_*` opcodes (`db_get`, `db_set`, `db_all`, `db_where`) are excluded
@@ -713,3 +713,67 @@ U-08, U-10, U-11, U-13 complete the sequence.
 | U-15 | Definition point of `ORBIT_API_RESPONSE` | Not declared in `runtime/orbit_api.h` (§1.2). |
 | U-16 | Resolution of `isExtern` symbols | Backend emits nothing; resolution is outside (§2.3). |
 | U-17 | `print` formatting contract | Observed behavior only; the multi-arg case is a comment (§3.1). |
+
+## 7. Runtime modules
+
+`orbit build --runtime-module <file.orb> -o <out.o>` (and `orbit check
+--runtime-module`) compiles a file with no `main` to an object. Its `export fn`
+functions keep their C names and are archived into the runtime library. The
+fields and opcodes below are valid **only** in a runtime module; a document
+that carries them elsewhere is invalid.
+
+| Field | Where | Meaning |
+|---|---|---|
+| `"runtimeModule": true` | module object | The module has no entry point. Omitted otherwise. |
+| `"export": true` | function object | The function is a symbol of the library. Omitted otherwise. |
+
+An export function is emitted under its own name, without the leading
+`OrbitArena* arena` parameter, and allocates from `orbit_arena_get_global()`.
+The C backend passes `NULL` as the implicit `arena` of the other functions: a
+runtime module uses no operation that reads it, and R6 refuses one that does.
+The other functions of the module keep the `o_` prefix and are `static`.
+`main` is an error in this mode, and the rule that refuses to define a runtime
+function name (`n89`) does not apply to an export function.
+
+| Opcode | Operands | Lowering |
+|---|---|---|
+| `str_len` | `D <- O1` string, `D` int | `(O1) ? strlen(O1) : 0` |
+| `byte_load` | `D <- O1` string, `O2` int | `((unsigned char*)(O1))[O2]`, unchecked, zero-extended |
+| `bytes_alloc` | `D <- O1` int `n`; optional `O2` arena | `n + 1` bytes from `O2` (the global arena when `O2` is absent or NULL), byte `n` is `0` |
+| `byte_store` | `O1` string, `O2` int, `O3` int, `dest == -1` | stores the low byte of `O3` at `O1[O2]` |
+| `str_offset` | `D <- O1` string, `O2` int | `(O1) + (O2)`, no allocation and no check |
+| `bytes_copy` | `O1` string, `O2` string, `O3` int, `dest == -1` | `if (O3 > 0) memcpy(O1, O2, O3)`, nothing when `O3 <= 0` |
+| `reinterpret` | `D <- O1`: `D` `RtPtr` and `O1` string, or the reverse | a 64-bit copy |
+| `str_offset` | `D <- O1` `RtPtr`, `O2` int, `D` `RtPtr` | `(char*)(O1) + (O2)`; the string form above is unchanged |
+| `mem_load` | `D <- O1` `RtPtr`, `O2` int byte offset; `elemKind` 8 or 4 | 8: the word at `O1 + O2`, into an int or an `RtPtr`. 4: the 32-bit value, sign-extended, into an int |
+| `mem_store` | `O1` `RtPtr`, `O2` int byte offset, `O3` int or `RtPtr`, `dest == -1`; `elemKind` 8 or 4 | stores the word, or its low 32 bits; an `RtPtr` value needs `elemKind` 8 |
+| `float_bits` | `D <- O1` float, `D` int | the IEEE-754 bit pattern, no numeric conversion |
+| `bits_float` | `D <- O1` int, `D` float | the float with that bit pattern |
+
+Every operand is a `Register`. The builtins that produce them, available only
+in this mode, are `rt_len(s) -> int`, `rt_byte(s, i) -> int`, `rt_alloc(n) ->
+string`, `rt_alloc_in(a: RtArena, n) -> string`, `rt_set_byte(buf, i, v)`,
+`rt_at(s, i) -> string` and `rt_copy(dst, src, n)`.
+The pointer and result builtins are `rt_ptr(s: string) -> RtPtr` and
+`rt_str(p: RtPtr) -> string` (`reinterpret`), `rt_ptr_add(p, off) -> RtPtr`
+(`str_offset`), `rt_load64(p, off)`, `rt_load32(p, off)` and `rt_loadp(p, off)`
+(`mem_load`, `elemKind` 8, 4, 8), `rt_store64(p, off, v)`, `rt_store32(p, off, v)`
+and `rt_storep(p, off, v: RtPtr)` (`mem_store`), `rt_float_bits(f) -> int`,
+`rt_bits_float(b) -> float`, `rt_ok(word: int)`, `rt_ok_ptr(p: RtPtr)` and
+`rt_err(code: int, msg: string)`. The three result builtins lower to
+`result_ok` and `result_err`. In a runtime module `result_err` may give the
+code first and the message second; the two orders are told apart by the type of
+`O1`, which is an int only in the code-first form. An `export fn` may return
+`result`.
+`RtPtr` is an opaque 64-bit pointer, spelled `"RtPtr"` in `paramTypes` and
+`registerTypes` and emitted as `void*`. It compares with `NULL` as a word. It
+is not a return type of an `extern fn` in the native path: an extern returns
+`string` and the caller converts with `rt_ptr`. An `extern fn` of a runtime
+module may take `RtPtr` and `RtArena` parameters.
+`RtArena` is an opaque pointer type, spelled `"RtArena"` in `paramTypes` and
+`registerTypes` and emitted as `OrbitArena*`. A runtime function that receives
+the caller's arena first (`orbit_string_to_upper` and its siblings) declares it
+as an `RtArena` parameter; the name `arena` stays reserved (`n85`, `n86`).
+
+The native path runs `r6 build --object <ir> -o <out.o>` and requires
+`ir-protocol 3`.

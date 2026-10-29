@@ -1,0 +1,10 @@
+// case: rt-ok-outside-a-runtime-module
+// what: rt_ok builds an OrbitResult from a raw word. It exists only in a runtime module.
+// expect-error: is a runtime-module builtin
+fn make() -> result {
+    return rt_ok(1)
+}
+
+fn main() -> int {
+    return 0
+}

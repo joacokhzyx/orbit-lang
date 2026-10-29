@@ -71,7 +71,7 @@ fn literalDigitValue(c: int) -> int {
 // The text is compared as digits, never as a number: the limit is
 // 9223372036854775807, and a limit spelled as a literal would have to be
 // accepted by the compiler that compiles this file. The leading zeros and the
-// separators do not count. orbit_int is 64 bits (runtime/types.c) and INT_MIN
+// separators do not count. orbit_int is 64 bits (runtime/types.h) and INT_MIN
 // is spelled separately, as a negation.
 fn intLiteralFitsSelfhost(s: string) -> bool {
     var i = 0

@@ -1086,7 +1086,34 @@ fn fmtListOrbFiles(dir: string) -> list < string > {
     return found
 }
 
+// The result of formatting one file. The plain sentence is the contract; the
+// card replaces it only on a rich or color stdout.
+fn fmtPrintSingle(path: string, changed: bool, ms: int) {
+    val tier = uiTier("auto", false)
+    if tier == 0 {
+        if changed {
+            print("Formatted " + path + ".")
+        } else {
+            print("Already formatted " + path + ".")
+        }
+        return
+    }
+    val counts: list < string > = []
+    counts.push(uiCount(tier, 1, "file", paletteBold()))
+    var headline = uiPaint(tier, paletteBold(), path) + " " + uiPaint(tier, paletteDim(), "unchanged")
+    if changed {
+        headline = uiPaint(tier, paletteBold(), path) + " " + uiPaint(tier, paletteOk(), "formatted")
+        counts.push(uiCount(tier, 1, "formatted", paletteOk()))
+        counts.push(uiCount(tier, 0, "unchanged", paletteDim()))
+    } else {
+        counts.push(uiCount(tier, 0, "formatted", paletteDim()))
+        counts.push(uiCount(tier, 1, "unchanged", paletteBold()))
+    }
+    print(uiChomp(uiResultCard(tier, "fmt", true, headline, counts, ms, uiCardWidth(false))))
+}
+
 fn fmtFormatFile(path: string, quiet: bool) {
+    val fmtStart = orbit_clock_ms()
     val source = orbit_file_read_selfhost(path)
     if source == "" {
         orbit_os_write_stderr_selfhost("orbit fmt: could not read input file '" + path + "'.\n")
@@ -1109,7 +1136,7 @@ fn fmtFormatFile(path: string, quiet: bool) {
     }
     if formatted == source {
         if quiet == false {
-            print("Already formatted " + path + ".")
+            fmtPrintSingle(path, false, orbit_clock_ms() - fmtStart)
         }
         return
     }
@@ -1119,7 +1146,7 @@ fn fmtFormatFile(path: string, quiet: bool) {
         return
     }
     if quiet == false {
-        print("Formatted " + path + ".")
+        fmtPrintSingle(path, true, orbit_clock_ms() - fmtStart)
     }
 }
 
@@ -1141,13 +1168,35 @@ fn fmtCheckOne(path: string) -> bool {
     return false
 }
 
+// The scan summary of `fmt --check`. The listed paths stay the payload on
+// stdout; the card goes to stderr and only on a rich or color stream.
+fn fmtPrintScan(scanned: int, bad: int, ms: int) {
+    val tier = uiTier("auto", true)
+    if tier == 0 { return }
+    val counts: list < string > = []
+    counts.push(uiCount(tier, scanned, "files", paletteBold()))
+    counts.push(uiCount(tier, bad, "need formatting", paletteWarning()))
+    var headline = uiPaint(tier, paletteBold(), "all formatted")
+    if bad > 0 {
+        headline = uiPaint(tier, paletteBold(), "formatting needed")
+    }
+    orbit_os_write_stderr_selfhost(uiResultCard(tier, "fmt --check", bad == 0, headline, counts, ms, uiCardWidth(true)))
+}
+
 fn fmtRunCheck(target: string, quiet: bool, verbose: bool) {
+    val scanStart = orbit_clock_ms()
     val probe = orbit_file_read_selfhost(target)
     if probe != "" {
         if fmtCheckOne(target) == false {
             print(target)
+            if quiet == false {
+                fmtPrintScan(1, 1, orbit_clock_ms() - scanStart)
+            }
             orbit_os_exit_selfhost(1)
             return
+        }
+        if quiet == false {
+            fmtPrintScan(1, 0, orbit_clock_ms() - scanStart)
         }
         return
     }
@@ -1175,6 +1224,9 @@ fn fmtRunCheck(target: string, quiet: bool, verbose: bool) {
     // adds the scan totals.
     if verbose {
         print("fmt: scanned " + orbit_int_to_string_selfhost(files.len()) + " files, " + orbit_int_to_string_selfhost(bad) + " need formatting.")
+    }
+    if quiet == false {
+        fmtPrintScan(files.len(), bad, orbit_clock_ms() - scanStart)
     }
     if bad > 0 {
         orbit_os_exit_selfhost(1)

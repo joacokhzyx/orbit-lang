@@ -86,7 +86,6 @@ Full reference: [Command Reference](docs/COMMANDS.md).
 compiler/     Self-hosted compiler written in Orbit (lexer → parser → sema → IR → C backend)
 runtime/      C runtime (http, arena, kynx, database, auth, ledger, energy, pulse)
 std/          Orbit standard library modules
-lib/          Single runtime-support module (arena); std/ is the full standard library
 scripts/      Developer entry point (dev.py) plus the verification gates
 tests/        Parity goldens and compiler test fixtures
 docs/         Language reference and internal design documentation
@@ -96,7 +95,6 @@ installer/    Windows installer source (orbit.iss)
 assets/       Logo, banner, and icon artwork
 .github/      CI workflows plus issue/PR templates
 .orbit/       Local dev-loop scratch (cache, temp, gate work dirs; git-ignored)
-fuzz_crashes/ Local fuzzer crash corpus (git-ignored, empty when clean)
 ```
 
 `sqlite3.dll` at the repo root, when present, is a stray local Windows SQLite DLL (git-ignored), not part of the repository.

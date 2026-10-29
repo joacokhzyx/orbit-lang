@@ -340,6 +340,11 @@ fn builtinReturnType(name: string) -> string {
     if name == "orbit_db_insert" { return "bool" }
     if name == "orbit_db_update" { return "bool" }
     if name == "orbit_db_delete" { return "bool" }
+    if name == "rt_len" || name == "rt_byte" || name == "rt_load64" || name == "rt_load32" || name == "rt_float_bits" { return "int" }
+    if name == "rt_alloc" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_str" { return "string" }
+    if name == "rt_ptr" || name == "rt_ptr_add" || name == "rt_loadp" { return "RtPtr" }
+    if name == "rt_bits_float" { return "float" }
+    if name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err" { return "result" }
     if name == "orbit_string_len" { return "int" }
     if name == "orbit_string_indexOf" { return "int" }
     if name == "orbit_string_slice" { return "string" }
@@ -1076,7 +1081,7 @@ fn ensureFnInstance(builder: IRBuilder, name: string, bindings: list < string >)
                 i = i + 1
             }
             val subReturn = substituteTypeParams(fd.returnType, params, bindings)
-            val clone = FunctionDeclNode(inst, fd.params, subTypes, subReturn, fd.body, fd.isAsync, fd.isPrivate, fd.isExtern, [])
+            val clone = FunctionDeclNode(inst, fd.params, subTypes, subReturn, fd.body, fd.isAsync, fd.isPrivate, fd.isExtern, [], fd.isExport)
             registerFunctionSignature(builder, ASTNode.FunctionDecl(clone))
             var q = 0
             var queued = false
@@ -2353,6 +2358,7 @@ fn registerFunctionSignature(builder: IRBuilder, node: ASTNode) {
                 func.returnType = f.returnType
             }
             func.isExtern = f.isExtern
+            func.isExport = f.isExport
             registerFunctionReturnType(builder, f.name, func.returnType)
             var i = 0
             while i < f.params.len() {
@@ -4266,6 +4272,91 @@ fn callResultType(builder: IRBuilder, callName: string) -> string {
     return "unknown"
 }
 
+fn isRuntimeBuiltinName(name: string) -> bool {
+    return name == "rt_len" || name == "rt_byte" || name == "rt_alloc" || name == "rt_set_byte" || name == "rt_alloc_in" || name == "rt_at" || name == "rt_copy" || name == "rt_ptr" || name == "rt_str" || name == "rt_ptr_add" || name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" || name == "rt_float_bits" || name == "rt_bits_float" || name == "rt_ok" || name == "rt_ok_ptr" || name == "rt_err"
+}
+
+// The rt_* builtins of a runtime module lower to one opcode each, with the
+// arguments as operands, every one a register: R6 refuses an inline literal
+// there, so buildExpr materializes literals first. rt_set_byte and rt_copy have no value: dest stays -1 and the
+// returned register is -1, which sema's `void` type keeps from being read.
+fn buildRuntimeBuiltin(builder: IRBuilder, name: string, c: CallNode) -> int {
+    val vals: list < IRValue > = []
+    var ai = 0
+    while ai < c.args.len() {
+        vals.push(ir_register(buildExpr(builder, c.args.get(ai))))
+        ai = ai + 1
+    }
+    var opCode = IROpcode.str_len
+    var resType = "int"
+    if name == "rt_byte" { opCode = IROpcode.byte_load }
+    if name == "rt_alloc" || name == "rt_alloc_in" {
+        opCode = IROpcode.bytes_alloc
+        resType = "string"
+    }
+    if name == "rt_set_byte" { opCode = IROpcode.byte_store }
+    if name == "rt_at" {
+        opCode = IROpcode.str_offset
+        resType = "string"
+    }
+    if name == "rt_copy" { opCode = IROpcode.bytes_copy }
+    // The pointer builtins. elemKind carries the width of a memory access in
+    // bytes (8 or 4), the one place the opcode cannot say it.
+    var width = 0
+    if name == "rt_ptr" || name == "rt_str" {
+        opCode = IROpcode.reinterpret
+        resType = "RtPtr"
+        if name == "rt_str" { resType = "string" }
+    }
+    if name == "rt_ptr_add" {
+        opCode = IROpcode.str_offset
+        resType = "RtPtr"
+    }
+    if name == "rt_load64" || name == "rt_load32" || name == "rt_loadp" {
+        opCode = IROpcode.mem_load
+        width = 8
+        if name == "rt_load32" { width = 4 }
+        resType = "int"
+        if name == "rt_loadp" { resType = "RtPtr" }
+    }
+    if name == "rt_store64" || name == "rt_store32" || name == "rt_storep" {
+        opCode = IROpcode.mem_store
+        width = 8
+        if name == "rt_store32" { width = 4 }
+    }
+    if name == "rt_float_bits" { opCode = IROpcode.float_bits }
+    if name == "rt_bits_float" {
+        opCode = IROpcode.bits_float
+        resType = "float"
+    }
+    if name == "rt_ok" || name == "rt_ok_ptr" {
+        opCode = IROpcode.result_ok
+        resType = "result"
+    }
+    if name == "rt_err" {
+        opCode = IROpcode.result_err
+        resType = "result"
+    }
+    val instr = ir_init_instr(opCode)
+    instr.elemKind = width
+    if name == "rt_alloc_in" {
+        instr.operand1 = vals.get(1)
+        instr.operand2 = vals.get(0)
+    } else {
+        if vals.len() > 0 { instr.operand1 = vals.get(0) }
+        if vals.len() > 1 { instr.operand2 = vals.get(1) }
+        if vals.len() > 2 { instr.operand3 = vals.get(2) }
+    }
+    if name == "rt_set_byte" || name == "rt_copy" || name == "rt_store64" || name == "rt_store32" || name == "rt_storep" {
+        ir_emit(builder.currentFunction, instr)
+        return -1
+    }
+    val reg = ir_alloc_register(builder.currentFunction, resType)
+    instr.dest = reg
+    ir_emit(builder.currentFunction, instr)
+    return reg
+}
+
 fn buildCall(builder: IRBuilder, c: CallNode) -> int {
     // Check if it's a method call (member access)
     match c.callee {
@@ -4769,6 +4860,9 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                         instr.dest = resReg
                         ir_emit(builder.currentFunction, instr)
                         return resReg
+                    }
+                    if builder.module.runtimeModule && isRuntimeBuiltinName(lit.text) && findFunction(builder.module, lit.text) < 0 {
+                        return buildRuntimeBuiltin(builder, lit.text, c)
                     }
                     // Regular function call. Evaluate every argument first so a
                     // nested call (arg[i] is itself a call) cannot steal the

@@ -47,6 +47,16 @@ fn isImpureOp(op: IROpcode) -> bool {
         IROpcode.map_delete => { return true }
         IROpcode.alloc => { return true }
         IROpcode.free => { return true }
+        IROpcode.byte_store => { return true }
+        IROpcode.bytes_alloc => { return true }
+        IROpcode.byte_load => { return true }
+        IROpcode.str_offset => { return true }
+        IROpcode.bytes_copy => { return true }
+        IROpcode.reinterpret => { return true }
+        IROpcode.mem_load => { return true }
+        IROpcode.mem_store => { return true }
+        IROpcode.float_bits => { return true }
+        IROpcode.bits_float => { return true }
         _ => { return false }
     }
 }
@@ -105,6 +115,17 @@ fn hasSideEffects(op: IROpcode) -> bool {
         IROpcode.union_create => { return true }
         IROpcode.union_get_tag => { return true }
         IROpcode.union_get_data => { return true }
+        IROpcode.str_len => { return true }
+        IROpcode.byte_load => { return true }
+        IROpcode.bytes_alloc => { return true }
+        IROpcode.byte_store => { return true }
+        IROpcode.str_offset => { return true }
+        IROpcode.bytes_copy => { return true }
+        IROpcode.reinterpret => { return true }
+        IROpcode.mem_load => { return true }
+        IROpcode.mem_store => { return true }
+        IROpcode.float_bits => { return true }
+        IROpcode.bits_float => { return true }
         _ => { return false }
     }
 }

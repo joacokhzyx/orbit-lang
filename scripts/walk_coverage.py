@@ -113,7 +113,7 @@ def collect_walks(models: dict, unions: dict, root: pathlib.Path) -> list:
     v2m = variant_to_model(unions)
     walks = []
     for path in sorted((root / "compiler").rglob("*.orb")):
-        src = path.read_text()
+        src = path.read_text(encoding="utf-8")
         rel = path.relative_to(root).as_posix()
         lines = src.split("\n")
         for i, line in enumerate(lines):
@@ -157,7 +157,7 @@ def collect_walks(models: dict, unions: dict, root: pathlib.Path) -> list:
 
 
 def check(root: pathlib.Path) -> list:
-    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text())
+    models, unions = parse_schema((root / "compiler" / "front" / "ast.orb").read_text(encoding="utf-8"))
     findings = []
     for w in collect_walks(models, unions, root):
         if w["exempt"]:
@@ -289,7 +289,7 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    models, unions = parse_schema(AST.read_text())
+    models, unions = parse_schema(AST.read_text(encoding="utf-8"))
 
     if args.list:
         walks = collect_walks(models, unions, ROOT)

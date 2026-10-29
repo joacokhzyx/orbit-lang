@@ -159,7 +159,7 @@ def main() -> int:
             out.say(f"  link lane: building {lib_path} ...")
             proc = subprocess.run(
                 [sys.executable, os.path.join(ROOT, "scripts", "mklib_runtime.py"),
-                 "--cc", cc_for_lib],
+                 "--cc", cc_for_lib, "--compiler", os.path.abspath(args.compiler)],
                 cwd=ROOT, env=dict(os.environ),
                 capture_output=True, text=True, errors="replace", timeout=300,
             )
