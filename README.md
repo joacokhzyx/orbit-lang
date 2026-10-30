@@ -51,7 +51,8 @@ runnable, every output verified. Then pick a tutorial:
 ## What 0.1.0 can't do yet
 
 Reads and writes work, with bearer auth and path parameters.
-Multipart uploads, DB migrations, and p50/p99 aren't there yet.
+Multipart uploads and forward DB migrations work. Percentiles are bucket
+edges with no success/error split.
 The full list with workarounds is public:
 [Known Limitations](docs/KNOWN_LIMITATIONS.md).
 Twenty hard questions, answered plainly: [FAQ](docs/FAQ.md).
