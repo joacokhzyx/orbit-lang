@@ -1,15 +1,16 @@
 # Frequently Asked Questions
 
 Short answers, plain words. Where the answer is "not yet" or
-"I don't know," it says so - that's the point of this page.
+"not known," it says so - that's the point of this page.
 
 ## Basics
 
 **1. What is Orbit?**
 A statically typed language for APIs and microservices. It
 compiles fast and needs little to run, so it stays fast even
-under load. I'm building it to test whether servers can do the
-same work with less energy - still measuring how far that goes.
+under load. The project tests whether servers can do the
+same work with less energy. How far that goes is still
+being measured.
 
 **2. Is Orbit ready for production?**
 No. It's 0.1.0 pre-release research. Reads, writes, bearer auth,
@@ -25,19 +26,19 @@ A C compiler (gcc, clang, or MSVC), Python 3.10+, and git.
 That's it - no giant dependencies. See [Getting Started](GETTING_STARTED.md).
 
 **4. How is this different from Go, Rust, or Node?**
-I don't compare against other languages with claims - only
-with same-machine, same-workload measurements, published with
-method. Those measurements don't exist yet in publishable form.
-What I can say structurally: Orbit compiles to readable C99,
-reclaims memory per request with arenas, and measures its own
-resource use out of the box.
+There is no comparison against other languages by claim -
+only with same-machine, same-workload measurements,
+published with method. Those measurements don't exist yet
+in publishable form. What can be said without one: Orbit
+compiles to readable C99, reclaims memory per request with
+arenas, and measures its own resource use out of the box.
 
 **5. Is Orbit "green" / eco-friendly?**
 It's an engineering project whose result could be less energy
-per request - not an ecological identity. I don't claim energy
-savings until they're measured with hardware, workload, and
-method recorded. Anyone telling you otherwise about 0.1.0 is
-ahead of the data.
+per request - not an ecological identity. Energy savings
+are not claimed until they're measured with hardware,
+workload, and method recorded. Anyone telling you otherwise
+about 0.1.0 is ahead of the data.
 
 ## Language
 
@@ -73,7 +74,7 @@ Functions and models take inferred type parameters (`fn getOr[T]`,
 there is no async or timer runtime behind them. Collection APIs,
 concurrency ergonomics, and module imports are still settling.
 Keep business logic simple, cover it with tests, and file an
-issue when you hit a wall - I read everything.
+issue when you hit a wall - every report is read.
 
 ## Running services
 
@@ -108,9 +109,9 @@ built-in alerts or dashboards.
 ## Measuring
 
 **16. Is Orbit faster than X?**
-I don't know yet in any publishable sense. I have no
+Not known yet in any publishable sense. There is no
 cross-language measurement of Orbit against anything, so
-I am not going to imply one. Ask again after someone
+none is implied here. Ask again after someone
 publishes a run with the hardware, the flags, the workload
 and the spread.
 
@@ -123,16 +124,16 @@ are not evidence.
 **18. Can I measure energy per request?**
 On Linux with RAPL or a wall meter, yes, following the guide.
 On Windows, no joules - report CPU time and memory as labeled
-proxies. My docs never convert one to the other.
+proxies. The docs never convert one to the other.
 
 ## Project
 
 **19. Who builds Orbit, and why should I trust it?**
-I'm Joaquín, building solo in Argentina on modest hardware -
-which is the point: the constraint is the design brief. Trust
-comes from the verification gates (bootstrap, parity,
-behavior suite all in CI) and from publishing limits next to
-features, not from my claims.
+Orbit is maintained by one person, in Argentina, on modest
+hardware - which is the point: the constraint is the design
+brief. Trust comes from the verification gates (bootstrap,
+parity, behavior suite all in CI) and from publishing
+limits next to features, not from a claim.
 
 **20. How can I help?**
 Run the [Tour](TOUR.md), file issues with repros (small `.orb`
