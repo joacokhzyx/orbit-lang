@@ -1,7 +1,7 @@
 # Orbit Project Status
 
-**Snapshot date:** 2026-10-18  
-**Repository revision:** `62fb3e1` (`main`)
+**Snapshot date:** 2026-10-29  
+**Repository revision:** `d3352b5` (`main`)
 
 This document is a dated project snapshot. It is intended to answer "what is true now?" without replacing the detailed engineering contract, language reference, or architecture records. Update it when a milestone changes the supported workflow or the status of a major workstream.
 
