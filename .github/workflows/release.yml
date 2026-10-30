@@ -95,6 +95,39 @@ jobs:
           if ($r6Version -notmatch 'ir-protocol 3$') { throw "r6.exe --version printed '$r6Version', want ir-protocol 3" }
           Write-Output "[Release] R6 $env:R6_COMMIT -> dist\bin\r6.exe"
 
+      # Native is the default backend on Windows, so the release has to build
+      # and run one program the way an installed user does. The directory
+      # mirrors installer\orbit.iss (orbit.exe, bin\r6.exe, lib\, runtime\,
+      # std\) and stays out of dist\bin, whose contents the wizard copies.
+      - name: "Smoke: native build without --backend"
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist\smoke\bin | Out-Null
+          Copy-Item "dist\${{ matrix.asset }}" dist\smoke\orbit.exe
+          Copy-Item dist\bin\r6.exe dist\smoke\bin\r6.exe
+          Copy-Item -Recurse runtime dist\smoke\runtime
+          Copy-Item -Recurse std dist\smoke\std
+          Copy-Item -Recurse dist\lib dist\smoke\lib
+          # R6 links with the MinGW ld it was built against and defaults to
+          # C:/w64devkit. The step above already requires gcc on PATH, so its
+          # root is the one to use; on a runner with w64devkit this is that root.
+          $gcc = (Get-Command gcc).Source
+          $env:R6_MINGW_ROOT = Split-Path (Split-Path $gcc -Parent) -Parent
+          $env:R6_MINGW_GCC_VERSION = (& $gcc -dumpfullversion)
+          $env:ORBIT_CC = '${{ matrix.cc }}'
+          & dist\smoke\orbit.exe build --backend=c examples\hello.orb -o hello-c.exe
+          if ($LASTEXITCODE -ne 0) { throw "the C build of examples\hello.orb exited $LASTEXITCODE" }
+          $want = (& .\hello-c.exe) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "hello-c.exe exited $LASTEXITCODE" }
+          & dist\smoke\orbit.exe build examples\hello.orb -o hello.exe
+          if ($LASTEXITCODE -ne 0) { throw "the native build of examples\hello.orb exited $LASTEXITCODE" }
+          $got = (& .\hello.exe) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "hello.exe exited $LASTEXITCODE" }
+          if ($got -ne $want) { throw "hello.exe printed '$got'; the C build printed '$want'" }
+          Write-Output "[Release] native build, no --backend, printed: $got"
+
       - name: Build Linux bundle (binary + std/ + runtime/ + lib/)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
