@@ -121,7 +121,7 @@ Diagnostics decide how Orbit feels at 3am, so they follow the brand rule: clear 
    ```bash
    make check   # T0..T2; use make all before a commit that promotes the canonical
    ```
-4. **Submit PR**: Open a pull request against the `main` branch with a clear description of the problem solved or feature added.
+4. **Submit PR**: Open a pull request against the `develop` branch with a clear description of the problem solved or feature added.
 
 ---
 
