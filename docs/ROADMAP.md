@@ -67,7 +67,7 @@ Tasks:
 - Freeze and document the semantics of types, errors, results, imports, functions, routes, models, and arena scopes.
 - Add executable examples for each public language feature.
 - Establish coherent APIs for strings, collections, filesystem, IO, concurrency, and HTTP.
-- Add idempotent database migrations and tests for upgrading an existing schema.
+- Add idempotent database migrations and tests for upgrading an existing schema. ✅ `runtime/test_migrations.c` pins the rerun as a no-op and a pre-existing row keeping its values under a new column; see [Known Limitations](KNOWN_LIMITATIONS.md#custom-tables-are-created-and-forward-ddl-migrates).
 - Define project and compatibility versioning.
 
 **Exit gate:** a documented service can be created, tested, upgraded, and rebuilt without relying on compiler internals.
@@ -80,7 +80,7 @@ Tasks:
 
 Tasks:
 
-- Provide `orbit check`, `orbit fmt`, `orbit test`, `orbit build`, and `orbit run` workflows where each command has a real contract.
+- Provide `orbit check`, `orbit fmt`, `orbit test`, `orbit build`, and `orbit run` workflows where each command has a real contract. Four of them ship today ([Command Reference](COMMANDS.md)); `orbit test` does not.
 - Turn Doctor into a stable diagnostics interface with codes, spans, severity, and actionable suggestions.
 - Add formatter and linter coverage to CI.
 - Improve VS Code diagnostics, symbols, formatting, and build/test tasks.
@@ -106,7 +106,7 @@ Tasks:
 
 ## Phase 5: Native Backend
 
-**Status:** Deferred until the IR and language contracts stabilize.
+**Status:** Deferred on Linux and macOS. On Windows x86-64 the native backend is the default for the programs R6 accepts: `defaultBackend` in `compiler/host/pipeline.orb:750` returns `native` there, and [Command Reference](COMMANDS.md) documents the choice. The exit gate is not met, because R6 refuses every program that declares a route.
 
 **Goal:** reduce reliance on the C toolchain without destabilizing the primary product.
 
