@@ -13,7 +13,7 @@ env:
   # https://github.com/joacokhzyx/orbit-r6). Bump it deliberately: it is the
   # native backend every Windows user runs, and it has to read the IR of this
   # tag's compiler (docs/IR_SPEC.md).
-  R6_COMMIT: "1ec9b541ffb3c6a87a8d05639dbaa9defdfee07c"
+  R6_COMMIT: "a03daa5ad1bd4746e1f3e5f228ebc43d3d02a3e8"
 
 jobs:
   build:
@@ -92,7 +92,7 @@ jobs:
           # orbit refuses an r6 whose --version does not name the IR protocol
           # this compiler writes, so the release checks the same line.
           $r6Version = & dist\bin\r6.exe --version
-          if ($r6Version -notmatch 'ir-protocol 2$') { throw "r6.exe --version printed '$r6Version', want ir-protocol 2" }
+          if ($r6Version -notmatch 'ir-protocol 3$') { throw "r6.exe --version printed '$r6Version', want ir-protocol 3" }
           Write-Output "[Release] R6 $env:R6_COMMIT -> dist\bin\r6.exe"
 
       - name: Build Linux bundle (binary + std/ + runtime/ + lib/)
