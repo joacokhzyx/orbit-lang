@@ -954,10 +954,10 @@ orbit --version                    # Display the compiler version
 [COMMANDS.md](COMMANDS.md) is the reference for this list, and the one to keep
 current.
 
-`orbit dev` (watch/reload), `orbit test`, `orbit bootstrap`, and
-`--backend=` flags are not implemented. Calling them treats the word as a
-filename and fails. See [Command Reference](COMMANDS.md) for the supported
-list and exit codes.
+`orbit test` and `orbit bootstrap` are not implemented. Calling them treats
+the word as a filename and fails. `orbit dev` is implemented, and
+`orbit build` and `orbit run` take `--backend=c` or `--backend=native`.
+See [Command Reference](COMMANDS.md) for the supported list and exit codes.
 
 ## Appendix: where detail lives
 
