@@ -201,7 +201,7 @@ consumed by whatever reads the branch (`val r = if c { ok(1) } else { err("x") }
 is accepted). Fix hint: bind it with `val r = ...` and read it with
 `try r catch`, `match` on it, or return it from a `-> result` function. The
 message names the callee when the statement is a call; a statement of another
-shape (a bare name, an `if` used as a statement) has no position in the AST and
+kind (a bare name, an `if` used as a statement) has no position in the AST and
 prints the one-line form without the code. Pinned by
 `tests/negative/n98_result_discarded.orb`.
 

@@ -1,7 +1,7 @@
 # Orbit Project Status
 
-**Snapshot date:** 2026-10-18  
-**Repository revision:** `62fb3e1` (`main`)
+**Snapshot date:** 2026-10-29  
+**Repository revision:** `d3352b5` (`main`)
 
 This document is a dated project snapshot. It is intended to answer "what is true now?" without replacing the detailed engineering contract, language reference, or architecture records. Update it when a milestone changes the supported workflow or the status of a major workstream.
 
@@ -9,7 +9,7 @@ Bootstrap terms (canonical, seed, seed2, chain2, chain3, promote, PUBLISHED_C, a
 
 ## Executive Summary
 
-Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. It compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with the CI-verified compilers (gcc on Ubuntu, clang on Windows). Other C compilers are not exercised in CI.
+Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. On Windows x86-64 the native backend is the default for the programs R6 accepts: it emits IR and runs R6, with no C compiler. R6 refuses every program that declares a route, and a refusal is a compile error, so a service build needs `--backend=c`, which runs a C compiler. Elsewhere the C backend is the default and uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with the CI-verified compilers (gcc on Ubuntu, clang on Windows). Other C compilers are not exercised in CI.
 
 The project is past the bootstrap proof-of-concept stage. Its mission is to help software do more work with fewer CPU cycles, less memory, and lower energy use. The next challenge is to make that goal measurable while tightening compiler parity, reducing unsafe type degradation in generated C, defining the public language contract, and making the runtime observable and operationally predictable.
 
@@ -31,7 +31,7 @@ The project is past the bootstrap proof-of-concept stage. Its mission is to help
 | Behavior suite | **120 runnable programs (121 files; `imports.support.orb` is a support module), one behavior each** | `tests/suite/`, `tests/suite/README.md` |
 | Parity and stability probes | Documented gate against committed goldens | `tests/parity/`, `tests/parity/README.md` |
 | Editor integration | VS Code extension: highlighting, and `orbit check` diagnostics on save. No language server - `orbit` has no `lsp` subcommand. | `editors/vscode/` |
-| Native machine-code backend | Not available in the current tree | `native-backend` in `ENGINEERING.md` |
+| Native machine-code backend | Available on Windows x86-64 through R6, a separate code generator, and the default there for programs R6 accepts. R6 refuses every program that declares a route. The in-tree port is not available: `compiler/native/` does not exist | `defaultBackend` in `compiler/host/pipeline.orb:749-751`, [Command Reference](COMMANDS.md#backends-c-and-native), `native-backend` in `ENGINEERING.md` |
 | Distributed cluster runtime | Single-host `orbit cluster` shipped; no multi-host story | `docs/CLUSTER.md` |
 | `port`/`cors`/`db`/`env` declarations | `port` is read: an integer literal in 1..65535 (E1008 otherwise) becomes the default port the generated server binds; `argv[1]` still overrides it, and no declaration still means 3000. `cors`, `db`, `env` parse and typecheck with no runtime effect. | `checkConfigDecl` in `compiler/front/sema.orb`, `generateServerMain` in `compiler/emit/c_backend.orb`; live proof in `scripts/kynx_gate.py live` (declared port, then argv); see [Architecture](ARCHITECTURE.md#config-declarations-port-reaches-the-server-the-rest-are-reserved) |
 | Standard library | **20 modules, and one import-all test merges all 20 into a single program**: `sys/bytes/bitwise.orb` left quarantine on 2026-10-18 and is imported like the rest. `option` stays quarantined as `*.orb.quarantined` because the language has no generic tagged union (`generic-union-params` in [the engineering contract](../ENGINEERING.md)) | `std/`, `tests/std/test_imports.orb`, `tests/std/test_bitwise.orb`, `std/quarantine/README.md` |
@@ -69,8 +69,8 @@ passing gate.
 |---|---|---|---|
 | `scripts/negative_gate.py` | **blocking, and a one-way ratchet** | every program in `tests/negative/` that must **not** compile, one per defect class, each asserting the diagnostic text its header names. The gate also fails when a diagnostic *improves*, so the wording of every rejection is pinned | green, **99/99 cases hold their pinned outcome**, **0 known defects** - the last ratchet to close was F-0025, the assignment target no pass visits (`n90`-`n92`), which flipped to `expect-error:` when E1009 landed; before it, F-0009 (a bare `list` parameter with no element type) flipped when generic functions landed, and the deliberate bare-`list` leniency is documented in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
 | `scripts/frontend_gate.py` | **blocking** | `orbit frontend` against `tests/frontend/expected/` | **6/6** |
-| `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | a measurement, never a threshold: **29.5%** of 72,213 instructions over 154 files, **45.7%** of those with no diagnostic at all (2026-10-18; 9,749 of 21,318) |
-| `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high - 29.5% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | baseline `unknown_per_mille` 296, `silent_per_mille` 135 |
+| `scripts/unknown_census.py` | **reporting only — cannot fail** | how much of the corpus the front end types `unknown`. `continue-on-error: true`, output to the job summary | the 2026-10-22 ratchet baseline: **29.7%** of 73,064 instructions over 156 files, **45.7%** of those with no diagnostic at all (9,902 of 21,686). It is an upper bound for the tree, not a re-measurement of `d3352b5` |
+| `scripts/unknown_ratchet.py` | **one-way ratchet** | reads the census output, compares two of the counts against a committed baseline in `scripts/baselines/`, fails if either went **up**. Does *not* fail for being high - 29.7% is the number the type work has to be scoped against, and a zero-bar gate is a gate everybody deletes | baseline `unknown_per_mille` 297, `silent_per_mille` 136 |
 
 `ci-gate.yml` is the authority on which of these runs on every push. See the
 `enforces` column and the workflow file for the current mapping.
@@ -121,9 +121,9 @@ The runtime already covers HTTP, arenas, networking, authentication, Kynx, files
 ### Native Backend
 
 **Priority:** P2  
-**Status:** deferred until compiler contracts stabilize
+**Status:** R6 path default on Windows x86-64; in-tree port deferred
 
-A native backend is a long-term sovereignty and performance project. It depends on a stable IR contract and a broad differential test suite. It should remain experimental until it can match the C backend on behavior and bootstrap invariants.
+The native path is R6, a separate x86-64 code generator that `orbit build --backend=native` runs on the emitted IR. It is the default on Windows for the programs R6 accepts, and R6 refuses every program that declares a route. A service build needs `--backend=c`; there is no fallback. The in-tree port (an encoder, object writer and register allocator under `compiler/native/`) is deferred until the IR contract and differential suite are stable.
 
 ### Distributed Operation
 

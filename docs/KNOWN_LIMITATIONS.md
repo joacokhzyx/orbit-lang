@@ -151,7 +151,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#296-of-instructions-are-unknown-and-455-of-those-are-silent).
+[below](#297-of-instructions-are-unknown-and-457-of-those-are-silent).
 
 
 ## Writes work, but duplicates and missing tables fail
@@ -453,21 +453,21 @@ What is still open:
   model field access -- `'OrbitModel' has no member named 'x'` from the C step,
   with `orbit check` clean (pre-existing, unchanged by the kind above).
 
-## 29.6% of instructions are `unknown`, and 45.5% of those are silent
+## 29.7% of instructions are `unknown`, and 45.7% of those are silent
 
-`scripts/unknown_census.py`, run over 127 files and 57,011
+`scripts/unknown_census.py`, run over 156 files and 73,064
 instructions — the committed ratchet baseline
-(`scripts/baselines/unknown_count.json`), which is the current truth
-when this section and that file disagree:
+(`scripts/baselines/unknown_count.json`) of 2026-10-22, and an upper bound
+on the tree because the ratchet only lets the numbers fall:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 16,888 | **29.6%** |
-| ...with no diagnostic at all | 7,689 | **45.5% of the unknown** |
+| instructions the front end types `unknown` | 21,686 | **29.7%** |
+| ...with no diagnostic at all | 9,902 | **45.7% of the unknown** |
 
-The silent half is the measured number. [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)/[E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)/[E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend) account for
+The 9,902 silent instructions are the measured number. [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)/[E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)/[E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend) account for
 the rest to the unit — their counts equal the unknown `load` /
-binary / unary counts exactly — so 9,199 is measured, not
+binary / unary counts exactly — so 11,784 is measured, not
 estimated. Those are `call` and `member` expressions: the two
 places where the front end does not know it has failed, and the same
 classification error as the list problem above. This is the
@@ -487,7 +487,7 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-29.6% is the number the type work has to be scoped against, and a
+29.7% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Example run (numbers move.
 The baseline file is current, this transcript is not):
 
