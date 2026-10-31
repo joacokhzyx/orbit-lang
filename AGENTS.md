@@ -26,7 +26,7 @@ make list     # show what dev would run, without running it
 
 `dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/**/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
 
-**If a gate fails only on windows-latest, read [docs/WINDOWS.md](docs/WINDOWS.md) first.** It records two Windows gate failures, found on 2026-10-09 and fixed in `17bd1b4` and `56f4f8d`: `tests/suite/object_literals.orb` did not build, and the Kynx live gate completed 34 of 200 requests. It also records how to reproduce them and what has already been ruled out. Those two are gate-sequence(7) in `ENGINEERING.md` §7. The `0xC0000005` in `test_migrations` is gate-sequence(6), not one of them: it has not recurred, and its mechanism is not proven. The runtime C tests are green on both platforms.
+**A gate that fails only on windows-latest is a toolchain or harness difference, not a platform defect.** Both failures found on 2026-10-09 reproduced on a Windows development machine and were fixed without platform-specific code. `ENGINEERING.md` §7 `gate-sequence` holds the contract and the ruled-out lists; the dated record is in git history, in the retired `docs/WINDOWS.md`. The `0xC0000005` in `test_migrations` is gate-sequence(6): it has not recurred, and its mechanism is not proven. The runtime C tests are green on both platforms.
 
 Useful when something breaks:
 
