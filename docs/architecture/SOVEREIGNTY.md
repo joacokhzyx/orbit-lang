@@ -63,14 +63,14 @@ left of the risk to the Orbit sources themselves plus a defect shared by both
 toolchains. It does not defend against a self-reproducing backdoor already
 present in the Orbit sources. That remaining risk is accepted and managed in
 three ways. The canonical stays readable C source, each promote moves the
-canonical, the 32 parity goldens, and the `.orb` sources in one reviewable
+canonical, the 33 parity goldens, and the `.orb` sources in one reviewable
 commit, and behavior is backed by the parity gate suite and the behavior
 suite.
 
 ## Glossary - canonical bootstrap terms
 
-The terms below are defined once, here. `ARCHITECTURE.md` and `STATUS.md`
-link here instead of redefining them.
+The terms below are defined once, here. `ARCHITECTURE.md` links here instead
+of redefining them.
 
 - **canonical**: the committed file `compiler/selfhost/stage3.exe.c`, C
   source emitted by the compiler itself, and the root of trust.

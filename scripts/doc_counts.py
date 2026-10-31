@@ -26,10 +26,10 @@ gate has stopped checking, and silence there is the same failure as a wrong
 number, only quieter.
 
 Scope. Present-tense counts of the test corpus and the standard library, in the
-documents that describe the tree as it is today: docs/STATUS.md,
-docs/ARCHITECTURE.md, docs/KNOWN_LIMITATIONS.md, docs/IR_SPEC.md, docs/FMT.md,
-ENGINEERING.md (the section 6 row and the section 8 command list), and the
-README of the two corpora that count themselves.
+documents that describe the tree as it is today: docs/KNOWN_LIMITATIONS.md,
+docs/ARCHITECTURE.md, docs/IR_SPEC.md, docs/FMT.md, ENGINEERING.md (the section
+6 row and the section 8 command list), and the README of the two corpora that
+count themselves.
 
 Out of scope, and it is a decision rather than an oversight:
 
@@ -125,18 +125,6 @@ def measure(root: pathlib.Path) -> dict:
 # (relative path, pattern with {N} per number, keys in capture order, what the
 # claim is about). Split by document, in the order a reader meets them.
 CLAIMS = [
-    # docs/STATUS.md -- the snapshot of the tree.
-    ("docs/STATUS.md", r"\*\*{N} runnable programs \({N} files;",
-     ["suite_runnable", "suite_files"], "behavior suite"),
-    ("docs/STATUS.md", r"\*\*{N} modules, and one import-all test merges all {N} into",
-     ["std_modules", "std_modules"], "standard library in the import-all"),
-    ("docs/STATUS.md", r"\*\*{N} files, {N}/{N} pass\*\*",
-     ["std_tests", "std_tests", "std_tests"], "tests/std coverage"),
-    ("docs/STATUS.md",
-     r"\*\*{N}/{N} cases hold their pinned outcome\*\*, \*\*{N} known defects\*\*",
-     ["negative_cases", "negative_cases", "negative_known_defect"],
-     "negative ratchet"),
-
     # docs/KNOWN_LIMITATIONS.md.
     ("docs/KNOWN_LIMITATIONS.md",
      r"Finished negative: {N}/{N} pass \({N} known defects still accepted\)",

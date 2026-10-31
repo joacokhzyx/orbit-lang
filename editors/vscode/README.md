@@ -1,7 +1,7 @@
 # Orbit Programming Language
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](../../docs/STATUS.md)
+[![Status](https://img.shields.io/badge/Status-0.1.0--rc.2-green.svg)](../../README.md)
 ![Orbit Banner](https://raw.githubusercontent.com/joacokhzyx/orbit-lang/main/editors/vscode/banner.png)
 
 Syntax highlighting and `orbit check` diagnostics for **Orbit** - a statically

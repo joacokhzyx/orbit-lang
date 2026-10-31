@@ -1,70 +1,67 @@
-# Orbit Documentation
+# Orbit documentation
 
-Start with the question you're trying to answer. If you're new, read [Getting Started](GETTING_STARTED.md) - it builds the compiler and runs your first program without giant dependencies.
+Start with the question you are trying to answer. The first table is the
+complete map; the second names the document that decides each topic.
 
-## Start Here
+## Start here
 
-| Question | Document |
-|---|---|
-| What is Orbit and how do I build it? | [Project README](../README.md) |
-| How do I install and run my first program? | [Getting Started](GETTING_STARTED.md) |
-| Which commands are available? | [Command Reference](COMMANDS.md) |
-| Which platforms and tools are supported? | [Platform Support](SUPPORT.md) |
-| How is Orbit versioned? | [Versioning and Compatibility](VERSIONING.md) |
-| How should resource and energy use be measured? | [Resource and Energy Measurement](ENERGY.md) |
-| How are releases packaged and verified? | [Release Artifacts](RELEASES.md) |
-| What is implemented today? | [Project Status](STATUS.md) |
-| What is planned next? | [Project Roadmap](ROADMAP.md) |
-| How does the compiler pipeline work? | [Architecture Overview](ARCHITECTURE.md) |
-| How do I write Orbit programs? | [Language Reference](LANGUAGE_REFERENCE.md) and [Syntax Guide](SYNTAX_GUIDE.md) |
-| Where will the language lie to me? | [What Orbit does not promise about values](LANGUAGE_REFERENCE.md#what-orbit-does-not-promise-about-values) - 64-bit wrapping, `/` and `%` on a negative operand, untyped list slots, and guessed int/pointer casts |
-| How do I write a library others can import? | [Writing a library](LIBRARIES.md) - the flat namespace, the `private` truth, and the `std/` install trap |
-| What does the standard library provide, and what do error codes mean? | [Standard library](../std/README.md): [test/strings/hashing](LANGUAGE_REFERENCE.md#standard-library-test-strings-and-hashing), [collections/files/IO/time/logging](LANGUAGE_REFERENCE.md#standard-library-collections-files-io-time-and-logging), [crypto/bytes](LANGUAGE_REFERENCE.md#standard-library-cryptography-and-bytes); compiler codes in [Command Reference](COMMANDS.md#errors-and-exit-codes), project checks in the [doctor catalog](DOCTOR.md) |
-| What can I build in 30 minutes? | [Language Tour](TOUR.md) - runnable snippets with expected outputs |
-| How does memory management work? | [Arena Design](ARENA.md) |
-| How are HTTP protections implemented? | [Kynx](KYNX.md) |
-| What is experimental or still being researched? | [Superluminal](SUPERLUMINAL.md) |
-| Something fails only on Windows? | [Windows](WINDOWS.md) - two diagnosed-and-fixed Windows gate failures, with reproductions and ruled-out lists |
-| What can't Orbit do yet? | [Known Limitations](KNOWN_LIMITATIONS.md) - the known list, with workarounds. **Start with the first section**: the nineteen programs that used to compile cleanly are diagnostics now |
-| What changed? | [Changelog](CHANGELOG.md) |
-| What do people ask? | [FAQ](FAQ.md) - twenty questions |
-| What are the engineering invariants and quality gates? | [Engineering Contract](../ENGINEERING.md) |
-| How does the compiler bootstrap itself? | [Self-Hosting](architecture/SELF_HOSTING.md) |
-| What is the trust and reproducibility model? | [Sovereignty](architecture/SOVEREIGNTY.md) |
+| Question | Document | Answer in one line |
+|---|---|---|
+| What is Orbit, and how do I run a service? | [`../README.md`](../README.md) | A statically typed language for services, with a five-minute start |
+| How do I install it and run a first program? | [`GETTING_STARTED.md`](GETTING_STARTED.md) | Prerequisites, build, first compile and first server |
+| Which commands exist? | [`COMMANDS.md`](COMMANDS.md) | User commands, backends, errors, exit codes |
+| How does the terminal output look? | [`CLI_UI.md`](CLI_UI.md) | Three tiers, overrides, motion and snapshots |
+| How do I write Orbit? | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | The user-visible language, with limits stated |
+| I want a quick syntax tour | [`SYNTAX_GUIDE.md`](SYNTAX_GUIDE.md) | Short examples for each construct |
+| What can I build in 30 minutes? | [`TOUR.md`](TOUR.md) | Runnable snippets with expected output |
+| What is missing or surprising? | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | The measured limits, with workarounds |
+| How does the compiler work? | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Pipeline, runtime, modules and corpora |
+| How does memory management work? | [`ARENA.md`](ARENA.md) | The arena allocator and its retention policy |
+| How do the HTTP protections work? | [`KYNX.md`](KYNX.md) | Admission, limits and request handling |
+| What is experimental? | [`SUPERLUMINAL.md`](SUPERLUMINAL.md) | Compiler research, with no plan attached |
+| What does a program start? | [`STARTUP.md`](STARTUP.md) | The start-up rules the emitter applies |
+| How do I write a library? | [`LIBRARIES.md`](LIBRARIES.md) | Imports, the flat namespace and visibility |
+| What do error codes mean? | [`ERROR_CODES.md`](ERROR_CODES.md) | Compiler diagnostics by code |
+| What do the doctor checks mean? | [`DOCTOR.md`](DOCTOR.md) | The check catalogue and its fixes |
+| How does `orbit cluster` work? | [`CLUSTER.md`](CLUSTER.md) | Single-host process orchestration |
+| How is the compiler bootstrapped? | [`architecture/SELF_HOSTING.md`](architecture/SELF_HOSTING.md) | Why and how the compiler compiles itself |
+| What is trusted in the bootstrap? | [`architecture/SOVEREIGNTY.md`](architecture/SOVEREIGNTY.md) | Root of trust, fixed point, recovery |
+| How fast does it build and run? | [`PERF.md`](PERF.md) | Method and measured performance |
+| How do I measure resource use? | [`ENERGY.md`](ENERGY.md) | CPU, memory, energy method and the ledger |
+| How large is the generated C? | [`CODEGEN_BUDGET.md`](CODEGEN_BUDGET.md) | Emitted size and build cost per program |
+| How does formatting work? | [`FMT.md`](FMT.md) | The formatter, its corpus and its gate |
+| Which toolchain builds what? | [`TOOLCHAIN.md`](TOOLCHAIN.md) | Compiler policy per platform |
+| Which platforms are supported? | [`SUPPORT.md`](SUPPORT.md) | Operating systems, compilers and limits |
+| How is Orbit versioned? | [`VERSIONING.md`](VERSIONING.md) | Versions and compatibility |
+| How are releases produced? | [`RELEASES.md`](RELEASES.md) | Artifacts, verification and packaging |
+| What changed? | [`CHANGELOG.md`](CHANGELOG.md) | Release history |
+| What do people ask? | [`FAQ.md`](FAQ.md) | Twenty questions, answered plainly |
+| How do branches and releases flow? | [`BRANCHES.md`](BRANCHES.md) | `main`, `develop`, `feature/*` and the gates |
+| How do I report a vulnerability? | [`../SECURITY.md`](../SECURITY.md) | Private disclosure and response |
+| How do I work as an agent here? | [`../AGENTS.md`](../AGENTS.md) | Gates, zones, review and stop rules |
+| What is the engineering contract? | [`../ENGINEERING.md`](../ENGINEERING.md) | Invariants, debt rows and gate commands |
+| How do I build a blog API? | [`tutorials/blog-api.md`](tutorials/blog-api.md) | Runnable example with expected output |
+| How do I serve files and uploads? | [`tutorials/file-server.md`](tutorials/file-server.md) | Runnable example with scope stated |
+| How do I ship one binary? | [`tutorials/deploy-single-binary.md`](tutorials/deploy-single-binary.md) | Windows and Linux deployment, plus one-box clustering |
+| Something broke; now what? | [`tutorials/troubleshooting.md`](tutorials/troubleshooting.md) | Ports, silent exits and slow first boots |
+| How do schemas evolve? | [`guides/migrations.md`](guides/migrations.md) | Forward migrations and what is missing |
+| How is the self-host split into shards? | [`shard_layout.md`](shard_layout.md) | The shard contract and its measurements |
 
-## Tutorials and Guides
+## Authority
 
-| Question | Document |
-|---|---|
-| How do I build a blog API with auth? | [Blog API tutorial](tutorials/blog-api.md) + [`examples/blog_api.orb`](../examples/blog_api.orb) |
-| How do I serve files and accept uploads? | [File server tutorial](tutorials/file-server.md) + [`examples/file_server.orb`](../examples/file_server.orb) |
-| How do I ship one binary? | [Deploy tutorial](tutorials/deploy-single-binary.md) |
-| Something broke - now what? | [Troubleshooting](tutorials/troubleshooting.md) |
-| How do schemas evolve? | [Migrations guide](guides/migrations.md) - the full story |
-| How do I measure honestly? | [Performance notes](PERF.md) - what was changed, what was tried and dropped, and why |
-| How big is the C Orbit emits, and what has been tried to cut it? | [Codegen Budget](CODEGEN_BUDGET.md) - emitted size and build cost per program, and the candidates that were tried and dropped |
-| Which toolchain builds what, and what is tcc (not) for? | [Toolchain policy](TOOLCHAIN.md) - the two rules (tcc never produces a quoted number; the multithreaded server is always gcc) plus the per-platform matrix |
+When prose and executable behaviour disagree, the gate and the tree win. This
+table names the document that decides each topic.
 
-## Authority and Scope
+| Topic | Normative document | What it decides |
+|---|---|---|
+| Language behaviour | `LANGUAGE_REFERENCE.md` | What a program means, and what is not promised |
+| IR text and semantics | `IR_SPEC.md` | The IRv1 document the compiler emits |
+| Gates and invariants | `ENGINEERING.md` §7 and §8, `scripts/dev.py` | What a change must not contradict, and how it is checked |
+| Test corpora | `tests/*/README.md` and the runner output | What each gate measures |
+| Platform support | `SUPPORT.md` | Which platforms and compilers are exercised |
+| Versions and releases | `VERSIONING.md`, `RELEASES.md` | Compatibility and release artifacts |
+| Workflow | `BRANCHES.md`, `AGENTS.md` | Branches, review and stop rules |
+| Documentation map | this file | Which page answers which question |
 
-- `README.md` is the public introduction, installation guide, and quickstart.
-- `docs/STATUS.md` is the dated snapshot of current capabilities, risks, and active workstreams.
-- `ENGINEERING.md` is the implementation contract and records executable quality gates.
-- `docs/ROADMAP.md` describes sequencing and priorities. It does not replace an implementation contract.
-- `docs/architecture/` contains architecture decisions, invariants, and historical transition records.
-- `docs/LANGUAGE_REFERENCE.md` defines user-visible language behavior.
-- `tests/` and `examples/` are executable evidence. When prose and executable behavior disagree, the discrepancy must be resolved before the feature is considered documented.
-
-## Documentation Standards
-
-Good docs here do this:
-
-- state whether a feature is current, experimental, historical, or planned;
-- include a runnable command or example when describing a workflow;
-- name the verification gate;
-- distinguish measured results from targets - I don't claim an improvement until it's measured;
-- document limitations and platform assumptions plainly, including what didn't work;
-- use stable terminology consistent with the language reference;
-- write directly to you with contractions (`you can't`, `here's`), no hype, no superiority.
-
-When changing compiler behavior, update the language reference or architecture documentation in the same change. When changing a verification workflow, update the contributor instructions and the relevant script documentation together.
+A document that is not in the first table does not exist for the reader. New
+content goes into an existing row before a new file is created.

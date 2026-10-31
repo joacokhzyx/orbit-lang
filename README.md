@@ -75,7 +75,7 @@ Full reference: [Command Reference](docs/COMMANDS.md).
 
 - [Language Tour](docs/TOUR.md) · [Getting Started](docs/GETTING_STARTED.md) · [FAQ](docs/FAQ.md)
 - [Known Limitations](docs/KNOWN_LIMITATIONS.md) · [Changelog](docs/CHANGELOG.md).
-- [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Architecture](docs/ARCHITECTURE.md) · [Project Status](docs/STATUS.md) · [Roadmap](docs/ROADMAP.md).
+- [Language Reference](docs/LANGUAGE_REFERENCE.md) · [Architecture](docs/ARCHITECTURE.md) · [Known Limitations](docs/KNOWN_LIMITATIONS.md).
 - [Migrations guide](docs/guides/migrations.md) · [Performance notes](docs/PERF.md) · [Resource and energy measurement](docs/ENERGY.md).
 - [Platform Support](docs/SUPPORT.md) · [Versioning](docs/VERSIONING.md) · [Server Examples](examples/README.md).
 
