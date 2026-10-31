@@ -1224,20 +1224,15 @@ fn missCount(sema: Sema, kind: string) -> int {
 // the C step rejected `abs((void*)(uintptr_t)(x))`; `sort(xs)` type-checked
 // and the C step rejected `sort(...)` for a declaration nothing provides.
 // Both are undeclared functions now, before any C is emitted.
+//
+// The collection member names are not provided either. `len`, `at`, `slice`,
+// `indexOf`, `contains`, `push`, `get`, `set`, `has`, `keys` and `delete` are
+// builder branches reached only through a receiver, and `len("abc")` reached
+// the C step as a call to a function nothing declares. They stay members: the
+// builder lowers `s.at(0)` and `xs.push(1)` before a callee name is resolved.
 fn isProvidedName(name: string) -> bool {
     if name == "NULL" { return true }
     if name == "system" { return true }
-    if name == "len" { return true }
-    if name == "at" { return true }
-    if name == "slice" { return true }
-    if name == "indexOf" { return true }
-    if name == "contains" { return true }
-    if name == "push" { return true }
-    if name == "get" { return true }
-    if name == "set" { return true }
-    if name == "has" { return true }
-    if name == "keys" { return true }
-    if name == "delete" { return true }
     if name == "print" { return true }
     if name == "ok" { return true }
     if name == "err" { return true }
