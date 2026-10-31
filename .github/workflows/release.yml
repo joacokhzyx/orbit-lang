@@ -112,9 +112,9 @@ jobs:
           Copy-Item -Recurse runtime dist\smoke\runtime
           Copy-Item -Recurse std dist\smoke\std
           Copy-Item -Recurse dist\lib dist\smoke\lib
-          # R6 links with the MinGW ld it was built against and defaults to
-          # C:/w64devkit. The step above already requires gcc on PATH, so its
-          # root is the one to use; on a runner with w64devkit this is that root.
+          # R6 resolves ld.exe from R6_MINGW_ROOT (default C:/w64devkit) when it
+          # runs. The step above already requires gcc on PATH, so its root is
+          # the one to use; on a runner with w64devkit this is that root.
           $gcc = (Get-Command gcc).Source
           $root = Split-Path (Split-Path $gcc -Parent) -Parent
           $version = & $gcc -dumpfullversion
