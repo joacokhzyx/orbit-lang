@@ -930,38 +930,56 @@ fn checkMemberResolution(sema: Sema, objType: string, member: string, line: int,
     }
 }
 
-// The member names the backend lowers.
+// The member names a receiver answers, one set per receiver.
 //
 // A member call is not a function call: the builder chooses the lowering by
-// the member name alone (buildCall in builder.orb), and a name with no branch
-// there falls through to a call spelled `sort(...)` -- a function nobody
-// declared, which the C step rejects. So the names the builder has a branch
-// for are the member set of every receiver this file enumerates, and the two
-// lists move together: a member added to the builder is added here in the same
-// change, or a program that emits is refused.
-fn isLoweredMemberName(name: string) -> bool {
-    if name == "push" { return true }
-    if name == "get" { return true }
-    if name == "set" { return true }
-    if name == "len" { return true }
-    if name == "pop" { return true }
-    if name == "clear" { return true }
-    if name == "has" { return true }
-    if name == "delete" { return true }
-    if name == "keys" { return true }
-    if name == "contains" { return true }
-    if name == "at" { return true }
-    if name == "slice" { return true }
-    if name == "to_int" { return true }
-    if name == "indexOf" { return true }
-    if name == "uptime" { return true }
-    if name == "pid" { return true }
-    if name == "active_workers" { return true }
-    if name == "http_requests_total" { return true }
-    if name == "latency_avg_us" { return true }
-    if name == "latency_p50_us" { return true }
-    if name == "latency_p95_us" { return true }
-    if name == "latency_p99_us" { return true }
+// the member name alone (buildCall in builder.orb:4528-4804), and a name with
+// no branch there falls through to a call spelled `sort(...)` -- a function
+// nobody declared, which the C step rejects. The set is per receiver because
+// most branches are: `indexOf`, `slice`, `contains` and `to_int` call
+// orbit_string_* without looking at the receiver, so a list reaches a string
+// runtime function and faults; `push`, `get`, `set`, `pop` and `clear` emit
+// list opcodes, so a string reaches the list runtime. `len` and `at` read the
+// receiver and answer for both, and the system builtins are the eight names
+// the builder matches on that receiver. A name added to the builder is added
+// here in the same change, or a program that emits is refused.
+fn receiverAnswersMember(base: string, member: string) -> bool {
+    if base == "string" {
+        if member == "len" { return true }
+        if member == "contains" { return true }
+        if member == "at" { return true }
+        if member == "indexOf" { return true }
+        if member == "slice" { return true }
+        if member == "to_int" { return true }
+        return false
+    }
+    if base == "list" {
+        if member == "push" { return true }
+        if member == "get" { return true }
+        if member == "set" { return true }
+        if member == "len" { return true }
+        if member == "pop" { return true }
+        if member == "clear" { return true }
+        if member == "at" { return true }
+        return false
+    }
+    if base == "map" {
+        if member == "has" { return true }
+        if member == "delete" { return true }
+        if member == "keys" { return true }
+        return false
+    }
+    if base == "system" {
+        if member == "uptime" { return true }
+        if member == "pid" { return true }
+        if member == "active_workers" { return true }
+        if member == "http_requests_total" { return true }
+        if member == "latency_avg_us" { return true }
+        if member == "latency_p50_us" { return true }
+        if member == "latency_p95_us" { return true }
+        if member == "latency_p99_us" { return true }
+        return false
+    }
     return false
 }
 
@@ -4133,6 +4151,9 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // the C step met an implicit declaration of `sort`. The
                     // name cannot be emitted, and that is a fact about the
                     // receiver's type, so it is refused before the emitter.
+                    // The set is the receiver's own: `xs.indexOf(3)` lowers to
+                    // orbit_string_indexOf and reads an OrbitList as a string,
+                    // so a name another receiver answers is not a member here.
                     // A member call naming a declared function is that function
                     // with the receiver as its first argument, which is the
                     // builder's default method path: `xs.double()` where
@@ -4141,8 +4162,9 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // built before this check.
                     // A receiver whose type is not known stays silent: naming
                     // a member on an unknown type is a different defect.
-                    if objType == "string" || compatTypeBase(objType) == "list" || objType == "map" || objType == "Map" || objType == "system" {
-                        if isLoweredMemberName(member) == false && resolveFunctionSymbol(sema, member) == NULL {
+                    val recvBase = compatTypeBase(objType)
+                    if recvBase == "string" || recvBase == "list" || recvBase == "map" || recvBase == "system" {
+                        if receiverAnswersMember(recvBase, member) == false && resolveFunctionSymbol(sema, member) == NULL {
                             reportErrorAt(sema, "E1003", "Call a declared function, or a member this receiver answers; a member call is not a function call.", c.line, c.col, "'" + objType + "' has no member '" + member + "'.")
                         }
                     }

@@ -65,5 +65,17 @@ fn main() -> int {
     val s = "hi"
     print(s.length)
     print(system.uptime() >= 0)
+
+    // Each receiver answers its own set. These are the names the sets accept,
+    // and the program builds only if none of them is refused.
+    val digits = "12"
+    if digits.indexOf("2") != 1 { return 2 }
+    if digits.slice(0, 1) != "1" { return 3 }
+    if digits.at(0) != 49 { return 4 }
+    val ys = [4, 5, 6]
+    if ys.at(2) != 6 { return 5 }
+    ys.set(0, 9)
+    print(ys.pop())
+    if ys.len() != 2 { return 6 }
     return 0
 }
