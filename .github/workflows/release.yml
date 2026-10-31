@@ -116,8 +116,15 @@ jobs:
           # C:/w64devkit. The step above already requires gcc on PATH, so its
           # root is the one to use; on a runner with w64devkit this is that root.
           $gcc = (Get-Command gcc).Source
-          $env:R6_MINGW_ROOT = Split-Path (Split-Path $gcc -Parent) -Parent
-          $env:R6_MINGW_GCC_VERSION = (& $gcc -dumpfullversion)
+          $root = Split-Path (Split-Path $gcc -Parent) -Parent
+          $version = & $gcc -dumpfullversion
+          # R6 resolves these three paths from the two variables; a gcc that is
+          # not a w64devkit root fails the link with a path nobody can read.
+          $missing = @("$root\bin\ld.exe", "$root\lib\crt2.o", "$root\lib\gcc\x86_64-w64-mingw32\$version") |
+            Where-Object { -not (Test-Path $_) }
+          if ($missing) { throw "R6 links with $($missing -join ', ') and it is not there; set `$env:R6_MINGW_ROOT and `$env:R6_MINGW_GCC_VERSION to a w64devkit install" }
+          $env:R6_MINGW_ROOT = $root
+          $env:R6_MINGW_GCC_VERSION = $version
           $env:ORBIT_CC = '${{ matrix.cc }}'
           & dist\smoke\orbit.exe build --backend=c examples\hello.orb -o hello-c.exe
           if ($LASTEXITCODE -ne 0) { throw "the C build of examples\hello.orb exited $LASTEXITCODE" }
