@@ -87,8 +87,8 @@ per field). It also fires for a field or variant read that nothing declares
 member set does not contain (`'list<int>' has no member 'sort'`,
 `'list<int>' has no member 'indexOf'`), and for `print` called with anything
 but exactly 1 argument. Fix
-hint is per site (see the `reportErrorAt` hint strings at
-`sema.orb:433-503,2737`): spell the member as declared, construct with one
+hint is per site (each `reportErrorAt` call carries its hint; the member
+diagnostic is at `sema.orb:4199`): spell the member as declared, construct with one
 argument per field in order, print one value. Pinned by `n05`, `n06`, `n13`,
 `n14`, `n15`, `n47`, `n57`, `n66`, `n68`, `n78`, `n111`, `n112`, `n113`-`n115`
 and `n116` (`n66`:
