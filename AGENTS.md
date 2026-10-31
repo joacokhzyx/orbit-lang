@@ -66,7 +66,7 @@ These are gates. Do not perform them by hand and do not write them out as a habi
 
 ## Working with other agents
 
-**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/verify_seed.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. 37 of the last 60 commits touch the canonical, so this is not a rare path. Before promoting, check who had it last:
+**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/verify_seed.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. At d3352b5, 19 of the last 60 commits change it, so this is not a rare path. Before promoting, check who had it last:
 
 ```bash
 git log -1 --format='%h %ad %s' --date=short -- compiler/selfhost/stage3.exe.c
