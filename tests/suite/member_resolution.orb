@@ -35,6 +35,13 @@ fn double(x: list < int >) -> int {
     return s
 }
 
+// A function named like a lowered member is still a function. Only the member
+// spelling is closed: the builder picks its `push` branch before the default
+// path, so a declaration of `push` cannot answer `s.push(1)` on a string.
+fn push(x: int) -> int {
+    return x + 1
+}
+
 fn main() -> int {
     // A model: declared fields, and only those.
     val p = Point(3, 4)
@@ -62,6 +69,9 @@ fn main() -> int {
     // A member name that is a declared function is a call of it, with the
     // receiver first; the member set is silent on it.
     if xs.double() != 12 { return 1 }
+    // The declaration is a function in its own right: the member rule does not
+    // remove it from scope.
+    if push(41) != 42 { return 7 }
     val s = "hi"
     print(s.length)
     print(system.uptime() >= 0)

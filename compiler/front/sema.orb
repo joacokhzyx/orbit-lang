@@ -983,6 +983,39 @@ fn receiverAnswersMember(base: string, member: string) -> bool {
     return false
 }
 
+// The member names the builder has a branch for (buildCall in
+// builder.orb:4528-4804). It picks one of these by the member name before the
+// default method path, so a declared function of the same name cannot change
+// what the call emits: `fn push(x: int)` did not stop `s.push(1)` from
+// emitting list_push on an orbit_string. A name here is answered by the
+// receiver's set or refused; only a name with no branch may fall through to a
+// declared function.
+fn isLoweredMemberName(name: string) -> bool {
+    if name == "push" { return true }
+    if name == "get" { return true }
+    if name == "set" { return true }
+    if name == "len" { return true }
+    if name == "pop" { return true }
+    if name == "clear" { return true }
+    if name == "has" { return true }
+    if name == "delete" { return true }
+    if name == "keys" { return true }
+    if name == "contains" { return true }
+    if name == "at" { return true }
+    if name == "slice" { return true }
+    if name == "to_int" { return true }
+    if name == "indexOf" { return true }
+    if name == "uptime" { return true }
+    if name == "pid" { return true }
+    if name == "active_workers" { return true }
+    if name == "http_requests_total" { return true }
+    if name == "latency_avg_us" { return true }
+    if name == "latency_p50_us" { return true }
+    if name == "latency_p95_us" { return true }
+    if name == "latency_p99_us" { return true }
+    return false
+}
+
 fn findType(sema: Sema, name: string) -> int {
     var i = 0
     while i < sema.typeRegistry.len() {
@@ -4159,12 +4192,15 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // builder's default method path: `xs.double()` where
                     // `fn double(x: list<int>)` exists is a call, not an
                     // unknown member, and refusing it would break code that
-                    // built before this check.
+                    // built before this check. That path is only reachable for
+                    // a name the builder has no branch for. A name with a
+                    // branch never reaches it, so a declaration of `push` must
+                    // not answer `s.push(1)`: the receiver's set decides.
                     // A receiver whose type is not known stays silent: naming
                     // a member on an unknown type is a different defect.
                     val recvBase = compatTypeBase(objType)
                     if recvBase == "string" || recvBase == "list" || recvBase == "map" || recvBase == "system" {
-                        if receiverAnswersMember(recvBase, member) == false && resolveFunctionSymbol(sema, member) == NULL {
+                        if receiverAnswersMember(recvBase, member) == false && (isLoweredMemberName(member) || resolveFunctionSymbol(sema, member) == NULL) {
                             reportErrorAt(sema, "E1003", "Call a declared function, or a member this receiver answers; a member call is not a function call.", c.line, c.col, "'" + objType + "' has no member '" + member + "'.")
                         }
                     }
