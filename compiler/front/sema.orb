@@ -1127,55 +1127,31 @@ fn missCount(sema: Sema, kind: string) -> int {
 // Names the language provides without a `fn` declaration, so a resolver that
 // only knows declared symbols calls every one of them unresolved.
 //
-// Two groups, and they are not the same kind of debt. The first is the
-// builtins: the emitter recognises them by name (compiler/ir/builder.orb,
-// compiler/emit/c_backend.orb), so a program uses them and nothing declares them.
-// The second is the runtime entry points the compiler itself calls: the
-// emitted C resolves them through <orbit/runtime.h>, which the front end never
-// reads, so `orbit_string_len` is a real Orbit name with no Orbit
-// declaration. Both are counted, and both are the honest size of what is left;
-// neither is a reason to reject a program.
+// Each one reaches the C step as a real symbol or a constant. The builtins are
+// recognised by the emitter (compiler/ir/builder.orb,
+// compiler/emit/c_backend.orb), including `system`, whose members are lowered
+// there. The runtime entry points are resolved through <orbit/runtime.h>,
+// which the front end never reads, so `orbit_string_len` is a real Orbit name
+// with no Orbit declaration. `NULL` is the constant the backend types.
+//
+// A name the backend cannot emit is not provided. `abs(x)` type-checked and
+// the C step rejected `abs((void*)(uintptr_t)(x))`; `sort(xs)` type-checked
+// and the C step rejected `sort(...)` for a declaration nothing provides.
+// Both are undeclared functions now, before any C is emitted.
 fn isProvidedName(name: string) -> bool {
     if name == "NULL" { return true }
     if name == "system" { return true }
-    if name == "self" { return true }
     if name == "len" { return true }
     if name == "at" { return true }
     if name == "slice" { return true }
     if name == "indexOf" { return true }
     if name == "contains" { return true }
-    if name == "toInt" { return true }
-    if name == "toFloat" { return true }
-    if name == "toString" { return true }
-    if name == "abs" { return true }
-    if name == "min" { return true }
-    if name == "max" { return true }
-    if name == "floor" { return true }
-    if name == "ceil" { return true }
-    if name == "round" { return true }
-    if name == "sqrt" { return true }
-    if name == "pow" { return true }
     if name == "push" { return true }
     if name == "get" { return true }
     if name == "set" { return true }
     if name == "has" { return true }
     if name == "keys" { return true }
-    if name == "values" { return true }
     if name == "delete" { return true }
-    if name == "join" { return true }
-    if name == "split" { return true }
-    if name == "replace" { return true }
-    if name == "trim" { return true }
-    if name == "upper" { return true }
-    if name == "lower" { return true }
-    if name == "startsWith" { return true }
-    if name == "endsWith" { return true }
-    if name == "sort" { return true }
-    if name == "map" { return true }
-    if name == "filter" { return true }
-    if name == "reduce" { return true }
-    if name == "sum" { return true }
-    if name == "env" { return true }
     if name == "print" { return true }
     if name == "ok" { return true }
     if name == "err" { return true }

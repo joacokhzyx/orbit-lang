@@ -292,7 +292,7 @@ These print the one-line `Semantic error:` form and pin a substring:
 | message | case |
 |---|---|
 | `Cannot call 'n': it is a int, not a function` | `n12` |
-| `Undeclared function: ...` | `n22` |
+| `Undeclared function: ...` | `n22`, `n110` (`n110`: a provided name with no lowering) |
 | `Undeclared identifier: ...` | `n09` |
 | `Wrong number of arguments to ...` | `n04`, `n74` (`n74`: through a function value) |
 | `Cannot use generic function ... as a value` | `n76` |
