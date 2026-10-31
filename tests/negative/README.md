@@ -224,14 +224,16 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-101 cases: 101 are `expect-error:` - each program is rejected, with a pinned
+102 cases: 102 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 101/101 pass (0 known defects still accepted)`. `n100` is the first
+negative: 102/102 pass (0 known defects still accepted)`. `n100` is the first
 case that sema accepts and the IR verifier refuses: an object field read with
 no stated kind. `n110` pins the other direction, a name the checker used to
 provide with no lowering behind it: `sort(xs)` reached the C step as a call to
 a symbol nothing defines. `n111` pins the same name reached through a member
-call on a receiver whose type is known. The last ratchet to
+call on a receiver whose type is known. `n112` pins the receiver rule that
+diagnostic depends on: a local named `system` holds a string, so the message
+names the string and not the builtin. The last ratchet to
 close was F-0025, the assignment target no pass visits: `n90` (a `val` store),
 `n91` (a type mismatch), and `n92` (an undeclared name) now pin the E1009
 diagnostics; `n93`-`n96` extend it to member and index stores. Before it,

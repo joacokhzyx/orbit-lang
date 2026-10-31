@@ -1,0 +1,12 @@
+// case: shadowed-system-member
+// what: a local named `system` was matched to the system builtin by its
+//      spelling, so `system.trim()` was diagnosed as a member of the builtin
+//      and not of the string the local holds. The receiver is its type: the
+//      local shadows the builtin, so the string member set answers, and `trim`
+//      is refused by the string rule. The message names the type it read.
+// expect-error: 'string' has no member 'trim'.
+fn main() -> int {
+    val system = "  padded  "
+    print(system.trim())
+    return 0
+}

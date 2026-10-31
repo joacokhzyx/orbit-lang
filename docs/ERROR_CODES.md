@@ -89,13 +89,15 @@ branch for on a receiver the checker enumerates (`'list<int>' has no member
 hint is per site (see the `reportErrorAt` hint strings at
 `sema.orb:433-503,2737`): spell the member as declared, construct with one
 argument per field in order, print one value. Pinned by `n05`, `n06`, `n13`,
-`n14`, `n15`, `n47`, `n57`, `n66`, `n68`, `n78` and `n111` (`n66`: variant arity
-at construction; `n68`: pattern binding count in `match`; `n78`:
+`n14`, `n15`, `n47`, `n57`, `n66`, `n68`, `n78`, `n111` and `n112` (`n66`:
+variant arity at construction; `n68`: pattern binding count in `match`; `n78`:
 `res.header`/`res.cookie` take exactly 2; `n111`: a member call with no
-lowering). The same code covers `ok` and `err` built with the wrong number of
-positions: `ok` takes exactly one value, and `err` takes a message and an
-optional code, which is the grammar in `docs/LANGUAGE_REFERENCE.md`. Before
-that check both answered `result` before their argument count was looked at.
+lowering; `n112`: a local named `system` shadows the builtin, so the member is
+diagnosed against the local's type). The same code covers `ok` and `err` built
+with the wrong number of positions: `ok` takes exactly one value, and `err`
+takes a message and an optional code, which is the grammar in
+`docs/LANGUAGE_REFERENCE.md`. Before that check both answered `result` before
+their argument count was looked at.
 Pinned by `tests/negative/n97_result_no_value.orb` (`ok()`).
 
 ## E1004 — literal zero divisor, `INT_MIN / -1`
