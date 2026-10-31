@@ -1,13 +1,13 @@
 # Do more with less.
 
+![Orbit Banner](assets/orbit_banner.png)
+
 **Orbit** is a statically typed language for APIs and microservices. It compiles fast and needs little to run, so it stays fast even under load.
 
 Orbit explores a simple idea: servers and APIs shouldn't need so much energy to be fast. It is early-stage software, and its limits are still being measured.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Self-hosted](https://img.shields.io/badge/compiler-self--hosted-blueviolet)](docs/architecture/SOVEREIGNTY.md)
-
-![Orbit Banner](assets/orbit_banner.png)
 
 ---
 
@@ -48,10 +48,11 @@ runnable, every output verified. Then pick a tutorial:
 - [Troubleshooting](docs/tutorials/troubleshooting.md) -
   ports, silent exits, slow first boots.
 
-## What 0.1.0 can't do yet
+## What 0.1.0 supports, and what it does not
 
 Reads and writes work, with bearer auth and path parameters.
-Multipart uploads, DB migrations, and p50/p99 aren't there yet.
+Multipart uploads and forward DB migrations work. Percentiles are bucket
+edges with no success/error split.
 The full list with workarounds is public:
 [Known Limitations](docs/KNOWN_LIMITATIONS.md).
 Twenty hard questions, answered plainly: [FAQ](docs/FAQ.md).

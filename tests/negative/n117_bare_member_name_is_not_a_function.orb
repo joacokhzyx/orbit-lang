@@ -1,0 +1,12 @@
+// case: member-only-name-called-as-a-function
+// what: `len("abc")` named a builtin that `isProvidedName` accepted and no
+//      callee lowering emitted. The builder lowers `len` only as a member
+//      branch, so the call passed `orbit check` and the C step rejected
+//      `len((void*)(uintptr_t)("abc"))` for a function nothing declares.
+//      `len`, `at`, `slice`, `indexOf`, `contains`, `push`, `get`, `set`,
+//      `has`, `keys` and `delete` are members, not provided functions.
+// expect-error: Undeclared function: len; nothing in scope declares it
+fn main() -> int {
+    print(len("abc"))
+    return 0
+}

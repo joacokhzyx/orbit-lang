@@ -142,12 +142,12 @@ The wizard and the bundle ship `lib/libruntime_net.a` and
 `python scripts/mklib_runtime.py --cc gcc` from the tagged checkout, so the
 stamp digests equal the shipped `runtime/` sources. `orbit build` links the
 archive for a program without a database: `examples/hello.orb` builds in
-about 1.3 s instead of 3.4 s. The archive is one plain object, so a C compiler
-other than gcc can link it. If it fails to link with your compiler, set
-`ORBIT_LINK_RUNTIME=0` for the unity build. Edit anything in `runtime/` and the
-stamp no longer matches; the build then uses the unity build, and
-`--verbose` says so. Deleting `lib/` has the same effect. The Linux release job
-checks that the extracted bundle links the archive.
+about 1.3 s instead of 3.4 s. The archive has one member per runtime module.
+A C compiler other than gcc can link it. If it fails to link with your
+compiler, set `ORBIT_LINK_RUNTIME=0` for the unity build. Edit anything in
+`runtime/` and the stamp no longer matches; the build then uses the unity
+build, and `--verbose` says so. Deleting `lib/` has the same effect. The
+Linux release job checks that the extracted bundle links the archive.
 
 ### Raw-binary path (trap applies, hand-copy workaround)
 

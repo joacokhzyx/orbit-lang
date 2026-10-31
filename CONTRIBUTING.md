@@ -97,7 +97,7 @@ Diagnostics decide how Orbit feels at 3am, so they follow the brand rule: clear 
 - **No borders or emojis**: clean text, no decorative boxes or emojis.
 - **English suggestions**: write all hints and explanations in English with contractions where natural (`can't`, `doesn't`, `here's`).
 - **Header states fact + fix**: `Port 3000 is already in use. Change it in X.orb and try again.` Never hide the action behind metaphor. Orbital language stays out of headers.
-- **Body helps first, warms second**: add a tip with the exact next command. Example: `Tip: run `orbit ports` to see what's free. Small fix - you'll be running in seconds.` One warm line max, never cheesy, never blaming you.
+- **Body helps first, warms second**: add a tip with the exact next command. Example: `Tip: change the port declaration in the entry file and retry. Small fix - you'll be running in seconds.` One warm line max, never cheesy, never blaming you.
 - **When Orbit broke it, own it**: no humor to deflect. Say what failed, give a workaround, and note the fix in progress.
 - **Verbose enough to act**: explain what happened and how to continue, rather than a cryptic code alone.
 - **Consistent color styling**: red for errors, yellow for warnings, cyan for line numbers.
@@ -121,7 +121,7 @@ Diagnostics decide how Orbit feels at 3am, so they follow the brand rule: clear 
    ```bash
    make check   # T0..T2; use make all before a commit that promotes the canonical
    ```
-4. **Submit PR**: Open a pull request against the `main` branch with a clear description of the problem solved or feature added.
+4. **Submit PR**: Open a pull request against the `develop` branch with a clear description of the problem solved or feature added.
 
 ---
 

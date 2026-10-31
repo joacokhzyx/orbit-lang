@@ -301,9 +301,11 @@ Rules worth knowing:
   all, so a call, a write, or an `ok`/`err` in the untaken branch does not
   happen.
 - **The type of an `if` is the type of its then branch.** There is no union to
-  join two branch types into, and the two are not compared. So keep them the
-  same type: an `if` that returns `"a"` in one branch and `1` in the other is
-  an `if` typed `string` that sometimes holds an integer.
+  join two branch types into. The IR verifier rejects a value from the other
+  branch that does not fit. `val x = if false { 1 } else { "s" }` fails
+  `orbit check` and prints
+  `orbit check: type verification: copy of 'string' into 'int' in fn '<name>'`.
+  Keep both branches the same type.
 - **`else if` chains are one value**, in either position and either spelling:
   `if a then 1 else if b then 2 else 3`. Every `if` in the chain needs its own
   `else` when the chain is a value.
@@ -953,10 +955,11 @@ orbit --version                    # Display the compiler version
 [COMMANDS.md](COMMANDS.md) is the reference for this list, and the one to keep
 current.
 
-`orbit dev` (watch/reload), `orbit test`, `orbit bootstrap`, and
-`--backend=` flags are not implemented. Calling them treats the word as a
-filename and fails. See [Command Reference](COMMANDS.md) for the supported
-list and exit codes.
+`orbit test` and `orbit bootstrap` are not implemented. Calling either prints
+`Unknown command: test` or `Unknown command: bootstrap` on stderr and exits 2.
+`orbit dev` is implemented, and `orbit build` and `orbit run` take
+`--backend=c` or `--backend=native`. See [Command Reference](COMMANDS.md) for
+the supported list and exit codes.
 
 ## Appendix: where detail lives
 

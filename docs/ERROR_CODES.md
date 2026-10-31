@@ -83,18 +83,26 @@ Fires in `compiler/front/sema.orb`, `reportErrorAt`, for a model built with the
 wrong spelling or arity (`Model { field: value }` literal form, one argument
 per field). It also fires for a field or variant read that nothing declares
 (`Model 'Point' has no field ...`, `'int' has no member ...`,
-`'Shape' has no variant ...`), and for `print` called with anything but exactly
-1 argument. Fix hint is per site
-(see the `reportErrorAt` hint strings at `sema.orb:433-503,2737`): spell the
-member as declared, construct with one argument per field in order, print
-one value. Pinned by `n05`, `n06`, `n13`, `n14`, `n15`, `n47`, `n57`, `n66`,
-`n68`, and `n78` (`n66`: variant arity at construction; `n68`: pattern binding
-count in `match`; `n78`: `res.header`/`res.cookie` take exactly 2). The same
-code covers `ok` and `err` built with the wrong number of positions: `ok` takes
-exactly one value, and `err` takes a message and an optional code, which is the
-grammar in `docs/LANGUAGE_REFERENCE.md`. Before that check both answered
-`result` before their argument count was looked at. Pinned by
-`tests/negative/n97_result_no_value.orb` (`ok()`).
+`'Shape' has no variant ...`), for a member call whose name the receiver's
+member set does not contain (`'list<int>' has no member 'sort'`,
+`'list<int>' has no member 'indexOf'`), and for `print` called with anything
+but exactly 1 argument. Fix
+hint is per site (each `reportErrorAt` call carries its hint; the member
+diagnostic is at `sema.orb:4199`): spell the member as declared, construct with one
+argument per field in order, print one value. Pinned by `n05`, `n06`, `n13`,
+`n14`, `n15`, `n47`, `n57`, `n66`, `n68`, `n78`, `n111`, `n112`, `n113`-`n115`
+and `n116` (`n66`:
+variant arity at construction; `n68`: pattern binding count in `match`; `n78`:
+`res.header`/`res.cookie` take exactly 2; `n111`: a member call with no
+lowering; `n112`: a local named `system` shadows the builtin, so the member is
+diagnosed against the local's type; `n113`-`n115`: a member another receiver
+answers, on a list, a string and a map; `n116`: a declared function named like
+a lowered member does not answer the member call). The same code covers `ok` and `err` built
+with the wrong number of positions: `ok` takes exactly one value, and `err`
+takes a message and an optional code, which is the grammar in
+`docs/LANGUAGE_REFERENCE.md`. Before that check both answered `result` before
+their argument count was looked at.
+Pinned by `tests/negative/n97_result_no_value.orb` (`ok()`).
 
 ## E1004 — literal zero divisor, `INT_MIN / -1`
 
@@ -201,7 +209,7 @@ consumed by whatever reads the branch (`val r = if c { ok(1) } else { err("x") }
 is accepted). Fix hint: bind it with `val r = ...` and read it with
 `try r catch`, `match` on it, or return it from a `-> result` function. The
 message names the callee when the statement is a call; a statement of another
-shape (a bare name, an `if` used as a statement) has no position in the AST and
+kind (a bare name, an `if` used as a statement) has no position in the AST and
 prints the one-line form without the code. Pinned by
 `tests/negative/n98_result_discarded.orb`.
 
@@ -292,7 +300,7 @@ These print the one-line `Semantic error:` form and pin a substring:
 | message | case |
 |---|---|
 | `Cannot call 'n': it is a int, not a function` | `n12` |
-| `Undeclared function: ...` | `n22` |
+| `Undeclared function: ...` | `n22`, `n110`, `n117` (`n110`: a provided name with no lowering; `n117`: a member-only name called as a function) |
 | `Undeclared identifier: ...` | `n09` |
 | `Wrong number of arguments to ...` | `n04`, `n74` (`n74`: through a function value) |
 | `Cannot use generic function ... as a value` | `n76` |

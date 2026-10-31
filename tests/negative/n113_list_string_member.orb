@@ -1,0 +1,13 @@
+// case: string-member-on-a-list
+// what: `xs.indexOf(3)` on a list. The builder's `indexOf` branch calls
+//      orbit_string_indexOf without looking at the receiver, so the call read
+//      an OrbitList as an orbit_string and the process faulted with
+//      0xC0000005 (measured at 68d2974 and again at 88ea754). The member set
+//      is the receiver's: `indexOf` is a string member, and a list does not
+//      answer it.
+// expect-error: 'list<int>' has no member 'indexOf'.
+fn main() -> int {
+    val xs = [3, 1, 2]
+    print(xs.indexOf(3))
+    return 0
+}

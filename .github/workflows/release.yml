@@ -13,7 +13,14 @@ env:
   # https://github.com/joacokhzyx/orbit-r6). Bump it deliberately: it is the
   # native backend every Windows user runs, and it has to read the IR of this
   # tag's compiler (docs/IR_SPEC.md).
-  R6_COMMIT: "1ec9b541ffb3c6a87a8d05639dbaa9defdfee07c"
+  R6_COMMIT: "a03daa5ad1bd4746e1f3e5f228ebc43d3d02a3e8"
+
+  # R6 links with the ld.exe and crt2.o of a w64devkit root, and
+  # windows-latest ships none. This is the archive and hash orbit-r6's CI
+  # installs (orbit-r6 .github/workflows/ci.yml): w64devkit 2.10.0, whose
+  # GCC is 16.2.0.
+  W64DEVKIT_URL: https://github.com/skeeto/w64devkit/releases/download/v2.10.0/w64devkit-x64-2.10.0.7z.exe
+  W64DEVKIT_SHA256: 18d0a4c71a166f8401ab6305781bec5882b40b5e06ba9807c61cb5f3b3c6325e
 
 jobs:
   build:
@@ -92,8 +99,70 @@ jobs:
           # orbit refuses an r6 whose --version does not name the IR protocol
           # this compiler writes, so the release checks the same line.
           $r6Version = & dist\bin\r6.exe --version
-          if ($r6Version -notmatch 'ir-protocol 2$') { throw "r6.exe --version printed '$r6Version', want ir-protocol 2" }
+          if ($r6Version -notmatch 'ir-protocol 3$') { throw "r6.exe --version printed '$r6Version', want ir-protocol 3" }
           Write-Output "[Release] R6 $env:R6_COMMIT -> dist\bin\r6.exe"
+
+      # Native is the default backend on Windows, so the release has to build
+      # and run one program. The directory mirrors installer\orbit.iss
+      # (orbit.exe, bin\r6.exe, lib\, runtime\, std\) and stays out of dist\bin,
+      # whose contents the wizard copies. R6's default root is C:/w64devkit,
+      # and the runner has no w64devkit there, so the job installs one before
+      # the smoke step. An installed user has no such directory; that gap is
+      # separate work.
+      - name: Install w64devkit for R6
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'w64devkit.7z.exe'
+          Invoke-WebRequest -Uri $env:W64DEVKIT_URL -OutFile $exe
+          $got = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $env:W64DEVKIT_SHA256) { throw "w64devkit sha256 $got" }
+          & $exe -oC:\ -y | Out-Null
+          Add-Content $env:GITHUB_PATH 'C:\w64devkit\bin'
+          & C:\w64devkit\bin\gcc.exe --version
+
+      - name: "Smoke: native build without --backend"
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist\smoke\bin | Out-Null
+          Copy-Item "dist\${{ matrix.asset }}" dist\smoke\orbit.exe
+          Copy-Item dist\bin\r6.exe dist\smoke\bin\r6.exe
+          Copy-Item -Recurse runtime dist\smoke\runtime
+          Copy-Item -Recurse std dist\smoke\std
+          Copy-Item -Recurse dist\lib dist\smoke\lib
+          # R6 resolves ld.exe, crt2.o and the libgcc directory from
+          # R6_MINGW_ROOT at run time (default C:/w64devkit). The step above
+          # installs w64devkit 2.10.0 there and puts its bin on PATH, so the
+          # gcc the C build names is the same install.
+          $root = 'C:\w64devkit'
+          $version = '16.2.0'
+          # R6 resolves these three paths from the two variables; a missing
+          # path means the install is incomplete, not that a gcc on PATH has
+          # another distribution's layout.
+          $missing = @("$root\bin\ld.exe", "$root\lib\crt2.o", "$root\lib\gcc\x86_64-w64-mingw32\$version") |
+            Where-Object { -not (Test-Path $_) }
+          if ($missing) { throw "R6 links with $($missing -join ', ') and it is not there; set `$env:R6_MINGW_ROOT and `$env:R6_MINGW_GCC_VERSION to a w64devkit install" }
+          $env:R6_MINGW_ROOT = $root
+          $env:R6_MINGW_GCC_VERSION = $version
+          $env:ORBIT_CC = 'gcc'
+          & dist\smoke\orbit.exe build --backend=c examples\hello.orb -o hello-c.exe
+          if ($LASTEXITCODE -ne 0) { throw "the C build of examples\hello.orb exited $LASTEXITCODE" }
+          $want = (& .\hello-c.exe) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "hello-c.exe exited $LASTEXITCODE" }
+          if (-not $want) { throw 'the C build of examples\hello.orb printed nothing' }
+          # --verbose prints the `r6 <cmd>` line (pipeline.orb:979) only on the
+          # native path, so its absence means the default backend was not native.
+          $native = @(& dist\smoke\orbit.exe build examples\hello.orb -o hello.exe --verbose)
+          if ($LASTEXITCODE -ne 0) { throw "the native build of examples\hello.orb exited $LASTEXITCODE" }
+          if (-not ($native -match '^r6 ')) { throw "the native build printed no 'r6 ' command line, so the default backend was not native: $native" }
+          $got = (& .\hello.exe) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "hello.exe exited $LASTEXITCODE" }
+          if (-not $got) { throw 'the native build of examples\hello.orb printed nothing' }
+          if ($got -cne $want) { throw "hello.exe printed '$got'; the C build printed '$want'" }
+          Remove-Item -Force hello.exe, hello-c.exe
+          Write-Output "[Release] native build, no --backend, printed: $got"
 
       - name: Build Linux bundle (binary + std/ + runtime/ + lib/)
         if: matrix.os == 'ubuntu-latest'

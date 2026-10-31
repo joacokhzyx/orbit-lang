@@ -573,8 +573,8 @@ There is one lineage. There is no second implementation of the compiler to cross
 
 | Property | Value |
 |---|---|
-| Canonical | `compiler/selfhost/stage3.exe.c`, 4,124,475 bytes, 90,928 lines |
-| SHA-256 | `960758367D4EF493A49A5D6F9DF46CAE5B2FA8B9FCA0DED797C37E5664109610` |
+| Canonical | `compiler/selfhost/stage3.exe.c`, 6,867,001 bytes, 184,739 lines |
+| SHA-256 | `991125DEAB9E67D96E9317B444985CD96D97E20A86459EE4D3872EE1BEFF1BBF` |
 | Pinned as | `PUBLISHED_C` in `scripts/verify_seed.py`, enforced by `--release` |
 
 How it is produced and checked:
@@ -805,12 +805,12 @@ python scripts/werror_gate.py --cc "$CC" --compiler /tmp/orbit_fp
 
 # 6a. [CI] Negative corpus: every program in tests/negative/ must FAIL to
 #        compile, with the diagnostic text its header names. One program per
-#        defect class; 99 today. The gate also fails when a diagnostic
+#        defect class; 107 today. The gate also fails when a diagnostic
 #        IMPROVES, so the wording of every rejection is pinned - a better error
 #        message is a red build until the header is updated. A program the
 #        compiler wrongly accepts declares `known-defect: <ref>` and the gate
 #        asserts the bug is STILL there, so nothing improves silently. The
-#        summary prints how many are outstanding; today 99/99 pass with 0 known
+#        summary prints how many are outstanding; today 107/107 pass with 0 known
 #        defects - the last one, F-0025, flipped to expect-error when E1009 gave
 #        the assignment target a rule. The history of
 #        the 19 programs the compiler used to accept is in

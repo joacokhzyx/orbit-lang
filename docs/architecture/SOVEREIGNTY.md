@@ -12,7 +12,7 @@ shipped by anyone else.
 
 | Artifact | Role | SHA-256 |
 |---|---|---|
-| `compiler/selfhost/stage3.exe.c` (4,124,475 bytes, 90,928 lines) | canonical compiler, emitted by the compiler itself | `960758367D4EF493A49A5D6F9DF46CAE5B2FA8B9FCA0DED797C37E5664109610` |
+| `compiler/selfhost/stage3.exe.c` (6,867,001 bytes, 184,739 lines) | canonical compiler, emitted by the compiler itself | `991125DEAB9E67D96E9317B444985CD96D97E20A86459EE4D3872EE1BEFF1BBF` |
 | `scripts/verify_seed.py` (`PUBLISHED_C`) | published contract, enforced by `--release` | identical to the above |
 
 The canonical file is **committed** (explicitly un-ignored in `.gitignore`, and
