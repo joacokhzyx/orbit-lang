@@ -32,12 +32,12 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 100/100 pass (0 known defects still accepted)
+Finished negative: 101/101 pass (0 known defects still accepted)
 ```
 
-One hundred programs: every one must be rejected and is. The last one to be
-fixed was F-0025, the assignment target: a `val` store, a type mismatch and an
-undeclared name now produce E1009. Before it,
+One hundred and one programs: every one must be rejected and is. The last one
+to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
+and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
 was the last, and generic functions gave it a diagnostic. What remains is a
 design choice (the bare `list` spelling stays lenient for dynamic values), not

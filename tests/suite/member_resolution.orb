@@ -1,4 +1,5 @@
-// Member resolution: a closed member set is checked, an open one is not.
+// Member resolution: a closed member set is checked, and a member call is
+// checked against the set the builder lowers.
 //
 // Every case in the first half is a member that cannot exist and is now a
 // diagnostic instead of a C step that dies with "unknown type name". Every
@@ -39,9 +40,9 @@ fn main() -> int {
     print(area(Shape.Circle(5)))
     print(area(Shape.Square(6)))
 
-    // The open member surfaces this function deliberately does not touch:
-    // string, list, and the system builtins all answer to a method set the
-    // emitter owns, so a check that tried to enumerate them would be wrong.
+    // The member surfaces the checker enumerates: string, list and the system
+    // builtins answer to the names the builder lowers, so these calls are the
+    // positive half of that rule and n111 pins the negative.
     val xs = [1, 2, 3]
     print(xs.len())
     print(xs.get(0))
