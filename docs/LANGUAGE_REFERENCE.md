@@ -302,9 +302,10 @@ Rules worth knowing:
   happen.
 - **The type of an `if` is the type of its then branch.** There is no union to
   join two branch types into. The IR verifier rejects a value from the other
-  branch that does not fit: `val x = if false { 1 } else { "s" }` fails
-  `orbit check` with `type verification: copy of 'string' into 'int'`. Keep
-  both branches the same type.
+  branch that does not fit. `val x = if false { 1 } else { "s" }` fails
+  `orbit check` and prints
+  `orbit check: type verification: copy of 'string' into 'int' in fn '<name>'`.
+  Keep both branches the same type.
 - **`else if` chains are one value**, in either position and either spelling:
   `if a then 1 else if b then 2 else 3`. Every `if` in the chain needs its own
   `else` when the chain is a value.
