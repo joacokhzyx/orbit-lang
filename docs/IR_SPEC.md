@@ -1,13 +1,14 @@
 # IRv1 — Orbit IR Specification (language side)
 
-- **Language pin:** `5c01cea68f125f06dd3ac82a61776827bdb0c6f3`
-- **Status:** language-side proposal for R6. It is not a normative
-  publication of the Orbit repo: at this pin there is no `--emit-ir`, no
-  versioned IR spec, and no serialized IR corpus.
-- **Relation to the external draft:** `C:/Users/Usuario/Downloads/orbit-r6/docs/IR_SPEC_DRAFT.md`
-  was used as a proposal and has been verified claim by claim against
-  `compiler/ir/ir.orb`, `compiler/ir/builder.orb`, `compiler/emit/c_backend.orb`,
-  `compiler/emit/route_runtime.orb`, `compiler/ir/cteval.orb` and `runtime/orbit_api.h`.
+- **Language revision:** first written against `5c01cea68f125f06dd3ac82a61776827bdb0c6f3`.
+- **Status:** this document defines IRv1, the format that `orbit build --emit-ir`
+  writes today. R6 adopts it (its D-F0-06) and pins the language commit it
+  reads in `orbit-r6/docs/PIN.md`.
+- **Relation to the external draft:** an external draft (retired; its history
+  is in the R6 repository) was used as a proposal and has been verified claim
+  by claim against `compiler/ir/ir.orb`, `compiler/ir/builder.orb`,
+  `compiler/emit/c_backend.orb`, `compiler/emit/route_runtime.orb`,
+  `compiler/ir/cteval.orb` and `runtime/orbit_api.h`.
   Where this document and the draft disagree, this document prevails. Where
   the language publishes something else, the language prevails.
 - **Gap rule:** everything marked `UNSPECIFIED` must fail in the loader with
@@ -519,8 +520,8 @@ builtin with the lowering of §3.1 item 6, unless the program writes its own
 
 IRv1 text is a **UTF-8 JSON document** (RFC 8259): a single root object, no
 BOM, trailing LF. JSON is the format. There is no assembly-like text
-representation and no binary encoding at this pin (no `--emit-ir` exists, so
-this section defines the text form from the in-memory model in §2).
+representation and no binary encoding: `orbit build --emit-ir` writes this
+JSON form, and R6 reads it.
 
 - Root object fields, in order: `irVersion` (must be the string `"1"`),
   `module` (an `IRModule` object, §2.4).
@@ -662,9 +663,10 @@ names the opcode/field (gap rule, header). "Reject" = fatal loader error.
 
 ### 5.5 Designated corpus
 
-At this pin the corpus is the language test tree itself (no serialized IR
-exists yet). Each source below maps to IR through the builder whose producers
-are pinned in §1.1.
+The designated corpus is the language test tree. R6 emits it with
+`orbit build --emit-ir` and pins the documents by hash in
+`orbit-r6/tests/corpus/manifest.json`. Each source below maps to IR through the
+builder whose producers are pinned in §1.1.
 
 - **Suite: 120 runnable files + 1 support file.** `tests/suite/` holds 121
   `.orb` files: 120 runnable programs plus `imports.support.orb` (imported by
@@ -694,7 +696,7 @@ depends on it, with a diagnostic naming the opcode/field (gap rule, header).
 Numbers U-01–U-06, U-09, U-12, U-14–U-17 are kept as cited in §§1–4. U-07,
 U-08, U-10, U-11, U-13 complete the sequence.
 
-| # | Gap | Why it is open at this pin |
+| # | Gap | Why it is open |
 |---|---|---|
 | U-01 | Which type spellings yield `elemKind` 5 (`isReferenceKindName`) | Predicate not audited here (§2.2). |
 | U-02 | The flat name-keyed `listKinds` registry shared across functions | Not reproducible in serialized IR (§2.3). |

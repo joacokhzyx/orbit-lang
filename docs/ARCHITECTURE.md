@@ -120,8 +120,10 @@ exactly the old `port = 3000`, byte for byte.
 
 `cors`, `db`, and `env` parse and typecheck with no runtime effect. The emitted
 server always initializes the database at `.orbit/data/app.db` when models are
-present. It emits no CORS or environment handling from the declarations. What
-is read is recorded in the [project snapshot](STATUS.md).
+present. It emits no CORS or environment handling from the declarations. The
+parsing lives in `checkConfigDecl` (`compiler/front/sema.orb`), the port field in
+`compiler/ir/builder.orb`, and the generated `main` in
+`compiler/emit/route_runtime.orb`.
 
 ### Why the intermediate C has a constant name
 

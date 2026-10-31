@@ -318,4 +318,4 @@ flags and exit codes. [FAQ](FAQ.md) has the common questions.
 Raw sockets, threads, and generic unions — the
 `std/quarantine/` directory names the exact missing language feature
 for each. [Known Limitations](KNOWN_LIMITATIONS.md) is the list, and
-[Status](STATUS.md) says what is being worked on.
+[CHANGELOG.md](CHANGELOG.md) records what changed.
