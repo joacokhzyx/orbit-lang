@@ -573,8 +573,8 @@ There is one lineage. There is no second implementation of the compiler to cross
 
 | Property | Value |
 |---|---|
-| Canonical | `compiler/selfhost/stage3.exe.c`, 6,858,370 bytes, 184,484 lines |
-| SHA-256 | `ADCACFABFE9286D4BBE44BB85352734FA2F1A4B8843995384685CABA51635DCB` |
+| Canonical | `compiler/selfhost/stage3.exe.c`, 6,867,001 bytes, 184,739 lines |
+| SHA-256 | `991125DEAB9E67D96E9317B444985CD96D97E20A86459EE4D3872EE1BEFF1BBF` |
 | Pinned as | `PUBLISHED_C` in `scripts/verify_seed.py`, enforced by `--release` |
 
 How it is produced and checked:
