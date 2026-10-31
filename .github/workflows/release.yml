@@ -121,8 +121,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the C build of examples\hello.orb exited $LASTEXITCODE" }
           $want = (& .\hello-c.exe) -join "`n"
           if ($LASTEXITCODE -ne 0) { throw "hello-c.exe exited $LASTEXITCODE" }
-          & dist\smoke\orbit.exe build examples\hello.orb -o hello.exe
+          # --verbose prints the `r6 <cmd>` line (pipeline.orb:979) only on the
+          # native path, so its absence means the default backend was not native.
+          $native = @(& dist\smoke\orbit.exe build examples\hello.orb -o hello.exe --verbose)
           if ($LASTEXITCODE -ne 0) { throw "the native build of examples\hello.orb exited $LASTEXITCODE" }
+          if (-not ($native -match '^r6 ')) { throw "the native build printed no 'r6 ' command line, so the default backend was not native: $native" }
           $got = (& .\hello.exe) -join "`n"
           if ($LASTEXITCODE -ne 0) { throw "hello.exe exited $LASTEXITCODE" }
           if ($got -ne $want) { throw "hello.exe printed '$got'; the C build printed '$want'" }
