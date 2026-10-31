@@ -9,7 +9,7 @@ Bootstrap terms (canonical, seed, seed2, chain2, chain3, promote, PUBLISHED_C, a
 
 ## Executive Summary
 
-Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. On Windows x86-64 the native backend is the default: it emits IR and runs R6, with no C compiler. Elsewhere it compiles Orbit source to C, then uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with the CI-verified compilers (gcc on Ubuntu, clang on Windows). Other C compilers are not exercised in CI.
+Orbit is a self-hosted, statically typed language and compiler for general software, with development focused on native network services for now. On Windows x86-64 the native backend is the default for the programs R6 accepts: it emits IR and runs R6, with no C compiler. R6 refuses every program that declares a route, and a refusal is a compile error, so a service build needs `--backend=c`, which runs a C compiler. Elsewhere the C backend is the default and uses your platform C compiler to produce the executable. You can bootstrap from the committed canonical C with the CI-verified compilers (gcc on Ubuntu, clang on Windows). Other C compilers are not exercised in CI.
 
 The project is past the bootstrap proof-of-concept stage. Its mission is to help software do more work with fewer CPU cycles, less memory, and lower energy use. The next challenge is to make that goal measurable while tightening compiler parity, reducing unsafe type degradation in generated C, defining the public language contract, and making the runtime observable and operationally predictable.
 
@@ -123,7 +123,7 @@ The runtime already covers HTTP, arenas, networking, authentication, Kynx, files
 **Priority:** P2  
 **Status:** R6 path default on Windows x86-64; in-tree port deferred
 
-The native path is R6, a separate x86-64 code generator that `orbit build --backend=native` runs on the emitted IR. It is the default on Windows for the programs R6 accepts, and R6 refuses every program that declares a route, so services still build through C. The in-tree port (an encoder, object writer and register allocator under `compiler/native/`) is deferred until the IR contract and differential suite are stable.
+The native path is R6, a separate x86-64 code generator that `orbit build --backend=native` runs on the emitted IR. It is the default on Windows for the programs R6 accepts, and R6 refuses every program that declares a route. A service build needs `--backend=c`; there is no fallback. The in-tree port (an encoder, object writer and register allocator under `compiler/native/`) is deferred until the IR contract and differential suite are stable.
 
 ### Distributed Operation
 
