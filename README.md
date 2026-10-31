@@ -48,7 +48,7 @@ runnable, every output verified. Then pick a tutorial:
 - [Troubleshooting](docs/tutorials/troubleshooting.md) -
   ports, silent exits, slow first boots.
 
-## What 0.1.0 can't do yet
+## What 0.1.0 supports, and what it does not
 
 Reads and writes work, with bearer auth and path parameters.
 Multipart uploads and forward DB migrations work. Percentiles are bucket
