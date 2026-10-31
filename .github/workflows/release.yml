@@ -96,9 +96,11 @@ jobs:
           Write-Output "[Release] R6 $env:R6_COMMIT -> dist\bin\r6.exe"
 
       # Native is the default backend on Windows, so the release has to build
-      # and run one program the way an installed user does. The directory
-      # mirrors installer\orbit.iss (orbit.exe, bin\r6.exe, lib\, runtime\,
-      # std\) and stays out of dist\bin, whose contents the wizard copies.
+      # and run one program. The directory mirrors installer\orbit.iss
+      # (orbit.exe, bin\r6.exe, lib\, runtime\, std\) and stays out of dist\bin,
+      # whose contents the wizard copies. The runner has no MinGW linker for R6,
+      # so the step supplies R6_MINGW_ROOT from gcc on PATH. An installed user
+      # has no such directory; that gap is separate work.
       - name: "Smoke: native build without --backend"
         if: matrix.os == 'windows-latest'
         shell: pwsh
