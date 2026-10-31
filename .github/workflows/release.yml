@@ -125,7 +125,7 @@ jobs:
           if ($missing) { throw "R6 links with $($missing -join ', ') and it is not there; set `$env:R6_MINGW_ROOT and `$env:R6_MINGW_GCC_VERSION to a w64devkit install" }
           $env:R6_MINGW_ROOT = $root
           $env:R6_MINGW_GCC_VERSION = $version
-          $env:ORBIT_CC = '${{ matrix.cc }}'
+          $env:ORBIT_CC = 'gcc'
           & dist\smoke\orbit.exe build --backend=c examples\hello.orb -o hello-c.exe
           if ($LASTEXITCODE -ne 0) { throw "the C build of examples\hello.orb exited $LASTEXITCODE" }
           $want = (& .\hello-c.exe) -join "`n"
