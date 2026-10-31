@@ -1,14 +1,13 @@
 # Known Limitations (0.1.0)
 
-This is the measured list. I keep it next to the docs that use these
-features so you don't discover them at midnight. Each entry says
-what happens today, how to work around it, and what would change it.
-Nothing here is a roadmap promise with a date. It is what I measured
-on this build.
+This is the measured list. It sits next to the docs that use these features, so
+a limit is found before midnight. Each entry says what happens today, how to
+work around it, and what would change it. Nothing here is a roadmap promise
+with a date. It is what was measured on this build.
 
 Verified on: `orbit 0.1.0-rc.2` (fixed-point build, gcc 16.2.0),
 Windows x86-64 and Linux x86-64, October 2026. Linux paths are
-marked UNTESTED below where I couldn't run them.
+marked UNTESTED below where the run was not performed.
 
 **Start with the first section.** Everything below that one is a feature
 gap you can design around. The first section is about the programs `orbit

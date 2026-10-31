@@ -187,7 +187,7 @@ enables is superlinear in emitted size. The strict warning gate is
 
 - **Never break the fixed point silently.** If `compiler/**/*.orb` changes, run
   `python scripts/build_selfhost.py --promote` and commit the canonical, the
-  32 parity goldens and the sources in the same commit.
+  33 parity goldens and the sources in the same commit.
 - **Never introduce a hard dependency on a specific toolchain vendor.** The
   build must keep working with the CI matrix compilers (gcc on Ubuntu,
   clang on Windows).

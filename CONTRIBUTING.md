@@ -1,8 +1,11 @@
 # Contributing to Orbit
 
-Thanks for your interest in Orbit. I'm building it to do more with less - less energy, less complexity, same speed - and I read every contribution.
-
-This guide covers how to propose changes, open pull requests, and keep quality high across the compiler and C runtime.
+Orbit is built to do more with less: less energy, less complexity, same speed.
+This guide covers how to propose changes, open pull requests, and keep quality
+high across the compiler and C runtime. The documentation map is
+[docs/README.md](docs/README.md); branches and releases are in
+[docs/BRANCHES.md](docs/BRANCHES.md); security reports follow
+[SECURITY.md](SECURITY.md).
 
 ---
 
@@ -56,7 +59,7 @@ The `make` targets are the single authority for verification (see `Makefile`,
 by hand with `--cc`/`--compiler`:
 
 ```bash
-make dev    # T0+T1 default; tiers picked from git diff, erring toward more
+make dev    # gates proportionate to what the working tree touched
 make check  # T0..T2 unconditionally (language + static analysis)
 make all    # T0..T3, including the root of trust (run before promoting)
 make fp     # just the fixed-point compiler, and print its version
@@ -86,8 +89,7 @@ Ensure all gates pass before submitting a pull request.
 
 ## Coding Standards & Guidelines
 
-Orbit follows strict architectural and diagnostic conventions, written in a
-calmer voice than the projects it grew up around: direct, no hype, no
+Orbit follows a fixed diagnostic format and a plain voice: direct, no hype, no
 superiority.
 
 ### 1. Diagnostic Formatting & Error Messages

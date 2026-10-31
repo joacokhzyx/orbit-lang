@@ -51,7 +51,8 @@ No performance number is published until it comes with the command that produced
 
 **Note on the doctor row.** `DoctorStats` carries a duration per phase (`textMs`, `astMs`, `semaMs`, `ioMs`) and `--verbose` prints them. Read the phases from `orbit_clock_ms()`, never a nanosecond clock: `orbit_int` was a 32-bit `int`, so nanoseconds wrapped every 4.29 s and a subtraction across the wrap returned a NEGATIVE duration. It printed `-417 ms text` before this was fixed. `orbit_int` is 64 bits now and the wrap is gone; the millisecond clock stays because every budget in the tree is written in milliseconds.
 
-Measured on `compiler/` (23 files, 23 714 LOC), gcc 13.3.0, warm page cache,
+Measured on `compiler/` (then 23 files and 23 714 LOC; the tree now holds 28
+files and 33 724 lines), gcc 13.3.0, warm page cache,
 Linux, fixed-point compiler, `orbit doctor compiler --verbose`. Cache forced
 cold and warm with `ORBIT_DOCTOR_CACHE`:
 
