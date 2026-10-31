@@ -20,10 +20,10 @@ Normalisation is two substitutions and no more:
     label_567  -> label
 
 Those are the only generated identifier families in the file -- 139 598 and
-15 975 occurrences respectively, and nothing else in 4.7 MB carries a numeric
-suffix. Widening the pattern to any `name_<digits>` would look more general and
-would be wrong: it would flatten a hand-written constant into an anonymous one
-and hide a change that matters.
+15 975 occurrences respectively, and nothing else in the file's 6,858,370 bytes
+carries a numeric suffix. Widening the pattern to any `name_<digits>` would look
+more general and would be wrong: it would flatten a hand-written constant into
+an anonymous one and hide a change that matters.
 
 What it prints:
 

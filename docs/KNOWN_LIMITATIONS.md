@@ -35,7 +35,7 @@ $ make negative
 Finished negative: 99/99 pass (0 known defects still accepted)
 ```
 
-Ninety-three programs: every one must be rejected and is. The last one to be
+Ninety-nine programs: every one must be rejected and is. The last one to be
 fixed was F-0025, the assignment target: a `val` store, a type mismatch and an
 undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)

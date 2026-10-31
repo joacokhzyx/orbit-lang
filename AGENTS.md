@@ -26,7 +26,7 @@ make list     # show what dev would run, without running it
 
 `dev` reads `git diff --name-only` and picks a tier, erring toward running more: `tests/`, `compiler/`, `std/` or `runtime/` implies T2, `scripts/` or `examples/` implies T1, `docs/` implies nothing beyond fmt. An edit to a test needs the suite, so `tests/` is T2 rather than T1. **A green `make dev` is not a green CI**, and `dev.py` prints the tiers it skipped. For a rule change or anything touching `compiler/**/*.orb`, that is `make check`; before a commit that promotes the canonical, `make all`.
 
-**If a gate fails only on windows-latest, read [docs/WINDOWS.md](docs/WINDOWS.md) first.** It records the two Windows gate failures (diagnosed and fixed, 2026-10-09), how to reproduce them, what has already been ruled out, and what is NOT open -- the `0xC0000005` in `test_migrations` is fixed and the runtime C tests are green on both platforms. Those two failures are recorded as gate-sequence(7) in `ENGINEERING.md` §7, diagnosed and fixed there.
+**If a gate fails only on windows-latest, read [docs/WINDOWS.md](docs/WINDOWS.md) first.** It records two Windows gate failures, found on 2026-10-09 and fixed in `17bd1b4` and `56f4f8d`: `tests/suite/object_literals.orb` did not build, and the Kynx live gate completed 34 of 200 requests. It also records how to reproduce them and what has already been ruled out. Those two are gate-sequence(7) in `ENGINEERING.md` §7. The `0xC0000005` in `test_migrations` is gate-sequence(6), not one of them: it has not recurred, and its mechanism is not proven. The runtime C tests are green on both platforms.
 
 Useful when something breaks:
 
@@ -48,9 +48,9 @@ python3 scripts/parity_selfhost.py --cc gcc --compiler /tmp/fp --update   # ONLY
 
 Commit canonical + refreshed goldens + sources + `scripts/verify_seed.py` (PUBLISHED_C) together.
 
-**Do not read the canonical's diff, read `make promote-diff` instead.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured: 37 of the last 60 commits touch it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004.
+**Do not read the canonical's diff, read `make promote-diff` instead.** It is regenerated whole, so it renumbers registers and a two-line change to `doctor.orb` shows up as tens of thousands of changed lines. Measured: 19 of the last 60 commits change it, and the source-to-artifact ratio in four of them is 23 -> 24 286, 34 -> 1 612, 44 -> 4 674 and 310 -> 21 004.
 
-After `make promote` and before committing, run it. It diffs the canonical against `HEAD` with `r_N` and `label_N` flattened to `r` and `label` -- the only two generated-name families in 4.7 MB -- and reports the raw line count, the count after flattening, the hunks, and the functions they land in. On the commit that removed the phantom `ParamNode`, that is 24 342 lines raw against **40** after flattening, in 9 hunks across 3 functions. The same flattening is applied by hand in the clean-emission entry of `ENGINEERING.md`, which is where the technique came from.
+After `make promote` and before committing, run it. It diffs the canonical against `HEAD` with `r_N` and `label_N` flattened to `r` and `label` -- the only two generated-name families in 6,858,370 bytes -- and reports the raw line count, the count after flattening, the hunks, and the functions they land in. On the commit that removed the phantom `ParamNode`, that is 24 342 lines raw against **40** after flattening, in 9 hunks across 3 functions. The same flattening is applied by hand in the clean-emission entry of `ENGINEERING.md`, which is where the technique came from.
 
 So review the `.orb` diff, the commit's evidence block, and `make promote-diff` -- three things, all readable. Treat the canonical itself as the mechanical artifact it is and check only its hash.
 
@@ -66,7 +66,7 @@ These are gates. Do not perform them by hand and do not write them out as a habi
 
 ## Working with other agents
 
-**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/verify_seed.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. 37 of the last 60 commits touch the canonical, so this is not a rare path. Before promoting, check who had it last:
+**One writer of the root of trust at a time.** `compiler/selfhost/stage3.exe.c` and `PUBLISHED_C` in `scripts/verify_seed.py` are one logical file in two copies, and the canonical must reproduce itself bit for bit. Two concurrent promotes produce a canonical that half the tree does not describe, and `verify_seed` reports it as "sources moved on" without saying whose. This is not a merge conflict: the merge is clean and the result is wrong. At d3352b5, 19 of the last 60 commits change it, so this is not a rare path. Before promoting, check who had it last:
 
 ```bash
 git log -1 --format='%h %ad %s' --date=short -- compiler/selfhost/stage3.exe.c
