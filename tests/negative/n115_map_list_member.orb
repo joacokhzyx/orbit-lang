@@ -1,0 +1,14 @@
+// case: list-member-on-a-map
+// what: `m.push(1)` on a `map` parameter. There is no map literal, so the type
+//      enters a program only as a parameter or an annotation; the builder's
+//      `push` branch then emits list_push on the map. `push` is a list member,
+//      and a map answers only `has`, `delete` and `keys`.
+// expect-error: 'map' has no member 'push'.
+fn push_one(m: map) -> int {
+    m.push(1)
+    return 0
+}
+
+fn main() -> int {
+    return 0
+}

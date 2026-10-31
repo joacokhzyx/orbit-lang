@@ -1,0 +1,18 @@
+// case: declared-name-is-not-a-lowered-member
+// what: `fn push(x: int)` declares a function, and `s.push(1)` on a string
+//      named it. The builder chooses its `push` branch by the member name
+//      before the default method path, so the call emitted list_push on an
+//      orbit_string and the process faulted with 0xC0000005. A name the
+//      builder lowers is answered by the receiver's set or refused; a
+//      declaration of that name cannot stand in for the missing branch. The
+//      function itself is still a function when called by name.
+// expect-error: 'string' has no member 'push'.
+fn push(x: int) -> int {
+    return x
+}
+
+fn main() -> int {
+    val s = "abc"
+    s.push(1)
+    return 0
+}

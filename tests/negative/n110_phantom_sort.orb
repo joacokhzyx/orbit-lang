@@ -1,0 +1,15 @@
+// case: provided-name-without-lowering
+// what: `sort(xs)` named a builtin that `isProvidedName` accepted and no
+//      emitter lowered. The front end typed the call, the builder emitted
+//      `sort(...)` and the C step was handed a symbol nothing defines.
+//      Twenty-six other names had the same shape: the checker passed them and
+//      the C step rejected the result.
+//
+//      A name is provided only when the emitter or the runtime header can
+//      resolve it, so the call is an undeclared function and is refused
+//      before any C is emitted.
+// expect-error: Undeclared function: sort; nothing in scope declares it
+fn main() -> int {
+    sort([3, 1, 2])
+    return 0
+}

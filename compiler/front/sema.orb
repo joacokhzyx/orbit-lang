@@ -930,6 +930,92 @@ fn checkMemberResolution(sema: Sema, objType: string, member: string, line: int,
     }
 }
 
+// The member names a receiver answers, one set per receiver.
+//
+// A member call is not a function call: the builder chooses the lowering by
+// the member name alone (buildCall in builder.orb:4528-4804), and a name with
+// no branch there falls through to a call spelled `sort(...)` -- a function
+// nobody declared, which the C step rejects. The set is per receiver because
+// most branches are: `indexOf`, `slice`, `contains` and `to_int` call
+// orbit_string_* without looking at the receiver, so a list reaches a string
+// runtime function and faults; `push`, `get`, `set`, `pop` and `clear` emit
+// list opcodes, so a string reaches the list runtime. `len` and `at` read the
+// receiver and answer for both, and the system builtins are the eight names
+// the builder matches on that receiver. A name added to the builder is added
+// here in the same change, or a program that emits is refused.
+fn receiverAnswersMember(base: string, member: string) -> bool {
+    if base == "string" {
+        if member == "len" { return true }
+        if member == "contains" { return true }
+        if member == "at" { return true }
+        if member == "indexOf" { return true }
+        if member == "slice" { return true }
+        if member == "to_int" { return true }
+        return false
+    }
+    if base == "list" {
+        if member == "push" { return true }
+        if member == "get" { return true }
+        if member == "set" { return true }
+        if member == "len" { return true }
+        if member == "pop" { return true }
+        if member == "clear" { return true }
+        if member == "at" { return true }
+        return false
+    }
+    if base == "map" {
+        if member == "has" { return true }
+        if member == "delete" { return true }
+        if member == "keys" { return true }
+        return false
+    }
+    if base == "system" {
+        if member == "uptime" { return true }
+        if member == "pid" { return true }
+        if member == "active_workers" { return true }
+        if member == "http_requests_total" { return true }
+        if member == "latency_avg_us" { return true }
+        if member == "latency_p50_us" { return true }
+        if member == "latency_p95_us" { return true }
+        if member == "latency_p99_us" { return true }
+        return false
+    }
+    return false
+}
+
+// The member names the builder has a branch for (buildCall in
+// builder.orb:4528-4804). It picks one of these by the member name before the
+// default method path, so a declared function of the same name cannot change
+// what the call emits: `fn push(x: int)` did not stop `s.push(1)` from
+// emitting list_push on an orbit_string. A name here is answered by the
+// receiver's set or refused; only a name with no branch may fall through to a
+// declared function.
+fn isLoweredMemberName(name: string) -> bool {
+    if name == "push" { return true }
+    if name == "get" { return true }
+    if name == "set" { return true }
+    if name == "len" { return true }
+    if name == "pop" { return true }
+    if name == "clear" { return true }
+    if name == "has" { return true }
+    if name == "delete" { return true }
+    if name == "keys" { return true }
+    if name == "contains" { return true }
+    if name == "at" { return true }
+    if name == "slice" { return true }
+    if name == "to_int" { return true }
+    if name == "indexOf" { return true }
+    if name == "uptime" { return true }
+    if name == "pid" { return true }
+    if name == "active_workers" { return true }
+    if name == "http_requests_total" { return true }
+    if name == "latency_avg_us" { return true }
+    if name == "latency_p50_us" { return true }
+    if name == "latency_p95_us" { return true }
+    if name == "latency_p99_us" { return true }
+    return false
+}
+
 fn findType(sema: Sema, name: string) -> int {
     var i = 0
     while i < sema.typeRegistry.len() {
@@ -1127,55 +1213,26 @@ fn missCount(sema: Sema, kind: string) -> int {
 // Names the language provides without a `fn` declaration, so a resolver that
 // only knows declared symbols calls every one of them unresolved.
 //
-// Two groups, and they are not the same kind of debt. The first is the
-// builtins: the emitter recognises them by name (compiler/ir/builder.orb,
-// compiler/emit/c_backend.orb), so a program uses them and nothing declares them.
-// The second is the runtime entry points the compiler itself calls: the
-// emitted C resolves them through <orbit/runtime.h>, which the front end never
-// reads, so `orbit_string_len` is a real Orbit name with no Orbit
-// declaration. Both are counted, and both are the honest size of what is left;
-// neither is a reason to reject a program.
+// Each one reaches the C step as a real symbol or a constant. The builtins are
+// recognised by the emitter (compiler/ir/builder.orb,
+// compiler/emit/c_backend.orb), including `system`, whose members are lowered
+// there. The runtime entry points are resolved through <orbit/runtime.h>,
+// which the front end never reads, so `orbit_string_len` is a real Orbit name
+// with no Orbit declaration. `NULL` is the constant the backend types.
+//
+// A name the backend cannot emit is not provided. `abs(x)` type-checked and
+// the C step rejected `abs((void*)(uintptr_t)(x))`; `sort(xs)` type-checked
+// and the C step rejected `sort(...)` for a declaration nothing provides.
+// Both are undeclared functions now, before any C is emitted.
+//
+// The collection member names are not provided either. `len`, `at`, `slice`,
+// `indexOf`, `contains`, `push`, `get`, `set`, `has`, `keys` and `delete` are
+// builder branches reached only through a receiver, and `len("abc")` reached
+// the C step as a call to a function nothing declares. They stay members: the
+// builder lowers `s.at(0)` and `xs.push(1)` before a callee name is resolved.
 fn isProvidedName(name: string) -> bool {
     if name == "NULL" { return true }
     if name == "system" { return true }
-    if name == "self" { return true }
-    if name == "len" { return true }
-    if name == "at" { return true }
-    if name == "slice" { return true }
-    if name == "indexOf" { return true }
-    if name == "contains" { return true }
-    if name == "toInt" { return true }
-    if name == "toFloat" { return true }
-    if name == "toString" { return true }
-    if name == "abs" { return true }
-    if name == "min" { return true }
-    if name == "max" { return true }
-    if name == "floor" { return true }
-    if name == "ceil" { return true }
-    if name == "round" { return true }
-    if name == "sqrt" { return true }
-    if name == "pow" { return true }
-    if name == "push" { return true }
-    if name == "get" { return true }
-    if name == "set" { return true }
-    if name == "has" { return true }
-    if name == "keys" { return true }
-    if name == "values" { return true }
-    if name == "delete" { return true }
-    if name == "join" { return true }
-    if name == "split" { return true }
-    if name == "replace" { return true }
-    if name == "trim" { return true }
-    if name == "upper" { return true }
-    if name == "lower" { return true }
-    if name == "startsWith" { return true }
-    if name == "endsWith" { return true }
-    if name == "sort" { return true }
-    if name == "map" { return true }
-    if name == "filter" { return true }
-    if name == "reduce" { return true }
-    if name == "sum" { return true }
-    if name == "env" { return true }
     if name == "print" { return true }
     if name == "ok" { return true }
     if name == "err" { return true }
@@ -3786,6 +3843,12 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         recordMiss(sema, "name", l.text)
                         reportError(sema, "Undeclared identifier: " + l.text + "; nothing in scope declares it")
                     }
+                    // The system builtin is a value of its own type, so the
+                    // members it answers are decided by the receiver's type
+                    // and not by the spelling of its name. A local named
+                    // `system` resolves above, gets the local's type, and is
+                    // then a receiver of that type instead.
+                    if l.text == "system" { return "system" }
                     return "unknown"
                 }
                 // A list the program has pushed into is a `list<T>` from here
@@ -4073,6 +4136,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         if member == "contains" { return "bool" }
                         if member == "slice" { return "string" }
                         if member == "to_int" { return "int" }
+                        if member == "indexOf" { return "int" }
                     }
                     // `compatTypeBase` and not the literal "list": a list whose
                     // element type is known types as `list<int>`, and a test
@@ -4093,20 +4157,47 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         if member == "get" || member == "at" || member == "pop" {
                             return listElementOf(sema, objType, callObjName)
                         }
+                        if member == "set" { return "void" }
+                        if member == "clear" { return "void" }
                     }
                     if objType == "map" || objType == "Map" {
                         if member == "has" { return "bool" }
                         if member == "keys" { return "list<string>" }
                         if member == "delete" { return "void" }
                     }
-                    if callObjName == "system" {
-                        if member == "env" { return "string" }
+                    if objType == "system" {
                         if member == "uptime" { return "int" }
                         if member == "pid" { return "int" }
                         if member == "active_workers" { return "int" }
                         if member == "http_requests_total" { return "int" }
                         if member == "latency_avg_us" { return "int" }
                         if member == "latency_p50_us" || member == "latency_p95_us" || member == "latency_p99_us" { return "int" }
+                    }
+                    // The receivers enumerated above are the ones whose member
+                    // names this table decides. A name with no builder branch
+                    // answered "unknown" here, so `xs.sort()` checked clean and
+                    // the C step met an implicit declaration of `sort`. The
+                    // name cannot be emitted, and that is a fact about the
+                    // receiver's type, so it is refused before the emitter.
+                    // The set is the receiver's own: `xs.indexOf(3)` lowers to
+                    // orbit_string_indexOf and reads an OrbitList as a string,
+                    // so a name another receiver answers is not a member here.
+                    // A member call naming a declared function is that function
+                    // with the receiver as its first argument, which is the
+                    // builder's default method path: `xs.double()` where
+                    // `fn double(x: list<int>)` exists is a call, not an
+                    // unknown member, and refusing it would break code that
+                    // built before this check. That path is only reachable for
+                    // a name the builder has no branch for. A name with a
+                    // branch never reaches it, so a declaration of `push` must
+                    // not answer `s.push(1)`: the receiver's set decides.
+                    // A receiver whose type is not known stays silent: naming
+                    // a member on an unknown type is a different defect.
+                    val recvBase = compatTypeBase(objType)
+                    if recvBase == "string" || recvBase == "list" || recvBase == "map" || recvBase == "system" {
+                        if receiverAnswersMember(recvBase, member) == false && (isLoweredMemberName(member) || resolveFunctionSymbol(sema, member) == NULL) {
+                            reportErrorAt(sema, "E1003", "Call a declared function, or a member this receiver answers; a member call is not a function call.", c.line, c.col, "'" + objType + "' has no member '" + member + "'.")
+                        }
                     }
                 }
                 _ => {}
@@ -4130,9 +4221,9 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             // The system.* builtins, so their type is known rather than
             // unknown. An unknown type is compatible with everything, which is
             // how `ok 200 system.uptime()` reached the C backend and passed an
-            // int where a string pointer belongs.
-            if objName == "system" {
-                if member == "env" { return "string" }
+            // int where a string pointer belongs. The receiver's type decides
+            // this, so a local named `system` is not read as the builtin.
+            if objType == "system" {
                 if member == "uptime" { return "int" }
                 if member == "pid" { return "int" }
                 if member == "active_workers" { return "int" }

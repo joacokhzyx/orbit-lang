@@ -1,4 +1,5 @@
-// Member resolution: a closed member set is checked, an open one is not.
+// Member resolution: a closed member set is checked, and a member call is
+// checked against the set the builder lowers.
 //
 // Every case in the first half is a member that cannot exist and is now a
 // diagnostic instead of a C step that dies with "unknown type name". Every
@@ -21,6 +22,26 @@ fn area(s: Shape) -> int {
     }
 }
 
+// A member call that names a declared function is that function with the
+// receiver as its first argument; the builder's default method path does the
+// same. The check in the next function must not refuse it.
+fn double(x: list < int >) -> int {
+    var s = 0
+    var i = 0
+    while i < x.len() {
+        s = s + x.get(i) * 2
+        i = i + 1
+    }
+    return s
+}
+
+// A function named like a lowered member is still a function. Only the member
+// spelling is closed: the builder picks its `push` branch before the default
+// path, so a declaration of `push` cannot answer `s.push(1)` on a string.
+fn push(x: int) -> int {
+    return x + 1
+}
+
 fn main() -> int {
     // A model: declared fields, and only those.
     val p = Point(3, 4)
@@ -39,14 +60,32 @@ fn main() -> int {
     print(area(Shape.Circle(5)))
     print(area(Shape.Square(6)))
 
-    // The open member surfaces this function deliberately does not touch:
-    // string, list, and the system builtins all answer to a method set the
-    // emitter owns, so a check that tried to enumerate them would be wrong.
+    // The member surfaces the checker enumerates: string, list and the system
+    // builtins answer to the names the builder lowers, so these calls are the
+    // positive half of that rule and n111 pins the negative.
     val xs = [1, 2, 3]
     print(xs.len())
     print(xs.get(0))
+    // A member name that is a declared function is a call of it, with the
+    // receiver first; the member set is silent on it.
+    if xs.double() != 12 { return 1 }
+    // The declaration is a function in its own right: the member rule does not
+    // remove it from scope.
+    if push(41) != 42 { return 7 }
     val s = "hi"
     print(s.length)
     print(system.uptime() >= 0)
+
+    // Each receiver answers its own set. These are the names the sets accept,
+    // and the program builds only if none of them is refused.
+    val digits = "12"
+    if digits.indexOf("2") != 1 { return 2 }
+    if digits.slice(0, 1) != "1" { return 3 }
+    if digits.at(0) != 49 { return 4 }
+    val ys = [4, 5, 6]
+    if ys.at(2) != 6 { return 5 }
+    ys.set(0, 9)
+    print(ys.pop())
+    if ys.len() != 2 { return 6 }
     return 0
 }

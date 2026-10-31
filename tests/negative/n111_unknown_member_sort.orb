@@ -1,0 +1,16 @@
+// case: member-call-without-lowering
+// what: `xs.sort()` named a member the builder has no branch for. The front
+//      end typed the call `unknown`, the builder emitted `sort(xs, ...)` and
+//      the C step met an implicit declaration of a function nobody wrote --
+//      the same failure n110 pins for the bare call, reached through a
+//      receiver whose type was known all along.
+//
+//      A member call is not a function call: the member set of a receiver the
+//      checker enumerates is the set the builder lowers, and a name outside it
+//      is refused before any C is emitted.
+// expect-error: 'list<int>' has no member 'sort'.
+fn main() -> int {
+    var xs = [3, 1, 2]
+    xs.sort()
+    return 0
+}

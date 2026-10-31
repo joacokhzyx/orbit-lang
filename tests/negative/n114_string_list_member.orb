@@ -1,0 +1,11 @@
+// case: list-member-on-a-string
+// what: `s.push(1)` on a string. The builder's `push` branch emits list_push
+//      on the receiver whatever its type, so an orbit_string was handed to the
+//      list runtime. `push` is a list member, and a string answers only `len`,
+//      `contains`, `at`, `indexOf`, `slice` and `to_int`.
+// expect-error: 'string' has no member 'push'.
+fn main() -> int {
+    val s = "abc"
+    s.push(1)
+    return 0
+}
