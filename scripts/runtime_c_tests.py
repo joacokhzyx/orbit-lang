@@ -103,6 +103,9 @@ PROGRAMS = [
     prog("auth", vendor=True, db=True, defines=["-DORBIT_WITH_DB"],
          src="tests/auth/auth_harness.c"),
     prog("result_float", warnings=True),
+    # Windows: a spawned background child must not inherit the caller's
+    # stdout, or a pipeline never sees end of file while the nodes run.
+    prog("spawn"),
     prog("random", warnings=True),
     prog("exec", warnings=True, defines=["-DORBIT_WITH_EXEC"]),
     prog("http_client", warnings=True),

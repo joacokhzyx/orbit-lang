@@ -40,6 +40,10 @@ Commands and gates:
 - **A POSIX checkout keeps LF.** `.gitattributes` pins `*.sh` to LF, so a
   Windows checkout no longer produces shell scripts that fail to parse on
   Linux.
+- **`orbit cluster up` no longer holds the caller's stdout open.** On Windows
+  the nodes inherited the compiler's stdout, so `orbit cluster up | tail`
+  waited until every node exited. They start with their log file and nothing
+  else from the caller.
 - **`orbit --version` prints `orbit 0.1.0`.**
 
 Runtime:

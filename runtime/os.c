@@ -380,6 +380,21 @@ orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile) {
     memcpy(cmdline, command, n + 1);
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof(pi));
+    /* The child gets hLog for both streams below. Its own copy of the caller's
+     * stdout is the one thing it must not get: a pipeline sees end of file only
+     * when every writer closes, and these children outlive the command that
+     * started them. Clearing the flag on the parent's handles is enough --
+     * CreateProcess copies only inheritable ones. */
+    {
+        HANDLE ownOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        HANDLE ownErr = GetStdHandle(STD_ERROR_HANDLE);
+        if (ownOut != NULL && ownOut != INVALID_HANDLE_VALUE) {
+            SetHandleInformation(ownOut, HANDLE_FLAG_INHERIT, 0);
+        }
+        if (ownErr != NULL && ownErr != INVALID_HANDLE_VALUE) {
+            SetHandleInformation(ownErr, HANDLE_FLAG_INHERIT, 0);
+        }
+    }
     BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE,
                              DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
                              NULL, NULL, &si, &pi);
