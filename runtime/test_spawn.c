@@ -48,9 +48,9 @@ int main(void) {
     saved = GetStdHandle(STD_OUTPUT_HANDLE);
     SetStdHandle(STD_OUTPUT_HANDLE, wr);
 
-    /* About a second of life, and it never writes: the parent's closed handle
-     * is the only writer unless the child inherited it. */
-    pid = orbit_os_spawn_bg("cmd /c ping -n 2 127.0.0.1 >nul", "NUL");
+    /* Several seconds of life, and it never writes: the parent's closed
+     * handle is the only writer unless the child inherited it. */
+    pid = orbit_os_spawn_bg("cmd /c ping -n 5 127.0.0.1 >nul", "NUL");
     SetStdHandle(STD_OUTPUT_HANDLE, saved);
     CloseHandle(wr);
     if (pid <= 0) {
@@ -60,7 +60,7 @@ int main(void) {
     }
 
     reader = CreateThread(NULL, 0, drain_pipe, rd, 0, NULL);
-    waited = WaitForSingleObject(reader, 400);
+    waited = WaitForSingleObject(reader, 1500);
     if (waited != WAIT_OBJECT_0) {
         printf("FAILED the spawned child holds the caller's stdout\n");
         failures++;
@@ -68,6 +68,7 @@ int main(void) {
     }
     CloseHandle(reader);
     CloseHandle(rd);
+    orbit_os_kill(pid, 0);
     if (failures == 0) printf("PASS\n");
     return failures == 0 ? 0 : 1;
 }
