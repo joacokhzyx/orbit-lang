@@ -20,15 +20,24 @@ failure mode worth reading about.
 
 ## Doctor over a whole tree needs more arena than a 4 GB machine offers
 
-`orbit doctor compiler` allocates more than 2.9 GB of arena, and
-`orbit doctor .` over this repository (472 files) reaches the same ceiling.
-The default is 75% of physical memory, so a 3.9 GB WSL instance aborts with
-`arena ceiling reached ... the limit is 2928 MB from ORBIT_ARENA_MAX_MB`.
-With `ORBIT_ARENA_MAX_MB=20000` the compiler scan reports 138 findings in
-9.6 s; on Windows the repository scan finishes in 23 s under the 6 GB
-default, and a 16 GB CI runner's default covers both. The scan typechecks
-every file in one arena, so the change that would remove the requirement is
-releasing per-file state, not a larger default.
+`orbit doctor compiler` commits more than 2.9 GB of arena, so a host whose
+default ceiling is lower aborts. The default is three quarters of physical
+memory (`runtime/arena.c:52-58`), and a 3.9 GB WSL instance aborts with `arena
+ceiling reached allocating 65536 bytes; 3070574592 of 3070620672 bytes
+committed, the limit is 2928 MB from ORBIT_ARENA_MAX_MB`. On this Windows host
+the same scan finishes in 6.6 s and reports 139 findings in 28 files, and
+`ORBIT_ARENA_MAX_MB=20000` leaves that number unchanged. A 16 GB CI runner's
+default ceiling covers both scans.
+
+The scan typechecks every file and releases nothing, and the release cannot be
+written in this language: the arena is not a value an Orbit program names. The
+emitter resolves it as the caller's arena or the process global
+(`compiler/emit/c_backend.orb:1292`), and the only `orbit_arena_create` calls in
+any `.orb` file sit inside the C text the emitter prints. So the change that
+removes the requirement is a scoped arena the source can select -- a runtime and
+emitter capability, not a doctor loop that frees. `scripts/doctor_gate.py`
+therefore scans the directories that must be clean, and the `compiler` scope of
+that gate is the one that needs the raised ceiling on a small host.
 
 ## Doctor skips tool state: dot-directories and what .gitignore names
 
@@ -38,9 +47,10 @@ a line that is just `name/` keeps that directory out, which is how `scratch/`,
 `dist/` and the fuzz output stay out of a repository-wide run. Nested
 `.gitignore` files, wildcards and anchored patterns are not interpreted.
 
-With both rules, `orbit doctor .` over this repository scans 472 files and
-reports 439 findings in 23 s on Windows. The 4 GB Linux run still reaches the
-arena ceiling on the same scan; that is the section above, not the walk.
+With both rules, `orbit doctor .` over this repository scans 476 files and
+reports 442 findings (138 errors, 304 warnings) in 7.8 s on Windows. The 4 GB
+Linux run still reaches the arena ceiling on the same scan; that is the section
+above, not the walk.
 
 ## The silent group is empty
 
