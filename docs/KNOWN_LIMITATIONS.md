@@ -418,11 +418,15 @@ git history alone does not say *which* feature or *why* it is
 impossible. `std/quarantine/README.md` has the convention and the
 "what does not belong here" list.
 
-So there is no `std/fs` directory creation, no `parseFloat`, and no
-`Option`. `std/json` exists but is one function (`jsonQuote`): quoting
-for hand-built bodies, not parsing, not traversal. Not "not yet
-documented" — the modules that claimed the rest are gone or
-quarantined, and
+`std/fs/file.orb` creates directories (`mkdirAll`, parents included, true
+when the directory is already there) and walks a tree. `std/string/string.orb`
+parses a float (`parseFloatChecked`, canonical decimal form only, with a
+diagnostic instead of `atof`'s silent prefix read). Both are pinned by
+`tests/std/test_fs.orb` and `tests/std/test_string.orb`.
+
+What is still absent: a JSON parser, and `Option`. `std/json` is one function
+(`jsonQuote`): quoting for hand-built bodies, not parsing, not traversal. The
+modules that claimed the rest are gone or quarantined, and
 [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#stdquarantine-specified-not-implemented)
 names the absences.
 
