@@ -46,6 +46,17 @@ is scanned, and a generated 417 KB file with ten thousand functions exhausts
 the default arena before the scan can report anything. Point doctor at the
 tracked directories, or drop the generated file.
 
+## `orbit cluster up` keeps the caller's stdout open while the nodes run
+
+On Windows the spawned nodes inherit the compiler's inheritable handles, so a
+pipeline does not see end of file until every node exits:
+`orbit cluster up ... | tail` waits, and so does `$(orbit cluster up ...)`.
+The command itself exits 0, and each node writes its own output to
+`<log-dir>/node-N.log`; redirect the command's stdout to a file, or run it
+without a pipe. An explicit handle list (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`)
+would close the inherited pipe, and the first attempt made `CreateProcess`
+fail with `cluster.SpawnFailed`, so it is not landed.
+
 ## The silent group is empty
 
 This section used to be called *nineteen programs the compiler should reject
