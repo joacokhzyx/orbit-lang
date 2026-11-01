@@ -402,7 +402,7 @@ jobs:
           ORBIT_TCC="$TCC" "$PY" scripts/dual_judge.py \
             --compiler "$FP" --cc "${{ matrix.cc }}" --tcc "$TCC"
 
-      - name: DDC triangle (Linux only: needs gcc-O0/gcc-O2 arms)
+      - name: "DDC triangle (Linux only: needs gcc-O0/gcc-O2 arms)"
         if: runner.os == 'Linux' && steps.acquire.outputs.skip != 'true'
         shell: bash
         run: |
