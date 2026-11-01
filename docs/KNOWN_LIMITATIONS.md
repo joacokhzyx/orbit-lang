@@ -408,8 +408,10 @@ parses a float (`parseFloatChecked`, canonical decimal form only, with a
 diagnostic instead of `atof`'s silent prefix read). Both are pinned by
 `tests/std/test_fs.orb` and `tests/std/test_string.orb`.
 
-What is still absent: a JSON parser, and `Option`. `std/json` is one function
-(`jsonQuote`): quoting for hand-built bodies, not parsing, not traversal. The
+`std/json` parses strict JSON into typed values: `parseJson` answers `err`
+for malformed input rather than a partial document, and the `json*` getters
+read ints, floats, bools, strings, nested objects and indexed arrays. It is
+pinned by `tests/std/test_json.orb`. What is still absent: `Option`. The
 modules that claimed the rest are gone or quarantined, and
 [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#stdquarantine-specified-not-implemented)
 names the absences.

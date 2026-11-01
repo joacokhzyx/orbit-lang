@@ -56,6 +56,11 @@ Commands and gates:
 
 Runtime:
 
+- **`std/json` parses and traverses, and has a test.** `parseJson` refuses
+  malformed input as a whole and the `json*` getters read typed fields and
+  indexed arrays. `tests/std/test_json.orb` pins the wrapper; the runtime half
+  was already in `runtime/json.c`.
+
 - **Requests are counted by class.** `system.http_requests_ok()` counts
   responses below 400 and `system.http_requests_error()` counts 400 and above,
   both recorded where the response is sent so the default router and the
