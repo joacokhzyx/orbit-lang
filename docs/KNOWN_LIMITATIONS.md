@@ -462,30 +462,33 @@ lives in git history with it. What is left is a different and smaller hole:
 ### An object field read is lowered from the writes in the reading function
 
 `{ "a": 1 }.get("a")` no longer lowers to a list read. It reads the field the
-same way a dynamic object is written. The emitter picks the getter from the
+same way a dynamic object is written: the emitter picks the getter from the
 setter that wrote that key, so an int field reads back an int, a string field
 a string, and a list field a list. That scan only sees the writes in the
-function the read is in, which is silent for an object a function returned and
-for a key the literal never wrote. The raw getter it fell back to answers
-a pointer, so `val ratio: float = o.ratio` on an object from another function
-came back as the field's address bits.
+function the read is in.
 
-Two cases are closed. A read whose declared type names one of the kinds an
-object field holds (`int`, `float`, `bool`, `string`, `object`, `list`) carries
-that kind to the emitter on the read itself, as `IRInstruction.fieldKind`.
-So `val ratio: float = o.ratio` reads `0.5` and `val v: int = o.get("missing")`
+A read whose declared type names one of the kinds an object field holds
+(`int`, `float`, `bool`, `string`, `object`, `list`) carries that kind to the
+emitter on the read itself, as `IRInstruction.fieldKind`. So
+`val ratio: float = o.ratio` reads `0.5` and `val v: int = o.get("missing")`
 answers `0`. A key that is absent is not a mismatch, and every typed getter
 already answers the zero of its kind for one. The scan still wins wherever it
 has an answer, so a same-function literal read is lowered exactly as before.
 
-What is still open:
+A read with no declaration is refused, not guessed. Both of these exit 1 from
+`orbit check`, with the field named and the fix spelled out:
 
-- a read with no declaration (`val o = make(); o.ratio` used without a
-  `: float`) has no kind anywhere and still takes the raw getter;
-- the middle of a chained read is such a read: `o.deep.x` on an object from
-  another function leaves `o.deep` untyped, and the second `.` is lowered as a
-  model field access -- `'OrbitModel' has no member named 'x'` from the C step,
-  with `orbit check` clean (pre-existing, unchanged by the kind above).
+```orbit
+val o = make()
+val r = o.ratio          // object field 'ratio' has no known type in fn 'main'
+print("${o.deep.x}")     // object field 'deep' has no known type in fn 'main'
+```
+
+The message asks for the declaration that supplies the missing answer:
+`val deep: object = o.deep`. The value model is one machine word with no tag,
+so at run time a dynamic field's kind is not recoverable, and a getter chosen
+by guessing would read the wrong width. A tagged value model is the change
+that would remove the requirement.
 
 ## 29.7% of instructions are `unknown`, and 45.7% of those are silent
 
