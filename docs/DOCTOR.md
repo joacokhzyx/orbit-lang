@@ -63,7 +63,7 @@ app.orb:12 [D002] route GET /users/:id collides with app.orb:8 (GET /users/{id})
 | Code | What it reports |
 |---|---|
 | `D001` | No C compiler answered. Doctor tries `ORBIT_CC`, then `CC`, then `gcc`, `clang`, `cc` in that order - a wider net than the build, which resolves `ORBIT_CC`, `CC`, `cc` and stops. |
-| `D002` | Route conflicts: exact duplicates, paths that match once `:params` and `{params}` are treated alike (so `/users/:id` and `/users/{uuid}` collide), and specific routes covered by a same-method wildcard. |
+| `D002` | Route conflicts inside one program: exact duplicates, paths that match once `:params` and `{params}` are treated alike (so `/users/:id` and `/users/{uuid}` collide), and specific routes covered by a same-method wildcard. A file belongs to the programs whose import closure reaches it, so two independent services that both serve `GET /health` are not a finding. |
 | `D003` | A `private fn` that nothing in the scanned files calls. Public functions are never reported here, since files outside the scan may import them. `main` and `extern` functions are never reported. |
 | `D004` | A `model` that nothing in the scanned files references, including use as a type or through calls such as `Product.all()`. |
 | `D005` | An unknown member on `system`, for example `system.cores()`. The valid members are `uptime`, `pid`, `active_workers`, `http_requests_total`, `latency_avg_us`, `latency_p50_us`, `latency_p95_us`, `latency_p99_us`. |
@@ -189,25 +189,39 @@ there is nothing to typecheck yet.
 
 ## Which directories are gated
 
-`orbit doctor .` over this repository reports 196 findings, and almost none of
-them is something to fix:
+A raw `orbit doctor <dir>` reports findings that the gate is right to ignore.
+Measured on 2026-11-01, one run per directory, over the six directories git
+tracks:
 
-| | n | what it is |
+| directory | findings | what they are |
 |---|---|---|
-| D008 | 57 | files in `tests/negative`, `tests/doctor`, `tests/parity` that must NOT compile |
-| D002 | 105 | route collisions inside those corpora, plus 17 across `examples/` |
-| D006/D007 | 28 | whitespace, which were real and are fixed |
+| `compiler/` | 139 | advisory: `D017` 78, `D018` 31, `D015` 29, `D019` 1 |
+| `std/` | 5 | advisory: `D015` 3, `D017` 2 |
+| `tests/` | 282 | `D008` 129 (fixtures that must NOT compile), then `D017` 32, `D013` 17, `D007` 15, `D021` 12, `D006` 12, `D023` 11, `D019` 8, `D002` 1 |
+| `examples/` | 3 | `D004` 2 (unused models), `D013` 1 |
+| `runtime/` | 2 | `D008` 2 (must not compile) |
+| `scripts/` | 4 | `D013` 3, `D017` 1 |
 
-So the gate names what must be clean instead of baselining the rest.
+That is 435 findings, and almost none of them is something to fix. The gate
+names what must be clean instead of baselining the rest.
 `scripts/doctor_gate.py --scope-only` runs doctor over `compiler`, `std` and
-`tests/suite`, and those three are expected to produce nothing. Four dead
-models came out of making that true: `IRTraitMethod` and `Loc` in the
+`tests/suite`, and those three produce nothing outside the advisory codes.
+Four dead models came out of making that true: `IRTraitMethod` and `Loc` in the
 compiler, `JwtHeader` and `JwtToken` in std.
 
 `examples/` is deliberately not in the list. It is a directory of
-**independent services**, and a tree scan reads five services' `GET /health`
-as one program's conflicting routes. That is the correct analysis of the wrong
-input: scan a single service, or a single file, when that is the question.
+**independent services**, and what remains there is per file: two unused models
+and one mutable route. Route conflicts are no longer among them. `D002`
+compares two routes only when one program's import closure reaches both files,
+so five services' `GET /health` handlers are five programs' routes. Within one
+program the check still fires: `tests/doctor/` is a two-file program, and
+`scripts/cli_probe.py` pins both halves.
+
+Two limits of the walk. A directory whose name begins with a dot is tool state
+and is skipped, so `.orbit/` with its thousands of build copies is never
+scanned. An untracked `scratch/` is not skipped, and a generated 417 KB file
+with ten thousand functions exhausts the default 6 GB arena before the scan can
+report anything; scan the tracked directories, or drop the generated file.
 
 ## Reading production telemetry
 

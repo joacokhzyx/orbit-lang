@@ -23,7 +23,7 @@ All measurements below on one box:
 - `gcc` 16.2.0, `python` 3.14.8
 
 The compiler is the fixed-point binary the tree builds (`make fp`, version
-`orbit 0.1.0-rc.2`). Two instruments, both runnable from a clean checkout:
+`orbit 0.1.0`). Two instruments, both runnable from a clean checkout:
 
 **Emitted size.** Run the compiler with the C compiler suppressed and a private
 temp dir per program, then read the file it wrote:

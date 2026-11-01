@@ -6,10 +6,41 @@ is reconstructed from memory. (`git log --oneline` tells the
 full story; this page tells the short one.)
 
 Versioning rules: [Versioning and Compatibility](VERSIONING.md).
-Current: `0.1.0` pre-release (`orbit --version` prints
-`orbit 0.1.0-rc.2`, and the startup banner says `Orbit 0.1.0`).
+Current: `0.1.0` (`orbit --version` prints `orbit 0.1.0`, and the
+startup banner says `Orbit 0.1.0`).
 
-## Unreleased (toward 0.1.0)
+## 0.1.0 (2026-11-01)
+
+Commands and gates:
+
+- **The existing commands finish without an r6.exe.** On Windows the native
+  backend is the default only when `ORBIT_R6` names a path or `r6.exe` sits
+  beside the compiler; otherwise the build uses the C backend and prints one
+  line saying so. `orbit build`, `orbit run` and `orbit dev` all inherit it.
+- **`orbit run dir/file.orb` starts the program on Windows.** cmd.exe read the
+  quoted forward-slash path as a command named after its first segment; the
+  child path now carries backslashes.
+- **A compiler outside the checkout finds its trees.** `ORBIT_RUNTIME_DIR` and
+  `ORBIT_STD_DIR` name the runtime and std directories before the compiler's
+  own directory and the working directory. Missing runtime headers are
+  reported before the C compiler runs, instead of as a missing C include.
+- **`orbit frontend` names what it refused.** The command prints the error the
+  frontend reported, or the first `unknown` type with its function and value
+  id; it used to say diagnostics contained errors while printing none.
+- **`orbit doctor` scopes route conflicts to one program.** A route belongs to
+  the programs whose import closure reaches its file, so `orbit doctor
+  examples` no longer reads five services' `GET /health` as one program's
+  duplicates. The walk skips dot-directories, and module fingerprints are a
+  fixed size.
+- **`orbit build` reports `.text` on Linux too.** The footer read only PE
+  images; it now reads ELF64 section headers, so the same program prints the
+  same footer on both hosts.
+- **The runtime archive names the host it was built for.** An archive built on
+  Windows is stale on Linux instead of handing MinGW objects to the linker.
+- **A POSIX checkout keeps LF.** `.gitattributes` pins `*.sh` to LF, so a
+  Windows checkout no longer produces shell scripts that fail to parse on
+  Linux.
+- **`orbit --version` prints `orbit 0.1.0`.**
 
 Runtime:
 

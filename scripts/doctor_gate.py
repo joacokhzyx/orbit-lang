@@ -221,23 +221,22 @@ def scratch_env(parent_env=None):
 # --------------------------------------------------------------------------
 # --scope-only: doctor over the directories that must have no findings.
 #
-# The interesting thing this encodes is what it does NOT cover. `orbit doctor .`
-# over this repository reports 196 findings, and nearly all of them are
-# directories that are supposed to be broken:
+# The interesting thing this encodes is what it does NOT cover. A raw
+# `orbit doctor <dir>` reports findings in directories that are supposed to be
+# broken or that are advisory by design: D008 in fixtures that must not compile,
+# the complexity and loop advisories in compiler/ and std/, and the route
+# conflicts inside tests/doctor. docs/DOCTOR.md carries the measured table and
+# the date it was taken.
 #
-#   57 D008  in tests/negative, tests/doctor and tests/parity -- fixtures that
-#            must not compile, and whose whole purpose is to not compile
-#  105 D002  route collisions inside those same corpora, plus 17 across
-#            examples/, which is a directory of INDEPENDENT services and whose
-#            five GET /health handlers are five services, not one bug
+# Baselining those would mean a file vouching for a state nobody wants. Naming
+# the directories that must be clean says what we actually mean, and says it in
+# one screen.
 #
-# Baselining those would mean a file of 196 lines vouching for a state nobody
-# wants. Naming the directories that must be clean says what we actually mean,
-# and says it in one screen instead of 196.
-#
-# examples/ is absent on purpose. A tree scan reads independent services as one
-# program's route table, which is the correct analysis of the wrong input; scan it
-# per service when that is the question. docs/DOCTOR.md documents this.
+# examples/ is absent on purpose. It is a directory of independent services. It
+# also used to be where a tree scan reported five services' GET /health as one
+# program's conflicts; since 2026-11-01 D002 compares two routes only when one
+# program's import closure reaches both files, so those services are no longer a
+# finding at all. What remains there is per file. docs/DOCTOR.md documents this.
 #
 # This used to be scripts/doctor_scope_gate.py. It is a mode of this gate now
 # because the two shared everything but the scan loop: the scratch environment,

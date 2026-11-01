@@ -79,6 +79,9 @@ MASKS = [
     (re.compile(r"^toolchain: found .*$", re.M), "toolchain: found <cc>"),
     # Times and sizes, with the padding that right-aligns them.
     (re.compile(r" *(?<![0-9.])\d+(?:\.\d+)?(?= (?:ms|KB)\b)"), " N"),
+    # The banner names the version; cli_probe pins that string exactly. This
+    # gate is about the layout, so a version bump must not rewrite six goldens.
+    (re.compile(r"orbit \d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?"), "orbit N"),
 ]
 
 
@@ -87,6 +90,12 @@ def normalize(text: str, scratch: str) -> str:
     for spelling in (scratch, scratch.replace("\\", "/")):
         text = text.replace(spelling, ".")
     text = text.replace("\\", "/")
+    # `orbit run` names the child with the host's executable suffix. The screen
+    # is about the layout, so the goldens are stored without it.
+    text = text.replace(".orb.run.exe", ".orb.run")
+    # Windows names a relative path as ".\scan\x.orb" and Linux as "scan/x.orb".
+    # The goldens are stored in the POSIX spelling.
+    text = text.replace("./scan/", "scan/")
     for pattern, repl in MASKS:
         text = pattern.sub(repl, text)
     return "\n".join(settle_card_padding(line) for line in text.split("\n"))

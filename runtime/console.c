@@ -129,7 +129,47 @@ orbit_int orbit_ui_width(orbit_int fd) {
 #endif
 }
 
-/* The .text size of a PE image, or -1 for anything else. The build screen
+static unsigned long orbit_le32(const unsigned char* p) {
+    return (unsigned long)p[0] | ((unsigned long)p[1] << 8) | ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
+}
+
+static unsigned long orbit_le64(const unsigned char* p) {
+    return orbit_le32(p) | (orbit_le32(p + 4) << 32);
+}
+
+/* Section `shstrndx` names the others, and the one called ".text" carries the
+ * code. ELF64 section headers are 64 bytes. Windows and Linux must report the
+ * same field: the build screen drops it otherwise, and the two hosts then print
+ * different footers for the same program. */
+static orbit_int orbit_elf_text_size(FILE* f, const unsigned char* head) {
+    unsigned long shoff = orbit_le64(head + 40);
+    int shentsize = head[58] | (head[59] << 8);
+    int shnum = head[60] | (head[61] << 8);
+    int shstrndx = head[62] | (head[63] << 8);
+    unsigned char sh[64];
+    if (shentsize < 64 || shoff == 0 || shstrndx >= shnum) return -1;
+    if (fseek(f, (long)(shoff + (unsigned long)shstrndx * (unsigned long)shentsize), SEEK_SET) != 0) return -1;
+    if (fread(sh, 1, 64, f) != 64) return -1;
+    unsigned long stroff = orbit_le64(sh + 24);
+    unsigned long strsize = orbit_le64(sh + 32);
+    for (int i = 0; i < shnum; i++) {
+        unsigned char sec[64];
+        char name[8];
+        size_t got;
+        unsigned long nameoff;
+        if (fseek(f, (long)(shoff + (unsigned long)i * (unsigned long)shentsize), SEEK_SET) != 0) return -1;
+        if (fread(sec, 1, 64, f) != 64) return -1;
+        nameoff = orbit_le32(sec);
+        if (nameoff >= strsize) continue;
+        if (fseek(f, (long)(stroff + nameoff), SEEK_SET) != 0) return -1;
+        got = fread(name, 1, 7, f);
+        name[got] = 0;
+        if (strcmp(name, ".text") == 0) return (orbit_int)orbit_le64(sec + 32);
+    }
+    return -1;
+}
+
+/* The .text size of a PE or ELF64 image, or -1 for anything else. The build screen
  * quotes it so a size change shows next to the time. */
 orbit_int orbit_ui_text_size(orbit_string path) {
     if (!path) return -1;
@@ -154,6 +194,8 @@ orbit_int orbit_ui_text_size(orbit_string path) {
                 }
             }
         }
+    } else if (dos[0] == 0x7f && dos[1] == 'E' && dos[2] == 'L' && dos[3] == 'F' && dos[4] == 2 && dos[5] == 1) {
+        result = orbit_elf_text_size(f, dos);
     }
     fclose(f);
     return result;

@@ -76,6 +76,24 @@ SETUP = {
     "files/ws.orb": "fn main() -> int {\n    return 0   \n}\n",
     "cleandir/clean.orb": "fn main() -> int {\n    return 0\n}\n",
     "tiny.orb": "fn main() -> int {\n    return 0\n}\n",
+    # `orbit run` with a path that names a directory: cmd.exe reads a quoted
+    # forward-slash path as a command named after its first segment, so the
+    # child never started and the error named the directory instead.
+    "sub/tiny.orb": "fn main() -> int {\n    print(\"ran from a subdir\")\n    return 0\n}\n",
+    # Resolved through ORBIT_STD_DIR: the compiler binary lives outside the
+    # tree and the working directory carries no std/.
+    "stdimport/probe.orb": "import \"std/string/string.orb\"\n\nfn main() -> int {\n    return 0\n}\n",
+    # Two independent services in one directory: the same route in each is two
+    # programs' routes, not one program's duplicate.
+    "services/health_a.orb": "route GET \"/health\" {\n    return ok { status: \"a\" }\n}\n\nfn main() -> int {\n    return 0\n}\n",
+    "services/health_b.orb": "route GET \"/health\" {\n    return ok { status: \"b\" }\n}\n\nfn main() -> int {\n    return 0\n}\n",
+    # One program across two files: the import edge makes the duplicate real.
+    "mergesvc/lib.orb": "route GET \"/items\" {\n    return ok { status: \"lib\" }\n}\n",
+    "mergesvc/app.orb": "import \"lib.orb\"\n\nroute GET \"/items\" {\n    return ok { status: \"app\" }\n}\n\nfn main() -> int {\n    return 0\n}\n",
+    # A dot-directory is tool state, not source: the unparseable file inside
+    # .orbit must not be scanned, which is what keeps `doctor .` finite.
+    "state/ok.orb": "fn main() -> int {\n    return 0\n}\n",
+    "state/.orbit/generated.orb": "this is not orbit source\n",
     # Two functions nothing reaches: `orphan` is never called and `orphan_helper`
     # is called only by it. `build --verbose` counts them as dropped.
     "prune/orphans.orb": "fn leaf() -> int {\n    return 1\n}\n\nfn used() -> int {\n    return leaf()\n}\n\nfn orphan() -> int {\n    return 2\n}\n\nfn orphan_helper() -> int {\n    return orphan()\n}\n\nfn main() -> int {\n    return used()\n}\n",
@@ -110,18 +128,31 @@ CASES = [
     # absent: text that must NOT appear on either stream ("" skips), or scoped
     #   to one stream as "out:<text>" / "err:<text>".
     ("help", ["--help"], 0, "out", "Usage:", ""),
+    # The native backend exists on Windows only. On a POSIX host the contract
+    # is the platform refusal, which fires before any r6 is inspected.
     ("native-r6-no-answer", ["build", "tiny.orb", "-o", "t.exe", "--backend=native"], 1, "err",
-     "did not answer `--version`", "", {"ORBIT_R6": "./r6_silent.cmd"}),
+     "did not answer `--version`" if os.name == "nt" else "targets Windows x86-64 only", "",
+     {"ORBIT_R6": "./r6_silent.cmd"}),
     ("native-r6-wrong-protocol", ["build", "tiny.orb", "-o", "t.exe", "--backend=native"], 1, "err",
-     "ir-protocol 99", "", {"ORBIT_R6": "./r6_other.cmd"}),
+     "ir-protocol 99" if os.name == "nt" else "targets Windows x86-64 only", "",
+     {"ORBIT_R6": "./r6_other.cmd"}),
     ("help-short", ["-h"], 0, "out", "Usage:", ""),
-    ("version", ["--version"], 0, "out", "orbit 0.1.0-rc.2", ""),
+    ("version", ["--version"], 0, "out", "orbit 0.1.0", ""),
     ("unknown-cmd", ["frobnicate"], 2, "err", "Usage:", ""),
     ("unknown-flag", ["--badflag"], 2, "err", "Usage:", ""),
     ("build-noarg", ["build"], 2, "err", "Usage:", ""),
     ("build-missing", ["build", "nope.orb"], 1, "err", "orbit build:", ""),
     ("build-missing-plain", ["nope.orb"], 1, "err", "orbit build:", ""),
     ("build-quiet", ["build", "--quiet", "tiny.orb", "-o", "tq.exe"], 0, "out", "", "wrote "),
+    # The runtime headers are found through ORBIT_RUNTIME_DIR when neither the
+    # compiler's directory nor the working directory carries them. A named
+    # directory with no headers is refused before cc runs, so the message names
+    # the variable instead of a missing C include.
+    ("runtime-dir-named", ["build", "--backend=c", "tiny.orb", "-o", "rt.exe"], 0, "out", "", "",
+     {"ORBIT_RUNTIME_DIR": os.path.join(ROOT, "runtime")}),
+    ("runtime-dir-missing", ["build", "--backend=c", "tiny.orb", "-o", "rm.exe"], 1, "err",
+     "holds no runtime headers", "this one is on me",
+     {"ORBIT_RUNTIME_DIR": "missing_runtime"}),
     ("build-verbose", ["build", "--verbose", "tiny.orb", "-o", "tv.exe"], 0, "out", "wrote ", ""),
     ("build-prune-drops-orphans", ["build", "--verbose", "prune/orphans.orb", "-o", "po.exe"], 0, "out", "prune: 2 unreachable functions dropped", ""),
     ("build-prune-keeps-called", ["build", "--verbose", "tiny.orb", "-o", "pt.exe"], 0, "out", "prune: 0 unreachable functions dropped", ""),
@@ -129,9 +160,16 @@ CASES = [
     ("check-noarg", ["check"], 2, "err", "Usage:", ""),
     ("check-missing", ["check", "nope.orb"], 1, "err", "orbit check:", ""),
     ("check-quiet", ["check", "--quiet", "tiny.orb"], 0, "out", "", "Checked"),
+    ("check-std-dir-named", ["check", "stdimport/probe.orb"], 0, "out", "no errors", "",
+     {"ORBIT_STD_DIR": ROOT}),
     ("check-verbose", ["check", "--verbose", "tiny.orb"], 0, "out", "check tiny.orb", ""),
     ("run-noarg", ["run"], 2, "err", "Usage:", ""),
     ("run-missing", ["run", "nope.orb"], 1, "err", "orbit run:", ""),
+    ("run-subdir", ["run", "--backend=c", "sub/tiny.orb"], 0, "out", "ran from a subdir", ""),
+    # The frontend path does not lower the `print` builtin, and the command now
+    # says so by name instead of blaming "diagnostics" it never printed.
+    ("frontend-names-cause", ["frontend", "sub/tiny.orb"], 1, "err",
+     "unknown identifier print", "diagnostics contain errors"),
     ("fmt-noarg", ["fmt"], 2, "err", "Usage:", ""),
     ("fmt-help", ["fmt", "--help"], 0, "out", "Usage:", ""),
     ("fmt-missing", ["fmt", "nope.orb"], 1, "err", "orbit fmt:", ""),
@@ -141,6 +179,11 @@ CASES = [
     ("doctor-help", ["doctor", "--help"], 0, "out", "Usage:", ""),
     ("doctor-badflag", ["doctor", "--bogus"], 2, "err", "Usage:", ""),
     ("doctor-quiet-clean", ["doctor", "--quiet", "cleandir"], 0, "out", "", "no findings"),
+    # D002 is scoped to a program: two independent services may both serve
+    # GET /health, and one program that imports a route file may not.
+    ("doctor-separate-programs", ["doctor", "--color", "never", "services"], 0, "out", "", "D002"),
+    ("doctor-one-program", ["doctor", "--color", "never", "mergesvc"], 1, "out", "duplicate route GET /items", ""),
+    ("doctor-skips-tool-state", ["doctor", "--color", "never", "state"], 0, "out", "no findings", "D008"),
     ("doctor-verbose", ["doctor", "--verbose", "cleandir"], 0, "out", "scanned", ""),
     ("doctor-json", ["doctor", "--format", "json", "files"], 1, "out", '"code"', ""),
     ("doctor-format-bad", ["doctor", "--format", "xml", "files"], 2, "err", "Usage:", ""),
@@ -254,6 +297,10 @@ LINK_FLAG = "-DORBIT_SEPARATE_COMPILATION"
 LINK_CASES = [
     ("link-default-fresh-archive", "fresh", None, LINK_FLAG, ""),
     ("link-default-stale-archive", "stale", None, "does not match", LINK_FLAG),
+    # A partial checkout shared between Windows and a POSIX host: the archive
+    # was built for the other one, so it must fall to the unity build rather
+    # than hand MinGW objects to the host linker.
+    ("link-default-other-platform", "other-platform", None, "does not match", LINK_FLAG),
     ("link-default-unstamped-archive", "unstamped", None, "", LINK_FLAG),
     ("link-default-no-archive", "missing", None, "", LINK_FLAG),
     ("link-zero-forces-unity", "fresh", "0", "", LINK_FLAG),
@@ -284,8 +331,14 @@ def link_default_cases(compiler, work):
             with open(archive, "wb") as f:
                 f.write(b"!<arch>\n")
             if stage_kind != "unstamped":
+                stamp_text = mklib_runtime.runtime_stamp(stage_runtime)
+                if stage_kind == "other-platform":
+                    here = mklib_runtime.platform_tag()
+                    other = "unix" if here == "windows" else "windows"
+                    stamp_text = stamp_text.replace(
+                        "platform " + here, "platform " + other)
                 with open(archive + ".stamp", "wb") as f:
-                    f.write(mklib_runtime.runtime_stamp(stage_runtime).encode("utf-8"))
+                    f.write(stamp_text.encode("utf-8"))
             if stage_kind == "stale":
                 with open(os.path.join(stage_runtime, "arena.c"), "ab") as f:
                     f.write(b"\n")
@@ -358,7 +411,7 @@ def invariants(compiler, work):
 def check_invariant(compiler, work, name, argv, rel, exp_rc, needle, outcome):
     """One file post-condition. Returns (ok, stdout, stderr, problems)."""
     env = dict(os.environ)
-    env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
+    env["ORBIT_RUNTIME_DIR"] = os.path.join(ROOT, "runtime")
     env["TEMP"] = work
     env["TMP"] = work
     target = os.path.join(work, rel)
@@ -417,8 +470,8 @@ def probe(compiler, work, name, argv, exp_rc, stream, needle, absent="",
     """
     env = dict(os.environ)
     # Build cases need the runtime headers; the probe binary lives in a
-    # temp dir, so point the inner cc at the repo runtime explicitly.
-    env["ORBIT_CCFLAGS_EXTRA"] = '-I"%s"' % os.path.join(ROOT, "runtime")
+    # temp directory, so name the repo runtime explicitly.
+    env["ORBIT_RUNTIME_DIR"] = os.path.join(ROOT, "runtime")
     env["TEMP"] = work
     env["TMP"] = work
     env.update(env_extra or {})

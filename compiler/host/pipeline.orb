@@ -263,16 +263,29 @@ fn checkSourceStages(source: string, inputPath: string, colorMode: string, verif
 // Runtime headers travel with the compiler binary: prefer <bindir>/runtime
 // so `orbit build` (and `orbit cluster up`) work from any working
 // directory, falling back to the legacy relative "runtime" when the
-// binary's directory ships no headers.
+// binary's directory ships no headers. ORBIT_RUNTIME_DIR names the
+// directory outright, which is how a build outside a checkout finds it.
+// "" means none of the three exists, and the caller reports that before it
+// runs the C compiler: letting cc discover it produced a missing-include
+// error that blamed the generated code.
+fn runtimeDirHasHeaders(dir: string) -> bool {
+    if dir == "" { return false }
+    return orbit_file_list_dir_selfhost(dir).len() > 0
+}
+
 fn compilerRuntimeDir() -> string {
+    val named = orbit_os_env_selfhost("ORBIT_RUNTIME_DIR")
+    if named != "" {
+        if runtimeDirHasHeaders(named) { return named }
+        return ""
+    }
     val selfDir = getDir(orbit_os_argv_selfhost(0))
     if selfDir != "" {
         val cand = selfDir + "/runtime"
-        if orbit_file_list_dir_selfhost(cand).len() > 0 {
-            return cand
-        }
+        if runtimeDirHasHeaders(cand) { return cand }
     }
-    return "runtime"
+    if runtimeDirHasHeaders("runtime") { return "runtime" }
+    return ""
 }
 
 // Separate compilation against the net-variant static library
@@ -346,10 +359,20 @@ fn lineListed(lines: list < string >, want: string) -> bool {
 // line per runtime source. The archive is fresh when the runtime directory
 // holds exactly those files with exactly those digests. An archive with no
 // stamp predates the check and counts as stale.
+// The archive holds objects for the host that built it. A checkout shared
+// between Windows and a POSIX host has one lib/ directory, so the stamp names
+// the platform and an archive from the other one is stale here instead of a
+// link error naming MinGW symbols.
+fn runtimeArchivePlatform() -> string {
+    if hostIsWindows() { return "platform windows" }
+    return "platform unix"
+}
+
 fn runtimeArchiveFresh(rtDir: string, archive: string) -> bool {
     val stamp = orbit_file_read_selfhost(archive + ".stamp")
     if stamp == "" { return false }
     val recorded = splitBuildLines(stamp)
+    if lineListed(recorded, runtimeArchivePlatform()) == false { return false }
     val names = orbit_file_list_dir_selfhost(rtDir)
     var seen = 0
     var i = 0
@@ -375,7 +398,8 @@ fn runtimeArchiveFresh(rtDir: string, archive: string) -> bool {
         }
         j = j + 1
     }
-    return seen == recorded.len()
+    // One line per source, plus the platform line checked above.
+    return seen == recorded.len() - 1
 }
 
 // The archive to link, or "" for the unity build.
@@ -405,7 +429,7 @@ fn runtimeLibToLink(rtDir: string, hasDb: bool, verbose: bool) -> string {
 }
 
 fn orbitVersion() -> string {
-    return "0.1.0-rc.2"
+    return "0.1.0"
 }
 
 fn appLeadingDigits(s: string) -> string {
@@ -746,8 +770,15 @@ fn hostIsWindows() -> bool {
     return orbit_os_env_selfhost("OS") == "Windows_NT" || orbit_os_env_selfhost("WINDIR") != ""
 }
 
+// A Windows host gets the native backend only when an r6.exe it can use is
+// actually there. Without one the default is C, because a missing r6 is not a
+// refusal by R6: the build still has to finish. An explicit ORBIT_R6 keeps
+// native, since naming a path is an order and the R6 path already reports one
+// that does not resolve.
 fn defaultBackend() -> string {
-    if hostIsWindows() { return "native" }
+    if hostIsWindows() == false { return "c" }
+    if orbit_os_env_selfhost("ORBIT_R6") != "" { return "native" }
+    if findInstalledR6() != "" { return "native" }
     return "c"
 }
 
@@ -1033,6 +1064,12 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
+    // A Windows host that named no backend lands on C only because this one
+    // has no r6.exe. Say which generator ran, once, before the screen starts;
+    // a fallback nobody can see reads as a compiler that changed its mind.
+    if quiet == false && requestedBackend(backendArg) == "" && hostIsWindows() && orbit_os_env_selfhost("ORBIT_SKIP_CC") == "" && resolveBackend(backendArg) == "c" {
+        orbit_os_write_stderr_selfhost(palettePaint(paletteDim(), "orbit " + title + ": no r6.exe found; using the C backend (set ORBIT_R6, or install bin\\r6.exe, for native).", useColorErr) + "\n")
+    }
     var blockTier = 0
     if quiet == false {
         blockTier = uiTier(colorMode, true)
@@ -1254,6 +1291,17 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     }
 
     val rtDir = compilerRuntimeDir()
+    if rtDir == "" {
+        val named = orbit_os_env_selfhost("ORBIT_RUNTIME_DIR")
+        if named != "" {
+            orbit_os_write_stderr_selfhost("orbit " + title + ": ORBIT_RUNTIME_DIR names '" + named + "', which holds no runtime headers.\n")
+        } else {
+            orbit_os_write_stderr_selfhost("orbit " + title + ": could not find the runtime headers.\n")
+            orbit_os_write_stderr_selfhost("  Looked in <compiler directory>/runtime and ./runtime. Set ORBIT_RUNTIME_DIR to the directory holding runtime.h.\n")
+        }
+        uiBuildFinish(ui, false)
+        return false
+    }
     var dbFlags = ""
     val isWindowsHost = osName == "Windows_NT" || winDir != ""
     if hasDb {

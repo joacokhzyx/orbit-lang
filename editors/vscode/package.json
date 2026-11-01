@@ -3,7 +3,7 @@
   "name": "orbit",
   "displayName": "Orbit",
   "description": "Syntax highlighting and `orbit check` diagnostics for the Orbit language (.orb). No language server: `orbit` has no `lsp` subcommand.",
-  "version": "0.1.0-rc.2",
+  "version": "0.1.0",
   "license": "MIT",
   "repository": {
     "type": "git",

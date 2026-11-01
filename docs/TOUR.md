@@ -153,7 +153,7 @@ way on either platform.
 Expected (from a real run of `examples/health_service.orb`):
 
 ```text
-{"status":"UP","version":"0.1.0-rc.2","uptime_seconds":0}
+{"status":"UP","version":"0.1.0","uptime_seconds":0}
 ```
 
 Stop it with Ctrl-C on either platform. On Windows, keep `sqlite3.dll` out of the

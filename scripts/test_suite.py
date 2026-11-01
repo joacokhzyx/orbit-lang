@@ -56,6 +56,15 @@ def archive_is_stale(lib_path):
     """
     if not os.path.exists(lib_path):
         return False
+    # A checkout shared with the other host can hold an archive built there.
+    # Its mtime is newer than every source, so only the stamp answers it.
+    want = "platform " + ("windows" if os.name == "nt" else "unix")
+    try:
+        with open(lib_path + ".stamp", encoding="utf-8", errors="replace") as f:
+            if want not in f.read().splitlines():
+                return True
+    except OSError:
+        return True
     lib_mtime = os.path.getmtime(lib_path)
     for dirpath, _, names in os.walk(os.path.join(ROOT, "runtime")):
         for name in names:

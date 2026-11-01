@@ -71,7 +71,7 @@ fn runFrontend() {
 
     val output = compileFrontendSource(inputPath, source)
     if output == "" {
-        orbit_os_write_stderr_selfhost("orbit frontend: no TIR emitted because diagnostics contain errors.\n")
+        orbit_os_write_stderr_selfhost("orbit frontend: " + frontendRefusal(inputPath, source) + "\n")
         orbit_os_exit_selfhost(1)
         return
     }
@@ -254,7 +254,14 @@ fn runRun() {
     if runTier != 0 && runQuiet == false {
         orbit_os_write_stderr_selfhost(uiRule(runTier, uiCardWidth(true)))
     }
-    val code = orbit_os_spawn_selfhost("\"" + outputPath + "\"")
+    // cmd.exe reads a quoted path with forward slashes as a command named after
+    // its first segment: `"examples/hello.run.exe"` runs a program called
+    // `examples`. Backslashes inside the quotes are what it accepts.
+    var spawnPath = "\"" + outputPath + "\""
+    if osName == "Windows_NT" || winDir != "" {
+        spawnPath = "\"" + shellPath(outputPath) + "\""
+    }
+    val code = orbit_os_spawn_selfhost(spawnPath)
     orbit_os_exit_selfhost(code)
 }
 

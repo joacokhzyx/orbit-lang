@@ -87,17 +87,29 @@ def fnv1a_hex(data):
     return "%08x" % h
 
 
+def platform_tag():
+    """The host the archive is built for: windows or unix.
+
+    One checkout can be shared between a Windows host and a POSIX one, and the
+    archive holds objects for whichever host built it. Without this line a
+    Windows archive looks fresh on Linux (same sources, same digests) and the
+    linker names MinGW symbols instead.
+    """
+    return "windows" if os.name == "nt" else "unix"
+
+
 def runtime_stamp(runtime_dir):
-    """One "<name> <digest>" line per runtime source the archive is built from.
+    """One "<name> <digest>" line per runtime source the archive is built from,
+    after one "platform <tag>" line naming the host it was built for.
 
     The compiler links the archive by default (compiler/host/pipeline.orb,
     runtimeArchiveFresh) only when it finds these lines for the runtime
-    directory it resolves, so an archive built from older sources is skipped
-    instead of linked. The file set is the .c and .h files directly in the
-    directory and in its gen/ subdirectory (named "gen/<name>"), minus test_*,
-    and must match runtimeSourceCounts there.
+    directory it resolves, so an archive built from older sources -- or for
+    another host -- is skipped instead of linked. The file set is the .c and .h
+    files directly in the directory and in its gen/ subdirectory (named
+    "gen/<name>"), minus test_*, and must match runtimeSourceCounts there.
     """
-    lines = []
+    lines = ["platform %s\n" % platform_tag()]
     root = pathlib.Path(runtime_dir)
     for prefix, folder in (("", root), ("gen/", root / "gen")):
         if not folder.is_dir():

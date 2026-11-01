@@ -4,7 +4,7 @@ There is no package manager, no manifest, and no module system in the sense
 most languages mean by that word. What there is, is a set of rules you can
 follow. This page is those rules, and what I verified about each one.
 
-Everything here was checked on `orbit 0.1.0-rc.2` (fixed-point build, gcc
+Everything here was checked on `orbit 0.1.0` (fixed-point build, gcc
 13.3.0, Linux x86-64) by running the compiler. Where I could not run
 something, it says UNTESTED rather than asserting it.
 

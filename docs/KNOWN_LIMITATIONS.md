@@ -5,9 +5,10 @@ a limit is found before midnight. Each entry says what happens today, how to
 work around it, and what would change it. Nothing here is a roadmap promise
 with a date. It is what was measured on this build.
 
-Verified on: `orbit 0.1.0-rc.2` (fixed-point build, gcc 16.2.0),
-Windows x86-64 and Linux x86-64, October 2026. Linux paths are
-marked UNTESTED below where the run was not performed.
+Verified on: `orbit 0.1.0` (fixed-point build; gcc 16.2.0 on Windows x86-64
+and gcc 15.2.0 on Linux x86-64), November 2026. Both hosts ran the full gate
+sequence. Linux paths are marked UNTESTED below where the run was not
+performed.
 
 **Start with the first section.** Everything below that one is a feature
 gap you can design around. The first section is about the programs `orbit
@@ -16,6 +17,34 @@ translated cleanly and computed something else. All of those are diagnostics
 now, and the section records what they answer instead. It includes the two
 checks that were wrong in the direction of refusing valid code, which is the
 failure mode worth reading about.
+
+## The frontend command covers the subset the compiler itself uses
+
+`orbit frontend` emits TIR for a program whose calls resolve in the TIR
+lowering. `print` does not: `orbit frontend examples/hello.orb` exits 1 with
+`unknown identifier print`, while `examples/health_service.orb` emits TIR. The
+command now names the symbol and the value id, with the file and line of the
+error the frontend reported, instead of saying that diagnostics contained
+errors while printing none. Building is unaffected; `orbit build` lowers
+`print`.
+
+## Doctor over compiler/ needs more arena than a 4 GB machine offers by default
+
+`orbit doctor compiler` allocates more than 2.9 GB of arena. The default
+ceiling is 75% of physical memory, so a 3.9 GB WSL instance aborts with
+`arena ceiling reached ... the limit is 2928 MB from ORBIT_ARENA_MAX_MB`.
+`ORBIT_ARENA_MAX_MB=20000` reports 138 findings in 9.6 s. A 16 GB CI runner's
+default ceiling covers it. The scan typechecks every file in one arena, so
+the change that would remove the requirement is releasing per-file state, not
+a larger default.
+
+## Doctor skips dot-directories, and that is the only directory it skips
+
+A directory whose name begins with a dot is tool state and is not scanned, so
+`.orbit/` with its thousands of build copies never is. An untracked `scratch/`
+is scanned, and a generated 417 KB file with ten thousand functions exhausts
+the default arena before the scan can report anything. Point doctor at the
+tracked directories, or drop the generated file.
 
 ## The silent group is empty
 

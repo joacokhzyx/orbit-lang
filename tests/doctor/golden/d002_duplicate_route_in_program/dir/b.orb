@@ -1,0 +1,9 @@
+import "a.orb"
+
+route GET "/dup" {
+    return ok 200 tag()
+}
+
+fn main() -> int {
+    return 0
+}

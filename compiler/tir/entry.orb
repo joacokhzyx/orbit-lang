@@ -28,3 +28,19 @@ fn compileFrontendSource(moduleName: string, source: string) -> string {
     val module = compileFrontendModule(moduleName, source)
     return tirCanonical(module)
 }
+
+// Why compileFrontendSource answered "". An error the user has to fix and a
+// type this pass could not infer are different answers, and `orbit frontend`
+// reported neither: it said the diagnostics contained errors and printed none.
+fn frontendRefusal(moduleName: string, source: string) -> string {
+    val module = compileFrontendModule(moduleName, source)
+    val firstError = tirFirstError(module)
+    if firstError != "" {
+        return "the frontend reported an error: " + firstError
+    }
+    val firstUnknown = tirFirstUnknown(module)
+    if firstUnknown != "" {
+        return "no TIR emitted: " + firstUnknown + "; an unknown type is never part of the TIR contract"
+    }
+    return "the frontend produced no TIR and named no reason"
+}

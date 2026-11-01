@@ -65,6 +65,12 @@ fn isStdPath(relPath: string) -> bool {
 
 fn resolveStdPath(cleanRel: string) -> string {
     val roots = []
+    // ORBIT_STD_DIR names the tree outright, which is how a compiler whose
+    // directory carries no std/ resolves an import from any working directory.
+    val named = orbit_os_env_selfhost("ORBIT_STD_DIR")
+    if named != "" {
+        roots.push(named)
+    }
     val selfDir = getDir(orbit_os_argv_selfhost(0))
     if selfDir != "" {
         roots.push(selfDir)

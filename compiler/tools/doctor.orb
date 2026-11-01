@@ -578,9 +578,15 @@ fn doctorCollectOrbFiles(root: string) -> list < string > {
             if doctorEndsWithOrb(e) {
                 files.push(full)
             } else {
-                val sub = orbit_file_list_dir_selfhost(full)
-                if sub.len() > 0 {
-                    dirs.push(full)
+                // A dot-directory is tool state, not source: .git, and .orbit
+                // with its thousands of build copies. Scanning .orbit is what
+                // made `orbit doctor .` exhaust the arena before it could
+                // report anything.
+                if doctorStartsWith(e, ".") == false {
+                    val sub = orbit_file_list_dir_selfhost(full)
+                    if sub.len() > 0 {
+                        dirs.push(full)
+                    }
                 }
             }
             ei = ei + 1
@@ -3411,13 +3417,109 @@ fn doctorEndsWith(s: string, suffix: string) -> bool {
     return orbit_string_slice(s, sn - xn, sn) == suffix
 }
 
-fn doctorCheckRoutes(stats: DoctorStats, routes: list < DoctorRoute >) {
+// Route conflicts are a property of one program, not of a directory. Every
+// file that declares `main` is a program root, and a route belongs to the
+// programs whose import closure reaches its file. `examples/` holds
+// independent services, so a tree scan read five GET /health handlers as one
+// program's duplicates: the correct analysis of the wrong input.
+fn doctorProgramRoots(decls: list < DoctorDecl >) -> list < string > {
+    val roots = []
+    var i = 0
+    while i < decls.len() {
+        val d: DoctorDecl = decls.get(i)
+        if d.kind == "fn" && d.name == "main" {
+            if doctorListContains(roots, d.file) == false {
+                roots.push(d.file)
+            }
+        }
+        i = i + 1
+    }
+    return roots
+}
+
+// The files `path` reaches through imports, pushed into `seen`. Same edges as
+// doctorClosureWalkReuse, but nothing is concatenated: that walk builds a
+// digest per module, and the digest of a dense graph grows with its diamonds.
+// A closure needs the set of files, not the string, and building the string
+// took `doctor compiler` to a 3 GB arena on Linux.
+fn doctorProgramClosureWalk(path: string, imports: list < string >, seen: list < string >, knownFiles: list < string >, knownImports: list < list < string >>) {
+    val baseDir = getDir(path)
+    var i = 0
+    while i < imports.len() {
+        val rel: string = imports.get(i)
+        val full = normalizePath(resolveFilePath(baseDir, rel))
+        if doctorListContains(seen, full) == false {
+            seen.push(full)
+            val at = doctorIndexOfFile(knownFiles, full)
+            if at >= 0 {
+                val sub: list < string > = knownImports.get(at)
+                doctorProgramClosureWalk(full, sub, seen, knownFiles, knownImports)
+            } else {
+                val subSource = orbit_file_read_selfhost(full)
+                if subSource != "" {
+                    val parser = initParser(subSource)
+                    val ast = parseProgram(parser)
+                    val subImports = []
+                    doctorCollectImports(ast, subImports)
+                    doctorProgramClosureWalk(full, subImports, seen, knownFiles, knownImports)
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
+// The files one root reaches through imports, named the way the resolver names
+// a module. A root that did not parse contributes itself alone, which
+// under-reports rather than guessing at edges it could not read.
+fn doctorProgramClosure(root: string, parsedFiles: list < string >, parsedImports: list < list < string >>) -> list < string > {
+    val seen = [normalizePath(root)]
+    val at = doctorIndexOfFile(parsedFiles, root)
+    if at >= 0 {
+        val imps: list < string > = parsedImports.get(at)
+        doctorProgramClosureWalk(root, imps, seen, parsedFiles, parsedImports)
+    }
+    return seen
+}
+
+fn doctorProgramClosures(roots: list < string >, parsedFiles: list < string >, parsedImports: list < list < string >>) -> list < list < string >> {
+    val closures = []
+    var ri = 0
+    while ri < roots.len() {
+        closures.push(doctorProgramClosure(roots.get(ri), parsedFiles, parsedImports))
+        ri = ri + 1
+    }
+    return closures
+}
+
+// Two routes can collide only when one program reaches both files. Two files no
+// root reaches are not one program, so the answer does not depend on what else
+// the scan happened to include: `tests/doctor` alone and `tests` as a whole
+// report the same pair the same way.
+fn doctorSameProgram(aFile: string, bFile: string, closures: list < list < string >>) -> bool {
+    val a = normalizePath(aFile)
+    val b = normalizePath(bFile)
+    if a == b { return true }
+    var i = 0
+    while i < closures.len() {
+        val seen: list < string > = closures.get(i)
+        if doctorListContains(seen, a) && doctorListContains(seen, b) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn doctorCheckRoutes(stats: DoctorStats, routes: list < DoctorRoute >, closures: list < list < string >>) {
     var a = 0
     while a < routes.len() {
         var b = a + 1
         while b < routes.len() {
             val ra: DoctorRoute = routes.get(a)
             val rb: DoctorRoute = routes.get(b)
+            if doctorSameProgram(ra.file, rb.file, closures) == false {
+                b = b + 1
+                continue
+            }
             if ra.method == rb.method {
                 if ra.normPath == rb.normPath {
                     if ra.rawPath == rb.rawPath {
@@ -4385,7 +4487,11 @@ fn doctorModuleFingerprintReuse(path: string, source: string, imports: list < st
     val hit = doctorMemoLookup(memo, path)
     if hit != "" { return hit }
     val sub = doctorClosureWalkReuse(path, imports, seen, knownFiles, knownImports, knownSources, memo)
-    val digest = sub + ":" + orbit_string_hash_selfhost(source)
+    // Fixed size: a module's digest is two hashes, not the concatenation of its
+    // subtree. Concatenating made the root's string grow with the graph's
+    // diamonds, and doctor over compiler/ reached a 3 GB arena on Linux before
+    // it could report a finding.
+    val digest = orbit_string_hash_selfhost(sub) + "-" + orbit_string_hash_selfhost(source)
     memo.push(path + "=" + digest)
     return digest
 }
@@ -4939,7 +5045,7 @@ fn doctorRun(opts: DoctorOptions) {
         }
         pi = pi + 1
     }
-    doctorCheckRoutes(stats, routes)
+    doctorCheckRoutes(stats, routes, doctorProgramClosures(doctorProgramRoots(decls), parsedFiles, parsedImports))
     doctorCheckUnused(stats, decls, refs, files, sources, fileLines)
     doctorCheckTelemetry(stats, routes, opts)
 

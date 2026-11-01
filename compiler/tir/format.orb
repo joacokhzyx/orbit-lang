@@ -76,6 +76,21 @@ fn tirError(module: TirModule, code: string, message: string, line: int, column:
     module.diagnostics.push(TirDiagnostic("error", code, message, line, column))
 }
 
+// The first error diagnostic as one line, or "" when there is none. Without
+// it a caller can only say that errors exist, which is what `orbit frontend`
+// used to do while printing none of them.
+fn tirFirstError(module: TirModule) -> string {
+    var i = 0
+    while i < module.diagnostics.len() {
+        val diagnostic: TirDiagnostic = module.diagnostics.get(i)
+        if diagnostic.severity == "error" {
+            return diagnostic.code + " at " + tirIntText(diagnostic.line) + ":" + tirIntText(diagnostic.column) + ": " + diagnostic.message
+        }
+        i = i + 1
+    }
+    return ""
+}
+
 fn tirHasErrors(module: TirModule) -> bool {
     var i = 0
     while i < module.diagnostics.len() {
@@ -110,6 +125,39 @@ fn tirHasUnknownTypes(module: TirModule) -> bool {
         functionIndex = functionIndex + 1
     }
     return false
+}
+
+// The first place the module carries an `unknown` type, named so the answer is
+// actionable. "" when there is none. tirCanonical refuses an unknown anywhere,
+// so a caller that got "" from it with no errors is looking at one of these.
+fn tirFirstUnknown(module: TirModule) -> string {
+    var functionIndex = 0
+    while functionIndex < module.functions.len() {
+        val function: TirFunction = module.functions.get(functionIndex)
+        if function.returnType == "unknown" {
+            return "function " + function.name + " has an unknown return type"
+        }
+
+        var parameterIndex = 0
+        while parameterIndex < function.parameters.len() {
+            val parameter: TirParameter = function.parameters.get(parameterIndex)
+            if parameter.typeName == "unknown" {
+                return "parameter " + parameter.name + " of " + function.name + " has an unknown type"
+            }
+            parameterIndex = parameterIndex + 1
+        }
+
+        var instructionIndex = 0
+        while instructionIndex < function.instructions.len() {
+            val instruction: TirInstruction = function.instructions.get(instructionIndex)
+            if instruction.typeName == "unknown" {
+                return "function " + function.name + ": " + instruction.opcode + " at value " + tirIntText(instruction.valueId) + " has an unknown type"
+            }
+            instructionIndex = instructionIndex + 1
+        }
+        functionIndex = functionIndex + 1
+    }
+    return ""
 }
 
 fn tirEscape(text: string) -> string {

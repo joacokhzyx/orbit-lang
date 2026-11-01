@@ -5,7 +5,7 @@
 
 route GET "/health" {
     val uptime = system.uptime()
-    return ok 200 """{"status":"UP","version":"0.1.0-rc.2","uptime_seconds":${uptime}}"""
+    return ok 200 """{"status":"UP","version":"0.1.0","uptime_seconds":${uptime}}"""
 }
 
 route GET "/ready" {

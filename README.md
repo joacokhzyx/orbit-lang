@@ -27,7 +27,7 @@ curl http://127.0.0.1:8080/health
 ```
 
 ```text
-{"status":"UP","version":"0.1.0-rc.2","uptime_seconds":0}
+{"status":"UP","version":"0.1.0","uptime_seconds":0}
 ```
 
 That is a real Orbit service: one binary, live telemetry at `/metrics`, and
