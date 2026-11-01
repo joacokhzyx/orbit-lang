@@ -271,7 +271,6 @@ typedef struct {
 /* ── HTTP request/response (canonical: runtime/http.c) ───────────────── */
 #ifndef ORBIT_HTTP_API_H
 #define ORBIT_HTTP_API_H
-#define ORBIT_MAX_PATH_PARAMS 32
 typedef struct {
     char* method;
     char* path;
@@ -280,9 +279,10 @@ typedef struct {
     char* headers;
     size_t body_len;
     size_t headers_len;
-    char* param_names[ORBIT_MAX_PATH_PARAMS];
-    char* param_values[ORBIT_MAX_PATH_PARAMS];
+    char** param_names;
+    char** param_values;
     int param_count;
+    int param_capacity;
 } OrbitRequest;
 #endif
 

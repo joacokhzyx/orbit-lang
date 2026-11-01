@@ -44,6 +44,9 @@ Commands and gates:
   the nodes inherited the compiler's stdout, so `orbit cluster up | tail`
   waited until every node exited. They start with their log file and nothing
   else from the caller.
+- **A route binds as many path captures as its pattern names.** The request
+  owns its capture table and grows it, instead of a 32-slot array that dropped
+  the rest. `runtime/test_params_decode.c` asks for 40 and reads the last.
 - **`orbit --version` prints `orbit 0.1.0`.**
 
 Runtime:

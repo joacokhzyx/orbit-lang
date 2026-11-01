@@ -741,10 +741,31 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
  * one non-empty segment, no capture).
  * Empty segments are skipped on both sides, so a trailing slash is
  * tolerated. Values are NOT percent-decoded. On success the captures land
- * in req->param_names/values (arena copies, at most ORBIT_MAX_PATH_PARAMS,
- * extras dropped); on any failure param_count is 0 so a previous attempt
+ * in req->param_names/values, arena copies sized by the pattern; on any
+ * failure param_count is 0 so a previous attempt
  * in a matcher chain can never leak into the next one.
  */
+static void orbit_param_reserve(OrbitArena* ar, OrbitRequest* req, int need) {
+    int cap;
+    int i;
+    char** names;
+    char** values;
+    if (need <= req->param_capacity) return;
+    cap = req->param_capacity > 0 ? req->param_capacity * 2 : 8;
+    while (cap < need) cap = cap * 2;
+    names = (char**)orbit_alloc(ar, (size_t)cap * sizeof(char*));
+    values = (char**)orbit_alloc(ar, (size_t)cap * sizeof(char*));
+    /* The matcher fills slots as it walks and publishes param_count at the
+     * end, so the entries to carry over are the ones before this one. */
+    for (i = 0; i < need - 1; i++) {
+        names[i] = req->param_names ? req->param_names[i] : NULL;
+        values[i] = req->param_values ? req->param_values[i] : NULL;
+    }
+    req->param_names = names;
+    req->param_values = values;
+    req->param_capacity = cap;
+}
+
 bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method, const char* pattern) {
     const char *pp, *qp;
     int n = 0;
@@ -786,7 +807,8 @@ bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method,
                 while (qend > qp && qend[-1] == '/') qend--;
                 size_t vlen = (size_t)(qend - qp);
                 if (vlen == 0) return false;
-                if (n < ORBIT_MAX_PATH_PARAMS) {
+                orbit_param_reserve(ar, req, n + 1);
+                if (n < req->param_capacity) {
                     char* nm = (char*)orbit_alloc(ar, plen - 3);
                     char* vv = (char*)orbit_alloc(ar, vlen + 1);
                     if (!nm || !vv) return false;
@@ -803,7 +825,8 @@ bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method,
             }
             if (pp[0] == ':') {
                 if (plen < 2) return false;
-                if (n < ORBIT_MAX_PATH_PARAMS) {
+                orbit_param_reserve(ar, req, n + 1);
+                if (n < req->param_capacity) {
                     char* nm = (char*)orbit_alloc(ar, plen);
                     char* vv = (char*)orbit_alloc(ar, qlen + 1);
                     if (!nm || !vv) return false;
@@ -817,7 +840,8 @@ bool orbit_route_match(OrbitArena* arena, OrbitRequest* req, const char* method,
                 n++;
             } else if (plen >= 2 && pp[0] == '{' && pe[-1] == '}') {
                 if (plen == 2) return false;
-                if (n < ORBIT_MAX_PATH_PARAMS) {
+                orbit_param_reserve(ar, req, n + 1);
+                if (n < req->param_capacity) {
                     char* nm = (char*)orbit_alloc(ar, plen - 1);
                     char* vv = (char*)orbit_alloc(ar, qlen + 1);
                     if (!nm || !vv) return false;

@@ -29,6 +29,37 @@ int main(void) {
     assert(strcmp(id, "hello world/123+a/b") == 0);
 
     orbit_arena_destroy(arena);
+
+    /* A route with more captures than the old fixed slot table held. The
+     * request owns its capture arrays now, so the count is the pattern's. */
+    {
+        char path[1024];
+        char pattern[1024];
+        char text[1200];
+        int i;
+
+        strcpy(pattern, "/x");
+        strcpy(path, "/x");
+        for (i = 0; i < 40; i++) {
+            char seg[32];
+            snprintf(seg, sizeof seg, "/:p%d", i);
+            strcat(pattern, seg);
+            snprintf(seg, sizeof seg, "/v%d", i);
+            strcat(path, seg);
+        }
+        snprintf(text, sizeof text, "GET %s HTTP/1.1\r\nHost: localhost\r\n\r\n", path);
+
+        OrbitArena* big = orbit_arena_create(262144);
+        assert(big != NULL);
+        OrbitRequest* r2 = NULL;
+        size_t c2 = orbit_http_parse_request_ex(big, text, strlen(text), &r2, NULL);
+        assert(c2 > 0);
+        assert(orbit_route_match(big, r2, "GET", pattern) == true);
+        assert(r2->param_count == 40);
+        assert(strcmp(orbit_http_param_get(big, r2, "p39"), "v39") == 0);
+        orbit_arena_destroy(big);
+    }
+
     printf("test_params_decode: PASSED\n");
     return 0;
 }

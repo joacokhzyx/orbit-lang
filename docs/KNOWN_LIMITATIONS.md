@@ -209,9 +209,9 @@ themselves are rows you insert (see `tests/auth/auth_harness.c`).
 Routes with `:id` or `{id}` segments match at runtime and bind
 through `req.param("id")` (verified with GET and DELETE, including
 static-over-param precedence and trailing slashes). Captured
-values are percent-decoded by `req.param()`. One limit remains:
-at most 32 captures bind per request. Query values (`?id=`) keep
-working alongside.
+values are percent-decoded by `req.param()`. The capture table belongs to
+the request and grows with the pattern, so the count is the route's, not a
+fixed slot count. Query values (`?id=`) keep working alongside.
 
 ## Custom tables are created, and forward DDL migrates
 

@@ -260,8 +260,8 @@ orbit_string orbit_http_param_get(OrbitArena* arena, OrbitRequest* req, orbit_st
     int i;
     if (!req || !param_name) return "";
     /* Path params captured by orbit_route_match during dispatch. */
-    for (i = 0; i < req->param_count && i < ORBIT_MAX_PATH_PARAMS; i++) {
-        if (req->param_names[i] && strcmp(req->param_names[i], param_name) == 0) {
+    for (i = 0; i < req->param_count; i++) {
+        if (req->param_names && req->param_names[i] && strcmp(req->param_names[i], param_name) == 0) {
             return req->param_values[i] ? orbit_url_decode(arena, req->param_values[i]) : "";
         }
     }

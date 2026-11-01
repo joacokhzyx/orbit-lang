@@ -38,9 +38,9 @@
  * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* Path-parameter slots filled by orbit_route_match (route_runtime patterns
- * such as "/notes/:id"). The same fields exist on the fallback declaration
- * in builtins.c; keep both in sync. */
-#define ORBIT_MAX_PATH_PARAMS 32
+ * such as "/notes/:id"). The arrays belong to the request's arena and grow
+ * with the pattern, so the capture count is the route's, not a fixed slot
+ * count. */
 typedef struct {
     char* method;
     char* path;
@@ -49,9 +49,10 @@ typedef struct {
     char* headers;
     size_t body_len;
     size_t headers_len;
-    char* param_names[ORBIT_MAX_PATH_PARAMS];
-    char* param_values[ORBIT_MAX_PATH_PARAMS];
+    char** param_names;
+    char** param_values;
     int param_count;
+    int param_capacity;
 } OrbitRequest;
 
 /** @brief Parse a raw HTTP byte stream into an arena-allocated OrbitRequest; returns bytes consumed, or 0 if the request is incomplete. */
