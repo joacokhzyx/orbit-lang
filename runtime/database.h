@@ -49,6 +49,7 @@ void orbit_db_init(const char* db_path);
 void orbit_db_close(void);
 bool orbit_db_exec_ddl(const char* sql);
 bool orbit_run_migrations(const char* const* migrations, int count);
+int orbit_run_migrations_down(const char* const* downs, int count);
 orbit_string orbit_db_get(OrbitArena* arena, orbit_collection col, const char* id);
 orbit_string orbit_db_all(OrbitArena* arena, orbit_collection col);
 orbit_string orbit_db_where(OrbitArena* arena, orbit_collection col, const char* condition);

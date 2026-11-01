@@ -4,10 +4,10 @@ This document is the contract for `orbit fmt`. It records the de facto style
 inferred from the repository, rule by rule, with evidence. The formatter
 implements exactly what is written here.
 
-Corpus: recursive `*.orb` under `compiler/` (28 files), `tests/suite/` (122),
+Corpus: recursive `*.orb` under `compiler/` (28 files), `tests/suite/` (123),
 `std/` (20) and `tests/std/` (23), plus `examples/*.orb` (13, minus
-`orbit_full_expansion.orb`). 206 files -- the exact list the fmt gate verifies
-(`make all` prints `fmt ... (205 files, ...)`).
+`orbit_full_expansion.orb`). 207 files -- the exact list the fmt gate verifies
+(`make all` prints `fmt ... (206 files, ...)`).
 The rules below were inferred from that corpus with strings and comments
 stripped, so stylish string contents (JSON payloads, URLs) do not pollute
 them. The evidence lines say what the corpus shows, not how many times, so

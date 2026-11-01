@@ -58,13 +58,24 @@ before.
   service may or may not have landed. Quiesce traffic first,
   then stop, then back up.
 
-## What is deliberately not there
+## Rolling back
 
-`down` migrations and `orbit migrate` as a standalone command do not exist.
-Migrations run at startup, inside the process, in order.
+A `migrations down "<SQL>"` line undoes the forward migration at the same
+position. At startup, `ORBIT_MIGRATE_DOWN=<version>` rolls back every applied
+version above that number, newest first, one transaction per version, removes
+their rows from `_orbit_migrations`, and stops: the forward set does not run
+in the same start, so the next run applies it again. `-1` rolls back
+everything. A version with no down line, a failing statement, or a database
+holding versions this program does not declare all fail startup with a
+message naming the version.
 
 A database whose schema is newer than the program is refused. If
 `_orbit_migrations` holds a version this program does not declare, startup
 prints the version and exits non-zero, instead of running old code against
 columns it cannot describe. That refusal is `test_newer_schema_is_refused` in
-`runtime/test_migrations.c`.
+`runtime/test_migrations.c`, and `test_down_rolls_back` pins the rollback.
+
+## What is deliberately not there
+
+A standalone `orbit migrate` command does not exist. Migrations run at
+startup, inside the process, in order.

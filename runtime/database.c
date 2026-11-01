@@ -54,6 +54,22 @@ static int orbit_db_authorizer(void* user, int action, const char* a1, const cha
                                const char* a3, const char* a4);
 
 void orbit_db_init(const char* db_path) {
+    /* The default path lives under .orbit/data, which a fresh checkout does
+     * not have. sqlite3_open does not create directories, so the first run
+     * failed to open before anything could migrate. */
+    if (db_path && *db_path) {
+        char parent[1024];
+        const char* last = NULL;
+        const char* p;
+        for (p = db_path; *p; p++) {
+            if (*p == '/' || *p == '\\') last = p;
+        }
+        if (last != NULL && (size_t)(last - db_path) < sizeof(parent)) {
+            memcpy(parent, db_path, (size_t)(last - db_path));
+            parent[last - db_path] = '\0';
+            orbit_os_mkdir_p(parent);
+        }
+    }
     int open_rc = sqlite3_open(db_path, &orbit_db_conn);
     /* sqlite3_open hands back a non-NULL handle even when it fails: the handle
      * exists so the caller has something to close, and it is unusable. Testing
@@ -196,6 +212,64 @@ bool orbit_run_migrations(const char* const* migrations, int count) {
         if (rc != SQLITE_OK) return false;
     }
     return true;
+}
+
+/* Forward migration i is undone by down[i]. ORBIT_MIGRATE_DOWN=<version> asks
+ * startup to roll back every applied version above that number, newest first,
+ * and stop there; the rows are removed so a forward run applies them again.
+ * Returns 1 when it rolled back, 0 when the variable is unset, -1 on failure
+ * (a target that is not a version, a missing down statement, a failed one). */
+int orbit_run_migrations_down(const char* const* downs, int count) {
+    const char* env = getenv("ORBIT_MIGRATE_DOWN");
+    int newest = -1;
+    int target;
+    sqlite3_stmt* hi = NULL;
+    if (!orbit_db_conn) return -1;
+    if (env == NULL || *env == '\0') return 0;
+    target = atoi(env);
+    if (target < -1) {
+        fprintf(stderr, "orbit: ORBIT_MIGRATE_DOWN=%s is not a version.\n", env);
+        return -1;
+    }
+    if (sqlite3_exec(orbit_db_conn,
+            "CREATE TABLE IF NOT EXISTS _orbit_migrations (version INTEGER PRIMARY KEY);",
+            NULL, NULL, NULL) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(orbit_db_conn,
+            "SELECT MAX(version) FROM _orbit_migrations", -1, &hi, NULL) == SQLITE_OK) {
+        if (sqlite3_step(hi) == SQLITE_ROW && sqlite3_column_type(hi, 0) != SQLITE_NULL) {
+            newest = sqlite3_column_int(hi, 0);
+        }
+        sqlite3_finalize(hi);
+    }
+    if (newest <= target) return 1;
+    for (int v = newest; v > target; v--) {
+        sqlite3_stmt* del = NULL;
+        char* msg = NULL;
+        if (v >= count) {
+            fprintf(stderr, "orbit: this program declares %d migrations, the database applied %d. Run the program that owns the newer schema.\n", count, newest);
+            return -1;
+        }
+        if (!downs[v] || !*downs[v]) {
+            fprintf(stderr, "orbit: migration %d has no down statement. Add a `migrations down \"...\"` line for it.\n", v);
+            return -1;
+        }
+        if (sqlite3_exec(orbit_db_conn, "BEGIN;", NULL, NULL, NULL) != SQLITE_OK) return -1;
+        if (sqlite3_exec(orbit_db_conn, downs[v], NULL, NULL, &msg) != SQLITE_OK) {
+            if (msg) {
+                fprintf(stderr, "orbit: down migration %d failed: %s\n", v, msg);
+                sqlite3_free(msg);
+            }
+            sqlite3_exec(orbit_db_conn, "ROLLBACK;", NULL, NULL, NULL);
+            return -1;
+        }
+        sqlite3_prepare_v2(orbit_db_conn,
+            "DELETE FROM _orbit_migrations WHERE version = ?", -1, &del, NULL);
+        sqlite3_bind_int(del, 1, v);
+        sqlite3_step(del);
+        sqlite3_finalize(del);
+        if (sqlite3_exec(orbit_db_conn, "COMMIT;", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    }
+    return 1;
 }
 
 /* ── Internal: append a JSON-escaped string within [p, end). ──────────── */

@@ -1526,8 +1526,13 @@ fn parseDeclaration(parser: Parser) -> ASTNode {
         }
         if text == "migrations" {
             advanceParser(parser)
+            var migrationDown = false
+            if check(parser, TokType.Identifier) && parser.currentToken.text == "down" {
+                advanceParser(parser)
+                migrationDown = true
+            }
             consume(parser, TokType.StringLiteral, "Expected migration SQL string.")
-            return ASTNode.MigrationDecl(MigrationDeclNode(parser.previousToken.text))
+            return ASTNode.MigrationDecl(MigrationDeclNode(parser.previousToken.text, migrationDown))
         }
     }
 

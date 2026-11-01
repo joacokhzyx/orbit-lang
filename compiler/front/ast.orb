@@ -142,6 +142,8 @@ model ConfigDeclNode {
 
 model MigrationDeclNode {
     sql: string
+    // `migrations down "..."`: this statement undoes the same version.
+    down: bool
 }
 
 model ImportStmtNode {

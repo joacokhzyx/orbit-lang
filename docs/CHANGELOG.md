@@ -62,6 +62,13 @@ Commands and gates:
 
 Runtime:
 
+- **Migrations roll back.** A `migrations down "<SQL>"` line undoes the
+  forward migration at the same position. `ORBIT_MIGRATE_DOWN=<version>` at
+  startup rolls back every applied version above it, newest first, removes
+  their rows, and stops before the forward set runs. `-1` rolls back
+  everything. Pinned by `runtime/test_migrations.c` and
+  `tests/suite/migrations_down.orb`.
+
 - **`std/json` parses and traverses, and has a test.** `parseJson` refuses
   malformed input as a whole and the `json*` getters read typed fields and
   indexed arrays. `tests/std/test_json.orb` pins the wrapper; the runtime half

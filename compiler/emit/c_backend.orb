@@ -2313,7 +2313,7 @@ fn generateModelDDL(backend: CBackend) -> string {
         }
         mi = mi + 1
     }
-    if backend.module.migrations.len() > 0 {
+    if backend.module.migrations.len() > 0 || backend.module.migrationsDown.len() > 0 {
         var entryList = ""
         var mti = 0
         while mti < backend.module.migrations.len() {
@@ -2322,7 +2322,19 @@ fn generateModelDDL(backend: CBackend) -> string {
             entryList = entryList + "\"" + escapeString(sql) + "\""
             mti = mti + 1
         }
-        ddl = ddl + "    { const char* _orbit_migs[] = {" + entryList + "}; if (!orbit_run_migrations(_orbit_migs, " + orbit_int_to_string_selfhost(backend.module.migrations.len()) + ")) { fprintf(stderr, \"orbit: migrations failed to apply\\n\"); exit(1); } }\n"
+        if entryList == "" { entryList = "\"\"" }
+        var downList = ""
+        var mdi = 0
+        while mdi < backend.module.migrationsDown.len() {
+            val dsql: string = backend.module.migrationsDown.get(mdi)
+            if mdi > 0 { downList = downList + ", " }
+            downList = downList + "\"" + escapeString(dsql) + "\""
+            mdi = mdi + 1
+        }
+        if downList == "" { downList = "\"\"" }
+        // ORBIT_MIGRATE_DOWN asks for a rollback and then stops: the forward
+        // set does not run, or it would re-apply what the operator undid.
+        ddl = ddl + "    { const char* _orbit_downs[] = {" + downList + "}; int _orbit_down = orbit_run_migrations_down(_orbit_downs, " + orbit_int_to_string_selfhost(backend.module.migrationsDown.len()) + "); if (_orbit_down < 0) { fprintf(stderr, \"orbit: down migrations failed to apply\\n\"); exit(1); } if (_orbit_down == 0) { const char* _orbit_migs[] = {" + entryList + "}; if (!orbit_run_migrations(_orbit_migs, " + orbit_int_to_string_selfhost(backend.module.migrations.len()) + ")) { fprintf(stderr, \"orbit: migrations failed to apply\\n\"); exit(1); } } }\n"
     }
     return ddl
 }
@@ -5436,6 +5448,7 @@ fn moduleUsesNetwork(backend: CBackend) -> bool {
 
 fn moduleUsesDatabase(module: IRModule) -> bool {
     if module.migrations.len() > 0 { return true }
+    if module.migrationsDown.len() > 0 { return true }
     return moduleCallsBuiltin(module, "db")
 }
 

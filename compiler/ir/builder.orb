@@ -2305,7 +2305,11 @@ fn registerModel(builder: IRBuilder, node: ASTNode) {
             }
         }
         ASTNode.MigrationDecl(m) => {
-            builder.module.migrations.push(unescapeString(m.sql))
+            if m.down {
+                builder.module.migrationsDown.push(unescapeString(m.sql))
+            } else {
+                builder.module.migrations.push(unescapeString(m.sql))
+            }
         }
         _ => {}
     }
