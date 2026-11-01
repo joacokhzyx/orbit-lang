@@ -219,7 +219,7 @@ values are percent-decoded by `req.param()`. The capture table belongs to
 the request and grows with the pattern, so the count is the route's, not a
 fixed slot count. Query values (`?id=`) keep working alongside.
 
-## Custom tables are created, and forward DDL migrates
+## Custom tables are created, and DDL migrates both ways
 
 On startup the runtime creates the four built-in tables (`notes`,
 `products`, `users`, `sessions`, plus demo seeds) and one table
@@ -266,8 +266,8 @@ record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 
 `system.latency_p50_us()`, `latency_p95_us()`, and `latency_p99_us()`
 exist alongside uptime, pid, worker count, total requests, and mean
-latency. They read a 100 µs-resolution histogram (1 ms-wide buckets
-up to 100 ms, then an overflow bucket answered from the recorded
+latency. They read a 100 µs-resolution histogram (1000 buckets of 100 µs, so
+100 ms of range, then an overflow bucket answered from the recorded
 maximum). So a reported p99 is the boundary of the bucket holding 99%
 of requests, not a measurement of one request. Anything past 100 ms
 collapses into a single bucket and reports the max. Requests are split by
@@ -278,10 +278,27 @@ share.
 
 ## Windows drain is kill
 
-Graceful shutdown (drain in-flight requests, then exit) runs on
-POSIX through SIGTERM. On Windows the stop is `TerminateProcess`:
-immediate, with in-flight requests lost. `drain` and the graceful
-phase of `restart`/`down` are best-effort stops there.
+Draining works on Windows. The emitted loop that finishes adopted and
+queued connections before exiting is not platform-guarded
+(`compiler/emit/route_runtime.orb:442`), and a Windows server registers a
+console handler that requests the stop on `CTRL_C_EVENT` and
+`CTRL_BREAK_EVENT` (`compiler/emit/route_runtime.orb:624-631`, registered at
+`:757`). Ctrl-C on a console `orbit run` therefore drains there as it does
+elsewhere.
+
+What does not exist is a *cross-process* graceful stop on Windows.
+`orbit_os_kill` takes a mode and ignores it there: `OpenProcess` then
+`TerminateProcess`, for mode 0 and mode 1 alike (`runtime/os.c:458-461`), and
+the comment above it says so. POSIX mode 1 is SIGTERM, which the generated
+server's handler turns into the same `orbit_request_stop()`. The reason a
+console event cannot be sent is in the spawn: children are created with
+`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` (`runtime/os.c:399`), so there is
+no console for `GenerateConsoleCtrlEvent` to deliver an event into. `drain` and
+the graceful phase of `restart`/`down` are therefore best-effort stops there.
+The channel that would close it is a named object the server waits on, or a
+child that keeps a console and a process group of its own; neither is landed,
+and the stop flag, the drain loop and the handler are already in place for
+whichever is chosen.
 
 ## Two servers, one port: Windows refuses it, Linux shares it
 
