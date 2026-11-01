@@ -42,10 +42,14 @@ that gate is the one that needs the raised ceiling on a small host.
 ## Doctor skips tool state: dot-directories and what .gitignore names
 
 A directory whose name begins with a dot is not scanned, so `.orbit/` with its
-thousands of build copies never is. The scan root's `.gitignore` is read too:
-a line that is just `name/` keeps that directory out, which is how `scratch/`,
-`dist/` and the fuzz output stay out of a repository-wide run. Nested
-`.gitignore` files, wildcards and anchored patterns are not interpreted.
+thousands of build copies never is. The `.gitignore` of the directory being
+entered is read too, so a rule written in a subdirectory applies to that subtree
+the way git does, and a leading `/` anchors a rule to the directory that wrote
+it instead of applying it at every depth. Wildcards, negation (`!name`) and
+rules that name a path below the directory (`scripts/dist/`) are left to git:
+`*` is not interpreted, because a guessed pattern match silently drops files
+from a scan, and a scan that hides source is worse than one that reports it
+twice.
 
 With both rules, `orbit doctor .` over this repository scans 476 files and
 reports 442 findings (138 errors, 304 warnings) in 7.8 s on Windows. The 4 GB

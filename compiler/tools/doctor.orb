@@ -563,26 +563,85 @@ fn doctorFirstLine(s: string) -> string {
 // already says they are not part of the tree, so the scan skips them the way
 // it skips dot-directories. A plain `name/` line is what this reads: nested
 // .gitignore files, wildcards and anchored patterns are left to git.
-fn doctorIgnoredDirs(root: string) -> list < string > {
-    val names = []
-    val text = orbit_file_read_selfhost(root + "/.gitignore")
-    if text == "" { return names }
+// The ignore rules written in `dir`'s own .gitignore, each tagged with the
+// directory that declared it: `dir + "|" + rule`. A rule is a plain directory
+// name (`build/`), the same thing anchored to its file's directory (`/build/`),
+// or a bare name without the slash. Git also carries wildcards and `!`
+// negations; this reads neither -- a guessed `*` match silently drops files from
+// the scan, which is worse than not ignoring them, and the entry says so.
+//
+// The tag is what makes the anchored form mean what git means: a rule written at
+// the root is a path, so `/scratch/` hides the root's `scratch/` and nothing
+// deeper, while the unanchored `scratch/` hides one at any depth.
+fn doctorIgnoreRules(dir: string) -> list < string > {
+    val out = []
+    val text = orbit_file_read_selfhost(dir + "/.gitignore")
+    if text == "" { return out }
     val lines = splitBuildLines(text)
     var i = 0
     while i < lines.len() {
         var line = doctorTrimSpace(lines.get(i))
-        if doctorStartsWith(line, "/") { line = line.slice(1, line.len()) }
-        if line.len() > 1 && doctorStartsWith(line, "#") == false && doctorStartsWith(line, "!") == false {
+        var anchored = false
+        if doctorStartsWith(line, "/") {
+            anchored = true
+            line = line.slice(1, line.len())
+        }
+        if line.len() > 0 && doctorStartsWith(line, "#") == false && doctorStartsWith(line, "!") == false {
             if doctorEndsWith(line, "/") {
                 val name = line.slice(0, line.len() - 1)
-                if orbit_string_indexOf(name, "*") == -1 && orbit_string_indexOf(name, "/") == -1 {
-                    names.push(name)
+                // A name with a slash inside it is a path below this directory,
+                // and this scan skips by entry name only; leave it to git rather
+                // than half-implement it.
+                if name.len() > 0 && orbit_string_indexOf(name, "/") == -1 && orbit_string_indexOf(name, "*") == -1 {
+                    out.push(dir + "|" + (anchored ? "/": "") + name)
                 }
             }
         }
         i = i + 1
     }
-    return names
+    return out
+}
+
+// Join two rule sets for the queue, keeping each rule's declaring directory.
+fn doctorRuleJoin(a: list < string >, b: list < string >) -> list < string > {
+    val out = []
+    var i = 0
+    while i < a.len() {
+        out.push(a.get(i))
+        i = i + 1
+    }
+    i = 0
+    while i < b.len() {
+        out.push(b.get(i))
+        i = i + 1
+    }
+    return out
+}
+
+// Whether the directory entry `name`, listed inside `parent`, is ignored by
+// `rules`. An anchored rule hides its name only in the directory that wrote it;
+// any other rule hides it at every depth below that directory, which is what
+// git does too.
+fn doctorRuleHides(rules: list < string >, parent: string, name: string) -> bool {
+    var i = 0
+    while i < rules.len() {
+        val rule = rules.get(i)
+        val bar = orbit_string_indexOf(rule, "|")
+        if bar > 0 {
+            val owner = rule.slice(0, bar)
+            var pat = rule.slice(bar + 1, rule.len())
+            var anchored = false
+            if doctorStartsWith(pat, "/") {
+                anchored = true
+                pat = pat.slice(1, pat.len())
+            }
+            if pat == name {
+                if anchored == false || owner == parent { return true }
+            }
+        }
+        i = i + 1
+    }
+    return false
 }
 
 fn doctorCollectOrbFiles(root: string) -> list < string > {
@@ -591,12 +650,18 @@ fn doctorCollectOrbFiles(root: string) -> list < string > {
         files.push(root)
         return files
     }
-    val ignored = doctorIgnoredDirs(root)
+    // Rules accumulate down the walk: each queued directory carries the set it
+    // inherits from its ancestors plus the set written in its own .gitignore, so
+    // a nested ignore file hides its subtree the way the root one hides the
+    // repository's.
     val dirs = []
+    val ruleSets = []
     dirs.push(root)
+    ruleSets.push(doctorIgnoreRules(root))
     var di = 0
     while di < dirs.len() {
         val dir: string = dirs.get(di)
+        val rules: list < string > = ruleSets.get(di)
         val entries = orbit_file_list_dir_selfhost(dir)
         var ei = 0
         while ei < entries.len() {
@@ -610,10 +675,11 @@ fn doctorCollectOrbFiles(root: string) -> list < string > {
                 // made `orbit doctor .` exhaust the arena before it could
                 // report anything.
                 if doctorStartsWith(e, ".") == false {
-                    if doctorListContains(ignored, e) == false {
+                    if doctorRuleHides(rules, dir, e) == false {
                         val sub = orbit_file_list_dir_selfhost(full)
                         if sub.len() > 0 {
                             dirs.push(full)
+                            ruleSets.push(doctorRuleJoin(rules, doctorIgnoreRules(full)))
                         }
                     }
                 }

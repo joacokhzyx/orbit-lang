@@ -102,6 +102,25 @@ SETUP = {
     # The positive control: an un-ignored broken file is still reported.
     "keeproot/.gitignore": "elsewhere/\n",
     "keeproot/broken.orb": "this is not orbit source\n",
+    # A .gitignore inside a subdirectory applies to that subtree, which is how a
+    # real tree names its scratch. `nestdeep` is the same layout with the nested
+    # file missing, so a scanner that reads only the root's .gitignore passes the
+    # control and fails the case -- the pair is what makes the fixture prove
+    # something.
+    "nestroot/.gitignore": "elsewhere/\n",
+    "nestroot/sub/.gitignore": "hidden/\n",
+    "nestroot/sub/kept.orb": "fn main() -> int {\n    return 0\n}\n",
+    "nestroot/sub/hidden/bad.orb": "this is not orbit source\n",
+    "nestdeep/.gitignore": "elsewhere/\n",
+    "nestdeep/sub/kept.orb": "fn main() -> int {\n    return 0\n}\n",
+    "nestdeep/sub/hidden/bad.orb": "this is not orbit source\n",
+    # A leading slash anchors a rule to the directory that wrote it: `/only/`
+    # hides the root's `only/`, and the directory of that name below `keep/` is
+    # still scanned. Reading `/only/` as `only/` at every depth hides both and
+    # the scan answers "no findings", which is what this case fails on.
+    "anchroot/.gitignore": "/only/\n",
+    "anchroot/only/bad.orb": "this is not orbit source\n",
+    "anchroot/keep/only/bad.orb": "this is not orbit source\n",
     "state/.orbit/generated.orb": "this is not orbit source\n",
     # Two functions nothing reaches: `orphan` is never called and `orphan_helper`
     # is called only by it. `build --verbose` counts them as dropped.
@@ -203,6 +222,9 @@ CASES = [
     ("doctor-skips-tool-state", ["doctor", "--color", "never", "state"], 0, "out", "no findings", "D008"),
     ("doctor-skips-gitignored", ["doctor", "--color", "never", "skiproot"], 0, "out", "no findings", "D008"),
     ("doctor-reads-unignored", ["doctor", "--color", "never", "keeproot"], 1, "out", "D008", ""),
+    ("doctor-nested-gitignore", ["doctor", "--color", "never", "nestroot"], 0, "out", "no findings", "D008"),
+    ("doctor-nested-unignored", ["doctor", "--color", "never", "nestdeep"], 1, "out", "D008", ""),
+    ("doctor-anchor-not-deep", ["doctor", "--color", "never", "anchroot"], 1, "out", "D008", ""),
     ("doctor-verbose", ["doctor", "--verbose", "cleandir"], 0, "out", "scanned", ""),
     ("doctor-json", ["doctor", "--format", "json", "files"], 1, "out", '"code"', ""),
     ("doctor-format-bad", ["doctor", "--format", "xml", "files"], 2, "err", "Usage:", ""),
