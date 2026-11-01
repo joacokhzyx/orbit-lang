@@ -100,6 +100,24 @@ static void test_bad_migration_fails(void) {
     orbit_db_close();
 }
 
+/* A schema migrated by a newer program is refused. Applying this program's
+ * older set would leave the newer columns in place and read them with code
+ * that does not know them; a loud answer is the only safe one. */
+static void test_newer_schema_is_refused(void) {
+    fresh_db();
+    const char* migs[] = { "ALTER TABLE notes ADD COLUMN rank INTEGER" };
+    assert(orbit_run_migrations(migs, 1) == true);
+    {
+        char* err = NULL;
+        sqlite3_exec(orbit_db_conn,
+            "INSERT INTO _orbit_migrations (version) VALUES (5);",
+            NULL, NULL, &err);
+        if (err) sqlite3_free(err);
+    }
+    assert(orbit_run_migrations(migs, 1) == false);
+    orbit_db_close();
+}
+
 int main(void) {
     printf("test_migrations\n");
     fflush(stdout); /* see RUN_TEST: a crash must name its test */
@@ -107,5 +125,6 @@ int main(void) {
     RUN_TEST(test_stale_row_upgrade);
     RUN_TEST(test_rerun_is_noop);
     RUN_TEST(test_bad_migration_fails);
+    RUN_TEST(test_newer_schema_is_refused);
     return 0;
 }

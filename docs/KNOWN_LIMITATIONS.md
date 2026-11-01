@@ -222,9 +222,11 @@ come from the model fields: `string`→`TEXT`, `int`/`bool`→`INTEGER`,
 `float`→`REAL`, and an `id` field becomes the primary key. Forward
 DDL now runs through `migrations "<SQL>"` lines (each once, in
 declaration order, tracked in `_orbit_migrations`). See
-`docs/guides/migrations.md`. What does not exist: `down`
-migrations, a version-required startup check, and a standalone
-`orbit migrate`.
+`docs/guides/migrations.md`. A database whose schema is newer than the
+program is refused at startup: if `_orbit_migrations` holds a version this
+program does not declare, it prints the version and exits non-zero instead of
+running old code against columns it cannot describe. What does not exist:
+`down` migrations and a standalone `orbit migrate`.
 
 ## Multipart uploads save files to disk
 

@@ -147,6 +147,26 @@ bool orbit_run_migrations(const char* const* migrations, int count) {
         "CREATE TABLE IF NOT EXISTS _orbit_migrations (version INTEGER PRIMARY KEY);",
         NULL, NULL, NULL);
     if (rc != SQLITE_OK) return false;
+    /* A database migrated by a newer program holds versions this binary does
+     * not declare. Applying this program's older set would leave the newer
+     * columns in place and read them with code that does not know them, so
+     * startup refuses instead of running against a schema it cannot describe. */
+    {
+        sqlite3_stmt* hi = NULL;
+        int newest = -1;
+        if (sqlite3_prepare_v2(orbit_db_conn, "SELECT MAX(version) FROM _orbit_migrations", -1, &hi, NULL) == SQLITE_OK) {
+            if (sqlite3_step(hi) == SQLITE_ROW && sqlite3_column_type(hi, 0) != SQLITE_NULL) {
+                newest = sqlite3_column_int(hi, 0);
+            }
+            sqlite3_finalize(hi);
+        }
+        if (newest >= count) {
+            fprintf(stderr,
+                "orbit: this database has a newer schema (migration %d applied) than this program declares (%d migrations). Run the newer program, or point this one at another database.\n",
+                newest, count);
+            return false;
+        }
+    }
     for (int i = 0; i < count; i++) {
         sqlite3_stmt* stmt = NULL;
         int done = 0;

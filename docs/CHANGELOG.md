@@ -51,6 +51,12 @@ Commands and gates:
 
 Runtime:
 
+- **A program refuses to start against a newer schema.** If
+  `_orbit_migrations` holds a version the program does not declare, startup
+  prints the version and exits non-zero instead of running old code against
+  columns it cannot describe. Pinned by
+  `runtime/test_migrations.c:test_newer_schema_is_refused`.
+
 - **The runtime archive has one member per module, and a program starts only
   what it uses.** `hello.orb` built with the C backend has 13 072 bytes of
   `.text` (was 116 352), imports only KERNEL32 and msvcrt (was also ADVAPI32 and

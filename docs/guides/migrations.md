@@ -60,7 +60,11 @@ before.
 
 ## What is deliberately not there
 
-`down` migrations, a `schema_version` check that refuses newer-than-known,
-and `orbit migrate` as a standalone command do not exist. Migrations
-run at startup, inside the process, in order. That is the whole of the
-contract, and `runtime/test_migrations.c` pins exactly this behavior.
+`down` migrations and `orbit migrate` as a standalone command do not exist.
+Migrations run at startup, inside the process, in order.
+
+A database whose schema is newer than the program is refused. If
+`_orbit_migrations` holds a version this program does not declare, startup
+prints the version and exits non-zero, instead of running old code against
+columns it cannot describe. That refusal is `test_newer_schema_is_refused` in
+`runtime/test_migrations.c`.
