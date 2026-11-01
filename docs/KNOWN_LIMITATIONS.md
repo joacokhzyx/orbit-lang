@@ -370,12 +370,11 @@ backend had been discarding.
 
 ## `std/` is 20 modules; the six deleted ones are not coming back
 
-**20 modules; nineteen merge into one program.** Verified:
-`tests/std/test_imports.orb` imports nineteen of them into a single binary
+**20 modules, and all 20 compile into one binary.** Verified:
+`tests/std/test_imports.orb` imports nineteen of them into a single program
 and calls into each, and it passes. The twentieth, `std/sys/arena.orb`, takes
 an arena instance and is exercised by `tests/std/color_smoke.orb` and
-`examples/std_imports.orb` instead. `tests/std/` is 23 files and runs 23/23
-green.
+`examples/std_imports.orb` instead. `tests/std/` is 23 files and runs 23/23 green.
 
 `std/` was 20 modules. **Six were deleted, and the reason was measured**:
 each was a function that returned a value and was not computing it:
