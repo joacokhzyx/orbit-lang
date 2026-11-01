@@ -254,7 +254,7 @@ RAPL). On Windows the proxy is CPU time plus memory -
 never converted to joules with a universal factor. The measurement
 record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 
-## Latency percentiles are bucket edges, and there is no success/error split
+## Latency percentiles are bucket edges
 
 `system.latency_p50_us()`, `latency_p95_us()`, and `latency_p99_us()`
 exist alongside uptime, pid, worker count, total requests, and mean
@@ -262,8 +262,9 @@ latency. They read a 100 µs-resolution histogram (1 ms-wide buckets
 up to 100 ms, then an overflow bucket answered from the recorded
 maximum). So a reported p99 is the boundary of the bucket holding 99%
 of requests, not a measurement of one request. Anything past 100 ms
-collapses into a single bucket and reports the max. What isn't
-measured still isn't exposed: there is no success/error split.
+collapses into a single bucket and reports the max. Requests are split by
+class at the send path: `system.http_requests_ok()` counts responses below
+400 and `system.http_requests_error()` counts 400 and above.
 `/_ledger` adds per-route request counts, mean milliseconds, and DB
 share.
 

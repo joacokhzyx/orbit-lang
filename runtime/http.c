@@ -655,6 +655,9 @@ void orbit_send_response(orbit_socket_t client, OrbitResponse* resp) {
     }
     #endif
 
+    /* The status is final here: the lease may have turned it into a 500. */
+    orbit_perf_note_response(resp->status);
+
     /* Resolve HTTP reason phrase for the status code. The length rides
      * strlen: a hand-counted length beside each phrase is a miscount
      * waiting for the next added code, and 34 bytes of scan per

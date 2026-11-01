@@ -70,6 +70,9 @@ typedef struct {
     // Request Stats
     uint64_t request_count;
     uint64_t total_cycles;
+    /* Responses by class, counted where one is sent: 2xx/3xx ok, else error. */
+    uint64_t request_ok;
+    uint64_t request_error;
     uint64_t min_cycles;
     uint64_t max_cycles;
     
@@ -210,6 +213,14 @@ ORBIT_INLINE void orbit_perf_end_request(uint64_t start_cycles) {
 
 ORBIT_INLINE OrbitPerfStats orbit_perf_get_stats(void) {
     return orbit_perf_stats;
+}
+
+/* 4xx and 5xx are errors; everything the server answers below that is ok.
+ * Counted at the send path so the default router and the emitted one feed the
+ * same pair. */
+ORBIT_INLINE void orbit_perf_note_response(int status) {
+    if (status >= 400) orbit_perf_atomic_inc64(&orbit_perf_stats.request_error);
+    else orbit_perf_atomic_inc64(&orbit_perf_stats.request_ok);
 }
 
 

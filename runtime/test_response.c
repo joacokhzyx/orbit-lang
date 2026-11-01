@@ -131,7 +131,17 @@ static int check_wire(OrbitArena* arena, const char* label, size_t eh_target) {
         return 1;
     }
 
-    orbit_send_response(s, r);
+    {
+        uint64_t ok_before = orbit_perf_get_stats().request_ok;
+        orbit_send_response(s, r);
+        if (orbit_perf_get_stats().request_ok != ok_before + 1) {
+            printf("FAILED %s: the ok counter did not move\n", label);
+            orbit_socket_close(s);
+            orbit_socket_close(c);
+            orbit_socket_close(ls);
+            return 1;
+        }
+    }
 
     /* Read exactly the expected length: the server keeps the connection
      * open (keep-alive), so a read to EOF would hang until the timeout. */
@@ -254,6 +264,19 @@ int main(void) {
      * forces the fallback, and 9000+ B forces the direct send (header +
      * body past 8192). All three must arrive byte-exact. */
     orbit_http_init();
+    /* The split counts classes where a response is sent: 4xx and 5xx are
+     * errors and everything below that is ok. */
+    {
+        OrbitPerfStats before = orbit_perf_get_stats();
+        orbit_perf_note_response(404);
+        orbit_perf_note_response(503);
+        OrbitPerfStats after = orbit_perf_get_stats();
+        if (after.request_error != before.request_error + 2 ||
+            after.request_ok != before.request_ok) {
+            printf("FAILED the response class counters\n");
+            return 1;
+        }
+    }
     if (check_wire(arena, "small", 78) != 0) return 1;
     if (check_wire(arena, "mid", 600) != 0) return 1;
     if (check_wire(arena, "large", 9000) != 0) return 1;

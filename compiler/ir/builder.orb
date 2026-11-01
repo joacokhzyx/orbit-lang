@@ -366,6 +366,8 @@ fn builtinReturnType(name: string) -> string {
     if name == "system_pid" { return "int" }
     if name == "system_active_workers" { return "int" }
     if name == "system_http_requests_total" { return "int" }
+    if name == "system_http_requests_ok" { return "int" }
+    if name == "system_http_requests_error" { return "int" }
     if name == "system_latency_avg_us" { return "int" }
     if name == "system_latency_p50_us" { return "int" }
     if name == "system_latency_p95_us" { return "int" }
@@ -4508,6 +4510,10 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                             systemBuiltin = "system_active_workers"
                         } else if memberName == "http_requests_total" {
                             systemBuiltin = "system_http_requests_total"
+                        } else if memberName == "http_requests_ok" {
+                            systemBuiltin = "system_http_requests_ok"
+                        } else if memberName == "http_requests_error" {
+                            systemBuiltin = "system_http_requests_error"
                         } else if memberName == "latency_avg_us" {
                             systemBuiltin = "system_latency_avg_us"
                         } else if memberName == "latency_p50_us" {

@@ -543,6 +543,16 @@ orbit_int system_http_requests_total(void) {
     return (orbit_int)orbit_perf_get_stats().request_count;
 }
 
+/* Responses answered below 400 and at or above it. Counted where a response
+ * is sent, so both routers feed them. */
+orbit_int system_http_requests_ok(void) {
+    return (orbit_int)orbit_perf_get_stats().request_ok;
+}
+
+orbit_int system_http_requests_error(void) {
+    return (orbit_int)orbit_perf_get_stats().request_error;
+}
+
 /* Mean request latency in microseconds. Same 2.5 GHz RDTSC basis as the
  * per-request server log; approximate on other clock rates. Zero before
  * the first completed request. */

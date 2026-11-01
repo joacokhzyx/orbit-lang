@@ -3999,6 +3999,8 @@ fn doctorIsValidSystemMember(member: string) -> bool {
     if member == "pid" { return true }
     if member == "active_workers" { return true }
     if member == "http_requests_total" { return true }
+    if member == "http_requests_ok" { return true }
+    if member == "http_requests_error" { return true }
     if member == "latency_avg_us" { return true }
     if member == "latency_p50_us" { return true }
     if member == "latency_p95_us" { return true }
@@ -4038,7 +4040,7 @@ fn doctorScanSystem(stats: DoctorStats, lines: list < string >, file: string) {
     while i < lines.len() {
         val bad = doctorScanSystemLine(doctorCodePart(lines.get(i)))
         if bad != "" {
-            doctorReport(stats, file, i + 1, "D005", "unknown member 'system." + bad + "'. Valid members are: uptime, pid, active_workers, http_requests_total, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.", "use one of: uptime, pid, active_workers, http_requests_total, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.")
+            doctorReport(stats, file, i + 1, "D005", "unknown member 'system." + bad + "'. Valid members are: uptime, pid, active_workers, http_requests_total, http_requests_ok, http_requests_error, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.", "use one of: uptime, pid, active_workers, http_requests_total, http_requests_ok, http_requests_error, latency_avg_us, latency_p50_us, latency_p95_us, latency_p99_us.")
         }
         i = i + 1
     }
@@ -4957,7 +4959,6 @@ fn doctorRun(opts: DoctorOptions) {
     // What the parse pass produced, kept for the fingerprint pass. Parsing a
     // file twice to find its imports is the one cost the cache cannot absorb.
     val parsedFiles = []
-    val parsedAsts = []
     val parsedImports = []
     val parsedSources = []
     var i = 0
@@ -5004,7 +5005,6 @@ fn doctorRun(opts: DoctorOptions) {
                 val imps = []
                 doctorCollectImports(ast, imps)
                 parsedFiles.push(fp3)
-                parsedAsts.push(ast)
                 parsedImports.push(imps)
                 parsedSources.push(src3)
                 // D012 needs, per file, the names it references and the modules

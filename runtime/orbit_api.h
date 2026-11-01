@@ -676,6 +676,8 @@ orbit_int system_uptime(void);
 orbit_int system_pid(void);
 orbit_int system_active_workers(void);
 orbit_int system_http_requests_total(void);
+orbit_int system_http_requests_ok(void);
+orbit_int system_http_requests_error(void);
 orbit_int system_latency_avg_us(void);
 orbit_int system_latency_p50_us(void);
 orbit_int system_latency_p95_us(void);

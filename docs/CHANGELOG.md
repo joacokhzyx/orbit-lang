@@ -51,6 +51,11 @@ Commands and gates:
 
 Runtime:
 
+- **Requests are counted by class.** `system.http_requests_ok()` counts
+  responses below 400 and `system.http_requests_error()` counts 400 and above,
+  both recorded where the response is sent so the default router and the
+  emitted one feed the same pair. `runtime/test_response.c` checks both.
+
 - **A program refuses to start against a newer schema.** If
   `_orbit_migrations` holds a version the program does not declare, startup
   prints the version and exits non-zero instead of running old code against

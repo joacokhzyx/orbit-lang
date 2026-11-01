@@ -921,6 +921,8 @@ feature that would let it land.
 | `system.pid()` | `int` process id |
 | `system.active_workers()` | `int` workers configured at startup (`0` outside servers) |
 | `system.http_requests_total()` | `int` completed requests |
+| `system.http_requests_ok()` | `int` responses below 400 |
+| `system.http_requests_error()` | `int` responses at or above 400 |
 | `system.latency_avg_us()` | `int` mean latency, microseconds (`0` before the first request) |
 | `system.latency_p50_us()` | `int` median latency, microseconds (`0` before the first request) |
 | `system.latency_p95_us()` | `int` 95th percentile latency, microseconds (`0` before the first request) |
