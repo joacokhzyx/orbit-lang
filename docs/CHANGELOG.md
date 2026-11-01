@@ -13,6 +13,11 @@ startup banner says `Orbit 0.1.0`).
 
 Commands and gates:
 
+- **`orbit frontend` lowers `print`.** The TIR path had no binding for it, so
+  the first example exited 1 with `unknown identifier print`. The call now
+  emits `call void print`, and every program under `examples/` produces TIR.
+  Pinned by `tests/frontend/print_pipeline.orb` and its golden.
+
 - **The existing commands finish without an r6.exe.** On Windows the native
   backend is the default only when `ORBIT_R6` names a path or `r6.exe` sits
   beside the compiler; otherwise the build uses the C backend and prints one

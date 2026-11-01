@@ -93,6 +93,7 @@ fn typeOfExpression(bindings: list < TirBinding >, node: ASTNode) -> string {
                     if l.text == "len" || l.text == "indexOf" || l.text == "orbit_os_argc_selfhost" || l.text == "orbit_string_char_at_selfhost" { return "int" }
                     if l.text == "orbit_int_to_string_selfhost" || l.text == "orbit_float_to_string_selfhost" || l.text == "orbit_os_argv_selfhost" || l.text == "orbit_os_exec_selfhost" || l.text == "orbit_os_env_selfhost" || l.text == "orbit_file_read_selfhost" || l.text == "slice" || l.text == "at" || l.text == "tirEscape" || l.text == "tirIntText" { return "string" }
                     if l.text == "orbit_file_write_selfhost" || l.text == "hasErrors" || l.text == "tirHasErrors" || l.text == "isVisited" { return "bool" }
+                    if l.text == "print" { return "void" }
                     return bindingType(bindings, l.text)
                 }
                 ASTNode.MemberAccess(ma) => {
@@ -153,6 +154,24 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             return tirEmit(function, blockId, "member", resType, tirValue(objVal) + " " + member.field)
         }
         ASTNode.Call(call) => {
+            // `print` is a builtin the builder lowers to the runtime's print;
+            // there is no binding to resolve, and its result is no value.
+            var calleeIsPrint = false
+            match call.callee {
+                ASTNode.Literal(pl) => { if pl.text == "print" { calleeIsPrint = true } }
+                _ => {}
+            }
+            if calleeIsPrint {
+                var printOperands = "print"
+                var pi = 0
+                while pi < call.args.len() {
+                    val argument: ASTNode = call.args.get(pi)
+                    val value = lowerExpression(module, function, blockId, bindings, argument)
+                    printOperands = printOperands + " " + tirValue(value)
+                    pi = pi + 1
+                }
+                return tirEmit(function, blockId, "call", "void", printOperands)
+            }
             val callee = lowerExpression(module, function, blockId, bindings, call.callee)
             var operands = tirValue(callee)
             var i = 0

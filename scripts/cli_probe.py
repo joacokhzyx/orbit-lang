@@ -166,10 +166,10 @@ CASES = [
     ("run-noarg", ["run"], 2, "err", "Usage:", ""),
     ("run-missing", ["run", "nope.orb"], 1, "err", "orbit run:", ""),
     ("run-subdir", ["run", "--backend=c", "sub/tiny.orb"], 0, "out", "ran from a subdir", ""),
-    # The frontend path does not lower the `print` builtin, and the command now
-    # says so by name instead of blaming "diagnostics" it never printed.
-    ("frontend-names-cause", ["frontend", "sub/tiny.orb"], 1, "err",
-     "unknown identifier print", "diagnostics contain errors"),
+    # `print` lowers in the TIR path now (tests/frontend/print_pipeline.orb),
+    # so the command emits TIR for a program that uses it.
+    ("frontend-print", ["frontend", "sub/tiny.orb", "-o", "tiny.tir"], 0, "out", "",
+     "diagnostics contain errors"),
     ("fmt-noarg", ["fmt"], 2, "err", "Usage:", ""),
     ("fmt-help", ["fmt", "--help"], 0, "out", "Usage:", ""),
     ("fmt-missing", ["fmt", "nope.orb"], 1, "err", "orbit fmt:", ""),

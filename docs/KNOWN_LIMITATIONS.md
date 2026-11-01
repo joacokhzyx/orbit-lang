@@ -18,16 +18,6 @@ now, and the section records what they answer instead. It includes the two
 checks that were wrong in the direction of refusing valid code, which is the
 failure mode worth reading about.
 
-## The frontend command covers the subset the compiler itself uses
-
-`orbit frontend` emits TIR for a program whose calls resolve in the TIR
-lowering. `print` does not: `orbit frontend examples/hello.orb` exits 1 with
-`unknown identifier print`, while `examples/health_service.orb` emits TIR. The
-command now names the symbol and the value id, with the file and line of the
-error the frontend reported, instead of saying that diagnostics contained
-errors while printing none. Building is unaffected; `orbit build` lowers
-`print`.
-
 ## Doctor over compiler/ needs more arena than a 4 GB machine offers by default
 
 `orbit doctor compiler` allocates more than 2.9 GB of arena. The default
@@ -543,11 +533,13 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 6/6
+## The frontend gate is 7/7
 
-`scripts/frontend_gate.py` runs six fixtures and all six pass (two of them,
-`syntax_error.orb` and `unresolved_type.orb`, could not build for most of this
-cycle, and both missing imports are fixed).
+`scripts/frontend_gate.py` runs seven fixtures and all seven pass (two of
+them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
+of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
+`call void print`, which is what made `orbit frontend examples/hello.orb`
+fail before.
 
 ## `lib/net.orb` is gone
 
