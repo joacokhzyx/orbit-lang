@@ -26,6 +26,17 @@ Language front end:
 
 Commands and gates:
 
+- **A Windows stop drains instead of killing.** The graceful ask had no channel:
+  `orbit_os_kill(pid, 1)` ran `TerminateProcess` on Windows like mode 0 did, and
+  a detached child has no console to receive a Ctrl event. The server now opens
+  `Local\orbit-stop-<pid>` at start, its worker loop polls that name after every
+  `select`, and mode 1 sets it -- falling back to the old terminate only when no
+  channel carries the pid, which is a child that never reached the server start.
+  POSIX keeps SIGTERM and answers 0 from all three calls. Measured through the
+  CLI: `orbit stop` returned in 193 ms with the service terminated, and 1108 ms
+  now with the service printing `Server stopped.` after its workers join. Pinned
+  by `runtime/test_stop_channel.c`.
+
 - **`orbit stop` and `cluster down` wait now.** Both ask for a graceful stop and
   escalate to a kill three seconds later, but the wait was `clusterSleepSec`,
   which slept by spawning `timeout /T 1 /NOBREAK` -- and `timeout` refuses to run

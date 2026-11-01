@@ -53,9 +53,10 @@ before.
 - **Two writers, one file.** UNTESTED and explicitly out of
   scope - concurrent writes from two processes against one
   database file have no contract. One writer per file.
-- **Windows stop loses in-flight writes.** Stop is
-  `TerminateProcess`. A write in flight when you stop the
-  service may or may not have landed. Quiesce traffic first,
+- **A Windows stop that finds no channel is a kill.** The graceful ask sets
+  `Local\orbit-stop-<pid>`, and a server that never reached its start has no
+  such name, so the stop falls back to `TerminateProcess`. A write in flight
+  then may or may not have landed. Quiesce traffic first,
   then stop, then back up.
 
 ## Rolling back

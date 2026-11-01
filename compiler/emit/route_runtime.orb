@@ -457,6 +457,7 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "        if (_orbit_sel_s > 1) _orbit_sel_s = 1;\n"
     out = out + "        struct timeval tv = {_orbit_sel_s, 0};\n"
     out = out + "        int activity = select((int)max_fd + 1, &readfds, NULL, NULL, &tv);\n"
+    out = out + "        if (orbit_stop_channel_poll()) { orbit_request_stop(); }\n"
     out = out + "\n"
     out = out + "        if (activity < 0) {\n"
     out = out + "#ifdef _WIN32\n"
@@ -759,6 +760,11 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "    signal(SIGINT, orbit_term_handler);\n"
     out = out + "    signal(SIGTERM, orbit_term_handler);\n"
     out = out + "#endif\n"
+    // The console handler above answers Ctrl-C in this terminal. The channel
+    // below is the same request from another process -- `cluster down`, a
+    // `dev restart` -- which on Windows has no signal to send, because the
+    // child was spawned detached from any console.
+    out = out + "    orbit_stop_channel_open(0);\n"
     out = out + "\n"
     out = out + "    orbit_thread_t* workers = (orbit_thread_t*)malloc(sizeof(orbit_thread_t) * (size_t)num_workers);\n"
     out = out + "    OrbitWorkerCtx* ctxs = (OrbitWorkerCtx*)malloc(sizeof(OrbitWorkerCtx) * (size_t)num_workers);\n"

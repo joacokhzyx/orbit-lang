@@ -436,6 +436,55 @@ orbit_int orbit_os_spawn_bg(orbit_string command, orbit_string logfile) {
 #endif
 }
 
+/* One stop channel per process, named by its pid.
+ *
+ * A stop asked from another process has no signal to send on Windows: the
+ * children are created DETACHED_PROCESS (see the spawn above), so there is no
+ * console for GenerateConsoleCtrlEvent to deliver into, and TerminateProcess
+ * loses the requests in flight. The name is the pid because that is the only
+ * thing the stopper knows. pid <= 0 means "this process", which is how the
+ * generated server opens its own channel without a getpid of its own.
+ *
+ * POSIX has SIGTERM, which the generated server's handler already turns into
+ * orbit_request_stop(). The three calls there do nothing and answer 0, so one
+ * emitted code path works on both hosts and the signal path stays the single
+ * answer to the question on POSIX. */
+#ifdef _WIN32
+static HANDLE orbit_stop_channel_handle = NULL;
+
+orbit_int orbit_stop_channel_open(orbit_int pid) {
+    char name[48];
+    DWORD own;
+    if (orbit_stop_channel_handle != NULL) return 1;
+    own = (pid > 0) ? (DWORD)pid : GetCurrentProcessId();
+    snprintf(name, sizeof(name), "Local\\orbit-stop-%lu", (unsigned long)own);
+    orbit_stop_channel_handle = CreateEventA(NULL, TRUE, FALSE, name);
+    return orbit_stop_channel_handle != NULL ? 1 : 0;
+}
+
+orbit_int orbit_stop_channel_poll(void) {
+    if (orbit_stop_channel_handle == NULL) return 0;
+    return WaitForSingleObject(orbit_stop_channel_handle, 0) == WAIT_OBJECT_0 ? 1 : 0;
+}
+
+orbit_int orbit_stop_channel_ask(orbit_int pid) {
+    char name[48];
+    HANDLE h;
+    BOOL ok;
+    if (pid <= 0) return 0;
+    snprintf(name, sizeof(name), "Local\\orbit-stop-%lu", (unsigned long)pid);
+    h = OpenEventA(EVENT_MODIFY_STATE, FALSE, name);
+    if (h == NULL) return 0;
+    ok = SetEvent(h);
+    CloseHandle(h);
+    return ok ? 1 : 0;
+}
+#else
+orbit_int orbit_stop_channel_open(orbit_int pid) { (void)pid; return 0; }
+orbit_int orbit_stop_channel_poll(void) { return 0; }
+orbit_int orbit_stop_channel_ask(orbit_int pid) { (void)pid; return 0; }
+#endif
+
 // Signal or probe a process by pid.
 // mode 0 = forceful stop  (POSIX SIGKILL / Windows TerminateProcess).
 // mode 1 = graceful stop  (POSIX SIGTERM, honored by the generated server's
@@ -455,6 +504,11 @@ orbit_int orbit_os_kill(orbit_int pid, orbit_int mode) {
         CloseHandle(h);
         return (w == WAIT_TIMEOUT) ? 1 : 0;
     }
+    /* A graceful stop, asked through the channel the child opened. When no
+     * channel exists -- the child is older than the channel, or it never got
+     * to the server start -- fall back to the terminate this function always
+     * did, and keep the same return value so callers do not change shape. */
+    if (mode == 1 && orbit_stop_channel_ask(pid) == 1) return 1;
     HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
     if (h == NULL) return 0;
     BOOL ok = TerminateProcess(h, 0);

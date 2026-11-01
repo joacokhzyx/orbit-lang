@@ -106,7 +106,9 @@ runtime functions instead:
   the standard handles on the log file (append mode, so restarts keep
   history). Returns the child pid, or -1 on failure.
 - `orbit_os_kill(pid, mode) -> int`: mode 0 is forceful (SIGKILL /
-  `TerminateProcess`), and mode 1 is graceful (SIGTERM / `TerminateProcess`).
+  `TerminateProcess`), and mode 1 is graceful (SIGTERM on POSIX; on Windows it
+  sets the process's named stop channel and falls back to `TerminateProcess`
+  when no channel carries that pid).
   Mode 2 probes only: `kill(pid, 0)` with a `waitpid` reap check for own
   exited children so a just-crashed node reads as dead rather than as a
   lingering zombie. On Windows it is `OpenProcess` + `WaitForSingleObject(0)`.
@@ -122,10 +124,12 @@ Both follow the established extern pattern: declaration in
 
 On POSIX, graceful stop (SIGTERM) runs the generated server's drain handler:
 new connections are refused, in-flight requests complete, then the process
-exits. On Windows, `TerminateProcess` is immediate and the drain handler
-does not run: connections drop and in-flight requests are lost. The Windows
-console handler only fires for console Ctrl events, which a detached
-process never receives, so there is no graceful path on Windows in v1.
+exits. On Windows the ask arrives on a named event: the server opens
+`Local\orbit-stop-<pid>` at start and its accept loop polls that name, so the
+same drain runs there. The console handler fires only
+for console Ctrl events, which a detached
+process never receives; the named channel is what replaces that missing
+signal, and a process that never opened one is terminated.
 `drain` and the graceful phase of `restart`/`down` are therefore best-effort
 stops on Windows. The commands still report what happened on each node.
 

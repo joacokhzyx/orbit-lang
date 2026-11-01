@@ -110,6 +110,10 @@ PROGRAMS = [
     # an upper bound is a race with the rest of the machine, and a red test that
     # means "the runner was busy" is worse than no test.
     prog("sleep", warnings=True),
+    # The cross-process stop channel `cluster down` and a `dev restart` ask on
+    # Windows. warnings=True because the channel is a named kernel object, and a
+    # wrong signature there is a leaked handle, not a wrong number.
+    prog("stop_channel", warnings=True),
     prog("random", warnings=True),
     prog("exec", warnings=True, defines=["-DORBIT_WITH_EXEC"]),
     prog("http_client", warnings=True),

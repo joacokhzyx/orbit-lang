@@ -276,26 +276,45 @@ class at the send path: `system.http_requests_ok()` counts responses below
 `/_ledger` adds per-route request counts, mean milliseconds, and DB
 share.
 
-## Windows drain is kill
+## A Windows stop drains through a named channel
 
 Draining works on Windows. The emitted loop that finishes adopted and
 queued connections before exiting is not platform-guarded
 (`compiler/emit/route_runtime.orb:442`), and a Windows server registers a
 console handler that requests the stop on `CTRL_C_EVENT` and
-`CTRL_BREAK_EVENT` (`compiler/emit/route_runtime.orb:624-631`, registered at
-`:757`). Ctrl-C on a console `orbit run` therefore drains there as it does
+`CTRL_BREAK_EVENT` (`compiler/emit/route_runtime.orb:625-632`, registered at
+`:758`). Ctrl-C on a console `orbit run` therefore drains there as it does
 elsewhere.
 
-What does not exist is a *cross-process* graceful stop on Windows.
-`orbit_os_kill` takes a mode and ignores it there: `OpenProcess` then
-`TerminateProcess`, for mode 0 and mode 1 alike (`runtime/os.c:458-461`), and
-the comment above it says so. POSIX mode 1 is SIGTERM, which the generated
-server's handler turns into the same `orbit_request_stop()`. The reason a
-console event cannot be sent is in the spawn: children are created with
+The gap was the ask from another process. `orbit_os_kill` took a mode and
+ignored it on Windows, and children are created with
 `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` (`runtime/os.c:399`), so there is
-no console for `GenerateConsoleCtrlEvent` to deliver an event into.
+no console for `GenerateConsoleCtrlEvent` to deliver an event into. The ask is a
+named event now, and the name is the pid, because the pid is all the stopper
+knows:
 
-A second defect hid behind that one, and it made the wait itself a lie.
+- the server opens its own channel at start
+  (`compiler/emit/route_runtime.orb:767`);
+- the worker loop polls it after every `select`
+  (`compiler/emit/route_runtime.orb:460`), so a stop is seen within the loop's
+  1 s timeout, and the request is the same `orbit_request_stop()` the console
+  handler raises;
+- `orbit_os_kill(pid, 1)` sets it (`runtime/os.c:511`), and when no channel
+  carries that pid it falls back to `TerminateProcess` (`runtime/os.c:512`).
+
+POSIX answers 0 from all three calls and keeps SIGTERM, so one emitted code path
+runs on both hosts with one graceful-stop mechanism each.
+`runtime/test_stop_channel.c` pins the open, the ask, the poll and the
+manual-reset repeat on Windows, and the no-op answers on POSIX.
+
+Measured through the CLI in three steps: **193 ms** before the wait below was
+fixed, and the service was terminated; **1074 ms** with the wait fixed and no
+channel, and the service was still terminated; **1108 ms** with the channel, and
+the service's own output ends with `Server stopped.` -- the printf that runs only
+after the workers join (`compiler/emit/route_runtime.orb:816`).
+
+A second defect hid behind the missing channel, and it made the wait itself a
+lie.
 `orbit stop` and `cluster down` ask mode 1, then escalate to a kill after
 three seconds -- except the wait was `clusterSleepSec`, which slept by
 spawning `timeout /T 1 /NOBREAK`. `timeout` refuses to run when its input is
@@ -313,12 +332,11 @@ check.
 `clusterSleepSec` now blocks the thread on `orbit_sleep_ms`
 (`runtime/builtins.c:133`), which cannot be skipped by the state of a handle;
 `runtime/test_sleep.c` pins the lower bound and the zero/negative answers.
-Re-measured after the fix: `orbit stop` takes 1074 ms and the service is still
-terminated -- the wait exists now, and what it waits for is the channel below.
 
-The channel that would close the first gap is a named object the server waits
-on; the stop flag, the drain loop, the handler and a caller that now actually
-waits are all in place for it.
+What is left: a child that never reached the server start has no channel to
+answer -- one that failed before the listener opened, or one built before this
+channel existed. There the stop is still a kill, and it is the honest outcome:
+nothing waits on the name.
 
 ## Two servers, one port: Windows refuses it, Linux shares it
 
