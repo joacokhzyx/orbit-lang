@@ -13,6 +13,11 @@ startup banner says `Orbit 0.1.0`).
 
 Commands and gates:
 
+- **`orbit migrate <file.orb>` runs migrations without serving.** It builds a
+  migrate-only binary into `.orbit/`, runs the database block (forward, or a
+  rollback when `ORBIT_MIGRATE_DOWN=<version>` is set) and exits with the
+  result. Pinned by four cases in `cli_probe`.
+
 - **`orbit doctor` skips what `.gitignore` names.** A `.gitignore` line that is
   just `name/` keeps that directory out of the scan, the way dot-directories
   already were. `orbit doctor .` over this repository scans 472 files instead

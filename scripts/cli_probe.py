@@ -90,6 +90,8 @@ SETUP = {
     # One program across two files: the import edge makes the duplicate real.
     "mergesvc/lib.orb": "route GET \"/items\" {\n    return ok { status: \"lib\" }\n}\n",
     "mergesvc/app.orb": "import \"lib.orb\"\n\nroute GET \"/items\" {\n    return ok { status: \"app\" }\n}\n\nfn main() -> int {\n    return 0\n}\n",
+    # `orbit migrate` runs the migration block without serving.
+    "mig/app.orb": "migrations \"CREATE TABLE IF NOT EXISTS mig_probe (x INTEGER)\"\nmigrations down \"DROP TABLE IF EXISTS mig_probe\"\n\nfn main() -> int {\n    return 0\n}\n",
     # A dot-directory is tool state, not source: the unparseable file inside
     # .orbit must not be scanned, which is what keeps `doctor .` finite.
     "state/ok.orb": "fn main() -> int {\n    return 0\n}\n",
@@ -173,6 +175,14 @@ CASES = [
     ("run-noarg", ["run"], 2, "err", "Usage:", ""),
     ("run-missing", ["run", "nope.orb"], 1, "err", "orbit run:", ""),
     ("run-subdir", ["run", "--backend=c", "sub/tiny.orb"], 0, "out", "ran from a subdir", ""),
+    ("migrate-noarg", ["migrate"], 2, "err", "Usage:", ""),
+    ("migrate-help", ["migrate", "--help"], 0, "out", "Usage:", ""),
+    ("migrate-missing", ["migrate", "nope.orb"], 1, "err", "orbit migrate:", ""),
+    # The child links SQLite's import library, and the DLL lives in the vendor
+    # directory; PATH carries it so the case does not depend on where the
+    # compiler under test sits.
+    ("migrate-applies", ["migrate", "mig/app.orb"], 0, "out", "migrations applied", "",
+     {"PATH": os.path.join(ROOT, "runtime", "vendor", "win-x64") + os.pathsep + os.environ.get("PATH", "")}),
     # `print` lowers in the TIR path now (tests/frontend/print_pipeline.orb),
     # so the command emits TIR for a program that uses it.
     ("frontend-print", ["frontend", "sub/tiny.orb", "-o", "tiny.tir"], 0, "out", "",

@@ -949,6 +949,7 @@ orbit check app.orb                # Parse, typecheck, verify the IR; no code
 orbit fmt app.orb                  # Format a file (writes only on success)
 orbit doctor [dir]                 # Project checks (--fix writes; see DOCTOR.md)
 orbit frontend app.orb             # Emit the typed IR
+orbit migrate app.orb              # Apply the program's migrations and exit
 orbit cluster ...                  # Single-host orchestration (see CLUSTER.md)
 orbit --help                       # Display the command-line help
 orbit --version                    # Display the compiler version

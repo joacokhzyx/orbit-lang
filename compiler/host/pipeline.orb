@@ -1048,7 +1048,7 @@ fn compileSourceWithFile(source: string, inputPath: string, outputPath: string, 
 // file holding the `export fn` functions of a file that has no `main`, to be
 // archived into the runtime library (docs/IR_SPEC.md).
 fn compileSourceMode(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, runtimeModule: bool) -> bool {
-    return compileSourceTitled(source, inputPath, outputPath, verbose, quiet, colorMode, release, emitIrPath, backendArg, "build", runtimeModule)
+    return compileSourceTitled(source, inputPath, outputPath, verbose, quiet, colorMode, release, emitIrPath, backendArg, "build", runtimeModule, false)
 }
 
 // What the stage rows call the code generator, and whether a link row follows.
@@ -1060,7 +1060,7 @@ fn uiBackendLabel(backendArg: string) -> string {
 }
 
 // `title` is the command the screen names: build, or run for `orbit run`.
-fn compileSourceTitled(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, title: string, runtimeModule: bool) -> bool {
+fn compileSourceTitled(source: string, inputPath: string, outputPath: string, verbose: bool, quiet: bool, colorMode: string, release: bool, emitIrPath: string, backendArg: string, title: string, runtimeModule: bool, migrateOnly: bool) -> bool {
     val useColorOut = paletteUseColorStdout(colorMode)
     val useColorErr = paletteUseColorStderr(colorMode)
     val startMs = orbit_clock_ms()
@@ -1215,6 +1215,7 @@ fn compileSourceTitled(source: string, inputPath: string, outputPath: string, ve
     }
 
     val backend = initCBackend(irModule)
+    backend.migrateOnly = migrateOnly
     val cCode = generateC(backend)
     val hCode = generateCHeader(backend)
     reportMemStage("codegen")

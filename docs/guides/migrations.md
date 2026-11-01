@@ -75,7 +75,10 @@ prints the version and exits non-zero, instead of running old code against
 columns it cannot describe. That refusal is `test_newer_schema_is_refused` in
 `runtime/test_migrations.c`, and `test_down_rolls_back` pins the rollback.
 
-## What is deliberately not there
+## Running migrations without starting the service
 
-A standalone `orbit migrate` command does not exist. Migrations run at
-startup, inside the process, in order.
+`orbit migrate app.orb` builds the program once into `.orbit/migrate` and runs
+only the database block: it applies the forward migrations, or rolls back when
+`ORBIT_MIGRATE_DOWN=<version>` is set, then exits with the migration result. It
+never listens, so it is the command for a deploy step that must not start the
+service.

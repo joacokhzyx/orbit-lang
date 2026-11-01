@@ -8,6 +8,7 @@
 //   - `fmt [file.orb]`: Token-based source formatter, whitespace only.
 //   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
 //   - `cluster ...`: Single-host multiprocess orchestration.
+//   - `migrate <file.orb>`: Apply the program's migrations and exit.
 //   - `start [file.orb]` / `dev [file.orb]`: Build into .orbit/ and run; dev adds watch/restart.
 //   - `lextrace <input.orb>`: Debug lexer trace (first 2000 tokens).
 //   - `--help, -h` / `--version, -v`
@@ -101,6 +102,8 @@ fn helpText(useColor: bool) -> string {
     h = h + "                             Watch sources, rebuild and restart on change\n"
     h = h + "  " + palettePaint(paletteBold(), "stop", useColor) + "\n"
     h = h + "                             Stop the service running from this directory\n"
+    h = h + "  " + palettePaint(paletteBold(), "migrate", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
+    h = h + "                             Apply the program's migrations and exit (ORBIT_MIGRATE_DOWN=<version> rolls back)\n"
     h = h + "  " + palettePaint(paletteBold(), "check", useColor) + " <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n"
     h = h + "                             Parse, typecheck and verify the IR, no code emitted (--runtime-module admits export fn)\n"
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " <file.orb>             Format a file (writes only on success)\n"
@@ -156,6 +159,7 @@ fn isKnownCommand(cmd: string) -> bool {
     if cmd == "fmt" || cmd == "doctor" || cmd == "frontend" { return true }
     if cmd == "lextrace" || cmd == "cluster" { return true }
     if cmd == "start" || cmd == "dev" || cmd == "stop" { return true }
+    if cmd == "migrate" { return true }
     if cmd == "--help" || cmd == "-h" || cmd == "--version" || cmd == "-v" { return true }
     return false
 }
@@ -246,7 +250,7 @@ fn runRun() {
     if osName == "Windows_NT" || winDir != "" {
         outputPath = outputPath + ".exe"
     }
-    if compileSourceTitled(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false, "", runBackend, "run", false) == false {
+    if compileSourceTitled(source, inputPath, outputPath, runVerbose, runQuiet, runColor, false, "", runBackend, "run", false, false) == false {
         orbit_os_exit_selfhost(1)
         return
     }
@@ -262,6 +266,70 @@ fn runRun() {
         spawnPath = "\"" + shellPath(outputPath) + "\""
     }
     val code = orbit_os_spawn_selfhost(spawnPath)
+    orbit_os_exit_selfhost(code)
+}
+
+fn runMigrate() {
+    if wantsHelp() {
+        print("Usage: orbit migrate <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n  Apply this program's migrations and exit; ORBIT_MIGRATE_DOWN=<version> rolls back\n")
+        return
+    }
+    var migQuiet = false
+    var migVerbose = false
+    var migColor = "auto"
+    var inputPath = ""
+    var mi = 2
+    while true {
+        val ma = orbit_os_argv_selfhost(mi)
+        if ma == "" { break }
+        if ma == "--quiet" { migQuiet = true }
+        else if ma == "--verbose" { migVerbose = true }
+        else if ma == "--color" {
+            val mc = orbit_os_argv_selfhost(mi + 1)
+            if mc == "always" || mc == "never" || mc == "auto" {
+                migColor = mc
+                mi = mi + 1
+            } else {
+                orbit_os_write_stderr_selfhost("Usage: orbit migrate <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
+                orbit_os_exit_selfhost(2)
+                return
+            }
+        } else if inputPath == "" { inputPath = ma }
+        else {
+            orbit_os_write_stderr_selfhost("Usage: orbit migrate <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
+            orbit_os_exit_selfhost(2)
+            return
+        }
+        mi = mi + 1
+    }
+    if inputPath == "" {
+        orbit_os_write_stderr_selfhost("Usage: orbit migrate <file.orb> [--quiet] [--verbose] [--color always|never|auto]\n")
+        orbit_os_exit_selfhost(2)
+        return
+    }
+    val source = orbit_file_read_selfhost(inputPath)
+    if source == "" {
+        orbit_os_write_stderr_selfhost("orbit migrate: could not read input file '" + inputPath + "'.\n")
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    startEnsureDirs()
+    startMigrateDb(migQuiet)
+    val outputPath = startOutputFor("migrate")
+    startEnsureSqliteDll(outputPath, migQuiet, migVerbose)
+    // quiet=true: this command prints one line of its own, not a build card.
+    if compileSourceTitled(source, inputPath, outputPath, migVerbose, true, migColor, false, "", "c", "migrate", false, true) == false {
+        orbit_os_exit_selfhost(1)
+        return
+    }
+    var spawnPath = "\"" + outputPath + "\""
+    if clusterIsWindows() {
+        spawnPath = "\"" + shellPath(outputPath) + "\""
+    }
+    val code = orbit_os_spawn_selfhost(spawnPath)
+    if code == 0 && migQuiet == false {
+        print("orbit migrate: " + inputPath + ": migrations applied")
+    }
     orbit_os_exit_selfhost(code)
 }
 
@@ -391,6 +459,10 @@ fn main() {
     }
     if cmd == "check" {
         runCheck()
+        return
+    }
+    if cmd == "migrate" {
+        runMigrate()
         return
     }
     // fmt dispatch (agent)

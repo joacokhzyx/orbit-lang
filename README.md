@@ -71,6 +71,7 @@ orbit run main.orb             # build and run (servers keep the terminal)
 orbit check main.orb           # typecheck without emitting code
 orbit fmt main.orb             # format (writes only on success)
 orbit doctor ./examples        # read-only project checks
+orbit migrate main.orb         # apply migrations without starting it
 ```
 
 Full reference: [Command Reference](docs/COMMANDS.md).

@@ -223,8 +223,8 @@ program is refused at startup: if `_orbit_migrations` holds a version this
 program does not declare, it prints the version and exits non-zero instead of
 running old code against columns it cannot describe. `migrations down "<SQL>"`
 undoes its forward line, and `ORBIT_MIGRATE_DOWN=<version>` rolls back every
-applied version above it at startup, newest first, then stops. What does not
-exist: a standalone `orbit migrate`.
+applied version above it at startup, newest first, then stops. `orbit migrate
+<file>` runs the same block without starting the service.
 
 ## Multipart uploads save files to disk
 

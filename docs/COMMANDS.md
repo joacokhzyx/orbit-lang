@@ -14,6 +14,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit start [file]` | Build into `.orbit/` and run it; service mode when it declares routes, program mode otherwise | `orbit start` (= `main.orb`), `orbit start svc.orb --port 8080` |
 | `orbit dev [file]` | Watch sources, rebuild and restart on change (drain on POSIX, [kill on Windows](KNOWN_LIMITATIONS.md#windows-drain-is-kill)) | `orbit dev svc.orb` |
 | `orbit stop` | Stop the service recorded in `.orbit/start.pid` (idempotent) | `orbit stop` |
+| `orbit migrate <file>` | Apply the program's migrations and exit; `ORBIT_MIGRATE_DOWN=<version>` rolls back to that version | `orbit migrate main.orb` |
 | `orbit check <file>` | Parse, typecheck and verify the IR without emitting code | `orbit check main.orb` |
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
@@ -210,6 +211,7 @@ unknown subcommand). The fuzzer accepts 0, 1, and 2.
 | `doctor` | no findings | findings, no `.orb` files found | bad flags, too many args |
 | `cluster` | success (status reads state even with dead nodes) | compile/spawn/health/kill errors, unknown node, unreadable state, survivors after down | missing/invalid flags, unknown subcommand |
 | `frontend` | TIR written | unreadable input, diagnostics contain errors, write failed | missing input file |
+| `migrate` | migrations applied | unreadable input, compile error, migration failed, no migrations declared | missing input file, bad flags |
 
 Colors and the server banner stay plain when `NO_COLOR` is set or
 `TERM=dumb`: no ANSI escapes, no gradient, no checkmarks. `/_ledger`

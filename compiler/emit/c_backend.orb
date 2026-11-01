@@ -22,10 +22,12 @@ model CBackend {
     defIdxInsts: list < IRInstruction >
     defIdxRegInst: list < IRInstruction >
     defIdxRegVerdict: list < string >
+    // `orbit migrate`: emit a main that runs the database block and exits.
+    migrateOnly: bool
 }
 
 fn initCBackend(module: IRModule) -> CBackend {
-    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [], initIRFunction(""), [], [], [], [])
+    return CBackend(module, "", initIRFunction(""), [], [], [], [], [], [], [], [], initIRFunction(""), [], [], [], [], false)
 }
 
 // A tab-joined variant payload list split back into spellings. The parser
@@ -300,6 +302,20 @@ fn generateC(backend: CBackend) -> string {
         orbit_cbuf_append_selfhost(cbTop, routeLimits)
     }
     if backend.module.runtimeModule {
+        return orbit_cbuf_build_selfhost(cbTop)
+    }
+    if backend.migrateOnly {
+        orbit_cbuf_append_selfhost(cbTop, "int main(void) {\n")
+        orbit_cbuf_append_selfhost(cbTop, "    orbit_crash_handler_install();\n")
+        if backend.module.migrations.len() > 0 || backend.module.migrationsDown.len() > 0 || moduleUsesDatabase(backend.module) {
+            orbit_cbuf_append_selfhost(cbTop, "    orbit_db_init(\".orbit/data/app.db\");\n")
+            orbit_cbuf_append_selfhost(cbTop, generateModelDDL(backend))
+            orbit_cbuf_append_selfhost(cbTop, "    return 0;\n")
+        } else {
+            orbit_cbuf_append_selfhost(cbTop, "    fprintf(stderr, \"orbit migrate: this program declares no migrations.\\n\");\n")
+            orbit_cbuf_append_selfhost(cbTop, "    return 1;\n")
+        }
+        orbit_cbuf_append_selfhost(cbTop, "}\n")
         return orbit_cbuf_build_selfhost(cbTop)
     }
     if moduleHasFunction(backend, "main") == false {

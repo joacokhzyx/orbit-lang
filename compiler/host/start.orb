@@ -172,8 +172,15 @@ fn startEnsureSqliteDll(outputPath: string, quiet: bool, verbose: bool) {
         print("copy dll: " + cmd)
     }
     val ignoredCp = orbit_os_exec_selfhost(cmd)
-    if quiet == false && verbose == false {
-        print("note: copied sqlite3.dll next to the build (Windows needs it there)")
+    val afterCopy = orbit_file_list_dir_selfhost(destDir)
+    if startListContains(afterCopy, "sqlite3.dll") {
+        if quiet == false && verbose == false {
+            print("note: copied sqlite3.dll next to the build (Windows needs it there)")
+        }
+    } else if quiet == false {
+        // The copy is best-effort: a compiler outside the tree has no vendor
+        // directory to copy from, and the child then cannot load SQLite.
+        orbit_os_write_stderr_selfhost("orbit: could not copy sqlite3.dll to " + destDir + "; Windows needs it beside the binary, or on PATH.\n")
     }
 }
 
