@@ -106,6 +106,10 @@ PROGRAMS = [
     # Windows: a spawned background child must not inherit the caller's
     # stdout, or a pipeline never sees end of file while the nodes run.
     prog("spawn"),
+    # The sleep the CLI's stop escalations wait on. Its own lower bound only:
+    # an upper bound is a race with the rest of the machine, and a red test that
+    # means "the runner was busy" is worse than no test.
+    prog("sleep", warnings=True),
     prog("random", warnings=True),
     prog("exec", warnings=True, defines=["-DORBIT_WITH_EXEC"]),
     prog("http_client", warnings=True),

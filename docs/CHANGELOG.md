@@ -26,6 +26,18 @@ Language front end:
 
 Commands and gates:
 
+- **`orbit stop` and `cluster down` wait now.** Both ask for a graceful stop and
+  escalate to a kill three seconds later, but the wait was `clusterSleepSec`,
+  which slept by spawning `timeout /T 1 /NOBREAK` -- and `timeout` refuses to run
+  when its input is redirected, so each "second" returned at once. The documented
+  three-second grace measured 193 ms for `orbit stop` and 306 ms for
+  `cluster down`, across 11 call sites of that helper. The wait blocks this
+  thread on `orbit_sleep_ms` now, and `orbit stop` measures 1074 ms. The service
+  is still terminated on Windows afterwards: a detached child has no channel to
+  ask, which is the remaining entry in Known Limitations. Pinned by
+  `runtime/test_sleep.c` (lower bound only: an upper bound is a race with the
+  rest of the machine).
+
 - **`orbit migrate <file.orb>` runs migrations without serving.** It builds a
   migrate-only binary into `.orbit/`, runs the database block (forward, or a
   rollback when `ORBIT_MIGRATE_DOWN=<version>` is set) and exits with the

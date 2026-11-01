@@ -293,12 +293,32 @@ the comment above it says so. POSIX mode 1 is SIGTERM, which the generated
 server's handler turns into the same `orbit_request_stop()`. The reason a
 console event cannot be sent is in the spawn: children are created with
 `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` (`runtime/os.c:399`), so there is
-no console for `GenerateConsoleCtrlEvent` to deliver an event into. `drain` and
-the graceful phase of `restart`/`down` are therefore best-effort stops there.
-The channel that would close it is a named object the server waits on, or a
-child that keeps a console and a process group of its own; neither is landed,
-and the stop flag, the drain loop and the handler are already in place for
-whichever is chosen.
+no console for `GenerateConsoleCtrlEvent` to deliver an event into.
+
+A second defect hid behind that one, and it made the wait itself a lie.
+`orbit stop` and `cluster down` ask mode 1, then escalate to a kill after
+three seconds -- except the wait was `clusterSleepSec`, which slept by
+spawning `timeout /T 1 /NOBREAK`. `timeout` refuses to run when its input is
+redirected, so every "second" returned at once: the documented three-second
+grace measured **193 ms** for `orbit stop` and 306 ms for `cluster down`, and
+the service was terminated before its accept loop could notice anything. The
+helper has 11 call sites, and the damage differs by shape. `clusterWaitDead`
+and the `orbit stop` escalation poll for a *change*, so an instant retry loop
+gave up after a few hundred milliseconds and forced the kill.
+`clusterWaitAlive` probes before it sleeps and asks only whether the pid is
+alive, so it answered on its first probe and never waited for a listener --
+which is honest, because cluster health is a process probe, not a readiness
+check.
+
+`clusterSleepSec` now blocks the thread on `orbit_sleep_ms`
+(`runtime/builtins.c:133`), which cannot be skipped by the state of a handle;
+`runtime/test_sleep.c` pins the lower bound and the zero/negative answers.
+Re-measured after the fix: `orbit stop` takes 1074 ms and the service is still
+terminated -- the wait exists now, and what it waits for is the channel below.
+
+The channel that would close the first gap is a named object the server waits
+on; the stop flag, the drain loop, the handler and a caller that now actually
+waits are all in place for it.
 
 ## Two servers, one port: Windows refuses it, Linux shares it
 
