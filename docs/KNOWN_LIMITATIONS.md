@@ -175,7 +175,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#297-of-instructions-are-unknown-and-457-of-those-are-silent).
+[below](#291-of-instructions-are-unknown-and-455-of-those-are-silent).
 
 
 ## Writes work, but duplicates and missing tables fail
@@ -491,49 +491,48 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 29.7% of instructions are `unknown`, and 45.7% of those are silent
+## 29.1% of instructions are `unknown`, and 45.5% of those are silent
 
-`scripts/unknown_census.py`, run over 156 files and 73,064
-instructions — the committed ratchet baseline
-(`scripts/baselines/unknown_count.json`) of 2026-10-22, and an upper bound
-on the tree because the ratchet only lets the numbers fall:
+`scripts/unknown_census.py`, run on 2026-11-01 over 206 files and 86,942
+instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
+only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 21,686 | **29.7%** |
-| ...with no diagnostic at all | 9,902 | **45.7% of the unknown** |
+| instructions the front end types `unknown` | 25,276 | **29.1%** |
+| ...with no diagnostic at all | 11,491 | **45.5% of the unknown** |
 
-The 9,902 silent instructions are the measured number. [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)/[E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)/[E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend) account for
-the rest to the unit — their counts equal the unknown `load` /
-binary / unary counts exactly — so 11,784 is measured, not
-estimated. Those are `call` and `member` expressions: the two
-places where the front end does not know it has failed, and the same
-classification error as the list problem above. This is the
-same measurement as the root-cause table that used to live in
+The 11,491 silent instructions are the measured number. Five diagnostics fire
+beside the opcodes they annotate: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
+(unknown identifier, 12,568), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 1,171), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unary operand, 46), E2004 (member, 4,789) and E2005 (call result, 6,702).
+`call` and `member` are the two places where the front end does not know it
+has failed, and the same classification error as the list problem above. This
+is the same measurement as the root-cause table that used to live in
 [nineteen programs the compiler should reject](#the-silent-group-is-empty),
 and it is what the nineteen entries there were made of.
 
-Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR" fired 4,190
-times on the earlier corpus. That is a whole class of expression the
-front end gives up on, and it is not in the unknown total because there
-is no instruction to type. Worst file by share then:
-`compiler/front/parser.orb` at 49.7% (2,146 of 4,316). Re-run the census
-rather than trusting these two sentences.
+Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR" fired 9,121
+times on this corpus. That is a whole class of expression the front end gives
+up on, and it is not in the unknown total because there is no instruction to
+type. Worst file by share: `compiler/front/parser.orb` at 47.8% (2,507 of
+5,242). Re-run the census rather than trusting these numbers.
 
 Two tools, and the difference matters. `unknown_census.py` is the
 **measurement** and never fails anything. `scripts/unknown_ratchet.py`
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-29.7% is the number the type work has to be scoped against, and a
+29.1% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Example run (numbers move.
 The baseline file is current, this transcript is not):
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
-  unknown_per_mille               296  baseline    296  +0
-  silent_per_mille                135  baseline    135  +0
-Finished unknown-count: 296 (baseline 296, ratchet holds)
+  unknown_per_mille               291  baseline    297  -6
+  silent_per_mille                132  baseline    136  -4
+Finished unknown-count: 291 (baseline 297, ratchet holds)
 ```
 
 Raising a baseline is a deliberate act: `--write-baseline` refuses to
