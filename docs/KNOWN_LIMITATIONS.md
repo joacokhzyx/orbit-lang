@@ -266,11 +266,17 @@ record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 
 `system.latency_p50_us()`, `latency_p95_us()`, and `latency_p99_us()`
 exist alongside uptime, pid, worker count, total requests, and mean
-latency. They read a 100 µs-resolution histogram (1000 buckets of 100 µs, so
-100 ms of range, then an overflow bucket answered from the recorded
-maximum). So a reported p99 is the boundary of the bucket holding 99%
-of requests, not a measurement of one request. Anything past 100 ms
-collapses into a single bucket and reports the max. Requests are split by
+latency. They read a histogram of 1000 buckets of 100 µs up to 100 ms, then
+20 buckets of doubling width -- 100-200 ms, 200-400 ms, and so on, with the
+last one starting near 14.6 h (`runtime/performance.h:151-225`). So a reported
+p99 is the boundary of the bucket holding 99% of requests, not a measurement
+of one request: a 300 ms p99 reports 400 ms, a 160 s one reports 204.8 s. Only
+the final bucket has no upper edge of its own, and it is answered from the
+recorded maximum. Before the doubling, every request slower than 100 ms shared
+one bucket and the percentile *was* that maximum -- a different quantity from a
+percentile, presented as one.
+`runtime/test_latency_percentiles.c` pins both edges and the fallback.
+Requests are split by
 class at the send path: `system.http_requests_ok()` counts responses below
 400 and `system.http_requests_error()` counts 400 and above.
 `/_ledger` adds per-route request counts, mean milliseconds, and DB

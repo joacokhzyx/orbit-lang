@@ -153,24 +153,53 @@ ORBIT_INLINE void orbit_perf_start_request(void) {
     orbit_perf_atomic_inc64(&orbit_perf_stats.request_count);
 }
 
-/* Latency histogram: one bucket per 100 µs up to 100 ms, plus an overflow
- * bucket. Cycles convert at the same 2.5 GHz basis the average uses. */
+/* Latency histogram: one bucket per 100 µs up to 100 ms, then 20 buckets of
+ * doubling width -- 100-200 ms, 200-400, 400-800, and so on to about 105 s.
+ * The linear half alone put every request slower than 100 ms into one slot, so
+ * a p99 of 300 ms and a p99 of 40 s were the same number and both were answered
+ * from the single longest request: not a bucket edge but a different quantity
+ * altogether. Doubling keeps the reported value a bucket edge at every
+ * magnitude, and the edge is still an upper boundary, never a measurement of
+ * one request. Cycles convert at the same 2.5 GHz basis the average uses. */
 #define ORBIT_PERF_LAT_BUCKET_US 100ULL
 #define ORBIT_PERF_LAT_BUCKETS 1000
+#define ORBIT_PERF_LAT_LOG_BUCKETS 20
+#define ORBIT_PERF_LAT_SLOTS (ORBIT_PERF_LAT_BUCKETS + ORBIT_PERF_LAT_LOG_BUCKETS)
+/* Where the linear half stops: 1000 buckets of 100 µs. */
+#define ORBIT_PERF_LAT_LINEAR_US 100000ULL
+/* The width a log bucket starts at: the same 100 ms, as microseconds. */
+#define ORBIT_PERF_LAT_LOG_BASE_US 100000ULL
 #define ORBIT_PERF_CYCLES_PER_US 2500ULL
 
 #ifdef ORBIT_PERF_IMPL
-uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
+uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_SLOTS];
 #elif defined(ORBIT_SEPARATE_COMPILATION) || defined(ORBIT_RUNTIME_MODULE)
-extern uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
+extern uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_SLOTS];
 #else
-static uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_BUCKETS + 1];
+static uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_SLOTS];
 #endif
 
 ORBIT_INLINE void orbit_perf_record_latency(uint64_t duration_cycles) {
-    uint64_t bucket = duration_cycles / (ORBIT_PERF_CYCLES_PER_US * ORBIT_PERF_LAT_BUCKET_US);
-    if (bucket > (uint64_t)ORBIT_PERF_LAT_BUCKETS) bucket = ORBIT_PERF_LAT_BUCKETS;
-    orbit_perf_atomic_add64(&orbit_perf_lat_hist[bucket], 1);
+    uint64_t us = duration_cycles / ORBIT_PERF_CYCLES_PER_US;
+    uint64_t idx;
+    if (us < ORBIT_PERF_LAT_LINEAR_US) {
+        idx = us / ORBIT_PERF_LAT_BUCKET_US;
+    } else {
+        /* floor(log2(us / 100 ms)) is the doubling count above the first log
+         * bucket, so slot 1000 holds 100-200 ms and each later one twice the
+         * width. The loop runs at most 19 times and the last bucket absorbs
+         * everything above it, which the percentile then answers from
+         * max_cycles -- the one place that stays an overflow, now at 105 s
+         * instead of 100 ms. */
+        uint64_t q = us / ORBIT_PERF_LAT_LOG_BASE_US;
+        int li = 0;
+        while (q > 1 && li < ORBIT_PERF_LAT_LOG_BUCKETS - 1) {
+            q >>= 1;
+            li = li + 1;
+        }
+        idx = (uint64_t)(ORBIT_PERF_LAT_BUCKETS + li);
+    }
+    orbit_perf_atomic_add64(&orbit_perf_lat_hist[idx], 1);
 }
 
 /* Percentile as the upper boundary of the bucket holding it, in
@@ -180,13 +209,19 @@ ORBIT_INLINE uint64_t orbit_perf_percentile_us(uint64_t request_count, uint64_t 
     if (per_mille > 1000) per_mille = 1000;
     uint64_t target = (request_count * per_mille + 999) / 1000;
     uint64_t seen = 0;
-    for (int i = 0; i <= ORBIT_PERF_LAT_BUCKETS; i++) {
+    for (int i = 0; i < ORBIT_PERF_LAT_SLOTS; i++) {
         seen += orbit_perf_lat_hist[i];
         if (seen >= target) {
-            /* The last bucket is overflow, so its boundary is the first
-             * observation that landed past 100 ms. */
-            if (i == ORBIT_PERF_LAT_BUCKETS) return orbit_perf_stats.max_cycles / ORBIT_PERF_CYCLES_PER_US;
-            return (uint64_t)(i + 1) * ORBIT_PERF_LAT_BUCKET_US;
+            if (i < ORBIT_PERF_LAT_BUCKETS) {
+                return (uint64_t)(i + 1) * ORBIT_PERF_LAT_BUCKET_US;
+            }
+            /* The last log bucket is the clamp: it has no upper edge of its
+             * own, so it is answered from the longest request, as the single
+             * overflow bucket used to be for everything past 100 ms. */
+            if (i == ORBIT_PERF_LAT_SLOTS - 1) {
+                return orbit_perf_stats.max_cycles / ORBIT_PERF_CYCLES_PER_US;
+            }
+            return ORBIT_PERF_LAT_LOG_BASE_US << (i - ORBIT_PERF_LAT_BUCKETS + 1);
         }
     }
     return orbit_perf_stats.max_cycles / ORBIT_PERF_CYCLES_PER_US;

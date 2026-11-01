@@ -26,6 +26,14 @@ Language front end:
 
 Commands and gates:
 
+- **Latency percentiles keep their meaning above 100 ms.** The histogram was
+  1000 buckets of 100 µs and one overflow slot, so a 300 ms p99 and a 40 s p99
+  answered the same value -- and that value was the single longest request, which
+  is not a percentile boundary at all. Above 100 ms the buckets now double:
+  100-200 ms, 200-400 ms, and so on to a final clamp near 14.6 h, which is the
+  only slot still answered from the maximum. A 300 ms p99 reports 400 ms and a
+  160 s one reports 204.8 s. Pinned by `runtime/test_latency_percentiles.c`.
+
 - **A Windows stop drains instead of killing.** The graceful ask had no channel:
   `orbit_os_kill(pid, 1)` ran `TerminateProcess` on Windows like mode 0 did, and
   a detached child has no console to receive a Ctrl event. The server now opens
