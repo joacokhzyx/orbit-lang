@@ -384,7 +384,28 @@ fn hasErrors(sema: Sema) -> bool {
     return sema.errors.len() > 0
 }
 
-fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode >, payloads: list < string >) {
+// The declared parameter names of a generic type, comma-joined, so a message
+// about a declaration can say which one it means.
+fn genericParamText(params: list < ASTNode >) -> string {
+    var out = ""
+    var i = 0
+    while i < params.len() {
+        match params.get(i) {
+            ASTNode.GenericParam(gp) => {
+                if out == "" {
+                    out = gp.name
+                } else {
+                    out = out + ", " + gp.name
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode >, payloads: list < string >, params: list < ASTNode >, line: int, col: int) {
     var i = 0
     while i < sema.typeRegistry.len() {
         val t: TypeInfo = sema.typeRegistry.get(i)
@@ -392,6 +413,26 @@ fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode
             return
         }
         i = i + 1
+    }
+    // A `union` written with a type parameter parses, and stops here. Nothing
+    // substitutes the parameter: the payload `T` of `Some(v: T)` would reach
+    // mapTypeToC as the word `T`, a C type name nothing declared, and a
+    // payload-less variant names no argument at all. The declaration is the
+    // honest place to refuse it, because a construction is only reachable once
+    // the checker can fix one argument per instantiation -- which is what a
+    // generic MODEL does today, by inferring the argument from the value written
+    // for the field. A variant construction names a variant, not a union, so
+    // there is no literal beside the name to infer from, and the variant
+    // registry is keyed by the bare variant name.
+    //
+    // The declaration is refused and nothing about it is registered. Keeping
+    // the name and its variants in the registry produced a second, worse
+    // message beside this one -- `Payload 1 of 'V' is declared T but the value
+    // is int` -- which asserts that `T` is a type someone declared. A follow-on
+    // about a name that is not declared says something true instead.
+    if kind == "union" && params.len() > 0 {
+        reportErrorAt(sema, "E1006", "Declare one union per payload type -- `union OptionInt { Some(int) None }` -- until the checker fixes a union's argument at each construction.", line, col, "'" + name + "[" + genericParamText(params) + "]' is a union with a type parameter, and a generic union has no one type: nothing substitutes '" + genericParamText(params) + "' at a construction, so its payload type would reach the C backend as the parameter's own name.")
+        return
     }
     sema.typeRegistry.push(TypeInfo(name, kind, variants))
     // Index the variants alongside the type. Without this, a union value
@@ -3640,7 +3681,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 val decl = prog.decls.get(i)
                 match decl {
                     ASTNode.ModelDecl(m) => { checkModelDecl(sema, decl) }
-                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants, t.variantPayloads) }
+                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants, t.variantPayloads, t.genericParams, t.line, t.col) }
                     _ => {}
                 }
                 i = i + 1
@@ -4302,7 +4343,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             checkNode(sema, r.hi)
             return "unknown"
         }
-        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants, td.variantPayloads)
+        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants, td.variantPayloads, td.genericParams, td.line, td.col)
             return ""
         }
         ASTNode.RouteDecl(r) => { checkRouteBody(sema, node)

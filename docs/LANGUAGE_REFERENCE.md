@@ -901,7 +901,7 @@ extension.
 
 | module | missing |
 |---|---|
-| `option.orb.quarantined` | a generic tagged union: `union` takes no type parameter list, nothing infers the argument at construction, and the variant registry is flat by variant name, so two instances would collide. A generic `model` is not the pattern to copy -- it monomorphises today |
+| `option.orb.quarantined` | a generic tagged union: `union Option[T]` parses -- the parameter list is read by the same parser the model, fn and trait declarations use -- and `E1006` refuses the declaration, because nothing infers the argument at construction and the variant registry is flat by variant name, so two instances would collide. A generic `model` is not the pattern to copy -- it monomorphises today |
 
 `bitwise` left this table: its missing feature (the operators) landed, so
 what remained was a syntax slip (`val` as a parameter name) and a missing

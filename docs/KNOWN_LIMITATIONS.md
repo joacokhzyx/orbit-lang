@@ -56,10 +56,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 107/107 pass (0 known defects still accepted)
+Finished negative: 110/110 pass (0 known defects still accepted)
 ```
 
-One hundred and seven programs: every one must be rejected and is. The last one
+One hundred and ten programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
@@ -349,7 +349,7 @@ that only ever exists as `Box_int`.
 | `model Phantom[T] { id: int }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch): no field's declared type mentions `T`, so there is no value to take the argument from. `void*` would compile, and would be a lie about the model. (n52) |
 | `Same { a: 1, b: "s" }` where `model Same[T] { a: T, b: T }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch). `a` fixes `T` at `int` and `b` is then checked against it. (n50) |
 | `model Box[T] { v: list<list<T>> }` | `T` is not determined. Only a field declared `T`, or a `list<T>` whose value is a list literal, fixes an argument. |
-| `union Option[T] { ... }` | Still a parse error: `union` has no type parameter list at all, and substitution is wired for model fields only. This is what keeps `std/quarantine/option.orb.quarantined` quarantined. |
+| `union Option[T] { ... }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) at the declaration's own line and column. The parameter list parses now -- `parseTypeDecl` calls `parseGenericParams` for `union`, as the model, fn and trait parsers already did -- and nothing substitutes an argument at a construction, so a payload declared `T` would reach the C backend as the parameter's own name. This is what keeps `std/quarantine/option.orb.quarantined` quarantined. |
 
 Two parameters work, and two instantiations of one model in one program
 are two structs:
@@ -395,7 +395,7 @@ each was a function that returned a value and was not computing it:
 
 | quarantined | the language feature that does not exist |
 |---|---|
-| `option.orb.quarantined` | a generic tagged union. `union` has no type parameter list, nothing infers the argument at construction, and the variant registry is flat by variant name. A generic `model` is not the same case: it monomorphises today. |
+| `option.orb.quarantined` | a generic tagged union. `union` takes the type parameter list today and `E1006` refuses the declaration, because nothing infers the argument at construction and the variant registry is flat by variant name. A generic `model` is not the same case: it monomorphises today. |
 
 `bitwise.orb.quarantined` used to sit here too, and it was the
 counter-example to the rule below: a syntax slip (`val` as a parameter

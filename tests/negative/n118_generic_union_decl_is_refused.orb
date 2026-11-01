@@ -1,0 +1,18 @@
+// case: generic-union-decl-is-refused
+// what: `union Option[T]` parses now -- parseTypeDecl calls parseGenericParams
+//      for the union arm, the same call the model, fn and trait parsers already
+//      made -- and the checker refuses the declaration, because nothing
+//      substitutes `T` at a construction. A variant constructor names the
+//      variant, not the union, so there is no literal beside the name to infer
+//      an argument from, and the payload type `T` would reach mapTypeToC as a C
+//      type name nothing declared. The refusal is what remains of the first of
+//      the three pieces `std/quarantine/option.orb.quarantined` names.
+// expect-error: 'Option[T]' is a union with a type parameter
+union Option[T] {
+    Some(T)
+    None
+}
+
+fn main() -> int {
+    return 0
+}

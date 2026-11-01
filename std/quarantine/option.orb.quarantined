@@ -2,18 +2,26 @@
 // Was std/core/option.orb. See std/quarantine/README.md for why it is
 // not a .orb file.
 //
-// MISSING LANGUAGE FEATURE: a generic tagged union. Three things are
-// missing, and each one hides the next.
+// MISSING LANGUAGE FEATURE: a generic tagged union. Three things stood in the
+// way and each one hid the next. The first landed 2026-11-01; two remain.
 //
-//   1. The parser has no generic parameter list on `union`.
-//      parseTypeDecl calls parseGenericParams for `fn`, `model` and
-//      `trait` (compiler/front/parser.orb:987, 1082, 1306) but not on
-//      the `union` and `enum` arms (compiler/front/parser.orb:1171-1250),
-//      so `union Option<T>` stops at the `<`:
-//         $ printf 'import "std/core/option.orb"\nfn main() { print("ok") }\n' > /tmp/i.orb
-//         $ orbit check /tmp/i.orb
-//         Import error: std/core/option.orb:5: Expected '{' after 'union'.
-//         Import error: std/core/option.orb:5: Expected variant name.
+//   1. DONE (2026-11-01): the parser reads a type parameter list on `union`,
+//      with the same call `parseModelDecl`, `parseFunctionDecl` and
+//      `parseTraitDecl` already made (compiler/front/parser.orb,
+//      parseTypeDecl). The checker then refuses the declaration, because
+//      nothing substitutes an argument, and it names the declaration's own
+//      line and column -- a type declaration used to carry no position:
+//         $ orbit check p1.orb      # union Option[T] { Some(T)  None }
+//         error[E1006]: 'Option[T]' is a union with a type parameter, and a
+//         generic union has no one type: nothing substitutes 'T' at a
+//         construction, so its payload type would reach the C backend as the
+//         parameter's own name.
+//           --> p1.orb:1:7
+//      Pinned by tests/negative/n118_generic_union_decl_is_refused.orb. The
+//      parser refuses the list on the two arms that share it with `union` and
+//      have no substitution (`tests/negative/n119_generic_enum_decl_is_refused.orb`)
+//      and refuses a constraint on a union parameter, for n53's reason
+//      (`tests/negative/n120_generic_union_constrained_param.orb`).
 //
 //   2. Nothing would infer the argument at construction. A generic
 //      `model` does monomorphise today, and the reason is that its

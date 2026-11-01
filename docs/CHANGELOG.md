@@ -11,6 +11,19 @@ startup banner says `Orbit 0.1.0`).
 
 ## 0.1.0 (2026-11-01)
 
+Language front end:
+
+- **`union Name[T]` parses, and `E1006` names what is still missing.** The
+  declaration arm of `parseTypeDecl` calls the same parameter-list parser the
+  model, fn and trait arms always used, so `union Option[T] { Some(T) None }`
+  reaches the checker instead of stopping at the `<`. Nothing substitutes an
+  argument at a construction yet, so the checker refuses the declaration at the
+  name's own line and column, which a type declaration could not do before
+  `TypeDeclNode` carried a position. `enum` and `alias` parameter lists and a
+  constrained union parameter are refused by the parser. Pinned by
+  `tests/negative/n118`, `n119`, `n120`. `Option` stays quarantined until the
+  substitution lands.
+
 Commands and gates:
 
 - **`orbit migrate <file.orb>` runs migrations without serving.** It builds a

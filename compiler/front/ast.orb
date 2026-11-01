@@ -62,6 +62,13 @@ model TypeDeclNode {
     variants: list < ASTNode >
     baseType: string
     variantPayloads: list < string >
+    genericParams: list < ASTNode >
+    // Where the declaration's name sits. A type declaration used to carry no
+    // position at all, so a rule about one could only be printed without a line
+    // and a column -- which is the difference between "your file, line 6" and a
+    // sentence about the compiler.
+    line: int
+    col: int
 }
 
 model FunctionDeclNode {

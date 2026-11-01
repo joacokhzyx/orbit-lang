@@ -224,9 +224,9 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-107 cases: 107 are `expect-error:` - each program is rejected, with a pinned
+110 cases: 110 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 107/107 pass (0 known defects still accepted)`. `n100` is the first
+negative: 110/110 pass (0 known defects still accepted)`. `n100` is the first
 case that sema accepts and the IR verifier refuses: an object field read with
 no stated kind. `n110` pins the other direction, a name the checker used to
 provide with no lowering behind it: `sort(xs)` reached the C step as a call to

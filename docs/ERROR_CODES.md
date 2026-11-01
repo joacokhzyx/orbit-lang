@@ -135,14 +135,19 @@ contradicts the list's element type. It also fires for a type name nothing
 declares (types are lower case, or declared with `model`/`union`), and for a
 binding whose value contradicts its annotation. Also a bare generic model in a
 signature (`Box` with no argument — write `Box<int>`), an undeterminable
-generic type parameter (`n52`), and a generic field fixed to one type by an
-earlier field (`n50`). The last two point at the enclosing declaration:
+generic type parameter (`n52`), a generic field fixed to one type by an
+earlier field (`n50`), and a `union` declared with a type parameter (`n118`:
+the parameter list parses and nothing substitutes an argument at a
+construction). The last two point at the enclosing declaration:
 object literals carry no parser position, so `checkGenericModelFields` reports
 against the declaration site stamped by `checkVarDecl`/`checkConstDecl`
 (`valueSite`). A literal returned directly keeps the one-line form until
-literal positions exist. Fix hint: change the value or the
+literal positions exist. The `n118` refusal names the declaration's own line
+and column, because `TypeDeclNode` carries them: a type declaration used to
+carry no position at all, so a rule about one could only be printed without
+one. Fix hint: change the value or the
 annotation. Write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
-`n50`, `n51`, `n52`, and `n70` (`n70`: a generic function's parameter no
+`n50`, `n51`, `n52`, `n118`, and `n70` (`n70`: a generic function's parameter no
 argument can fix).
 
 ## E1007 — bad top-level declaration

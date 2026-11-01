@@ -35,7 +35,7 @@ record that the feature was wanted; the git history alone does not say
 
 | module | missing language feature |
 |---|---|
-| `option.orb.quarantined` | a generic tagged union: `union` takes no type parameter list (so `union Option<T>` is a parse error), nothing infers the argument at construction (a variant constructor names the variant, not the union), and the variant registry is flat by variant name, so two instances would collide. A generic `model` is not the pattern to copy here — it monomorphises today, and its literal names the model, which is exactly what a variant constructor does not do |
+| `option.orb.quarantined` | a generic tagged union: `union Option<T>` parses today (`parseTypeDecl` calls `parseGenericParams` for the `union` arm) and the checker refuses the declaration with `E1006`, because nothing infers the argument at construction (a variant constructor names the variant, not the union) and the variant registry is flat by variant name, so two instances would collide. A generic `model` is not the pattern to copy here — it monomorphises today, and its literal names the model, which is exactly what a variant constructor does not do |
 
 ## Lifted
 

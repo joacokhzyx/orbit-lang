@@ -1174,6 +1174,45 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
     }
     consume(parser, TokType.Identifier, "Expected type name.")
     val name = parser.previousToken.text
+    val declLine = parser.previousToken.line
+    val declCol = parser.previousToken.col
+    val genericParams = parseGenericParams(parser)
+    // Two facts decide what the parameter list may say. `parseGenericParams`
+    // already returns [] and consumes nothing when there is no `[`, so asking
+    // it unconditionally is free. And a constraint is refused here for the
+    // reason n53 refuses it on a model: the argument is inferred from the
+    // payload written at the construction site, so there is no argument to
+    // hold to a promise.
+    var paramText = ""
+    var paramConstraint = ""
+    var gp = 0
+    while gp < genericParams.len() {
+        match genericParams.get(gp) {
+            ASTNode.GenericParam(gparam) => {
+                if paramText == "" {
+                    paramText = gparam.name
+                } else {
+                    paramText = paramText + ", " + gparam.name
+                }
+                if gparam.constraint != "" {
+                    paramConstraint = gparam.constraint
+                }
+            }
+            _ => {}
+        }
+        gp = gp + 1
+    }
+    if paramConstraint != "" {
+        parserError(parser, "'" + name + "[" + paramText + ": " + paramConstraint + "]' is not supported: a type parameter of a union is inferred from the payload written for the variant, so there is no argument to constrain. Leave the constraint off and let the payload fit, or declare one union per type.")
+    }
+    // An enumeration and an alias share this parser but not the machinery: the
+    // lowering that fixes a type parameter at each construction is wired for
+    // model fields and union payloads, so a list written on either of these two
+    // is a promise no instantiation exists to keep. Refuse it rather than carry
+    // it.
+    if genericParams.len() > 0 && kw != TokType.KeywordUnion {
+        parserError(parser, "'" + name + "[" + paramText + "]' declares type parameters on a type that has none: only 'union' instantiates a parameter, and this declaration has no instantiation to substitute one into. Remove the " + name + "[" + paramText + "] list, or declare a union.")
+    }
 
     var kind = "alias"
     val variants = []
@@ -1194,7 +1233,7 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
             matchToken(parser, TokType.Comma)
         }
         consume(parser, TokType.CloseBrace, "Expected '}' after enum variants.")
-        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads))
+        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads, genericParams, declLine, declCol))
     }
 
     if kw == TokType.KeywordUnion || matchToken(parser, TokType.KeywordUnion) {
@@ -1209,7 +1248,7 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
             matchToken(parser, TokType.Comma)
         }
         consume(parser, TokType.CloseBrace, "Expected '}' after union variants.")
-        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads))
+        return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads, genericParams, declLine, declCol))
     }
 
     matchToken(parser, TokType.Pipe)
@@ -1235,13 +1274,13 @@ fn parseTypeDecl(parser: Parser, kw: TokType, isPrivate: bool) -> ASTNode {
         }
         if isSumType {
             kind = "union"
-            return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, "", variantPayloads))
+            return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, "", variantPayloads, genericParams, declLine, declCol))
         } else {
-            return ASTNode.TypeDecl(TypeDeclNode(name, "alias", [], baseType, []))
+            return ASTNode.TypeDecl(TypeDeclNode(name, "alias", [], baseType, [], genericParams, declLine, declCol))
         }
     }
 
-    return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads))
+    return ASTNode.TypeDecl(TypeDeclNode(name, kind, variants, baseType, variantPayloads, genericParams, declLine, declCol))
 }
 
 fn isHttpMethodToken(tag: TokType) -> bool {
