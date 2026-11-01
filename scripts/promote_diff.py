@@ -68,14 +68,16 @@ def normalize(text: str) -> str:
 def load(paths) -> tuple:
     """(old, new) canonical text. Old comes from HEAD, new from the worktree."""
     try:
+        # The canonical holds UTF-8 glyphs, so both sides decode as UTF-8. The
+        # locale default is cp1252 on Windows and refuses the file outright.
         old = subprocess.run(
             ["git", "-C", str(ROOT), "show", f"HEAD:{CANONICAL}"],
-            capture_output=True, text=True, check=True).stdout
+            capture_output=True, check=True).stdout.decode("utf-8", "replace")
     except subprocess.CalledProcessError:
         print(f"Failed: {CANONICAL} is not in HEAD. There is no previous "
               f"version to compare against.", file=sys.stderr)
         raise SystemExit(2)
-    new = (ROOT / CANONICAL).read_text()
+    new = (ROOT / CANONICAL).read_text(encoding="utf-8", errors="replace")
     return old, new
 
 
