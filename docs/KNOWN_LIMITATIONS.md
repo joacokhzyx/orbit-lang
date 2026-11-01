@@ -272,13 +272,15 @@ POSIX through SIGTERM. On Windows the stop is `TerminateProcess`:
 immediate, with in-flight requests lost. `drain` and the graceful
 phase of `restart`/`down` are best-effort stops there.
 
-## Two servers, one port: no error on Windows
+## Two servers, one port: Windows refuses it, Linux shares it
 
-Starting two servers on the same port on Windows doesn't fail
-loudly in my test - both processes kept running and the port
-answered. Don't rely on a bind error to catch the mistake. Check
-with `netstat -ano | findstr <port>` and stop the older process.
-UNTESTED on Linux.
+On Windows the listener is created with `SO_EXCLUSIVEADDRUSE`, so a second
+process on the same port prints `Port N is not available. Another program may
+be using it.` and exits 1. On Linux the listener sets `SO_REUSEPORT`, so a
+second process binds and the kernel distributes connections between the two.
+That is what lets a restart overlap the old process; it also means a port
+mistake there splits traffic instead of failing. `ss -lntp` (or `netstat -ano`
+on Windows) names the process holding the port.
 
 ## A generic model monomorphises; the type argument is inferred, never written
 
