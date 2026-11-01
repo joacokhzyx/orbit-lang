@@ -93,6 +93,13 @@ SETUP = {
     # A dot-directory is tool state, not source: the unparseable file inside
     # .orbit must not be scanned, which is what keeps `doctor .` finite.
     "state/ok.orb": "fn main() -> int {\n    return 0\n}\n",
+    # A directory git already ignores is not source: doctor must not scan it.
+    "skiproot/.gitignore": "generated/\n",
+    "skiproot/ok.orb": "fn main() -> int {\n    return 0\n}\n",
+    "skiproot/generated/bad.orb": "this is not orbit source\n",
+    # The positive control: an un-ignored broken file is still reported.
+    "keeproot/.gitignore": "elsewhere/\n",
+    "keeproot/broken.orb": "this is not orbit source\n",
     "state/.orbit/generated.orb": "this is not orbit source\n",
     # Two functions nothing reaches: `orphan` is never called and `orphan_helper`
     # is called only by it. `build --verbose` counts them as dropped.
@@ -184,6 +191,8 @@ CASES = [
     ("doctor-separate-programs", ["doctor", "--color", "never", "services"], 0, "out", "", "D002"),
     ("doctor-one-program", ["doctor", "--color", "never", "mergesvc"], 1, "out", "duplicate route GET /items", ""),
     ("doctor-skips-tool-state", ["doctor", "--color", "never", "state"], 0, "out", "no findings", "D008"),
+    ("doctor-skips-gitignored", ["doctor", "--color", "never", "skiproot"], 0, "out", "no findings", "D008"),
+    ("doctor-reads-unignored", ["doctor", "--color", "never", "keeproot"], 1, "out", "D008", ""),
     ("doctor-verbose", ["doctor", "--verbose", "cleandir"], 0, "out", "scanned", ""),
     ("doctor-json", ["doctor", "--format", "json", "files"], 1, "out", '"code"', ""),
     ("doctor-format-bad", ["doctor", "--format", "xml", "files"], 2, "err", "Usage:", ""),

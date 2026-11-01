@@ -13,6 +13,12 @@ startup banner says `Orbit 0.1.0`).
 
 Commands and gates:
 
+- **`orbit doctor` skips what `.gitignore` names.** A `.gitignore` line that is
+  just `name/` keeps that directory out of the scan, the way dot-directories
+  already were. `orbit doctor .` over this repository scans 472 files instead
+  of walking `scratch/` and `dist/`. Pinned by `doctor-skips-gitignored` and
+  its un-ignored control in `cli_probe`.
+
 - **`orbit frontend` lowers `print`.** The TIR path had no binding for it, so
   the first example exited 1 with `unknown identifier print`. The call now
   emits `call void print`, and every program under `examples/` produces TIR.

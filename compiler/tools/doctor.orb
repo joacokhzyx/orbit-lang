@@ -559,12 +559,39 @@ fn doctorFirstLine(s: string) -> string {
 // Collect .orb files under root, recursing into subdirectories.
 // Needs only orbit_file_list_dir_selfhost: a path whose listing is
 // non-empty is treated as a directory, otherwise as a file.
+// Directory names the scan root's .gitignore lists with a trailing slash. Git
+// already says they are not part of the tree, so the scan skips them the way
+// it skips dot-directories. A plain `name/` line is what this reads: nested
+// .gitignore files, wildcards and anchored patterns are left to git.
+fn doctorIgnoredDirs(root: string) -> list < string > {
+    val names = []
+    val text = orbit_file_read_selfhost(root + "/.gitignore")
+    if text == "" { return names }
+    val lines = splitBuildLines(text)
+    var i = 0
+    while i < lines.len() {
+        var line = doctorTrimSpace(lines.get(i))
+        if doctorStartsWith(line, "/") { line = line.slice(1, line.len()) }
+        if line.len() > 1 && doctorStartsWith(line, "#") == false && doctorStartsWith(line, "!") == false {
+            if doctorEndsWith(line, "/") {
+                val name = line.slice(0, line.len() - 1)
+                if orbit_string_indexOf(name, "*") == -1 && orbit_string_indexOf(name, "/") == -1 {
+                    names.push(name)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return names
+}
+
 fn doctorCollectOrbFiles(root: string) -> list < string > {
     var files = []
     if doctorEndsWithOrb(root) {
         files.push(root)
         return files
     }
+    val ignored = doctorIgnoredDirs(root)
     val dirs = []
     dirs.push(root)
     var di = 0
@@ -583,9 +610,11 @@ fn doctorCollectOrbFiles(root: string) -> list < string > {
                 // made `orbit doctor .` exhaust the arena before it could
                 // report anything.
                 if doctorStartsWith(e, ".") == false {
-                    val sub = orbit_file_list_dir_selfhost(full)
-                    if sub.len() > 0 {
-                        dirs.push(full)
+                    if doctorListContains(ignored, e) == false {
+                        val sub = orbit_file_list_dir_selfhost(full)
+                        if sub.len() > 0 {
+                            dirs.push(full)
+                        }
                     }
                 }
             }

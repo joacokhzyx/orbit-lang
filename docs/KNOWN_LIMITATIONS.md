@@ -18,23 +18,29 @@ now, and the section records what they answer instead. It includes the two
 checks that were wrong in the direction of refusing valid code, which is the
 failure mode worth reading about.
 
-## Doctor over compiler/ needs more arena than a 4 GB machine offers by default
+## Doctor over a whole tree needs more arena than a 4 GB machine offers
 
-`orbit doctor compiler` allocates more than 2.9 GB of arena. The default
-ceiling is 75% of physical memory, so a 3.9 GB WSL instance aborts with
+`orbit doctor compiler` allocates more than 2.9 GB of arena, and
+`orbit doctor .` over this repository (472 files) reaches the same ceiling.
+The default is 75% of physical memory, so a 3.9 GB WSL instance aborts with
 `arena ceiling reached ... the limit is 2928 MB from ORBIT_ARENA_MAX_MB`.
-`ORBIT_ARENA_MAX_MB=20000` reports 138 findings in 9.6 s. A 16 GB CI runner's
-default ceiling covers it. The scan typechecks every file in one arena, so
-the change that would remove the requirement is releasing per-file state, not
-a larger default.
+With `ORBIT_ARENA_MAX_MB=20000` the compiler scan reports 138 findings in
+9.6 s; on Windows the repository scan finishes in 23 s under the 6 GB
+default, and a 16 GB CI runner's default covers both. The scan typechecks
+every file in one arena, so the change that would remove the requirement is
+releasing per-file state, not a larger default.
 
-## Doctor skips dot-directories, and that is the only directory it skips
+## Doctor skips tool state: dot-directories and what .gitignore names
 
-A directory whose name begins with a dot is tool state and is not scanned, so
-`.orbit/` with its thousands of build copies never is. An untracked `scratch/`
-is scanned, and a generated 417 KB file with ten thousand functions exhausts
-the default arena before the scan can report anything. Point doctor at the
-tracked directories, or drop the generated file.
+A directory whose name begins with a dot is not scanned, so `.orbit/` with its
+thousands of build copies never is. The scan root's `.gitignore` is read too:
+a line that is just `name/` keeps that directory out, which is how `scratch/`,
+`dist/` and the fuzz output stay out of a repository-wide run. Nested
+`.gitignore` files, wildcards and anchored patterns are not interpreted.
+
+With both rules, `orbit doctor .` over this repository scans 472 files and
+reports 439 findings in 23 s on Windows. The 4 GB Linux run still reaches the
+arena ceiling on the same scan; that is the section above, not the walk.
 
 ## The silent group is empty
 
