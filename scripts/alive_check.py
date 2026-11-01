@@ -693,7 +693,7 @@ def shell_checks(name):
     # Only paths that start at a real top-level directory are checked: a
     # `$HOME/.orbit/bin` is supposed not to exist, and a shell variable glued
     # to the front of a path is not a repo path.
-    tops = ("scripts/", "compiler/", "runtime/", "std/", "lib/", "tests/",
+    tops = ("scripts/", "compiler/", "runtime/", "std/", "tests/",
             "editors/", "docs/")
     for ref in sorted(set(re.findall(r'[./\w-]+\.(?:py|orb|c|exe|json|md|cjs)', text))):
         ref = ref.lstrip("./")
