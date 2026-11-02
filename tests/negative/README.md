@@ -224,9 +224,13 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-110 cases: 110 are `expect-error:` - each program is rejected, with a pinned
+111 cases: 111 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 110/110 pass (0 known defects still accepted)`. `n100` is the first
+negative: 111/111 pass (0 known defects still accepted)`. `n121` is the case
+where refusing is the whole point: two unions declare one variant name and the
+construction writes only the name, so the checker has no owner to read the
+payload from and no expected type to infer one - `E1011` names both owners
+rather than taking the first row. `n100` is the first
 case that sema accepts and the IR verifier refuses: an object field read with
 no stated kind. `n110` pins the other direction, a name the checker used to
 provide with no lowering behind it: `sort(xs)` reached the C step as a call to

@@ -97,7 +97,7 @@ fn variantBlockText(backend: CBackend) -> string {
             var mvv = 0
             while mvv < mvType.variants.len() {
                 val mvName: string = mvType.variants.get(mvv)
-                val mvMacro = cUserName(mvName)
+                val mvMacro = cUserName(mvType.name + "_" + mvName)
                 var mrich = ""
                 if mvv < mvType.richVariants.len() {
                     val mr: string = mvType.richVariants.get(mvv)
@@ -1766,7 +1766,9 @@ fn cCalleeName(backend: CBackend, name: string) -> string {
         if userFunctionIsExport(backend, name) { return sanitizeIdentifier(name) }
         return cUserName(name)
     }
-    if isModelCtorName(backend, name) || isUnionVariantName(backend, name) { return cUserName(name) }
+    if isModelCtorName(backend, name) { return cUserName(name) }
+    val variantCtor = variantCtorCName(backend, name)
+    if variantCtor != "" { return variantCtor }
     if isCKeyword(name) { return name + "_" }
     return name
 }
@@ -1837,23 +1839,59 @@ fn moduleHasRoute(backend: CBackend) -> bool {
     return false
 }
 
-fn isUnionVariantName(backend: CBackend, name: string) -> bool {
+// Whether one declared union carries this variant.
+fn unionDeclaresVariant(backend: CBackend, owner: string, variantName: string) -> bool {
     var ti = 0
     while ti < backend.module.types.len() {
         val tDecl: IRTypeDecl = backend.module.types.get(ti)
-        if tDecl.kind == "union_type" {
+        if tDecl.kind == "union_type" && tDecl.name == owner {
             var vi = 0
             while vi < tDecl.variants.len() {
-                val vName: string = tDecl.variants.get(vi)
-                if vName == name {
-                    return true
-                }
+                if tDecl.variants.get(vi) == variantName { return true }
                 vi = vi + 1
             }
         }
         ti = ti + 1
     }
     return false
+}
+
+// The constructor macro a call names, or "" when the call is not a variant
+// construction. The builder writes a qualified construction as `Owner.Variant`
+// and a bare one as `Variant`; the macro is keyed on both, because two unions
+// may declare a variant of the same name and a macro named after the variant
+// alone let the second `#define` replace the first. A bare name reaches here
+// only when one union declares it -- the checker refuses the ambiguous case --
+// so the declaring union is the owner.
+fn variantCtorCName(backend: CBackend, name: string) -> string {
+    val dot = orbit_string_indexOf(name, ".")
+    if dot > 0 {
+        val owner = orbit_string_slice(name, 0, dot)
+        val variant = orbit_string_slice(name, dot + 1, name.len())
+        if unionDeclaresVariant(backend, owner, variant) {
+            return cUserName(owner + "_" + variant)
+        }
+        return ""
+    }
+    var ti = 0
+    while ti < backend.module.types.len() {
+        val tDecl: IRTypeDecl = backend.module.types.get(ti)
+        if tDecl.kind == "union_type" {
+            var vi = 0
+            while vi < tDecl.variants.len() {
+                if tDecl.variants.get(vi) == name {
+                    return cUserName(tDecl.name + "_" + name)
+                }
+                vi = vi + 1
+            }
+        }
+        ti = ti + 1
+    }
+    return ""
+}
+
+fn isUnionVariantName(backend: CBackend, name: string) -> bool {
+    return variantCtorCName(backend, name) != ""
 }
 
 fn moduleConstructsVariants(backend: CBackend) -> bool {
@@ -1903,13 +1941,20 @@ fn isModelCtorName(backend: CBackend, name: string) -> bool {
 // to them always matches its signature. Only multi-payload variants use it:
 // singles keep the void* form they always had, byte for byte.
 fn variantCtorPayloadType(backend: CBackend, name: string, argIdx: int) -> string {
+    var wantOwner = ""
+    var wantName = name
+    val argDot = orbit_string_indexOf(name, ".")
+    if argDot > 0 {
+        wantOwner = orbit_string_slice(name, 0, argDot)
+        wantName = orbit_string_slice(name, argDot + 1, name.len())
+    }
     var i = 0
     while i < backend.module.types.len() {
         val tDecl: IRTypeDecl = backend.module.types.get(i)
-        if tDecl.kind == "union_type" {
+        if tDecl.kind == "union_type" && (wantOwner == "" || tDecl.name == wantOwner) {
             var vi = 0
             while vi < tDecl.variants.len() {
-                if tDecl.variants.get(vi) == name {
+                if tDecl.variants.get(vi) == wantName {
                     if vi < tDecl.richVariants.len() {
                         val r: string = tDecl.richVariants.get(vi)
                         val parts = splitPayloadDecl(r)

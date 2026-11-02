@@ -3,7 +3,10 @@
 // not a .orb file.
 //
 // MISSING LANGUAGE FEATURE: a generic tagged union. Three things stood in the
-// way and each one hid the next. The first landed 2026-11-01; two remain.
+// way and each one hid the next. The parser landed 2026-11-01, and the flat
+// variant registry closed the same day: a payload now comes from the owner the
+// program wrote and `E1011` refuses a bare name two unions share. What remains
+// is the substitution.
 //
 //   1. DONE (2026-11-01): the parser reads a type parameter list on `union`,
 //      with the same call `parseModelDecl`, `parseFunctionDecl` and
@@ -44,22 +47,25 @@
 //      point at. The generic model is not the pattern that is missing
 //      here; the parser is.
 //
-//   3. The variant registry is flat by variant name, so two instances
-//      could not coexist even with 1 and 2 solved. Measured today with
-//      two concrete unions:
+//   3. DONE (2026-11-01): the variant registry was flat by variant name, so
+//      two instances could not coexist even with 1 and 2 solved. It was
+//      measured with two concrete unions:
 //         union A { X(int) }
 //         union B { X(string) }
 //         orbit check -> error[E1005]: Payload 1 of 'X' is declared
 //                        int but the value is string.
-//      findVariantOwner (compiler/front/sema.orb:781) walks
+//      findVariantOwner (compiler/front/sema.orb:845) walked
 //      variantRegistry (compiler/front/sema.orb:103) by the bare name,
 //      so `Some` from `Option<int>` and `Some` from `Option<string>`
-//      would collide the same way. This is no longer only a generic-union
-//      problem: two concrete unions sharing a variant name are refused or
-//      mis-bound today, and it is written up as a limitation of its own --
-//      "Two unions cannot declare the same variant name" in
-//      docs/KNOWN_LIMITATIONS.md. Fixing it there is the prerequisite for
-//      this one.
+//      collided the same way. Payload and arity now come from the owner the
+//      program wrote, a bare `match` pattern resolves through the scrutinee's
+//      type, the constructor macro carries both names, and a bare name two
+//      unions share is refused with E1011. Pinned by
+//      tests/suite/union_shared_variant_name.orb and tests/negative/n121;
+//      the write-up is the "(fixed)" entry in docs/KNOWN_LIMITATIONS.md.
+//      What this does NOT give the union is an instance: `Option_int` and
+//      `Option_string` still have nothing to declare them, which is
+//      condition 1 below.
 //
 // So the honest spelling for a payload-carrying union today is a
 // concrete payload type per variant, e.g.
@@ -80,11 +86,10 @@
 // LIFT THE QUARANTINE WHEN: two conditions remain.
 //
 //   1. Each use substitutes the argument, so `Option<int>` and `Option<string>`
-//      become distinct instances and the variant lookup resolves through the
-//      instance rather than the bare name. `sema.variantRegistry` is still keyed
-//      by the variant's own name, and the builder's `variantTagOwner` /
-//      `variantPayloadType` family answers a bare name by first match, so two
-//      instances cannot both be registered today.
+//      become distinct instances, declared once and resolved from the position
+//      that writes them. The lookup is owner-keyed since 2026-11-01, so an
+//      instance has somewhere to live; what is missing is the instance -- one
+//      registry row per argument list, with `T` replaced in the payload.
 //   2. A payload-less variant names the instance it belongs to. The design is
 //      decided and is the one the language can hold: the argument comes from a
 //      position where a type is WRITTEN -- a binding's annotation, a `return` in

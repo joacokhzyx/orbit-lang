@@ -461,13 +461,54 @@ fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode
 }
 
 // The joined payload types declared for `variantName`, or "" for a unit
-// variant or an undeclared name. One row of the variant registry, split the
-// same way it was joined in the parser.
-fn variantPayloadsOf(sema: Sema, variantName: string) -> string {
+// The types that declare `variantName`, in declaration order. Two unions may
+// declare one name, and every lookup below needs the owner to tell them apart.
+fn variantOwnersOf(sema: Sema, variantName: string) -> list < string > {
+    val found = []
     var i = 0
     while i < sema.variantRegistry.len() {
         val v: VariantInfo = sema.variantRegistry.get(i)
         if v.variant == variantName {
+            found.push(v.owner)
+        }
+        i = i + 1
+    }
+    return found
+}
+
+// The owner a bare variant name resolves to, or "" when it resolves to one and
+// only one. Writing only the name is readable while one type declares it; with
+// two, the first row would answer for the other.
+fn variantSoleOwner(sema: Sema, variantName: string) -> string {
+    val found = variantOwnersOf(sema, variantName)
+    if found.len() == 1 {
+        val one: string = found.get(0)
+        return one
+    }
+    return ""
+}
+
+fn variantRowExists(sema: Sema, owner: string, variantName: string) -> bool {
+    var i = 0
+    while i < sema.variantRegistry.len() {
+        val v: VariantInfo = sema.variantRegistry.get(i)
+        if v.variant == variantName && v.owner == owner {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// variant or an undeclared name. One row of the variant registry, split the
+// same way it was joined in the parser. `owner` is the type the program wrote;
+// "" falls back to the first row holding the name, which is only sound while
+// one type declares it.
+fn variantPayloadsOf(sema: Sema, owner: string, variantName: string) -> string {
+    var i = 0
+    while i < sema.variantRegistry.len() {
+        val v: VariantInfo = sema.variantRegistry.get(i)
+        if v.variant == variantName && (owner == "" || v.owner == owner) {
             return v.payloads
         }
         i = i + 1
@@ -477,15 +518,15 @@ fn variantPayloadsOf(sema: Sema, variantName: string) -> string {
 
 // How many payloads `Variant(A, B)` declares: the tab-separated count, with
 // "" (unit) counting zero rather than one.
-fn variantArityOf(sema: Sema, variantName: string) -> int {
-    val joined = variantPayloadsOf(sema, variantName)
+fn variantArityOf(sema: Sema, owner: string, variantName: string) -> int {
+    val joined = variantPayloadsOf(sema, owner, variantName)
     if joined == "" { return 0 }
     return splitBindingRows(joined).len()
 }
 
 // The i-th payload type of a multi-payload variant, or "" past the end.
-fn variantPayloadAt(sema: Sema, variantName: string, idx: int) -> string {
-    val joined = variantPayloadsOf(sema, variantName)
+fn variantPayloadAt(sema: Sema, owner: string, variantName: string, idx: int) -> string {
+    val joined = variantPayloadsOf(sema, owner, variantName)
     if joined == "" { return "" }
     val parts = splitBindingRows(joined)
     if idx < 0 || idx >= parts.len() { return "" }
@@ -501,8 +542,31 @@ fn variantPayloadAt(sema: Sema, variantName: string, idx: int) -> string {
 // E1005 (like call arguments, int widening included). Types ride in
 // precomputed, because checking an argument twice prints its diagnostics
 // twice.
-fn checkVariantCall(sema: Sema, variantName: string, args: list < ASTNode >, argTypes: list < string >, line: int, col: int) {
-    val want = variantArityOf(sema, variantName)
+fn variantOwnerListText(owners: list < string >) -> string {
+    var out = ""
+    var i = 0
+    while i < owners.len() {
+        val one: string = owners.get(i)
+        if i > 0 {
+            if i + 1 == owners.len() {
+                out = out + " and "
+            } else {
+                out = out + ", "
+            }
+        }
+        out = out + "'" + one + "'"
+        i = i + 1
+    }
+    return out
+}
+
+fn checkVariantCall(sema: Sema, owner: string, variantName: string, args: list < ASTNode >, argTypes: list < string >, line: int, col: int) {
+    val owners = variantOwnersOf(sema, variantName)
+    if owner == "" && owners.len() > 1 {
+        reportErrorAt(sema, "E1011", "Write the union the variant belongs to, as " + owners.get(0) + "." + variantName + "().", line, col, "'" + variantName + "' is declared by more than one union (" + variantOwnerListText(owners) + "), and the construction names only the variant, so nothing chooses between them.")
+        return
+    }
+    val want = variantArityOf(sema, owner, variantName)
     if args.len() != want {
         reportErrorAt(sema, "E1003", "Construct the variant with one argument per payload, in order.", line, col, "Variant '" + variantName + "' declares " + orbit_int_to_string_selfhost(want) + " payloads, but the construction passes " + orbit_int_to_string_selfhost(args.len()) + ".")
         return
@@ -510,7 +574,7 @@ fn checkVariantCall(sema: Sema, variantName: string, args: list < ASTNode >, arg
     var i = 0
     while i < args.len() {
         val got: string = argTypes.get(i)
-        val declared = variantPayloadAt(sema, variantName, i)
+        val declared = variantPayloadAt(sema, owner, variantName, i)
         if declared != "" && checkCompatibility(declared, got) == false {
             reportErrorAt(sema, "E1005", "Change the argument, or change the variant's declared payload type.", line, col, "Payload " + orbit_int_to_string_selfhost(i + 1) + " of '" + variantName + "' is declared " + declared + " but the value is " + got + ".")
         }
@@ -3009,20 +3073,39 @@ fn patternBindings(pattern: ASTNode) -> list < string > {
 // refused with both numbers. Only what the registry declares is checked, so
 // an ordinary call in pattern position keeps today's behavior, and a bare
 // `T.V` with no parens still matches on the tag alone.
-fn checkPatternArity(sema: Sema, pattern: ASTNode) {
+fn checkPatternArity(sema: Sema, matchType: string, pattern: ASTNode) {
     match pattern {
         ASTNode.Call(c) => {
             var variant = ""
+            var patOwner = ""
             match c.callee {
                 ASTNode.Literal(l) => {
                     if l.valType == "identifier" { variant = l.text }
                 }
-                ASTNode.MemberAccess(ma) => { variant = ma.field }
+                ASTNode.MemberAccess(ma) => {
+                    variant = ma.field
+                    match ma.object {
+                        ASTNode.Literal(ol) => {
+                            if ol.valType == "identifier" { patOwner = ol.text }
+                        }
+                        _ => {}
+                    }
+                }
                 _ => {}
             }
             if variant == "" { return }
             if findVariantOwner(sema, variant) == "" { return }
-            val want = variantArityOf(sema, variant)
+            // The owner is the type the pattern wrote, or the scrutinee's own
+            // type for a bare `V(a)`. Either of them can name a type that does
+            // not declare the variant -- an unresolved scrutinee answers
+            // "unknown" -- and then the first row is all there is to read.
+            if patOwner != "" && variantRowExists(sema, patOwner, variant) == false {
+                patOwner = ""
+            }
+            if patOwner == "" && matchType != "" && variantRowExists(sema, matchType, variant) {
+                patOwner = matchType
+            }
+            val want = variantArityOf(sema, patOwner, variant)
             if c.args.len() != want {
                 reportErrorAt(sema, "E1003", "Bind one name per payload, in order.", c.line, c.col, "Pattern binds " + orbit_int_to_string_selfhost(c.args.len()) + " names but variant '" + variant + "' declares " + orbit_int_to_string_selfhost(want) + " payloads.")
             }
@@ -3040,9 +3123,9 @@ fn checkPatternArity(sema: Sema, pattern: ASTNode) {
 // type is not known here (a variant declares a payload, not a type for it), so
 // the symbol is declared `unknown`, which is now distinguishable from not
 // being declared at all rather than being confused with it.
-fn checkMatchCase(sema: Sema, c: MatchCaseNode) {
+fn checkMatchCase(sema: Sema, c: MatchCaseNode, matchType: string) {
     pushScope(sema)
-    checkPatternArity(sema, c.pattern)
+    checkPatternArity(sema, matchType, c.pattern)
     val bound = patternBindings(c.pattern)
     var bi = 0
     while bi < bound.len() {
@@ -3063,7 +3146,7 @@ fn checkMatch(sema: Sema, node: ASTNode) {
                 val caseNode = m.cases.get(i)
                 match caseNode {
                     ASTNode.MatchCase(c) => {
-                        checkMatchCase(sema, c)
+                        checkMatchCase(sema, c, matchType)
                     }
                     _ => {}
                 }
@@ -4141,7 +4224,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         // call and only the payload is ambiguous.
                         val variantOwner = findVariantOwner(sema, l.text)
                         if variantOwner != "" {
-                            checkVariantCall(sema, l.text, c.args, argTypes, c.line, c.col)
+                            checkVariantCall(sema, "", l.text, c.args, argTypes, c.line, c.col)
                             return variantOwner
                         }
                         return "unknown"
@@ -4163,7 +4246,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // reached through its type name is that type's value, the
                     // same way the bare-name form above is.
                     if typeHasVariant(sema, objType, member) {
-                        checkVariantCall(sema, member, c.args, argTypes, c.line, c.col)
+                        checkVariantCall(sema, objType, member, c.args, argTypes, c.line, c.col)
                         return objType
                     }
                     // The receiver's own name, when it is a bare identifier.

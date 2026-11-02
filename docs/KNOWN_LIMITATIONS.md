@@ -72,10 +72,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 110/110 pass (0 known defects still accepted)
+Finished negative: 111/111 pass (0 known defects still accepted)
 ```
 
-One hundred and ten programs: every one must be rejected and is. The last one
+One hundred and eleven programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
@@ -471,43 +471,37 @@ twice walked straight into it. The read is now typed from the model the
 field reference names, which the builder had been writing down and the
 backend had been discarding.
 
-## Two unions cannot declare the same variant name
+## Two unions may declare the same variant name (fixed)
 
-The variant registry is keyed by the variant's own name, and the constructor
-macro the emitter writes is keyed the same way, so when two unions declare one
-name the first row answers for both.
+`Signal.Body("s")` used to be refused while `Body(3)` -- with `Packet` and
+`Signal` both declaring `Body` -- used to be accepted. One lookup caused both:
+the registry is keyed by the variant's own name, so the first row holding it
+answered for every union. The payload of a construction naming `Signal` was read
+out of `Packet`, and the constructor macro was named after the variant alone, so
+the second `#define Body` replaced the first.
 
-Measured on 2026-11-01 with the fixed point of `c31b395`:
+Both directions are pinned. `tests/suite/union_shared_variant_name.orb` declares
+`Packet.Body(int)` and `Signal.Body(string)`, constructs each qualified, matches
+each with a qualified pattern and with a bare pattern under its own scrutinee,
+and exits 0. The checker reads a payload from the owner the program wrote --
+`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:528`)
+-- and a bare `match` pattern resolves through the scrutinee's type
+(`compiler/ir/builder.orb:3843`). The constructor macro carries both names:
+`val mvMacro = cUserName(mvType.name + "_" + mvName)`
+(`compiler/emit/c_backend.orb:100`) where it read `cUserName(mvName)`. The two
+programs that would have collided link and run, which is what the name is for.
 
-```orbit
-union Packet { Body(int)  Empty }
-union Signal { Body(string)  Closed }
-fn second() -> Signal { return Signal.Body("s") }
-```
+What is refused is the case with no owner to read. `val p = Body(3)` with both
+unions in scope answers
+[E1011](ERROR_CODES.md#e1011--variant-name-belongs-to-more-than-one-union),
+which names both owners, and `tests/negative/n121` pins the text. There is no
+expected type to infer an owner from -- `checkNode` takes none -- and the guess
+was the half of the old defect that said nothing.
 
-`orbit check` refuses that program -- `error[E1005]: Payload 1 of 'Body' is
-declared int but the value is string`, at the position of `Signal.Body`. The
-construction names its owner and the checker ignores it: `checkVariantCall`
-re-reads the payload through `variantPayloadAt(sema, variantName, idx)`
-(`compiler/front/sema.orb:487`), whose first matching row wins. A legal program
-does not compile.
-
-The other half does not announce itself. With both unions in scope,
-`val p = Body(3)` passes `orbit check` with no errors, because the first row
-says `Packet` and nothing marks that as a guess. And
-`val mvMacro = cUserName(mvName)` (`compiler/emit/c_backend.orb:100`) names the
-constructor macro after the variant alone, so a second `#define Body` replaces
-the first and a construction the checker accepted can carry the other union's
-tag.
-
-Closing it is one change in three places: the checker resolves a payload through
-the owner it was handed, the emitter gives a shared variant name an
-owner-qualified macro, and a bare construction whose name belongs to two unions
-is refused rather than guessed. `unionDataRegisterType` already takes the owner
-and says why -- "so two unions sharing a variant name do not answer for each
-other" (`compiler/ir/builder.orb:2130`). A checker-only fix would have the
-program typecheck and emit the wrong tag, which is the failure listed in
-[Four bugs that typechecked, ran and were wrong](#four-bugs-that-typechecked-ran-and-were-wrong).
+Still open here: a `match` binding's payload type stays `unknown` in the checker
+(`compiler/front/sema.orb:3133`). The registry knows the owner now; the checker
+does not hand the payload type to the binding. That is the same expected-type
+channel the generic union is waiting on.
 
 ## `std/` is 20 modules; the six deleted ones are not coming back
 

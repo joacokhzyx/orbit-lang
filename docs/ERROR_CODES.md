@@ -218,6 +218,21 @@ kind (a bare name, an `if` used as a statement) has no position in the AST and
 prints the one-line form without the code. Pinned by
 `tests/negative/n98_result_discarded.orb`.
 
+## E1011 - variant name belongs to more than one union
+
+Fires in `compiler/front/sema.orb`, `checkVariantCall`, for a construction that
+names a variant and no owner when two unions declare that name. The registry is
+keyed on the variant, so the first row would answer for both: one of the two
+constructions was wrong, and nothing said which. `checkNode` takes no expected
+type, so a bare `Body(3)` has no owner to read. Fix hint: write the union --
+`Packet.Body(3)`. A `match` arm needs no owner, because the scrutinee's type is
+one. The message names every union that declares the name. Pinned by
+`tests/negative/n121_bare_ambiguous_variant_is_refused.orb`.
+
+Payloads and arity are read from the owner the program wrote, so `E1005` and
+`E1003` describe the union the construction names rather than whichever was
+declared first.
+
 ## E2001 - unknown identifier (frontend)
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression`: a load whose

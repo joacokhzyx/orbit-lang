@@ -13,6 +13,20 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **Two unions may declare the same variant name.** `Signal.Body("s")` was
+  refused with `E1005` while `Body(3)` with both unions in scope was accepted:
+  the registry is keyed on the variant's own name, so the first row answered the
+  payload of either, and the constructor macro was named after the variant alone
+  so a second `#define Body` replaced the first. Payload and arity now come from
+  the owner the program wrote, a bare `match` pattern resolves through the
+  scrutinee's type, and the constructor macro carries both names -- `cUserName(owner + "_" + variant)` where it read `cUserName(variant)`.
+  A bare construction whose name belongs to two unions is refused with the new
+  `E1011`, naming both owners. `tests/suite/union_shared_variant_name.orb` and
+  `tests/negative/n121` pin the two directions. The emitted C moves, so the
+  canonical moves with it: 2,039 lines after flattening register and label
+  numbering, in 457 hunks across 58 functions. Parity reads 33/33 unchanged --
+  no probe constructs a variant.
+
 - **`union Name[T]` parses, and `E1006` names what is still missing.** The
   declaration arm of `parseTypeDecl` calls the same parameter-list parser the
   model, fn and trait arms always used, so `union Option[T] { Some(T) None }`

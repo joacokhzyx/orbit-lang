@@ -2066,12 +2066,12 @@ fn splitPayloadTypes(joined: string) -> list < string > {
 // The i-th payload type of a variant, or "" past the end. Named for tags
 // (union member names in IR), not variants: sema.orb owns variantPayloadAt
 // over its own registry, and cross-file names are closed.
-fn variantTagPayloadAt(builder: IRBuilder, tagName: string, idx: int) -> string {
+fn variantTagPayloadAt(builder: IRBuilder, owner: string, tagName: string, idx: int) -> string {
     if tagName.len() == 0 { return "unknown" }
     var ti = 0
     while ti < builder.module.types.len() {
         val t: IRTypeDecl = builder.module.types.get(ti)
-        if t.kind == "union_type" {
+        if t.kind == "union_type" && (owner == "" || t.name == owner) {
             var vi = 0
             while vi < t.variants.len() {
                 if t.variants.get(vi) == tagName {
@@ -2117,10 +2117,11 @@ fn variantTagOwner(builder: IRBuilder, tagName: string) -> string {
 // The packed-struct type holding a variant's payloads (`Owner_Variant`),
 // or "" when no union declares the variant. Multi-payload match bindings
 // read `Owner_Variant._0` off the data pointer through it.
-fn variantStructOf(builder: IRBuilder, tagName: string) -> string {
-    val owner = variantTagOwner(builder, tagName)
-    if owner == "" { return "" }
-    return owner + "_" + tagName
+fn variantStructOf(builder: IRBuilder, owner: string, tagName: string) -> string {
+    var o = owner
+    if o == "" { o = variantTagOwner(builder, tagName) }
+    if o == "" { return "" }
+    return o + "_" + tagName
 }
 
 // The register type of a variant's payload word, for `union_get_data`. Only a
@@ -2151,13 +2152,13 @@ fn unionDataRegisterType(builder: IRBuilder, tagOwner: string, tagName: string) 
     return "unknown"
 }
 
-fn variantPayloadType(builder: IRBuilder, tagName: string) -> string {
+fn variantPayloadType(builder: IRBuilder, owner: string, tagName: string) -> string {
     if tagName.len() == 0 { return "unknown" }
     // Structural first: consult declared union payloads (richVariants).
     var ti = 0
     while ti < builder.module.types.len() {
         val t: IRTypeDecl = builder.module.types.get(ti)
-        if t.kind == "union_type" {
+        if t.kind == "union_type" && (owner == "" || t.name == owner) {
             var vi = 0
             while vi < t.variants.len() {
                 if t.variants.get(vi) == tagName {
@@ -3839,9 +3840,17 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                         tagInstr.operand1 = ir_register(matchReg)
                         ir_emit(builder.currentFunction, tagInstr)
 
+                        // The owner the tag and the payloads come from: the type
+                        // the pattern wrote, or the scrutinee's own type for a
+                        // bare `V(a)`. Two unions may declare one variant name,
+                        // and the first row would answer for the other.
+                        var patOwner = tagOwner
+                        if patOwner == "" {
+                            patOwner = bareVariantOwner(builder, m.expr, tagName)
+                        }
                         var dataType = "unknown"
                         if callPattern.args.len() == 1 {
-                            dataType = unionDataRegisterType(builder, tagOwner, tagName)
+                            dataType = unionDataRegisterType(builder, patOwner, tagName)
                         }
                         val dataReg = ir_alloc_register(builder.currentFunction, dataType)
                         val dataInstr = ir_init_instr(IROpcode.union_get_data)
@@ -3854,7 +3863,7 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             match argNode {
                                 ASTNode.Literal(argLit) => {
                                     if argLit.valType == "identifier" {
-                                        val argC = defineVariable(builder, argLit.text, variantPayloadType(builder, tagName))
+                                        val argC = defineVariable(builder, argLit.text, variantPayloadType(builder, patOwner, tagName))
                                         val declVar = ir_init_instr(IROpcode.decl_var)
                                         declVar.operand1 = ir_symbol(argC)
                                         declVar.operand2 = ir_register(dataReg)
@@ -3879,10 +3888,13 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             ir_emit(builder.currentFunction, varPatInstr)
                         } else {
                             // Bare `V(a)`: no owner in the pattern, so the tag
-                            // comes from the first union declaring the
-                            // variant. Without this the callee built as a bare
-                            // variable reference, which never compiled.
-                            val bareOwner = variantTagOwner(builder, tagName)
+                            // comes from the scrutinee's type, which
+                            // `patOwner` already resolved. When the builder
+                            // cannot type the scrutinee it falls back to the
+                            // first union declaring the variant; without this
+                            // the callee built as a bare variable reference,
+                            // which never compiled.
+                            val bareOwner = patOwner
                             if bareOwner != "" {
                                 varPatReg = ir_alloc_register(builder.currentFunction, "int")
                                 val varPatInstr = ir_init_instr(IROpcode.load_var)
@@ -3919,14 +3931,14 @@ fn buildMatchBody(builder: IRBuilder, m: MatchNode, asExpr: bool) -> int {
                             if tagOwner != "" {
                                 structName = tagOwner + "_" + tagName
                             } else {
-                                structName = variantStructOf(builder, tagName)
+                                structName = variantStructOf(builder, patOwner, tagName)
                             }
                             var ai = 0
                             while ai < callPattern.args.len() {
                                 match callPattern.args.get(ai) {
                                     ASTNode.Literal(argLit) => {
                                         if argLit.valType == "identifier" {
-                                            val argC = defineVariable(builder, argLit.text, variantTagPayloadAt(builder, tagName, ai))
+                                            val argC = defineVariable(builder, argLit.text, variantTagPayloadAt(builder, patOwner, tagName, ai))
                                             val fieldReg = ir_alloc_register(builder.currentFunction, "unknown")
                                             val fieldInstr = ir_init_instr(IROpcode.load_field)
                                             fieldInstr.dest = fieldReg
@@ -4370,11 +4382,13 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
             // Union variant construction: Type.Variant(payload) is NOT a method
             // call. The type name must not be evaluated nor passed as receiver.
             var isVariantCtor = false
+            var ctorOwner = ""
             match ma.object {
                 ASTNode.Literal(ol) => {
                     if ol.valType == "identifier" {
                         if isUnionTypeName(builder, ol.text) {
                             isVariantCtor = true
+                            ctorOwner = ol.text
                         }
                     }
                 }
@@ -4392,7 +4406,7 @@ fn buildCall(builder: IRBuilder, c: CallNode) -> int {
                 val vRes = ir_alloc_register(builder.currentFunction, "void*")
                 val vCall = ir_init_instr(IROpcode.call)
                 vCall.dest = vRes
-                vCall.operand1 = ir_string(ma.field)
+                vCall.operand1 = ir_string(ctorOwner + "." + ma.field)
                 vCall.operand2 = ir_int(c.args.len())
                 ir_emit(builder.currentFunction, vCall)
                 return vRes
@@ -5482,7 +5496,7 @@ fn buildExpr(builder: IRBuilder, node: ASTNode) -> int {
                     val ctorReg = ir_alloc_register(builder.currentFunction, "void*")
                     val ctorCall = ir_init_instr(IROpcode.call)
                     ctorCall.dest = ctorReg
-                    ctorCall.operand1 = ir_string(memberText)
+                    ctorCall.operand1 = ir_string(enumOwnerName + "." + memberText)
                     ctorCall.operand2 = ir_int(0)
                     ir_emit(builder.currentFunction, ctorCall)
                     return ctorReg
