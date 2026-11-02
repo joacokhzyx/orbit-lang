@@ -321,7 +321,10 @@ Measured through the CLI in three steps: **193 ms** before the wait below was
 fixed, and the service was terminated; **1074 ms** with the wait fixed and no
 channel, and the service was still terminated; **1108 ms** with the channel, and
 the service's own output ends with `Server stopped.` -- the printf that runs only
-after the workers join (`compiler/emit/route_runtime.orb:816`).
+after the workers join (`compiler/emit/route_runtime.orb:816`). `cluster down`
+on one node measures 5.1 s and its `node-0.log` ends with that line too: the
+wait loop steps in whole seconds, so a drain that is over in 1.1 s is noticed on
+the next tick.
 
 A second defect hid behind the missing channel, and it made the wait itself a
 lie.
