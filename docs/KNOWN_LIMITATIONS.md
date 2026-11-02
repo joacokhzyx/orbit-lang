@@ -683,23 +683,23 @@ that would remove the requirement.
 
 ## 19.4% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 103,267
+`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 103,333
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 20,003 | **19.4%** |
+| instructions the front end types `unknown` | 20,005 | **19.4%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 8,797 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 1,291), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 8,798 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 1,290), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 33), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 5,250) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,632). Their sum, 20,003, is the whole unknown count. The five
+(member read, 5,251) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 4,633). Their sum, 20,005, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:220`, `:233`, `:241`, `:254` and `:292`, and
 each sits on the branch that emits the instruction.
 
@@ -732,13 +732,13 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 762 times on this corpus, down from 9,233. It is not in the
+<node>" fired 750 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Eight of the classes the table first printed turned out not to
+node class"). Nine of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -782,10 +782,18 @@ the list path anyway would bind the item to `unknown`, suppressing the same text
 and raising the count the ratchet holds, so it stays a give-up and
 `tests/frontend/list_iteration.orb` pins that.
 
+Interpolation was the ninth. `"count=${n}!"` is three parts -- text, the value
+of `n`, text -- and the pass had no rule for the whole literal, so 12 of them
+were give-ups that also suppressed their file's text. It emits `interp` now,
+answering `string`, with a count of parts and the flag that says whether the
+text chunks are taken verbatim or unescaped: that reading is decided at the
+build, and copying the unescape rule into this module would be a second answer
+to one question. `tests/frontend/interp_parts.orb` pins the text.
+
 What is left of the class list is `Match` 287, the chained `MemberAccess` 216,
 `Try` 93, `TypedLiteral` 50 and `If` 30. Lowering a loop lowers its body too, so
-the absolute count moves both ways and the rate is what to read: 20,003 unknown
-over 103,267 instructions, against 25,489 over 86,942 at the start of the day.
+the absolute count moves both ways and the rate is what to read: 20,005 unknown
+over 103,333 instructions, against 25,489 over 86,942 at the start of the day.
 The ratchet reads the rate. Worst file by share of unknown instructions:
 `compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
 
@@ -814,15 +822,18 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 15/15
+## The frontend gate is 16/16
 
-`scripts/frontend_gate.py` runs fifteen fixtures and all fifteen pass (two of
+`scripts/frontend_gate.py` runs sixteen fixtures and all sixteen pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
-fail before. Three pin an absence of output rather than a text, and the gate
+fail before. Four pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact.
+the wrong artifact. `interp_parts.orb` pins the interpolated string, and its
+hole is written `$` because a fixture cannot embed `${`: the lexer that reads
+the fixture's own literal would interpolate it, so the marker is decoded in the
+gate's test plumbing rather than as a language escape.
 
 ## `lib/net.orb` is gone
 
