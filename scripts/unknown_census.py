@@ -232,13 +232,23 @@ def main():
 
     totals, by_op, by_code, by_dir = aggregate(rows)
     known = totals["instr"] - totals["instr_unk"]
-    # E2001 fires once per `unknown` load, E2002 once per `unknown` binary op
-    # and E2003 once per `unknown` unary op (compiler/tir/lower.orb:105,
-    # :118, :126), so the rest of the `unknown` instructions are silent ones:
-    # the front end did not know it had failed.
-    silent = totals["instr_unk"] - (by_code.get("E2001", 0)
-                                    + by_code.get("E2002", 0)
-                                    + by_code.get("E2003", 0))
+    # Five of the lowering diagnostics fire exactly once per instruction they
+    # make `unknown`, each on the line that emits it: E2001 for a load
+    # (compiler/tir/lower.orb:118), E2002 for a binary op (:131), E2003 for a
+    # unary op (:139), E2004 for a member read (:152) and E2005 for a call
+    # result (:190). What is left after all five is the part that reaches
+    # codegen with no message. Until E2004 and E2005 were counted here that
+    # residue read 11,577 and was reported as silent; the two classes carry
+    # 4,821 and 6,756 of it.
+    silent_codes = ("E2001", "E2002", "E2003", "E2004", "E2005")
+    silent = totals["instr_unk"] - sum(by_code.get(c, 0) for c in silent_codes)
+    if silent < 0:
+        # One of the five no longer ties to one instruction. The residue is
+        # then not a measurement of anything, so say it instead of printing a
+        # negative count a ratchet would read as an improvement.
+        out.fail("WARNING: the five per-instruction diagnostics sum above the "
+                 "unknown total; `unknown without diagnostic` is not "
+                 "meaningful this run.")
 
     if args.json:
         out.fail("Unknown-type census -- measurement, the gate is "
@@ -296,23 +306,19 @@ def main():
     table(by_op, totals["instr_unk"], args.top, "opcode")
     print("")
     print("Unknown types the front end did not even complain about:")
-    print("  Three of the lowering diagnostics in compiler/tir/lower.orb "
-          "fire exactly")
-    print("  once per instruction they make `unknown`, and their counts match the "
-          "opcode")
-    print("  counts above exactly: E2001=load, E2002=binary op, E2003=unary op.")
+    print("  Five of the lowering diagnostics in compiler/tir/lower.orb fire "
+          "exactly")
+    print("  once per instruction they make `unknown`, and their counts match "
+          "the opcode")
+    print("  counts above exactly: E2001=load, E2002=binary op, E2003=unary op,")
+    print("  E2004=member read, E2005=call result.")
     print("  Everything left over is `unknown` with no diagnostic, which is the "
           "part")
     print("  that reaches codegen silently.")
-    silent = totals["instr_unk"] - (by_code.get("E2001", 0) + by_code.get("E2002", 0)
-                                     + by_code.get("E2003", 0))
     print("")
     print("  %-34s %9d  %5.1f%% of all unknown"
           % ("unknown with no diagnostic", silent,
              pct(silent, max(totals["instr_unk"], 1))))
-    for name in ("call", "member"):
-        if by_op.get(name):
-            print("  %-34s %9d" % ("  of which opcode `%s`" % name, by_op[name]))
     print("")
     print("Front-end diagnostics by code (a file that errors is not a typed file):")
     table(by_code, max(totals["diag"], 1), args.top, "code")

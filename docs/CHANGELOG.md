@@ -26,6 +26,17 @@ Language front end:
 
 Commands and gates:
 
+- **No `unknown` instruction is silent; the census said 11,491 were.**
+  `scripts/unknown_census.py` computed `unknown without diagnostic` as
+  `unknown - (E2001 + E2002 + E2003)`, which left `member` and `call` out of
+  the subtraction while `compiler/tir/lower.orb:152` and `:190` emit E2004 and
+  E2005 on the branch that makes each one `unknown`. Counting all five codes,
+  the 2026-11-01 run over 207 files and 87,591 instructions reports 25,489
+  unknown and 0 with no diagnostic: 12,670 + 1,196 + 46 + 4,821 + 6,756. The
+  census script did not change what the compiler does, so the compiler never
+  had a silent class; the gate's `silent_per_mille` moved from 136 to 0 and
+  `docs/KNOWN_LIMITATIONS.md` now names what the number guards.
+
 - **Latency percentiles keep their meaning above 100 ms.** The histogram was
   1000 buckets of 100 µs and one overflow slot, so a 300 ms p99 and a 40 s p99
   answered the same value -- and that value was the single longest request, which
