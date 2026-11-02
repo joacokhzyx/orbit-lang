@@ -762,6 +762,31 @@ def live_main(args):
             print(f"Failed: the gate server on port {args.port} never became "
                   f"ready.", file=sys.stderr)
             return 1
+        # One port, one server, on both platforms. The emitted listener used to
+        # set SO_REUSEPORT on Linux, so this second bind succeeded and the
+        # kernel distributed connections between the two binaries -- a port
+        # mistake served traffic instead of failing. Windows has always refused
+        # it with SO_EXCLUSIVEADDRUSE. Checked while the first server is live,
+        # because no-where-else is where it matters.
+        clash_log = work / "gate_clash.log"
+        clash_alive = False
+        with open(clash_log, "w", encoding="utf-8", errors="replace") as clash:
+            try:
+                clash_rc = subprocess.run([str(srv), str(args.port)],
+                                         cwd=str(ROOT), stdout=clash,
+                                         stderr=subprocess.STDOUT,
+                                         timeout=30).returncode
+            except subprocess.TimeoutExpired:
+                # subprocess.run() killed it: it was still serving, which is
+                # the defect this check exists to keep out.
+                clash_rc, clash_alive = -1, True
+        clash_text = clash_log.read_text(encoding="utf-8", errors="replace")
+        if clash_alive or clash_rc == 0 or "is not available" not in clash_text:
+            print(f"Failed: a second server on the occupied port {args.port} "
+                  f"did not refuse it (exit {clash_rc}, still-serving "
+                  f"{clash_alive}). Output: {clash_text[:300]!r}",
+                  file=sys.stderr)
+            return 1
         gate_rc = routelimit_main(["--port", str(args.port),
                                    "--burst-path", args.burst_path])
         if gate_rc != 0:

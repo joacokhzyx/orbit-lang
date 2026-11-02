@@ -706,7 +706,6 @@ fn serverMainText(hasDb: bool, hasAuth: bool, modelDDL: string, hasKynxLimits: b
     out = out + "    int flags = fcntl(server_sock, F_GETFL, 0);\n"
     out = out + "    fcntl(server_sock, F_SETFL, flags | O_NONBLOCK);\n"
     out = out + "#endif\n"
-    out = out + "    orbit_enable_reuseport(server_sock);\n"
     out = out + "\n"
     out = out + "    struct sockaddr_in server_addr;\n"
     out = out + "    server_addr.sin_family = AF_INET;\n"
