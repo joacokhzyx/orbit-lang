@@ -122,6 +122,21 @@ Commands and gates:
 
 Runtime:
 
+- **A second server on an occupied port fails on Linux too.** The emitted
+  listener called `orbit_enable_reuseport()`, which set `SO_REUSEPORT` on Linux
+  only, so a second process bound the port and the kernel distributed
+  connections between the two. Windows already refused it with
+  `SO_EXCLUSIVEADDRUSE`. Nothing needed the sharing: cluster nodes take their
+  own port (`--port-base`), and `orbit dev` waits for the child to die before it
+  respawns. The call and the helper are gone, `SO_REUSEADDR` stays for the
+  TIME_WAIT case, and `scripts/kynx_gate.py live` now starts a second server
+  against the occupied port while the first is listening and fails unless it
+  refuses. Measured before on WSL Ubuntu: the second process printed its own
+  banner and was still serving (exit 124). Measured after: exit 1 with
+  `Port 47812 is not available. Another program may be using it.` and one
+  listener. Against the pre-fix emitter the new check reports `did not refuse
+  it (exit -1, still-serving True)` and the gate exits 1.
+
 - **Migrations roll back.** A `migrations down "<SQL>"` line undoes the
   forward migration at the same position. `ORBIT_MIGRATE_DOWN=<version>` at
   startup rolls back every applied version above it, newest first, removes

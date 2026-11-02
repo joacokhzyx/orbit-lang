@@ -353,15 +353,36 @@ answer -- one that failed before the listener opened, or one built before this
 channel existed. There the stop is still a kill, and it is the honest outcome:
 nothing waits on the name.
 
-## Two servers, one port: Windows refuses it, Linux shares it
+## Two servers, one port: both platforms refuse it
 
-On Windows the listener is created with `SO_EXCLUSIVEADDRUSE`, so a second
-process on the same port prints `Port N is not available. Another program may
-be using it.` and exits 1. On Linux the listener sets `SO_REUSEPORT`, so a
-second process binds and the kernel distributes connections between the two.
-That is what lets a restart overlap the old process; it also means a port
-mistake there splits traffic instead of failing. `ss -lntp` (or `netstat -ano`
-on Windows) names the process holding the port.
+The listener is exclusive on both platforms. Windows sets
+`SO_EXCLUSIVEADDRUSE`; Linux sets `SO_REUSEADDR` and nothing more. A second
+process on an occupied port prints `Port N is not available. Another program
+may be using it.` and exits 1, on either host.
+
+Until 2026-11-01 the emitted listener also called `orbit_enable_reuseport()`, a
+helper in `runtime/socket_compat.h` that set `SO_REUSEPORT` on Linux only. A
+second Linux server bound the port anyway and the kernel distributed
+connections between the two processes. A port mistake served traffic instead of
+failing.
+
+Nothing needed that sharing. `orbit cluster up` gives every node its own port
+(`--port-base P`, ports `P..P+N-1`, `compiler/host/cluster.orb:438`), and
+`orbit dev` stops the child and waits up to 3 s for it to die before respawning
+(`compiler/host/start.orb:481-485`), so the port is free before the new bind
+runs. `SO_REUSEADDR` still covers what a restart actually meets: the previous
+process's TIME_WAIT sockets.
+
+Measured on WSL Ubuntu before the change: with the first server listening, the
+second printed its own banner and was still serving when `timeout 4` killed it
+(exit 124). Measured after, with a fixed point built from the new canonical:
+exit 1, the two-line port message, and one listener
+(`ss -lntp | grep -c 47812` prints `1`). The live gate pins it on both hosts
+now: `scripts/kynx_gate.py live` starts a second server against the occupied
+port while the first is listening, and fails unless that second process refuses
+with the port message.
+
+`ss -lntp` (or `netstat -ano` on Windows) names the process holding the port.
 
 ## A generic model monomorphises; the type argument is inferred, never written
 
