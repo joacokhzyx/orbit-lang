@@ -22,12 +22,16 @@ failure mode worth reading about.
 
 `orbit doctor compiler` commits more than 2.9 GB of arena, so a host whose
 default ceiling is lower aborts. The default is three quarters of physical
-memory (`runtime/arena.c:52-58`), and a 3.9 GB WSL instance aborts with `arena
-ceiling reached allocating 65536 bytes; 3070574592 of 3070620672 bytes
-committed, the limit is 2928 MB from ORBIT_ARENA_MAX_MB`. On this Windows host
-the same scan finishes in 7.0 s and reports 140 findings in 28 files (0 errors,
-140 warnings), and `ORBIT_ARENA_MAX_MB=20000` leaves that number unchanged. A 16 GB CI runner's
-default ceiling covers both scans.
+memory (`runtime/arena.c:52-58`).
+
+Both hosts were re-measured on 2026-11-02 with the fixed-point compiler
+`2d61febad7ca13e1`. On Windows `orbit doctor compiler` finishes in 7.7 s and
+reports 141 findings in 28 files (0 errors, 141 warnings), and
+`ORBIT_ARENA_MAX_MB=20000` leaves that count unchanged. On the 3904 MB WSL
+instance the same command aborts with exit 134 and `arena ceiling reached
+allocating 65536 bytes; 3070599168 of 3070620672 bytes committed, the limit is
+2928 MB from ORBIT_ARENA_MAX_MB`. A 16 GB CI runner's default ceiling covers
+both scans.
 
 The scan typechecks every file and releases nothing, and the release cannot be
 written in this language: the arena is not a value an Orbit program names. The
@@ -35,9 +39,19 @@ emitter resolves it as the caller's arena or the process global
 (`compiler/emit/c_backend.orb:1292`), and the only `orbit_arena_create` calls in
 any `.orb` file sit inside the C text the emitter prints. So the change that
 removes the requirement is a scoped arena the source can select -- a runtime and
-emitter capability, not a doctor loop that frees. `scripts/doctor_gate.py` therefore scans the directories that must be clean, and its `compiler` scope now runs on a 4 GB host: when one process cannot hold the directory, the gate retries it one subdirectory at a time. Measured on the 3.9 GB WSL host at the 2928 MB default -- the whole-directory scan aborted at 3 070 586 880 bytes committed, the retry covered `compiler` in 7 subdirectories, and the gate reports 3 directories clean. What still needs the raised ceiling is a single `orbit doctor compiler` run, which is
-one process by definition. The gate sequence as a whole is green on that 3.9 GB host
-without `ORBIT_ARENA_MAX_MB` set -- `all 26 gate(s) passed`, where it was 27 of 29
+emitter capability, not a doctor loop that frees.
+
+`scripts/doctor_gate.py` scans the directories that must be clean, and its
+`compiler` scope runs on a 4 GB host. When one process cannot hold a directory,
+the gate retries it one subdirectory at a time. The abort and the retry are two
+measurements: the whole-directory scan aborted again today at 3 070 599 168
+bytes committed, while the 7-subdirectory retry and its three clean directories
+came from a direct `doctor_gate.py` run this session did not repeat.
+
+What still needs the raised ceiling is a single `orbit doctor compiler` run,
+which is one process by definition. The gate sequence as a whole is green on that 3.9 GB host
+without `ORBIT_ARENA_MAX_MB` set -- `all 26 gate(s) passed in 337s`, run again
+on 2026-11-02 on that host, where the sequence was 27 of 29
 before the retry existed, the two failures being this scan and the aliveness row that
 follows from it.
 
@@ -53,11 +67,10 @@ rules that name a path below the directory (`scripts/dist/`) are left to git:
 from a scan, and a scan that hides source is worse than one that reports it
 twice.
 
-With both rules, `orbit doctor .` over this repository scans 482 files and
-reports 446 findings (140 errors, 306 warnings) in 9.8 s on Windows, measured on
-2026-11-02. The 4 GB
-Linux run still reaches the arena ceiling on the same scan; that is the section
-above, not the walk.
+With both rules, `orbit doctor .` over this repository scans 488 files and
+reports 447 findings (140 errors, 307 warnings) in 10.2 s on Windows, measured
+on 2026-11-02 with the same compiler. The 3904 MB Linux run still reaches the
+arena ceiling; that is the section above, not the walk.
 
 ## The silent group is empty
 
