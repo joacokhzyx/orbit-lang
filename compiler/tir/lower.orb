@@ -13,8 +13,13 @@ fn tirValue(valueId: int) -> string {
     return "v" + tirIntText(valueId)
 }
 
+// The type a literal carries. A chunk of an interpolated string is text with
+// its backslash escapes still in it, and the value it builds is a string, so
+// the reader of types and the lowerer answer `string` for it rather than the
+// parser's own tag.
 fn tirLiteralType(node: LiteralNode) -> string {
     if node.valType == "identifier" { return "unknown" }
+    if node.valType == "string_chunk" { return "string" }
     return node.valType
 }
 
@@ -85,7 +90,7 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                 if fromDeclaration != "" { return fromDeclaration }
                 return "unknown"
             }
-            return literal.valType
+            return tirLiteralType(literal)
         }
         ASTNode.BinaryOp(binary) => {
             return tirBinaryType(binary.op, typeOfExpression(module, bindings, binary.lhs), typeOfExpression(module, bindings, binary.rhs))
@@ -115,6 +120,12 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         // name. The element kind is not here -- the pass keeps no table for it.
         ASTNode.ListLiteral(listNode) => {
             return "list"
+        }
+        // An interpolated string is one value the source wrote in pieces, and the
+        // piece that is text is always text. The element kind of a list is not
+        // known here; nothing about an interpolation is.
+        ASTNode.Interp(interpNode) => {
+            return "string"
         }
         ASTNode.Call(call) => {
             match call.callee {
@@ -299,6 +310,28 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         // the frontend keeps no element-kind table, and a type it cannot justify
         // is the lie the `unknown` count exists to make visible. An empty list is
         // the same shape with zero elements.
+        ASTNode.Interp(interp) => {
+            // `s"..."` is the parts concatenated, and the parts are either text
+            // the parser cut out of the literal or an expression written in
+            // `${...}`. The flag travels because whether the chunk is taken
+            // verbatim or unescaped is decided at the build, not here: the
+            // frontend records which reading its text carries rather than
+            // copying the unescape rule into this module.
+            var interpOperands = tirIntText(interp.parts.len())
+            if interp.isRaw {
+                interpOperands = interpOperands + " raw"
+            } else {
+                interpOperands = interpOperands + " unescaped"
+            }
+            var pi = 0
+            while pi < interp.parts.len() {
+                val part: ASTNode = interp.parts.get(pi)
+                val partValue = lowerExpression(module, function, blockId, bindings, part)
+                interpOperands = interpOperands + " " + tirValue(partValue)
+                pi = pi + 1
+            }
+            return tirEmit(function, blockId, "interp", "string", interpOperands)
+        }
         ASTNode.ListLiteral(listNode) => {
             var elements = ""
             var li = 0

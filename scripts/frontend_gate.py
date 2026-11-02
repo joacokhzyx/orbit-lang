@@ -82,6 +82,14 @@ EMPTY_EXPECTATIONS = {
 }
 
 
+# `$` followed by `{` is interpolated by whichever lexer reads the text, so a
+# fixture cannot embed a source containing an interpolation hole: the fixture's
+# own literal would swallow it. The four characters backslash-x-2-4 are decoded
+# here, in the test plumbing and not as a language escape, so the pair reaches
+# the embedded source.
+DOLLAR_ESCAPE = chr(92) + "x24"
+
+
 def unescape(literal):
     """Decode an Orbit string literal body, without the surrounding quotes."""
     out_chars = []
@@ -96,7 +104,7 @@ def unescape(literal):
             continue
         out_chars.append(c)
         i += 1
-    return "".join(out_chars)
+    return "".join(out_chars).replace(DOLLAR_ESCAPE, "$")
 
 
 def read(path):

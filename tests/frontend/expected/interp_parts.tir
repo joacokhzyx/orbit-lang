@@ -1,0 +1,11 @@
+orbit-tir 1
+module fixture
+function 0 line string
+param 0 0 n int
+block 0 0
+instr 0 0 0 const string count=
+instr 0 0 1 load int n
+instr 0 0 2 const string !
+instr 0 0 3 interp string 3 unescaped v0 v1 v2
+instr 0 0 4 return unit v3
+end-function 0
