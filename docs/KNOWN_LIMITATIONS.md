@@ -72,10 +72,10 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 111/111 pass (0 known defects still accepted)
+Finished negative: 112/112 pass (0 known defects still accepted)
 ```
 
-One hundred and eleven programs: every one must be rejected and is. The last one
+One hundred and twelve programs: every one must be rejected and is. The last one
 to be fixed was F-0025, the assignment target: a `val` store, a type mismatch
 and an undeclared name now produce E1009. Before it,
 [a `list` parameter with no element type](#a-list-carries-an-element-type-now-and-the-checker-enforces-it)
@@ -498,10 +498,7 @@ which names both owners, and `tests/negative/n121` pins the text. There is no
 expected type to infer an owner from -- `checkNode` takes none -- and the guess
 was the half of the old defect that said nothing.
 
-Still open here: a `match` binding's payload type stays `unknown` in the checker
-(`compiler/front/sema.orb:3133`). The registry knows the owner now; the checker
-does not hand the payload type to the binding. That is the same expected-type
-channel the generic union is waiting on.
+A `match` binding carries its payload type. `checkPatternBindings` declares each name with the payload the resolved owner declares, so `tests/suite/match_binding_payload_type.orb` reads an int, a string and a model through the three payloads of one union, and `tests/negative/n122` pins the refusal when an arm body uses the binding as another type: `Parameter 1 of shout is declared string but the argument is int`. The construction is what still has nothing to read: `val p = Body(3)` with two owners is refused with `E1011`, because `checkNode` takes no expected type -- the channel the generic union waits on.
 
 ## `std/` is 20 modules; the six deleted ones are not coming back
 

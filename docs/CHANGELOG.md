@@ -13,6 +13,8 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **A `match` binding keeps its payload type.** Every arm binding was declared `unknown`, because the checker read the payload from a registry keyed on the variant name alone and had no owner to ask. The arm now declares each name with the payload its resolved owner declares, so `shout(n)` with `n` an int is `E1005` and `n.name` says `int` has no member `name`. `tests/suite/match_binding_payload_type.orb` reads an int, a string and a model through one union; `tests/negative/n122` pins the refusal. The compiler's own 241 match arms still typecheck: the fixed point converges.
+
 - **Two unions may declare the same variant name.** `Signal.Body("s")` was
   refused with `E1005` while `Body(3)` with both unions in scope was accepted:
   the registry is keyed on the variant's own name, so the first row answered the
