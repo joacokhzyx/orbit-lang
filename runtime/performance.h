@@ -173,10 +173,13 @@ ORBIT_INLINE void orbit_perf_start_request(void) {
 
 #ifdef ORBIT_PERF_IMPL
 uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_SLOTS];
+uint64_t orbit_perf_lat_sum_us[ORBIT_PERF_LAT_SLOTS];
 #elif defined(ORBIT_SEPARATE_COMPILATION) || defined(ORBIT_RUNTIME_MODULE)
 extern uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_SLOTS];
+extern uint64_t orbit_perf_lat_sum_us[ORBIT_PERF_LAT_SLOTS];
 #else
 static uint64_t orbit_perf_lat_hist[ORBIT_PERF_LAT_SLOTS];
+static uint64_t orbit_perf_lat_sum_us[ORBIT_PERF_LAT_SLOTS];
 #endif
 
 ORBIT_INLINE void orbit_perf_record_latency(uint64_t duration_cycles) {
@@ -200,28 +203,64 @@ ORBIT_INLINE void orbit_perf_record_latency(uint64_t duration_cycles) {
         idx = (uint64_t)(ORBIT_PERF_LAT_BUCKETS + li);
     }
     orbit_perf_atomic_add64(&orbit_perf_lat_hist[idx], 1);
+    /* The bucket's own sum, so a percentile inside it can be anchored on what
+     * was measured rather than on where the bucket ends. */
+    orbit_perf_atomic_add64(&orbit_perf_lat_sum_us[idx], us);
 }
 
-/* Percentile as the upper boundary of the bucket holding it, in
- * microseconds. per_mille is 500 for p50, 950 for p95, 990 for p99. */
+/* The edges of the bucket holding the percentile: a linear bucket is 100 us
+ * wide, a log bucket starts at 100 ms doubled as many times as its index past
+ * the linear half and is as wide as it is tall. */
+ORBIT_INLINE void orbit_perf_bucket_edges(int i, uint64_t *lo_out, uint64_t *hi_out) {
+    if (i < ORBIT_PERF_LAT_BUCKETS) {
+        *lo_out = (uint64_t)i * ORBIT_PERF_LAT_BUCKET_US;
+        *hi_out = *lo_out + ORBIT_PERF_LAT_BUCKET_US;
+        return;
+    }
+    uint64_t lo = ORBIT_PERF_LAT_LOG_BASE_US << (i - ORBIT_PERF_LAT_BUCKETS);
+    *lo_out = lo;
+    *hi_out = lo * 2;
+}
+
+/* Percentile in microseconds, estimated inside its bucket. per_mille is 500 for
+ * p50, 950 for p95, 990 for p99.
+ *
+ * The bucket alone says only that the value lies between two edges, and the edge
+ * was the answer before: a p99 of 300 ms reported 400 ms, the top of the bucket
+ * that holds it. The bucket's recorded mean is a measurement of the samples
+ * inside it, so the estimate is anchored there and spread by rank -- `mean +
+ * width * (rank - half) / count`, clamped to the bucket. A bucket holding one
+ * sample answers that sample. A bucket holding a uniform spread answers within
+ * a rank step of the true value. Only the last bucket, which has no upper edge
+ * of its own, is still answered from the longest request. */
 ORBIT_INLINE uint64_t orbit_perf_percentile_us(uint64_t request_count, uint64_t per_mille) {
     if (request_count == 0) return 0;
     if (per_mille > 1000) per_mille = 1000;
     uint64_t target = (request_count * per_mille + 999) / 1000;
     uint64_t seen = 0;
     for (int i = 0; i < ORBIT_PERF_LAT_SLOTS; i++) {
-        seen += orbit_perf_lat_hist[i];
+        uint64_t in_bucket = orbit_perf_lat_hist[i];
+        seen += in_bucket;
         if (seen >= target) {
-            if (i < ORBIT_PERF_LAT_BUCKETS) {
-                return (uint64_t)(i + 1) * ORBIT_PERF_LAT_BUCKET_US;
-            }
-            /* The last log bucket is the clamp: it has no upper edge of its
-             * own, so it is answered from the longest request, as the single
-             * overflow bucket used to be for everything past 100 ms. */
+            uint64_t lo = 0, hi = 0;
+            orbit_perf_bucket_edges(i, &lo, &hi);
             if (i == ORBIT_PERF_LAT_SLOTS - 1) {
                 return orbit_perf_stats.max_cycles / ORBIT_PERF_CYCLES_PER_US;
             }
-            return ORBIT_PERF_LAT_LOG_BASE_US << (i - ORBIT_PERF_LAT_BUCKETS + 1);
+            if (in_bucket == 0) return hi;
+            uint64_t rank = target - (seen - in_bucket);
+            uint64_t mean = orbit_perf_lat_sum_us[i] / in_bucket;
+            /* |num| <= in_bucket, so dividing the width by the count first keeps
+             * the product under the width itself: no overflow at any request
+             * count, at the cost of under one microsecond per rank step. */
+            int64_t num = (int64_t)(2 * rank - 1) - (int64_t)in_bucket;
+            uint64_t step = (hi - lo) / in_bucket;
+            int64_t est = (int64_t)mean;
+            if (num >= 0) est += (int64_t)(step * (uint64_t)num);
+            else est -= (int64_t)(step * (uint64_t)(-num));
+            if (est < (int64_t)lo) return lo;
+            if ((uint64_t)est > hi) return hi;
+            return (uint64_t)est;
         }
     }
     return orbit_perf_stats.max_cycles / ORBIT_PERF_CYCLES_PER_US;
