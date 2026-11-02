@@ -676,13 +676,13 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 1,175 times on this corpus, down from 9,233. It is not in the
+<node>" fired 896 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Four of the sixteen classes turned out not to be capability gaps
+node class"). Five of the sixteen classes turned out not to be capability gaps
 at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -704,8 +704,12 @@ identifier reports, and the canonical text suppressed in every file that used
 one. It emits `list` now and both readers answer `list`; the element kind is not
 claimed, because the pass keeps no table for it.
 
-What is left of the class list is `Match` 287, `Empty` in a genuine expression
-position 279 and the chained `MemberAccess` 216. Lowering more of a program moves
+The fifth was `fn shout() { return }`: a bare `return` has no value to lower, so
+it reached the expression reader and reported `Empty` -- 279 times -- and the
+error suppressed the file's canonical text. It emits `return unit void`, with
+`void` written rather than left empty so every `instr` line keeps its fields.
+What is left of the class list is `Match` 287, the chained `MemberAccess` 216,
+`Try` 92 and `Break` 91. Lowering more of a program moves
 the absolute count both ways, so the rate is what to read: 19,977 unknown over
 102,732 instructions, against 25,489 over 86,942 at the start of the day. The
 ratchet reads the rate. Worst file by share of unknown instructions:
@@ -736,9 +740,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 11/11
+## The frontend gate is 12/12
 
-`scripts/frontend_gate.py` runs eleven fixtures and all eleven pass (two of
+`scripts/frontend_gate.py` runs twelve fixtures and all twelve pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`

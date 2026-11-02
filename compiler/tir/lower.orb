@@ -373,6 +373,16 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             return blockId
         }
         ASTNode.Return(ret) => {
+            // A bare `return` in a function that answers nothing has no value to
+            // lower. It reached the expression reader and came back as
+            // "expression cannot be lowered to TIR: Empty" -- 279 over the
+            // corpus, and the error suppressed the file's canonical text. The
+            // operand is written `void` rather than left empty, so every
+            // `instr` line keeps the same number of fields.
+            if astNodeKind(ret.expr) == "Empty" {
+                tirEmit(function, blockId, "return", "unit", "void")
+                return -1
+            }
             val value = lowerExpression(module, function, blockId, bindings, ret.expr)
             tirEmit(function, blockId, "return", "unit", tirValue(value))
             return -1

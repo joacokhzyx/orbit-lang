@@ -291,10 +291,10 @@ class: `expression cannot be lowered to TIR: ListLiteral`. Before the class
 was named, the census could report how many times the front end gave up and
 not on what. `scripts/unknown_census.py` prints the tally by class. Frontend
 lowering only. Fix hint: same as E3000 — a coverage gap, file it with the
-class. 1,175 hits on the 2026-11-02 corpus, from 9,233 before the classes were named and read. An `Empty` statement no
+class. 896 hits on the 2026-11-02 corpus, from 9,233 before the classes were named and read. An `Empty` statement no
 longer fires here, because a statement with no instruction to emit lowers to
 nothing; `x = 5` lowers to the `bind` a `val` uses; and `d.x = 2` lowers to
-`store_field` when the place's own value is typed. What still fires is a write
+`store_field` when the place's own value is typed, and a bare `return` emits `return unit void`. What still fires is a write
 whose place this pass cannot read -- `cannot lower this assignment to TIR:
 MemberAccess`, 216 cases -- plus `ListLiteral`, `Match` and `Empty` in
 expression position.
