@@ -317,10 +317,14 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
     }
 }
 
+// `breakTarget` and `continueTarget` are the blocks the enclosing loop jumps to,
+// or -1 outside a loop. A `break` used to fall to the expression reader and come
+// back as "expression cannot be lowered to TIR: Break" -- 91 over the corpus, 26
+// more for `continue` -- and the error suppressed the file's canonical TIR.
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
 // orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
-fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
+fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode, breakTarget: int, continueTarget: int) -> int {
     if blockId < 0 { return blockId }
     match node {
         ASTNode.VarDecl(declaration) => {
@@ -392,7 +396,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             var currentBlock = blockId
             while i < block.statements.len() {
                 val statement: ASTNode = block.statements.get(i)
-                currentBlock = lowerStatement(module, function, currentBlock, bindings, statement)
+                currentBlock = lowerStatement(module, function, currentBlock, bindings, statement, breakTarget, continueTarget)
                 i = i + 1
             }
             return currentBlock
@@ -408,13 +412,13 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             tirEmit(function, blockId, "branch", "unit", tirValue(condition) + " b" + tirIntText(thenBlock) + " b" + tirIntText(elseBlock))
 
             val thenBindings = copyBindings(bindings)
-            val thenEnd = lowerStatement(module, function, thenBlock, thenBindings, branch.thenBody)
+            val thenEnd = lowerStatement(module, function, thenBlock, thenBindings, branch.thenBody, breakTarget, continueTarget)
             if thenEnd >= 0 {
                 tirEmit(function, thenEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
             }
 
             val elseBindings = copyBindings(bindings)
-            val elseEnd = lowerStatement(module, function, elseBlock, elseBindings, branch.elseBody)
+            val elseEnd = lowerStatement(module, function, elseBlock, elseBindings, branch.elseBody, breakTarget, continueTarget)
             if elseEnd >= 0 {
                 tirEmit(function, elseEnd, "jump", "unit", "b" + tirIntText(mergeBlock))
             }
@@ -433,7 +437,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             tirEmit(function, conditionBlock, "branch", "unit", tirValue(condition) + " b" + tirIntText(bodyBlock) + " b" + tirIntText(exitBlock))
 
             val bodyBindings = copyBindings(bindings)
-            val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body)
+            val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body, exitBlock, conditionBlock)
             if bodyEnd >= 0 {
                 tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(conditionBlock))
             }
@@ -445,6 +449,24 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         // corpus, the largest class the census reported. The class naming is what
         // showed it: a statement with no instruction to emit is not an expression
         // the front end cannot type.
+        // Out of a loop the construct is not a control transfer the pass can
+        // name: it jumps to nothing. It stays a give-up, with the reason.
+        ASTNode.Break(loopBreak) => {
+            if breakTarget >= 0 {
+                tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(breakTarget))
+                return -1
+            }
+            tirError(module, "E3001", "break with no enclosing loop to leave", 0, 0)
+            return blockId
+        }
+        ASTNode.Continue(loopContinue) => {
+            if continueTarget >= 0 {
+                tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(continueTarget))
+                return -1
+            }
+            tirError(module, "E3001", "continue with no enclosing loop to iterate", 0, 0)
+            return blockId
+        }
         ASTNode.Empty => { return blockId }
         _ => {
             lowerExpression(module, function, blockId, bindings, node)
@@ -474,7 +496,7 @@ fn lowerFunction(module: TirModule, declaration: FunctionDeclNode) {
         bindings.push(TirBinding(name, typeName))
         paramIndex = paramIndex + 1
     }
-    lowerStatement(module, function, entry, bindings, declaration.body)
+    lowerStatement(module, function, entry, bindings, declaration.body, -1, -1)
 }
 
 fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {

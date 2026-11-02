@@ -627,7 +627,7 @@ that would remove the requirement.
 
 ## 19.5% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 102,732
+`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 102,736
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
@@ -676,13 +676,13 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 896 times on this corpus, down from 9,233. It is not in the
+<node>" fired 779 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Five of the sixteen classes turned out not to be capability gaps
+node class"). Seven of the sixteen classes turned out not to be capability gaps
 at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -708,10 +708,16 @@ The fifth was `fn shout() { return }`: a bare `return` has no value to lower, so
 it reached the expression reader and reported `Empty` -- 279 times -- and the
 error suppressed the file's canonical text. It emits `return unit void`, with
 `void` written rather than left empty so every `instr` line keeps its fields.
+`break` and `continue` were the sixth and seventh: jumps to the enclosing
+loop's exit and condition blocks, which nothing had been threaded to tell them,
+so they reached the expression reader as `Break` (91) and `Continue` (26) and
+suppressed the file's text. The two targets ride on the statement lowering now.
+A `break` outside a loop has no block to name and stays a give-up that says so.
+
 What is left of the class list is `Match` 287, the chained `MemberAccess` 216,
-`Try` 92 and `Break` 91. Lowering more of a program moves
+`Try` 92, `TypedLiteral` 49 and `For` 46. Lowering more of a program moves
 the absolute count both ways, so the rate is what to read: 19,977 unknown over
-102,732 instructions, against 25,489 over 86,942 at the start of the day. The
+102,736 instructions, against 25,489 over 86,942 at the start of the day. The
 ratchet reads the rate. Worst file by share of unknown instructions:
 `compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
 
@@ -740,9 +746,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 12/12
+## The frontend gate is 13/13
 
-`scripts/frontend_gate.py` runs twelve fixtures and all twelve pass (two of
+`scripts/frontend_gate.py` runs thirteen fixtures and all thirteen pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
