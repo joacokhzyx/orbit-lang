@@ -25,8 +25,8 @@ default ceiling is lower aborts. The default is three quarters of physical
 memory (`runtime/arena.c:52-58`), and a 3.9 GB WSL instance aborts with `arena
 ceiling reached allocating 65536 bytes; 3070574592 of 3070620672 bytes
 committed, the limit is 2928 MB from ORBIT_ARENA_MAX_MB`. On this Windows host
-the same scan finishes in 6.6 s and reports 139 findings in 28 files, and
-`ORBIT_ARENA_MAX_MB=20000` leaves that number unchanged. A 16 GB CI runner's
+the same scan finishes in 7.0 s and reports 140 findings in 28 files (0 errors,
+140 warnings), and `ORBIT_ARENA_MAX_MB=20000` leaves that number unchanged. A 16 GB CI runner's
 default ceiling covers both scans.
 
 The scan typechecks every file and releases nothing, and the release cannot be
@@ -53,8 +53,9 @@ rules that name a path below the directory (`scripts/dist/`) are left to git:
 from a scan, and a scan that hides source is worse than one that reports it
 twice.
 
-With both rules, `orbit doctor .` over this repository scans 476 files and
-reports 442 findings (138 errors, 304 warnings) in 7.8 s on Windows. The 4 GB
+With both rules, `orbit doctor .` over this repository scans 482 files and
+reports 446 findings (140 errors, 306 warnings) in 9.8 s on Windows, measured on
+2026-11-02. The 4 GB
 Linux run still reaches the arena ceiling on the same scan; that is the section
 above, not the walk.
 
