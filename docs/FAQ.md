@@ -17,8 +17,9 @@ No. It's 0.1.0 pre-release research. Reads, writes, bearer auth,
 path parameters and forward migrations all work. What isn't there
 is multi-host clustering, `down` migrations and a language server.
 Uploads save files, but a binary payload doesn't round-trip as a
-string, and the latency percentiles are bucket edges with no
-success/error split. Good for learning and experimenting. Don't bet
+string. Latency percentiles are estimated inside their histogram bucket, and
+requests split by class (`system.http_requests_ok()` and
+`http_requests_error()`). Good for learning and experimenting. Don't bet
 a business on it.
 
 **3. What do I need to build it?**

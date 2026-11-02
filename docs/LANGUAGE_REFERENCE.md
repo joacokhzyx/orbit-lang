@@ -928,8 +928,10 @@ feature that would let it land.
 | `system.latency_p95_us()` | `int` 95th percentile latency, microseconds (`0` before the first request) |
 | `system.latency_p99_us()` | `int` 99th percentile latency, microseconds (`0` before the first request) |
 
-Latencies are approximate: a percentile is a histogram bucket boundary, not a
-measurement of one request.
+Latencies are approximate: a percentile is estimated inside the histogram
+bucket that holds it, anchored on the mean of the requests in that bucket, so a
+bucket holding one request answers that request and a wider bucket answers to
+within one rank step.
 
 ## Cost ledger
 

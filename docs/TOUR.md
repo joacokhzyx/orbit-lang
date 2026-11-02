@@ -225,10 +225,11 @@ Real run after three requests:
 {"metrics":{"http_requests_total":3,"latency_avg_us":358,"active_workers":8}}
 ```
 
-Every value is measured. Percentiles are bucket edges, not single-request
-measurements: `system.latency_p50_us()`, `latency_p95_us()` and
-`latency_p99_us()` read a 100 µs-resolution histogram, so a reported p99 is
-the boundary of the bucket holding 99% of requests. `/_ledger` and
+Every value is measured. A percentile is estimated inside the histogram bucket
+that holds it: `system.latency_p50_us()`, `latency_p95_us()` and
+`latency_p99_us()` read a 100 µs-resolution histogram that also sums each
+bucket's microseconds, so the answer sits where the rank falls between the
+bucket's edges rather than at its top. `/_ledger` and
 `/_ledger/data` add a per-route table (requests, mean ms, DB share) with
 no code.
 

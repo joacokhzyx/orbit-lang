@@ -269,20 +269,34 @@ RAPL). On Windows the proxy is CPU time plus memory -
 never converted to joules with a universal factor. The measurement
 record in [Resource and Energy Measurement](ENERGY.md) enforces this.
 
-## Latency percentiles are bucket edges
+## A latency percentile is estimated inside its bucket (fixed)
 
 `system.latency_p50_us()`, `latency_p95_us()`, and `latency_p99_us()`
 exist alongside uptime, pid, worker count, total requests, and mean
 latency. They read a histogram of 1000 buckets of 100 µs up to 100 ms, then
 20 buckets of doubling width -- 100-200 ms, 200-400 ms, and so on, with the
-last one starting near 14.6 h (`runtime/performance.h:151-225`). So a reported
-p99 is the boundary of the bucket holding 99% of requests, not a measurement
-of one request: a 300 ms p99 reports 400 ms, a 160 s one reports 204.8 s. Only
-the final bucket has no upper edge of its own, and it is answered from the
+last one starting near 14.6 h (`runtime/performance.h:164-267`).
+
+The bucket alone says only that the value lies between two edges, and the edge
+was the answer: a 300 ms p99 reported 400 ms, the top of the bucket holding it.
+Each bucket now also sums the microseconds it received
+(`orbit_perf_lat_sum_us`), and the estimate is anchored on that mean and spread
+by rank -- `mean + width * (rank - half) / count`, clamped to the bucket. A
+bucket holding one request answers that request, so the 300 ms p99 reports
+300 ms; a bucket holding a uniform spread answers within one rank step of the
+value at that rank. `runtime/test_latency_percentiles.c` pins the one-sample
+case, the 100-sample spread, both clamps and the fallback.
+
+Only the final bucket has no upper edge of its own, and it is answered from the
 recorded maximum. Before the doubling, every request slower than 100 ms shared
 one bucket and the percentile *was* that maximum -- a different quantity from a
 percentile, presented as one.
-`runtime/test_latency_percentiles.c` pins both edges and the fallback.
+
+The per-route percentiles `/_ledger` serves are still bucket edges.
+`orbit_ledger_percentile_us` in `runtime/ledger.c:105` keeps its own histogram
+of one bucket per power of two of handler cycles, and it sums no width inside
+the bucket, so a route's p99 remains the boundary above the value. That is the
+same estimator change applied to a second table.
 Requests are split by
 class at the send path: `system.http_requests_ok()` counts responses below
 400 and `system.http_requests_error()` counts 400 and above.

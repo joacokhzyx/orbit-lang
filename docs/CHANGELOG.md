@@ -164,6 +164,8 @@ Commands and gates:
 
 Runtime:
 
+- **A latency percentile is estimated inside its bucket.** The histogram answered the upper edge of the bucket holding the rank, so a 300 ms p99 reported 400 ms -- the top of a 200-400 ms bucket, not the request. Each bucket now sums the microseconds it received, and the estimate anchors on that mean and spreads by rank, clamped to the bucket: one request in a bucket answers that request, a spread answers within one rank step. `runtime/test_latency_percentiles.c` pins the one-sample case, a 100-sample spread across the 200-400 ms bucket and both clamps. The per-route `/_ledger` percentiles still answer edges -- a second table, the same estimator still to apply. `docs/KNOWN_LIMITATIONS.md`, `docs/LANGUAGE_REFERENCE.md`, `docs/TOUR.md` and `docs/FAQ.md` followed.
+
 - **A second server on an occupied port fails on Linux too.** The emitted
   listener called `orbit_enable_reuseport()`, which set `SO_REUSEPORT` on Linux
   only, so a second process bound the port and the kernel distributed
