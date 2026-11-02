@@ -109,6 +109,13 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
             if member.field == "len" || member.field == "length" { return "int" }
             return "unknown"
         }
+        // The type a list literal carries. `lowerExpression` emits the same
+        // answer, and the two must agree: a binding seeded with a type the
+        // reader does not know is an `unknown` load at every later use of the
+        // name. The element kind is not here -- the pass keeps no table for it.
+        ASTNode.ListLiteral(listNode) => {
+            return "list"
+        }
         ASTNode.Call(call) => {
             match call.callee {
                 ASTNode.Literal(l) => {
@@ -285,6 +292,23 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 tirError(module, "E2005", "cannot type the result of this call", 0, 0)
             }
             return tirEmit(function, blockId, "call", returnType, operands)
+        }
+        // `[1, 2]` is a value, and the pass had no rule for it: the elements
+        // were never lowered and the whole expression was a give-up, 412 of them
+        // over the corpus. The container is typed `list` and not `list<int>`:
+        // the frontend keeps no element-kind table, and a type it cannot justify
+        // is the lie the `unknown` count exists to make visible. An empty list is
+        // the same shape with zero elements.
+        ASTNode.ListLiteral(listNode) => {
+            var elements = ""
+            var li = 0
+            while li < listNode.elements.len() {
+                val item = lowerExpression(module, function, blockId, bindings, listNode.elements.get(li))
+                if item < 0 { return -1 }
+                elements = elements + " " + tirValue(item)
+                li = li + 1
+            }
+            return tirEmit(function, blockId, "list", "list", tirIntText(li) + elements)
         }
         _ => {
             tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)

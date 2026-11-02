@@ -1,0 +1,13 @@
+orbit-tir 1
+module fixture
+function 0 main int
+block 0 0
+instr 0 0 0 const int 1
+instr 0 0 1 const int 2
+instr 0 0 2 list list 2 v0 v1
+instr 0 0 3 bind unit xs v2
+instr 0 0 4 load list xs
+instr 0 0 5 bind unit n v4
+instr 0 0 6 const int 0
+instr 0 0 7 return unit v6
+end-function 0
