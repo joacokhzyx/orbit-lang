@@ -624,6 +624,16 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
                     ASTNode.ImportStmt(imp) => {}
                     ASTNode.UseStmt(useStmt) => {}
                     ASTNode.RouteDecl(rt) => {}
+                    // A directive that declares data, not code, has no
+                    // instruction to emit -- the reason a file-scope `const` or
+                    // `var` already lowers to nothing. `config` carries a literal
+                    // value and `migrations` a SQL string; the builder and the
+                    // runtime read both, and neither is a function body. A
+                    // `schedule` is not on this list: its handler is code, and
+                    // skipping it would hide a body from the pass that claims to
+                    // describe the file.
+                    ASTNode.ConfigDecl(configDecl) => {}
+                    ASTNode.MigrationDecl(migrationDecl) => {}
                     ASTNode.TraitDecl(traitDecl) => {}
                     ASTNode.ImplDecl(implDecl) => {}
                     ASTNode.Empty => {}
