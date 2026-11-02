@@ -72,12 +72,36 @@
 // shadow of a working builtin and was deleted; this one is the only
 // trace of a feature that does not exist yet.
 //
-// LIFT THE QUARANTINE WHEN: the parser accepts a type parameter list
-// on `union` AND each use substitutes the argument (`Option<int>`
-// yielding distinct C for `Option<string>`) AND variant lookup resolves
-// through the instance rather than the bare name. Then rename this back
-// to std/core/option.orb, give it a test under tests/std/, and write
-// the LANGUAGE_REFERENCE entry.
+// LIFT THE QUARANTINE WHEN: two conditions remain.
+//
+//   1. Each use substitutes the argument, so `Option<int>` and `Option<string>`
+//      become distinct instances and the variant lookup resolves through the
+//      instance rather than the bare name. `sema.variantRegistry` is still keyed
+//      by the variant's own name, and the builder's `variantTagOwner` /
+//      `variantPayloadType` family answers a bare name by first match, so two
+//      instances cannot both be registered today.
+//   2. A payload-less variant names the instance it belongs to. The design is
+//      decided and is the one the language can hold: the argument comes from a
+//      position where a type is WRITTEN -- a binding's annotation, a `return` in
+//      a `-> Option<int>` function, a call argument against its parameter -- and
+//      a `None` with no such position is refused, never guessed. No grammar is
+//      added at an expression site: `Option<int>` there lexes as a comparison,
+//      and this repository already refused that trade once for generic models.
+//      The consequence to respect: the checker has no expected-type channel
+//      today -- `checkNode` takes no expected type -- so this rides a
+//      set-and-restore field like `currentReturnType` already does, and
+//      `match` patterns over an instance must resolve through the scrutinee's
+//      type, not the flat scan. The instance name itself must be minted in one
+//      place: `instanceNameOf`-style, beside `mangleTypeArg` in literal.orb,
+//      which is the leaf both sides import and the reason four silent wrong
+//      answers in docs/KNOWN_LIMITATIONS.md are recorded as one class.
+//
+// Then rename this back to std/core/option.orb, give it a test under
+// tests/std/, and write the LANGUAGE_REFERENCE entry. Lifting also moves the
+// counted claims the gates read: std 20 to 21 modules, quarantined 1 to 0,
+// tests/std 23 to 24, fmt 207 to 208 -- see scripts/doc_counts.py.
+//
+// Condition zero is done (2026-11-01): the parser accepts the parameter list.
 union Option<T> {
     Some(T),
     None
