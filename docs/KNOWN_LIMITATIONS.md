@@ -35,9 +35,7 @@ emitter resolves it as the caller's arena or the process global
 (`compiler/emit/c_backend.orb:1292`), and the only `orbit_arena_create` calls in
 any `.orb` file sit inside the C text the emitter prints. So the change that
 removes the requirement is a scoped arena the source can select -- a runtime and
-emitter capability, not a doctor loop that frees. `scripts/doctor_gate.py`
-therefore scans the directories that must be clean, and the `compiler` scope of
-that gate is the one that needs the raised ceiling on a small host.
+emitter capability, not a doctor loop that frees. `scripts/doctor_gate.py` therefore scans the directories that must be clean, and its `compiler` scope now runs on a 4 GB host: when one process cannot hold the directory, the gate retries it one subdirectory at a time. Measured on the 3.9 GB WSL host at the 2928 MB default -- the whole-directory scan aborted at 3 070 586 880 bytes committed, the retry covered `compiler` in 7 subdirectories, and the gate reports 3 directories clean. What still needs the raised ceiling is a single `orbit doctor compiler` run, which is one process by definition.
 
 ## Doctor skips tool state: dot-directories and what .gitignore names
 

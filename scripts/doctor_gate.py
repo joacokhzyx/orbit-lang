@@ -306,6 +306,66 @@ def scope_advisory_codes_for(rel_path: str) -> set:
     return out
 
 
+def scope_subdirs(rel: str) -> list:
+    """The immediate subdirectories of `rel` that hold .orb source, name-ordered.
+
+    This is the retry shape for a scan one process cannot finish: the default
+    arena ceiling is three quarters of physical memory, so a 4 GB host aborts on
+    `compiler` where a 16 GB one does not. What does not fit is the directory,
+    not any one file in it, and `compiler/` keeps no .orb at its own top, so its
+    children cover everything the parent scan would have read.
+    """
+    out = []
+    base = REPO / rel
+    for child in sorted(base.iterdir()):
+        if child.is_dir() and any(child.rglob("*.orb")):
+            out.append(f"{rel}/{child.name}")
+    return out
+
+
+def scope_scan(compiler: str, env: dict, target: str):
+    """Doctor over one target, returning (usable, findings, advisory, why).
+
+    `usable` is False when the process died instead of reporting. A doctor that
+    was OOM-killed prints nothing, and reading that as clean is the worst
+    failure this gate can have; doctor exits 1 when it merely has findings, so
+    only a code outside {0, 1} means the run cannot be trusted.
+    """
+    proc = subprocess.run(
+        [compiler, "doctor", target, "--color", "never"],
+        capture_output=True, text=True, cwd=REPO, env=env,
+    )
+    if proc.returncode not in (0, 1):
+        how = "was killed by a signal" if proc.returncode < 0 else "exited"
+        tail = proc.stderr.strip().splitlines()
+        return False, [], 0, how + f" ({proc.returncode})" + (
+            ": " + tail[-1] if tail else "")
+
+    # A finding line reads "<file>:<line> <severity> [Dnnn] ...", with the path
+    # RELATIVE TO THE SCANNED TARGET. Filtering findings on the directory prefix
+    # instead matches nothing at all, which is how this gate could have passed
+    # forever while checking nothing; the reliable signal is the shape: a colon,
+    # digits, then a severity word.
+    findings = []
+    advisory = 0
+    for line in proc.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        loc, severity = parts[0], parts[1]
+        if severity not in ("error", "warning"):
+            continue
+        _, _, lineno = loc.rpartition(":")
+        if not (lineno.isdigit() and "[D" in parts[2]):
+            continue
+        code = parts[2].split("[", 1)[1].split("]", 1)[0]
+        if code in scope_advisory_codes_for(f"{target}/{loc.split(':', 1)[0]}"):
+            advisory += 1
+            continue
+        findings.append(line)
+    return True, findings, advisory, ""
+
+
 def run_scope(compiler: str) -> int:
     """Doctor over the clean dirs; fail on any non-advisory finding."""
     env, _scratch = scratch_env()
@@ -316,52 +376,33 @@ def run_scope(compiler: str) -> int:
         if not target.is_dir():
             print(f"doctor_gate --scope-only: {d} does not exist; the list is stale")
             return 1
-        proc = subprocess.run(
-            [compiler, "doctor", d, "--color", "never"],
-            capture_output=True, text=True, cwd=REPO, env=env,
-        )
-        # A doctor that was OOM-killed, or died on a signal, produces no
-        # findings. Treating that as "clean" is the worst failure this gate can
-        # have: it is green because it checked nothing. `doctor compiler` needs
-        # ~1.4 GB on c_backend.orb alone, so on a loaded machine the process
-        # really does get SIGTERMed, and it has already happened here.
-        # doctor exits 1 when it has findings, which is the normal case here,
-        # so only a code outside {0, 1} means the run is untrustworthy: a
-        # negative code is a signal (OOM-killed or crashed), which is what turns
-        # an empty report into a green gate.
-        if proc.returncode not in (0, 1):
-            how = "was killed by a signal" if proc.returncode < 0 else "exited"
-            print(f"FAIL {d}: doctor {how} ({proc.returncode}), so its output "
-                  f"cannot be read as 'clean'")
-            if proc.stderr.strip():
-                print("  stderr: " + proc.stderr.strip().splitlines()[-1])
-            failures.append(d)
-            continue
-
-        # A finding line reads "<file>:<line> <severity> [Dnnn] ...". Doctor
-        # prints paths RELATIVE TO THE SCANNED DIRECTORY, so a finding in
-        # examples/ starts with "sqlite_notes.orb", not "examples/sqlite_notes.
-        # orb" -- filtering on the directory prefix matches nothing at all, which
-        # is how this gate would have passed forever while checking nothing. The
-        # reliable signal is the shape: a colon, digits, then a severity word.
-        findings = []
-        advisory = 0
-        for line in proc.stdout.splitlines():
-            parts = line.split(None, 2)
-            if len(parts) < 3:
+        usable, findings, advisory, why = scope_scan(compiler, env, d)
+        if not usable:
+            # The scan did not finish, so ask for less at a time instead of
+            # asking the machine for more memory: one process per subdirectory
+            # keeps the peak under a default ceiling on a small host.
+            units = scope_subdirs(d)
+            if not units:
+                print(f"FAIL {d}: doctor {why}, and there is no subdirectory "
+                      f"to retry, so its output cannot be read as 'clean'")
+                failures.append(d)
                 continue
-            loc, severity = parts[0], parts[1]
-            if severity not in ("error", "warning"):
+            print(f"note: {d}: doctor {why}; retrying as "
+                  f"{len(units)} subdirectories")
+            findings, advisory = [], 0
+            broken = None
+            for unit in units:
+                u_ok, u_f, u_a, u_why = scope_scan(compiler, env, unit)
+                if not u_ok:
+                    broken = unit
+                    print(f"FAIL {d}: {unit} doctor {u_why}, so its output "
+                          f"cannot be read as 'clean'")
+                    break
+                findings.extend(u_f)
+                advisory += u_a
+            if broken is not None:
+                failures.append(d)
                 continue
-            _, _, lineno = loc.rpartition(":")
-            if not (lineno.isdigit() and "[D" in parts[2]):
-                continue
-            code = parts[2].split("[", 1)[1].split("]", 1)[0]
-            exempt = scope_advisory_codes_for(f"{d}/{loc.split(':', 1)[0]}")
-            if code in exempt:
-                advisory += 1
-                continue
-            findings.append(line)
         if advisory:
             print(f"note: {d}: {advisory} advisory finding(s) not counted")
 
