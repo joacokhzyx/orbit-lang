@@ -198,6 +198,18 @@ model Sema {
     // The symbol table carries no extern flag, so the name is recorded here
     // where the declaration is in hand.
     externFnNames: list < string >
+    // A `union Option[T]` declaration records its variants here with the
+    // parameter still written in the payload. The instance -- `Option_int` --
+    // is what enters `variantRegistry`, and it is minted where an argument is
+    // written (`Option<int>` in a signature or an annotation) or handed to a
+    // payload (`Option.Some(21)`), never guessed.
+    unionTemplateVariants: list < VariantInfo >
+    // The union instance the position being checked expects, when one expects a
+    // type: a `val`'s annotation, a `return`, a call argument against its
+    // parameter. A payload-less variant names no argument, so this is the only
+    // place it can learn which instance it belongs to. Set and restored around
+    // the check of the value, the way `currentReturnType` already rides.
+    expectedUnionName: string
     // `orbit build --runtime-module`: `export fn` and the rt_* builtins are
     // admitted, and `main` is not. Set by the pipeline after initSema.
     runtimeModule: bool
@@ -206,7 +218,7 @@ model Sema {
 fn initSema() -> Sema {
     val initialScopes = []
     initialScopes.push(Scope([], -1))
-    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [], [], [], [], false)
+    return Sema(initialScopes, 0, [], [], [], "", "", [], [], [], [], [], [], [], [], [], [], [], 0, 0, [], [], [], [], [], [], [], [], [], "", false)
 }
 
 // The model a bound variable was built from, or "" when it was not built
@@ -405,7 +417,7 @@ fn genericParamText(params: list < ASTNode >) -> string {
     return out
 }
 
-fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode >, payloads: list < string >, params: list < ASTNode >, line: int, col: int) {
+fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode >, payloads: list < string >, params: list < ASTNode >) {
     var i = 0
     while i < sema.typeRegistry.len() {
         val t: TypeInfo = sema.typeRegistry.get(i)
@@ -431,7 +443,38 @@ fn registerType(sema: Sema, name: string, kind: string, variants: list < ASTNode
     // is int` -- which asserts that `T` is a type someone declared. A follow-on
     // about a name that is not declared says something true instead.
     if kind == "union" && params.len() > 0 {
-        reportErrorAt(sema, "E1006", "Declare one union per payload type -- `union OptionInt { Some(int) None }` -- until the checker fixes a union's argument at each construction.", line, col, "'" + name + "[" + genericParamText(params) + "]' is a union with a type parameter, and a generic union has no one type: nothing substitutes '" + genericParamText(params) + "' at a construction, so its payload type would reach the C backend as the parameter's own name.")
+        // The declaration is a template: its name joins the generic table the
+        // written arguments are read from, and its payload text keeps the
+        // parameter until an instance is minted. Nothing here substitutes -- that
+        // is `ensureUnionInstance` -- and no variant of a template enters
+        // `variantRegistry`, because a payload declared `T` is not a type yet.
+        var gp = 0
+        var paramsJoined = ""
+        while gp < params.len() {
+            if gp > 0 { paramsJoined = paramsJoined + ", " }
+            match params.get(gp) {
+                ASTNode.GenericParam(gparam) => { paramsJoined = paramsJoined + gparam.name }
+                _ => {}
+            }
+            gp = gp + 1
+        }
+        sema.modelGenericOwner.push(name)
+        sema.modelGenericParams.push(paramsJoined)
+        sema.typeRegistry.push(TypeInfo(name, "generic_union", variants))
+        var tv = 0
+        while tv < variants.len() {
+            var rawPayload = ""
+            if tv < payloads.len() {
+                val ptext: string = payloads.get(tv)
+                rawPayload = ptext
+            }
+            match variants.get(tv) {
+                ASTNode.Literal(vl) => { sema.unionTemplateVariants.push(VariantInfo(vl.text, name, rawPayload)) }
+                _ => {}
+            }
+            tv = tv + 1
+        }
+        declareSymbol(sema, name, name, false, false)
         return
     }
     sema.typeRegistry.push(TypeInfo(name, kind, variants))
@@ -474,6 +517,189 @@ fn variantOwnersOf(sema: Sema, variantName: string) -> list < string > {
         i = i + 1
     }
     return found
+}
+
+// The instance a written type names, declaring it the first time it is met.
+// "" answers for anything that is not a generic union application, so the
+// caller keeps its own path: a model's `Box<int>` and a bare `Option` are not
+// this function's question.
+fn resolveWrittenUnionInstance(sema: Sema, declared: string) -> string {
+    val args = genericArgsOf(sema, declared)
+    if args.len() == 0 { return "" }
+    val lt = orbit_string_indexOf(declared, "<")
+    if lt <= 0 { return "" }
+    val base = orbit_string_slice(declared, 0, lt)
+    if isGenericUnionTemplate(sema, base) == false { return "" }
+    var undetermined = false
+    var i = 0
+    while i < args.len() {
+        val one: string = args.get(i)
+        if one == "" || one == "unknown" { undetermined = true }
+        i = i + 1
+    }
+    if undetermined { return "" }
+    return ensureUnionInstance(sema, base, args)
+}
+
+// Whether `expected` is the instance of `base` a written type named. The
+// instance is spelled `base_arg`, so the prefix is the question and the
+// registry has the answer: a name no row carries is not an instance of
+// anything, and a guessed one would emit a tag set nobody declared.
+fn isInstanceOfUnion(sema: Sema, expected: string, base: string) -> bool {
+    if expected == "" { return false }
+    val prefix = base + "_"
+    if orbit_string_len(expected) <= orbit_string_len(prefix) { return false }
+    if expected.slice(0, orbit_string_len(prefix)) != prefix { return false }
+    val idx = findType(sema, expected)
+    if idx < 0 { return false }
+    val row: TypeInfo = sema.typeRegistry.get(idx)
+    return row.kind == "union"
+}
+
+// Whether the name is a generic union's template rather than an instance.
+fn isGenericUnionTemplate(sema: Sema, name: string) -> bool {
+    val idx = findType(sema, name)
+    if idx < 0 { return false }
+    val t: TypeInfo = sema.typeRegistry.get(idx)
+    return t.kind == "generic_union"
+}
+
+// The instance a list of arguments names. The spelling is the model's, built
+// from `mangleTypeArg`, because the checker and the builder have to agree on
+// it: a symbol typed `Option_int` beside a literal built as anything else
+// passes `orbit check` and then reads the wrong member.
+fn unionInstanceName(base: string, args: list < string >) -> string {
+    var out = base
+    var i = 0
+    while i < args.len() {
+        out = out + "_" + mangleTypeArg(args.get(i))
+        i = i + 1
+    }
+    return out
+}
+
+// Declare one instantiation: the registry rows with the parameter replaced by
+// the argument, and the variants a `match` has to be exhaustive over. Two
+// positions naming the same instance declare it once.
+fn ensureUnionInstance(sema: Sema, base: string, args: list < string >) -> string {
+    val instance = unionInstanceName(base, args)
+    var k = 0
+    while k < sema.typeRegistry.len() {
+        val known: TypeInfo = sema.typeRegistry.get(k)
+        if known.name == instance { return instance }
+        k = k + 1
+    }
+    val templateIdx = findType(sema, base)
+    if templateIdx < 0 { return "" }
+    val template: TypeInfo = sema.typeRegistry.get(templateIdx)
+    val params = modelGenericParamsOf(sema, base)
+    val bindings = []
+    var b = 0
+    while b < params.len() {
+        var arg = "unknown"
+        if b < args.len() {
+            val given: string = args.get(b)
+            if given != "" { arg = given }
+        }
+        bindings.push(params.get(b) + " " + arg)
+        b = b + 1
+    }
+    var i = 0
+    while i < sema.unionTemplateVariants.len() {
+        val row: VariantInfo = sema.unionTemplateVariants.get(i)
+        if row.owner == base {
+            sema.variantRegistry.push(VariantInfo(row.variant, instance, modelSubstitutedType(row.payloads, bindings)))
+        }
+        i = i + 1
+    }
+    sema.typeRegistry.push(TypeInfo(instance, "union", template.variants))
+    declareSymbol(sema, instance, instance, false, false)
+    return instance
+}
+
+// The instance a read names: the type the position expects, or the function's
+// own return type. Nothing here reports -- the caller decides whether a missing
+// answer is a refusal or a value whose construction is still ahead of it.
+fn unionInstanceFromWrittenType(sema: Sema, base: string) -> string {
+    if isInstanceOfUnion(sema, sema.expectedUnionName, base) { return sema.expectedUnionName }
+    if isInstanceOfUnion(sema, sema.currentReturnType, base) { return sema.currentReturnType }
+    return ""
+}
+
+// Whether the template declares this variant with no payload, which is what
+// makes a read the last chance to learn the instance.
+fn unionVariantCarriesNoPayload(sema: Sema, base: string, variantName: string) -> bool {
+    var i = 0
+    while i < sema.unionTemplateVariants.len() {
+        val row: VariantInfo = sema.unionTemplateVariants.get(i)
+        if row.owner == base && row.variant == variantName {
+            return row.payloads == ""
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// The arguments a construction hands over: a payload written as a parameter
+// takes the type of the argument in its position. A payload already written as
+// a concrete type determines nothing, and a variant with no payload carries no
+// argument at all.
+fn unionArgsFromConstruction(sema: Sema, base: string, variantName: string, argTypes: list < string >) -> list < string > {
+    val params = modelGenericParamsOf(sema, base)
+    val args = []
+    var p = 0
+    while p < params.len() {
+        args.push("")
+        p = p + 1
+    }
+    var row = 0
+    while row < sema.unionTemplateVariants.len() {
+        val v: VariantInfo = sema.unionTemplateVariants.get(row)
+        if v.owner == base && v.variant == variantName {
+            val parts = splitBindingRows(v.payloads)
+            var payloadIdx = 0
+            var pi = 0
+            while pi < parts.len() {
+                val one: string = parts.get(pi)
+                var q = 0
+                while q < params.len() {
+                    if one == params.get(q) {
+                        if payloadIdx < argTypes.len() {
+                            val given: string = argTypes.get(payloadIdx)
+                            args.set(q, given)
+                        }
+                    }
+                    q = q + 1
+                }
+                payloadIdx = payloadIdx + 1
+                pi = pi + 1
+            }
+        }
+        row = row + 1
+    }
+    return args
+}
+
+// The instance a construction names, or "" when nothing in the program says
+// which one it is. A payload carries the answer; a variant with no payload is
+// read from the type the position expects, and a position that expects nothing
+// is a refusal rather than a guess.
+fn unionInstanceForConstruction(sema: Sema, base: string, variantName: string, argTypes: list < string >, line: int, col: int) -> string {
+    val args = unionArgsFromConstruction(sema, base, variantName, argTypes)
+    var undetermined = false
+    var i = 0
+    while i < args.len() {
+        if args.get(i) == "" { undetermined = true }
+        i = i + 1
+    }
+    if undetermined == false { return ensureUnionInstance(sema, base, args) }
+    if isInstanceOfUnion(sema, sema.expectedUnionName, base) { return sema.expectedUnionName }
+    // `return Option.None` inside `fn makeSome(n: int) -> Option<int>` has the
+    // type written three lines above it, and the function's own return type is
+    // already resolved to the instance.
+    if isInstanceOfUnion(sema, sema.currentReturnType, base) { return sema.currentReturnType }
+    reportErrorAt(sema, "E1006", "Write the type it belongs to -- `val o: Option<int> = Option.None` -- or hand a payload over.", line, col, "'" + base + "." + variantName + "' carries no payload, so nothing in the construction says which instantiation of '" + base + "' it is and no position writes a type for it either.")
+    return ""
 }
 
 // The owner a bare variant name resolves to, or "" when it resolves to one and
@@ -1528,7 +1754,10 @@ fn checkCallArgTypes(sema: Sema, name: string, args: list < ASTNode >, line: int
     var i = 0
     while i < n {
         val want = params.get(i)
+        val prevWantUnion = sema.expectedUnionName
+        sema.expectedUnionName = want
         val got = checkNode(sema, args.get(i))
+        sema.expectedUnionName = prevWantUnion
         if checkCompatibility(want, got) == false {
             reportErrorAt(sema, "E1005", "Change the argument, or change the parameter's declared type.", line, col, "Parameter " + orbit_int_to_string_selfhost(i + 1) + " of " + name + " is declared " + want + " but the argument is " + got + ".")
         }
@@ -2102,12 +2331,20 @@ fn checkGenericModelTypeName(sema: Sema, declared: string, line: int, col: int) 
     return true
 }
 
+// The types a signature declares, as the checker records them. A generic MODEL
+// answers "unknown", because two instances share one C shape and the parameter
+// is emitted as a bare pointer. A generic UNION instance is not unknown: it is
+// its own tag set, and the name the argument is checked against has to be the
+// name the construction answers.
 fn checkableParamTypes(sema: Sema, declared: list < string >) -> list < string > {
     var out = []
     var i = 0
     while i < declared.len() {
         val t = declared.get(i)
-        if isGenericModelTypeName(sema, t) {
+        val unionInstance = resolveWrittenUnionInstance(sema, t)
+        if unionInstance != "" {
+            out.push(unionInstance)
+        } else if isGenericModelTypeName(sema, t) {
             out.push("unknown")
         } else {
             out.push(t)
@@ -2158,8 +2395,11 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
                 }
                 _ => {}
             }
-            checkAnnotation(sema, v.name, v.typeAnnotation, valueType, v.line, v.col)
-            declareSymbol(sema, v.name, bindingTypeName(v.typeAnnotation, valueType), v.isMutable, false)
+            val annotatedUnion = resolveWrittenUnionInstance(sema, v.typeAnnotation)
+            var declaredBinding = v.typeAnnotation
+            if annotatedUnion != "" { declaredBinding = annotatedUnion }
+            checkAnnotation(sema, v.name, declaredBinding, valueType, v.line, v.col)
+            declareSymbol(sema, v.name, bindingTypeName(declaredBinding, valueType), v.isMutable, false)
             if v.isMutable == false {
                 recordConstBound(sema, v.name, v.value)
             }
@@ -2576,7 +2816,10 @@ fn checkFunctionSignature(sema: Sema, node: ASTNode) {
             if f.isExtern {
                 sema.externFnNames.push(f.name)
             }
-            declareSymbolWithParams(sema, f.name, returnType, false, true, checkableParamTypes(sema, f.paramTypes))
+            var declaredReturn = returnType
+            val returnUnion = resolveWrittenUnionInstance(sema, returnType)
+            if returnUnion != "" { declaredReturn = returnUnion }
+            declareSymbolWithParams(sema, f.name, declaredReturn, false, true, checkableParamTypes(sema, f.paramTypes))
         }
         _ => {}
     }
@@ -2591,7 +2834,14 @@ fn checkFunctionBody(sema: Sema, node: ASTNode) {
             }
             // `-> Box<int>` names the instance, so the return check compares a
             // `Box { v: 1 }` against `Box_int` and not against the model.
-            if genericArgsOf(sema, returnType).len() > 0 { returnType = resolvedGenericTypeName(sema, returnType) }
+            if genericArgsOf(sema, returnType).len() > 0 {
+                val returnUnion = resolveWrittenUnionInstance(sema, returnType)
+                if returnUnion != "" {
+                    returnType = returnUnion
+                } else {
+                    returnType = resolvedGenericTypeName(sema, returnType)
+                }
+            }
             val prevReturn = sema.currentReturnType
             sema.currentReturnType = returnType
             sema.currentFunction = f.name
@@ -2973,7 +3223,12 @@ fn qualifiedVariantName(sema: Sema, matchType: string, owner: ASTNode, field: st
     }
     // A qualifier that names a different declared type is naming a different
     // type's variant, whatever the field is called.
-    if ownerName != "" && findType(sema, ownerName) >= 0 && ownerName != matchType { return "" }
+    if ownerName != "" && findType(sema, ownerName) >= 0 && ownerName != matchType {
+        // The pattern of a `match` over an instance may write the template:
+        // `Pair.Both(n, t)` arms a `Pair_int_string` value, because the written
+        // owner is the declaration the scrutinee's type was instantiated from.
+        if isInstanceOfUnion(sema, matchType, ownerName) == false { return "" }
+    }
     return field
 }
 
@@ -3023,7 +3278,17 @@ fn checkMatchExhaustive(sema: Sema, m: MatchNode, matchType: string) {
         var found = false
         var ck = 0
         while ck < covered.len() {
-            if sameString(covered.get(ck), variant) { found = true }
+            val one: string = covered.get(ck)
+            if sameString(one, variant) { found = true }
+            // An arm written through the template (`Pair.Both`) names the same
+            // variant of the instance the scrutinee carries
+            // (`Pair_int_string.Both`), and both spellings mean the arm is
+            // there. The name after the dot is the variant either way, and each
+            // case's pattern was already checked against this match's type.
+            val dot = orbit_string_indexOf(one, ".")
+            if dot > 0 {
+                if sameString(one.slice(dot + 1, orbit_string_len(one)), variant) { found = true }
+            }
             ck = ck + 1
         }
         if found == false && variant != "" { missing.push(variant) }
@@ -3789,7 +4054,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 val decl = prog.decls.get(i)
                 match decl {
                     ASTNode.ModelDecl(m) => { checkModelDecl(sema, decl) }
-                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants, t.variantPayloads, t.genericParams, t.line, t.col) }
+                    ASTNode.TypeDecl(t) => { registerType(sema, t.name, t.kind, t.variants, t.variantPayloads, t.genericParams) }
                     _ => {}
                 }
                 i = i + 1
@@ -4157,10 +4422,28 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             // print every diagnostic inside an argument twice, which is the same
             // reason checkIf checks each branch exactly once.
             val argTypes: list < string > = []
+            // The parameter's declared type is the written position a
+            // payload-less variant can be read against, and the callee's symbol
+            // carries it before the arguments are walked.
+            var argCalleeName = ""
+            match c.callee {
+                ASTNode.Literal(cl) => {
+                    if cl.valType == "identifier" { argCalleeName = cl.text }
+                }
+                _ => {}
+            }
+            val argSym = resolveFunctionSymbol(sema, argCalleeName)
+            var argParams: list < string > = []
+            if argSym != NULL { argParams = argSym.paramTypes }
+            val prevExpectedUnion = sema.expectedUnionName
             var i = 0
             while i < c.args.len() {
+                var wantUnion = ""
+                if i < argParams.len() { wantUnion = argParams.get(i) }
+                sema.expectedUnionName = wantUnion
                 argTypes.push(checkNode(sema, c.args.get(i)))
                 i = i + 1
+                sema.expectedUnionName = prevExpectedUnion
             }
             if calleeName != "" {
                 checkCallArity(sema, calleeName, c.args.len())
@@ -4270,6 +4553,18 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                     // `ASTNode.MatchCase(x)` and `Shape.Circle(7)`: a variant
                     // reached through its type name is that type's value, the
                     // same way the bare-name form above is.
+                    // `Option.Some(21)` where `Option` is a template: the value
+                    // handed to the payload is the argument, so the instance is
+                    // decided here and the construction is then an ordinary one
+                    // against a declared type.
+                    if isGenericUnionTemplate(sema, objType) {
+                        val inst = unionInstanceForConstruction(sema, objType, member, argTypes, c.line, c.col)
+                        if inst != "" {
+                            checkVariantCall(sema, inst, member, c.args, argTypes, c.line, c.col)
+                            return inst
+                        }
+                        return "unknown"
+                    }
                     if typeHasVariant(sema, objType, member) {
                         checkVariantCall(sema, objType, member, c.args, argTypes, c.line, c.col)
                         return objType
@@ -4366,6 +4661,23 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             // `ASTNode.Empty` used as a value is an ASTNode, and reading it as
             // a field of some model of the same name is not: only a declared
             // variant of the receiver's own type is a union value.
+            // `Option.None` is a union value read without parentheses, so the
+            // construction carries no argument at all: the instance comes from
+            // the type the position writes, and nothing else can say it.
+            if isGenericUnionTemplate(sema, objType) {
+                // A read carries no argument, so the instance is only what a
+                // written type says. `Option.Some` read as the callee of a call
+                // is the common case, and the call itself hands the argument two
+                // lines later -- complaining here would refuse a construction
+                // that is fine. A payload-less variant is the one with no later
+                // argument to wait for, and that is the refusal.
+                val readInstance = unionInstanceFromWrittenType(sema, objType)
+                if readInstance != "" { return readInstance }
+                if unionVariantCarriesNoPayload(sema, objType, member) {
+                    reportErrorAt(sema, "E1006", "Write the type it belongs to -- `val o: Option<int> = Option.None` -- or hand a payload over.", ma.line, ma.col, "'" + objType + "." + member + "' carries no payload, so nothing in this expression says which instantiation of '" + objType + "' it is and no position writes a type for it either.")
+                    return "unknown"
+                }
+            }
             if typeHasVariant(sema, objType, member) { return objType }
             var objName = ""
             match ma.object {
@@ -4451,7 +4763,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
             checkNode(sema, r.hi)
             return "unknown"
         }
-        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants, td.variantPayloads, td.genericParams, td.line, td.col)
+        ASTNode.TypeDecl(td) => { registerType(sema, td.name, td.kind, td.variants, td.variantPayloads, td.genericParams)
             return ""
         }
         ASTNode.RouteDecl(r) => { checkRouteBody(sema, node)
