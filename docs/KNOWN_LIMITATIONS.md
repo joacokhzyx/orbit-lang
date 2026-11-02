@@ -471,6 +471,44 @@ twice walked straight into it. The read is now typed from the model the
 field reference names, which the builder had been writing down and the
 backend had been discarding.
 
+## Two unions cannot declare the same variant name
+
+The variant registry is keyed by the variant's own name, and the constructor
+macro the emitter writes is keyed the same way, so when two unions declare one
+name the first row answers for both.
+
+Measured on 2026-11-01 with the fixed point of `c31b395`:
+
+```orbit
+union Packet { Body(int)  Empty }
+union Signal { Body(string)  Closed }
+fn second() -> Signal { return Signal.Body("s") }
+```
+
+`orbit check` refuses that program -- `error[E1005]: Payload 1 of 'Body' is
+declared int but the value is string`, at the position of `Signal.Body`. The
+construction names its owner and the checker ignores it: `checkVariantCall`
+re-reads the payload through `variantPayloadAt(sema, variantName, idx)`
+(`compiler/front/sema.orb:487`), whose first matching row wins. A legal program
+does not compile.
+
+The other half does not announce itself. With both unions in scope,
+`val p = Body(3)` passes `orbit check` with no errors, because the first row
+says `Packet` and nothing marks that as a guess. And
+`val mvMacro = cUserName(mvName)` (`compiler/emit/c_backend.orb:100`) names the
+constructor macro after the variant alone, so a second `#define Body` replaces
+the first and a construction the checker accepted can carry the other union's
+tag.
+
+Closing it is one change in three places: the checker resolves a payload through
+the owner it was handed, the emitter gives a shared variant name an
+owner-qualified macro, and a bare construction whose name belongs to two unions
+is refused rather than guessed. `unionDataRegisterType` already takes the owner
+and says why -- "so two unions sharing a variant name do not answer for each
+other" (`compiler/ir/builder.orb:2130`). A checker-only fix would have the
+program typecheck and emit the wrong tag, which is the failure listed in
+[Four bugs that typechecked, ran and were wrong](#four-bugs-that-typechecked-ran-and-were-wrong).
+
 ## `std/` is 20 modules; the six deleted ones are not coming back
 
 **20 modules, and all 20 compile into one binary.** Verified:

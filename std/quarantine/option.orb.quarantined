@@ -51,10 +51,15 @@
 //         union B { X(string) }
 //         orbit check -> error[E1005]: Payload 1 of 'X' is declared
 //                        int but the value is string.
-//      findVariantOwner (compiler/front/sema.orb:767) walks
+//      findVariantOwner (compiler/front/sema.orb:781) walks
 //      variantRegistry (compiler/front/sema.orb:103) by the bare name,
 //      so `Some` from `Option<int>` and `Some` from `Option<string>`
-//      would collide the same way.
+//      would collide the same way. This is no longer only a generic-union
+//      problem: two concrete unions sharing a variant name are refused or
+//      mis-bound today, and it is written up as a limitation of its own --
+//      "Two unions cannot declare the same variant name" in
+//      docs/KNOWN_LIMITATIONS.md. Fixing it there is the prerequisite for
+//      this one.
 //
 // So the honest spelling for a payload-carrying union today is a
 // concrete payload type per variant, e.g.
