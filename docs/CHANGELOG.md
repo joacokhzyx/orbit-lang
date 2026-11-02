@@ -13,6 +13,16 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **A declared function's name is not an unknown identifier.** The load of a callee read only the
+local bindings, so `take(x)` raised `E2001 unknown identifier take`, and because `tirCanonical`
+prints nothing while a diagnostic of severity error exists, a file that called its own functions
+printed no canonical TIR at all. The name is now read from the program's declaration. Over the
+corpus: 20,747 unknown instructions against 23,529, the share 20.4% against 23.2%, E2001 from
+12,343 to 9,573, baseline 204. An empty answer is never assigned over `unknown`, so an undeclared
+name still errors: `tests/frontend/undeclared_callee.orb` pins the suppression, and
+`tests/frontend/assign_statement.orb` pins the TIR the callee rule made reachable. The frontend
+gate reads 9/9.
+
 - **`x = 5` is lowered as a statement.** The statement walker handed every node it did not recognise to the expression reader, which has no assignment rule, so an assignment became `E3001: expression cannot be lowered to TIR: Assignment` and nothing else was emitted for its value. It now emits the same `bind` a `val` uses and re-reads the name's type from the binding. 2,723 of the 3,137 assignment give-ups are gone; the 414 left write through a place (`a.b = e`) and say `cannot lower this assignment to TIR: MemberAccess`. Over the corpus the instruction total rose to 101,639 from 88,110 because those values are lowered now, and the unknown rate fell to 23.2% (231 per mille, from 241) -- the ratchet reads the rate, and the baseline moved down with it.
 
 - **The frontend says which expression it gives up on.** `E3001` and `E3000` printed one sentence for every unsupported node, so the census reported 9,233 give-ups with no way to scope them. `astNodeKind` names the node class in the message and `unknown_census.py` tallies by class over the corpus. Naming it found the largest class was not a gap: 5,045 `Empty` hits came from `lowerStatement` handing every statement it did not recognise to the expression reader, and an empty statement has no instruction to emit. It lowers to nothing now, and `E3001` reads 4,468 with `Assignment` (3,137) the real gap left.

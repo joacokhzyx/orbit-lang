@@ -78,7 +78,13 @@ fn declaredReturnType(module: TirModule, name: string) -> string {
 fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(literal) => {
-            if literal.valType == "identifier" { return bindingType(bindings, literal.text) }
+            if literal.valType == "identifier" {
+                val bound = bindingType(bindings, literal.text)
+                if bound != "unknown" { return bound }
+                val fromDeclaration = declaredReturnType(module, literal.text)
+                if fromDeclaration != "" { return fromDeclaration }
+                return "unknown"
+            }
             return literal.valType
         }
         ASTNode.BinaryOp(binary) => {
@@ -190,7 +196,19 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
     match node {
         ASTNode.Literal(literal) => {
             if literal.valType == "identifier" {
-                val typeName = bindingType(bindings, literal.text)
+                var typeName = bindingType(bindings, literal.text)
+                if typeName == "unknown" {
+                    // A name the program declares as a function is known. The
+                    // callee of `take(x)` is a load of `take`, and the load had
+                    // nothing to read, so the pass raised E2001 and
+                    // `tirCanonical` answers nothing at all when a diagnostic of
+                    // severity error exists: a file that called its own
+                    // functions printed no TIR. Only a non-empty answer counts
+                    // -- an undeclared name must keep its E2001, which is what
+                    // tests/frontend/unresolved_type.orb pins.
+                    val fromDeclaration = declaredReturnType(module, literal.text)
+                    if fromDeclaration != "" { typeName = fromDeclaration }
+                }
                 if typeName == "unknown" {
                     tirError(module, "E2001", "unknown identifier " + literal.text, 0, 0)
                 }

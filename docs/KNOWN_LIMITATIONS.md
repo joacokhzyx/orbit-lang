@@ -191,7 +191,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#232-of-instructions-are-unknown-and-every-one-of-them-says-so).
+[below](#204-of-instructions-are-unknown-and-every-one-of-them-says-so).
 
 
 ## Writes work, but duplicates and missing tables fail
@@ -624,7 +624,7 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 23.2% of instructions are `unknown`, and every one of them says so
+## 20.4% of instructions are `unknown`, and every one of them says so
 
 `scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 101,639
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
@@ -632,28 +632,39 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 23,529 | **23.2%** |
+| instructions the front end types `unknown` | 20,747 | **20.4%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 12,343 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 1,286), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 9,573 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 1,285), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 33), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 5,233) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,634). Their sum, 23,529, is the whole unknown count. The five
+(call result, 4,623). Their sum, 20,747, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:136`, `:149`, `:157`, `:170` and `:208`, and
 each sits on the branch that emits the instruction.
 
-The rate fell from 29.1% to 23.2% on 2026-11-02 because the reader stopped
+The rate fell from 29.1% to 20.4% on 2026-11-02 because the reader stopped
 guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:67`) answers a
 call from the function the file itself declares, so the `call` class fell from
 6,756 to 4,259; a `val` bound to such a call carries that type into every later
 load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
 writes as a `bind` instead of giving up on. What the table still cannot answer is a call into another file: the lowering
 sees one module's declarations. `len`, the runtime builtins and a short list of
-names written into this file cover those, and 4,634 calls stay untyped.
+names written into this file cover those, and 4,623 calls stay untyped.
+
+The same table answers the *load* of a callee name, and that one was worth more
+than the type: `tirCanonical` prints nothing when any instruction is `unknown`
+or any diagnostic has severity `error`, so a file whose functions were only
+partly readable printed no canonical TIR at all. `x = take(x + 20)` now reads
+`load int take` and `call int`, and `tests/frontend/assign_statement.orb` pins
+the text. Guard the answer: `declaredReturnType` returns "" for a name the
+program does not declare, and assigning that over `"unknown"` makes E2001 stop
+firing for every undeclared identifier -- the census then read 11.0% and the
+number was false. `tests/frontend/undeclared_callee.orb` keeps that from coming
+back by requiring the suppression to stay.
 
 The second row used to read 11,491 and this heading used to say 45.5% of the
 unknown was silent. `unknown_census.py` computed the number by subtracting
@@ -698,9 +709,9 @@ baseline moved down to the measured numbers:
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
-  unknown_per_mille               231  baseline    231  unchanged
+  unknown_per_mille               204  baseline    204  unchanged
   silent_per_mille                  0  baseline      0  unchanged
-Finished unknown-count: 231 (baseline 231, ratchet holds)
+Finished unknown-count: 204 (baseline 204, ratchet holds)
 ```
 
 What the second number holds now is the one-to-one tie above. An opcode that
@@ -712,9 +723,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 7/7
+## The frontend gate is 9/9
 
-`scripts/frontend_gate.py` runs seven fixtures and all seven pass (two of
+`scripts/frontend_gate.py` runs nine fixtures and all nine pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`

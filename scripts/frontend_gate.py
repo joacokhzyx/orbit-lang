@@ -71,6 +71,10 @@ MODULE_LITERAL = re.compile(r'compileFrontendSource\(\s*"((?:[^"\\]|\\.)*)"\s*,'
 EMPTY_EXPECTATIONS = {
     "syntax_error.orb": "syntax diagnostic suppressed TIR",
     "unresolved_type.orb": "unresolved type suppressed TIR",
+    # A callee the program does not declare stays an unknown identifier. The
+    # reader of types consults the program's own declarations now, and an empty
+    # answer must not overwrite "unknown" -- that silenced E2001 corpus-wide.
+    "undeclared_callee.orb": "undeclared callee suppressed TIR",
 }
 
 
