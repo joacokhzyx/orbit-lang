@@ -13,6 +13,8 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **A write through a field lowers: `d.x = 2` emits `store_field`.** The statement reader had no write rule for a place, so the assignment was a give-up and the diagnostic suppressed the file's canonical TIR. It lowers when the place's own value is typed; a chained place under a receiver this pass cannot type stays a give-up, because emitting it would swap a declared give-up for an `unknown` instruction. `E3001` falls from 1,784 to 1,586 -- 198 simple place writes lower, 216 chained remain -- the instruction total rises to 102,035 and the unknown share falls to 20.3% (baseline 203). `tests/frontend/field_write.orb` pins the text; the frontend gate reads 10/10.
+
 - **A declared function's name is not an unknown identifier.** The load of a callee read only the
 local bindings, so `take(x)` raised `E2001 unknown identifier take`, and because `tirCanonical`
 prints nothing while a diagnostic of severity error exists, a file that called its own functions

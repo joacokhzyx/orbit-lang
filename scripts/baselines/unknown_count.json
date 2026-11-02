@@ -2,11 +2,11 @@
   "schema": 1,
   "note": "Ratchet baseline for the unknown-type count. Every number in totals may only go down. Written by scripts/unknown_ratchet.py --write-baseline. Do not hand-edit a number up; that is what the gate is for.",
   "totals": {
-    "unknown_per_mille": 204,
+    "unknown_per_mille": 203,
     "silent_per_mille": 0
   },
   "files": 209,
-  "instructions": 101639,
+  "instructions": 102035,
   "context": {
     "unknown_instructions": 20747,
     "unknown_without_diagnostic": 0

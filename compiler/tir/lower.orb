@@ -295,7 +295,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     if blockId < 0 { return blockId }
     match node {
@@ -318,6 +318,25 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             match assignment.target {
                 ASTNode.Literal(target) => {
                     if target.valType == "identifier" { storeName = target.text }
+                }
+                ASTNode.MemberAccess(place) => {
+                    // `d.x = 2` writes through a place, and the write answers no
+                    // type. It is lowered when the place's own value is one the
+                    // pass can type -- `d` here, a parameter whose declared type
+                    // the binding carries. A chained place (`tok.line = 5` under a
+                    // receiver it cannot type) stays a give-up, because reading
+                    // the place needs a member instruction the frontend has no
+                    // type for: the frontend keeps no model table, so emitting it
+                    // would add an `unknown` where the give-up adds nothing.
+                    // The check of the value against the field's declaration is
+                    // the checker's job in the build path, not this pass's.
+                    if typeOfExpression(module, bindings, place.object) != "unknown" {
+                        val receiver = lowerExpression(module, function, blockId, bindings, place.object)
+                        if receiver >= 0 {
+                            tirEmit(function, blockId, "store_field", "unit", tirValue(receiver) + " " + place.field + " " + tirValue(value))
+                            return blockId
+                        }
+                    }
                 }
                 _ => {}
             }

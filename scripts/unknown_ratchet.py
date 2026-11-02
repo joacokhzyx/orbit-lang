@@ -7,7 +7,7 @@ unknown field, an unknown argument type and an unknown body all pass, and 46% of
 them produce no diagnostic at all. A count that can only go down turns "do not
 regress this" from a rule people follow into a property the build enforces.
 
-It does not fail because the count is HIGH. 20.4% of inferred types are unknown
+It does not fail because the count is HIGH. 20.3% of inferred types are unknown
 today and a zero-bar gate is a gate everybody disables, so the only thing that
 fails here is a count that went UP relative to a committed baseline.
 

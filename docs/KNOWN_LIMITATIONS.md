@@ -192,7 +192,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#204-of-instructions-are-unknown-and-every-one-of-them-says-so).
+[below](#203-of-instructions-are-unknown-and-every-one-of-them-says-so).
 
 
 ## Writes work, but duplicates and missing tables fail
@@ -625,15 +625,15 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 20.4% of instructions are `unknown`, and every one of them says so
+## 20.3% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 101,639
+`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 102,035
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 20,747 | **20.4%** |
+| instructions the front end types `unknown` | 20,747 | **20.3%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
@@ -647,7 +647,7 @@ the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-fronte
 sites are `compiler/tir/lower.orb:136`, `:149`, `:157`, `:170` and `:208`, and
 each sits on the branch that emits the instruction.
 
-The rate fell from 29.1% to 20.4% on 2026-11-02 because the reader stopped
+The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
 guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:67`) answers a
 call from the function the file itself declares, so the `call` class fell from
 6,756 to 4,259; a `val` bound to such a call carries that type into every later
@@ -676,28 +676,33 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 1,784 times on this corpus, down from 9,233. It is not in the
+<node>" fired 1,586 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:130`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Two of the sixteen classes were not capability gaps at all:
-`Empty` appeared 5,045 times because `lowerStatement` handed every statement it
-did not recognise to the *expression* reader, and an empty statement has no
-instruction to emit. It lowers to nothing now. `x = 5` in statement position was the other
-half of that: it reached the same reader, which has no assignment rule, and came
-back unnamed 3,137 times. The statement lowering writes it as the `bind` a `val`
-always used and re-reads the name's type from the binding, so 2,723 of those are
-lowered and the 414 that remain are writes through a place -- `a.b = e` -- which
-the frontend has no model for and now says so: `cannot lower this assignment to
-TIR: MemberAccess`. What is left of the class list is `MemberAccess` 414,
-`ListLiteral` 412, `Match` 287 and `Empty` in a genuine expression position 279.
+node class"). Three of the sixteen classes turned out not to be capability gaps
+at all, and each was fixed by reading its count.
 
-The absolute count of unknowns rose while the rate fell, because lowering
-assignment values puts instructions where there were none: 101,639 instructions
-against 88,110, and 23,529 unknown against 21,227. The ratchet reads the rate.
-Worst file by share of unknown instructions: `compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
+`Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
+recognise to the *expression* reader, and an empty statement has no instruction
+to emit. It lowers to nothing. `Assignment` in statement position appeared 3,137
+times for the same reason; a rebind is the `bind` a `val` already emitted, so
+`x = take(x + 20)` lowers now. `MemberAccess` appeared 414 times as a write
+through a place, and `d.x = 2` emits `store_field`. That one is conditional: the
+write lowers when the place's own value is typed, because the alternative is to
+emit a member read this pass cannot type -- the frontend keeps no model table --
+which would trade a declared give-up for an `unknown` instruction. A chained
+place (`tok.line = 5` under a receiver it cannot type) stays a give-up, and 216
+of them say so.
+
+What is left is `ListLiteral` 412, `Match` 287, `Empty` in a genuine expression
+position 279 and `MemberAccess` 216. The absolute count of unknowns rose while
+the rate fell, because lowering those statements puts instructions where there
+were none: 102,035 instructions against 88,110, and 20,747 unknown against
+21,227. The ratchet reads the rate. Worst file by share of unknown instructions:
+`compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
 
 Two tools, and the difference matters. `unknown_census.py` is the
 **measurement** and never fails anything. `scripts/unknown_ratchet.py`
@@ -710,9 +715,9 @@ baseline moved down to the measured numbers:
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
-  unknown_per_mille               204  baseline    204  unchanged
+  unknown_per_mille               203  baseline    203  unchanged
   silent_per_mille                  0  baseline      0  unchanged
-Finished unknown-count: 204 (baseline 204, ratchet holds)
+Finished unknown-count: 203 (baseline 203, ratchet holds)
 ```
 
 What the second number holds now is the one-to-one tie above. An opcode that
@@ -724,9 +729,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 9/9
+## The frontend gate is 10/10
 
-`scripts/frontend_gate.py` runs nine fixtures and all nine pass (two of
+`scripts/frontend_gate.py` runs ten fixtures and all ten pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
