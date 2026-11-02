@@ -738,7 +738,7 @@ unknown total because there is no instruction to type.
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Nine of the classes the table first printed turned out not to
+node class"). Eleven of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -790,6 +790,16 @@ text chunks are taken verbatim or unescaped: that reading is decided at the
 build, and copying the unescape rule into this module would be a second answer
 to one question. `tests/frontend/interp_parts.orb` pins the text.
 
+`MigrationDecl` and `ConfigDecl` were the tenth and eleventh. A `migrations`
+line and a file-scope `config` value (`port 8080`) declare data, so there is no
+instruction to emit for them -- the same reason a file-scope `const` lowers to
+nothing. They reached E3000 anyway, and E3000 has severity error, which is what
+suppresses a file's canonical text: a program with a migration printed no TIR
+at all for a declaration that carries no code. `E3000` reads 0 on this corpus
+now; its diagnostics row is gone from the table above. A `schedule` stays
+refused on purpose: its handler is a body, and a pass that skips a declaration
+carrying code has described a file it never read.
+
 What is left of the class list is `Match` 287, the chained `MemberAccess` 216,
 `Try` 93, `TypedLiteral` 50 and `If` 30. Lowering a loop lowers its body too, so
 the absolute count moves both ways and the rate is what to read: 20,005 unknown
@@ -822,9 +832,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 16/16
+## The frontend gate is 17/17
 
-`scripts/frontend_gate.py` runs sixteen fixtures and all sixteen pass (two of
+`scripts/frontend_gate.py` runs seventeen fixtures and all seventeen pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
