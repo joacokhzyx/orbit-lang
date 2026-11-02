@@ -192,7 +192,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#195-of-instructions-are-unknown-and-every-one-of-them-says-so).
+[below](#194-of-instructions-are-unknown-and-every-one-of-them-says-so).
 
 
 ## Writes work, but duplicates and missing tables fail
@@ -299,8 +299,8 @@ handler cycles, and each bucket now also sums the cycles it received
 route slots. `runtime/test_ledger_percentiles.c` pins the one-request case (a
 10 ms outlier answers 10000 us, not the 13421 us edge above it), a 100-request
 spread inside one bucket, and both clamps.
-Requests are split by
-class at the send path: `system.http_requests_ok()` counts responses below
+
+Requests are split by class at the send path: `system.http_requests_ok()` counts responses below
 400 and `system.http_requests_error()` counts 400 and above.
 `/_ledger` adds per-route request counts, mean milliseconds, and DB
 share.
