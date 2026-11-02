@@ -58,18 +58,34 @@ fn copyBindings(bindings: list < TirBinding >) -> list < TirBinding > {
     return copied
 }
 
+// The return type the program declares for this function name, or "" when it
+// declares none. Every answer below used to be a name written into this file:
+// `tirIntText` and `isVisited` and `hasErrors` each needed their own line, and a
+// function the reader did not think of answering stayed `unknown`. The lowering
+// registers each function before it lowers its body, so a call to one already
+// declared is typed from the declaration itself.
+fn declaredReturnType(module: TirModule, name: string) -> string {
+    var i = module.functions.len()
+    while i > 0 {
+        i = i - 1
+        val declared: TirFunction = module.functions.get(i)
+        if declared.name == name { return declared.returnType }
+    }
+    return ""
+}
+
 // orbit-walk: none -- asks what type an expression is
-fn typeOfExpression(bindings: list < TirBinding >, node: ASTNode) -> string {
+fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
         ASTNode.Literal(literal) => {
             if literal.valType == "identifier" { return bindingType(bindings, literal.text) }
             return literal.valType
         }
         ASTNode.BinaryOp(binary) => {
-            return tirBinaryType(binary.op, typeOfExpression(bindings, binary.lhs), typeOfExpression(bindings, binary.rhs))
+            return tirBinaryType(binary.op, typeOfExpression(module, bindings, binary.lhs), typeOfExpression(module, bindings, binary.rhs))
         }
         ASTNode.UnaryOp(unary) => {
-            val operandType = typeOfExpression(bindings, unary.operand)
+            val operandType = typeOfExpression(module, bindings, unary.operand)
             if unary.op == "!" {
                 if operandType == "bool" { return "bool" }
                 return "unknown"
@@ -90,6 +106,8 @@ fn typeOfExpression(bindings: list < TirBinding >, node: ASTNode) -> string {
         ASTNode.Call(call) => {
             match call.callee {
                 ASTNode.Literal(l) => {
+                    val declared = declaredReturnType(module, l.text)
+                    if declared != "" { return declared }
                     if l.text == "len" || l.text == "indexOf" || l.text == "orbit_os_argc_selfhost" || l.text == "orbit_string_char_at_selfhost" { return "int" }
                     if l.text == "orbit_int_to_string_selfhost" || l.text == "orbit_float_to_string_selfhost" || l.text == "orbit_os_argv_selfhost" || l.text == "orbit_os_exec_selfhost" || l.text == "orbit_os_env_selfhost" || l.text == "orbit_file_read_selfhost" || l.text == "slice" || l.text == "at" || l.text == "tirEscape" || l.text == "tirIntText" { return "string" }
                     if l.text == "orbit_file_write_selfhost" || l.text == "hasErrors" || l.text == "tirHasErrors" || l.text == "isVisited" { return "bool" }
@@ -122,8 +140,8 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             return tirEmit(function, blockId, "const", tirLiteralType(literal), literal.text)
         }
         ASTNode.BinaryOp(binary) => {
-            val leftType = typeOfExpression(bindings, binary.lhs)
-            val rightType = typeOfExpression(bindings, binary.rhs)
+            val leftType = typeOfExpression(module, bindings, binary.lhs)
+            val rightType = typeOfExpression(module, bindings, binary.rhs)
             val left = lowerExpression(module, function, blockId, bindings, binary.lhs)
             val right = lowerExpression(module, function, blockId, bindings, binary.rhs)
             val resultType = tirBinaryType(binary.op, leftType, rightType)
@@ -134,7 +152,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         }
         ASTNode.UnaryOp(unary) => {
             val operand = lowerExpression(module, function, blockId, bindings, unary.operand)
-            val resultType = typeOfExpression(bindings, node)
+            val resultType = typeOfExpression(module, bindings, node)
             if resultType == "unknown" {
                 tirError(module, "E2003", "invalid operand for unary " + unary.op, 0, 0)
             }
@@ -142,7 +160,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         }
         ASTNode.MemberAccess(member) => {
             val objVal = lowerExpression(module, function, blockId, bindings, member.object)
-            val resType = typeOfExpression(bindings, node)
+            val resType = typeOfExpression(module, bindings, node)
             // A member read is the second-largest source of `unknown` in the
             // corpus and the largest one that said nothing: the lowering had a
             // diagnostic for a load, a binary op and a unary op, and none for
@@ -181,7 +199,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 operands = operands + " " + tirValue(value)
                 i = i + 1
             }
-            val returnType = typeOfExpression(bindings, node)
+            val returnType = typeOfExpression(module, bindings, node)
             // Same reasoning as E2004, and the larger of the two: a call whose
             // result cannot be typed is a call the front end does not know the
             // signature of, and it used to be indistinguishable from one it did
@@ -207,7 +225,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         ASTNode.VarDecl(declaration) => {
             val value = lowerExpression(module, function, blockId, bindings, declaration.value)
             tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(value))
-            bindings.push(TirBinding(declaration.name, typeOfExpression(bindings, declaration.value)))
+            bindings.push(TirBinding(declaration.name, typeOfExpression(module, bindings, declaration.value)))
             return blockId
         }
         ASTNode.Return(ret) => {
@@ -227,7 +245,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         }
         ASTNode.If(branch) => {
             val condition = lowerExpression(module, function, blockId, bindings, branch.condition)
-            if typeOfExpression(bindings, branch.condition) != "bool" {
+            if typeOfExpression(module, bindings, branch.condition) != "bool" {
                 tirError(module, "E2100", "if condition must have type bool", 0, 0)
             }
             val thenBlock = tirCreateBlock(function)
@@ -255,7 +273,7 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(conditionBlock))
 
             val condition = lowerExpression(module, function, conditionBlock, bindings, loopNode.condition)
-            if typeOfExpression(bindings, loopNode.condition) != "bool" {
+            if typeOfExpression(module, bindings, loopNode.condition) != "bool" {
                 tirError(module, "E2101", "while condition must have type bool", 0, 0)
             }
             tirEmit(function, conditionBlock, "branch", "unit", tirValue(condition) + " b" + tirIntText(bodyBlock) + " b" + tirIntText(exitBlock))

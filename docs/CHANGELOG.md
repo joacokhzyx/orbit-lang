@@ -13,6 +13,8 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **A call's type comes from the program's own declaration.** The frontend reader answered a call only for names written into `compiler/tir/lower.orb` -- `tirIntText`, `isVisited`, `hasErrors` each had their own line -- and every other call came back `unknown`, and so did every `val` bound to one. `declaredReturnType` reads the function the file declares instead: the census over 209 files and 88,108 instructions went from 25,489 `unknown` instructions (29.1%) to 21,227 (24.1%) -- `call` 6,756 to 4,259, `load` 12,670 to 11,284 -- and the ratchet baseline moved down with it. A call into another file is still `unknown`: the lowering sees one module's declarations.
+
 - **A `match` binding keeps its payload type.** Every arm binding was declared `unknown`, because the checker read the payload from a registry keyed on the variant name alone and had no owner to ask. The arm now declares each name with the payload its resolved owner declares, so `shout(n)` with `n` an int is `E1005` and `n.name` says `int` has no member `name`. `tests/suite/match_binding_payload_type.orb` reads an int, a string and a model through one union; `tests/negative/n122` pins the refusal. The compiler's own 241 match arms still typecheck: the fixed point converges.
 
 - **Two unions may declare the same variant name.** `Signal.Body("s")` was
