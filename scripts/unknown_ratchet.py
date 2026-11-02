@@ -18,7 +18,7 @@ Two numbers are ratcheted, both already emitted by scripts/unknown_census.py:
 
 The second is the sharper one: those reach codegen silently, and a silent
 defect is by definition one the compiler accepts. It measures 0 on the whole
-corpus (2026-11-02, 209 files, 19,977 unknown instructions), because each of
+corpus (2026-11-02, 209 files, 20,003 unknown instructions), because each of
 the five opcode classes that can produce an `unknown` carries its own lowering
 diagnostic -- E2001 load, E2002 binary, E2003 unary, E2004 member, E2005 call.
 The residue is therefore a guard, not a to-do: a new opcode that types

@@ -270,11 +270,14 @@ origin as E2004, and the larger of the two (unchecked argument types
 reached codegen through it). Frontend lowering only. Fix hint: call a
 declared function with the declared arity.
 
-## E2100 / E2101 — condition must be `bool` (frontend)
+## E2100 / E2101 / E2102 — condition and bound types (frontend)
 
-Fire in `compiler/tir/lower.orb` for `if` (E2100) and `while` (E2101)
-conditions whose type is not `bool`. Frontend lowering only. Fix hint:
-compare first, branch on the comparison.
+Fire in `compiler/tir/lower.orb` for the `if` (E2100) and `while` (E2101)
+conditions whose type is not `bool`. E2102 is the same rule on a bound:
+`for x in lo..hi` counts an int, so a bound that is not `int` gets one of the
+two messages naming which. The loop binds its item to that counter, so a bound
+this pass cannot type would put an `unknown` item in the file. Frontend lowering
+only. Fix hint: compare first, branch on the comparison; count between two ints.
 
 ## E3000 — top-level declaration cannot be lowered (frontend)
 
@@ -287,17 +290,21 @@ it with the program attached.
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression` fallback, for an
 expression kind with no lowering rule, and the message ends with the node
-class: `expression cannot be lowered to TIR: ListLiteral`. Before the class
+class: `expression cannot be lowered to TIR: Match`. Before the class
 was named, the census could report how many times the front end gave up and
 not on what. `scripts/unknown_census.py` prints the tally by class. Frontend
 lowering only. Fix hint: same as E3000 — a coverage gap, file it with the
-class. 779 hits on the 2026-11-02 corpus, from 9,233 before the classes were named and read. An `Empty` statement no
-longer fires here, because a statement with no instruction to emit lowers to
-nothing; `x = 5` lowers to the `bind` a `val` uses; and `d.x = 2` lowers to
-`store_field` when the place's own value is typed, , a bare `return` emits `return unit void`, and a `break` or `continue` inside a loop emits `jump` to the block the loop made for it. What still fires is a write
-whose place this pass cannot read -- `cannot lower this assignment to TIR:
-MemberAccess`, 216 cases -- plus `ListLiteral`, `Match` and `Empty` in
-expression position.
+class. 762 hits on the 2026-11-02 corpus, from 9,233 before the classes were
+named and read. Seven have since stopped firing: an `Empty` statement, because a
+statement with no instruction to emit lowers to nothing; `x = 5`, which is the
+`bind` a `val` uses; `d.x = 2`, which emits `store_field` when the place's own
+value is typed; a bare `return`, which emits `return unit void`; `break` and
+`continue` inside a loop, which emit `jump` to the block the loop made for them;
+and `for x in 0..n`, which lowers to the `while` shape plus an increment block.
+What still fires is a write whose place this pass cannot read -- `cannot lower
+this assignment to TIR: MemberAccess`, 216 cases -- a `Match` (287), `Try` (93)
+or `TypedLiteral` (50) in expression position, and a `for` over a value whose
+element type the pass does not keep (20) or named by a label (4).
 
 ## E3002 — frontend expected a program root
 
