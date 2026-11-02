@@ -164,6 +164,8 @@ Commands and gates:
 
 Runtime:
 
+- **The per-route ledger percentiles estimate inside their bucket too.** `/_ledger` keeps a second histogram, one bucket per power of two of handler cycles, and it answered the top edge of the bucket holding the rank: a 10 ms outlier reported 13421 us, the boundary above it. Each bucket now sums the cycles it received, and the estimate anchors on that mean and spreads by rank, clamped to the bucket -- the whole-server rule applied to the route table. The static state doubles, from 32 KB to 64 KB across the 64 route slots, and the table's own label now says `log2-bucket estimates`. `runtime/test_ledger_percentiles.c` pins the one-request case, a 100-request spread inside one bucket, both clamps and the JSON keys.
+
 - **A latency percentile is estimated inside its bucket.** The histogram answered the upper edge of the bucket holding the rank, so a 300 ms p99 reported 400 ms -- the top of a 200-400 ms bucket, not the request. Each bucket now sums the microseconds it received, and the estimate anchors on that mean and spreads by rank, clamped to the bucket: one request in a bucket answers that request, a spread answers within one rank step. `runtime/test_latency_percentiles.c` pins the one-sample case, a 100-sample spread across the 200-400 ms bucket and both clamps. The per-route `/_ledger` percentiles still answer edges -- a second table, the same estimator still to apply. `docs/KNOWN_LIMITATIONS.md`, `docs/LANGUAGE_REFERENCE.md`, `docs/TOUR.md` and `docs/FAQ.md` followed.
 
 - **A second server on an occupied port fails on Linux too.** The emitted

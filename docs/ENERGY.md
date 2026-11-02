@@ -104,10 +104,11 @@ columns backed by the sampler in `runtime/energy.c`:
 
 The `p50_us`/`p95_us`/`p99_us` fields are latency, not energy, and are
 metered the same way on every platform. One bucket per power of two of
-handler cycles per route, 32 KB of static state for all 64 route slots. A
-reported percentile is the bucket's upper boundary, which is why the 1 µs
-request and the 4 µs request above it can report the same number. The JSON
-names the basis in `latency_source`.
+handler cycles per route, and each bucket sums the cycles it received: 64 KB of
+static state for all 64 route slots, twice the histogram's own. A reported
+percentile is estimated inside its bucket from that sum, so the 1 µs request and
+the 4 µs request above it answer their own lengths when each is the only sample
+in its bucket. The JSON names the basis in `latency_source`.
 
 The HTML table has Energy and Source columns. Without a sensor the Energy cell
 reads "— (cpu proxy: N cycles/req)" and the in-table note says cycle counters

@@ -938,7 +938,8 @@ within one rank step.
 Every server records per-route handler cost automatically - no annotations.
 `/_ledger` serves a live table (loopback only), `/_ledger/data` the same as
 JSON. Columns: requests, mean ms, p50/p95/p99 µs, DB share, energy, source.
-Percentiles are approximate bucket boundaries. The energy column is estimated
+Percentiles are estimated inside the bucket that holds them, anchored on the
+mean of the requests that bucket received. The energy column is estimated
 (see `docs/ENERGY.md`). Paths starting with `/_` are reserved for
 runtime endpoints. Do not define routes there.
 

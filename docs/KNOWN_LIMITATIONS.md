@@ -292,11 +292,13 @@ recorded maximum. Before the doubling, every request slower than 100 ms shared
 one bucket and the percentile *was* that maximum -- a different quantity from a
 percentile, presented as one.
 
-The per-route percentiles `/_ledger` serves are still bucket edges.
-`orbit_ledger_percentile_us` in `runtime/ledger.c:105` keeps its own histogram
-of one bucket per power of two of handler cycles, and it sums no width inside
-the bucket, so a route's p99 remains the boundary above the value. That is the
-same estimator change applied to a second table.
+The same rule holds for the per-route percentiles `/_ledger` serves. That table
+keeps its own histogram in `runtime/ledger.c`, one bucket per power of two of
+handler cycles, and each bucket now also sums the cycles it received
+(`lat_sum`), which doubles its static state from 32 KB to 64 KB across the 64
+route slots. `runtime/test_ledger_percentiles.c` pins the one-request case (a
+10 ms outlier answers 10000 us, not the 13421 us edge above it), a 100-request
+spread inside one bucket, and both clamps.
 Requests are split by
 class at the send path: `system.http_requests_ok()` counts responses below
 400 and `system.http_requests_error()` counts 400 and above.
