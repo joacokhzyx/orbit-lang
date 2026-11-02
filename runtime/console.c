@@ -133,8 +133,11 @@ static unsigned long orbit_le32(const unsigned char* p) {
     return (unsigned long)p[0] | ((unsigned long)p[1] << 8) | ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
 }
 
-static unsigned long orbit_le64(const unsigned char* p) {
-    return orbit_le32(p) | (orbit_le32(p + 4) << 32);
+/* `unsigned long` is 32 bits on Windows, so a 64-bit field read into it loses
+ * the high word and `<< 32` shifts a 32-bit value, which is undefined. The
+ * width has to be in the return type, not in a cast at the call. */
+static unsigned long long orbit_le64(const unsigned char* p) {
+    return (unsigned long long)orbit_le32(p) | ((unsigned long long)orbit_le32(p + 4) << 32);
 }
 
 /* Section `shstrndx` names the others, and the one called ".text" carries the
@@ -142,22 +145,22 @@ static unsigned long orbit_le64(const unsigned char* p) {
  * same field: the build screen drops it otherwise, and the two hosts then print
  * different footers for the same program. */
 static orbit_int orbit_elf_text_size(FILE* f, const unsigned char* head) {
-    unsigned long shoff = orbit_le64(head + 40);
+    unsigned long long shoff = orbit_le64(head + 40);
     int shentsize = head[58] | (head[59] << 8);
     int shnum = head[60] | (head[61] << 8);
     int shstrndx = head[62] | (head[63] << 8);
     unsigned char sh[64];
     if (shentsize < 64 || shoff == 0 || shstrndx >= shnum) return -1;
-    if (fseek(f, (long)(shoff + (unsigned long)shstrndx * (unsigned long)shentsize), SEEK_SET) != 0) return -1;
+    if (fseek(f, (long)(shoff + (unsigned long long)shstrndx * (unsigned long long)shentsize), SEEK_SET) != 0) return -1;
     if (fread(sh, 1, 64, f) != 64) return -1;
-    unsigned long stroff = orbit_le64(sh + 24);
-    unsigned long strsize = orbit_le64(sh + 32);
+    unsigned long long stroff = orbit_le64(sh + 24);
+    unsigned long long strsize = orbit_le64(sh + 32);
     for (int i = 0; i < shnum; i++) {
         unsigned char sec[64];
         char name[8];
         size_t got;
         unsigned long nameoff;
-        if (fseek(f, (long)(shoff + (unsigned long)i * (unsigned long)shentsize), SEEK_SET) != 0) return -1;
+        if (fseek(f, (long)(shoff + (unsigned long long)i * (unsigned long long)shentsize), SEEK_SET) != 0) return -1;
         if (fread(sec, 1, 64, f) != 64) return -1;
         nameoff = orbit_le32(sec);
         if (nameoff >= strsize) continue;
