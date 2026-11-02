@@ -63,10 +63,12 @@
 
 /* Per-route latency histogram: one bucket per power of two of cycles, so
  * bucket i holds durations in (2^i, 2^(i+1)] and its upper boundary is
- * 2^(i+1) cycles. Log spacing keeps the whole table at 64 routes * 64
- * buckets * 8 B = 32 KB of static state, where 100 us-wide buckets would
- * need 512 KB. The cost is resolution: a reported p99 is a power-of-two
- * boundary, not a measurement. */
+ * 2^(i+1) cycles. Log spacing keeps the table small: 64 routes * 64 buckets
+ * * 8 B for the count and the same again for the bucket's own sum of cycles =
+ * 64 KB of static state, where 100 us-wide buckets would need 512 KB even
+ * before the sums. The sums are what buy the resolution: a percentile is
+ * estimated between the bucket's two power-of-two edges, anchored on the mean
+ * of what that bucket actually received, instead of reported as its top. */
 #define ORBIT_LEDGER_LAT_BUCKETS 64
 
 typedef struct {
@@ -78,6 +80,7 @@ typedef struct {
     uint64_t max_bytes;      /* largest arena footprint seen on this route */
     uint64_t overflow_count; /* requests on this route that chained a segment */
     uint64_t lat[ORBIT_LEDGER_LAT_BUCKETS];
+    uint64_t lat_sum[ORBIT_LEDGER_LAT_BUCKETS]; /* cycles received by that bucket */
     int used;
 } OrbitLedgerEntry;
 extern OrbitLedgerEntry orbit_ledger_table[ORBIT_LEDGER_MAX];
