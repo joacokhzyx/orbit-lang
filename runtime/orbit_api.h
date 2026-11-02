@@ -712,6 +712,7 @@ orbit_string orbit_os_cwd_selfhost(void);
 orbit_string orbit_os_temp_dir_selfhost(void);
 void orbit_os_exit_selfhost(orbit_int code);
 void orbit_os_write_stderr_selfhost(orbit_string content);
+void orbit_sleep_ms_selfhost(orbit_int ms);
 orbit_string orbit_file_read_selfhost(orbit_string path);
 bool orbit_file_write_selfhost(orbit_string path, orbit_string content);
 OrbitList* orbit_file_list_dir_selfhost(orbit_string path);
