@@ -668,8 +668,8 @@ The designated corpus is the language test tree. R6 emits it with
 `orbit-r6/tests/corpus/manifest.json`. Each source below maps to IR through the
 builder whose producers are pinned in §1.1.
 
-- **Suite: 124 runnable files + 1 support file.** `tests/suite/` holds 125
-  `.orb` files: 124 runnable programs plus `imports.support.orb` (imported by
+- **Suite: 125 runnable files + 1 support file.** `tests/suite/` holds 126
+  `.orb` files: 125 runnable programs plus `imports.support.orb` (imported by
   `imports.orb`, never compiled alone). The `.skip` file (`fn_call.orb.skip`)
   is not a corpus member.
 - **Standard library: 23 files.** `tests/std/` holds 23 `.orb` programs
