@@ -663,11 +663,23 @@ same run printed E2004=4,821 and E2005=6,756 in its own diagnostic table.
 The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
-Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR" fired 9,233
-times on this corpus. That is a whole class of expression the front end gives
-up on, and it is not in the unknown total because there is no instruction to
-type. Worst file by share: `compiler/front/parser.orb` at 39.8% (2,132 of
-5,358). Re-run the census rather than trusting these numbers.
+Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
+<node>" fired 4,468 times on this corpus, down from 9,233. It is not in the
+unknown total because there is no instruction to type.
+
+The number fell by itself being named. `astNodeKind`
+(`compiler/tir/lower.orb:130`) puts the node's own class in the message, and the
+census prints the tally (`unknown_census.py`, "What the front end gives up on, by
+node class"). Two of the sixteen classes were not capability gaps at all:
+`Empty` appeared 5,045 times because `lowerStatement` handed every statement it
+did not recognise to the *expression* reader, and an empty statement has no
+instruction to emit. It lowers to nothing now. `Assignment` in expression
+position is a real gap and the largest one left -- 3,137 of the 4,468 -- followed
+by `ListLiteral` 394, `Match` 287 and `Empty` in a genuine expression position
+279.
+
+Worst file by share of unknown instructions: `compiler/front/parser.orb` at 39.8%
+(2,132 of 5,358). Re-run the census rather than trusting these numbers.
 
 Two tools, and the difference matters. `unknown_census.py` is the
 **measurement** and never fails anything. `scripts/unknown_ratchet.py`

@@ -286,10 +286,14 @@ it with the program attached.
 ## E3001 — expression cannot be lowered (frontend)
 
 Fires in `compiler/tir/lower.orb`, `lowerExpression` fallback, for an
-expression kind with no lowering rule. Frontend lowering only. Fix hint:
-same as E3000 — a coverage gap, file it. (The 4,190 hits cited in
-KNOWN_LIMITATIONS were measured on an earlier corpus. Re-run
-`scripts/unknown_census.py` rather than trusting the number.)
+expression kind with no lowering rule, and the message ends with the node
+class: `expression cannot be lowered to TIR: ListLiteral`. Before the class
+was named, the census could report how many times the front end gave up and
+not on what. `scripts/unknown_census.py` prints the tally by class. Frontend
+lowering only. Fix hint: same as E3000 — a coverage gap, file it with the
+class. 4,468 hits on the 2026-11-02 corpus, of which `Assignment` is 3,137;
+an `Empty` statement no longer fires here, because a statement with no
+instruction to emit lowers to nothing.
 
 ## E3002 — frontend expected a program root
 

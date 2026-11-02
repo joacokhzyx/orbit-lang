@@ -127,7 +127,8 @@ def parse(text):
         if not parts:
             continue
         if parts[0] == "FILE":
-            cur = {"path": " ".join(parts[1:]), "op": Counter(), "code": Counter()}
+            cur = {"path": " ".join(parts[1:]), "op": Counter(), "code": Counter(),
+                   "giveup": Counter()}
             rows.append(cur)
         elif parts[0] == "FN" and cur is not None:
             # FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
@@ -142,6 +143,13 @@ def parse(text):
             cur["diag"] = int(fields.get("DIAG", 0))
         elif parts[0] == "OP" and cur is not None:
             cur["op"][parts[1]] += int(parts[2])
+        elif parts[0] == "GIVEUP" and cur is not None:
+            # GIVEUP <count> <message...>: one front-end give-up class and how
+            # many expressions of this file fell into it.
+            try:
+                cur["giveup"][" ".join(parts[2:])] += int(parts[1])
+            except (ValueError, IndexError):
+                pass
         elif parts[0] == "CODE" and cur is not None:
             cur["code"][parts[1]] += int(parts[2])
         elif parts[0] == "UNREADABLE" and cur is not None:
@@ -153,6 +161,7 @@ def aggregate(rows):
     totals = Counter()
     by_op = Counter()
     by_code = Counter()
+    by_giveup = Counter()
     by_dir = defaultdict(Counter)
     for r in rows:
         totals["files"] += 1
@@ -160,12 +169,13 @@ def aggregate(rows):
             totals[k] += r.get(k, 0)
         by_op.update(r["op"])
         by_code.update(r["code"])
+        by_giveup.update(r.get("giveup", Counter()))
         d = group_of(r["path"])
         by_dir[d]["files"] += 1
         by_dir[d]["instr"] += r.get("instr", 0)
         by_dir[d]["instr_unk"] += r.get("instr_unk", 0)
         by_dir[d]["diag"] += r.get("diag", 0)
-    return totals, by_op, by_code, by_dir
+    return totals, by_op, by_code, by_dir, by_giveup
 
 
 def pct(num, den):
@@ -230,7 +240,7 @@ def main():
         print("Census could not run: the probe failed.\n" + err[-2000:])
         return 1 if args.strict else 0
 
-    totals, by_op, by_code, by_dir = aggregate(rows)
+    totals, by_op, by_code, by_dir, by_giveup = aggregate(rows)
     known = totals["instr"] - totals["instr_unk"]
     # Five of the lowering diagnostics fire exactly once per instruction they
     # make `unknown`, each on the line that emits it: E2001 for a load
@@ -270,6 +280,7 @@ def main():
             "unknown_without_diagnostic": silent,
             "by_opcode": dict(by_op),
             "by_diagnostic": dict(by_code),
+            "by_giveup_class": dict(by_giveup),
             "by_directory": {k: dict(v) for k, v in by_dir.items()},
             "files_detail": [
                 {"path": r["path"],
@@ -319,6 +330,17 @@ def main():
     print("  %-34s %9d  %5.1f%% of all unknown"
           % ("unknown with no diagnostic", silent,
              pct(silent, max(totals["instr_unk"], 1))))
+    print("")
+    print("What the front end gives up on, by node class (E3000/E3001):")
+    if not by_giveup:
+        print("  (nothing: every give-up message the probe read is tallied)")
+    give_rows = sorted(by_giveup.items(), key=lambda kv: -kv[1])[:args.top]
+    for message, count in give_rows:
+        kind = message.split(":")[-1].strip()
+        print("  %-22s %9d  %s" % (kind, count, message.split(" to TIR")[0]))
+    if len(by_giveup) > len(give_rows):
+        print("  ... %d more classes (--top raises the cap)"
+              % (len(by_giveup) - len(give_rows)))
     print("")
     print("Front-end diagnostics by code (a file that errors is not a typed file):")
     table(by_code, max(totals["diag"], 1), args.top, "code")

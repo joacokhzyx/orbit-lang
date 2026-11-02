@@ -118,10 +118,24 @@ fn censusOf(path: string) {
     var diagnostics = 0
     var diagCodes = []
     var diagCounts = []
+    // The two give-up codes say WHICH node the front end walked away from, so a
+    // message is one class and the count is the size of that class. Every
+    // distinct message of E3000 or E3001 is therefore a row of the table the
+    // type work needs; no other code is tallied this way.
+    var giveupMessages = []
+    var giveupCounts = []
     var d = 0
     while d < module.diagnostics.len() {
         val diagnostic: TirDiagnostic = module.diagnostics.get(d)
         diagnostics = diagnostics + 1
+        if diagnostic.code == "E3000" || diagnostic.code == "E3001" {
+            val g = findOpcodes(giveupMessages, diagnostic.message)
+            if g < 0 {
+                giveupMessages.push(diagnostic.message)
+                giveupCounts = bump(giveupCounts, g)
+                giveupCounts.push(1)
+            } else { giveupCounts = bump(giveupCounts, g) }
+        }
         val at = findOpcodes(diagCodes, diagnostic.code)
         if at < 0 {
             diagCodes.push(diagnostic.code)
@@ -147,6 +161,11 @@ fn censusOf(path: string) {
     while e < diagCodes.len() {
         print("CODE " + diagCodes.get(e) + " " + orbit_int_to_string_selfhost(diagCounts.get(e)))
         e = e + 1
+    }
+    var g2 = 0
+    while g2 < giveupMessages.len() {
+        print("GIVEUP " + orbit_int_to_string_selfhost(giveupCounts.get(g2)) + " " + giveupMessages.get(g2))
+        g2 = g2 + 1
     }
 }
 

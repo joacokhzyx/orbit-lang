@@ -126,6 +126,65 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
     }
 }
 
+// Which node the frontend gave up on. E3001 printed one sentence for every
+// unsupported expression and E3000 one sentence for every unsupported
+// declaration, so the census could report 9,233 give-ups and nobody could say
+// what they were. The name is the variant the source writes, because that is the
+// string a reader meets in `compiler/front/ast.orb` and in the walk-coverage
+// declarations. A position is not here: the nodes that carry one disagree about
+// which field holds it, and `typeOfExpression` has no line to pass either.
+// orbit-walk: none -- names a node; it visits no children
+fn astNodeKind(node: ASTNode) -> string {
+    match node {
+        ASTNode.Program(n) => { return "Program" }
+        ASTNode.FunctionDecl(n) => { return "FunctionDecl" }
+        ASTNode.RouteDecl(n) => { return "RouteDecl" }
+        ASTNode.ModelDecl(n) => { return "ModelDecl" }
+        ASTNode.TypeDecl(n) => { return "TypeDecl" }
+        ASTNode.FieldDecl(n) => { return "FieldDecl" }
+        ASTNode.TraitDecl(n) => { return "TraitDecl" }
+        ASTNode.ImplDecl(n) => { return "ImplDecl" }
+        ASTNode.VarDecl(n) => { return "VarDecl" }
+        ASTNode.ConstDecl(n) => { return "ConstDecl" }
+        ASTNode.ScheduleDecl(n) => { return "ScheduleDecl" }
+        ASTNode.ConfigDecl(n) => { return "ConfigDecl" }
+        ASTNode.MigrationDecl(n) => { return "MigrationDecl" }
+        ASTNode.ImportStmt(n) => { return "ImportStmt" }
+        ASTNode.UseStmt(n) => { return "UseStmt" }
+        ASTNode.ExpressionStmt(n) => { return "ExpressionStmt" }
+        ASTNode.If(n) => { return "If" }
+        ASTNode.While(n) => { return "While" }
+        ASTNode.For(n) => { return "For" }
+        ASTNode.Return(n) => { return "Return" }
+        ASTNode.ReturnOk(n) => { return "ReturnOk" }
+        ASTNode.ReturnErr(n) => { return "ReturnErr" }
+        ASTNode.Match(n) => { return "Match" }
+        ASTNode.MatchCase(n) => { return "MatchCase" }
+        ASTNode.Try(n) => { return "Try" }
+        ASTNode.Literal(n) => { return "Literal" }
+        ASTNode.Interp(n) => { return "Interp" }
+        ASTNode.ObjectLiteral(n) => { return "ObjectLiteral" }
+        ASTNode.BinaryOp(n) => { return "BinaryOp" }
+        ASTNode.UnaryOp(n) => { return "UnaryOp" }
+        ASTNode.Call(n) => { return "Call" }
+        ASTNode.MemberAccess(n) => { return "MemberAccess" }
+        ASTNode.IndexAccess(n) => { return "IndexAccess" }
+        ASTNode.ListLiteral(n) => { return "ListLiteral" }
+        ASTNode.Assignment(n) => { return "Assignment" }
+        ASTNode.TypeAnnotation(n) => { return "TypeAnnotation" }
+        ASTNode.GenericParam(n) => { return "GenericParam" }
+        ASTNode.Decorator(n) => { return "Decorator" }
+        ASTNode.Block(n) => { return "Block" }
+        ASTNode.Break(n) => { return "Break" }
+        ASTNode.Continue(n) => { return "Continue" }
+        ASTNode.FieldInit(n) => { return "FieldInit" }
+        ASTNode.TypedLiteral(n) => { return "TypedLiteral" }
+        ASTNode.Empty => { return "Empty" }
+        ASTNode.Range(n) => { return "Range" }
+    }
+    return "unknown node"
+}
+
 // orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
@@ -210,7 +269,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             return tirEmit(function, blockId, "call", returnType, operands)
         }
         _ => {
-            tirError(module, "E3001", "expression cannot be lowered to TIR", 0, 0)
+            tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
             return -1
         }
     }
@@ -285,6 +344,13 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             }
             return exitBlock
         }
+        // An empty statement lowers to nothing, so it is not a give-up. It
+        // reached the expression reader through the fallback below and came back
+        // as "expression cannot be lowered to TIR: Empty" -- 5,045 times over the
+        // corpus, the largest class the census reported. The class naming is what
+        // showed it: a statement with no instruction to emit is not an expression
+        // the front end cannot type.
+        ASTNode.Empty => { return blockId }
         _ => {
             lowerExpression(module, function, blockId, bindings, node)
             return blockId
@@ -335,7 +401,7 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
                     ASTNode.TraitDecl(traitDecl) => {}
                     ASTNode.ImplDecl(implDecl) => {}
                     ASTNode.Empty => {}
-                    _ => tirError(module, "E3000", "top-level declaration cannot be lowered to TIR", 0, 0)
+                    _ => tirError(module, "E3000", "top-level declaration cannot be lowered to TIR: " + astNodeKind(declaration), 0, 0)
                 }
                 i = i + 1
             }
