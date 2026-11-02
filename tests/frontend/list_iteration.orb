@@ -1,0 +1,16 @@
+// Iterating a value that is not a range needs the item's type, and that is the
+// element kind: `compiler/tir/lower.orb` keeps no element table, so the pass
+// cannot bind `x` to anything it could later read. Lowering it anyway would put
+// an `unknown` instruction in the file, which suppresses the canonical TIR just
+// as the give-up does while also raising the count the ratchet holds. This
+// fixture keeps the honest branch: the loop says what is missing, and the file
+// prints nothing.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "fn walk(xs: list) -> int { var s = 0 for x in xs { s = s + 1 } return s }"
+    val output = compileFrontendSource("fixture", source)
+    if output == "" {
+        print("list iteration stays a give-up")
+    }
+}

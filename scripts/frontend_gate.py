@@ -75,6 +75,10 @@ EMPTY_EXPECTATIONS = {
     # reader of types consults the program's own declarations now, and an empty
     # answer must not overwrite "unknown" -- that silenced E2001 corpus-wide.
     "undeclared_callee.orb": "undeclared callee suppressed TIR",
+    # A `for` over a value that is not a range needs the item's element type,
+    # which this pass does not keep. Emitting `unknown` instead would suppress
+    # the same TIR and raise the count the ratchet holds.
+    "list_iteration.orb": "list iteration stays a give-up",
 }
 
 

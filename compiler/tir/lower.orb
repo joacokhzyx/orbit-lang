@@ -323,7 +323,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 // more for `continue` -- and the error suppressed the file's canonical TIR.
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode, breakTarget: int, continueTarget: int) -> int {
     if blockId < 0 { return blockId }
     match node {
@@ -443,16 +443,93 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             }
             return exitBlock
         }
-        // An empty statement lowers to nothing, so it is not a give-up. It
-        // reached the expression reader through the fallback below and came back
-        // as "expression cannot be lowered to TIR: Empty" -- 5,045 times over the
-        // corpus, the largest class the census reported. The class naming is what
-        // showed it: a statement with no instruction to emit is not an expression
-        // the front end cannot type.
+        // `for x in lo..hi` counts an int between the bounds, so every value the
+        // loop reads has a type this pass can answer: the bounds once, the hidden
+        // counter as int, and the item as a copy of it. Over anything else the
+        // item's type is the element kind, and the pass keeps no element table --
+        // the same reason a chained field write stays a give-up -- so that path
+        // names what it is missing rather than emitting `unknown`. A label names a
+        // loop other than the innermost one, which one pair of targets cannot
+        // carry, so a labelled loop is a give-up too.
+        ASTNode.For(loopNode) => {
+            if loopNode.label != "" {
+                tirError(module, "E3001", "for with a label has no target for a named break", 0, 0)
+                return blockId
+            }
+            match loopNode.iterable {
+                ASTNode.Range(bounds) => {
+                    if typeOfExpression(module, bindings, bounds.lo) != "int" {
+                        tirError(module, "E2102", "for range lower bound must have type int", 0, 0)
+                        return blockId
+                    }
+                    if typeOfExpression(module, bindings, bounds.hi) != "int" {
+                        tirError(module, "E2102", "for range upper bound must have type int", 0, 0)
+                        return blockId
+                    }
+                    val loValue = lowerExpression(module, function, blockId, bindings, bounds.lo)
+                    val hiValue = lowerExpression(module, function, blockId, bindings, bounds.hi)
+                    // The counter carries the item's name plus a suffix, the same
+                    // hidden name the builder gives it, so the two passes describe
+                    // one loop alike. The item is rebound every iteration, and the
+                    // user's index alongside it: over a range the 0-based position
+                    // is the counter minus the lower bound, exactly as over a list.
+                    val counterName = loopNode.item + "_range"
+                    tirEmit(function, blockId, "bind", "unit", counterName + " " + tirValue(loValue))
+
+                    val conditionBlock = tirCreateBlock(function)
+                    val bodyBlock = tirCreateBlock(function)
+                    val incrementBlock = tirCreateBlock(function)
+                    val exitBlock = tirCreateBlock(function)
+                    tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(conditionBlock))
+
+                    val tested = tirEmit(function, conditionBlock, "load", "int", counterName)
+                    val stillGoing = tirEmit(function, conditionBlock, "<", "bool", tirValue(tested) + " " + tirValue(hiValue))
+                    tirEmit(function, conditionBlock, "branch", "unit", tirValue(stillGoing) + " b" + tirIntText(bodyBlock) + " b" + tirIntText(exitBlock))
+
+                    val bodyBindings = copyBindings(bindings)
+                    val itemValue = tirEmit(function, bodyBlock, "load", "int", counterName)
+                    tirEmit(function, bodyBlock, "bind", "unit", loopNode.item + " " + tirValue(itemValue))
+                    bodyBindings.push(TirBinding(loopNode.item, "int"))
+                    if loopNode.indexVar != "" {
+                        val positionValue = tirEmit(function, bodyBlock, "load", "int", counterName)
+                        val position = tirEmit(function, bodyBlock, "-", "int", tirValue(positionValue) + " " + tirValue(loValue))
+                        tirEmit(function, bodyBlock, "bind", "unit", loopNode.indexVar + " " + tirValue(position))
+                        bodyBindings.push(TirBinding(loopNode.indexVar, "int"))
+                    }
+                    val bodyEnd = lowerStatement(module, function, bodyBlock, bodyBindings, loopNode.body, exitBlock, incrementBlock)
+                    if bodyEnd >= 0 {
+                        tirEmit(function, bodyEnd, "jump", "unit", "b" + tirIntText(incrementBlock))
+                    }
+
+                    // The increment is the block a `continue` reaches: jumping to
+                    // the condition with the counter unchanged repeats the same
+                    // item forever.
+                    val iterated = tirEmit(function, incrementBlock, "load", "int", counterName)
+                    val step = tirEmit(function, incrementBlock, "const", "int", "1")
+                    val nextValue = tirEmit(function, incrementBlock, "+", "int", tirValue(iterated) + " " + tirValue(step))
+                    tirEmit(function, incrementBlock, "bind", "unit", counterName + " " + tirValue(nextValue))
+                    tirEmit(function, incrementBlock, "jump", "unit", "b" + tirIntText(conditionBlock))
+                    return exitBlock
+                }
+                _ => {
+                    tirError(module, "E3001", "for over a non-range needs an element type this pass does not keep", 0, 0)
+                    return blockId
+                }
+            }
+        }
+        // A statement with no instruction to emit lowers to nothing, so it is not
+        // a give-up. It reached the expression reader through the fallback below
+        // and came back as "expression cannot be lowered to TIR: Empty" -- 5,045
+        // times over the corpus, the largest class the census reported. The class
+        // naming is what showed it: a statement with no instruction to emit is not
+        // an expression the front end cannot type.
+        ASTNode.Empty => { return blockId }
         // Out of a loop the construct is not a control transfer the pass can
-        // name: it jumps to nothing. It stays a give-up, with the reason.
+        // name: it jumps to nothing. It stays a give-up, with the reason. A named
+        // `break outer` wants a block other than the innermost loop's, and the
+        // targets only carry the innermost.
         ASTNode.Break(loopBreak) => {
-            if breakTarget >= 0 {
+            if breakTarget >= 0 && loopBreak.label == "" {
                 tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(breakTarget))
                 return -1
             }
@@ -460,14 +537,13 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             return blockId
         }
         ASTNode.Continue(loopContinue) => {
-            if continueTarget >= 0 {
+            if continueTarget >= 0 && loopContinue.label == "" {
                 tirEmit(function, blockId, "jump", "unit", "b" + tirIntText(continueTarget))
                 return -1
             }
             tirError(module, "E3001", "continue with no enclosing loop to iterate", 0, 0)
             return blockId
         }
-        ASTNode.Empty => { return blockId }
         _ => {
             lowerExpression(module, function, blockId, bindings, node)
             return blockId
