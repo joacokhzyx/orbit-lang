@@ -427,7 +427,7 @@ with the port message.
 
 `ss -lntp` (or `netstat -ano` on Windows) names the process holding the port.
 
-## A generic model monomorphises; the type argument is inferred, never written
+## A generic model monomorphises; an expression infers the argument, a signature writes it
 
 `model Box[T] { v: T }` works. The type argument comes from the value
 written for the field that uses it, and each instantiation is its own C
@@ -443,8 +443,22 @@ $ orbit build box.orb -o box && ./box
 1
 ```
 
-`Box { v: 1 }` is `Box_int` and `Box { v: "hi" }` is `Box_string`, and the
-generated C says so:
+`Box { v: 1 }` is `Box_int` and `Box { v: "hi" }` is `Box_string`. The written
+form in a signature is not decoration either, and was run again on 2026-11-02:
+
+```console
+$ cat box.orb
+model Box[T] { v: T }
+fn take(b: Box<int>) -> int { return b.v }
+fn main() -> int { val b = Box { v: 1 }  if take(b) != 1 { return 7 }  print(b.v)  return 0 }
+$ orbit check box.orb
+Checked box.orb: no errors.
+$ orbit build box.orb -o box && ./box
+1
+```
+
+`tests/suite/generic_models.orb` covers the same path as its seventh case, named
+`aSignatureNamesTheInstance`. The generated C says so:
 
 ```c
 typedef struct Box_int { orbit_int v; } Box_int;
