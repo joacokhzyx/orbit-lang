@@ -43,10 +43,23 @@ emitter capability, not a doctor loop that frees.
 
 `scripts/doctor_gate.py` scans the directories that must be clean, and its
 `compiler` scope runs on a 4 GB host. When one process cannot hold a directory,
-the gate retries it one subdirectory at a time. The abort and the retry are two
-measurements: the whole-directory scan aborted again today at 3 070 599 168
-bytes committed, while the 7-subdirectory retry and its three clean directories
-came from a direct `doctor_gate.py` run this session did not repeat.
+the gate retries it one subdirectory at a time.
+
+Read on 2026-11-02 from that gate itself, with `--scope-only` on the 3904 MB
+WSL host and no `ORBIT_ARENA_MAX_MB`:
+
+```console
+note: compiler: doctor was killed by a signal (-6): orbit: arena ceiling reached
+allocating 65536 bytes; 3070599168 of 3070620672 bytes committed, the limit is
+2928 MB from ORBIT_ARENA_MAX_MB; retrying as 7 subdirectories
+note: compiler: 141 advisory finding(s) not counted
+Finished doctor_scope: 3 directories clean (compiler, std, tests/suite).
+```
+
+The byte figure is the same one the direct `orbit doctor compiler` run aborts
+at, so the two instruments agree, and the 141 advisory findings are the 141
+findings the Windows scan counts. The retry is what turns that kill into a
+green gate: 3 directories clean, exit 0.
 
 What still needs the raised ceiling is a single `orbit doctor compiler` run,
 which is one process by definition. The gate sequence as a whole is green on that 3.9 GB host
