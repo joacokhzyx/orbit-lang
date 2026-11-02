@@ -277,7 +277,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: AssignmentNode, BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, MemberAccessNode, RangeNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     if blockId < 0 { return blockId }
     match node {
@@ -285,6 +285,30 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             val value = lowerExpression(module, function, blockId, bindings, declaration.value)
             tirEmit(function, blockId, "bind", "unit", declaration.name + " " + tirValue(value))
             bindings.push(TirBinding(declaration.name, typeOfExpression(module, bindings, declaration.value)))
+            return blockId
+        }
+        // `x = 5` in statement position rebinds a name the block already
+        // bound, which is the `bind` shape a `val` emits. Until now it fell to
+        // the fallback below, reached the expression reader and came back as
+        // "expression cannot be lowered to TIR: Assignment" -- 3,137 times over
+        // the corpus, the largest class the census counts. Writing through a
+        // place is not this: the frontend has no place model, so `a.b = e` and
+        // `xs[i] = e` still give up, now naming the place.
+        ASTNode.Assignment(assignment) => {
+            val value = lowerExpression(module, function, blockId, bindings, assignment.value)
+            var storeName = ""
+            match assignment.target {
+                ASTNode.Literal(target) => {
+                    if target.valType == "identifier" { storeName = target.text }
+                }
+                _ => {}
+            }
+            if storeName != "" {
+                tirEmit(function, blockId, "bind", "unit", storeName + " " + tirValue(value))
+                bindings.push(TirBinding(storeName, typeOfExpression(module, bindings, assignment.value)))
+                return blockId
+            }
+            tirError(module, "E3001", "cannot lower this assignment to TIR: " + astNodeKind(assignment.target), 0, 0)
             return blockId
         }
         ASTNode.Return(ret) => {

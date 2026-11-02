@@ -291,9 +291,11 @@ class: `expression cannot be lowered to TIR: ListLiteral`. Before the class
 was named, the census could report how many times the front end gave up and
 not on what. `scripts/unknown_census.py` prints the tally by class. Frontend
 lowering only. Fix hint: same as E3000 — a coverage gap, file it with the
-class. 4,468 hits on the 2026-11-02 corpus, of which `Assignment` is 3,137;
-an `Empty` statement no longer fires here, because a statement with no
-instruction to emit lowers to nothing.
+class. 1,784 hits on the 2026-11-02 corpus. An `Empty` statement no
+longer fires here, because a statement with no instruction to emit lowers to
+nothing, and `x = 5` no longer fires either: the statement lowering writes the
+`bind` a `val` uses. A write through a place reports
+`cannot lower this assignment to TIR: MemberAccess`.
 
 ## E3002 — frontend expected a program root
 

@@ -191,7 +191,7 @@ compiler's feelings, not about the program. Every one of them is now an
 The mechanism underneath is described in
 [the value model](ARCHITECTURE.md#the-value-model-one-machine-word-no-tag),
 and the measurement that says how much of the front end is still untyped is
-[below](#241-of-instructions-are-unknown-and-every-one-of-them-says-so).
+[below](#232-of-instructions-are-unknown-and-every-one-of-them-says-so).
 
 
 ## Writes work, but duplicates and missing tables fail
@@ -624,36 +624,36 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 24.1% of instructions are `unknown`, and every one of them says so
+## 23.2% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 88,108
+`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 101,639
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 21,227 | **24.1%** |
+| instructions the front end types `unknown` | 23,529 | **23.2%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 11,284 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 785), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 12,343 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 1,286), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 33), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 4,866) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,259). Their sum, 21,227, is the whole unknown count. The five
+(member read, 5,233) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 4,634). Their sum, 23,529, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:136`, `:149`, `:157`, `:170` and `:208`, and
 each sits on the branch that emits the instruction.
 
-The total fell from 29.1% to 24.1% on 2026-11-02 because the reader stopped
+The rate fell from 29.1% to 23.2% on 2026-11-02 because the reader stopped
 guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:67`) answers a
 call from the function the file itself declares, so the `call` class fell from
 6,756 to 4,259; a `val` bound to such a call carries that type into every later
-load, so `load` fell from 12,670 to 11,284 and the binary and unary classes with
-it. What the table still cannot answer is a call into another file: the lowering
+load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
+writes as a `bind` instead of giving up on. What the table still cannot answer is a call into another file: the lowering
 sees one module's declarations. `len`, the runtime builtins and a short list of
-names written into this file cover those, and 4,259 calls stay untyped.
+names written into this file cover those, and 4,634 calls stay untyped.
 
 The second row used to read 11,491 and this heading used to say 45.5% of the
 unknown was silent. `unknown_census.py` computed the number by subtracting
@@ -664,7 +664,7 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 4,468 times on this corpus, down from 9,233. It is not in the
+<node>" fired 1,784 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
@@ -673,13 +673,19 @@ census prints the tally (`unknown_census.py`, "What the front end gives up on, b
 node class"). Two of the sixteen classes were not capability gaps at all:
 `Empty` appeared 5,045 times because `lowerStatement` handed every statement it
 did not recognise to the *expression* reader, and an empty statement has no
-instruction to emit. It lowers to nothing now. `Assignment` in expression
-position is a real gap and the largest one left -- 3,137 of the 4,468 -- followed
-by `ListLiteral` 394, `Match` 287 and `Empty` in a genuine expression position
-279.
+instruction to emit. It lowers to nothing now. `x = 5` in statement position was the other
+half of that: it reached the same reader, which has no assignment rule, and came
+back unnamed 3,137 times. The statement lowering writes it as the `bind` a `val`
+always used and re-reads the name's type from the binding, so 2,723 of those are
+lowered and the 414 that remain are writes through a place -- `a.b = e` -- which
+the frontend has no model for and now says so: `cannot lower this assignment to
+TIR: MemberAccess`. What is left of the class list is `MemberAccess` 414,
+`ListLiteral` 412, `Match` 287 and `Empty` in a genuine expression position 279.
 
-Worst file by share of unknown instructions: `compiler/front/parser.orb` at 39.8%
-(2,132 of 5,358). Re-run the census rather than trusting these numbers.
+The absolute count of unknowns rose while the rate fell, because lowering
+assignment values puts instructions where there were none: 101,639 instructions
+against 88,110, and 23,529 unknown against 21,227. The ratchet reads the rate.
+Worst file by share of unknown instructions: `compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
 
 Two tools, and the difference matters. `unknown_census.py` is the
 **measurement** and never fails anything. `scripts/unknown_ratchet.py`
@@ -692,9 +698,9 @@ baseline moved down to the measured numbers:
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
-  unknown_per_mille               241  baseline    241  unchanged
+  unknown_per_mille               231  baseline    231  unchanged
   silent_per_mille                  0  baseline      0  unchanged
-Finished unknown-count: 241 (baseline 241, ratchet holds)
+Finished unknown-count: 231 (baseline 231, ratchet holds)
 ```
 
 What the second number holds now is the one-to-one tie above. An opcode that
