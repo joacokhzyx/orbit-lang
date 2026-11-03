@@ -51,15 +51,26 @@ model TirType {
     fields: list < TirField >
 }
 
+// One declared signature: the name and the return type exactly as the source
+// writes them. Bodies are lowered one at a time and a call may name a function
+// declared later in the same file, so the answers have to exist before the
+// first body is read -- otherwise the load of that name has nothing to read and
+// the file loses its canonical text to an `unknown` it never wrote.
+model TirSignature {
+    name: string
+    returnType: string
+}
+
 model TirModule {
     name: string
     functions: list < TirFunction >
     diagnostics: list < TirDiagnostic >
     types: list < TirType >
+    signatures: list < TirSignature >
 }
 
 fn initTirModule(name: string) -> TirModule {
-    return TirModule(name, [], [], [])
+    return TirModule(name, [], [], [], [])
 }
 
 fn initTirFunction(id: int, name: string, returnType: string) -> TirFunction {

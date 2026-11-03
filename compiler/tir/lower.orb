@@ -70,13 +70,34 @@ fn copyBindings(bindings: list < TirBinding >) -> list < TirBinding > {
 // registers each function before it lowers its body, so a call to one already
 // declared is typed from the declaration itself.
 fn declaredReturnType(module: TirModule, name: string) -> string {
-    var i = module.functions.len()
+    var i = module.signatures.len()
     while i > 0 {
         i = i - 1
-        val declared: TirFunction = module.functions.get(i)
+        val declared: TirSignature = module.signatures.get(i)
         if declared.name == name { return declared.returnType }
     }
     return ""
+}
+
+// The signatures the file declares, read before any body. A function's own
+// entry lands in `module.signatures` only when `lowerFunction` runs, so a call
+// to a function declared later in the file had nothing to answer with: the load
+// of its name reported E2001, the `if` around a call that answers bool reported
+// E2100, and `tirCanonical` prints nothing while an error-severity diagnostic
+// exists. Scanning the declarations once first costs a list and removes a whole
+// class of self-inflicted blindness.
+// orbit-walk-misses: ConfigDeclNode, ConstDeclNode, ImportStmtNode, ImplDeclNode, MigrationDeclNode, ModelDeclNode, RouteDeclNode, ScheduleDeclNode, TraitDeclNode, TypeDeclNode, UseStmtNode, VarDeclNode
+fn collectSignatures(module: TirModule, program: ProgramNode) {
+    var i = 0
+    while i < program.decls.len() {
+        match program.decls.get(i) {
+            ASTNode.FunctionDecl(declaration) => {
+                module.signatures.push(TirSignature(declaration.name, declaration.returnType))
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
 }
 
 // The field type the file itself declares. Only a builtin is an answer: a field
@@ -803,6 +824,7 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
     val module = initTirModule(moduleName)
     match root {
         ASTNode.Program(program) => {
+            collectSignatures(module, program)
             var i = 0
             while i < program.decls.len() {
                 val declaration: ASTNode = program.decls.get(i)
