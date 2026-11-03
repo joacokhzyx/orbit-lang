@@ -24,6 +24,7 @@ Each file declares exactly one, in a header comment.
 | `// wrong-value: <stdout>` | Optional, on a `known-defect:` case only. The program is built and run, and its stdout must still be exactly this (`\n` separates lines). |
 | `// cc-rejects: <substring>` | Optional, on a `known-defect:` case only. The front end must stay silent **and** the C toolchain must still reject the output with `<substring>`. |
 | `// no-diagnostic:` | Optional, on a `known-defect:` case only, and **instead of** the two above. The program must still build and must still die without saying anything: non-zero exit, nothing on stdout or stderr. This is for the class where the wrong answer is a crash, which a `wrong-value:` cannot hold. |
+| `// one-diagnostic:` | Optional, on an `expect-error:` case only. The rejection is **exactly one** `error[<CODE>]` line. A substring match passes when the same refusal prints four times, so the count is the part this directive holds. |
 
 A case may pin at most one of `wrong-value:`, `cc-rejects:` and
 `no-diagnostic:` — they are three ways of saying what the program actually does,
@@ -224,9 +225,9 @@ its header. Add a second case only when there is a second mechanism.
 
 ## What is in here today
 
-113 cases: 113 are `expect-error:` - each program is rejected, with a pinned
+114 cases: 114 are `expect-error:` - each program is rejected, with a pinned
 diagnostic - and 0 are `known-defect:` ratchets. The gate prints `Finished
-negative: 113/113 pass (0 known defects still accepted)`. `n122` pins what a `match` binding knows: an int payload used as a string argument is refused. `n121` is the case
+negative: 114/114 pass (0 known defects still accepted)`. `n122` pins what a `match` binding knows: an int payload used as a string argument is refused. `n121` is the case
 where refusing is the whole point: two unions declare one variant name and the
 construction writes only the name, so the checker has no owner to read the
 payload from and no expected type to infer one - `E1011` names both owners

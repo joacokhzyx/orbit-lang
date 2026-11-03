@@ -144,18 +144,20 @@ object literals carry no parser position, so `checkGenericModelFields` reports
 against the declaration site stamped by `checkVarDecl`/`checkConstDecl`
 (`valueSite`). A literal returned directly keeps the one-line form until
 literal positions exist. The `n118` refusal points at the member read itself
-(`ma.line`, `ma.col` in `compiler/front/sema.orb:4664`): `Option.None` is a value
-position, and the rule needs the type the program wrote, not the union's
-declaration. The construction site prints the other sentence:
-`unionInstanceForConstruction` reports at `compiler/front/sema.orb:688`,
-reached from the call arm at `compiler/front/sema.orb:4548`. `n124` pins it
-with `val x = Option.Some()`: `Some` declares a payload, so the read site
-stays silent, and the empty argument list decides no instantiation. A call
-that is a read and a construction at once prints both sentences for one
-refusal: `val x = Option.None()` fires `sema.orb:4664` first and
-`sema.orb:688` second (measured with `orbit check`: two E1006 blocks, exit
-1). `n124` pins the construction sentence alone; the doubled refusal is
-unpinned. Fix hint: change the value or the
+(`ma.line`, `ma.col` in the `ASTNode.MemberAccess` arm of `checkNode`):
+`Option.None` is a value position, and the rule needs the type the program
+wrote, not the union's declaration. The construction site prints the other
+sentence: `unionInstanceForConstruction` reports it, reached from the `Call` arm
+of `checkNode`. `n124` pins it with `val x = Option.Some()`: `Some` declares a
+payload, so the read site stays silent, and the empty argument list decides no
+instantiation. A call that reads a template member and constructs from it is
+decided in one place: `calleeIsTemplateConstruction` answers the construction,
+and the `Call` arm does not read that member as a value first. So
+`val x = Option.None()` prints one E1006 block, the construction sentence, exit
+1 (measured 2026-11-03 with the fixed point). `n124` pins that sentence and
+`n125` pins the count, with its header's `one-diagnostic:`. The cites in this
+section name functions, because every edit to `sema.orb` moves a line number.
+Fix hint: change the value or the
 annotation. Write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
 `n50`, `n51`, `n52`, `n118`, and `n70` (`n70`: a generic function's parameter no
 argument can fix).

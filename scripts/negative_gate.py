@@ -58,6 +58,15 @@ All three of these are optional and only meaningful on a known-defect case:
 A case that pins none of those still pins its class: the front end accepts
 this program, and the gate fails the day it stops.
 
+One directive is optional on an expect-error case instead:
+
+    // one-diagnostic:
+        The rejection is exactly one diagnostic line (`error[<CODE>]` in the
+        combined output). A header that pins a substring passes when the same
+        refusal prints four times, which is what a checker that re-reads a node
+        does: the text is right and the reader sees it two, three or four
+        times. Use it where the count is the thing being claimed.
+
 Usage:
     python scripts/negative_gate.py [--compiler PATH] [--cc CC] [--list]
                                     [--no-build] [--quiet]
@@ -88,6 +97,12 @@ CASE_NAME = re.compile(r"^\s*//\s*case:\s*(\S.*?)\s*$", re.M)
 WRONG_VALUE = re.compile(r"^\s*//\s*wrong-value:\s*(\S.*?)\s*$", re.M)
 CC_REJECTS = re.compile(r"^\s*//\s*cc-rejects:\s*(\S.*?)\s*$", re.M)
 NO_DIAGNOSTIC = re.compile(r"^\s*//\s*no-diagnostic:\s*$", re.M)
+ONE_DIAGNOSTIC = re.compile(r"^\s*//\s*one-diagnostic:\s*$", re.M)
+
+# One front-end diagnostic, as it appears in the combined stdout and stderr of
+# `orbit check`: the code is the part a reader acts on, so a repeated line is a
+# repeated refusal even when the framing differs.
+DIAGNOSTIC_LINE = re.compile(r"error\[[A-Z][0-9]+\]")
 
 
 def unescape(literal):
@@ -124,6 +139,7 @@ class Case:
         self.wrong_value = WRONG_VALUE.search(self.source)
         self.cc_rejects = CC_REJECTS.search(self.source)
         self.no_diagnostic = NO_DIAGNOSTIC.search(self.source)
+        self.one_diagnostic = ONE_DIAGNOSTIC.search(self.source)
 
     @property
     def kind(self):
@@ -183,6 +199,10 @@ def run_case(compiler, case, verbose=False, cc=None, work=None):
         return ("fail", "the header pins more than one answer "
                 "(wrong-value:/cc-rejects:/no-diagnostic:); pick the one that "
                 "describes what the program actually does")
+    if case.one_diagnostic and case.kind != "error":
+        return ("fail", "one-diagnostic: only means anything on an expect-error: "
+                "case -- a known defect is accepted, so there is no refusal to "
+                "count")
     p = subprocess.run([compiler, "check", case.rel], cwd=ROOT,
                        capture_output=True, text=True, errors="replace")
     combined = (p.stdout or "") + (p.stderr or "")
@@ -198,6 +218,15 @@ def run_case(compiler, case, verbose=False, cc=None, work=None):
             return "fail", ("diagnostic changed.\n    header wants: %s\n"
                             "    got:            %s"
                             % (needle, describe(combined, True)))
+        if case.one_diagnostic:
+            found = DIAGNOSTIC_LINE.findall(combined)
+            if len(found) != 1:
+                return "fail", ("the same refusal printed %d times: %s\n"
+                                "    header declares one-diagnostic:, so the "
+                                "program is rejected by one diagnostic\n"
+                                "    got:            %s"
+                                % (len(found), case.rel,
+                                   describe(combined, True)))
         return "pass", describe(combined, verbose)
 
     # known-defect: assert the bug is still there.

@@ -564,6 +564,20 @@ fn isGenericUnionTemplate(sema: Sema, name: string) -> bool {
     return t.kind == "generic_union"
 }
 
+// Whether a call's callee reads a member of a generic union's template, which
+// is how a construction against one is spelled. The Call arm decides that
+// construction; reading the same member as a value beforehand asks the payload
+// question twice, and the second answer is a repeated diagnostic.
+fn calleeIsTemplateConstruction(sema: Sema, ma: MemberAccessNode) -> bool {
+    match ma.object {
+        ASTNode.Literal(ol) => {
+            if ol.valType == "identifier" { return isGenericUnionTemplate(sema, ol.text) }
+        }
+        _ => {}
+    }
+    return false
+}
+
 // Declare one instantiation: the registry rows with the parameter replaced by
 // the argument, and the variants a `match` has to be exhaustive over. Two
 // positions naming the same instance declare it once. The name itself is
@@ -1732,19 +1746,16 @@ fn checkCallArity(sema: Sema, name: string, argCount: int) {
 //
 // checkCompatibility decides what counts as a mismatch, so this stays
 // one-sided: an argument the checker could not type is not a mismatch.
-fn checkCallArgTypes(sema: Sema, name: string, args: list < ASTNode >, line: int, col: int) {
+fn checkCallArgTypes(sema: Sema, name: string, argTypes: list < string >, line: int, col: int) {
     val sym = resolveFunctionSymbol(sema, name)
     if sym == NULL { return }
     val params = sym.paramTypes
     val n = params.len()
-    if n != args.len() { return }
+    if n != argTypes.len() { return }
     var i = 0
     while i < n {
         val want = params.get(i)
-        val prevWantUnion = sema.expectedUnionName
-        sema.expectedUnionName = want
-        val got = checkNode(sema, args.get(i))
-        sema.expectedUnionName = prevWantUnion
+        val got: string = argTypes.get(i)
         if checkCompatibility(want, got) == false {
             reportErrorAt(sema, "E1005", "Change the argument, or change the parameter's declared type.", line, col, "Parameter " + orbit_int_to_string_selfhost(i + 1) + " of " + name + " is declared " + want + " but the argument is " + got + ".")
         }
@@ -4395,7 +4406,15 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                         }
                         _ => {}
                     }
-                    checkNode(sema, c.callee)
+                    // A construction against a generic union's template is
+                    // decided by this arm further down, and reading its callee
+                    // as a value runs the member-read guard on the same
+                    // construction, which prints its refusal twice.
+                    if calleeIsTemplateConstruction(sema, ma) {
+                        checkNode(sema, ma.object)
+                    } else {
+                        checkNode(sema, c.callee)
+                    }
                 }
                 _ => { checkNode(sema, c.callee) }
             }
@@ -4434,7 +4453,7 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 // that fix a variable are governed by coherence below, in the
                 // callee arms, instead.
                 if isGenericFn(sema, calleeName) == false {
-                    checkCallArgTypes(sema, calleeName, c.args, c.line, c.col)
+                    checkCallArgTypes(sema, calleeName, argTypes, c.line, c.col)
                 }
                 // A call through a function value has no declaration symbol,
                 // so both checks above pass it silently. The value's spelling
