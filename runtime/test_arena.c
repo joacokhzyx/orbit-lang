@@ -17,7 +17,11 @@
  * console, so an access violation loses every buffered line and the CI log
  * shows a bare "[ORBIT RUNTIME CRASH]" with no indication of which test died --
  * which is how a crash in the migrations test was read as a crash in whichever
- * test happened to be compiled last. The line is there to name the failure. */
+ * test happened to be compiled last. The line is there to name the failure.
+ *
+ * The count the program closes with counts the runs, because the hand-written
+ * figure said 24 while the list held 25. */
+static int tests_passed = 0;
 #define RUN_TEST(name) \
     do { \
         printf("Running test: %s... ", #name); \
@@ -25,6 +29,7 @@
         name(); \
         printf("PASSED\n"); \
         fflush(stdout); \
+        tests_passed++; \
     } while (0)
 
 // 1. Creation and destruction
@@ -641,6 +646,7 @@ int main(void) {
     RUN_TEST(test_hot_retention_follows_footprint);
     RUN_TEST(test_ceiling_stops_a_runaway_arena);
     
-    printf("All 24 mandatory Orbit Arena runtime tests PASSED successfully!\n");
+    printf("All %d mandatory Orbit Arena runtime tests PASSED successfully!\n",
+           tests_passed);
     return 0;
 }
