@@ -4061,7 +4061,14 @@ fn doctorCodePart(line: string) -> string {
         k = k + 1
     }
     if hasStr == false { return cut }
-    val buf = orbit_cbuf_create_selfhost()
+    // Runs joined by concatenation, not through a chunk buffer: a buffer's first
+    // block is ORBIT_CBUF_INIT_CAP (64 KB), the arena releases nothing until the
+    // process ends, and this ran once per quoted line of every file in the scan.
+    // The lowest ORBIT_ARENA_MAX_MB that completes `orbit doctor compiler` over
+    // this repository went from 3888 MB to 432 MB on an 8192 MB Windows host, and
+    // on a 3904 MB Linux host the scan that aborted at the 2928 MB default
+    // finishes there now.
+    var out = ""
     var i = 0
     var inStr = false
     while i < n {
@@ -4082,11 +4089,11 @@ fn doctorCodePart(line: string) -> string {
                 while i < n && orbit_string_char_at_selfhost(cut, i) != 34 {
                     i = i + 1
                 }
-                orbit_cbuf_append_selfhost(buf, orbit_string_slice(cut, start, i))
+                out = out + orbit_string_slice(cut, start, i)
             }
         }
     }
-    return orbit_cbuf_build_selfhost(buf)
+    return out
 }
 
 fn doctorIsValidSystemMember(member: string) -> bool {

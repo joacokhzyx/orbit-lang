@@ -18,35 +18,37 @@ now, and the section records what they answer instead. It includes the two
 checks that were wrong in the direction of refusing valid code, which is the
 failure mode worth reading about.
 
-## Doctor over a whole tree needs more arena than a 4 GB machine offers
+## Doctor over a whole tree fits the machine it runs on
 
-`orbit doctor compiler` commits more than 2.9 GB of arena, so a host whose
-default ceiling is lower aborts. The default is three quarters of physical
-memory (`runtime/arena.c:52-58`).
+`orbit doctor compiler` is one process. It typechecks every file it walks and
+releases nothing, so the scan has to fit under the ceiling on committed bytes. On
+2026-11-03 it fits on both hosts with `ORBIT_ARENA_MAX_MB` unset. The 3904 MB WSL
+instance answers `doctor: 141 finding(s) (0 error(s), 141 warning(s)) in 28 files
+under "compiler"`, exit 1. On an 8192 MB Windows host the lowest ceiling that
+completes is 432 MB, and 416 MB aborts.
 
-Both hosts were re-measured on 2026-11-02 with the fixed-point compiler
-`2d61febad7ca13e1`. On Windows `orbit doctor compiler` finishes in 7.7 s and
-reports 141 findings in 28 files (0 errors, 141 warnings), and
-`ORBIT_ARENA_MAX_MB=20000` leaves that count unchanged. On the 3904 MB WSL
-instance the same command aborts with exit 134 and `arena ceiling reached
-allocating 65536 bytes; 3070599168 of 3070620672 bytes committed, the limit is
-2928 MB from ORBIT_ARENA_MAX_MB`. A 16 GB CI runner's default ceiling covers
-both scans.
+`doctorCodePart` (`compiler/tools/doctor.orb:4049`) is what changed. It quoted the
+string runs of a line through a chunk buffer. A buffer's first block is
+`ORBIT_CBUF_INIT_CAP`, 65536 (`runtime/collections.h:189`), and the arena holds it
+until the process ends. So every line carrying a quote cost 64 KB, whatever the run
+was. Joining the runs with `+` asks for the bytes the text has. Before that, the
+same command on the same 3904 MB host aborted at exit 134 with `3070599168 of
+3070620672 bytes committed, the limit is 2928 MB` -- measured 2026-11-02 with the
+fixed point `2d61febad7ca13e1`.
 
-The scan typechecks every file and releases nothing, and the release cannot be
-written in this language: the arena is not a value an Orbit program names. The
-emitter resolves it as the caller's arena or the process global
-(`compiler/emit/c_backend.orb:1292`), and the only `orbit_arena_create` calls in
-any `.orb` file sit inside the C text the emitter prints. So the change that
-removes the requirement is a scoped arena the source can select -- a runtime and
-emitter capability, not a doctor loop that frees.
+The release still cannot be written in this language: the arena is not a value an
+Orbit program names. The emitter resolves it as the caller's arena or the process
+global (`compiler/emit/c_backend.orb:1292`), and the only `orbit_arena_create` calls
+in any `.orb` file sit inside the C text the emitter prints. A scoped arena the
+source can select is the change that makes the ceiling beside the point rather than
+merely high enough, and it is the open item.
 
-`scripts/doctor_gate.py` scans the directories that must be clean, and its
-`compiler` scope runs on a 4 GB host. When one process cannot hold a directory,
-the gate retries it one subdirectory at a time.
-
-Read on 2026-11-02 from that gate itself, with `--scope-only` on the 3904 MB
-WSL host and no `ORBIT_ARENA_MAX_MB`:
+`scripts/doctor_gate.py` scans the directories that must be clean, and when one
+process cannot hold a directory it retries it one subdirectory at a time. That retry
+is unreached on both hosts today: `--scope-only` answers `Finished doctor_scope: 3
+directories clean (compiler, std, tests/suite)` with no kill and no split. This is
+the same gate read on 2026-11-02, before the change, on the 3904 MB host with no
+`ORBIT_ARENA_MAX_MB`:
 
 ```console
 note: compiler: doctor was killed by a signal (-6): orbit: arena ceiling reached
@@ -56,17 +58,9 @@ note: compiler: 141 advisory finding(s) not counted
 Finished doctor_scope: 3 directories clean (compiler, std, tests/suite).
 ```
 
-The byte figure is the same one the direct `orbit doctor compiler` run aborts
-at, so the two instruments agree, and the 141 advisory findings are the 141
-findings the Windows scan counts. The retry is what turns that kill into a
-green gate: 3 directories clean, exit 0.
-
-What still needs the raised ceiling is a single `orbit doctor compiler` run,
-which is one process by definition. The gate sequence as a whole is green on that 3.9 GB host
-without `ORBIT_ARENA_MAX_MB` set -- `all 26 gate(s) passed in 337s`, run again
-on 2026-11-02 on that host, where the sequence was 27 of 29
-before the retry existed, the two failures being this scan and the aliveness row that
-follows from it.
+The gate sequence as a whole is green on that 3.9 GB host without
+`ORBIT_ARENA_MAX_MB` set -- `all 26 gate(s) passed in 281s`, read on 2026-11-03
+with the compiler this page describes.
 
 ## Doctor skips tool state: dot-directories and what .gitignore names
 
@@ -81,9 +75,11 @@ from a scan, and a scan that hides source is worse than one that reports it
 twice.
 
 With both rules, `orbit doctor .` over this repository scans 488 files and
-reports 447 findings (140 errors, 307 warnings) in 10.2 s on Windows, measured
-on 2026-11-02 with the same compiler. The 3904 MB Linux run still reaches the
-arena ceiling; that is the section above, not the walk.
+reports 451 findings (143 errors, 308 warnings) in 505 files on Windows, measured
+on 2026-11-03 with the compiler the section above describes. Three of those files
+are `fuzz_crashes/` cases a fuzz run left in the working tree, and they answer on
+both hosts. The 3904 MB Linux run now reports the same 451 findings and reaches
+no ceiling; the ceiling is the section above, and the walk is not it.
 
 ## The silent group is empty
 
