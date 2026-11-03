@@ -89,6 +89,10 @@ typedef struct OrbitArena {
     bool ceiling_hit;
 
     uint64_t generation;
+    /* Which VA segment the cursor currently lives in. The overflow path moves
+     * base to a fresh reservation and leaves the generation alone, so an
+     * offset is only comparable inside one segment. */
+    uint64_t segment;
     uint64_t alloc_count;
 
     struct OrbitArena* parent;      /* NULL for root/global arenas */
@@ -105,9 +109,13 @@ typedef struct OrbitArena {
     size_t            used;         /* current used bytes */
 } OrbitArena;
 
+/* A position in one arena's bump pointer: a byte offset inside the segment
+ * named by segment, taken in the epoch named by generation. A rewind only
+ * accepts it while both still identify the live segment and epoch. */
 typedef struct {
     size_t offset;
     uint64_t generation;
+    uint64_t segment;
 } OrbitArenaCheckpoint;
 OrbitArena* orbit_arena_create(size_t initial_capacity);
 OrbitArena* orbit_arena_create_child(OrbitArena* parent, size_t initial_capacity);

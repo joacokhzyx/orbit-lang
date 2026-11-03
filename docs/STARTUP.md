@@ -116,7 +116,7 @@ resource, `gcc 16.2.0 -O1 -s`, section sizes from `objdump -h`:
 |---|---|---|---|---|
 | One-object archive (`bf38b38`) | 116 352 | 21 592 | 4 892 672 | ADVAPI32, WS2_32 |
 | Per-module archive (`cc6b167`) | 13 072 | 3 064 | 8 736 | none |
-| Arena split in members | 7 904 | 2 776 | 8 704 | none |
+| Arena split in members (`2e3c18e`) | 7 904 | 2 776 | 8 704 | none |
 | `int main(void){return 0;}` | 6 400 | 2 488 | 384 | none |
 
 The members linked for `hello` are `arena`, `perf`, `console` and `crash`.
@@ -131,11 +131,11 @@ overflow path. `size` on the `.o` files, `.text` bytes:
 
 | Member | `.text` | Defines |
 |---|---|---|
-| `arena` | 1 144 | `orbit_arena_create`, `orbit_arena_destroy` |
+| `arena` | 1 176 | `orbit_arena_create`, `orbit_arena_destroy` |
 | `arena_alloc` | 3 016 | `orbit_alloc`, `orbit_alloc_try`, `orbit_arena_strdup`, the aborting default |
 | `arena_oom` | 856 | `orbit_set_oom_handler`, `orbit_get_oom_handler`, `orbit_request_oom_*` |
 | `arena_reset` | 588 | `orbit_arena_reset` |
-| `arena_checkpoint` | 224 | `orbit_arena_checkpoint`, `orbit_arena_rewind` |
+| `arena_checkpoint` | 256 | `orbit_arena_checkpoint`, `orbit_arena_rewind` |
 | `arena_child` | 232 | `orbit_arena_create_child`, `orbit_arena_promote` |
 | `arena_stats` | 288 | `orbit_arena_used` and the other telemetry accessors |
 | `arena_global` | 180 | `orbit_arena_get_global` |

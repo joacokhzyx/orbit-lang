@@ -254,7 +254,13 @@ void* orbit_alloc_try(OrbitArena* arena, size_t bytes) {
     arena->cursor = (unsigned char*)new_mem + aligned;
     arena->committed_end = (unsigned char*)new_mem + new_commit;
     arena->reserved_end = (unsigned char*)new_mem + new_reserve;
-    
+
+    /* Offsets measured from here on count from the new base, and the generation
+     * is untouched: an offset from the retired segment is not a position in this
+     * one. The segment counter is what a checkpoint has to match, and
+     * orbit_arena_rewind refuses when it does not. */
+    arena->segment++;
+
     arena->reserved_bytes += new_reserve;
     arena->committed_bytes += new_commit;
     

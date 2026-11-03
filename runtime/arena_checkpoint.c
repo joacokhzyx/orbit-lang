@@ -14,17 +14,18 @@
 
 /* ── Checkpoints & Rewind ───────────────────────────────────────────── */
 
-/** @brief Capture a lightweight checkpoint (byte offset + generation) that can be passed to orbit_arena_rewind(). */
+/** @brief Capture a lightweight checkpoint (byte offset, generation and segment) that can be passed to orbit_arena_rewind(). */
 OrbitArenaCheckpoint orbit_arena_checkpoint(const OrbitArena* arena) {
-    OrbitArenaCheckpoint cp = {0, 0};
+    OrbitArenaCheckpoint cp = {0, 0, 0};
     if (!arena) return cp;
     orbit_perf_record_checkpoint();
     cp.offset = (size_t)(arena->cursor - arena->base);
     cp.generation = arena->generation;
+    cp.segment = arena->segment;
     return cp;
 }
 
-/** @brief Rewind @p arena's bump pointer back to @p checkpoint. Returns false if the checkpoint belongs to a past epoch or is ahead of the current cursor. */
+/** @brief Rewind @p arena's bump pointer back to @p checkpoint. Returns false if the checkpoint belongs to a past epoch or another segment, or is ahead of the current cursor. */
 bool orbit_arena_rewind(OrbitArena* arena, OrbitArenaCheckpoint checkpoint) {
     if (!arena) return false;
     
@@ -32,6 +33,14 @@ bool orbit_arena_rewind(OrbitArena* arena, OrbitArenaCheckpoint checkpoint) {
 
     if (checkpoint.generation != arena->generation) {
         return false; /* Invalid checkpoint from past epoch */
+    }
+
+    /* An offset is a distance from base, and after an overflow the arena has a
+     * different base with the same generation. Accepting the checkpoint there
+     * would move the cursor into bytes the live segment has already handed out,
+     * and the next allocation would return them a second time. */
+    if (checkpoint.segment != arena->segment) {
+        return false; /* Invalid checkpoint from another segment */
     }
     
     size_t current_offset = (size_t)(arena->cursor - arena->base);

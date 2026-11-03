@@ -236,6 +236,73 @@ static void test_checkpoint_generation_invalid(void) {
     orbit_arena_destroy(arena);
 }
 
+// 16b. A checkpoint cannot name a segment it was not taken in. The overflow
+// path moves base to a fresh reservation and leaves the generation where it
+// was, so an offset carried across that move is a position in the live segment
+// that some other block already holds.
+static void test_rewind_across_segment_is_refused(void) {
+    OrbitArena* arena = orbit_arena_create(65536);
+
+    char* first = (char*)orbit_alloc(arena, 64);
+    memset(first, 0xAA, 64);
+    OrbitArenaCheckpoint cp_first = orbit_arena_checkpoint(arena);
+    assert(cp_first.segment == arena->segment);
+
+    // Past the 64 MB reservation. The new segment is reserved to the size of
+    // this one request, so the next request chains a segment after that.
+    const size_t big_bytes = 100 * 1024 * 1024;
+    char* big = (char*)orbit_alloc(arena, big_bytes);
+    assert(big != NULL);
+    assert(arena->overflow_list != NULL);
+    assert(arena->generation == cp_first.generation);
+    assert(arena->segment == cp_first.segment + 1);
+    memset(big, 0xC3, 4096);
+
+    char* live = (char*)orbit_alloc(arena, 256);
+    assert(live != NULL);
+    assert(arena->segment == cp_first.segment + 2);
+    memset(live, 0x5A, 256);
+
+    unsigned char* cursor_before = arena->cursor;
+    size_t used_before = arena->used;
+
+    // The stale offset is behind the current one and its generation still
+    // matches, so nothing but the segment can tell the arena to refuse here.
+    assert(cp_first.offset < used_before);
+    assert(!orbit_arena_rewind(arena, cp_first));
+    assert(arena->cursor == cursor_before);
+    assert(arena->used == used_before);
+
+    // The refused rewind left the live block alone: what comes next lands
+    // after it, and writing through that does not touch what came before.
+    char* next = (char*)orbit_alloc(arena, 512);
+    assert(next == live + 256);
+    memset(next, 0x11, 512);
+    for (int i = 0; i < 256; i++) {
+        assert((unsigned char)live[i] == 0x5A);
+    }
+    for (int i = 0; i < 4096; i++) {
+        assert((unsigned char)big[i] == 0xC3);
+    }
+    assert((unsigned char)first[0] == 0xAA);
+
+    // Inside one segment the rewind still restores the cursor and hands the
+    // same block back.
+    OrbitArenaCheckpoint cp_live = orbit_arena_checkpoint(arena);
+    assert(cp_live.segment == arena->segment);
+    char* tail = (char*)orbit_alloc(arena, 128);
+    assert(tail != NULL);
+    assert(orbit_arena_rewind(arena, cp_live));
+    assert(arena->cursor == (unsigned char*)tail);
+    assert(orbit_alloc(arena, 128) == (void*)tail);
+
+    // The epoch rule still holds after all of this.
+    orbit_arena_reset(arena);
+    assert(!orbit_arena_rewind(arena, cp_live));
+
+    orbit_arena_destroy(arena);
+}
+
 // 17. Child arena
 static void test_child_arena(void) {
     OrbitArena* parent = orbit_arena_create(65536);
@@ -634,6 +701,7 @@ int main(void) {
     RUN_TEST(test_large_allocation_overflow);
     RUN_TEST(test_checkpoint_rewind);
     RUN_TEST(test_checkpoint_generation_invalid);
+    RUN_TEST(test_rewind_across_segment_is_refused);
     RUN_TEST(test_child_arena);
     RUN_TEST(test_promote_bytes);
     RUN_TEST(test_string_interning);

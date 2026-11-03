@@ -147,6 +147,9 @@ typedef struct OrbitArena {
     bool ceiling_hit;
 
     uint64_t generation;
+    /* Kept in step with runtime/arena.h: which VA segment the cursor lives in.
+     * A checkpoint offset is only comparable inside one segment. */
+    uint64_t segment;
     uint64_t alloc_count;
 
     struct OrbitArena* parent;
@@ -163,6 +166,7 @@ typedef struct OrbitArena {
 typedef struct {
     size_t offset;
     uint64_t generation;
+    uint64_t segment;
 } OrbitArenaCheckpoint;
 
 typedef void (*OrbitOomHandler)(OrbitArena* arena, size_t bytes);

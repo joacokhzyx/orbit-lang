@@ -116,6 +116,7 @@ OrbitArena* orbit_arena_create(size_t initial_capacity) {
     arena->ceiling_hit = false;
     
     arena->generation = 1;
+    arena->segment = 0;
     arena->alloc_count = 0;
     arena->parent = NULL;
     
