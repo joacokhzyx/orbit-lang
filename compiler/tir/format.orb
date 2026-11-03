@@ -34,14 +34,32 @@ model TirFunction {
     nextBlockId: int
 }
 
+// One field of a model the file declares: the name, and the type text exactly
+// as the source wrote it.
+model TirField {
+    name: string
+    declaredType: string
+}
+
+// A model this file declares. The frontend keeps it for one question -- what
+// type is `d.x` -- and answers it from the program's own text, the way
+// `declaredReturnType` answers a call from the function the file declares. It
+// is never printed: the text records functions, and this is a resolution table
+// rather than a declaration the output claims to make.
+model TirType {
+    name: string
+    fields: list < TirField >
+}
+
 model TirModule {
     name: string
     functions: list < TirFunction >
     diagnostics: list < TirDiagnostic >
+    types: list < TirType >
 }
 
 fn initTirModule(name: string) -> TirModule {
-    return TirModule(name, [], [])
+    return TirModule(name, [], [], [])
 }
 
 fn initTirFunction(id: int, name: string, returnType: string) -> TirFunction {

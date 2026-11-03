@@ -79,6 +79,50 @@ fn declaredReturnType(module: TirModule, name: string) -> string {
     return ""
 }
 
+// The field type the file itself declares. Only a builtin is an answer: a field
+// whose type names another model would need the same table one level deeper, and
+// `list<string>` is punctuation this IR's type column does not carry. An empty
+// answer means the read stays `unknown`, which is what E2004 reports today.
+fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> string {
+    var t = 0
+    while t < module.types.len() {
+        val declared: TirType = module.types.get(t)
+        if declared.name == typeName {
+            var f = 0
+            while f < declared.fields.len() {
+                val field: TirField = declared.fields.get(f)
+                if field.name == fieldName {
+                    if field.declaredType == "int" { return "int" }
+                    if field.declaredType == "string" { return "string" }
+                    if field.declaredType == "bool" { return "bool" }
+                    if field.declaredType == "float" { return "float" }
+                    return ""
+                }
+                f = f + 1
+            }
+        }
+        t = t + 1
+    }
+    return ""
+}
+
+// Record a model the file declares, so a field read can be answered from the
+// text rather than guessed from the name.
+fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
+    val fields = []
+    var i = 0
+    while i < modelDecl.fields.len() {
+        match modelDecl.fields.get(i) {
+            ASTNode.FieldDecl(field) => {
+                fields.push(TirField(field.name, field.fieldType))
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    module.types.push(TirType(modelDecl.name, fields))
+}
+
 // orbit-walk: none -- asks what type an expression is
 fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
@@ -112,6 +156,15 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         }
         ASTNode.MemberAccess(member) => {
             if member.field == "len" || member.field == "length" { return "int" }
+            // A read of a field the program declared in this file has a type,
+            // and it is the one written beside the field's name. Before this,
+            // every member read that was not `len` answered `unknown`, and the
+            // census counted 5,389 of them as E2004.
+            val ownerType = typeOfExpression(module, bindings, member.object)
+            if ownerType != "unknown" {
+                val fromModel = declaredFieldType(module, ownerType, member.field)
+                if fromModel != "" { return fromModel }
+            }
             return "unknown"
         }
         // The type a list literal carries. `lowerExpression` emits the same
@@ -692,7 +745,7 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
                 match declaration {
                     ASTNode.FunctionDecl(function) => lowerFunction(module, function)
                     ASTNode.TypeDecl(typeDecl) => {}
-                    ASTNode.ModelDecl(modelDecl) => {}
+                    ASTNode.ModelDecl(modelDecl) => { tirCollectModel(module, modelDecl) }
                     ASTNode.ConstDecl(constDecl) => {}
                     ASTNode.VarDecl(varDecl) => {}
                     ASTNode.ImportStmt(imp) => {}
