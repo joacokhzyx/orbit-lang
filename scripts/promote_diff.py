@@ -19,11 +19,19 @@ Normalisation is two substitutions and no more:
     r_1234     -> r
     label_567  -> label
 
-Those are the only generated identifier families in the file -- 139 598 and
-15 975 occurrences respectively, and nothing else in the file's 6,858,370 bytes
-carries a numeric suffix. Widening the pattern to any `name_<digits>` would look
-more general and would be wrong: it would flatten a hand-written constant into
-an anonymous one and hide a change that matters.
+Measured on the canonical of 2026-11-02 (7,198,152 bytes): 204,011 `r_<digits>`
+and 27,821 `label_<digits>`. A third generated family exists and is deliberately
+left alone -- `<name>__s<digits>`, the static slots a hoisted constant gets, 941
+occurrences. Flattening it would make two different slots print alike, so a use
+that moved from one hoisted string to another would normalise away, and a tool
+that hides that change is worse than one that over-reports. The cost is honest
+and named here: `o_lowerStatement` growing by one arm renumbers those slots
+across the file, and today that put 11 untouched `o_doctor*` functions in the
+function list of a `promote-diff` run.
+
+Widening the pattern to any `name_<digits>` would look more general and would be
+wrong for the same reason: it would flatten a hand-written constant into an
+anonymous one.
 
 What it prints:
 
@@ -157,14 +165,24 @@ def self_test() -> int:
               "would report 'nothing changed' for a commit that did")
         return 1
 
+    # The slot family must SURVIVE, because flattening it would make a use that
+    # moved between two hoisted constants look like nothing at all.
+    e = "  use_slot(r__s7);"
+    f = "  use_slot(r__s9);"
+    if normalize(e) == normalize(f):
+        print("self-test FAILED: static-slot numbering was flattened, which "
+              "would hide a use moving from one hoisted constant to another")
+        return 1
+
     # And a genuinely identical pair must report nothing.
     rep = diff_report(normalize(a), normalize(a))
     if rep["added"] or rep["removed"]:
         print("self-test FAILED: identical input produced a non-empty diff")
         return 1
 
-    print("Finished promote-diff self-test: renumbering flattens, real changes "
-          "survive, identical input is empty.")
+    print("Finished promote-diff self-test: register and label renumbering "
+          "flattens, slot numbering and real changes survive, identical input "
+          "is empty.")
     return 0
 
 
