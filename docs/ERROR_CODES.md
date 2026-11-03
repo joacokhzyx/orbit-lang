@@ -299,19 +299,19 @@ class: `expression cannot be lowered to TIR: Match`. Before the class
 was named, the census could report how many times the front end gave up and
 not on what. `scripts/unknown_census.py` prints the tally by class. Frontend
 lowering only. Fix hint: same as E3000 — a coverage gap, file it with the
-class. 742 hits on the 2026-11-02 corpus, from 9,233 before the classes were
-named and read. Twelve have since stopped firing: an `Empty` statement, because a
+class. 688 hits on the 2026-11-02 corpus, from 9,233 before the classes were
+named and read. Thirteen have since stopped firing: an `Empty` statement, because a
 statement with no instruction to emit lowers to nothing; `x = 5`, which is the
 `bind` a `val` uses; `d.x = 2`, which emits `store_field` when the place's own
 value is typed; a bare `return`, which emits `return unit void`; `break` and
 `continue` inside a loop, which emit `jump` to the block the loop made for them;
 and `for x in 0..n`, which lowers to the `while` shape plus an increment block.
 `xs[i] = v` emits `store_index` when the container's own type is one the pass can
-read.
+read, and `Point { x: 0, y: 0 }` emits `construct Point 2 x v0 y v1`.
 What still fires is a write whose place this pass cannot read -- `cannot lower
-this assignment to TIR: MemberAccess`, 216 cases, and the same on an index, 5 --
-and an expression the pass has no rule for: `Match` (296), `Try` (93),
-`TypedLiteral` (50), `If` (30), `ObjectLiteral` (12), `ReturnOk` (8) and an
+this assignment to TIR: MemberAccess`, 212 cases, and the same on an index, 5 --
+and an expression the pass has no rule for: `Match` (296), `Try` (93), `If` (30),
+`ObjectLiteral` (12), `ReturnOk` (8) and an
 index *read*, `xs[i]` (8), whose element type the pass does not keep. A `for`
 over a value with no element table (20) and a labelled `for` with no target for
 a named `break` (4) say which they are.

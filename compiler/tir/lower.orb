@@ -127,6 +127,13 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         ASTNode.Interp(interpNode) => {
             return "string"
         }
+        // A model literal names the type it builds, so the answer is the written
+        // name and not an inference. `lowerExpression` emits the same string, and
+        // the two must agree: a `val` bound to a literal this reader calls
+        // `unknown` loads back `unknown` at every later use of the name.
+        ASTNode.TypedLiteral(typedNode) => {
+            return typedNode.declaredType
+        }
         ASTNode.Call(call) => {
             match call.callee {
                 ASTNode.Literal(l) => {
@@ -209,7 +216,7 @@ fn astNodeKind(node: ASTNode) -> string {
     return "unknown node"
 }
 
-// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
@@ -342,6 +349,36 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                 li = li + 1
             }
             return tirEmit(function, blockId, "list", "list", tirIntText(li) + elements)
+        }
+        // `Point { x: 0, y: 0 }` is a construction whose type the source wrote.
+        // The instruction names that type and lists the fields in the order they
+        // were written: `construct Point 2 x v0 y v1`. No model table is read, so
+        // a generic literal keeps the bare name the program wrote -- `Box`, not
+        // the `Box_int` the build mints -- because this text reports the source,
+        // not the resolved instance.
+        ASTNode.TypedLiteral(typed) => {
+            match typed.value {
+                ASTNode.ObjectLiteral(body) => {
+                    var fieldText = tirIntText(body.fields.len())
+                    var fi = 0
+                    while fi < body.fields.len() {
+                        val fnode = body.fields.get(fi)
+                        match fnode {
+                            ASTNode.FieldInit(init) => {
+                                val fieldValue = lowerExpression(module, function, blockId, bindings, init.value)
+                                if fieldValue < 0 { return -1 }
+                                fieldText = fieldText + " " + init.name + " " + tirValue(fieldValue)
+                            }
+                            _ => {}
+                        }
+                        fi = fi + 1
+                    }
+                    return tirEmit(function, blockId, "construct", typed.declaredType, fieldText)
+                }
+                _ => {}
+            }
+            tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
+            return -1
         }
         _ => {
             tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)

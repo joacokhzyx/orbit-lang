@@ -722,25 +722,25 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 19.4% of instructions are `unknown`, and every one of them says so
+## 19.3% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 212 files and 105,091
+`scripts/unknown_census.py`, run on 2026-11-02 over 212 files and 105,260
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 20,421 | **19.4%** |
+| instructions the front end types `unknown` | 20,348 | **19.3%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 8,961 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 8,888 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 1,296), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 33), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 5,389) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,742). Their sum, 20,421, is the whole unknown count. The five
+(call result, 4,742). Their sum, 20,348, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:220`, `:233`, `:241`, `:254` and `:292`, and
 each sits on the branch that emits the instruction.
 
@@ -773,13 +773,13 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 742 times on this corpus, down from 9,233. It is not in the
+<node>" fired 688 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Twelve of the classes the table first printed turned out not to
+node class"). Thirteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -800,6 +800,16 @@ write: 22 of these write positions were give-ups and 5 stay that way under a
 receiver this pass cannot read. The *read* `xs[i]` stays a give-up (8 cases),
 because a load would have to say what it loaded and the pass keeps no element
 table.
+
+`Point { x: 0, y: 0 }` is a construction with the same problem and a written
+answer: 50 model literals gave up, and the name bound to one loaded back
+`unknown` at every later use. It emits `construct Point 2 x v0 y v1` now -- the
+type the source wrote, the field count, then each field and its value -- and the
+reader of types gives the same string, which is the half that removes the loads:
+73 of them stopped being `unknown`. A generic literal keeps the bare name the
+program wrote, not the `Box_int` the build mints, because this text reports the
+source. Four writes through a place lowered as a side effect (`MemberAccess` 216
+to 212): their receiver was one of those literals, and it used to be unreadable.
 
 `[1, 2]` was the fourth: no rule for a list literal, so the elements were never
 lowered and the name bound to one loaded back `unknown` -- the reader of types
@@ -860,15 +870,15 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-19.5% is the number the type work has to be scoped against, and a
+19.3% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Run on 2026-11-02, after the
 baseline moved down to the measured numbers:
 
 ```console
 $ python scripts/unknown_ratchet.py --compiler <orbit> --cc gcc
-  unknown_per_mille               194  baseline    194  unchanged
+  unknown_per_mille               193  baseline    193  unchanged
   silent_per_mille                  0  baseline      0  unchanged
-Finished unknown-count: 194 (baseline 194, ratchet holds)
+Finished unknown-count: 193 (baseline 193, ratchet holds)
 ```
 
 What the second number holds now is the one-to-one tie above. An opcode that
@@ -880,9 +890,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 18/18
+## The frontend gate is 19/19
 
-`scripts/frontend_gate.py` runs eighteen fixtures and all eighteen pass (two of
+`scripts/frontend_gate.py` runs nineteen fixtures and all nineteen pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
