@@ -1,0 +1,12 @@
+orbit-tir 1
+module fixture
+function 0 put void
+param 0 0 xs list
+param 0 1 i int
+param 0 2 v int
+block 0 0
+instr 0 0 0 load int v
+instr 0 0 1 load list xs
+instr 0 0 2 load int i
+instr 0 0 3 store_index unit v1 v2 v0
+end-function 0

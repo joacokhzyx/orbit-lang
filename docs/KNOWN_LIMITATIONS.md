@@ -724,23 +724,23 @@ that would remove the requirement.
 
 ## 19.4% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 209 files and 103,333
+`scripts/unknown_census.py`, run on 2026-11-02 over 212 files and 105,091
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 20,005 | **19.4%** |
+| instructions the front end types `unknown` | 20,421 | **19.4%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 8,798 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 1,290), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 8,961 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 1,296), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 33), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 5,251) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,633). Their sum, 20,005, is the whole unknown count. The five
+(member read, 5,389) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 4,742). Their sum, 20,421, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:220`, `:233`, `:241`, `:254` and `:292`, and
 each sits on the branch that emits the instruction.
 
@@ -773,13 +773,13 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 750 times on this corpus, down from 9,233. It is not in the
+<node>" fired 742 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Eleven of the classes the table first printed turned out not to
+node class"). Twelve of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -793,6 +793,13 @@ emit a member read this pass cannot type -- the frontend keeps no model table --
 which would trade a declared give-up for an `unknown` instruction. A chained
 place (`tok.line = 5` under a receiver it cannot type) stays a give-up, and 216
 of them say so.
+
+`xs[i] = v` is the same write on an index, and it emits `store_index unit <container>
+<index> <value>`. The container's own type is the condition, as it is for the field
+write: 22 of these write positions were give-ups and 5 stay that way under a
+receiver this pass cannot read. The *read* `xs[i]` stays a give-up (8 cases),
+because a load would have to say what it loaded and the pass keeps no element
+table.
 
 `[1, 2]` was the fourth: no rule for a list literal, so the elements were never
 lowered and the name bound to one loaded back `unknown` -- the reader of types
@@ -873,9 +880,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 17/17
+## The frontend gate is 18/18
 
-`scripts/frontend_gate.py` runs seventeen fixtures and all seventeen pass (two of
+`scripts/frontend_gate.py` runs eighteen fixtures and all eighteen pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`

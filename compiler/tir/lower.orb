@@ -356,7 +356,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 // more for `continue` -- and the error suppressed the file's canonical TIR.
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, IndexAccessNode, MatchCaseNode, MatchNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, MatchNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode, breakTarget: int, continueTarget: int) -> int {
     if blockId < 0 { return blockId }
     match node {
@@ -371,8 +371,9 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
         // the fallback below, reached the expression reader and came back as
         // "expression cannot be lowered to TIR: Assignment" -- 3,137 times over
         // the corpus, the largest class the census counts. Writing through a
-        // place is not this: the frontend has no place model, so `a.b = e` and
-        // `xs[i] = e` still give up, now naming the place.
+        // place is a different shape, and both kinds of place have a rule now:
+        // `a.b = e` emits `store_field`, `xs[i] = e` emits `store_index`. Each
+        // lowers only when the thing written into is a value this pass can type.
         ASTNode.Assignment(assignment) => {
             val value = lowerExpression(module, function, blockId, bindings, assignment.value)
             var storeName = ""
@@ -395,6 +396,22 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                         val receiver = lowerExpression(module, function, blockId, bindings, place.object)
                         if receiver >= 0 {
                             tirEmit(function, blockId, "store_field", "unit", tirValue(receiver) + " " + place.field + " " + tirValue(value))
+                            return blockId
+                        }
+                    }
+                }
+                // `xs[i] = v` writes an element, and the write answers no type, so
+                // the instruction carries `unit` and claims nothing about the
+                // element: this pass keeps no list element table. That is also why
+                // the read of the same place (`return xs[i]`) stays a give-up -- a
+                // load would have to say what it loaded. The value is already
+                // lowered, so the operands read container, index, value.
+                ASTNode.IndexAccess(place) => {
+                    if typeOfExpression(module, bindings, place.object) != "unknown" {
+                        val receiver = lowerExpression(module, function, blockId, bindings, place.object)
+                        val index = lowerExpression(module, function, blockId, bindings, place.index)
+                        if receiver >= 0 && index >= 0 {
+                            tirEmit(function, blockId, "store_index", "unit", tirValue(receiver) + " " + tirValue(index) + " " + tirValue(value))
                             return blockId
                         }
                     }
