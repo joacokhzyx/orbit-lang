@@ -1,0 +1,20 @@
+// A field declared `list<string>` is a list, and the container kind is the whole
+// answer: `typeOfExpression` and `lowerExpression` already call a list literal
+// `list` without an element kind, so a list-typed field reads as the same type
+// the same pass already states. `declaredFieldType` used to deny this and return
+// "" for it, calling `list<string>` punctuation the type column does not carry
+// while the column carried `list` for every literal. Both spellings answer
+// `list`: `tags: list` below names the container with no element type written.
+//
+// The element kind is still not an answer: reading one element (`bag.items[0]`)
+// would have to say what it loaded, and this pass keeps no element table. That
+// give-up is the one tests/frontend/index_write.orb names, and the census counts
+// it as `expression cannot be lowered to TIR: IndexAccess`. Iterating a list with
+// `for x in xs` is the same missing answer, pinned by
+// tests/frontend/list_iteration.orb.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Bag { items: list<string> }  model Box { tags: list }  fn take_items(bag: Bag) -> list { return bag.items }  fn take_tags(b: Box) -> list { return b.tags }"
+    print(compileFrontendSource("fixture", source))
+}

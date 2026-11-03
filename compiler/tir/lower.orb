@@ -100,9 +100,47 @@ fn collectSignatures(module: TirModule, program: ProgramNode) {
     }
 }
 
-// The field type the file itself declares. Only a builtin is an answer: a field
-// whose type names another model would need the same table one level deeper, and
-// `list<string>` is punctuation this IR's type column does not carry. An empty
+// Does this file declare a model under this name? One pass over the table the
+// program filled. The answer is about the name, not the model behind it: the
+// language accepts `model Node { value: int  next: Node }` today
+// (tests/suite/model_local_named_mid.orb) and a mutual pair as well, so a
+// lookup that resolved a field type to a leaf has no bound to stop at. The
+// chain's depth comes from the AST instead -- one lookup per hop, and the hop
+// that names no declared model is the hop that answers `unknown`.
+fn tirDeclaresModel(module: TirModule, name: string) -> bool {
+    var i = 0
+    while i < module.types.len() {
+        val declared: TirType = module.types.get(i)
+        if declared.name == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// The models the file declares, read before any body, for the one reason
+// `collectSignatures` exists: a `model` written after the function whose body
+// reads one of its fields was not in the table while that body lowered, so the
+// read answered `unknown` for a type the file states a few lines later. The
+// table is a resolution table and prints nothing, so collecting it early costs a
+// list and no line of the canonical text.
+fn collectModels(module: TirModule, program: ProgramNode) {
+    var i = 0
+    while i < program.decls.len() {
+        match program.decls.get(i) {
+            ASTNode.ModelDecl(modelDecl) => { tirCollectModel(module, modelDecl) }
+            _ => {}
+        }
+        i = i + 1
+    }
+}
+
+// The field type the file itself declares. Three shapes are answers, and each
+// is the text the source writes beside the field's name: a builtin, a `list`
+// container -- the same claim `typeOfExpression` and `lowerExpression` already
+// make for a list literal -- and the name of another model this file declares.
+// The element kind is not an answer, so a read of one element stays the give-up
+// tests/frontend/index_write.orb names, and neither is a name the file does
+// not declare, so a model from an imported file stays unanswered. An empty
 // answer means the read stays `unknown`, which is what E2004 reports today.
 fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> string {
     var t = 0
@@ -117,6 +155,15 @@ fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> 
                     if field.declaredType == "string" { return "string" }
                     if field.declaredType == "bool" { return "bool" }
                     if field.declaredType == "float" { return "float" }
+                    // `list` and `list<T>`: the prefix is read from the parsed
+                    // type text, the way `declaredPayloadType` reads `result<`.
+                    // A `&Inner` field type keeps its ampersand and answers
+                    // nothing, because the name this table holds has none.
+                    if field.declaredType == "list" { return "list" }
+                    if field.declaredType.length >= 5 {
+                        if field.declaredType.slice(0, 5) == "list<" { return "list" }
+                    }
+                    if tirDeclaresModel(module, field.declaredType) { return field.declaredType }
                     return ""
                 }
                 f = f + 1
@@ -129,10 +176,9 @@ fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> 
 
 // The value type written inside a declared `result`. `typeOfExpression` answers
 // a call to a function this file declares with the text after `->`, so the payload
-// a `try` reads is in the file's own bytes. Only a builtin is an answer: a payload
-// naming a model needs the same table one level deeper, the reason
-// `declaredFieldType` stops at a `list<string>`. An empty answer is the give-up
-// E3001 reports.
+// a `try` reads is in the file's own bytes. Only a builtin is an answer: this rule
+// is handed one type string and reads no declaration with it, not even the model
+// table `declaredFieldType` reads. An empty answer is the give-up E3001 reports.
 fn declaredPayloadType(typeName: string) -> string {
     if typeName.length < 9 { return "" }
     if typeName.slice(0, 7) != "result<" { return "" }
@@ -489,8 +535,8 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
         // handler ends the block it is in. Then one path reaches the value and no
         // merge value is needed -- the one an `if` in expression position still
         // lacks. A bare `try` and a handler that falls through leave the other path
-        // open, a `catch e` binds the error message, and a payload naming a model
-        // needs the table one level deeper: each says which type is missing instead
+        // open, a `catch e` binds the error message, and a payload naming a model is
+        // a name this rule does not read: each says which type is missing instead
         // of inventing one. The `branch` ends the block the source wrote the `try`
         // in, so the instructions after it are the ok path, and the value is read
         // from the block the branch names.
@@ -561,10 +607,12 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
                     // type. It is lowered when the place's own value is one the
                     // pass can type -- `d` here, a parameter whose declared type
                     // the binding carries. A chained place (`tok.line = 5` under a
-                    // receiver it cannot type) stays a give-up, because reading
-                    // the place needs a member instruction the frontend has no
-                    // type for: the frontend keeps no model table, so emitting it
-                    // would add an `unknown` where the give-up adds nothing.
+                    // receiver it cannot type) stays a give-up, because the read
+                    // of `tok.line` would enter the text as `unknown`, and an
+                    // `unknown` suppresses the file exactly as the give-up does
+                    // while also raising the count the ratchet holds. Where
+                    // `declaredFieldType` answers that hop, the place is typed and
+                    // the write lowers.
                     // The check of the value against the field's declaration is
                     // the checker's job in the build path, not this pass's.
                     if typeOfExpression(module, bindings, place.object) != "unknown" {
@@ -825,13 +873,17 @@ fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
     match root {
         ASTNode.Program(program) => {
             collectSignatures(module, program)
+            collectModels(module, program)
             var i = 0
             while i < program.decls.len() {
                 val declaration: ASTNode = program.decls.get(i)
                 match declaration {
                     ASTNode.FunctionDecl(function) => lowerFunction(module, function)
                     ASTNode.TypeDecl(typeDecl) => {}
-                    ASTNode.ModelDecl(modelDecl) => { tirCollectModel(module, modelDecl) }
+                    // Collected by `collectModels` before any body was lowered,
+                    // so the order the file declares its models in cannot change
+                    // what a read in this file answers.
+                    ASTNode.ModelDecl(modelDecl) => {}
                     ASTNode.ConstDecl(constDecl) => {}
                     ASTNode.VarDecl(varDecl) => {}
                     ASTNode.ImportStmt(imp) => {}

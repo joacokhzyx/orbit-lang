@@ -722,26 +722,26 @@ so at run time a dynamic field's kind is not recoverable, and a getter chosen
 by guessing would read the wrong width. A tagged value model is the change
 that would remove the requirement.
 
-## 16.8% of instructions are `unknown`, and every one of them says so
+## 16.5% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-03 over 212 files and 105,423
+`scripts/unknown_census.py`, run on 2026-11-03 over 212 files and 105,554
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 17,702 | **16.8%** |
+| instructions the front end types `unknown` | 17,410 | **16.5%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 7,680 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 7,688 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 962), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 4,859) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,201). Their sum, 17,702, is the whole unknown count. The five
-sites are `compiler/tir/lower.orb:291`, `:304`, `:312`, `:325` and `:363`, and
+(member read, 4,556) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 4,204). Their sum, 17,410, is the whole unknown count. The five
+sites are `compiler/tir/lower.orb:385`, `:398`, `:406`, `:419` and `:457`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
@@ -751,7 +751,7 @@ call from the function the file itself declares, so the `call` class fell from
 load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
 writes as a `bind` instead of giving up on. What the table still cannot answer is a call into another file: the lowering
 sees one module's declarations. `len`, the runtime builtins and a short list of
-names written into this file cover those, and 4,623 calls stay untyped.
+names written into this file cover those, and 4,204 calls stay untyped.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
@@ -788,11 +788,14 @@ to emit. It lowers to nothing. `Assignment` in statement position appeared 3,137
 times for the same reason; a rebind is the `bind` a `val` already emitted, so
 `x = take(x + 20)` lowers now. `MemberAccess` appeared 414 times as a write
 through a place, and `d.x = 2` emits `store_field`. That one is conditional: the
-write lowers when the place's own value is typed, because the alternative is to
-emit a member read this pass cannot type -- the frontend keeps no model table --
-which would trade a declared give-up for an `unknown` instruction. A chained
-place (`tok.line = 5` under a receiver it cannot type) stays a give-up, and 216
-of them say so.
+write lowers when the place's own value is typed. The alternative is to emit a
+member read this pass cannot type, which trades a declared give-up for an
+`unknown` instruction -- and an `unknown` suppresses the file's canonical text
+exactly as the give-up does, while also raising the number the ratchet holds. A
+chained place (`tok.line = 5` under a receiver it cannot type) stays a give-up,
+and 211 of them say so today (216 on 2026-11-02). Since 2026-11-03 the table
+answers more of those hops: a field declared with another model's name is typed,
+and `o.i.n` reads both hops.
 
 `xs[i] = v` is the same write on an index, and it emits `store_index unit <container>
 <index> <value>`. The container's own type is the condition, as it is for the field
@@ -822,14 +825,20 @@ rather than dropping it.
 question the pass had never been asked: what type does this file declare for
 that field. `typeOfExpression` answered `int` for `len` and `unknown` for
 everything else, so every member read entered the count as `unknown` (E2004,
-5,389 of them). The program's own `model` declarations are now collected while
-the file is lowered, and a field declared `int`, `string`, `bool` or `float`
-answers its written type; anything else -- a field naming another model, a
-`list<string>`, a union -- still answers `unknown`, because resolving those needs
-the same table one level deeper. 1,050 instructions left the unknown count with
-that, and the rate moved from 19.3% to 18.3% (193 per mille to 183, and the
-baseline follows). 4,858 reads are still untyped. `tests/frontend/field_read.orb`
-pins the text a typed one prints.
+5,389 of them). The program's own `model` declarations are collected before any
+body is lowered, and a field declared `int`, `string`, `bool` or `float` answers
+its written type. On 2026-11-03 two more shapes became answers: a field declared
+`list` or `list<string>` answers `list`, the same claim the pass already makes
+for a list literal, and a field whose type names another model this file
+declares answers that written name, so `o.i.n` reads both hops. 1,050
+instructions left the unknown count with the first step, and the rate moved from
+19.3% to 18.3% (193 per mille to 183). 4,556 reads are still untyped: a model
+declared in another file, a union, and one element of a list -- the element kind
+is not claimed, because this pass keeps no table for it.
+`tests/frontend/field_read.orb`, `tests/frontend/nested_field_read.orb` and
+`tests/frontend/list_field_read.orb` pin the three answered shapes;
+`tests/frontend/crossfile_field.orb` pins that an imported name is not one of
+them.
 
 `[1, 2]` was the fourth: no rule for a list literal, so the elements were never
 lowered and the name bound to one loaded back `unknown` -- the reader of types
@@ -878,10 +887,13 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
-What is left of the class list is `Match` 287, the chained `MemberAccess` 216,
-`Try` 93, `TypedLiteral` 50 and `If` 30. Lowering a loop lowers its body too, so
-the absolute count moves both ways and the rate is what to read: 20,005 unknown
-over 103,333 instructions, against 25,489 over 86,942 at the start of the day.
+What is left of the class list is `Match` 300, the chained `MemberAccess` 211,
+`Try` 93, `If` 30, a `for` over a value with no element type 20, `ObjectLiteral`
+12, `IndexAccess` 8 reads and 2 writes, and a labelled `break` with no target 4.
+Lowering a loop lowers its body too, so the absolute count moves both ways and
+the rate is what to read: 17,410 unknown over 105,554 instructions on
+2026-11-03, against 20,005 over 103,333 on 2026-11-02 and 25,489 over 86,942 at
+the start of that day.
 The ratchet reads the rate. Worst file by share of unknown instructions:
 `compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
 
@@ -890,7 +902,7 @@ Two tools, and the difference matters. `unknown_census.py` is the
 is the **gate**: it reads the census output, compares two of the
 numbers against a committed baseline in `scripts/baselines/`, and
 fails if either went *up*. It does not fail because the count is high -
-16.8% is the number the type work has to be scoped against, and a
+16.5% is the number the type work has to be scoped against, and a
 zero-bar gate is a gate everybody deletes. Run on 2026-11-02, after the
 baseline moved down to the measured numbers:
 

@@ -1,0 +1,21 @@
+// A model declared in ANOTHER file is not an answer. The frontend lowers the one
+// source it is handed and never follows `import`, so `Inner` below is a name this
+// program's table has no entry for, the read of `i` stays `unknown`, and E2004
+// reports it. This is the boundary of the same-file rule: a type name the file
+// does not declare is not a model it declares.
+//
+// The reason is checked, not assumed. An empty TIR is also what a parse
+// diagnostic produces, and this fixture claims a give-up, so it prints only when
+// the refusal names E2004. If the input ever stops reaching the member-read rule,
+// the fixture goes silent and the gate fails instead of passing on the wrong
+// evidence.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "import \"inner.orb\"  model Outer { i: Inner }  fn f(o: Outer) -> int { return o.i.n }"
+    val output = compileFrontendSource("crossfile", source)
+    val reason = frontendRefusal("crossfile", source)
+    if output == "" && reason.indexOf("E2004") != -1 {
+        print("cross-file model field suppressed TIR")
+    }
+}

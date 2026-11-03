@@ -79,6 +79,11 @@ EMPTY_EXPECTATIONS = {
     # which this pass does not keep. Emitting `unknown` instead would suppress
     # the same TIR and raise the count the ratchet holds.
     "list_iteration.orb": "list iteration stays a give-up",
+    # A field whose type names a model declared in ANOTHER file. The table is
+    # the program's own text, so the name has no answer and the read keeps its
+    # E2004; the fixture prints only when the refusal names that code, so an
+    # input that stopped reaching the member-read rule cannot pass here.
+    "crossfile_field.orb": "cross-file model field suppressed TIR",
 }
 
 
