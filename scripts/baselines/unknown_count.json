@@ -6,9 +6,9 @@
     "silent_per_mille": 0
   },
   "files": 212,
-  "instructions": 105260,
+  "instructions": 105285,
   "context": {
-    "unknown_instructions": 20348,
+    "unknown_instructions": 20350,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -65,7 +65,7 @@
     "std/log/log.orb": 0,
     "std/option/option.orb": 0,
     "std/string/regex.orb": 108,
-    "std/string/string.orb": 61,
+    "std/string/string.orb": 63,
     "std/sys/arena.orb": 9,
     "std/sys/bytes/bitwise.orb": 0,
     "std/sys/crypto/jwt.orb": 110,

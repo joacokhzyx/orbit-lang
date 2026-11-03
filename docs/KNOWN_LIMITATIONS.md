@@ -724,13 +724,13 @@ that would remove the requirement.
 
 ## 19.3% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 212 files and 105,260
+`scripts/unknown_census.py`, run on 2026-11-02 over 212 files and 105,285
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 20,348 | **19.3%** |
+| instructions the front end types `unknown` | 20,350 | **19.3%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
@@ -740,7 +740,7 @@ the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-fronte
 (binary operands, 1,296), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 33), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 5,389) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,742). Their sum, 20,348, is the whole unknown count. The five
+(call result, 4,742). Their sum, 20,350, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:220`, `:233`, `:241`, `:254` and `:292`, and
 each sits on the branch that emits the instruction.
 
@@ -773,13 +773,13 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 688 times on this corpus, down from 9,233. It is not in the
+<node>" fired 680 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Thirteen of the classes the table first printed turned out not to
+node class"). Fourteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -810,6 +810,13 @@ reader of types gives the same string, which is the half that removes the loads:
 program wrote, not the `Box_int` the build mints, because this text reports the
 source. Four writes through a place lowered as a side effect (`MemberAccess` 216
 to 212): their receiver was one of those literals, and it used to be unreadable.
+
+`return ok 200 "ready"` is another with a written answer: 8 of them gave up as
+`ReturnOk`, because the statement reader knew `return <expr>` and not the `ok`
+form. It emits `result_ok result 200 v0` and then `return unit v1` -- the name
+the build IR gives the wrapper, the status the source wrote, and `void` when the
+`ok` carries no payload at all, because the parse keeps the empty expression
+rather than dropping it.
 
 `[1, 2]` was the fourth: no rule for a list literal, so the elements were never
 lowered and the name bound to one loaded back `unknown` -- the reader of types
@@ -890,9 +897,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 19/19
+## The frontend gate is 20/20
 
-`scripts/frontend_gate.py` runs nineteen fixtures and all nineteen pass (two of
+`scripts/frontend_gate.py` runs twenty fixtures and all twenty pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`

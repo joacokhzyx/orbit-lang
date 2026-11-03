@@ -393,7 +393,7 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
 // more for `continue` -- and the error suppressed the file's canonical TIR.
 // Returns the block into which the following statement must be emitted.
 // A terminator returns -1, which makes later source statements unreachable.
-// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, MatchNode, ReturnErrNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
+// orbit-walk-misses: BinaryOpNode, CallNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, FieldInitNode, FunctionDeclNode, MatchCaseNode, MatchNode, ReturnErrNode, RouteDeclNode, ScheduleDeclNode, TryNode, TypedLiteralNode, UnaryOpNode
 fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode, breakTarget: int, continueTarget: int) -> int {
     if blockId < 0 { return blockId }
     match node {
@@ -462,6 +462,26 @@ fn lowerStatement(module: TirModule, function: TirFunction, blockId: int, bindin
             }
             tirError(module, "E3001", "cannot lower this assignment to TIR: " + astNodeKind(assignment.target), 0, 0)
             return blockId
+        }
+        // `return ok 200 "ready"` wraps a value and returns it, which is two
+        // instructions because that is two things: `result_ok` builds the
+        // wrapper, under the name the build IR already gives it, and `return`
+        // returns what was built. The status code is the source's own and rides
+        // along; `return ok` with no payload writes `void`, because the parse
+        // keeps the empty expression rather than dropping it.
+        ASTNode.ReturnOk(ok) => {
+            var wrappedOperands = ""
+            if ok.status != "" { wrappedOperands = ok.status + " " }
+            if astNodeKind(ok.expr) == "Empty" {
+                wrappedOperands = wrappedOperands + "void"
+            } else {
+                val value = lowerExpression(module, function, blockId, bindings, ok.expr)
+                if value < 0 { return -1 }
+                wrappedOperands = wrappedOperands + tirValue(value)
+            }
+            val wrapped = tirEmit(function, blockId, "result_ok", "result", wrappedOperands)
+            tirEmit(function, blockId, "return", "unit", tirValue(wrapped))
+            return -1
         }
         ASTNode.Return(ret) => {
             // A bare `return` in a function that answers nothing has no value to
