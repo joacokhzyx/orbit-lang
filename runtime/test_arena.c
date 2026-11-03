@@ -303,6 +303,76 @@ static void test_rewind_across_segment_is_refused(void) {
     orbit_arena_destroy(arena);
 }
 
+// 16c. The ceiling report names the source of its own limit. A process that
+// never set ORBIT_ARENA_MAX_MB is at the machine-derived default, and a line
+// blaming the variable sends whoever reads it to an environment with nothing
+// to change. The texts are asserted byte for byte.
+static void test_ceiling_message_names_its_source(void) {
+    char line[512];
+    size_t n;
+
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "1") == 0);
+    OrbitArena* named = orbit_arena_create(65536);
+    assert(named != NULL);
+    assert(named->max_rule == (size_t)1024 * 1024);
+    assert(named->max_rule_from_env == true);
+
+    n = orbit_oom_put(line, sizeof line, 0, "orbit: ");
+    n = orbit_oom_put_ceiling(line, sizeof line, n, named, 2 * 1024 * 1024);
+    assert(strcmp(line,
+                  "orbit: arena ceiling reached allocating 2097152 bytes; "
+                  "65536 of 1048576 bytes committed, the limit is 1 MB from "
+                  "ORBIT_ARENA_MAX_MB") == 0);
+    orbit_arena_destroy(named);
+
+    // Unset: the default, which is three quarters of what the machine reports.
+    assert(orbit_env_unset("ORBIT_ARENA_MAX_MB") == 0);
+    OrbitArena* dflt = orbit_arena_create(65536);
+    assert(dflt != NULL);
+    assert(dflt->max_rule == orbit_arena_default_max());
+    assert(dflt->max_rule_from_env == false);
+    assert(dflt->committed_bytes == 65536);
+
+    n = orbit_oom_put(line, sizeof line, 0, "orbit: ");
+    n = orbit_oom_put_ceiling(line, sizeof line, n, dflt, 2 * 1024 * 1024);
+    char expected[512];
+    snprintf(expected, sizeof expected,
+             "orbit: arena ceiling reached allocating 2097152 bytes; "
+             "65536 of %llu bytes committed, the limit is %llu MB, the default "
+             "of three quarters of physical memory",
+             (unsigned long long)dflt->max_rule,
+             (unsigned long long)(dflt->max_rule / (1024 * 1024)));
+    assert(strcmp(line, expected) == 0);
+    orbit_arena_destroy(dflt);
+
+    // A value that is not a positive count is not the variable speaking: the
+    // limit is still the default, and so is the clause.
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "0") == 0);
+    OrbitArena* zero = orbit_arena_create(65536);
+    assert(zero != NULL);
+    assert(zero->max_rule_from_env == false);
+    orbit_arena_destroy(zero);
+
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "lots") == 0);
+    OrbitArena* malformed = orbit_arena_create(65536);
+    assert(malformed != NULL);
+    assert(malformed->max_rule == orbit_arena_default_max());
+    assert(malformed->max_rule_from_env == false);
+    orbit_arena_destroy(malformed);
+
+    // A child inherits the cap and the clause that names it.
+    assert(orbit_env_set("ORBIT_ARENA_MAX_MB", "1") == 0);
+    OrbitArena* parent = orbit_arena_create(65536);
+    assert(parent != NULL);
+    assert(orbit_env_unset("ORBIT_ARENA_MAX_MB") == 0);
+    OrbitArena* child = orbit_arena_create_child(parent, 65536);
+    assert(child != NULL);
+    assert(child->max_rule == parent->max_rule);
+    assert(child->max_rule_from_env == parent->max_rule_from_env);
+    orbit_arena_destroy(child);
+    orbit_arena_destroy(parent);
+}
+
 // 17. Child arena
 static void test_child_arena(void) {
     OrbitArena* parent = orbit_arena_create(65536);
@@ -702,6 +772,7 @@ int main(void) {
     RUN_TEST(test_checkpoint_rewind);
     RUN_TEST(test_checkpoint_generation_invalid);
     RUN_TEST(test_rewind_across_segment_is_refused);
+    RUN_TEST(test_ceiling_message_names_its_source);
     RUN_TEST(test_child_arena);
     RUN_TEST(test_promote_bytes);
     RUN_TEST(test_string_interning);

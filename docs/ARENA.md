@@ -209,11 +209,17 @@ current design answers each of those. Measure, don't assume.
 `ORBIT_ARENA_MAX_MB` is the stop, not the size: it caps the bytes an arena may
 commit at three quarters of physical memory by default, and an allocation that
 would pass the cap answers the same exhaustion path the OS running out does.
-The report names the cap (`ORBIT_ARENA_MAX_MB`) instead of blaming the OS. It
-exists because a runaway allocator used to grow until the machine swapped,
-which reads as a freeze with no output rather than as a failure. Unset, zero
-and malformed values keep the default, which is 2048 MB on a platform that
-will not report its memory; a child arena inherits its parent's cap.
+The report names the source of its own limit. `runtime/arena_alloc.c:75-77` ends
+the line with " MB from ORBIT_ARENA_MAX_MB" when the variable set the cap, and
+with " MB, the default of three quarters of physical memory" when it did not. A
+line that named the variable for a default sent the reader to unset a variable
+nobody had set.
+
+The cap exists because a runaway allocator used to grow until the machine
+swapped, which reads as a freeze with no output rather than as a failure. Unset,
+zero and malformed values keep the default, which is 2048 MB on a platform that
+will not report its memory; a child arena inherits its parent's cap and the
+clause that names it.
 
 **Telemetry** (`runtime/performance.h`): `arena_alloc_count`,
 `arena_requested_bytes`, `arena_aligned_bytes`,

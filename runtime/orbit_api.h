@@ -140,10 +140,11 @@ typedef struct OrbitArena {
     size_t peak_used;
     size_t committed_bytes;
     size_t reserved_bytes;
-    /* Kept in step with the private definition in runtime/arena.c: the
-     * committed-bytes ceiling and whether the last refusal was that ceiling
-     * rather than the OS running out. */
+    /* Kept in step with the definition in runtime/arena.h: the
+     * committed-bytes ceiling, where that number came from, and whether the
+     * last refusal was that ceiling rather than the OS running out. */
     size_t max_rule;
+    bool max_rule_from_env;
     bool ceiling_hit;
 
     uint64_t generation;

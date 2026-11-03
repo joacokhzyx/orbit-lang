@@ -60,9 +60,14 @@ static size_t orbit_arena_default_max(void) {
 
 /* The committed-bytes ceiling: ORBIT_ARENA_MAX_MB, or the default above. It
  * stops a runaway allocation before the machine swaps, which is how an
- * emitter that kept growing presented as a freeze rather than as an error. */
-static size_t orbit_arena_max_rule_from_env(void) {
+ * emitter that kept growing presented as a freeze rather than as an error.
+ * *came_from_env records which of the two was used, so the refusal line can
+ * name the source the number actually came from. A process that never set the
+ * variable is at the default, and blaming ORBIT_ARENA_MAX_MB there points the
+ * reader at an environment that holds nothing. */
+static size_t orbit_arena_max_rule(bool* came_from_env) {
     size_t from_env = orbit_arena_megabytes_from_env("ORBIT_ARENA_MAX_MB", 0);
+    if (came_from_env) *came_from_env = from_env != 0;
     return from_env != 0 ? from_env : orbit_arena_default_max();
 }
 
@@ -112,7 +117,7 @@ OrbitArena* orbit_arena_create(size_t initial_capacity) {
     arena->peak_used = 0;
     arena->committed_bytes = commit_size;
     arena->reserved_bytes = reserve_size;
-    arena->max_rule = orbit_arena_max_rule_from_env();
+    arena->max_rule = orbit_arena_max_rule(&arena->max_rule_from_env);
     arena->ceiling_hit = false;
     
     arena->generation = 1;

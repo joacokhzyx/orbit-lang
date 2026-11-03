@@ -81,11 +81,14 @@ typedef struct OrbitArena {
     size_t peak_used;
     size_t committed_bytes;
     size_t reserved_bytes;
-    /* The ceiling on committed bytes for this arena, from ORBIT_ARENA_MAX_MB,
-     * and whether the last refusal was that ceiling rather than the OS. A
-     * process that would keep growing until the machine swaps stops here with
-     * one line that names the limit. */
+    /* The ceiling on committed bytes for this arena, and whether the last
+     * refusal was that ceiling rather than the OS. A process that would keep
+     * growing until the machine swaps stops here with one line that names the
+     * limit. max_rule_from_env records which of the two sources the number
+     * came from, so that line cannot blame ORBIT_ARENA_MAX_MB to a process
+     * that never set it. */
     size_t max_rule;
+    bool max_rule_from_env;
     bool ceiling_hit;
 
     uint64_t generation;

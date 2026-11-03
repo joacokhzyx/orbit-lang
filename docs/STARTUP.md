@@ -132,7 +132,7 @@ overflow path. `size` on the `.o` files, `.text` bytes:
 | Member | `.text` | Defines |
 |---|---|---|
 | `arena` | 1 176 | `orbit_arena_create`, `orbit_arena_destroy` |
-| `arena_alloc` | 3 016 | `orbit_alloc`, `orbit_alloc_try`, `orbit_arena_strdup`, the aborting default |
+| `arena_alloc` | 3 172 | `orbit_alloc`, `orbit_alloc_try`, `orbit_arena_strdup`, the aborting default |
 | `arena_oom` | 856 | `orbit_set_oom_handler`, `orbit_get_oom_handler`, `orbit_request_oom_*` |
 | `arena_reset` | 588 | `orbit_arena_reset` |
 | `arena_checkpoint` | 256 | `orbit_arena_checkpoint`, `orbit_arena_rewind` |
