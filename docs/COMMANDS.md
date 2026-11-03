@@ -19,7 +19,7 @@ These commands operate on an installed Orbit executable or on a locally built ex
 | `orbit fmt <file>` | Format a file (writes only on success) | `orbit fmt main.orb` |
 | `orbit fmt --check <file\|dir>` | List files that need formatting | `orbit fmt --check ./compiler` |
 | `orbit doctor [dir]` | Project checks; read-only unless `--fix` | `orbit doctor ./examples` |
-| `orbit frontend <file>` | Emit the typed IR (TIR) without building | `orbit frontend main.orb` |
+| `orbit frontend <file>` | Emit the typed IR (TIR) without building; the document goes to stdout unless `-o` names a file | `orbit frontend main.orb` |
 | `orbit lextrace <file>` | Developer lexer trace; output is unstable by design | `orbit lextrace main.orb` |
 | `orbit cluster ...` | Single-host multiprocess orchestration (up, status, drain, restart, down, logs; see CLUSTER.md) | `orbit cluster up --nodes 3 --port-base 8100` |
 | `orbit --help` | Display the command-line help | `orbit --help` |
@@ -210,7 +210,7 @@ unknown subcommand). The fuzzer accepts 0, 1, and 2.
 | `fmt` / `fmt --check` | formatted / clean | unreadable/unwritable file, input has errors, files need formatting | missing target, bad flags |
 | `doctor` | no findings | findings, no `.orb` files found | bad flags, too many args |
 | `cluster` | success (status reads state even with dead nodes) | compile/spawn/health/kill errors, unknown node, unreadable state, survivors after down | missing/invalid flags, unknown subcommand |
-| `frontend` | TIR written | unreadable input, diagnostics contain errors, write failed | missing input file |
+| `frontend` | TIR printed, to stdout or to the file `-o` names | unreadable input, diagnostics contain errors, write failed | missing input file, `-o` without a path |
 | `migrate` | migrations applied | unreadable input, compile error, migration failed, no migrations declared | missing input file, bad flags |
 
 Colors and the server banner stay plain when `NO_COLOR` is set or

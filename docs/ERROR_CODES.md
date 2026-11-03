@@ -146,7 +146,16 @@ against the declaration site stamped by `checkVarDecl`/`checkConstDecl`
 literal positions exist. The `n118` refusal points at the member read itself
 (`ma.line`, `ma.col` in `compiler/front/sema.orb:4664`): `Option.None` is a value
 position, and the rule needs the type the program wrote, not the union's
-declaration. Fix hint: change the value or the
+declaration. The construction site prints the other sentence:
+`unionInstanceForConstruction` reports at `compiler/front/sema.orb:688`,
+reached from the call arm at `compiler/front/sema.orb:4548`. `n124` pins it
+with `val x = Option.Some()`: `Some` declares a payload, so the read site
+stays silent, and the empty argument list decides no instantiation. A call
+that is a read and a construction at once prints both sentences for one
+refusal: `val x = Option.None()` fires `sema.orb:4664` first and
+`sema.orb:688` second (measured with `orbit check`: two E1006 blocks, exit
+1). `n124` pins the construction sentence alone; the doubled refusal is
+unpinned. Fix hint: change the value or the
 annotation. Write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
 `n50`, `n51`, `n52`, `n118`, and `n70` (`n70`: a generic function's parameter no
 argument can fix).
@@ -308,10 +317,10 @@ value is typed; a bare `return`, which emits `return unit void`; `break` and
 and `for x in 0..n`, which lowers to the `while` shape plus an increment block.
 `xs[i] = v` emits `store_index` when the container's own type is one the pass can
 read, `Point { x: 0, y: 0 }` emits `construct Point 2 x v0 y v1`, and
-`return ok 200 "ready"` emits `result_ok result 200 v0` plus the `return` of it.
+`return ok 200 "ready"` emits `result_ok result 200 v0` plus the `return` of it. `try f() catch { ... }` lowers when the callee writes the payload type inside its `result` (`-> result<string>`); the 93 of this corpus write a bare `result`, so they still give up, now naming the type that is missing rather than the node class.
 What still fires is a write whose place this pass cannot read -- `cannot lower
 this assignment to TIR: MemberAccess`, 212 cases, and the same on an index, 5 --
-and an expression the pass has no rule for: `Match` (296), `Try` (93), `If` (30),
+and an expression the pass has no rule for: `Match` (297), `If` (30),
 `ObjectLiteral` (12) and an
 index *read*, `xs[i]` (8), whose element type the pass does not keep. A `for`
 over a value with no element table (20) and a labelled `for` with no target for

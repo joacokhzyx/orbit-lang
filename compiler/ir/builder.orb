@@ -670,13 +670,7 @@ fn modelInstanceName(builder: IRBuilder, modelName: string, literal: ASTNode) ->
     val gm = genericModelByName(builder, modelName)
     if gm == NULL { return modelName }
     val args = modelLiteralArgTypes(builder, gm, literal)
-    var out = modelName
-    var i = 0
-    while i < args.len() {
-        out = out + "_" + mangleTypeArg(args.get(i))
-        i = i + 1
-    }
-    return out
+    return instanceName(modelName, args)
 }
 
 // Register the instantiation and return its name. The one impure step, and
@@ -718,12 +712,7 @@ fn ensureModelInstanceFromArgs(builder: IRBuilder, modelName: string, args: list
         if m.name == modelName { return modelName }
         mi = mi + 1
     }
-    var instance = modelName
-    var ai = 0
-    while ai < args.len() {
-        instance = instance + "_" + mangleTypeArg(args.get(ai))
-        ai = ai + 1
-    }
+    val instance = instanceName(modelName, args)
     mi = 0
     while mi < builder.module.models.len() {
         val m: IRModelDecl = builder.module.models.get(mi)
@@ -1227,20 +1216,6 @@ fn resolveFnType(builder: IRBuilder, spelling: string) -> string {
     return out
 }
 
-// The instance a call's bindings name: `f` unchanged without parameters,
-// `f_int` / `f_list_string` with them. Same mangling the models use, so the
-// name reads the same everywhere.
-fn fnInstanceName(name: string, bindings: list < string >) -> string {
-    var out = name
-    var i = 0
-    while i < bindings.len() {
-        val b: string = bindings.get(i)
-        out = out + "_" + mangleTypeArg(b)
-        i = i + 1
-    }
-    return out
-}
-
 // Build the instance a call needs, or find it built: substitute the
 // signature, register the prototype first (a recursive call meets the shell,
 // never a rebuild), then build the body with the bindings pushed so nested
@@ -1254,7 +1229,9 @@ fn fnInstanceName(name: string, bindings: list < string >) -> string {
 // an unassigned `b__s0` and the first field read segfaulted), so instances
 // build in the drain with clean scopes, exactly like top-level functions.
 fn ensureFnInstance(builder: IRBuilder, name: string, bindings: list < string >) -> string {
-    val inst = fnInstanceName(name, bindings)
+    // `f` unchanged without parameters, `f_int` with them, joined the way the
+    // models and the unions join theirs: one `instanceName` for all three.
+    val inst = instanceName(name, bindings)
     if findFunction(builder.module, inst) >= 0 { return inst }
     match genericFnByName(builder, name) {
         ASTNode.FunctionDecl(fd) => {

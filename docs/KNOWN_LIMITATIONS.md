@@ -99,7 +99,7 @@ could not rot quietly:
 ```console
 $ make negative
 ...
-Finished negative: 112/112 pass (0 known defects still accepted)
+Finished negative: 113/113 pass (0 known defects still accepted)
 ```
 
 One hundred and twelve programs: every one must be rejected and is. The last one
@@ -724,23 +724,23 @@ that would remove the requirement.
 
 ## 18.3% of instructions are `unknown`, and every one of them says so
 
-`scripts/unknown_census.py`, run on 2026-11-02 over 212 files and 105,403
+`scripts/unknown_census.py`, run on 2026-11-02 over 212 files and 105,407
 instructions. The ratchet baseline (`scripts/baselines/unknown_count.json`)
 only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 19,300 | **18.3%** |
+| instructions the front end types `unknown` | 19,302 | **18.3%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 8,602 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 1,092), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 8,610 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 1,088), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 2), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 4,858) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 4,746). Their sum, 19,300, is the whole unknown count. The five
+(call result, 4,744). Their sum, 19,302, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:291`, `:304`, `:312`, `:325` and `:363`, and
 each sits on the branch that emits the instruction.
 
@@ -910,9 +910,9 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 21/21
+## The frontend gate is 22/22
 
-`scripts/frontend_gate.py` runs twenty-one fixtures and all twenty-one pass (two of
+`scripts/frontend_gate.py` runs twenty-two fixtures and all twenty-two pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`

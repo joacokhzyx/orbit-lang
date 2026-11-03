@@ -6,7 +6,7 @@
 //   - `check <input.orb>`: Parse, typecheck and verify the IR, no code emitted.
 //   - `doctor [dir] [--fix]`: Read-only project checks, whitespace fixes with --fix.
 //   - `fmt [file.orb]`: Token-based source formatter, whitespace only.
-//   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR.
+//   - `frontend <input.orb> [-o output.tir]`: Executes self-hosted frontend pipeline and emits canonical TIR on stdout, or to the file `-o` names.
 //   - `cluster ...`: Single-host multiprocess orchestration.
 //   - `migrate <file.orb>`: Apply the program's migrations and exit.
 //   - `start [file.orb]` / `dev [file.orb]`: Build into .orbit/ and run; dev adds watch/restart.
@@ -23,6 +23,8 @@ import "../tools/doctor.orb"
 import "./cluster.orb"
 import "./start.orb"
 
+// "" means stdout: the command reads the input and produces a document, so it
+// must not leave an `orbit.tir` in the user's directory when no `-o` names one.
 fn frontendOutputPath() -> string {
     var i = 2
     while true {
@@ -31,10 +33,13 @@ fn frontendOutputPath() -> string {
         if a == "-o" {
             val next = orbit_os_argv_selfhost(i + 1)
             if next != "" { return next }
+            orbit_os_write_stderr_selfhost("orbit frontend: -o requires an output path.\n")
+            orbit_os_exit_selfhost(2)
+            return ""
         }
         i = i + 1
     }
-    return "orbit.tir"
+    return ""
 }
 
 fn runLexTrace() {
@@ -78,6 +83,14 @@ fn runFrontend() {
     }
 
     val outputPath = frontendOutputPath()
+    if outputPath == "" {
+        // tirCanonical terminates every line and print adds a newline of its
+        // own, so the slice hands stdout the same document the file gets. The
+        // bytes differ where the C runtime translates newlines: 143 through a
+        // redirected pipe on Windows against 136 in the file, measured.
+        print(output.slice(0, output.len() - 1))
+        return
+    }
     if orbit_file_write_selfhost(outputPath, output) == false {
         orbit_os_write_stderr_selfhost("orbit frontend: unable to write TIR output '" + outputPath + "'.\n")
         orbit_os_exit_selfhost(1)
@@ -110,6 +123,7 @@ fn helpText(useColor: bool) -> string {
     h = h + "  " + palettePaint(paletteBold(), "fmt", useColor) + " --check <file|dir>     List files that need formatting\n"
     h = h + "  " + palettePaint(paletteBold(), "doctor", useColor) + " [dir] [--fix]      Read-only project checks (whitespace fixes with --fix)\n"
     h = h + "  " + palettePaint(paletteBold(), "frontend", useColor) + " <input.orb> [-o output.tir]\n"
+    h = h + "                             Without -o the canonical TIR goes to stdout\n"
     h = h + "  " + palettePaint(paletteBold(), "cluster", useColor) + " up --nodes N --port-base P [--log-dir D] [--service S]\n"
     h = h + "  " + palettePaint(paletteBold(), "cluster", useColor) + " status|drain <node>|restart --rolling|down|logs <node>\n"
     h = h + "                           Single-host multiprocess orchestration (see docs/CLUSTER.md)\n"

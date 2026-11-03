@@ -2292,21 +2292,16 @@ fn genericArgsOf(sema: Sema, name: string) -> list < string > {
 }
 
 // The type a symbol declared `Box<int>` carries. It is the instance name, the
-// same string the builder builds for the literal, because a checker that
-// disagreed with the emitter about which struct a value is would accept the
-// program and then read the wrong member.
+// same string the builder builds for the literal -- both sides call
+// `literal.orb`'s `instanceName` -- because a checker that disagreed with the
+// emitter about which struct a value is would accept the program and then read
+// the wrong member.
 fn resolvedGenericTypeName(sema: Sema, declared: string) -> string {
     val args = genericArgsOf(sema, declared)
     if args.len() == 0 { return declared }
     val lt = orbit_string_indexOf(declared, "<")
     val bare = orbit_string_slice(declared, 0, lt)
-    var out = bare
-    var i = 0
-    while i < args.len() {
-        out = out + "_" + mangleTypeArg(args.get(i))
-        i = i + 1
-    }
-    return out
+    return instanceName(bare, args)
 }
 
 fn checkGenericModelTypeName(sema: Sema, declared: string, line: int, col: int) -> bool {
@@ -4822,13 +4817,13 @@ fn checkNode(sema: Sema, node: ASTNode) -> string {
                 val params = modelGenericParamsOf(sema, tl.declaredType)
                 if params.len() == 0 { return tl.declaredType }
                 val bindings = modelGenericBindings(sema, tl.declaredType, tl.value)
-                var name = tl.declaredType
+                val argTypes: list < string > = []
                 var bi = 0
                 while bi < bindings.len() {
-                    name = name + "_" + mangleTypeArg(bindingTail(bindings.get(bi)))
+                    argTypes.push(bindingTail(bindings.get(bi)))
                     bi = bi + 1
                 }
-                return name
+                return instanceName(tl.declaredType, argTypes)
             }
             checkNode(sema, tl.value)
             return ""

@@ -106,6 +106,24 @@ fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> 
     return ""
 }
 
+// The value type written inside a declared `result`. `typeOfExpression` answers
+// a call to a function this file declares with the text after `->`, so the payload
+// a `try` reads is in the file's own bytes. Only a builtin is an answer: a payload
+// naming a model needs the same table one level deeper, the reason
+// `declaredFieldType` stops at a `list<string>`. An empty answer is the give-up
+// E3001 reports.
+fn declaredPayloadType(typeName: string) -> string {
+    if typeName.length < 9 { return "" }
+    if typeName.slice(0, 7) != "result<" { return "" }
+    if typeName.slice(typeName.length - 1, typeName.length) != ">" { return "" }
+    val payload = typeName.slice(7, typeName.length - 1)
+    if payload == "int" { return "int" }
+    if payload == "bool" { return "bool" }
+    if payload == "string" { return "string" }
+    if payload == "float" { return "float" }
+    return ""
+}
+
 // Record a model the file declares, so a field read can be answered from the
 // text rather than guessed from the name.
 fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
@@ -206,6 +224,15 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
             }
             return "unknown"
         }
+        // A `try` answers with the value the `result` carries, so its type is the
+        // one the callee's declaration writes inside it. `lowerExpression` emits
+        // the same answer, and the two must agree: a name bound to a `try` loads
+        // back whatever the reader called it at every later use of the name.
+        ASTNode.Try(tryNode) => {
+            val unwrapType = declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr))
+            if unwrapType != "" { return unwrapType }
+            return "unknown"
+        }
         _ => return "unknown"
     }
 }
@@ -269,7 +296,7 @@ fn astNodeKind(node: ASTNode) -> string {
     return "unknown node"
 }
 
-// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, TryNode, VarDeclNode, WhileNode
+// orbit-walk-misses: AssignmentNode, ConfigDeclNode, ConstDeclNode, ExpressionStmtNode, ForNode, FunctionDeclNode, IfNode, IndexAccessNode, MatchCaseNode, MatchNode, RangeNode, ReturnErrNode, ReturnNode, ReturnOkNode, RouteDeclNode, ScheduleDeclNode, VarDeclNode, WhileNode
 fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindings: list < TirBinding >, node: ASTNode) -> int {
     match node {
         ASTNode.Literal(literal) => {
@@ -432,6 +459,43 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             }
             tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
             return -1
+        }
+        // `try fetch(path) catch { return "none" }` tests a result and reads it in
+        // two paths, and the pass had no rule for either: the census counts 93 of
+        // them, each named `Try` by the fallback below, and each suppressing its
+        // file's text.
+        // It lowers when the payload is a type the declaration writes and the
+        // handler ends the block it is in. Then one path reaches the value and no
+        // merge value is needed -- the one an `if` in expression position still
+        // lacks. A bare `try` and a handler that falls through leave the other path
+        // open, a `catch e` binds the error message, and a payload naming a model
+        // needs the table one level deeper: each says which type is missing instead
+        // of inventing one. The `branch` ends the block the source wrote the `try`
+        // in, so the instructions after it are the ok path, and the value is read
+        // from the block the branch names.
+        ASTNode.Try(tryNode) => {
+            val unwrapType = declaredPayloadType(typeOfExpression(module, bindings, tryNode.expr))
+            if unwrapType == "" {
+                tirError(module, "E3001", "try needs the value type written inside the result, which this pass does not keep", 0, 0)
+                return -1
+            }
+            if tryNode.errName != "" {
+                tirError(module, "E3001", "a catch with a name needs the error type, which this pass does not keep", 0, 0)
+                return -1
+            }
+            val resultValue = lowerExpression(module, function, blockId, bindings, tryNode.expr)
+            val tested = tirEmit(function, blockId, "result_is_ok", "bool", tirValue(resultValue))
+            val okBlock = tirCreateBlock(function)
+            val handlerBlock = tirCreateBlock(function)
+            tirEmit(function, blockId, "branch", "unit", tirValue(tested) + " b" + tirIntText(okBlock) + " b" + tirIntText(handlerBlock))
+            val unwrapped = tirEmit(function, okBlock, "result_unwrap", unwrapType, tirValue(resultValue))
+            val handlerBindings = copyBindings(bindings)
+            val handlerEnd = lowerStatement(module, function, handlerBlock, handlerBindings, tryNode.catchBody, -1, -1)
+            if handlerEnd >= 0 {
+                tirError(module, "E3001", "a handler that falls through needs a merge value, which this pass does not model", 0, 0)
+                return -1
+            }
+            return unwrapped
         }
         _ => {
             tirError(module, "E3001", "expression cannot be lowered to TIR: " + astNodeKind(node), 0, 0)
