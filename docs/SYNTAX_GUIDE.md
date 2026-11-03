@@ -215,6 +215,32 @@ with one binding per payload (`Pair.Both(n, s) => ...`). A payload can be
 any named type, including a model. Arity and payload types are checked
 (both directions: construction and patterns).
 
+A `union` takes type parameters too, and every type written at a use names one
+instance of it:
+
+```orbit
+union Option[T] {
+    Some(T)
+    None
+}
+
+fn describe(o: Option < int >) -> int {
+    match o {
+        Option.Some(n) => { return n }
+        Option.None => { return 0 }
+    }
+    return 0
+}
+```
+
+`Option<int>` and `Option<string>` are two tag sets with two payload types,
+declared from one union. The argument comes from a position that writes a type:
+a parameter's declared type, a binding's annotation, a `return` in a function
+whose result is declared, a call argument against its parameter, or the payload
+a construction hands over. `val x = Option.None` is refused with `E1006`: the
+variant carries nothing, so no value names an instance, and the emitted tag
+constant (`Option_int_TAG_None`) is named after one.
+
 `match` dispatches on a union variant.
 
 ## Control flow
@@ -315,7 +341,8 @@ flags and exit codes. [FAQ](FAQ.md) has the common questions.
 
 ## What is not here yet
 
-Raw sockets, threads, and generic unions — the
-`std/quarantine/` directory names the exact missing language feature
-for each. [Known Limitations](KNOWN_LIMITATIONS.md) is the list, and
+Raw sockets and threads. A generic union is no longer on that list:
+`union Option[T]` is the [spelling](#unions-and-enums) above, and
+`std/option/option.orb` ships the module since 2026-11-02.
+[Known Limitations](KNOWN_LIMITATIONS.md) is the list, and
 [CHANGELOG.md](CHANGELOG.md) records what changed.

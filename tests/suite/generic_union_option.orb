@@ -7,7 +7,7 @@
 // each instantiation is its own tag set with its own payload type.
 //
 // A payload-less variant with no written type anywhere is refused, never
-// guessed: tests/negative/n123_generic_union_needs_a_written_type_for_none.orb.
+// guessed: tests/negative/n118_generic_union_needs_a_written_type_for_none.orb.
 //
 // Every exit code below is distinct, so a regression names itself: a payload
 // bound to the wrong type, or an arm that dispatches to the wrong instance,

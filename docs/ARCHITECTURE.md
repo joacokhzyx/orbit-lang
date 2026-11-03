@@ -497,13 +497,14 @@ followed by `orbit_handle_request` is emitted by
 
 | Path | Role |
 |---|---|
-| `std/` | Orbit standard library. 20 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `convert/codec.orb`, `string/string.orb`, `string/regex.orb`, `collections/lists.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `sys/bytes/bitwise.orb`, `sys/http/client.orb`, `sys/random/random.orb`, `json/json.orb` |
-| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Currently `option` alone (no generic unions); `bitwise` left on 2026-10-18 as `std/sys/bytes/bitwise.orb`, and the import-all imports it |
+| `std/` | Orbit standard library. 21 modules, all of which compile and merge into one program: `test/assert.orb`, `convert/convert.orb`, `convert/codec.orb`, `string/string.orb`, `string/regex.orb`, `collections/lists.orb`, `option/option.orb`, `bytes/bytes.orb`, `fs/file.orb`, `hash/hash.orb`, `io/io.orb`, `log/log.orb`, `time/time.orb`, `sys/proc/process.orb`, `sys/term/color.orb`, `sys/crypto/jwt.orb`, `sys/bytes/bitwise.orb`, `sys/http/client.orb`, `sys/random/random.orb`, `sys/arena.orb`, `json/json.orb` |
+| `std/quarantine/` | Modules that are specified and not implemented, as `*.orb.quarantined`. Not `.orb` on purpose: a file the parser cannot read breaks `fmt --check` on every run. Empty since 2026-11-02: `option` became `std/option/option.orb` when the generic union landed, and `bitwise` had already left on 2026-10-18 as `std/sys/bytes/bitwise.orb`. The rules, and where each lifted module went, are in `std/quarantine/README.md` |
 | `lib/` | One module: `arena.orb`, a counted region and a bound, not an allocator. There is no socket API in the language or the runtime |
 
-`std/` holds **20 modules, 20 of 20** compiling and merging into one program,
-pinned by `tests/std/test_imports.orb`, which imports all nineteen into one
-program. `convert/convert.orb` owns the number-to-text bindings and
+`std/` holds **21 modules, 21 of 21** compiling and merging into one program,
+pinned by `tests/std/test_imports.orb`, which imports every one of them and
+calls into each except `sys/http/client.orb`, which needs a network.
+`convert/convert.orb` owns the number-to-text bindings and
 `json/json.orb` provides the quoting helper for hand-built bodies. The
 invariant is one definition per program: when two modules need the same C
 symbol, the dependent module imports the owning module.

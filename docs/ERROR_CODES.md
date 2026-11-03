@@ -136,16 +136,17 @@ declares (types are lower case, or declared with `model`/`union`), and for a
 binding whose value contradicts its annotation. Also a bare generic model in a
 signature (`Box` with no argument — write `Box<int>`), an undeterminable
 generic type parameter (`n52`), a generic field fixed to one type by an
-earlier field (`n50`), and a `union` declared with a type parameter (`n118`:
-the parameter list parses and nothing substitutes an argument at a
-construction). The last two point at the enclosing declaration:
+earlier field (`n50`), and a payload-less union variant that no position writes
+(`n118`: `Option.None` carries nothing, so the argument has to come from a
+parameter's declared type, a binding's annotation, a declared `return` or a call
+argument). The last two point at the enclosing declaration:
 object literals carry no parser position, so `checkGenericModelFields` reports
 against the declaration site stamped by `checkVarDecl`/`checkConstDecl`
 (`valueSite`). A literal returned directly keeps the one-line form until
-literal positions exist. The `n118` refusal names the declaration's own line
-and column, because `TypeDeclNode` carries them: a type declaration used to
-carry no position at all, so a rule about one could only be printed without
-one. Fix hint: change the value or the
+literal positions exist. The `n118` refusal points at the member read itself
+(`ma.line`, `ma.col` in `compiler/front/sema.orb:4664`): `Option.None` is a value
+position, and the rule needs the type the program wrote, not the union's
+declaration. Fix hint: change the value or the
 annotation. Write the type arguments. Pinned by `n11`, `n30`, `n48`, `n49`,
 `n50`, `n51`, `n52`, `n118`, and `n70` (`n70`: a generic function's parameter no
 argument can fix).

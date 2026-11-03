@@ -853,6 +853,12 @@ and need no import. There is no `std/core/result.orb` to import.
   that names the element type and passes a different one fails `orbit check`
   with E1005 naming both. A caller handing a bare `list` still compiles, and a
   mistyped read fails at runtime with a type mismatch instead of a misread.
+- `std/option/option.orb`: the optional value, as `union Option[T]` with
+  `Some(T)` and `None`. One instance per type written at a use, so
+  `Option<int>` and `Option<string>` are two tag sets with two payload types
+  declared from one union. A payload-less `None` that no position writes is
+  answered E1006 rather than guessed. `tests/std/test_option.orb` covers the
+  positions that write an instance, importing the module from another file.
 - `std/fs/file.orb`: path-based reads, writes, existence, removal, and
   directory listing. No open handles, no buffered streams. Append is
   read-modify-write, never atomic.
@@ -899,17 +905,19 @@ modules. The convention is documented in `std/quarantine/README.md`: `.orb`
 means loadable source, so a file the parser cannot read must not carry that
 extension.
 
-| module | missing |
-|---|---|
-| `option.orb.quarantined` | a generic tagged union: `union Option[T]` parses -- the parameter list is read by the same parser the model, fn and trait declarations use -- and `E1006` refuses the declaration, because nothing infers the argument at construction and the variant registry is flat by variant name, so two instances would collide. A generic `model` is not the pattern to copy -- it monomorphises today |
-
-`bitwise` left this table: its missing feature (the operators) landed, so
-what remained was a syntax slip (`val` as a parameter name) and a missing
-test, and both are done. It is `std/sys/bytes/bitwise.orb` again and
+The directory has been empty since 2026-11-02. Two modules left it.
+`bitwise.orb.quarantined` was waiting on the bitwise operators, and what
+remained after they landed was a syntax slip (`val` as a parameter name) and a
+missing test; it is `std/sys/bytes/bitwise.orb`, and
 `tests/std/test_bitwise.orb` covers the vectors its header published.
+`option.orb.quarantined` was waiting on a generic tagged union. It is
+`std/option/option.orb`: the checker substitutes a type argument into a union
+payload, and `tests/std/test_option.orb` covers the positions that write an
+instance.
 
-Nothing imports the remaining file. Its header names the exact language
-feature that would let it land.
+What the language still cannot express is in
+[Known Limitations](KNOWN_LIMITATIONS.md). A module that would need one of those
+goes into quarantine, and its header names the feature that has to land first.
 
 ## System telemetry
 

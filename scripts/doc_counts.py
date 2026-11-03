@@ -156,7 +156,7 @@ CLAIMS = [
     ("docs/IR_SPEC.md", r"Standard library: {N} files\.\*\* `tests/std/` holds {N}",
      ["std_tests", "std_tests"], "designated corpus: tests/std"),
     ("docs/IR_SPEC.md",
-     r"covering the {N} shipped `std/\*\*/\*\.orb` modules \(the {N} `std/quarantine",
+     r"covering the {N} shipped `std/\*\*/\*\.orb` modules; `std/quarantine/` holds {N}",
      ["std_modules", "std_quarantined"],
      "designated corpus: std modules and quarantine"),
 

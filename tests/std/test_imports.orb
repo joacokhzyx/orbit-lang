@@ -47,6 +47,20 @@
 // import cannot collide; the point of importing it here is that a
 // module nothing imports is the shape of hole this file catches.
 //
+// `option.orb` came back from quarantine on 2026-11-02 as
+// std/option/option.orb. It is here for the same reason bitwise is, with one
+// difference: it declares a type and no function, so what has to survive the
+// merge is the instance its importer writes -- `Option<int>` below, named in a
+// signature in this file. A type declaration that cannot share a binary with
+// the twenty other modules is the hole this file catches.
+//
+// `sys/arena.orb` joined the same day, and it was the one module this file had
+// never imported: `tests/std/color_smoke.orb` and `examples/std_imports.orb`
+// covered its calls, and its externs had never been merged with the rest. With
+// it, the claim above is the literal one -- every module under `std/` is
+// imported here, and called into, except `std/sys/http/client.orb`, which needs
+// a network.
+//
 // The longest case is the one that mattered, and it is asserted here
 // end to end rather than only checked: byte framing AND JWT AND
 // console IO AND process AND hashing in the same binary, with one
@@ -71,6 +85,8 @@ import "std/convert/codec.orb"
 import "std/string/regex.orb"
 import "std/sys/random/random.orb"
 import "std/sys/http/client.orb"
+import "std/option/option.orb"
+import "std/sys/arena.orb"
 
 fn main() -> int {
     // string.orb, reached directly and through three importers
@@ -153,8 +169,27 @@ fn main() -> int {
     val rnd: list = try randomBytes(4) catch { return 25 }
     if assertEqInt(rnd.len(), 4) == false { return 26 }
 
+    // option/option.orb -- the union is declared in the module and the
+    // instantiation is written here, so both halves have to survive the merge.
+    if assertEqInt(twiceFromOption(Option.Some(3)), 6) == false { return 29 }
+    if assertEqInt(twiceFromOption(Option.None), 0) == false { return 30 }
+
+    // sys/arena.orb -- the counted region, whose whole contract is the bound:
+    // an offset inside the capacity, and -1 past it. Nothing here is
+    // dereferenceable, which is what the module's header says it is not.
+    if assertEqInt(alloc(initArena(16), 8), 0) == false { return 31 }
+    if assertEqInt(alloc(initArena(16), 20), 0 - 1) == false { return 32 }
+
     // sys/http/client.orb is imported and not called: fetch() wants a
     // network, and what can collide in this file is the extern
     // declaration, not the call.
     return 0
+}
+
+fn twiceFromOption(o: Option < int >) -> int {
+    match o {
+        Option.Some(n) => { return n + n }
+        Option.None => { return 0 }
+    }
+    return -1
 }

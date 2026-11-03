@@ -507,7 +507,7 @@ that only ever exists as `Box_int`.
 | `model Phantom[T] { id: int }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch): no field's declared type mentions `T`, so there is no value to take the argument from. `void*` would compile, and would be a lie about the model. (n52) |
 | `Same { a: 1, b: "s" }` where `model Same[T] { a: T, b: T }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch). `a` fixes `T` at `int` and `b` is then checked against it. (n50) |
 | `model Box[T] { v: list<list<T>> }` | `T` is not determined. Only a field declared `T`, or a `list<T>` whose value is a list literal, fixes an argument. |
-| `union Option[T] { ... }` | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch) at the declaration's own line and column. The parameter list parses now -- `parseTypeDecl` calls `parseGenericParams` for `union`, as the model, fn and trait parsers already did -- and nothing substitutes an argument at a construction, so a payload declared `T` would reach the C backend as the parameter's own name. This is what keeps `std/quarantine/option.orb.quarantined` quarantined. |
+| `Option.None` where no position writes a type | [E1006](ERROR_CODES.md#e1006--bad-type-name-or-binding-mismatch): `'Option.None' carries no payload, so nothing in this expression says which instantiation of 'Option' it is and no position writes a type for it either.` (n118) |
 
 Two parameters work, and two instantiations of one model in one program
 are two structs:
@@ -555,17 +555,58 @@ which names both owners, and `tests/negative/n121` pins the text. There is no
 expected type to infer an owner from -- `checkNode` takes none -- and the guess
 was the half of the old defect that said nothing.
 
-A `match` binding carries its payload type. `checkPatternBindings` declares each name with the payload the resolved owner declares, so `tests/suite/match_binding_payload_type.orb` reads an int, a string and a model through the three payloads of one union, and `tests/negative/n122` pins the refusal when an arm body uses the binding as another type: `Parameter 1 of shout is declared string but the argument is int`. The construction is what still has nothing to read: `val p = Body(3)` with two owners is refused with `E1011`, because `checkNode` takes no expected type -- the channel the generic union waits on.
+A `match` binding carries its payload type. `checkPatternBindings` declares each name with the payload the resolved owner declares, so `tests/suite/match_binding_payload_type.orb` reads an int, a string and a model through the three payloads of one union, and `tests/negative/n122` pins the refusal when an arm body uses the binding as another type: `Parameter 1 of shout is declared string but the argument is int`. The construction is what still has nothing to read: `val p = Body(3)` with two owners is refused with `E1011`, because `checkNode` takes no expected type. The generic union does not wait on that channel, because a union instance names its union (`Option.None`, not `None`) and the type comes from the position that writes it.
 
-## `std/` is 20 modules; the six deleted ones are not coming back
+## A generic union has instances (fixed)
 
-**20 modules, and all 20 compile into one binary.** Verified:
-`tests/std/test_imports.orb` imports nineteen of them into a single program
-and calls into each, and it passes. The twentieth, `std/sys/arena.orb`, takes
-an arena instance and is exercised by `tests/std/color_smoke.orb` and
-`examples/std_imports.orb` instead. `tests/std/` is 23 files and runs 23/23 green.
+`union Option[T] { Some(T)  None }` was refused at the declaration. Nothing
+substituted an argument, so a payload declared `T` reached the C backend as the
+parameter's own name. A `T` in the generated C is not a type, and the program
+that got there failed at the C compiler rather than at `orbit check`.
 
-`std/` was 20 modules. **Six were deleted, and the reason was measured**:
+The argument now comes from the positions that already write a type, and there
+are four of them: a parameter declaration (`fn takeInt(o: Option<int>)`), a
+binding annotation (`val a: Option<int> = Option.Some(21)`), a `return` inside a
+function whose result is declared, and a call argument checked against its
+parameter. `Option.Some(21)` adds a fifth: a payload-carrying construction fixes
+the argument from the value handed over, the way a model literal does.
+
+Two instances of one union are two declared tag sets.
+`tests/suite/generic_union_option.orb` builds `Option<int>`, `Option<string>`
+and `Pair<int, string>` from two declarations in one program and exits 0, and
+`tests/std/test_option.orb` builds the same instances when the union arrives
+through an `import` -- the position the module needs. The instance is registered
+once per argument list, in both the checker and the builder, and a payload row
+is substituted by `modelSubstitutedType`, the function the generic model already
+used.
+
+What is refused is the case with no written type at all. `val x = Option.None`
+answers `E1006`, and `tests/negative/n118` pins the text:
+
+```
+error[E1006]: 'Option.None' carries no payload, so nothing in this expression
+says which instantiation of 'Option' it is and no position writes a type for it
+either.
+```
+
+Guessing the first instance that declares `None` is the trade this repository
+refused for generic models, and the emitted C says why: the tag constant is
+named after the instance (`Option_int_TAG_None`, `compiler/emit/c_backend.orb:133`),
+so a guess would hand a program the tag of a type it never wrote.
+
+## `std/` is 21 modules; the six deleted ones are not coming back
+
+**21 modules, and all 21 compile into one binary.** Verified:
+`tests/std/test_imports.orb` imports every one of them into a single program
+and calls into each -- except `std/sys/http/client.orb`, which wants a network --
+and it passes. Two modules joined it on 2026-11-02: `std/option/option.orb`,
+when the generic union landed, and `std/sys/arena.orb`, which had never been
+merged with the rest. Its calls are also covered by
+`tests/std/color_smoke.orb` and `examples/std_imports.orb`. `tests/std/` is 24 files and runs
+24/24 green.
+
+`std/` was 20 modules before `option` landed. **Six were deleted, and the reason
+was measured**:
 each was a function that returned a value and was not computing it:
 
 | deleted | why it had to go |
@@ -577,17 +618,16 @@ each was a function that returned a value and was not computing it:
 | `std/core/memory.orb` | `alloc` returned a null pointer and `free` was a no-op. |
 | `std/core/result.orb` | `result` is already a builtin with `ok`/`err`. An unparseable shadow of a working builtin. |
 
-**One is quarantined rather than deleted**, as `*.orb.quarantined` in
-`std/quarantine/`, and it is a file the language cannot read today:
-
-| quarantined | the language feature that does not exist |
-|---|---|
-| `option.orb.quarantined` | a generic tagged union. `union` takes the type parameter list today and `E1006` refuses the declaration, because nothing infers the argument at construction and the variant registry is flat by variant name. A generic `model` is not the same case: it monomorphises today. |
-
-`bitwise.orb.quarantined` used to sit here too, and it was the
-counter-example to the rule below: a syntax slip (`val` as a parameter
-name), not a missing feature. It is `std/sys/bytes/bitwise.orb` again,
-with `tests/std/test_bitwise.orb` over the vectors its header published.
+**Nothing is quarantined today.** `std/quarantine/` holds no module, and its
+README keeps the convention for the next feature the language cannot express.
+Both files that ever sat there are shipped modules now.
+`bitwise.orb.quarantined` was the counter-example to the rule below: a syntax
+slip (`val` as a parameter name), not a missing feature. It is
+`std/sys/bytes/bitwise.orb` again, with `tests/std/test_bitwise.orb` over the
+vectors its header published. `option.orb.quarantined` was the real case: a
+generic tagged union, refused by the checker until the substitution existed. It
+is `std/option/option.orb` since 2026-11-02, and `tests/std/test_option.orb`
+covers the positions that write an instance.
 
 They are not `.orb` on purpose: `.orb` is the toolchain's marker for
 loadable source. A file the parser cannot read breaks
@@ -607,10 +647,11 @@ diagnostic instead of `atof`'s silent prefix read). Both are pinned by
 `std/json` parses strict JSON into typed values: `parseJson` answers `err`
 for malformed input rather than a partial document, and the `json*` getters
 read ints, floats, bools, strings, nested objects and indexed arrays. It is
-pinned by `tests/std/test_json.orb`. What is still absent: `Option`. The
-modules that claimed the rest are gone or quarantined, and
+pinned by `tests/std/test_json.orb`. `Option` was the one type the tree named
+and could not have; it is `std/option/option.orb` since 2026-11-02. The modules
+that claimed the rest are gone, and
 [LANGUAGE_REFERENCE](LANGUAGE_REFERENCE.md#stdquarantine-specified-not-implemented)
-names the absences.
+names what the standard library does not provide.
 
 ## A list carries an element type now, and the checker enforces it
 
