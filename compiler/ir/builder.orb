@@ -763,23 +763,11 @@ fn unionParamsOf(builder: IRBuilder, base: string) -> list < string > {
     return []
 }
 
-// The instance name one argument list makes. The spelling is `mangleTypeArg`'s,
-// shared with the model path and with the checker: checker and builder that
-// disagree about a type name pass `orbit check` and read the wrong member.
-fn unionInstanceNameFromArgs(base: string, args: list < string >) -> string {
-    var out = base
-    var i = 0
-    while i < args.len() {
-        out = out + "_" + mangleTypeArg(args.get(i))
-        i = i + 1
-    }
-    return out
-}
-
 // Declare one instantiation: the tag set with the parameter replaced by the
-// argument in every payload. Twice the same instance is one declaration.
+// argument in every payload. Twice the same instance is one declaration. The
+// name itself is `literal.orb`'s, the leaf the checker also imports.
 fn ensureUnionInstanceType(builder: IRBuilder, base: string, args: list < string >) -> string {
-    val instance = unionInstanceNameFromArgs(base, args)
+    val instance = unionInstanceName(base, args)
     var k = 0
     while k < builder.module.types.len() {
         val known: IRTypeDecl = builder.module.types.get(k)

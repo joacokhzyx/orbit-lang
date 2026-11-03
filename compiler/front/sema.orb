@@ -564,23 +564,10 @@ fn isGenericUnionTemplate(sema: Sema, name: string) -> bool {
     return t.kind == "generic_union"
 }
 
-// The instance a list of arguments names. The spelling is the model's, built
-// from `mangleTypeArg`, because the checker and the builder have to agree on
-// it: a symbol typed `Option_int` beside a literal built as anything else
-// passes `orbit check` and then reads the wrong member.
-fn unionInstanceName(base: string, args: list < string >) -> string {
-    var out = base
-    var i = 0
-    while i < args.len() {
-        out = out + "_" + mangleTypeArg(args.get(i))
-        i = i + 1
-    }
-    return out
-}
-
 // Declare one instantiation: the registry rows with the parameter replaced by
 // the argument, and the variants a `match` has to be exhaustive over. Two
-// positions naming the same instance declare it once.
+// positions naming the same instance declare it once. The name itself is
+// `literal.orb`'s, the leaf the builder also imports.
 fn ensureUnionInstance(sema: Sema, base: string, args: list < string >) -> string {
     val instance = unionInstanceName(base, args)
     var k = 0

@@ -162,6 +162,23 @@ fn mangleTypeArg(s: string) -> string {
     return out
 }
 
+// The instance name one argument list makes: `Option` with `int` is
+// `Option_int`, the name a model instance gets the same way. The tag constants
+// the emitter writes are named from it (`Option_int_TAG_None`), so the checker
+// that resolves a pattern and the builder that declares the tag set must not
+// compute the string twice -- two copies disagree the way `listPeelDepth`'s did,
+// and the program passes `orbit check` and then dispatches on a tag of a type it
+// never wrote.
+fn unionInstanceName(base: string, args: list < string >) -> string {
+    var out = base
+    var i = 0
+    while i < args.len() {
+        out = out + "_" + mangleTypeArg(args.get(i))
+        i = i + 1
+    }
+    return out
+}
+
 // ── Generic list-element peeling ──────────────────────────────────────────
 //
 // `list<list<T>>` puts the parameter one level down, and both the checker and
