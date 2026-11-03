@@ -8,6 +8,9 @@
 //
 // A payload-less variant with no written type anywhere is refused, never
 // guessed: tests/negative/n118_generic_union_needs_a_written_type_for_none.orb.
+// A binding's annotation is one of those written types, so `val z` and `val w`
+// below take their instance from the annotation alone: `Option.None` carries no
+// payload to decide it, and `Option.None()` hands over nothing either.
 //
 // Every exit code below is distinct, so a regression names itself: a payload
 // bound to the wrong type, or an arm that dispatches to the wrong instance,
@@ -50,6 +53,10 @@ fn main() -> int {
     val a: Option < int > = Option.Some(21)
     if takeInt(a) != 42 { return 90 }
     if takeInt(Option.None) != -1 { return 91 }
+    val z: Option < int > = Option.None
+    if takeInt(z) != -1 { return 99 }
+    val w: Option < int > = Option.None()
+    if takeInt(w) != -1 { return 100 }
     val s: Option < string > = Option.Some("hit")
     if takeString(s) != "hit!" { return 92 }
     if takeString(Option.None) != "none" { return 93 }

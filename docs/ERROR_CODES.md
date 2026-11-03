@@ -97,7 +97,9 @@ variant arity at construction; `n68`: pattern binding count in `match`; `n78`:
 lowering; `n112`: a local named `system` shadows the builtin, so the member is
 diagnosed against the local's type; `n113`-`n115`: a member another receiver
 answers, on a list, a string and a map; `n116`: a declared function named like
-a lowered member does not answer the member call). The same code covers `ok` and `err` built
+a lowered member does not answer the member call). `n126` is the union case read
+against a binding's annotation: `val x: Option<int> = Option.Some()` resolves
+`Option_int` from the annotation, so what refuses it is the payload count. The same code covers `ok` and `err` built
 with the wrong number of positions: `ok` takes exactly one value, and `err`
 takes a message and an optional code, which is the grammar in
 `docs/LANGUAGE_REFERENCE.md`. Before that check both answered `result` before
@@ -139,7 +141,11 @@ generic type parameter (`n52`), a generic field fixed to one type by an
 earlier field (`n50`), and a payload-less union variant that no position writes
 (`n118`: `Option.None` carries nothing, so the argument has to come from a
 parameter's declared type, a binding's annotation, a declared `return` or a call
-argument). The last two point at the enclosing declaration:
+argument). `checkVarDecl` resolves the annotation before it reads the value,
+which is what makes the annotation one of those positions:
+`val o: Option<int> = Option.None` -- the form this code's own help text names --
+checks clean, and `val x: Option<int> = Option.Some()` is read against
+`Option_int` and refused by the payload count instead (E1003, `n126`). The last two point at the enclosing declaration:
 object literals carry no parser position, so `checkGenericModelFields` reports
 against the declaration site stamped by `checkVarDecl`/`checkConstDecl`
 (`valueSite`). A literal returned directly keeps the one-line form until

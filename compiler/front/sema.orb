@@ -2379,7 +2379,14 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
         ASTNode.VarDecl(v) => {
             sema.valueSiteLine = v.line
             sema.valueSiteCol = v.col
+            // The annotation resolves before the value: it is what declares the
+            // instance of a generic union, and a payload-less variant has
+            // nothing else to be read against.
+            val annotatedUnion = resolveWrittenUnionInstance(sema, v.typeAnnotation)
+            val prevAnnotatedUnion = sema.expectedUnionName
+            if annotatedUnion != "" { sema.expectedUnionName = annotatedUnion }
             val valueType = checkNode(sema, v.value)
+            sema.expectedUnionName = prevAnnotatedUnion
             match v.value {
                 ASTNode.TypedLiteral(tl) => {
                     if isModelName(sema, tl.declaredType) {
@@ -2388,7 +2395,6 @@ fn checkVarDecl(sema: Sema, node: ASTNode) {
                 }
                 _ => {}
             }
-            val annotatedUnion = resolveWrittenUnionInstance(sema, v.typeAnnotation)
             var declaredBinding = v.typeAnnotation
             if annotatedUnion != "" { declaredBinding = annotatedUnion }
             checkAnnotation(sema, v.name, declaredBinding, valueType, v.line, v.col)

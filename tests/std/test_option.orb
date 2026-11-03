@@ -6,10 +6,10 @@
 // gets its payload type there.
 //
 // Four positions write a type, and this file asserts each: a parameter's
-// declared type (`doubled`), a binding's annotation (`val a`), a `return` in a
-// declared function (`someOrNone`), and a call argument against its parameter
-// (`doubled(Option.None)`). A `None` that none of them writes is refused instead
-// of guessed, and
+// declared type (`doubled`), a binding's annotation (`val a`, `val none`), a
+// `return` in a declared function (`someOrNone`), and a call argument against its
+// parameter (`doubled(Option.None)`). A `None` that none of them writes is refused
+// instead of guessed, and
 // tests/negative/n118_generic_union_needs_a_written_type_for_none.orb pins that
 // refusal.
 //
@@ -58,5 +58,9 @@ fn main() -> int {
     // different variants with different payload widths.
     if assertEqInt(doubled(someOrNone(21)), 42) == false { return 7 }
     if assertEqStr(shout(Option.Some("two")), "two!") == false { return 8 }
+    // A binding's annotation is the only place this instance is written: `None`
+    // carries no payload, so the value cannot decide it.
+    val none: Option < int > = Option.None
+    if assertEqInt(doubled(none), 0) == false { return 9 }
     return 0
 }
