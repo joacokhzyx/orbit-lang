@@ -922,18 +922,23 @@ move a number up unless `--allow-regression` is also passed. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
-## The frontend gate is 23/23
+## The frontend gate is 26/26
 
-`scripts/frontend_gate.py` runs twenty-three fixtures and all twenty-three pass (two of
+`scripts/frontend_gate.py` runs 26 fixtures and all 26 pass (two of
 them, `syntax_error.orb` and `unresolved_type.orb`, could not build for most
 of this cycle, and both missing imports are fixed). `print_pipeline.orb` pins
 `call void print`, which is what made `orbit frontend examples/hello.orb`
-fail before. Four pin an absence of output rather than a text, and the gate
+fail before. Five pin an absence of output rather than a text, and the gate
 owns that list in `EMPTY_EXPECTATIONS`: for a suppressed file a golden would be
-the wrong artifact. `interp_parts.orb` pins the interpolated string, and its
+the wrong artifact. 21 `.tir` goldens sit in `tests/frontend/expected/`.
+`interp_parts.orb` pins the interpolated string, and its
 hole is written `$` because a fixture cannot embed `${`: the lexer that reads
 the fixture's own literal would interpolate it, so the marker is decoded in the
 gate's test plumbing rather than as a language escape.
+`crossfile_field.orb` is the fifth and the boundary case: a field whose type is
+a model declared in another file keeps E2004, and the fixture prints only when
+the refusal names that code, so an input that stopped reaching the member-read
+rule cannot pass on a silent match.
 
 ## `lib/net.orb` is gone
 
