@@ -185,6 +185,18 @@ def registry(compiler, cc, work):
              "every counted claim about the corpus in the docs equals the tree",
              lambda: _script("doc_counts.py"),
              r"Finished doc-counts", 120, allow_rc=(0, 1)),
+        # The same bargain for the other kind of claim a document makes: a
+        # location. Measured 2026-11-03, 125 of the 184 `path:line` cites in the
+        # audited documents did not open at the construct their sentence named --
+        # the arena split into nine members, c_backend.orb doubled, a pipeline
+        # moved host, and every inserted line moved each cite after it. Nothing
+        # in the gate set read a citation, so the drift was silent.
+        Tool("cite_check.py", "gate",
+             "every `path:line` in the documents opens at the construct its "
+             "sentence names; the self-test is the row that proves it can say "
+             "so about a wrong one",
+             lambda: _script("cite_check.py", "--self-test"),
+             r"Finished cite-coverage", 120, allow_rc=(0, 1)),
         # The companion to the three above for a claim one level out: a CLI flag
         # is a promise written in --help, and a promise nothing reads is the
         # quietest failure there is, because the run succeeds and the thing that

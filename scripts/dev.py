@@ -727,11 +727,15 @@ def fmt_gate(binary: pathlib.Path, changed: list):
     # flag_coverage is the fourth of the family and the same bargain: a CLI flag
     # is a promise written in --help, and a promise nothing reads is invisible in
     # every run because the run succeeds without doing what was asked.
+    # cite_coverage is the fifth: a `path:line` in a document is the same kind of
+    # promise, and 125 of the 184 in the nine audited documents did not open at
+    # the construct their sentence named. Measured 2026-11-03.
     return [
         ("schema_conformance", [py, f"{s_dir}/schema_conformance.py"]),
         ("walk_coverage", [py, f"{s_dir}/walk_coverage.py"]),
         ("doc_counts", [py, f"{s_dir}/doc_counts.py"]),
         ("flag_coverage", [py, f"{s_dir}/flag_coverage.py"]),
+        ("cite_coverage", [py, f"{s_dir}/cite_check.py"]),
     ]
 
 
@@ -1005,7 +1009,7 @@ def main() -> int:
             (f" ({fp_stamp_line(binary)})" if binary.exists() else " (not built)"))
         say(f"T0: fmt --check sharded per file ({len(fmt_check_files())} files "
             "across compiler/, tests/suite/, std/, tests/std/ and examples/) "
-            "+ schema + walk + doc_counts + flags")
+            "+ schema + walk + doc_counts + flags + cites")
         for tier in sorted(specs):
             names = ", ".join(n for n, _ in specs[tier])
             line = f"T{tier}: {names}"
