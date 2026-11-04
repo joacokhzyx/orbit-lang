@@ -1109,7 +1109,13 @@ starts producing `unknown` without a diagnostic, or one of the five that stops
 firing once per instruction, moves it off zero and the gate fails.
 
 Raising a baseline is a deliberate act: `--write-baseline` refuses to
-move a number up unless `--allow-regression` is also passed. So the
+move a number up unless `--allow-regression` is also passed. It rewrites the rest of
+the file on every run -- the file count, the instruction count and the per-file
+`by_file` table -- so a commit can refresh those context numbers without moving
+either metric: `bef0782` changed 5 lines and added 4, and both metrics stayed 6 and
+0. A per-file entry going to 0 is the useful half of that churn: `tests/std/`
+`test_codec.orb` reached 0 untyped instructions when the decodes wrote their
+payload. So the
 count can only go down, which turns "do not regress this" from a rule
 people follow into a property the build enforces.
 
