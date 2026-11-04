@@ -13,6 +13,10 @@ startup banner says `Orbit 0.1.0`).
 
 Language front end:
 
+- **A library function writes its result payload.** `base64Decode` and `hexDecode` answered a bare `result`, so nothing could say what a later `try` yields: 19 of the corpus's `try` give-ups were that. They now answer `result < string >`, which `df40323` made possible to write. Eight of the 19 stopped being give-ups and 11 became the class behind them, `a handler that falls through needs a merge value`. Over the corpus the census reads 568 unknown over 102,944 instructions -- 0.6%, and the ratchet metric stays 6 per mille because the corpus grew with the spelling. The silent count is 0 and the five per-code counts still sum to the total. `parseIntChecked` and `parseFloatChecked` were spelled too and went back: `ok` admits only a string or an object, so `result < int >` cannot be written -- measured, not assumed. Two counts in `docs/KNOWN_LIMITATIONS.md` moved with this: 42 signatures and no payload, read with a pattern that could not see the formatter's `result < string >`, are 40 and 3 read correctly.
+
+Language front end:
+
 - **A payload written on a `result` reaches the C backend.** `-> result<string>` parsed, and nothing else worked. `ok("x")` answers a bare `result`, so the checker refused the signature, and the backend compares the type text with `"result"` exactly, so the local holding the value came out `void*` and the unwrap read `.value` off it. The builder now spells a result's IR type `result` whether or not the annotation names a payload -- one struct either way, the same rule `annotationBaseType` already applies to a list -- and the checker accepts a bare `result` value against a signature that names a payload, and the other way round. The annotation stays where it can be read: the frontend pass sees the source text, so `result<string>` is now something a `try` can be typed from. `tests/suite/result_payload_written.orb` is the program, written before the change and failing: it did not build, and it runs with exit 0 now.
 
 Language front end:

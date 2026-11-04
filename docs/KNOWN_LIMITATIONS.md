@@ -246,20 +246,25 @@ pointer as an integer. The mechanism is already written down at
 `compiler/front/sema.orb:4690`, which blames it for `ok 200 system.uptime()`
 reaching the C backend with an int where a string pointer belongs. The fix there
 named a receiver type; this site has no receiver to name, because the payload is
-written nowhere -- 42 function signatures in 28 files of `std/`, `tests/`, `examples/` and
-`compiler/` return a bare `-> result`, and **no file in the corpus declares
-`result<T>` on a function at all** (0 of 42). Measured 2026-11-04 by reading every
-`fn` signature; the first count of this sentence, 51 in 31 files, counted the
-spelling wherever it appeared and so took in continuation lines and two negative
-tests. A count of occurrences is not a count of declarations, and the correction is
-dated here rather than silent.
+written nowhere. On 2026-11-04, 42 `fn` signatures returned a bare `-> result` and
+none wrote a payload. Two counts of this sentence have been wrong and both are
+dated rather than hidden: the first said 51 in 31 files, counting the spelling
+wherever it appeared, and the second said 42 and 0 with a pattern that could not
+see a payload at all, because the formatter writes `result < string >` with spaces
+around the angle brackets. Read with a spacing-tolerant pattern today: **40
+signatures return a bare `-> result`, and 3 write a payload** -- two in
+`std/convert/codec.orb` and the suite program that proves the spelling works.
 
-The same missing spelling is why 51 `try` expressions give up in the frontend pass
-(19 in `tests/std/test_codec.orb`, 17 in `tests/std/test_json.orb`, 15 in
-`tests/std/test_string.orb`): the pass reads a type that is not written, and
-`unknown` is the honest answer there. Closing this limitation is a checker decision
-first -- type `try` from the callee's declared `result<T>`, which changes what
-`orbit check` refuses -- and the frontend count falls with it. The probe above is
+The same missing spelling is why `try` expressions gave up in the frontend pass.
+`std/convert/codec.orb` now writes `result < string >` on the two decodes, and 19 of
+those give-ups moved: 8 stopped being give-ups at all, and 11 became the next class
+-- `a handler that falls through needs a merge value`, which the pass does not model.
+Closing the spelling exposes the class behind it, which is how every number here has
+fallen. The rest still wait: 17 in `tests/std/test_json.orb` and 15 in
+`tests/std/test_string.orb` cannot be spelled, because `ok` admits only a string or
+an object as its payload, so `parseIntChecked` returning `result < int >` is
+refused -- `ok response body must be a string or an object, got int`. That
+restriction is a limitation of its own, not a missing annotation. The probe above is
 not a `tests/negative` case: that gate pins a program that fails to compile, and
 this one compiles.
 
@@ -282,7 +287,14 @@ return. Typing `ok(x)` from its argument was also tried; it answers
 `result<string>` everywhere and breaks 11 programs of the 125 in `tests/suite`,
 and the checker already restricts the body of `ok` to a string or an object when
 the signature writes a payload. So the change is an emission change first, and the
-checker rule is the smaller half.
+checker rule is the smaller half. Both halves landed on 2026-11-04 in `df40323`:
+the builder spells the IR type of a result `result` whatever the annotation says,
+and `checkCompatibility` admits a bare `result` value against a signature that
+names a payload. What is left in this section is the restriction on `ok` -- a
+payload of `int` or `float` cannot be written -- and the unchecked annotation the
+probe at the top of the section still demonstrates: writing a payload on a
+signature is possible now, but `-> result` with no payload is still compatible with
+every value, so `val v: string = try wrong()` stays accepted.
 
 The size of the hole is countable without changing anything. 47 sites in the corpus
 bind a `try` with a written annotation (`val d0: string = try base64Decode(...)`),
@@ -829,17 +841,17 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 576 | **0.6%** |
+| instructions the front end types `unknown` | 568 | **0.6%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 260 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(unknown identifier, 252 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
 (binary operands, 107), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
 (member read, 44) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 165). Their sum, 576, is the whole unknown count. The five
+(call result, 165). Their sum, 568, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:630`, `:643`, `:651`, `:675` and `:770`, and
 each sits on the branch that emits the instruction.
 
@@ -878,7 +890,7 @@ of it lives. The probe itself was the last thing holding the old numbers: until
 2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
 text it is handed, so it measured a program the command line never compiles. It
 calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
-260 unknown loads: 254 read a name the file itself declares, led by `o` 12,
+252 unknown loads: 246 read a name the file itself declares, led by `o` 12,
 `want` 10 and `arr` 10. 6 read a name no corpus file declares:
 `Circle` 2, `Square` 2, `Both` and `taken`. No load reads a name that only a file this one imports declares.
 `Token` was 54 of those and `LiteralNode` 21: a model name in call position
@@ -928,9 +940,9 @@ what the pass gives up on; it did not say where, so a class of 93 could have bee
 one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
 `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29, and the 93
-`try` give-ups are 19 in `tests/std/test_codec.orb`, 17 in
-`tests/std/test_json.orb` and 15 in `tests/std/test_string.orb`. Those three read
-the same shape: `std/convert/codec.orb:63` declares
+`try` give-ups were 19 in `tests/std/test_codec.orb`, 17 in
+`tests/std/test_json.orb` and 15 in `tests/std/test_string.orb`. The first of those
+three is spelled now; the two that remain read the same shape:
 `fn base64Decode(s: string) -> result`, with no type written inside the `result`,
 and the value type is written instead at the binding --
 `val d0: string = try base64Decode("") catch { return 6 }`. The give-up message
@@ -1051,8 +1063,9 @@ carrying code has described a file it never read.
 What is left of the class list is `Match` 307, `Try` 93 and `If` 30. After them, a `for` over a value with no element
 type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-04 the census reads 576 unknown over
-102,668 instructions. Earlier the same day it read 614, before `system` was read
+the rate is what to read. On 2026-11-04 the census reads 568 unknown over
+102,944 instructions, after `std/convert/codec.orb` wrote its payloads. Earlier the
+same day it read 576 over 102,668. Earlier the same day it read 614, before `system` was read
 as the receiver the checker names, 739 before `ok` and `err` were read by name,
 and 1,134 before a list write answered `void`. The count falls faster than the
 rate: this pass is in the corpus it measures, and every rule added grows the
