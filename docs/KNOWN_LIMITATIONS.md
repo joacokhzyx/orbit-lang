@@ -829,8 +829,13 @@ one construct in one file or the same rule failing everywhere. Measured the same
 day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
 `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29, and the 93
 `try` give-ups are 19 in `tests/std/test_codec.orb`, 17 in
-`tests/std/test_json.orb` and 15 in `tests/std/test_string.orb` -- three files
-whose `try` calls name functions the read of their result does not answer. Fourteen of the classes the table first printed turned out not to
+`tests/std/test_json.orb` and 15 in `tests/std/test_string.orb`. Those three read
+the same shape: `std/convert/codec.orb:63` declares
+`fn base64Decode(s: string) -> result`, with no type written inside the `result`,
+and the value type is written instead at the binding --
+`val d0: string = try base64Decode("") catch { return 6 }`. The give-up message
+says what is missing, and the file that names it is `std/convert/codec.orb`, not
+the test. Fourteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
