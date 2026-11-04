@@ -188,7 +188,7 @@ def parse(text):
             continue
         if parts[0] == "FILE":
             cur = {"path": " ".join(parts[1:]), "op": Counter(), "code": Counter(),
-                   "giveup": Counter(), "name": Counter()}
+                   "giveup": Counter(), "name": Counter(), "load": Counter()}
             rows.append(cur)
         elif parts[0] == "FN" and cur is not None:
             # FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
@@ -217,6 +217,13 @@ def parse(text):
             # identifier the file loads without a type for it.
             try:
                 cur["name"][parts[-1]] += int(parts[1])
+            except (ValueError, IndexError):
+                pass
+        elif parts[0] == "LOAD" and cur is not None:
+            # LOAD <count> <kind>: the unknown loads of this file, split by
+            # whether the function that reads the name also binds it.
+            try:
+                cur["load"][" ".join(parts[2:])] += int(parts[1])
             except (ValueError, IndexError):
                 pass
         elif parts[0] == "UNREADABLE" and cur is not None:
@@ -421,6 +428,20 @@ def main():
         print("  NOTE: %d identifiers sorted against %d E2001 diagnostics -- the"
               " probe line and the code count are not one thing this run."
               % (sorted_loads, e2001))
+    print("")
+    load_split = Counter()
+    for r in rows:
+        load_split.update(r.get("load", Counter()))
+    split_total = sum(load_split.values())
+    print("Unknown loads split by whether the reading function binds the name "
+          "(%d split, the `load` opcode counts %d):"
+          % (split_total, by_op.get("load", 0)))
+    for kind, n in load_split.most_common():
+        print("  %-32s %7d" % (kind, n))
+    if split_total != by_op.get("load", 0):
+        print("  NOTE: %d split against %d unknown loads -- the probe's split and "
+              "the opcode tally are not one thing this run."
+              % (split_total, by_op.get("load", 0)))
     print("")
     print("Front-end diagnostics by code (a file that errors is not a typed file):")
     table(by_code, max(totals["diag"], 1), args.top, "code")

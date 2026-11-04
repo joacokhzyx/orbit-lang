@@ -16,6 +16,8 @@
 //     CODE <diagnostic code> <count>
 //     NAME <count> <message>     -- one E2001 message, whose last word is the
 //                                   identifier the file loads untyped
+//     LOAD <count> <kind>        -- unknown loads split by whether the same
+//                                   function binds that name
 //
 // The two imports below are load-bearing and neither is obvious.
 //
@@ -39,6 +41,15 @@
 
 import "../compiler/host/extern.orb"
 import "../compiler/tir/entry.orb"
+
+// The first word of an operand string. A `bind` instruction binds the name it
+// puts first, and a `load` reads the name it puts first, so this is how the
+// probe tells a name the function binds from one it does not.
+fn firstWord(text: string) -> string {
+    val space = orbit_string_indexOf(text, " ")
+    if space < 0 { return text }
+    return orbit_string_slice(text, 0, space)
+}
 
 // parseIntSelfhost used to be stubbed here because the front end could not
 // reach the real one: parser.orb called a function that lived in builder.orb,
@@ -87,12 +98,33 @@ fn censusOf(path: string) {
     var instrUnknown = 0
     var opcodes = []
     var counts = []
+    // An unknown load is either the echo of a value this pass could not type
+    // (the name IS bound here, with `unknown` in it) or a name the function
+    // never binds at all. The two need different fixes, and only the second is
+    // a resolution gap.
+    var loadBound = 0
+    var loadUnbound = 0
 
     var f = 0
     while f < module.functions.len() {
         val function: TirFunction = module.functions.get(f)
         functions = functions + 1
         if function.returnType == "unknown" { returnUnknown = returnUnknown + 1 }
+        val boundNames = []
+        var bp = 0
+        while bp < function.parameters.len() {
+            val parameter: TirParameter = function.parameters.get(bp)
+            boundNames.push(parameter.name)
+            bp = bp + 1
+        }
+        var bi = 0
+        while bi < function.instructions.len() {
+            val bound: TirInstruction = function.instructions.get(bi)
+            if bound.opcode == "bind" {
+                boundNames.push(firstWord(bound.operands))
+            }
+            bi = bi + 1
+        }
         var p = 0
         while p < function.parameters.len() {
             val parameter: TirParameter = function.parameters.get(p)
@@ -105,6 +137,13 @@ fn censusOf(path: string) {
             instrs = instrs + 1
             if instruction.typeName == "unknown" {
                 instrUnknown = instrUnknown + 1
+                if instruction.opcode == "load" {
+                    if findOpcodes(boundNames, firstWord(instruction.operands)) >= 0 {
+                        loadBound = loadBound + 1
+                    } else {
+                        loadUnbound = loadUnbound + 1
+                    }
+                }
                 val at = findOpcodes(opcodes, instruction.opcode)
                 if at < 0 {
                     opcodes.push(instruction.opcode)
@@ -168,6 +207,8 @@ fn censusOf(path: string) {
     + " INSTR " + orbit_int_to_string_selfhost(instrs)
     + " INSTRUNK " + orbit_int_to_string_selfhost(instrUnknown)
     + " DIAG " + orbit_int_to_string_selfhost(diagnostics))
+    print("LOAD " + orbit_int_to_string_selfhost(loadBound) + " bound-in-this-function")
+    print("LOAD " + orbit_int_to_string_selfhost(loadUnbound) + " not-bound-in-this-function")
     var k = 0
     while k < opcodes.len() {
         print("OP " + opcodes.get(k) + " " + orbit_int_to_string_selfhost(counts.get(k)))
