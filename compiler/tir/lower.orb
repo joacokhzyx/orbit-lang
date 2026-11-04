@@ -145,7 +145,9 @@ fn collectModels(module: TirModule, program: ProgramNode) {
         match program.decls.get(i) {
             ASTNode.ModelDecl(modelDecl) => { tirCollectModel(module, modelDecl) }
             ASTNode.TypeDecl(typeDecl) => {
-                if typeDecl.kind == "enum" { tirCollectEnum(module, typeDecl) }
+                if typeDecl.kind == "enum" || typeDecl.kind == "union" {
+                    tirCollectVariants(module, typeDecl)
+                }
             }
             _ => {}
         }
@@ -233,15 +235,24 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
 // variant as an integer tag under the name `TAG_TokType_EOF`. Unions are not
 // collected: a variant of a union is a construction with a payload, not a
 // constant, and treating it as one would claim a value this pass cannot build.
-fn tirCollectEnum(module: TirModule, typeDecl: TypeDeclNode) {
+fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
     val fields = []
     var i = 0
     while i < typeDecl.variants.len() {
-        match typeDecl.variants.get(i) {
-            ASTNode.Literal(variant) => {
-                fields.push(TirField(variant.text, typeDecl.name))
+        // A variant with a payload is a construction that needs an argument, not
+        // a name this pass can answer. Only the payload-less ones enter the table,
+        // and they are read as constants of the type that declares them.
+        var payload = ""
+        if i < typeDecl.variantPayloads.len() {
+            payload = typeDecl.variantPayloads.get(i)
+        }
+        if payload == "" {
+            match typeDecl.variants.get(i) {
+                ASTNode.Literal(variant) => {
+                    fields.push(TirField(variant.text, typeDecl.name))
+                }
+                _ => {}
             }
-            _ => {}
         }
         i = i + 1
     }
