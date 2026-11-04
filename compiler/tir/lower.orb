@@ -148,6 +148,20 @@ fn declaresVariantCtor(module: TirModule, typeName: string, variant: string) -> 
     return false
 }
 
+// Is this name a model the program declares? `Token(tag, text, line, col, start,
+// len)` is a construction of that model, and the name is not a value read from
+// anywhere: no function is called `Token` and no binding holds it. Lowering the
+// callee as an expression loaded the name, reported E2001 for the load, and left
+// the call after it reporting E2005 for a result the pass had just made unreadable.
+fn declaresModelCtor(module: TirModule, name: string) -> bool {
+    var i = 0
+    while i < module.ctors.len() {
+        if module.ctors.get(i) == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
 // The models the file declares, read before any body, for the one reason
 // `collectSignatures` exists: a `model` written after the function whose body
 // reads one of its fields was not in the table while that body lowered, so the
@@ -237,7 +251,8 @@ fn declaredPayloadType(typeName: string) -> string {
 }
 
 // Record a model the file declares, so a field read can be answered from the
-// text rather than guessed from the name.
+// text rather than guessed from the name. The model's own name enters `ctors`
+// too: `Point(1, 2)` constructs it, and is not a call through a value.
 fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
     val fields = []
     var i = 0
@@ -250,6 +265,7 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
         }
         i = i + 1
     }
+    module.ctors.push(modelDecl.name)
     module.types.push(TirType(modelDecl.name, fields))
 }
 
@@ -393,6 +409,7 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                 ASTNode.Literal(l) => {
                     val declared = declaredReturnType(module, l.text)
                     if declared != "" { return declared }
+                    if declaresModelCtor(module, l.text) { return l.text }
                     if l.text == "len" || l.text == "indexOf" || l.text == "orbit_os_argc_selfhost" || l.text == "orbit_string_char_at_selfhost" { return "int" }
                     if l.text == "orbit_int_to_string_selfhost" || l.text == "orbit_float_to_string_selfhost" || l.text == "orbit_os_argv_selfhost" || l.text == "orbit_os_exec_selfhost" || l.text == "orbit_os_env_selfhost" || l.text == "orbit_file_read_selfhost" || l.text == "slice" || l.text == "at" || l.text == "tirEscape" || l.text == "tirIntText" { return "string" }
                     if l.text == "orbit_file_write_selfhost" || l.text == "hasErrors" || l.text == "tirHasErrors" || l.text == "isVisited" { return "bool" }
@@ -644,6 +661,23 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
                     }
                 }
                 _ => {}
+            }
+            if callCalleeIsMethod == false {
+                // The name of a model in call position is the construction, so it
+                // travels on the call and nothing is loaded for it.
+                var modelCalleeName = ""
+                match call.callee {
+                    ASTNode.Literal(calleeLiteral) => {
+                        if declaresModelCtor(module, calleeLiteral.text) {
+                            modelCalleeName = calleeLiteral.text
+                        }
+                    }
+                    _ => {}
+                }
+                if modelCalleeName != "" {
+                    callCalleeIsMethod = true
+                    callOperands = modelCalleeName
+                }
             }
             if callCalleeIsMethod == false {
                 val callee = lowerExpression(module, function, blockId, bindings, call.callee)
