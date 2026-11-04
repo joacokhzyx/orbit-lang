@@ -11,7 +11,7 @@ startup banner says `Orbit 0.1.0`).
 
 ## 0.1.0 (2026-11-01)
 
-Measurement:
+Language front end:
 
 - **The give-up tally now names the file.** "What the front end gives up on" printed one count per class, so 93 `try` give-ups looked like one rule failing everywhere. The census prints the largest single (file, class) pairs beside the tally. Measured 2026-11-04: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48, `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29 -- four files that pattern-match on AST nodes, which is the class, not a defect in those files -- and the 93 `try` give-ups are 19 + 17 + 15 in three `tests/std` files whose `try` reads a result this pass does not answer. E3001 stays 462 and the unknown count is unchanged at 576 of 102,668 instructions, 0.6%; this changes what is measured, not what is typed. The class list's `Match` figure moved 306 to 307 because `compiler/tir/lower.orb` is in the corpus it measures and grew a rule the same day.
 
@@ -585,6 +585,10 @@ Content and docs track; no compiler changes:
   Arena Oracle was at that date: its O(1) TLS fast path was in `runtime/arena.c`,
   but nothing in the generated server opens or closes a session and no C test
   exercises it.
+
+Known limitations:
+
+- **A `try` binding annotation is not checked, and the probe says so.** `compiler/front/sema.orb:4799` answers `unknown` for a `try`, and `:1146` and `:2012` accept `unknown` against anything, so `val n: int = try decode("x") catch { return 7 }` checks clean when `decode` carries a `string`. `docs/KNOWN_LIMITATIONS.md` records the probe, the three lines, and the count of bare `-> result` declarations -- 51 in 31 files -- which is the same spelling the frontend's 51 `try` give-ups are reading for. Closing it is a checker decision, not a rule this pass can take alone.
 
 ## 0.1.0-rc.2 cycle (September 2026)
 
