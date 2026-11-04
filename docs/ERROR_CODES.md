@@ -87,8 +87,9 @@ per field). It also fires for a field or variant read that nothing declares
 member set does not contain (`'list<int>' has no member 'sort'`,
 `'list<int>' has no member 'indexOf'`), and for `print` called with anything
 but exactly 1 argument. Fix
-hint is per site (each `reportErrorAt` call carries its hint; the member
-diagnostic is at `sema.orb:4199`): spell the member as declared, construct with one
+hint is per site (each `reportErrorAt` call carries its hint; the member-call
+diagnostic is the one under `checkNode`'s `ASTNode.MemberAccess` callee arm):
+spell the member as declared, construct with one
 argument per field in order, print one value. Pinned by `n05`, `n06`, `n13`,
 `n14`, `n15`, `n47`, `n57`, `n66`, `n68`, `n78`, `n111`, `n112`, `n113`-`n115`
 and `n116` (`n66`:
@@ -104,7 +105,8 @@ with the wrong number of positions: `ok` takes exactly one value, and `err`
 takes a message and an optional code, which is the grammar in
 `docs/LANGUAGE_REFERENCE.md`. Before that check both answered `result` before
 their argument count was looked at.
-Pinned by `tests/negative/n97_result_no_value.orb` (`ok()`).
+Pinned by `tests/negative/n97_result_no_value.orb` (`ok()`). The locations in this
+section name functions, because every edit to `sema.orb` moves a line number.
 
 ## E1004 — literal zero divisor, `INT_MIN / -1`
 

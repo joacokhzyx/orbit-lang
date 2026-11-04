@@ -194,7 +194,7 @@ r_2 = (orbit_int)(uintptr_t)(takesStr((orbit_string)(r_1)));
 Three things follow, and all three are user-visible.
 
 **The C cast comes from the static type alone.** `mapTypeToC`
-(`compiler/emit/c_backend.orb:264`) turns an Orbit type name into a C type, and the
+(`compiler/emit/c_backend.orb:500`) turns an Orbit type name into a C type, and the
 callee's declared parameter type is what decides the cast at a call site. The
 runtime is never asked whether the word it was handed is of that type, because
 there is nothing to ask. A function parameter declared `s: string` produces
@@ -203,7 +203,7 @@ there is nothing to ask. A function parameter declared `s: string` produces
 **An unannotated binding is assumed to be a string.** Sema does not track the
 type of a local bound to a literal, so `val v = f()` reads back as `unknown`.
 Such a binding is allowed through on purpose (`isInterpolatable`,
-`compiler/front/sema.orb:732`, which returns true for `unknown` and says why in the
+`compiler/front/sema.orb:3937`, which returns true for `unknown` and says why in the
 comment above it). Where the backend then has to guess, it guesses
 string. Passing such a binding to a `string` parameter compiles cleanly and
 dereferences an integer as a pointer:
@@ -269,35 +269,36 @@ and where amalgamation fits, see the
 ## Subsystem Reference
 
 ### Orbit Arena (virtual-memory epoch allocator)
-File: `runtime/arena.c`
+Files: `runtime/arena.c` and its members (`docs/STARTUP.md` lists them)
 
 The arena reserves a large virtual address window at startup and commits pages on
 demand. Allocation is a monotonically growing bump pointer. There is no
 per-object free.
 
 **Requests are bracketed by a whole-arena reset, not by a checkpoint.** The
-generated connection loop calls `orbit_arena_reset(thread_arena)` before every
-`orbit_handle_request` (`compiler/emit/route_runtime.orb:485`), so each request
-starts from a reset arena. `orbit_arena_reset` is not O(1) and not a rewind: it
-releases the chained overflow segments and decommits every page past the hot
-retention watermark (at `runtime/arena.c:515`, where the watermark itself is
-`ORBIT_ARENA_HOT_RETENTION_LIMIT`, 256 KB, at `:52`).
+generated connection loop calls `orbit_arena_reset(thread_arena)` at
+`compiler/emit/route_runtime.orb:558`, and handles the request at `:568`, so each
+request starts from a reset arena. `orbit_arena_reset` is not O(1) and not a
+rewind: it releases the chained overflow segments and decommits every page past
+the hot retention watermark `ORBIT_ARENA_HOT_RETENTION_LIMIT`
+(`runtime/arena_reset.c:48`), where the
+watermark itself is `ORBIT_ARENA_HOT_RETENTION_LIMIT`, 256 KB, in `runtime/arena.h`.
 
-`orbit_arena_checkpoint` and `orbit_arena_rewind` exist
-(`runtime/arena.c:565,575`), and a rewind is an O(1) bump-pointer restore.
-Nothing in the generated server path calls them. Outside `runtime/arena.c` and
-`runtime/test_arena.c`, the only references are the counter fields in
-`runtime/performance.h`. So `arena_checkpoint_count` and `arena_rewind_count`
-remain zero in a running server. The checkpoint API is available to hand-written
-C. The HTTP path uses whole-arena reset.
+`orbit_arena_checkpoint` and `orbit_arena_rewind` are the two functions in
+`runtime/arena_checkpoint.c`, and a rewind is an O(1) bump-pointer restore.
+Nothing in the generated server path calls them. Outside
+`runtime/arena_checkpoint.c` and `runtime/test_arena.c`, the only references are
+the counter fields in `runtime/performance.h`. So `arena_checkpoint_count` and
+`arena_rewind_count` remain zero in a running server. The checkpoint API is
+available to hand-written C. The HTTP path uses whole-arena reset.
 
 The request path does not use the pool. Each worker creates one 128 KB arena
-when its thread starts (at `compiler/emit/route_runtime.orb:368-369`, where the
+when its thread starts (at `compiler/emit/route_runtime.orb:406-407`, where the
 emitted comment is "Each thread owns its private arena - zero pool contention").
-It resets the arena before every request (`:485`) and destroys it when the loop
-ends (`:521`).
+It resets the arena before every request (`:558`) and destroys it when the loop
+ends (`:615`).
 `runtime/arena_pool.c` is initialized for process-startup scratch work only
-(`:566`, `:585-587`) and has no caller on the request path.
+(`:661`, `:679-681`) and has no caller on the request path.
 
 `runtime/oracle.c` used to implement the *Orbit Arena Oracle*, a per-route
 prediction of how many bytes a route needs. It used EMA with a cold-start sample

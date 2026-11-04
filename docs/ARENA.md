@@ -76,9 +76,9 @@ If $\text{new\_cursor} > \text{committed\_end}$, Arena invokes the OS virtual me
 
 If an allocation would land past the 64 MB virtual reservation, Arena allocates a dedicated OS memory block and chains it to `overflow_list` rather than failing the request. A chained segment is what `arena_overflow` (and D032) counts.
 
-Two things bound when that can happen. The allocation path charges the Kynx lease first (`orbit_alloc_try`, `runtime/arena.c:435`). The default lease caps a request's arena at **16 MB cumulative** (`orbit_kynx_lease_create_for_route`, `runtime/kynx.c:996`), and the admission states tighten that figure. None raises it. An admitted request therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Reproduced on the runtime in this tree: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained.
+Two things bound when that can happen. The allocation path charges the Kynx lease first (`orbit_alloc_try`, `runtime/arena_alloc.c:131`). The default lease caps a request's arena at **16 MB cumulative** (`orbit_kynx_lease_create_for_route`, `runtime/kynx.c:851`), and the admission states tighten that figure. None raises it. An admitted request therefore cannot walk the cursor past a 64 MB reservation, so under the default policy the chain is unreachable. Reproduced on the runtime in this tree: the first request that needed 16 MB in one allocation was refused with `orbit: out of memory allocating 16777217 bytes`, and nothing chained.
 
-The refusal is answered at the request boundary, not by ending the process. `orbit_alloc`'s handler formats the refusal from the numbers it still has and lands in the generated router. The router abandons the request's lease and sends **503 request refused: ...** with the arena's own line in the body. The handler and the arming are at `runtime/arena.c:364-419`. `orbit_kynx_lease_abandon` is in `runtime/kynx.c`. The frame that arms it is in `compiler/emit/route_runtime.orb`. Measured 2026-10-18 against a route that grows one string past the cap, in both directions. The committed canonical compiler answers with a transport error and exits 3 (`orbit: out of memory allocating 18311 bytes; arena ... holds 16770848 of 67108864 bytes in 1833 allocations`), and `/health` after it refuses the connection. The compiler built from these sources answers 503 carrying that line, and `/health` still answers 200. That was open debt until then: `ENGINEERING.md` §7, row `kynx-lease-abort`.
+The refusal is answered at the request boundary, not by ending the process. `orbit_alloc`'s handler formats the refusal from the numbers it still has and lands in the generated router. The router abandons the request's lease and sends **503 request refused: ...** with the arena's own line in the body. The handler and the arming are in `runtime/arena_oom.c`. `orbit_kynx_lease_abandon` is in `runtime/kynx.c`. The frame that arms it is in `compiler/emit/route_runtime.orb`. Measured 2026-10-18 against a route that grows one string past the cap, in both directions. The committed canonical compiler answers with a transport error and exits 3 (`orbit: out of memory allocating 18311 bytes; arena ... holds 16770848 of 67108864 bytes in 1833 allocations`), and `/health` after it refuses the connection. The compiler built from these sources answers 503 carrying that line, and `/health` still answers 200. That was open debt until then: `ENGINEERING.md` §7, row `kynx-lease-abort`.
 
 An unarmed exhaustion still aborts, and so does one where the reservation itself is gone: an exhausted arena has no room to answer with, and that remains the reservation's job. Where the lease does not bind (`ORBIT_KYNX=0`, or a budget above the reservation), one request does chain and the column is non-zero. The column's positive control is in the tree: `runtime/test_arena_telemetry.c` outgrows the reservation on purpose and asserts that both the row and the `/_ledger/data` JSON report one overflow.
 
@@ -97,7 +97,7 @@ typedef struct OrbitStringPoolLocal {
 } OrbitStringPoolLocal;
 ```
 
-A lookup compares lengths first and then `memcmp`s, so it is $O(n)$ in the number of strings already interned in this epoch - `runtime/string_pool.c` says as much at the top ("Lookups are O(n) over the pool"). A miss allocates the canonical copy with `orbit_alloc` and appends it. `orbit_arena_reset` clears the table in $O(1)$ by setting `count = 0`. The arrays themselves live until `orbit_arena_destroy` frees them (`runtime/arena.c:265`).
+A lookup compares lengths first and then `memcmp`s, so it is $O(n)$ in the number of strings already interned in this epoch - `runtime/string_pool.c` says as much at the top ("Lookups are O(n) over the pool"). A miss allocates the canonical copy with `orbit_alloc` and appends it. `orbit_arena_reset` clears the table in $O(1)$ by setting `count = 0`. The arrays themselves live until `orbit_arena_destroy` frees them (`runtime/arena.c:144`).
 
 FNV-1a hashing and open-addressed buckets do exist in this runtime, but for `Map<K,V>`, not for string interning: `runtime/collections.c` (`OrbitMapEntry`, 75 % load factor, buckets abandoned in the arena and reclaimed on reset). Do not read that machinery into this table.
 
@@ -127,9 +127,9 @@ typedef struct {
 
 ### The pool is not the request path
 
-The pool serves process **startup** work, not requests. The generated server initializes it and immediately acquires one arena for startup scratch work (`compiler/emit/route_runtime.orb:566`, `:585-587`). After that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:731`). Nothing else in the tree acquires from it, and that is the whole caller list.
+The pool serves process **startup** work, not requests. The generated server initializes it and immediately acquires one arena for startup scratch work (`compiler/emit/route_runtime.orb:661`, `:679-681`). After that it sits idle until `orbit_arena_pool_cleanup` at shutdown (`:820`). Nothing else in the tree acquires from it, and that is the whole caller list.
 
-The request path is one private arena per worker thread instead. `orbit_worker_loop` creates a 128 KB arena when the thread starts (the emitted comment is "Each thread owns its private arena - zero pool contention", `:368-369`). It resets the arena before every `orbit_handle_request` (`:485`) and destroys it when the loop ends (`:521`). That is deliberate: a per-thread arena needs no lock to acquire, and the reset cost lands on the thread that caused it.
+The request path is one private arena per worker thread instead. `orbit_worker_loop` creates a 128 KB arena when the thread starts (the emitted comment is "Each thread owns its private arena - zero pool contention", `:406-407`). It resets the arena before every request (`:558`) and destroys it when the loop ends (`:615`). That is deliberate: a per-thread arena needs no lock to acquire, and the reset cost lands on the thread that caused it.
 
 The mechanism that serves requests is `orbit_arena_create` + `orbit_arena_reset` on the worker's own arena, not the pool. Treat the pool as available infrastructure (hand-written C can acquire from it), in the same spirit as `orbit_arena_checkpoint`/`rewind`: real, usable, and outside the generated server's request path.
 
@@ -141,21 +141,21 @@ One arena is process-wide rather than per thread: the fallback `orbit_arena_get_
 
 
 **The C runtime arena is a real allocator.** Everything above is about
-`runtime/arena.c`, and it does allocate dereferenceable memory by bump
-pointer. The word "allocator" is correct for it.
+`runtime/arena.c` and its members, and they do allocate dereferenceable memory
+by bump pointer. The word "allocator" is correct for the arena.
 
 **The request boundary is a whole-arena reset, not a checkpoint.** The
-generated connection loop calls `orbit_arena_reset(thread_arena)` before
-every `orbit_handle_request` (`compiler/emit/route_runtime.orb:453`).
-`orbit_arena_checkpoint` and `orbit_arena_rewind` both exist
-(`runtime/arena.c:565,575`). A rewind is an $O(1)$ bump-pointer restore, but
-nothing in the tree calls either one outside `arena.c` and
+generated connection loop resets the thread arena at
+`compiler/emit/route_runtime.orb:558`, then handles the request at `:568`.
+`orbit_arena_checkpoint` and `orbit_arena_rewind` are the two functions in
+`runtime/arena_checkpoint.c`. A rewind is an $O(1)$ bump-pointer restore, but
+nothing in the tree calls either one outside that file and
 `runtime/test_arena.c`. So `arena_checkpoint_count` and `arena_rewind_count`
 in `runtime/performance.h` stay zero in a running server.
 `orbit_arena_reset` is not the $O(1)$ rewind the table above could imply. It
 releases the chained overflow segments and decommits every page past the hot
 retention watermark, which is the footprint the request just used, clamped to
-[256 KB, `ORBIT_ARENA_HOT_RETENTION_CEILING`] (`runtime/arena.c:515`). Treat
+[256 KB, `ORBIT_ARENA_HOT_RETENTION_CEILING`] (`runtime/arena_reset.c:48-53`). Treat
 the checkpoint API as available to hand-written C, not as the mechanism
 serving requests.
 
@@ -200,7 +200,7 @@ alignment broken by the block header size. A global fixed-capacity string pool
 left dangling pointers after reset, and the global metrics were not atomic. The
 current design answers each of those. Measure, don't assume.
 
-**Configuration** (macros in `runtime/arena.c`): `ORBIT_ARENA_ALIGN` (16),
+**Configuration** (macros in `runtime/arena.h`): `ORBIT_ARENA_ALIGN` (16),
 `ORBIT_ARENA_DEFAULT_RESERVE` (64 MB), `ORBIT_ARENA_DEFAULT_COMMIT`
 (64 KB), `ORBIT_ARENA_GROWTH_GRANULARITY` (64 KB),
 `ORBIT_ARENA_HOT_RETENTION_LIMIT` (256 KB floor kept hot after reset),

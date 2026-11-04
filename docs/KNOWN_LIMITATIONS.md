@@ -350,8 +350,9 @@ knows:
   (`compiler/emit/route_runtime.orb:460`), so a stop is seen within the loop's
   1 s timeout, and the request is the same `orbit_request_stop()` the console
   handler raises;
-- `orbit_os_kill(pid, 1)` sets it (`runtime/os.c:511`), and when no channel
-  carries that pid it falls back to `TerminateProcess` (`runtime/os.c:512`).
+- `orbit_os_kill(pid, 1)` asks the child through `orbit_stop_channel_ask`
+  (`runtime/os.c:511`), and when no channel carries that pid it falls back to
+  `TerminateProcess` (`runtime/os.c:514`).
 
 POSIX answers 0 from all three calls and keeps SIGTERM, so one emitted code path
 runs on both hosts with one graceful-stop mechanism each.
@@ -537,9 +538,9 @@ Both directions are pinned. `tests/suite/union_shared_variant_name.orb` declares
 `Packet.Body(int)` and `Signal.Body(string)`, constructs each qualified, matches
 each with a qualified pattern and with a bare pattern under its own scrutinee,
 and exits 0. The checker reads a payload from the owner the program wrote --
-`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:528`)
--- and a bare `match` pattern resolves through the scrutinee's type
-(`compiler/ir/builder.orb:3843`). The constructor macro carries both names:
+`variantPayloadAt(sema, owner, variantName, idx)` (`compiler/front/sema.orb:755`)
+-- and a bare pattern resolves through the scrutinee's type in `bareVariantOwner`
+(`compiler/ir/builder.orb:2405`). The constructor macro carries both names:
 `val mvMacro = cUserName(mvType.name + "_" + mvName)`
 (`compiler/emit/c_backend.orb:100`) where it read `cUserName(mvName)`. The two
 programs that would have collided link and run, which is what the name is for.
@@ -586,9 +587,9 @@ either.
 ```
 
 Guessing the first instance that declares `None` is the trade this repository
-refused for generic models, and the emitted C says why: the tag constant is
-named after the instance (`Option_int_TAG_None`, `compiler/emit/c_backend.orb:133`),
-so a guess would hand a program the tag of a type it never wrote.
+refused for generic models, and the emitted C says why: `generateRouteTypeDecls`
+names the tag constant after the instance (`Option_int_TAG_None`), so a guess
+would hand a program the tag of a type it never wrote.
 
 ## `std/` is 21 modules; the six deleted ones are not coming back
 
@@ -741,7 +742,7 @@ sites are `compiler/tir/lower.orb:385`, `:398`, `:406`, `:419` and `:457`, and
 each sits on the branch that emits the instruction.
 
 The rate fell from 29.1% to 20.3% on 2026-11-02 because the reader stopped
-guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:67`) answers a
+guessing by name. `declaredReturnType` (`compiler/tir/lower.orb:72`) answers a
 call from the function the file itself declares, so the `call` class fell from
 6,756 to 4,259; a `val` bound to such a call carries that type into every later
 load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
@@ -773,7 +774,7 @@ Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend)
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
-(`compiler/tir/lower.orb:150`) puts the node's own class in the message, and the
+(`compiler/tir/lower.orb:315`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
 node class"). Fourteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
