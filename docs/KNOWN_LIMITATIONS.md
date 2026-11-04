@@ -949,8 +949,12 @@ the frontend read imports at all. The older records stand: 17,388 over 105,644 o
 2026-11-03, 20,005 over 103,333 on
 2026-11-02 and 25,489 over 86,942 at
 the start of that day.
-The ratchet reads the rate. Worst file by share of unknown instructions:
-`compiler/front/parser.orb`. Re-run the census rather than trusting these numbers.
+The ratchet reads the rate. Measured 2026-11-04, the most untyped instructions in
+one file are `compiler/tools/doctor.orb`, 81 of 11,706 -- 0.7%. Among the files the
+table puts first, the largest share is `tests/suite/system_telemetry.orb`: 28 of its
+87 instructions, 32.2%. The sentence this replaces named `compiler/front/parser.orb`
+as the worst by share; that file is no longer in the ten first, so the claim was a
+record of an older tree. Re-run the census rather than trusting these numbers.
 
 Two tools, and the difference matters. `unknown_census.py` is the
 **measurement** and never fails anything. `scripts/unknown_ratchet.py`
