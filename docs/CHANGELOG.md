@@ -98,6 +98,13 @@ gate reads 9/9.
 
 Commands and gates:
 
+- **The native lane runs against this branch, and what it still cannot do is declared.** With `ORBIT_R6` set, `dev.py all` runs 30 gates and all 30 pass: `suite_native` 125/125 with 2 declared ratchets, `suite_std_native` 24/24, `runtime_module_native` 6/6. It had been 106/125 and 22/24, because the union instances this cycle minted are named `Option_int.Some` and `Shape.Unit`, and orbit-r6 resolved a constructor by its bare name only (its D-M1-136). `system_http_requests_ok` and `system_http_requests_error` were missing from the
+three lists that register a builtin: the IR extern declaration, the compile-time
+predicate and the C return-type inference. The IR therefore called an undeclared
+target and the native backend refused the program, while the C backend linked it
+by name. The two programs orbit-r6 still cannot build are declared with their
+causes: the DB subset rule it keeps, and a runtime symbol older than its pin.
+
 - **A gate reads every `path:line` in the documents.** `doc_counts.py` re-computes a counted claim from the tree. Nothing read a location, and 125 of the 184 citations in the audited documents pointed somewhere else. Three of them: `runtime/arena.c:406`, in a file that is 174 lines since the arena split; `compiler/selfhost/pipeline.orb`, a path that has not existed for weeks; and `c_backend.orb` anchors that lagged its doubling. `scripts/cite_check.py` answers MISSING, RANGE, BLANK and SYMBOL, skips fenced examples, and never checks a name the sentence did not write. 189 citations in 15 documents now match the tree; the self-test holds six properties, one of them the wrapped-line case the first version missed. T0, `alive_check` and the `static` CI job carry it, and `dev.py all` runs 27 gates where it ran 26.
 - **`.r6-build/`, `fuzz_crashes/` and `.qoder/` are ignored.** `scripts/dev.py list` had been reading them as changed source, so a docs edit selected T2; `orbit doctor .` walked the fuzz cases, which is the tool state the scan exists to skip. Measured: 451 findings (143 errors) in 505 files with them, 448 (140) in 502 without.
 

@@ -2,6 +2,7 @@
 // rolls back every applied version above it, newest first, and stops there, so
 // the next run applies the forward set again. runtime/test_migrations.c owns
 // the semantics; this pins the parse, the IR field and the emitted call.
+// native-known-failing: orbit-r6 refuses a module carrying migrations that calls no db_* builtin (D-M1-13).
 migrations "CREATE TABLE IF NOT EXISTS md_down_probe (x INTEGER)"
 migrations down "DROP TABLE IF EXISTS md_down_probe"
 
