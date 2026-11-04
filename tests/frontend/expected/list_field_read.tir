@@ -4,7 +4,7 @@ function 0 take_items list
 param 0 0 bag Bag
 block 0 0
 instr 0 0 0 load Bag bag
-instr 0 0 1 member list v0 items
+instr 0 0 1 member list<string> v0 items
 instr 0 0 2 return unit v1
 end-function 0
 function 1 take_tags list

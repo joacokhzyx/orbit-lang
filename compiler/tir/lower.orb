@@ -155,13 +155,14 @@ fn collectModels(module: TirModule, program: ProgramNode) {
     }
 }
 
-// The field type the file itself declares. Three shapes are answers, and each
-// is the text the source writes beside the field's name: a builtin, a `list`
-// container -- the same claim `typeOfExpression` and `lowerExpression` already
-// make for a list literal -- and the name of another model this file declares.
-// The element kind is not an answer, so a read of one element stays the give-up
-// tests/frontend/index_write.orb names, and neither is a name the file does
-// not declare, so a model from an imported file stays unanswered. An empty
+// The field type the file itself declares. Three answers, and each is the text
+// the source writes beside the field's name: a builtin, a `list` or `list<T>`
+// container, and the name of another model this file declares. A `list<T>`
+// carries its element kind to the read, so `bag.items.get(0)` answers what the
+// field wrote inside the brackets. The bare `list` a literal answers is not an
+// element kind: a read of one element of that stays the give-up
+// tests/frontend/index_write.orb names, and a name this file does not declare
+// is no answer either. An empty
 // answer means the read stays `unknown`, which is what E2004 reports today.
 fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> string {
     var t = 0
@@ -178,11 +179,19 @@ fn declaredFieldType(module: TirModule, typeName: string, fieldName: string) -> 
                     if field.declaredType == "float" { return "float" }
                     // `list` and `list<T>`: the prefix is read from the parsed
                     // type text, the way `declaredPayloadType` reads `result<`.
+                    // The written text is the answer, so a field declared
+                    // `list<string>` carries its element kind to the read, and
+                    // `bag.items.get(0)` answers `string` the same way a
+                    // `list<string>` parameter does.
                     // A `&Inner` field type keeps its ampersand and answers
                     // nothing, because the name this table holds has none.
                     if field.declaredType == "list" { return "list" }
-                    if field.declaredType.length >= 5 {
-                        if field.declaredType.slice(0, 5) == "list<" { return "list" }
+                    if field.declaredType.length >= 7 {
+                        if field.declaredType.slice(0, 5) == "list<" {
+                            if field.declaredType.slice(field.declaredType.length - 1, field.declaredType.length) == ">" {
+                                return field.declaredType
+                            }
+                        }
                     }
                     if tirDeclaresModel(module, field.declaredType) { return field.declaredType }
                     return ""

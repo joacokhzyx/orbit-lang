@@ -1,17 +1,15 @@
-// A field declared `list<string>` is a list, and the container kind is the whole
-// answer: `typeOfExpression` and `lowerExpression` already call a list literal
-// `list` without an element kind, so a list-typed field reads as the same type
-// the same pass already states. `declaredFieldType` used to deny this and return
-// "" for it, calling `list<string>` punctuation the type column does not carry
-// while the column carried `list` for every literal. Both spellings answer
-// `list`: `tags: list` below names the container with no element type written.
+// A field declared `list<string>` answers that text, and a field declared
+// `list` answers the bare container: `declaredFieldType` reads the type the
+// source wrote, so the first carries its element kind to every later read of
+// `items` and the second carries nothing. `declaredFieldType` used to deny both
+// and return "" for them, calling `list<string>` punctuation the type column
+// does not carry while the column carried `list` for every literal.
 //
-// The element kind is still not an answer here: both fields answer the bare
-// `list`, and an element read is typed from the kind the type text writes, so
-// `bag.items[0]` has nothing to read. `tests/frontend/list_element_read.orb`
-// shows the same read on a `list<int>` answering `int`. That give-up is the one
-// tests/frontend/index_write.orb names, and the census counts it as
-// `expression cannot be lowered to TIR: IndexAccess`. Iterating a list with
+// A list literal is not a field: the source wrote its elements, not their type,
+// so `lowerExpression` and `typeOfExpression` agree on the bare `list`. The
+// index read `xs[i]` is not given the answer the `.get(i)` call has, and that
+// give-up is the one tests/frontend/index_write.orb names; the census counts it
+// as `expression cannot be lowered to TIR: IndexAccess`. Iterating a list with
 // `for x in xs` is the same missing answer, pinned by
 // tests/frontend/list_iteration.orb.
 import "../../compiler/tir/entry.orb"

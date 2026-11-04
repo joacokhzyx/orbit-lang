@@ -1,0 +1,12 @@
+// An element of a list declared as a field is the kind the field's type text
+// writes. `bag.items` is `list<string>`, so `bag.items.get(1)` answers
+// `string`: the answer comes from the model's own bytes, one hop further than
+// the `list<int>` parameter `tests/frontend/list_element_read.orb` pins. A field
+// declared with the bare `list` still answers the bare `list`, and an element of
+// it answers nothing -- that is `tests/frontend/list_field_read.orb`.
+import "../../compiler/tir/entry.orb"
+
+fn main() {
+    val source = "model Bag { items: list<string> }  fn second(bag: Bag) -> string { return bag.items.get(1) }"
+    print(compileFrontendSource("fixture", source))
+}
