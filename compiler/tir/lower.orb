@@ -981,14 +981,21 @@ fn registerImportedDeclarations(module: TirModule, programs: list < ASTNode >) {
 }
 
 fn lowerProgramToTir(moduleName: string, root: ASTNode) -> TirModule {
-    return lowerProgramWithImportsToTir(moduleName, root, [])
+    return lowerProgramWithImportsToTir(moduleName, root, [], [])
 }
 
 // `imported` is the parsed program of each file this one imports, at any depth.
 // A name declared there is a name this file can call; a body written there is
-// not this file's text.
-fn lowerProgramWithImportsToTir(moduleName: string, root: ASTNode, imported: list < ASTNode >) -> TirModule {
+// not this file's text. `notes` says why an import is missing: a file that does
+// not parse contributes no declarations, and the importer would otherwise be
+// blamed for a name the broken file never got to declare.
+fn lowerProgramWithImportsToTir(moduleName: string, root: ASTNode, imported: list < ASTNode >, notes: list < string >) -> TirModule {
     val module = initTirModule(moduleName)
+    var ni = 0
+    while ni < notes.len() {
+        tirError(module, "E1000", notes.get(ni), 0, 0)
+        ni = ni + 1
+    }
     registerImportedDeclarations(module, imported)
     match root {
         ASTNode.Program(program) => {

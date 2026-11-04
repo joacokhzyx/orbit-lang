@@ -729,17 +729,17 @@ only lets the numbers fall, so this is the measured state:
 
 | | count | share |
 |---|---|---|
-| instructions the front end types `unknown` | 8,261 | **7.8%** |
+| instructions the front end types `unknown` | 8,274 | **7.8%** |
 | ...with no diagnostic at all | 0 | **0.0%** |
 
 Every `unknown` instruction carries a diagnostic. Five lowering diagnostics
 fire exactly once per instruction they make `unknown`, and each count equals
 the opcode it annotates: [E2001](ERROR_CODES.md#e2001--unknown-identifier-frontend)
-(unknown identifier, 3,053 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
-(binary operands, 532), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
+(unknown identifier, 3,055 loads), [E2002](ERROR_CODES.md#e2002--incompatible-binary-operands-frontend)
+(binary operands, 533), [E2003](ERROR_CODES.md#e2003--invalid-unary-operand-frontend)
 (unary operand, 0), [E2004](ERROR_CODES.md#e2004--untypable-member-read-frontend)
-(member read, 2,644) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
-(call result, 2,032). Their sum, 8,261, is the whole unknown count. The five
+(member read, 2,650) and [E2005](ERROR_CODES.md#e2005--untypable-call-result-frontend)
+(call result, 2,036). Their sum, 8,274, is the whole unknown count. The five
 sites are `compiler/tir/lower.orb:465`, `:478`, `:486`, `:511` and `:549`, and
 each sits on the branch that emits the instruction.
 
@@ -754,7 +754,7 @@ parses each imported program and registers its signatures and models before any
 body is lowered, so `later(n)` in `tests/frontend/imported_signature.orb` emits
 `load int later` and `call int` instead of reporting E2001 and suppressing the
 file's whole text. Imported bodies stay unlowered: the printed TIR belongs to
-the file named on the command line. 2,032 calls still stay untyped: a runtime
+the file named on the command line. 2,036 calls still stay untyped: a runtime
 builtin in a file that does not import `compiler/host/extern.orb`, or a name no
 corpus file declares.
 
@@ -764,7 +764,7 @@ of it lives. The probe itself was the last thing holding the old numbers: until
 2026-11-04 it lowered each file with `lowerProgramToTir`, which reads only the
 text it is handed, so it measured a program the command line never compiles. It
 calls the entry point `orbit frontend` calls now. Measured 2026-11-04 over the
-3,053 unknown loads: 2,032 read a name the file itself declares, led by `instr`
+3,055 unknown loads: 2,034 read a name the file itself declares, led by `instr`
 98, `t` 90, `f` 89 and `n` 76. 478 read a name declared elsewhere in the corpus,
 led by `orbit_string_len` 198 and `orbit_string_slice` 157. 328 read a name from
 a file this one imports, led by `IROpcode` 95, `ASTNode` 94 and `Token` 54 -- all
@@ -772,7 +772,7 @@ three unions, which is the class left there. 215 read a name no corpus file
 declares, led by `NULL` with 82. The four buckets sum to the E2001 count, which
 is the check the sort carries.
 
-The other split says which of them is work. 1,951 are echoes: the reading
+The other split says which of them is work. 1,953 are echoes: the reading
 function binds that name, so it is the value bound into it that has no type. The
 other 1,102 read a name that function never binds. `TokType` was the largest of
 them with 582 and it is answered now: an enum's variants enter the type table and
@@ -919,8 +919,8 @@ What is left of the class list is `Match` 305, `Try` 93, the chained
 `MemberAccess` 37 and `If` 30. After them, a `for` over a value with no element
 type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
-the rate is what to read. On 2026-11-04 the census reads 8,261 unknown over
-105,512 instructions. Earlier the same day, the same tree with the enum answer
+the rate is what to read. On 2026-11-04 the census reads 8,274 unknown over
+105,585 instructions. Earlier the same day, the same tree with the enum answer
 missing read 9,620 over 106,122, and measured without the imports 17,410 over
 105,754. The older records stand: 17,388 over 105,644 on
 2026-11-03, 20,005 over 103,333 on

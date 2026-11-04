@@ -92,7 +92,9 @@ fn censusOf(path: string) {
     // be `lowerProgramToTir`, which reads only the text it is handed, so the
     // census measured a program the command line never compiles: a file that
     // calls into an imported function counted as unknown here and typed there.
-    val module: TirModule = lowerProgramWithImportsToTir(path, root, importsOf(path))
+    val importNotes = []
+    val imported = importsOf(path, importNotes)
+    val module: TirModule = lowerProgramWithImportsToTir(path, root, imported, importNotes)
     appendParserDiagnostics(module, parser.diagnostics)
 
     var functions = 0

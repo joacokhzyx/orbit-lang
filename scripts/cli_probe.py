@@ -95,6 +95,12 @@ SETUP = {
     # A dot-directory is tool state, not source: the unparseable file inside
     # .orbit must not be scanned, which is what keeps `doctor .` finite.
     "state/ok.orb": "fn main() -> int {\n    return 0\n}\n",
+    # A broken imported file: the refusal has to name the file that does not
+    # parse, not the name the importer asked for. The frontend reads imports to
+    # type calls across them, so a swallowed parse error used to arrive as
+    # `unknown identifier helper` one file away from its cause.
+    "attrbroken/lib.orb": "fn helper() -> int {\n    return 1 +\n}\n",
+    "attrbroken/use.orb": "import \"lib.orb\"\n\nfn main() -> int {\n    return helper()\n}\n",
     # A directory git already ignores is not source: doctor must not scan it.
     "skiproot/.gitignore": "generated/\n",
     "skiproot/ok.orb": "fn main() -> int {\n    return 0\n}\n",
@@ -239,6 +245,8 @@ CASES = [
     ("cluster-help", ["cluster", "--help"], 0, "out", "Usage:", ""),
     ("cluster-bogus", ["cluster", "bogus"], 2, "err", "unknown command", ""),
     ("cluster-status-nostate", ["cluster", "status"], 1, "out", "no state file", ""),
+    ("frontend-import-error-names-the-file", ["frontend", "attrbroken/use.orb"], 1, "err",
+     "imported file", "unknown identifier helper"),
     ("frontend-noarg", ["frontend"], 2, "err", "Usage:", ""),
     # A function named after a C library symbol is an ordinary name: the
     # backend emits it as `o_read`, so neither check nor build refuses it.
