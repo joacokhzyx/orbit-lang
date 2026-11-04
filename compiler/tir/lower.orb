@@ -133,6 +133,21 @@ fn declaredTypeName(module: TirModule, object: ASTNode) -> string {
     return ""
 }
 
+// Is this qualified name a variant of this declared type that carries a payload?
+// `ASTNode.Literal(x)` constructs `ASTNode`, so the call answers the type the
+// source wrote before the dot and there is no value to read first. Lowering the
+// callee as an expression asked for a binding of `ASTNode`, a name no function
+// binds, and reported E2001 for the load and E2004 for the read after it.
+fn declaresVariantCtor(module: TirModule, typeName: string, variant: string) -> bool {
+    val qualified = typeName + "." + variant
+    var i = 0
+    while i < module.ctors.len() {
+        if module.ctors.get(i) == qualified { return true }
+        i = i + 1
+    }
+    return false
+}
+
 // The models the file declares, read before any body, for the one reason
 // `collectSignatures` exists: a `model` written after the function whose body
 // reads one of its fields was not in the table while that body lowered, so the
@@ -241,9 +256,11 @@ fn tirCollectModel(module: TirModule, modelDecl: ModelDeclNode) {
 // An enum enters the same table, with its variants as the fields and its own
 // name as the declared type of each one. That is the text the source writes:
 // `TokType.EOF` has type `TokType`, and the build path gives the same shape to a
-// variant as an integer tag under the name `TAG_TokType_EOF`. Unions are not
-// collected: a variant of a union is a construction with a payload, not a
-// constant, and treating it as one would claim a value this pass cannot build.
+// variant as an integer tag under the name `TAG_TokType_EOF`. A union variant
+// that carries a payload is not a constant and does not enter that table: the
+// value needs an argument this pass is not being handed. It enters `ctors`,
+// which is the answer to a different question -- is this qualified name a
+// construction of the type that declares it.
 fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
     val fields = []
     var i = 0
@@ -259,6 +276,13 @@ fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
             match typeDecl.variants.get(i) {
                 ASTNode.Literal(variant) => {
                     fields.push(TirField(variant.text, typeDecl.name))
+                }
+                _ => {}
+            }
+        } else {
+            match typeDecl.variants.get(i) {
+                ASTNode.Literal(variant) => {
+                    module.ctors.push(typeDecl.name + "." + variant.text)
                 }
                 _ => {}
             }
@@ -376,6 +400,10 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     return bindingType(bindings, l.text)
                 }
                 ASTNode.MemberAccess(ma) => {
+                    val calleeTypeName = declaredTypeName(module, ma.object)
+                    if calleeTypeName != "" {
+                        if declaresVariantCtor(module, calleeTypeName, ma.field) { return calleeTypeName }
+                    }
                     if ma.field == "len" || ma.field == "length" || ma.field == "indexOf" { return "int" }
                     // An element of a list is the kind the receiver's declared
                     // type writes. This answered `string` for every receiver,
@@ -596,11 +624,22 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             var callCalleeIsMethod = false
             match call.callee {
                 ASTNode.MemberAccess(memberCallee) => {
-                    if declaredTypeName(module, memberCallee.object) == "" {
+                    val qualifiedCallee = declaredTypeName(module, memberCallee.object)
+                    if qualifiedCallee == "" {
                         val receiverValue = lowerExpression(module, function, blockId, bindings, memberCallee.object)
                         if receiverValue >= 0 {
                             callCalleeIsMethod = true
                             callOperands = memberCallee.field + " " + tirValue(receiverValue)
+                        }
+                    } else {
+                        // The name before the dot is a declared type, and the name
+                        // after it is one of that type's payload-carrying variants:
+                        // the source is constructing a value, so nothing is read
+                        // off anything. `ASTNode.Literal(node)` travels as one call
+                        // with the qualified name the source wrote.
+                        if declaresVariantCtor(module, qualifiedCallee, memberCallee.field) {
+                            callCalleeIsMethod = true
+                            callOperands = qualifiedCallee + "." + memberCallee.field
                         }
                     }
                 }

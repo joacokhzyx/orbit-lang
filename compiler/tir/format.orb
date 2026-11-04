@@ -69,10 +69,15 @@ model TirModule {
     diagnostics: list < TirDiagnostic >
     types: list < TirType >
     signatures: list < TirSignature >
+    // The qualified names of the declared type's variants that carry a payload,
+    // spelled `Type.variant`. A name in this list is a construction: it answers
+    // the type when it is called, and it answers nothing when it is read, so
+    // this is kept apart from `types` rather than filed beside the constants.
+    ctors: list < string >
 }
 
 fn initTirModule(name: string) -> TirModule {
-    return TirModule(name, [], [], [], [])
+    return TirModule(name, [], [], [], [], [])
 }
 
 fn initTirFunction(id: int, name: string, returnType: string) -> TirFunction {
