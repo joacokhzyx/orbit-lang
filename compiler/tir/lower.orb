@@ -264,6 +264,11 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
     match node {
         ASTNode.Literal(literal) => {
             if literal.valType == "identifier" {
+                // The null pointer constant: `compiler/front/sema.orb` resolves
+                // the name and the C backend types it `void*`, so the value
+                // exists in the language. The name the build IR uses for it is
+                // "NULL", which is what this answers.
+                if literal.text == "NULL" { return "NULL" }
                 val bound = bindingType(bindings, literal.text)
                 if bound != "unknown" { return bound }
                 val fromDeclaration = declaredReturnType(module, literal.text)
@@ -459,6 +464,12 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
     match node {
         ASTNode.Literal(literal) => {
             if literal.valType == "identifier" {
+                // The null pointer constant, named the way the build IR names it.
+                // See `typeOfExpression`, which answers the same string: the two
+                // must agree or a binding to one loads back `unknown`.
+                if literal.text == "NULL" {
+                    return tirEmit(function, blockId, "load", "NULL", literal.text)
+                }
                 var typeName = bindingType(bindings, literal.text)
                 if typeName == "unknown" {
                     // A name the program declares as a function is known. The
