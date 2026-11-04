@@ -6,10 +6,12 @@
 // while the column carried `list` for every literal. Both spellings answer
 // `list`: `tags: list` below names the container with no element type written.
 //
-// The element kind is still not an answer: reading one element (`bag.items[0]`)
-// would have to say what it loaded, and this pass keeps no element table. That
-// give-up is the one tests/frontend/index_write.orb names, and the census counts
-// it as `expression cannot be lowered to TIR: IndexAccess`. Iterating a list with
+// The element kind is still not an answer here: both fields answer the bare
+// `list`, and an element read is typed from the kind the type text writes, so
+// `bag.items[0]` has nothing to read. `tests/frontend/list_element_read.orb`
+// shows the same read on a `list<int>` answering `int`. That give-up is the one
+// tests/frontend/index_write.orb names, and the census counts it as
+// `expression cannot be lowered to TIR: IndexAccess`. Iterating a list with
 // `for x in xs` is the same missing answer, pinned by
 // tests/frontend/list_iteration.orb.
 import "../../compiler/tir/entry.orb"

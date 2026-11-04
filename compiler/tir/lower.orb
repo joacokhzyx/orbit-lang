@@ -259,6 +259,18 @@ fn tirCollectVariants(module: TirModule, typeDecl: TypeDeclNode) {
     module.types.push(TirType(typeDecl.name, fields))
 }
 
+// The element kind a list type text carries. `list<int>` answers `int`; `list`
+// answers "", because the source said nothing about the inside and an invented
+// element type is the lie the `unknown` count exists to make visible. The text
+// arrives normalized -- `param 0 0 xs list<int>` is what the golden shows -- so
+// the prefix and the closing bracket are the whole parse.
+fn listElementKind(typeText: string) -> string {
+    if typeText.length < 7 { return "" }
+    if typeText.slice(0, 5) != "list<" { return "" }
+    if typeText.slice(typeText.length - 1, typeText.length) != ">" { return "" }
+    return typeText.slice(5, typeText.length - 1)
+}
+
 // orbit-walk: none -- asks what type an expression is
 fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTNode) -> string {
     match node {
@@ -316,7 +328,9 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
         // The type a list literal carries. `lowerExpression` emits the same
         // answer, and the two must agree: a binding seeded with a type the
         // reader does not know is an `unknown` load at every later use of the
-        // name. The element kind is not here -- the pass keeps no table for it.
+        // name. The element kind is not here -- the source wrote the elements,
+        // not their type, and reading a type off the first one is an inference
+        // this pass does not make.
         ASTNode.ListLiteral(listNode) => {
             return "list"
         }
@@ -354,6 +368,16 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                 }
                 ASTNode.MemberAccess(ma) => {
                     if ma.field == "len" || ma.field == "length" || ma.field == "indexOf" { return "int" }
+                    // An element of a list is the kind the receiver's declared
+                    // type writes. This answered `string` for every receiver,
+                    // including a list, because the only `at` and `slice` sites
+                    // the rule was read from were string ones.
+                    val receiverText = typeOfExpression(module, bindings, ma.object)
+                    val elementKind = listElementKind(receiverText)
+                    if elementKind != "" {
+                        if ma.field == "get" || ma.field == "at" { return elementKind }
+                        if ma.field == "slice" { return receiverText }
+                    }
                     if ma.field == "slice" || ma.field == "at" { return "string" }
                 }
                 _ => {}
