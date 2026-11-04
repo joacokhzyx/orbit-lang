@@ -246,8 +246,13 @@ pointer as an integer. The mechanism is already written down at
 `compiler/front/sema.orb:4690`, which blames it for `ok 200 system.uptime()`
 reaching the C backend with an int where a string pointer belongs. The fix there
 named a receiver type; this site has no receiver to name, because the payload is
-written nowhere -- 51 declarations in 31 files of `std/`, `tests/` and `compiler/`
-return a bare `-> result`. Measured 2026-11-04 by counting that spelling.
+written nowhere -- 42 function signatures in 28 files of `std/`, `tests/`, `examples/` and
+`compiler/` return a bare `-> result`, and **no file in the corpus declares
+`result<T>` on a function at all** (0 of 42). Measured 2026-11-04 by reading every
+`fn` signature; the first count of this sentence, 51 in 31 files, counted the
+spelling wherever it appeared and so took in continuation lines and two negative
+tests. A count of occurrences is not a count of declarations, and the correction is
+dated here rather than silent.
 
 The same missing spelling is why 51 `try` expressions give up in the frontend pass
 (19 in `tests/std/test_codec.orb`, 17 in `tests/std/test_json.orb`, 15 in
@@ -257,6 +262,13 @@ first -- type `try` from the callee's declared `result<T>`, which changes what
 `orbit check` refuses -- and the frontend count falls with it. The probe above is
 not a `tests/negative` case: that gate pins a program that fails to compile, and
 this one compiles.
+
+The size of the hole is countable without changing anything. 47 sites in the corpus
+bind a `try` with a written annotation (`val d0: string = try base64Decode(...)`),
+and 41 of them call a function that declares the bare `result`. None of the 47 can
+be compared with a payload, because no function declares one. The annotation is
+therefore decoration in every one of them today, and the 6 left are annotations
+whose callee this scan did not resolve.
 
 Writing the payload at the declaration does not work today either, and the reason is
 the checker. Spelling `std/convert/codec.orb:146` as
