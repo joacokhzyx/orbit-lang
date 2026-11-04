@@ -5,10 +5,10 @@
     "unknown_per_mille": 6,
     "silent_per_mille": 0
   },
-  "files": 212,
-  "instructions": 102668,
+  "files": 213,
+  "instructions": 102944,
   "context": {
-    "unknown_instructions": 576,
+    "unknown_instructions": 568,
     "unknown_without_diagnostic": 0
   },
   "by_file": {
@@ -79,7 +79,7 @@
     "tests/std/test_assert.orb": 0,
     "tests/std/test_bitwise.orb": 0,
     "tests/std/test_bytes.orb": 0,
-    "tests/std/test_codec.orb": 8,
+    "tests/std/test_codec.orb": 0,
     "tests/std/test_collections.orb": 0,
     "tests/std/test_collections_boxed.orb": 0,
     "tests/std/test_convert.orb": 0,
@@ -192,6 +192,7 @@
     "tests/suite/result_chain.orb": 7,
     "tests/suite/result_in_loop.orb": 2,
     "tests/suite/result_message.orb": 1,
+    "tests/suite/result_payload_written.orb": 0,
     "tests/suite/result_stage2.orb": 2,
     "tests/suite/result_string_value.orb": 2,
     "tests/suite/result_try.orb": 1,
