@@ -75,10 +75,12 @@ from a scan, and a scan that hides source is worse than one that reports it
 twice.
 
 With both rules, `orbit doctor .` over this repository scans 488 files and
-reports 451 findings (143 errors, 308 warnings) in 505 files on Windows, measured
-on 2026-11-03 with the compiler the section above describes. Three of those files
-are `fuzz_crashes/` cases a fuzz run left in the working tree, and they answer on
-both hosts. The 3904 MB Linux run now reports the same 451 findings and reaches
+reports 448 findings (140 errors, 308 warnings) in 502 files on Windows, measured
+on 2026-11-03 with the compiler the section above describes. Three `fuzz_crashes/`
+cases a fuzz run left in the working tree were in the scan when this paragraph was
+first written -- 451 findings in 505 files -- and `.gitignore` now names that
+directory, so the walk does not report them. The 3904 MB Linux run now reports the
+same 448 findings and reaches
 no ceiling; the ceiling is the section above, and the walk is not it.
 
 ## The silent group is empty

@@ -94,3 +94,14 @@ research/
 /fp[0-9]*
 /fixed_point
 /fixed_point[0-9]*
+
+# Tool state, never source. `.r6-build/` holds the runtime archive R6 links
+# against, rebuilt from the pin and not byte-reproducible; `fuzz_crashes/` holds
+# the cases `scripts/fuzz_frontend.py` wrote when it found one; `.qoder/` holds
+# the agent worktrees this repository's own parallel writers run in. They showed
+# up in `scripts/dev.py list` as changed source, so a docs edit selected a bigger
+# tier than it paid for, and `orbit doctor .` scanned the fuzz cases: 451
+# findings (143 errors) in 505 files with them, 448 (140 errors) in 502 without.
+.r6-build/
+fuzz_crashes/
+.qoder/
