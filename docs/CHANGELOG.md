@@ -11,7 +11,9 @@ startup banner says `Orbit 0.1.0`).
 
 ## 0.1.0 (2026-11-01)
 
-Language front end:
+Measurement:
+
+- **The give-up tally now names the file.** "What the front end gives up on" printed one count per class, so 93 `try` give-ups looked like one rule failing everywhere. The census prints the largest single (file, class) pairs beside the tally. Measured 2026-11-04: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48, `compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29 -- four files that pattern-match on AST nodes, which is the class, not a defect in those files -- and the 93 `try` give-ups are 19 + 17 + 15 in three `tests/std` files whose `try` reads a result this pass does not answer. E3001 stays 462 and the unknown count is unchanged at 576 of 102,668 instructions, 0.6%; this changes what is measured, not what is typed. The class list's `Match` figure moved 306 to 307 because `compiler/tir/lower.orb` is in the corpus it measures and grew a rule the same day.
 
 - **`system` is a receiver the checker names.** `system.uptime()` loaded `system` as a value, reported E2001 for the load and E2005 for the call, because no corpus file declares that name. `compiler/front/sema.orb` resolves the identifier to type `system` and answers `int` for each of its ten methods, so this pass reads that answer and a local of the same name still wins, the way the checker reads it. `tests/frontend/system_method_call.orb` and its golden were written before the rule and matched on the first run. Over the corpus the census reads 576 unknown over 102,668 instructions -- **0.6%**. E2001 loads fall 287 to 260 and E2005 calls 176 to 165. The five per-code counts still sum to the total and the silent count is 0. The ratchet metric stayed at 6 per mille: the count fell 38 and the corpus grew 72 instructions, because the pass that measures is inside what it measures. What is left of the calls is 160 methods on a list written with no element kind inside, where `unknown` is the answer and not a gap.
 

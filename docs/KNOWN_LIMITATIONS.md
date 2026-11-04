@@ -823,7 +823,14 @@ unknown total because there is no instruction to type.
 The number fell by itself being named. `astNodeKind`
 (`compiler/tir/lower.orb:519`) puts the node's own class in the message, and the
 census prints the tally (`unknown_census.py`, "What the front end gives up on, by
-node class"). Fourteen of the classes the table first printed turned out not to
+node class") and, since 2026-11-04, the file each class sits in. The tally said
+what the pass gives up on; it did not say where, so a class of 93 could have been
+one construct in one file or the same rule failing everywhere. Measured the same
+day: `Match` is `compiler/ir/builder.orb` 58, `compiler/front/sema.orb` 48,
+`compiler/emit/c_backend.orb` 41 and `compiler/tools/doctor.orb` 29, and the 93
+`try` give-ups are 19 in `tests/std/test_codec.orb`, 17 in
+`tests/std/test_json.orb` and 15 in `tests/std/test_string.orb` -- three files
+whose `try` calls name functions the read of their result does not answer. Fourteen of the classes the table first printed turned out not to
 be capability gaps at all, and each was fixed by reading its count.
 
 `Empty` appeared 5,045 times: `lowerStatement` handed every statement it did not
@@ -936,7 +943,7 @@ now; its diagnostics row is gone from the table above. A `schedule` stays
 refused on purpose: its handler is a body, and a pass that skips a declaration
 carrying code has described a file it never read.
 
-What is left of the class list is `Match` 306, `Try` 93 and `If` 30. After them, a `for` over a value with no element
+What is left of the class list is `Match` 307, `Try` 93 and `If` 30. After them, a `for` over a value with no element
 type 20, `IndexAccess` 8 reads, and a labelled `break` with no target 4.
 Lowering a loop lowers its body too, so the absolute count moves both ways and
 the rate is what to read. On 2026-11-04 the census reads 576 unknown over

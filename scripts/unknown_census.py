@@ -494,6 +494,14 @@ def main():
     if len(by_giveup) > len(give_rows):
         print("  ... %d more classes (--top raises the cap)"
               % (len(by_giveup) - len(give_rows)))
+    give_pairs = []
+    for r in rows:
+        for message, n in r.get("giveup", Counter()).items():
+            give_pairs.append((n, r["path"], message))
+    give_pairs.sort(reverse=True)
+    print("  The largest single give-ups (file, class, count):")
+    for n, path, message in give_pairs[:args.top]:
+        print("  %-40s %-26s %5d" % (path[:40], message.split(":")[-1].strip()[:26], n))
     print("")
     origin_buckets, origin_top = name_origins(rows, dirs)
     sorted_loads = sum(origin_buckets.values())
