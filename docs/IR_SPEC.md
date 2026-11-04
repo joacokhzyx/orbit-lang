@@ -39,10 +39,10 @@ Defined in `compiler/ir/ir.orb:3-79`, in this order (index 0–65):
 | 60 | `bit_and` | 61 | `bit_or` | 62 | `bit_xor` | 63 | `shl` |
 | 64 | `shr` | 65 | `bit_not` | | | | |
 
-The C backend dispatches all 66 in `compiler/emit/c_backend.orb:2422-3599`. Its default
-arm (`c_backend.orb:3596-3599`) emits the comment `/* Unknown opcode */` and
-carries on: an IRv1 loader must turn that case into a fatal error, never into
-a comment.
+The C backend dispatches all 66 in one `match instr.opcode` inside
+`emitInstruction`. Its default arm (`compiler/emit/c_backend.orb:4498-4501`) emits
+the comment `/* Unknown opcode */` and carries on: an IRv1 loader must turn
+that case into a fatal error, never into a comment.
 
 ### 1.1 Producers observed in the builder
 
@@ -56,10 +56,14 @@ a comment.
   `list_set`, `list_pop`, `map_has`, `map_delete`, `map_keys`, `list_create`,
   `not_op`, `neg`, `mul`, `div`, `mod`, `ne`, `le`, `gt`, `ge`,
   `result_is_ok`, `result_unwrap`, `result_unwrap_err`.
-  (Representative sites: `builder.orb:1218-1231` arg/call, `2606-2681`
-  jumps/labels/copy, `2906-2910` and `3910-3975` collections, `3117-3192`
-  results, `3285-3378` unions/fields, `4584-4597` binop table,
-  `4610`/`4618` not/neg, `4831-4854` result_is_ok/unwrap/unwrap_err.)
+  (Representative emitters, named not numbered: `arg` and `call` in
+  `buildObjectLiteralAsModel`, `jump_if_false` and `label` in
+  `buildShortCircuit`, `copy` in `emitIfResult`, the collection methods in
+  `buildCall` with `list_create` in `buildExpr`, `result_ok` and `result_err`
+  in `buildNode`, `result_is_ok`, `result_unwrap` and `result_unwrap_err` in
+  `buildTryExpr`, the union and field reads in `buildMatchBody`, and the
+  arithmetic table with `not_op`, `neg` and `bit_not` in `buildExpr`. No line
+  numbers: every edit to this file moves one.)
 - **With no producer in the builder (exist only in the enum + lowering):**
   `nop`, `begin_block`, `end_block`, `alloc`, `free`, `db_get`, `db_set`,
   `db_all`, `db_where`, `http_response`, `switch_op`, `type_info`,
@@ -68,16 +72,16 @@ a comment.
     `copy`, `jump_if_false`, `jump` and `label`, so that the right operand runs
     only when the left one does not decide the result. A document that carries
     them still means C `&&` / `||` over two evaluated operands (§1.2).
-  - `nop` is produced by constant folding (`compiler/ir/cteval.orb:953,998`).
-  - Language-level DB access does NOT use `db_*`: it lowers through `call` to
-    helpers `orbit_db_query_*` / `orbit_db_insert` / `orbit_db_update` /
-    `orbit_db_delete`
-    (`builder.orb:295-306`, `3585-3634`, `3838-3869`). The `db_*` opcodes have
-    no producer anywhere in `compiler/**/*.orb` at this pin.
+  - `nop` is produced by constant folding (`compiler/ir/cteval.orb:978,1023`).
+  - Language-level DB access does NOT use `db_*`. It lowers through `call` to a
+    helper named by `modelBuiltin` (`compiler/ir/builder.orb:4698-4733`):
+    `orbit_db_query_*`, `orbit_db_insert`, `orbit_db_update`,
+    `orbit_db_delete`. The `db_*` opcodes have no producer anywhere in
+    `compiler/**/*.orb` at this pin.
   - The map methods `.has` / `.delete` / `.keys` do emit opcodes
-    (`builder.orb:4053,4063,4072`). All other map traffic lowers through
+    (`compiler/ir/builder.orb:4920,4930,4939`). All other map traffic lowers through
     `call` (the backend matches `orbit_map_create` on the call path,
-    `c_backend.orb:773`).
+    `compiler/emit/c_backend.orb:929`).
   - Route HTTP responses lower through `call`, not through `http_response`.
 
 Consequence for the loader: the 18 producer-less opcodes are syntactically
@@ -87,7 +91,8 @@ semantics stay `UNSPECIFIED` except as fixed by the observed lowering (§1.2).
 ### 1.2 Observable per-opcode semantics (observed C lowering)
 
 `O1..O3` = tagged operands, `D` = destination. Everything not fixed here is
-`UNSPECIFIED` (§6). References point at the dispatch in `c_backend.orb:2422-3599`.
+`UNSPECIFIED` (§6). Each lowering is one arm of one `match` on the opcode, in
+`emitInstruction` (`compiler/emit/c_backend.orb`).
 
 | Opcode | Observed lowering effect | Deciding field/condition |
 |---|---|---|
@@ -152,7 +157,7 @@ Source operators: `&` `bit_and`, `|` `bit_or`, `^` `bit_xor`, `<<` `shl`,
 `IROpcode` union, so no earlier index moved. The builder emits a binary one
 as `D, O1, O2` and `bit_not` as `D, O1`. `D` is `int`. The verifier
 (`verifybitwiseBinop`) rejects an operand or destination whose type is known
-and is not `int`. The C backend lowers them at `c_backend.orb:2746-2778`,
+and is not `int`. The C backend lowers them at `compiler/emit/c_backend.orb:3298-3328`,
 and `generateRegAssign` casts the result to `orbit_int`, a 64-bit signed
 integer (`int64_t`):
 
@@ -194,7 +199,7 @@ The destination type names the getter, and the getter is the runtime call:
 
 A key the object never stored gives the zero of the getter's kind: `0`,
 `0.0`, `false`, `""`, and `NULL` for `object` and `list`
-(`runtime/json.c:227-270`). A key stored with another kind gives the same
+(`runtime/json.c:185-231`). A key stored with another kind gives the same
 zero, not a conversion. The destination type comes from the
 `orbit_object_set_*` calls on that key in the same function; when the
 function has none, from the declared type of the binding (`val n: int =
@@ -249,9 +254,9 @@ of that file and the name of the root file: the IR has no per-function file.
 
 ## 2. Value and structure model
 
-### 2.1 `IRValue` (tagged union, `ir.orb:80-89`)
+### 2.1 `IRValue` (tagged union, `compiler/ir/ir.orb:107-116`)
 
-| Variant | Payload | Constructors (`ir.orb:108-140`) |
+| Variant | Payload | Constructors (`compiler/ir/ir.orb:150-182`) |
 |---|---|---|
 | `Int` | `int`, signed | `ir_int` |
 | `Float` | `float` (== `double` in C, §4) | no dedicated constructor observed |
@@ -262,37 +267,37 @@ of that file and the name of the root file: the IR has no per-function file.
 | `Label` | `int` (label number) | `ir_label` |
 | `None` | — | `ir_none` |
 
-Observed C rendering (`generateValue`, `c_backend.orb:2363-2381`): `Int` →
+Observed C rendering (`generateValue`, `compiler/emit/c_backend.orb:3017-3041`): `Int` →
 decimal; `Float` → `orbit_float_to_string_selfhost`; `String` → quoted
 with `escapeString`; `Sym` → raw; `Bool` → `true`/`false`; `Register(n)` →
 `r_N` (`n<0` → `"0"`); `Label(n)` → decimal; anything else → empty string.
 
-### 2.2 `IRInstruction` (`ir.orb:91-105`)
+### 2.2 `IRInstruction` (`compiler/ir/ir.orb:118-147`)
 
 - `opcode`: one of the 66 (§1), or in a runtime module one of the four of §7.
 - `dest`: `int`. `-1` means no destination. Default factory value `-1`
-  (`ir_init_instr`, `ir.orb:142-144`).
+  (`ir_init_instr`, `compiler/ir/ir.orb:184-186`).
 - `operand1/2/3`: `IRValue`. Unused ones are `None`.
 - `line`: `int`, the Orbit source line of a `div` or `mod` (§1.5). `0` or
   absent means unknown. No other opcode carries it.
 - `elemKind`: `int` holding the list element-type code
-  (`builder.orb:1356-1363`): `0` undecided, `1` string, `2` int, `3` float,
+  (`compiler/ir/builder.orb:1527-1534`): `0` undecided, `1` string, `2` int, `3` float,
   `4` bool, `5` ref. Only the collection opcodes set it. Only the builder
-  decides it (`ir.orb:97-104`). `0` lowers to the untyped accessor and to a
+  decides it (`compiler/ir/ir.orb:124-131`). `0` lowers to the untyped accessor and to a
   `void*` destination. Which exact spellings yield `5`
   (`isReferenceKindName`) is not audited here:
   `UNSPECIFIED` (U-01).
-- Destination register type: `registerTypeForElemKind` (`builder.orb:1380-1386`):
+- Destination register type: `registerTypeForElemKind` (`compiler/ir/builder.orb:1551-1557`):
   `1→"string"`, `2→"int"`, `3→"float"`, `4→"bool"`, anything else → `"unknown"`.
 
-### 2.3 `IRFunction` (`ir.orb:146-161`)
+### 2.3 `IRFunction` (`compiler/ir/ir.orb:188-206`)
 
 Fields in order: `name`, `params` (names), `paramTypes` (same length),
 `instructions`, `registerCount`, `registerTypes` (length == `registerCount`),
 `returnType`, `isExtern`, `routeMethod`, `routePath`, `routeHasLimit`,
 `routeLimitRate`, `routeLimitWindowMs`, `routeLimitBurst`.
 
-- `ir_alloc_register` (`ir.orb:171-176`): the number is the current counter, and
+- `ir_alloc_register` (`compiler/ir/ir.orb:216-221`): the number is the current counter, and
   it appends the typeName to `registerTypes`. Observed type vocabulary (open, not
   restricted): `"int"`, `"bool"`, `"string"`, `"float"`, `"unknown"`, `"void"`,
   `"void*"`, `"result"`/`"Result"`/`"OrbitResult"`, `"response"`, `"map"`,
@@ -345,53 +350,55 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
   generic or reference kind the builder did not name, a call to a generic
   function instantiated with no type.
 - `registerTypes` is advisory and is rewritten during emission
-  (`inferRegisterTypes`, `c_backend.orb:575-1095`): the loader must not assume
-  the final C (or the native binary) derives from them alone.
+  (`inferRegisterTypes`, `compiler/emit/c_backend.orb:705-1161`): the loader must not
+  assume the final C (or the native binary) derives from them alone.
 - `isExtern == true` → the backend emits neither prototype nor definition
-  (`c_backend.orb:193,248`): the symbol resolves outside. Resolution is
-  `UNSPECIFIED` (U-16).
+  (`compiler/emit/c_backend.orb:167` and `268`): the symbol resolves outside.
+  Resolution is `UNSPECIFIED` (U-16).
 - `routeMethod == ""` ⇔ plain function. `initRouteFunction` pins the return
-  type to `"OrbitResponse*"` (`ir.orb:167-169`). Optional Kynx route limits
-  (`c_backend.orb:78-90,1837`).
+  type to `"OrbitResponse*"` (`compiler/ir/ir.orb:212-214`). Optional Kynx route
+  limits are emitted at `compiler/emit/c_backend.orb:217-230`.
 - Parameters additionally live in a flat name-keyed kind registry
   (`listKinds`) restored per scope (`listKindMarks`). Two functions sharing a
-  parameter name share one entry (`builder.orb:44-74,110-123,
-  AGENTS.md`). Not reproducible in serialized IR: `UNSPECIFIED` (U-02).
+  parameter name share one entry (`compiler/ir/builder.orb:65-74`), recorded by
+  `recordListKind`. `AGENTS.md` states the same rule. Not reproducible in
+  serialized IR: `UNSPECIFIED` (U-02).
 
 ### 2.4 `IRModule`, models, types, globals, migrations
 
-- `IRModule` (`ir.orb:220-226`): `functions`, `globals`, `models`, `types`,
+- `IRModule` (`compiler/ir/ir.orb:265-282`): `functions`, `globals`, `models`, `types`,
   `migrations` (all lists), and `sourceName` (string, §1.5).
-- `IRGlobal` (`ir.orb:228-232`): `name`, `value` (`IRValue`), `typeName`.
-  Observed constructors: `ir_string` value (`builder.orb:2336,2372`) or
-  `ir_register` value (`builder.orb:2377`). Top-level `var`/`const` is error
+- `IRGlobal` (`compiler/ir/ir.orb:284-288`): `name`, `value` (`IRValue`), `typeName`.
+  Observed constructors: `ir_string` value (`compiler/ir/builder.orb:2794,2837`)
+  or `ir_register` value (`compiler/ir/builder.orb:2842`). Top-level `var`/`const` is error
   E1007. `val NAME = <int|bool lit>` is a global `#define` emitted by
   `generateRoutePreamble`, not by `route_runtime` (AGENTS.md).
-- `IRModelDecl` (`ir.orb:187-198`): `name`, `fields` (`IRModelField{name,
+- `IRModelDecl` (`compiler/ir/ir.orb:232-243`): `name`, `fields` (`IRModelField{name,
   typeName}`), `typeParams`. A declaration with non-empty `typeParams` NEVER
   reaches the module: it lives in `builder.genericModels`. Only synthesized
   instances (`Box_int`, fields already substituted) enter `module.models`
-  with `typeParams == []` (`builder.orb:647,682,2026-2034`).
-- `IRTypeDecl` (`ir.orb:212-218`): `name`, `kind`, `variants` (strings),
+  with `typeParams == []` (`compiler/ir/builder.orb:699,729,2458-2467`).
+- `IRTypeDecl` (`compiler/ir/ir.orb:257-263`): `name`, `kind`, `variants` (strings),
   `richVariants` (strings), `methods` (strings). Observed
-  (`builder.orb:2044-2072`): `"enum"→"enumeration"`, `"union"→"union_type"`,
+  (`compiler/ir/builder.orb:2482-2537`): `"enum"→"enumeration"`, `"union"→"union_type"`,
   any other `kind` passes through unchanged (`"alias"`, `"trait"` unrenamed);
   `variants` = literal texts; `richVariants` = payload spellings;
-  **`methods` is always `[]`** (literal at `builder.orb:2070`).
-- `IRVariantDecl`/`IRVariantField` (`ir.orb:200-210`): declared but with no
-  constructor site in `builder.orb` (only type mentions at
-  `builder.orb:1312`). Population is `UNSPECIFIED` (U-03).
-- `migrations`: list of SQL strings (`builder.orb:2037-2039`, emitted at
-  `c_backend.orb:1816-1825`). With migrations or DB use, the preamble
-  initializes `orbit_db_init(".orbit/data/app.db")` and closes with
-  `orbit_db_close()` (`route_runtime.orb:484,666`).
+  **`methods` is always `[]`** (`IRTypeDecl` construction at `compiler/ir/builder.orb:2535`).
+- `IRVariantDecl`/`IRVariantField` (`compiler/ir/ir.orb:245-255`): declared but with no
+  constructor site in `compiler/ir/builder.orb` (the one type mention is
+  `compiler/ir/builder.orb:1483`). Population is `UNSPECIFIED` (U-03).
+- `migrations`: list of SQL strings (`compiler/ir/builder.orb:2471-2473`, emitted at
+  `compiler/emit/c_backend.orb:2377-2398`). With migrations or DB use, the preamble
+  initializes `orbit_db_init(".orbit/data/app.db")`
+  (`compiler/emit/route_runtime.orb:647`) and closes with `orbit_db_close()`
+  (`compiler/emit/route_runtime.orb:822`).
 
 ## 3. Calling convention
 
 ### 3.1 `arg` / `call` protocol
 
 1. Each `arg` without `dest` appends `generateValue(O1)` to the backend's
-   pending stack (`callArgs`) (`c_backend.orb:2676`).
+   pending stack (`callArgs`) (`compiler/emit/c_backend.orb:3532`).
 2. `call` reads O1: `String`/`Sym` → named call; any other value →
    indirect call.
 3. O2 (`Int`) is the arity recorded by the builder: the `call` consumes
@@ -433,8 +440,8 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 - Every non-extern function is declared (prototype) and defined. Non-`main`/
   non-route → `static`. `main` (or its alias) → `orbit_main`, returning
   `int`. Route → returns `OrbitResponse*` with signature
-  `(OrbitArena* arena, OrbitRequest* req)` (`c_backend.orb:193-236`).
-- C types via `mapTypeToC` (`c_backend.orb:359-…`): `int→orbit_int`,
+  `(OrbitArena* arena, OrbitRequest* req)` (`compiler/emit/c_backend.orb:194-195`).
+- C types via `mapTypeToC` (`compiler/emit/c_backend.orb:500-560`): `int→orbit_int`,
   `float→orbit_float`, `string→orbit_string`, `bool→orbit_bool`,
   `void→void`, `list*→OrbitList*`, `map*→OrbitMap*`, `object→OrbitObject*`,
   `result→OrbitResult`, `response→OrbitResponse*`, enums → their own name,
@@ -443,7 +450,7 @@ Fields in order: `name`, `params` (names), `paramTypes` (same length),
 - Physical registers `r_N`. The declaration type comes from
   `registerTypes[N]. `ret` emits by `returnType` (§1.2, `3192-3273`).
 - `orbit_print` is declared `void orbit_print(const char* str)`
-  (`runtime/orbit_api.h:611`).
+  (`runtime/orbit_api.h:666`).
 
 ### 3.3 Runtime symbols the builder calls
 
@@ -462,13 +469,13 @@ parameter: the C backend prepends it at the call site.
 
 | Symbol | Parameters | Returns | Header |
 |---|---|---|---|
-| `orbit_string_len` | `s: string` | `int` | `orbit_api.h:427` |
-| `orbit_string_at` | `s: string, index: int` | `int` | `orbit_api.h:401` |
-| `orbit_string_slice` | `s: string, start: int, end: int` | `string` | `orbit_api.h:402` |
-| `orbit_string_slice_known_len` | `s: string, start: int, end: int, totalLen: int` | `string` | `orbit_api.h:403` |
-| `orbit_string_indexOf`, `orbit_string_find` | `s: string, substr: string` | `int` | `orbit_api.h:413` |
-| `orbit_object_create` | none | `object` | `orbit_api.h:578` |
-| `orbit_object_set_int` / `_float` / `_bool` / `_string` / `_object` / `_list` | `o: object, key: string, v: T` | `void` | `orbit_api.h:580-585` |
+| `orbit_string_len` | `s: string` | `int` | `runtime/orbit_api.h:460` |
+| `orbit_string_at` | `s: string, index: int` | `int` | `runtime/orbit_api.h:434` |
+| `orbit_string_slice` | `s: string, start: int, end: int` | `string` | `runtime/orbit_api.h:435` |
+| `orbit_string_slice_known_len` | `s: string, start: int, end: int, totalLen: int` | `string` | `runtime/orbit_api.h:436` |
+| `orbit_string_find`, `orbit_string_indexOf` | `s: string, substr: string` | `int` | `runtime/orbit_api.h:446` |
+| `orbit_object_create` | none | `object` | `orbit_object_create` at `runtime/orbit_api.h:611` |
+| `orbit_object_set_int` / `_float` / `_bool` / `_string` / `_object` / `_list` | `o: object, key: string, v: T` | `void` | `orbit_object_set_int` first of six at `runtime/orbit_api.h:613-618` |
 | `orbit_db_query_all`, `orbit_db_query_first` | `table: string` | `string` | `database.c` |
 | `orbit_db_query_where` | `table: string, condition: string` | `string` | `database.c` |
 | `orbit_db_query_where_p` | `table: string, condition: string, param: string` | `string` | `database.c` |
@@ -478,7 +485,7 @@ parameter: the C backend prepends it at the call site.
 | `orbit_db_insert` | `table: string, json: string` | `bool` | `database.c` |
 | `orbit_db_update` | `table: string, id: string, json: string` | `bool` | `database.c` |
 | `orbit_db_delete` | `table: string, id: string` | `bool` | `database.c` |
-| `system_uptime`, `system_pid`, `system_active_workers`, `system_http_requests_total`, `system_latency_avg_us`, `system_latency_p50_us`, `system_latency_p95_us`, `system_latency_p99_us` | none | `int` | `orbit_api.h:646-653` |
+| `system_uptime`, `system_pid`, `system_active_workers`, `system_http_requests_total`, `system_latency_avg_us`, `system_latency_p50_us`, `system_latency_p95_us`, `system_latency_p99_us` | none | `int` | `system_uptime` first of eight at `runtime/orbit_api.h:683-692` |
 
 `T` in `orbit_object_set_*` is `int`, `float`, `bool`, `string`, `object` or
 `list`. `orbit_string_find` is the source-level alias of `orbit_string_indexOf`
@@ -496,7 +503,7 @@ builtin with the lowering of §3.1 item 6, unless the program writes its own
 ## 4. Runtime and DB drift (contractual)
 
 - `runtime/orbit_api.h` is the separate-compilation header against
-  `.orbit/lib/libruntime_net.a` (**net variant, no DB**, `orbit_api.h:3-13,106`):
+  `.orbit/lib/libruntime_net.a` (**net variant, no DB**, `runtime/orbit_api.h:3-13,107`):
   ```c
   typedef const char* orbit_string;   /* h:113 */
   typedef int64_t     orbit_int;      /* h:114 — 64 bits, two's complement */
@@ -508,7 +515,7 @@ builtin with the lowering of §3.1 item 6, unless the program writes its own
   534-554`), the inline `orbit_result_*` helpers, `orbit_alloc`
   (`h:334`), `orbit_response_*` (`h:697-703`).
 - **DB drift:** the backend emits `orbit_db_get/set/all/where`
-  (`c_backend.orb:3533-3591`) plus the `orbit_db_init/close` preamble, but the
+  (`compiler/emit/c_backend.orb:4435-4493`) plus the `orbit_db_init/close` preamble, but the
   net library neither declares nor links any `orbit_db_*` symbol (zero hits
   in `orbit_api.h`). Until a published, pinned DB runtime artifact exists,
   the `db_get/db_set/db_all/db_where` opcodes are excluded from the M1
@@ -540,7 +547,7 @@ JSON form, and R6 reads it.
   rendering of a float back to C is `orbit_float_to_string_selfhost`
   (§2.1), not JSON formatting.
 - Strings are JSON strings. The C-side escaping table is `escapeString`
-  (`c_backend.orb:2338-2361`). Its exact byte coverage stays `UNSPECIFIED`
+  (`compiler/emit/c_backend.orb:2992-3015`). Its exact byte coverage stays `UNSPECIFIED`
   (U-07).
 - Booleans are JSON `true`/`false`. Unused operands are the value object
   `{"kind":"None"}` (§5.2).
@@ -592,7 +599,7 @@ migrations  = "[", { jsonString }, "]";
 ```
 
 Minimal runnable example — `fn main() -> int { return 0 }`, i.e. one
-`load_const` plus `ret` (`c_backend.orb:2427-2430,3192-3273`):
+`load_const` (`compiler/emit/c_backend.orb:3180-3183`) plus `ret`:
 
 ```json
 {"irVersion":"1","module":{
@@ -622,15 +629,15 @@ Expected lowering: `orbit_main` returning `int` (`§3.2`), body
 |---|---|---|---|
 | E-01 | `dest: -1` on `load_const` | Reject (V-10); value-producing opcodes require a destination | `ir_init_instr` default `-1`, §2.2 |
 | E-02 | `Register(-1)` operand value | Reject (V-09); negative register ids are not encodable | `generateValue` maps `n<0` to `"0"` |
-| E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "void*"` | Accept; ref elements the builder cannot name stay `"void*"` | `builder.orb:1368-1378` |
-| E-04 | `elemKind: 0` on `list_create` | Accept; untyped accessor + `void*` destination | `ir.orb:97-104` |
-| E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `c_backend.orb:2824-2828` |
-| E-06 | `print` call with 2 pending args | Accept the IR; lowering emits `/* print */` and drops them | `c_backend.orb:2795-2800` |
-| E-07 | `label` never targeted by a jump | Accept; lowering omits the label (`label_N:;` only when referenced) | `c_backend.orb:2642-2647`, `refLabels` |
+| E-03 | `elemKind: 5` on `list_get` with `registerTypes[D] == "void*"` | Accept; ref elements the builder cannot name stay `"void*"` | `compiler/ir/builder.orb:4823-4827` |
+| E-04 | `elemKind: 0` on `list_create` | Accept; untyped accessor + `void*` destination | `elemKind` at `compiler/ir/ir.orb:131` |
+| E-05 | `call` with O2 arity `0` and pending `arg` nodes present | Consume zero args (no "all pending" fallback) | `compiler/emit/c_backend.orb:3696-3701` |
+| E-06 | `print` call with 2 pending args | Accept the IR; lowering emits `/* print */` and drops them | `compiler/emit/c_backend.orb:3666-3671` |
+| E-07 | `label` never targeted by a jump | Accept; lowering omits the label when `refLabels` has no entry | `compiler/emit/c_backend.orb:3498-3503` |
 | E-08 | `jump` to an undeclared label number | Reject (V-14) | `refLabels` collection `2085-2089` |
-| E-09 | `isExtern: true` function with a non-empty `instructions` list | Accept but ignore the body (no prototype/definition emitted) | `c_backend.orb:193,248` |
-| E-10 | `routeMethod: ""` with non-empty `routePath` (and vice versa) | Reject (V-16); plain vs route is decided by `routeMethod` alone | `ir.orb:167-169`, §2.3 |
-| E-11 | `IRTypeDecl.methods` non-empty | Reject (V-17); the builder always writes `[]` | `builder.orb:2070` |
+| E-09 | `isExtern: true` function with a non-empty `instructions` list | Accept but ignore the body (no prototype/definition emitted) | `functionProto` at `compiler/emit/c_backend.orb:166-167` |
+| E-10 | `routeMethod: ""` with non-empty `routePath` (and vice versa) | Reject (V-16); plain vs route is decided by `routeMethod` alone | `compiler/emit/c_backend.orb:170`, §2.3 |
+| E-11 | `IRTypeDecl.methods` non-empty | Reject (V-17); the builder always writes `[]` | `compiler/ir/builder.orb:2535` |
 | E-12 | `db_get`/`db_set`/`db_all`/`db_where` opcode present | Reject (V-19, DB exclusion); no shim, no silent skip | §4, M1 differential |
 
 ### 5.4 Validation rules (20, numbered V-01–V-20)
@@ -686,7 +693,8 @@ builder whose producers are pinned in §1.1.
   and no symbol in the net runtime. No corpus file is removed: the single
   suite file touching DB access, `peephole_no_fold_side_effects.orb`
   (via `Item.all()`/`Item.where()`, which lower through `call` to
-  `orbit_db_query_*`, `builder.orb:295-306`), stays as `call`-opcode coverage.
+  `orbit_db_query_all` and its siblings at `compiler/ir/builder.orb:4701-4732`), stays
+  as `call`-opcode coverage.
   No `tests/std/*.orb` file uses DB access.
 
 ## 6. Gaps (17, U-01–U-17)
@@ -701,16 +709,16 @@ U-08, U-10, U-11, U-13 complete the sequence.
 | U-01 | Which type spellings yield `elemKind` 5 (`isReferenceKindName`) | Predicate not audited here (§2.2). |
 | U-02 | The flat name-keyed `listKinds` registry shared across functions | Not reproducible in serialized IR (§2.3). |
 | U-03 | Population of `IRVariantDecl`/`IRVariantField` | Declared, no constructor site in the builder (§2.4). |
-| U-04 | Exact `functionNeedsArena` list (which calls get a prepended `arena`) | Not audited here (§3.1, `c_backend.orb:2893,4211-4236`). |
+| U-04 | Exact `functionNeedsArena` list (which calls get a prepended `arena`) | Not audited name by name (§3.1): `functionNeedsArena` at `compiler/emit/c_backend.orb:5153-5174`, applied by `calleeTakesArena`. |
 | U-05 | Argument evaluation order of the indirect `call` | Unfixed by the observed lowering (§3.1). |
-| U-06 | Exact pointer-fallback tail of `mapTypeToC` | Tail rule not audited here (§3.2, `c_backend.orb:359-…`). |
-| U-07 | Exact byte coverage of `escapeString` (e.g. non-ASCII, control bytes other than `\"`, `\n`, `\r`, `\t`, `\x1b`) | Table at `c_backend.orb:2338-2361` not pinned byte by byte (§5.1). |
-| U-08 | Exact C keyword set of `isCKeyword`/`sanitizeIdentifier` | List at `c_backend.orb:1258-1310` quoted but not versioned as a contract (§3.1). |
+| U-06 | Exact pointer-fallback tail of `mapTypeToC` | Tail rule not audited here (§3.2): `mapTypeToC` at `compiler/emit/c_backend.orb:500-560`. |
+| U-07 | Exact byte coverage of `escapeString` (e.g. non-ASCII, control bytes other than `\"`, `\n`, `\r`, `\t`, `\x1b`) | Table at `compiler/emit/c_backend.orb:2992-3015` not pinned byte by byte (§5.1). |
+| U-08 | Exact C keyword set of `isCKeyword`/`sanitizeIdentifier` | `isCKeyword` at `compiler/emit/c_backend.orb:1570-1619`, quoted but not versioned as a contract (§3.1). |
 | U-09 | `free` semantics | Observed as a no-op comment; not semantics (§1.2). |
-| U-10 | Exact rewrite rules of `inferRegisterTypes` (3 passes, `c_backend.orb:562-1095`) | Advisory `registerTypes` may change under emission; the pass rules are not pinned here (§2.3). |
+| U-10 | Exact rewrite rules of `inferRegisterTypes` (3 passes, `compiler/emit/c_backend.orb:705-1161`) | Advisory `registerTypes` may change under emission; the pass rules are not pinned here (§2.3). |
 | U-11 | Exact cast rules of `storeCastFor` / `load_var` casts | Cast selection observed but its table is not pinned here (§1.2). |
 | U-12 | `type_info` semantics | Observed as a comment only (§1.2). |
-| U-13 | Label liveness beyond `refLabels` (duplicate labels, `label` after `ret`, cross-block jumps) | Only the referenced-emits rule is observed (`c_backend.orb:2077-2089,2642-2647`). |
+| U-13 | Label liveness beyond `refLabels` (duplicate labels, `label` after `ret`, cross-block jumps) | Only the referenced-emits rule on `label` is observed (`compiler/emit/c_backend.orb:3498-3503`), and the `refLabels` collection at 2739. |
 | U-14 | Union `{int tag; void* data;}` layout | Locally emitted text, no contractual runtime helper (§1.2). |
 | U-15 | Definition point of `ORBIT_API_RESPONSE` | Not declared in `runtime/orbit_api.h` (§1.2). |
 | U-16 | Resolution of `isExtern` symbols | Backend emits nothing; resolution is outside (§2.3). |
