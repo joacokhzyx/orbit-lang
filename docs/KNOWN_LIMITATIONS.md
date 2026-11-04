@@ -258,6 +258,20 @@ first -- type `try` from the callee's declared `result<T>`, which changes what
 not a `tests/negative` case: that gate pins a program that fails to compile, and
 this one compiles.
 
+Writing the payload at the declaration does not work today either, and the reason is
+the checker. Spelling `std/convert/codec.orb:146` as
+`fn hexDecode(s: string) -> result<string>` makes `orbit check` refuse the file:
+
+```console
+Semantic error: Return type mismatch: expected result<string>, got result [in hexDecode]
+```
+
+The body returns `ok(out)`, and `compiler/front/sema.orb:4251` gives that call a bare
+`result`. A declaration cannot be more precise than the constructor expression the
+checker hands it. The two rules have to move together -- `ok` and `err` typed from
+their argument, then `try` typed from the declared `result<T>` -- and neither is a
+rule the frontend pass can take on its own. That is why this section stays open.
+
 ## Writes work, but duplicates and missing tables fail
 
 `Model.create()` stores the row and returns `true`. It returns
