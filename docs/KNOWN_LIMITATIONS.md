@@ -750,7 +750,10 @@ call from the function the file itself declares, so the `call` class fell from
 load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
 writes as a `bind` instead of giving up on. What the table still cannot answer is a call into another file: the lowering
 sees one module's declarations. `len`, the runtime builtins and a short list of
-names written into this file cover those, and 4,204 calls stay untyped.
+names written into this file cover those, and 4,202 calls stay untyped.
+The same boundary shows on the load side: `orbit frontend
+compiler/ir/builder.orb` answers `E2001 at 0:0: unknown identifier
+initIRModule`, and `compiler/ir/ir.orb:290` declares that function.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
@@ -772,7 +775,7 @@ The compiler did not change. The measurement was the script's arithmetic, and
 the document quoted it. See the 2026-11-01 entry in [CHANGELOG.md](CHANGELOG.md).
 
 Separately, [E3001](ERROR_CODES.md#e3001--expression-cannot-be-lowered-frontend) "expression cannot be lowered to TIR:
-<node>" fired 682 times on this corpus, down from 9,233. It is not in the
+<node>" fired 669 times on this corpus, down from 9,233. It is not in the
 unknown total because there is no instruction to type.
 
 The number fell by itself being named. `astNodeKind`
