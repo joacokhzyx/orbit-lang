@@ -751,9 +751,9 @@ load, and so does a `var x = ...` re-bound by `x = ...`, which the lowering now
 writes as a `bind` instead of giving up on. What the table still cannot answer is a call into another file: the lowering
 sees one module's declarations. `len`, the runtime builtins and a short list of
 names written into this file cover those, and 4,202 calls stay untyped.
-The same boundary shows on the load side: `orbit frontend
-compiler/ir/builder.orb` answers `E2001 at 0:0: unknown identifier
-initIRModule`, and `compiler/ir/ir.orb:290` declares that function.
+The same boundary shows on the load side: the frontend refuses `builder.orb`
+with an unknown identifier for `initIRModule`, which `compiler/ir/ir.orb:290`
+declares.
 
 The same table answers the *load* of a callee name, and that one was worth more
 than the type: `tirCanonical` prints nothing when any instruction is `unknown`
