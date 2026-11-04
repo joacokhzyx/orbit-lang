@@ -16,6 +16,8 @@
 //     CODE <diagnostic code> <count>
 //     NAME <count> <message>     -- one E2001 message, whose last word is the
 //                                   identifier the file loads untyped
+//     MEMBER <count> <message>   -- one E2004 message, whose last word is the
+//                                   field the file reads untyped
 //     LOAD <count> <kind>        -- unknown loads split by whether the same
 //                                   function binds that name
 //
@@ -177,6 +179,12 @@ fn censusOf(path: string) {
     // one module's declarations or something else; the driver sorts them.
     var nameMessages = []
     var nameCounts = []
+    // E2004 is the same trick on the member read: the message ends with the
+    // field the source asked for, so a distinct message names one field. The
+    // field is what says whether the 2,446 of them are one receiver type nobody
+    // types or a handful of builtins the pass does not know.
+    var memberMessages = []
+    var memberCounts = []
     var d = 0
     while d < module.diagnostics.len() {
         val diagnostic: TirDiagnostic = module.diagnostics.get(d)
@@ -196,6 +204,14 @@ fn censusOf(path: string) {
                 nameCounts = bump(nameCounts, nm)
                 nameCounts.push(1)
             } else { nameCounts = bump(nameCounts, nm) }
+        }
+        if diagnostic.code == "E2004" {
+            val mm = findOpcodes(memberMessages, diagnostic.message)
+            if mm < 0 {
+                memberMessages.push(diagnostic.message)
+                memberCounts = bump(memberCounts, mm)
+                memberCounts.push(1)
+            } else { memberCounts = bump(memberCounts, mm) }
         }
         val at = findOpcodes(diagCodes, diagnostic.code)
         if at < 0 {
@@ -234,6 +250,11 @@ fn censusOf(path: string) {
     while n2 < nameMessages.len() {
         print("NAME " + orbit_int_to_string_selfhost(nameCounts.get(n2)) + " " + nameMessages.get(n2))
         n2 = n2 + 1
+    }
+    var m2 = 0
+    while m2 < memberMessages.len() {
+        print("MEMBER " + orbit_int_to_string_selfhost(memberCounts.get(m2)) + " " + memberMessages.get(m2))
+        m2 = m2 + 1
     }
 }
 

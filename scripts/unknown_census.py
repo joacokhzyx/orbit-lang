@@ -188,7 +188,8 @@ def parse(text):
             continue
         if parts[0] == "FILE":
             cur = {"path": " ".join(parts[1:]), "op": Counter(), "code": Counter(),
-                   "giveup": Counter(), "name": Counter(), "load": Counter()}
+                   "giveup": Counter(), "name": Counter(), "load": Counter(),
+                   "member": Counter()}
             rows.append(cur)
         elif parts[0] == "FN" and cur is not None:
             # FN <functions> RETUNK <n> PARAMUNK <n> INSTR <n> INSTRUNK <n> DIAG <n>
@@ -217,6 +218,13 @@ def parse(text):
             # identifier the file loads without a type for it.
             try:
                 cur["name"][parts[-1]] += int(parts[1])
+            except (ValueError, IndexError):
+                pass
+        elif parts[0] == "MEMBER" and cur is not None:
+            # MEMBER <count> cannot type the member read .<field>: the last word
+            # is the field, and one field repeated over files is one rule to fix.
+            try:
+                cur["member"][parts[-1]] += int(parts[1])
             except (ValueError, IndexError):
                 pass
         elif parts[0] == "LOAD" and cur is not None:
@@ -439,6 +447,24 @@ def main():
     print("The largest single unknown loads (file, name, count):")
     for n, path, name in pairs[:args.top]:
         print("  %-40s %-28s %5d" % (path[:40], name[:28], n))
+    print("")
+    # The member read asked the same way: E2004's message ends with the field,
+    # so a field repeated across files is one rule that would answer many of
+    # them, and a field named once is a site, not a class.
+    by_field = Counter()
+    field_pairs = []
+    for r in rows:
+        for field, n in r.get("member", Counter()).items():
+            by_field[field] += n
+            field_pairs.append((n, r["path"], field))
+    field_pairs.sort(reverse=True)
+    print("What the untyped member reads ask for, by field "
+          "(%d fields sorted, the E2004 count is %d):"
+          % (sum(by_field.values()), by_code.get("E2004", 0)))
+    table(by_field, max(sum(by_field.values()), 1), args.top, "field")
+    print("  The largest single untyped member reads (file, field, count):")
+    for n, path, field in field_pairs[:args.top]:
+        print("  %-40s %-28s %5d" % (path[:40], field[:28], n))
     print("")
     load_split = Counter()
     for r in rows:
