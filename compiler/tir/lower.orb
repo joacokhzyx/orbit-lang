@@ -430,6 +430,12 @@ fn typeOfExpression(module: TirModule, bindings: list < TirBinding >, node: ASTN
                     val declared = declaredReturnType(module, l.text)
                     if declared != "" { return declared }
                     if declaresModelCtor(module, l.text) { return l.text }
+                    // `ok` and `err` are the result constructors the checker
+                    // accepts by name. Two other modules already give this answer --
+                    // `compiler/ir/builder.orb:389` and
+                    // `compiler/emit/c_backend.orb:4622` both answer `result` -- and
+                    // the name is not a value the program loads.
+                    if l.text == "ok" || l.text == "err" { return "result" }
                     if l.text == "len" || l.text == "indexOf" || l.text == "orbit_os_argc_selfhost" || l.text == "orbit_string_char_at_selfhost" { return "int" }
                     if l.text == "orbit_int_to_string_selfhost" || l.text == "orbit_float_to_string_selfhost" || l.text == "orbit_os_argv_selfhost" || l.text == "orbit_os_exec_selfhost" || l.text == "orbit_os_env_selfhost" || l.text == "orbit_file_read_selfhost" || l.text == "slice" || l.text == "at" || l.text == "tirEscape" || l.text == "tirIntText" { return "string" }
                     if l.text == "orbit_file_write_selfhost" || l.text == "hasErrors" || l.text == "tirHasErrors" || l.text == "isVisited" { return "bool" }
@@ -693,11 +699,17 @@ fn lowerExpression(module: TirModule, function: TirFunction, blockId: int, bindi
             }
             if callCalleeIsMethod == false {
                 // The name of a model in call position is the construction, so it
-                // travels on the call and nothing is loaded for it.
+                // travels on the call and nothing is loaded for it. `ok` and `err`
+                // travel the same way: no program declares them, the checker knows
+                // them by name, and loading them asked for a binding that exists in
+                // no file -- 37 `err` and 13 `ok` loads over the corpus.
                 var modelCalleeName = ""
                 match call.callee {
                     ASTNode.Literal(calleeLiteral) => {
                         if declaresModelCtor(module, calleeLiteral.text) {
+                            modelCalleeName = calleeLiteral.text
+                        }
+                        if calleeLiteral.text == "ok" || calleeLiteral.text == "err" {
                             modelCalleeName = calleeLiteral.text
                         }
                     }
