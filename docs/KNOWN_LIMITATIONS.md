@@ -677,10 +677,24 @@ each was a function that returned a value and was not computing it:
 |---|---|
 | `std/sys/crypto/hash.orb` | `fnv1aHash` was `1469598103 + data.len()`, so `fnv1aHash("hello") == fnv1aHash("hellp")` was **true**. `generateKynxToken("user42")` derived a security token from the *length* of the seed. |
 | `std/sys/bytes/buffer.orb` | `appendByte` stored nothing, and `readAt` returned 1/0 and never returned the byte. `writeU16LE`/`writeU32LE` cannot be repaired either: a NUL byte vanishes from a string, measured — `from_char(65) + from_char(0) + from_char(66)` is length 2. `std/bytes/bytes.orb` already owns a working version. |
-| `std/sys/net/socket.orb` | There is no socket API anywhere in the language or the runtime. `bindAddress` returned `true` for a valid port on a socket whose `fd` is 0, i.e. stdin. |
-| `std/sys/io/io_threading.orb` | No thread primitive exists in the lexer or the runtime. `createPool` set `is_active: true` and `dispatch` incremented a counter. |
+| `std/sys/net/socket.orb` | No `extern fn` in `std/` reaches a socket, so an Orbit program could not open one. `bindAddress` returned `true` for a valid port on a socket whose `fd` is 0, i.e. stdin. |
+| `std/sys/io/io_threading.orb` | No `extern fn` in `std/` reaches a thread, so an Orbit program could not start one. `createPool` set `is_active: true` and `dispatch` incremented a counter. |
 | `std/core/memory.orb` | `alloc` returned a null pointer and `free` was a no-op. |
 | `std/core/result.orb` | `result` is already a builtin with `ok`/`err`. An unparseable shadow of a working builtin. |
+
+The two rows above said "no socket API anywhere in the language or the runtime"
+and "no thread primitive exists in the lexer or the runtime" until 2026-11-04. Both
+were wrong as written. `runtime/socket_compat.h:27` declares
+`orbit_socket_close`. `runtime/thread_pool.c:45` declares
+`orbit_thread_t`. `compiler/emit/route_runtime.orb:10` emits
+`#include "thread_pool.c"` into every generated program. What does not exist is an `extern fn` in `std/`
+over them: `std/sys/http/client.orb` exposes `orbit_http_client_fetch` and
+`std/sys/proc/process.orb` exposes `system_pid`, `system_env`, `system_os_exec`,
+`system_os_exit`, `orbit_os_argc` and `orbit_os_argv`, and nothing exposes a socket
+or a thread. The missing thing is therefore a dozen declarations and a wrapper, not
+a primitive built from scratch, and the deleted modules' reason is that no program
+could reach the mechanism -- which was true of `bindAddress` reading fd 0 and of
+`dispatch` counting to itself.
 
 **Nothing is quarantined today.** `std/quarantine/` holds no module, and its
 README keeps the convention for the next feature the language cannot express.
