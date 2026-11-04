@@ -138,6 +138,7 @@ overflow path. `size` on the `.o` files, `.text` bytes:
 | `arena_checkpoint` | 256 | `orbit_arena_checkpoint`, `orbit_arena_rewind` |
 | `arena_child` | 232 | `orbit_arena_create_child`, `orbit_arena_promote` |
 | `arena_stats` | 288 | `orbit_arena_used` and the other telemetry accessors |
+| `arena_pool` | 748 | `orbit_arena_pool_init`, `orbit_arena_pool_release`, `orbit_arena_pool_cleanup` |
 | `arena_global` | 180 | `orbit_arena_get_global` |
 
 `arena_internal.h` and `arena_vm.h` are not members. The aborting default

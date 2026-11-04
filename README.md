@@ -50,11 +50,13 @@ Then pick a tutorial:
 ## What 0.1.0 supports, and what it does not
 
 Compiles and serves: reads and writes, bearer auth, path parameters, multipart
-uploads, and forward DB migrations. Forward DDL runs once per `migrations`
-line and is tracked in `_orbit_migrations`.
+uploads, and DB migrations in both directions. Forward DDL runs once per
+`migrations` line and is tracked in `_orbit_migrations`;
+`ORBIT_MIGRATE_DOWN=<version>` rolls one back
+(`orbit migrate`, `runtime/database.c:222`, `tests/suite/migrations_down.orb`).
 
-Not there yet: multi-host clustering, `down` migrations, a language server,
-and a success/error split in the latency percentiles, which are bucket edges.
+Not there yet: multi-host clustering, a language server, and a latency
+percentile split by outcome.
 The measured list with workarounds is [Known Limitations](docs/KNOWN_LIMITATIONS.md).
 Twenty questions, answered plainly: [FAQ](docs/FAQ.md).
 
