@@ -294,14 +294,17 @@ def registry(compiler, cc, work):
              witness=r"Finished suite: \d+/\d+ pass",
              marker=r"Finished suite: \d+/\d+", timeout=900, allow_rc=(0, 1), needs=("compiler",)),
         # The native lane has two honest outcomes: it runs the std subset
-        # through R6 (ORBIT_R6 set), or it skips with exit 77 and says why.
+        # through R6, or it skips with exit 77 and names the reason. The marker
+        # pins the prefix and requires a reason after it, not one fixed
+        # sentence. On 2026-11-04 a second skip sentence appeared, and the
+        # first one, pinned whole, called a correct skip a dead gate.
         # What it must never do is exit 0 with neither line.
         Tool("test_suite.py:native", "gate",
              "test_suite.py --backend native: the std subset through R6, or "
-             "a loud skip (exit 77) when ORBIT_R6 is not set",
+             "a loud skip (exit 77) naming why this host cannot run it",
              lambda: _script("test_suite.py",
                              *comp("--dir", "tests/std", "--backend", "native")),
-             marker=r"Skipped suite_native: ORBIT_R6 is not set|Finished suite_native: \d+/\d+",
+             marker=r"Skipped suite_native: \S|Finished suite_native: \d+/\d+",
              timeout=900, allow_rc=(0, 1, 77), needs=("compiler",)),
         Tool("runtime_module_gate.py", "gate",
              "orbit build --runtime-module: an object linked into a program, "
